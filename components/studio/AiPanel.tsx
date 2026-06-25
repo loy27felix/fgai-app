@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { upsertSession } from "@/lib/chatStore";
 import { TEXT_MODELS } from "@/lib/models";
-import SkillPicker from "@/components/SkillPicker";
-import PromptPicker from "@/components/PromptPicker";
+import { WORKFLOW_SKILLS, PROMPT_GROUPS } from "@/lib/skillData";
+import CommandPalette, { PaletteItem } from "./CommandPalette";
 import { Icon, Hov } from "./ui";
 
 export type AiMsg = { role: "user" | "ai"; text: string; images?: string[]; action?: string };
@@ -26,6 +26,32 @@ export default function AiPanel({
   const [imgs, setImgs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Skill / Prompt 命令面板
+  const [skillOpen, setSkillOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [mine, setMine] = useState<{ title: string; body: string }[]>([]);
+  const [felix, setFelix] = useState<PaletteItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  async function ensureData() {
+    if (loaded) return; setLoaded(true);
+    try { const { data } = await sb.from("custom_presets").select("title,body").order("created_at", { ascending: false }); setMine((data as any) || []); } catch {}
+    try { const r = await fetch("/felix-prompts.json"); const d = await r.json(); setFelix((d.tabs || []).flatMap((t: any) => (t.items || []).map((it: any) => ({ title: it.title, sub: it.note, body: it.prompt, group: "Felix·" + t.name })))); } catch {}
+  }
+  const skillItems: PaletteItem[] = useMemo(() => [
+    ...WORKFLOW_SKILLS.map((s) => ({ title: s.title, sub: s.desc, body: "@file:" + s.file, group: "工作流技能" })),
+    ...mine.map((m) => ({ title: m.title, sub: "我的技能", body: m.body, group: "我的技能" })),
+  ], [mine]);
+  const promptItems: PaletteItem[] = useMemo(() => [
+    ...PROMPT_GROUPS.flatMap((g) => g.items.map((it) => ({ title: it.title, body: it.prompt, group: g.name }))),
+    ...felix,
+    ...mine.map((m) => ({ title: m.title, body: m.body, group: "我的预设" })),
+  ], [felix, mine]);
+  async function pickSkill(it: PaletteItem) {
+    if (it.body.startsWith("@file:")) {
+      try { const r = await fetch("/skills/" + it.body.slice(6)); const t = await r.text(); setActiveSkill({ name: it.title, content: t }); } catch { alert("技能读取失败"); }
+    } else setActiveSkill({ name: it.title, content: it.body });
+  }
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
 
@@ -145,8 +171,15 @@ export default function AiPanel({
           <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); } }}
             placeholder={placeholder || "和 AI 对话……（⌘↵ 发送）"} rows={2} style={ipt as any} />
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px 8px" }}>
-            <SkillPicker active={activeSkill?.name || null} onApply={(name, content) => setActiveSkill({ name, content })} onClear={() => setActiveSkill(null)} />
-            <PromptPicker onInsert={(t) => setInput((v) => (v ? v + "\n" + t : t))} />
+            <Hov as="button" onClick={() => { ensureData(); setSkillOpen(true); }}
+              base={{ ...toolBtn, color: activeSkill ? "var(--accent)" : "var(--text-2)", borderColor: activeSkill ? "var(--accent)" : "var(--stroke)", maxWidth: 168 }} hover={{ background: "var(--panel)" }}>
+              <Icon d={["M14.7 6.3a4 4 0 0 0-5.6 5.6l-6 6V21h3l6-6a4 4 0 0 0 5.6-5.6l-2.3 2.3-2.6-2.6 2.3-2.3z"]} size={14} sw={1.6} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSkill ? activeSkill.name : "Skill"}</span>
+              {activeSkill && <span onClick={(e) => { e.stopPropagation(); setActiveSkill(null); }} style={{ marginLeft: 2, opacity: 0.7 }}>✕</span>}
+            </Hov>
+            <Hov as="button" onClick={() => { ensureData(); setPromptOpen(true); }} base={toolBtn} hover={{ color: "var(--text)", background: "var(--panel)" }}>
+              <Icon d={["M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"]} size={14} sw={1.7} />Prompt
+            </Hov>
             <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { pickFiles(e.target.files); e.currentTarget.value = ""; }} />
             <Hov as="button" title="上传参考图" onClick={() => fileRef.current?.click()} base={toolBtn} hover={{ color: "var(--text)", background: "var(--panel)" }}>
               <Icon d={["M21 15l-5-5L5 21", "M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z", "M9 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"]} size={14} sw={1.7} />图
@@ -160,6 +193,12 @@ export default function AiPanel({
           </div>
         </div>
       </div>
+
+      <CommandPalette open={skillOpen} onClose={() => setSkillOpen(false)} title="启用工作流技能" hint="启用后整段对话按该方法工作" accentGroup="工作流技能"
+        searchPlaceholder="搜索技能…" items={skillItems} onPick={pickSkill}
+        extraTop={activeSkill ? <button onClick={() => { setActiveSkill(null); setSkillOpen(false); }} style={{ width: "100%", marginBottom: 4, padding: "9px 12px", borderRadius: 11, cursor: "pointer", textAlign: "left", fontSize: 12.5, color: "#ff9a8a", background: "transparent", border: "1px solid var(--stroke)" }}>✕ 停用当前技能「{activeSkill.name}」</button> : undefined} />
+      <CommandPalette open={promptOpen} onClose={() => setPromptOpen(false)} title="插入 Prompt 片段" hint="点选把提示词插入输入框"
+        searchPlaceholder="搜索提示词…" items={promptItems} onPick={(it) => setInput((v) => (v ? v + "\n" + it.body : it.body))} />
     </>
   );
 
