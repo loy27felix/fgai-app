@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./ui";
 
 export type PaletteItem = { title: string; sub?: string; body: string; group: string };
@@ -16,11 +17,12 @@ export default function CommandPalette({ open, onClose, title, hint, items, onPi
   const filtered = useMemo(() => items.filter((i) => (group === "全部" || i.group === group) && (!q || (i.title + i.body + (i.sub || "")).toLowerCase().includes(q.toLowerCase()))), [items, group, q]);
 
   useEffect(() => { if (open) { setQ(""); setGroup("全部"); setTimeout(() => inputRef.current?.focus(), 30); } }, [open]);
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
+  const theme = document.documentElement.classList.contains("dark") ? "dark" : "light";
 
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", display: "grid", placeItems: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 680, maxWidth: "100%", maxHeight: "82vh", display: "flex", flexDirection: "column", background: "var(--panel-solid)", border: "1px solid var(--stroke-2)", borderRadius: 22, boxShadow: "var(--shadow)", overflow: "hidden" }}>
+  const overlay = (
+    <div data-theme={theme} className="fg2" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(2,6,16,.6)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", display: "grid", placeItems: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 680, maxWidth: "100%", maxHeight: "82vh", display: "flex", flexDirection: "column", background: "var(--panel-solid)", color: "var(--text)", border: "1px solid var(--stroke-2)", borderRadius: 22, boxShadow: "var(--shadow)", overflow: "hidden", animation: "blurUp .28s var(--ease) both" }}>
         <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: "1px solid var(--stroke)" }}>
           <span style={{ fontSize: 16, fontWeight: 600 }}>{title}</span>
           {hint && <span style={{ fontSize: 12, color: "var(--text-3)" }}>{hint}</span>}
@@ -60,4 +62,5 @@ export default function CommandPalette({ open, onClose, title, hint, items, onPi
       </div>
     </div>
   );
+  return createPortal(overlay, document.body);
 }
