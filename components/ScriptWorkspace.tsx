@@ -2,11 +2,13 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BibleFields, Episode, Scene } from "@/lib/types";
-import { addEpisode, addScene, saveScript, rollbackScript } from "@/app/projects/[id]/script/actions";
+import { addEpisode, addScene, saveScript, rollbackScript, updateScene } from "@/app/projects/[id]/script/actions";
+import { updateShot, addShot } from "@/app/projects/[id]/board/actions";
+import { updateOverview } from "@/app/projects/[id]/script/overview-actions";
 import { createClient } from "@/lib/supabase/client";
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
-import { Icon, Hov } from "@/components/studio/ui";
+import { Icon, Hov, EditInput, EditArea } from "@/components/studio/ui";
 
 type ScriptRow = { scene_id: string; body: string | null; current_version?: number | null };
 type ShotRow = {
@@ -43,14 +45,41 @@ export default function ScriptWorkspace({
   const epShots = shots.filter((sh) => epSceneIds.has(sh.scene_id))
     .sort((a, b) => (a.no || "").localeCompare(b.no || "", "zh", { numeric: true }));
 
-  const structure: Over[] = useMemo(() => {
+  // ── 总览（可编辑，存 projects.overview）──
+  const baseStruct: Over[] = useMemo(() => {
     if (overview?.structure?.length) return overview.structure as Over[];
-    return episodes.map((e) => ({ ep: pad(e.idx), title: e.title || `第${e.idx}集`, dur: "—", event: "—", hook: "—" }));
+    return episodes.map((e) => ({ ep: pad(e.idx), title: e.title || `第${e.idx}集`, dur: "", event: "", hook: "" }));
   }, [overview, episodes]);
-  const synopsis: string = overview?.synopsis || bible.logline || "";
-  const totalDur: string = overview?.totalDur || `共 ${episodes.length} 集`;
+  const [ovSyn, setOvSyn] = useState<string>(overview?.synopsis || bible.logline || "");
+  const [ovTot, setOvTot] = useState<string>(overview?.totalDur || `共 ${episodes.length} 集`);
+  const [ovRows, setOvRows] = useState<Over[]>(baseStruct);
+  function saveOv(rows?: Over[], syn?: string, tot?: string) {
+    if (!canEdit) return;
+    updateOverview(projectId, { synopsis: syn ?? ovSyn, totalDur: tot ?? ovTot, structure: rows ?? ovRows }).then(() => router.refresh());
+  }
+  function setRow(i: number, k: keyof Over, v: string) {
+    setOvRows((rs) => { const n = rs.map((r, j) => j === i ? { ...r, [k]: v } : r); return n; });
+  }
+  function addRow() { const n = [...ovRows, { ep: pad(ovRows.length + 1), title: "新一集", dur: "", event: "", hook: "" }]; setOvRows(n); saveOv(n); }
+  function delRow(i: number) { const n = ovRows.filter((_, j) => j !== i); setOvRows(n); saveOv(n); }
 
-  // ── 编剧 AI 系统提示（注入故事圣经记忆）──
+  // ── 分镜头 beat 就地编辑（ref 合并，避免连改丢字段）──
+  const beatRef = useRef<Record<string, Record<string, string>>>({});
+  function saveBeat(sh: ShotRow, key: string, val: string) {
+    if (!canEdit) return;
+    const cur = beatRef.current[sh.id] || { ...(sh.script_beat || {}) };
+    cur[key] = val; beatRef.current[sh.id] = cur;
+    updateShot(projectId, sh.id, { script_beat: cur }).then(() => router.refresh());
+  }
+  function saveShotField(sh: ShotRow, patch: Record<string, any>) { if (canEdit) updateShot(projectId, sh.id, patch).then(() => router.refresh()); }
+  async function addShotToEp() {
+    if (!epId) return;
+    let sceneId = epScenes[0]?.id;
+    if (!sceneId) { const r: any = await addScene(projectId, epId); sceneId = r?.id; }
+    if (sceneId) { await addShot(projectId, sceneId); router.refresh(); }
+  }
+
+  // ── 故事圣经记忆 → 编剧 AI 系统提示 ──
   const bibleText = [
     bible.logline && `一句话梗概：${bible.logline}`, bible.genre && `题材/时长：${bible.genre}`,
     bible.worldRules && `世界观规则：${bible.worldRules}`, bible.style && `画风/主色调：${bible.style}`,
@@ -60,8 +89,7 @@ export default function ScriptWorkspace({
   const ctxNote = bibleText ? "已读取 故事圣经 · 设定与人物" : "故事圣经尚未填写";
 
   async function uploadScript(file?: File | null) {
-    if (!file) return;
-    if (!epId) { alert("请先在「立项」或本页新建至少一集。"); return; }
+    if (!file || !epId) { if (!epId) alert("请先新建至少一集。"); return; }
     setBusy(true);
     try {
       const text = await file.text();
@@ -79,10 +107,9 @@ export default function ScriptWorkspace({
     setVers(vs || []);
   }
   async function rollback(scriptId: string, versionId: string) { await rollbackScript(projectId, scriptId, versionId); setVhOpen(false); router.refresh(); }
-
   async function addEp() { const r: any = await addEpisode(projectId); if (r?.id) setEpId(r.id); router.refresh(); }
+  async function addSc() { if (epId) { await addScene(projectId, epId); router.refresh(); } }
 
-  // ── panel tabs ──
   const PANELS = [
     { id: "overview", label: "总览", tag: "结构", d: ["M3 3h18v6H3z", "M3 13h8v8H3z", "M15 13h6v8h-6z"] },
     { id: "full", label: "分集完整剧本", tag: `${episodes.length} 集`, d: ["M4 4h16v16H4z", "M8 8h8M8 12h8M8 16h5"] },
@@ -129,7 +156,6 @@ export default function ScriptWorkspace({
         </div>
       </div>
 
-      {/* panel body */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "28px 30px 70px" }}>
 
         {/* ===== 总览 ===== */}
@@ -139,26 +165,28 @@ export default function ScriptWorkspace({
               <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: "-.6px" }}>{projectName} <span style={{ fontWeight: 400, color: "var(--text-3)" }}>· 总览</span></h1>
               <span className="fg-script" style={{ fontSize: 24, color: "var(--accent)", transform: "rotate(-5deg)", textShadow: "0 0 18px var(--glow-a)" }}>overview</span>
             </div>
-            <p style={{ margin: "0 0 24px", maxWidth: 760, fontSize: 16, lineHeight: 1.8, color: "var(--text-2)" }}>{synopsis || "还没有剧情总览。在右侧让「编剧 AI」根据故事圣经生成剧情介绍与结构总表。"}</p>
+            <EditArea value={ovSyn} disabled={!canEdit} minH={96} placeholder="剧情总览：在这里写剧情介绍，或让右侧编剧 AI 生成后再改。"
+              onSave={(v) => { setOvSyn(v); saveOv(undefined, v); }} style={{ fontSize: 16, lineHeight: 1.8, color: "var(--text-2)", marginBottom: 20 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <span style={{ fontSize: 16, fontWeight: 600 }}>结构总表</span>
-              <span className="fg-mono" style={{ fontSize: 12, color: "var(--text-3)" }}>{totalDur}</span>
+              <EditInput value={ovTot} disabled={!canEdit} mono onSave={(v) => { setOvTot(v); saveOv(undefined, undefined, v); }} style={{ fontSize: 12, color: "var(--text-3)", textAlign: "right", maxWidth: 220 }} />
             </div>
             <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
-              <div className="fg-mono" style={{ display: "grid", gridTemplateColumns: "74px 1fr 70px 2fr 1.3fr", background: "var(--panel)", borderBottom: "1px solid var(--stroke)", fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" }}>
-                {["集数", "标题", "时长", "核心事件", "结尾钩子"].map((h) => <div key={h} style={{ padding: "12px 14px" }}>{h}</div>)}
+              <div className="fg-mono" style={{ display: "grid", gridTemplateColumns: "74px 1fr 70px 2fr 1.3fr 34px", background: "var(--panel)", borderBottom: "1px solid var(--stroke)", fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" }}>
+                {["集数", "标题", "时长", "核心事件", "结尾钩子", ""].map((h, i) => <div key={i} style={{ padding: "12px 14px" }}>{h}</div>)}
               </div>
-              {structure.length === 0 ? <div style={{ padding: "26px 14px", color: "var(--text-3)", fontSize: 13 }}>暂无分集。点击「大纲 → 新建集」或让 AI 生成结构。</div> :
-                structure.map((o, i) => (
-                  <Hov key={i} base={{ display: "grid", gridTemplateColumns: "74px 1fr 70px 2fr 1.3fr", alignItems: "center", background: i % 2 ? "var(--row)" : "transparent", borderBottom: "1px solid var(--stroke)", transition: "background .2s var(--ease)" }} hover={{ background: "var(--row-hover)" }}>
-                    <div style={{ padding: "15px 14px" }}><span className="fg-mono" style={{ fontSize: 12, fontWeight: 600, color: "var(--accent-ink)", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", padding: "3px 8px", borderRadius: 7 }}>{o.ep}</span></div>
-                    <div style={{ padding: "15px 14px", fontSize: 14, fontWeight: 600 }}>{o.title}</div>
-                    <div className="fg-mono" style={{ padding: "15px 14px", fontSize: 13, color: "var(--text-2)" }}>{o.dur}</div>
-                    <div style={{ padding: "15px 14px", fontSize: 13, lineHeight: 1.55, color: "var(--text-2)" }}>{o.event}</div>
-                    <div style={{ padding: "15px 14px", fontSize: 13, lineHeight: 1.55, color: "var(--c-os)" }}>{o.hook}</div>
-                  </Hov>
-                ))}
+              {ovRows.map((o, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "74px 1fr 70px 2fr 1.3fr 34px", alignItems: "center", background: i % 2 ? "var(--row)" : "transparent", borderBottom: "1px solid var(--stroke)" }}>
+                  <div style={{ padding: "9px 10px" }}><EditInput value={o.ep} disabled={!canEdit} mono onSave={(v) => { setRow(i, "ep", v); saveOv(ovRows.map((r, j) => j === i ? { ...r, ep: v } : r)); }} style={{ fontSize: 12, fontWeight: 600, textAlign: "center", color: "var(--accent)" }} /></div>
+                  <div style={{ padding: "9px 6px" }}><EditInput value={o.title} disabled={!canEdit} onSave={(v) => { setRow(i, "title", v); saveOv(ovRows.map((r, j) => j === i ? { ...r, title: v } : r)); }} style={{ fontSize: 14, fontWeight: 600 }} /></div>
+                  <div style={{ padding: "9px 6px" }}><EditInput value={o.dur} disabled={!canEdit} mono onSave={(v) => { setRow(i, "dur", v); saveOv(ovRows.map((r, j) => j === i ? { ...r, dur: v } : r)); }} style={{ fontSize: 13, color: "var(--text-2)" }} /></div>
+                  <div style={{ padding: "9px 6px" }}><EditInput value={o.event} disabled={!canEdit} onSave={(v) => { setRow(i, "event", v); saveOv(ovRows.map((r, j) => j === i ? { ...r, event: v } : r)); }} style={{ fontSize: 13, color: "var(--text-2)" }} /></div>
+                  <div style={{ padding: "9px 6px" }}><EditInput value={o.hook} disabled={!canEdit} onSave={(v) => { setRow(i, "hook", v); saveOv(ovRows.map((r, j) => j === i ? { ...r, hook: v } : r)); }} style={{ fontSize: 13, color: "var(--c-os)" }} /></div>
+                  <div style={{ padding: "9px 4px", textAlign: "center" }}>{canEdit && <button onClick={() => delRow(i)} title="删除该行" style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", fontSize: 14 }}>✕</button>}</div>
+                </div>
+              ))}
             </div>
+            {canEdit && <button onClick={addRow} style={{ marginTop: 12, fontSize: 13, color: "var(--accent)", background: "none", border: "1px dashed var(--stroke-2)", borderRadius: 10, padding: "8px 14px", cursor: "pointer" }}>＋ 新增一集</button>}
           </div>
         )}
 
@@ -177,26 +205,24 @@ export default function ScriptWorkspace({
                 ))}
               </div>
             </div>
-            <div style={{ borderRadius: 18, padding: "34px 40px 40px", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
-              <div style={{ textAlign: "center", marginBottom: 28, paddingBottom: 18, borderBottom: "1px dashed var(--stroke-2)" }}>
+            <div style={{ borderRadius: 18, padding: "30px 34px 36px", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
+              <div style={{ textAlign: "center", marginBottom: 24, paddingBottom: 16, borderBottom: "1px dashed var(--stroke-2)" }}>
                 <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: 1 }}>{curEp ? `第${curEp.idx}集 · ${curEp.title || ""}` : "未选择集"}</div>
-                <div className="fg-mono" style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{curEp ? pad(curEp.idx) : "—"} — FULL SCRIPT</div>
+                <div className="fg-mono" style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>{curEp ? pad(curEp.idx) : "—"} — FULL SCRIPT · 可直接编辑</div>
               </div>
-              <article style={{ fontSize: 15.5, lineHeight: 1.95 }}>
-                {epScenes.length === 0 ? <div style={{ textAlign: "center", color: "var(--text-3)", padding: "30px 0" }}>本集还没有场次/剧本。在右侧让 AI「自动写本集完整剧本」，或上传剧本。</div> :
-                  epScenes.map((sc) => {
-                    const body = bodyOf(sc.id);
-                    return (
-                      <div key={sc.id} style={{ marginBottom: 22 }}>
-                        <div style={{ margin: "0 0 4px", display: "flex", alignItems: "center", gap: 10 }}>
-                          <span className="fg-mono" style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>第{sc.idx}场</span>
-                          <span style={{ fontWeight: 600, letterSpacing: ".5px" }}>{sc.title || ""}{sc.setting ? ` · ${sc.setting}` : ""}</span>
-                        </div>
-                        <div style={{ whiteSpace: "pre-wrap", color: body ? "var(--text)" : "var(--text-3)" }}>{body || "（本场暂无剧本，可让 AI 生成或手动编写）"}</div>
-                      </div>
-                    );
-                  })}
-              </article>
+              {epScenes.length === 0 ? <div style={{ textAlign: "center", color: "var(--text-3)", padding: "26px 0" }}>本集还没有场次。点下面「＋ 新建场次」，或在右侧让 AI「自动写本集完整剧本」，也可「上传剧本」。</div> :
+                epScenes.map((sc) => (
+                  <div key={sc.id} style={{ marginBottom: 22 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span className="fg-mono" style={{ flex: "none", fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>第{sc.idx}场</span>
+                      <EditInput value={sc.title || ""} disabled={!canEdit} placeholder="场次标题" onSave={(v) => updateScene(projectId, sc.id, { title: v }).then(() => router.refresh())} style={{ fontWeight: 600 }} />
+                      <EditInput value={sc.setting || ""} disabled={!canEdit} placeholder="景 / 时间（如 内·观测舱·夜）" onSave={(v) => updateScene(projectId, sc.id, { setting: v }).then(() => router.refresh())} style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 260 }} />
+                    </div>
+                    <EditArea value={bodyOf(sc.id)} disabled={!canEdit} minH={140} placeholder="本场剧本正文（△动作 + 角色：台词）。可手动写，也可让 AI 生成后再改。"
+                      onSave={(v) => saveScript(projectId, sc.id, v, "manual").then(() => router.refresh())} style={{ fontSize: 15, lineHeight: 1.9 }} />
+                  </div>
+                ))}
+              {canEdit && epId && <button onClick={addSc} style={{ marginTop: 6, fontSize: 13, color: "var(--accent)", background: "none", border: "1px dashed var(--stroke-2)", borderRadius: 10, padding: "8px 14px", cursor: "pointer" }}>＋ 新建场次</button>}
             </div>
           </div>
         )}
@@ -217,40 +243,34 @@ export default function ScriptWorkspace({
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {epShots.length === 0 ? <div style={{ textAlign: "center", color: "var(--text-3)", padding: "40px 0", border: "1.5px dashed var(--stroke-2)", borderRadius: 16 }}>本集还没有分镜头。在右侧让 AI「把本集拆成分镜头剧本」，每镜≤15 秒。</div> :
-                epShots.map((sh) => {
-                  const beat = sh.script_beat || {};
-                  const rows = BEAT_KEYS.map((k) => [k, beat[k]]).filter(([, v]) => v) as [string, string][];
-                  const time = sh.time_start || sh.time_end ? `${sh.time_start || ""}${sh.time_end ? "–" + sh.time_end : ""}` : (sh.duration_s ? `${sh.duration_s}s` : "");
-                  return (
-                    <div key={sh.id} style={{ borderRadius: 16, overflow: "hidden", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", borderBottom: "1px solid var(--stroke)", background: "var(--panel-2)" }}>
-                        <span className="fg-mono" style={{ fontSize: 15, fontWeight: 600 }}>镜头{sh.no}</span>
-                        <span style={{ width: 1, height: 14, background: "var(--stroke-2)" }} />
-                        <span className="fg-mono" style={{ fontSize: 12.5, color: "var(--text-2)" }}>{time || "—"}</span>
-                        <span style={{ width: 1, height: 14, background: "var(--stroke-2)" }} />
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{sh.title || ""}</span>
-                        <div style={{ flex: 1 }} />
-                        {beat["景别"] && <span style={{ fontSize: 11.5, color: "var(--text)", background: "var(--bg-2)", border: "1px solid var(--stroke)", padding: "3px 9px", borderRadius: 7 }}>{beat["景别"]}</span>}
-                      </div>
-                      <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 9 }}>
-                        {rows.length === 0 ? <span style={{ fontSize: 13, color: "var(--text-3)" }}>（该镜头暂无景别/画面等字段，去右侧让 AI 补全）</span> :
-                          rows.map(([k, v]) => (
-                            <div key={k} style={{ display: "flex", gap: 13, fontSize: 13.5, lineHeight: 1.6 }}>
-                              <span style={{ flex: "none", width: 52, color: "var(--text-3)", fontWeight: 500 }}>{k}</span>
-                              <span style={{ color: beatColor(k) }}>{v}</span>
-                            </div>
-                          ))}
-                      </div>
+              {epShots.length === 0 ? <div style={{ textAlign: "center", color: "var(--text-3)", padding: "40px 0", border: "1.5px dashed var(--stroke-2)", borderRadius: 16 }}>本集还没有分镜头。在右侧让 AI「把本集拆成分镜头剧本」，或点下面手动加。</div> :
+                epShots.map((sh) => (
+                  <div key={sh.id} style={{ borderRadius: 16, overflow: "hidden", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderBottom: "1px solid var(--stroke)", background: "var(--panel-2)" }}>
+                      <span className="fg-mono" style={{ flex: "none", fontSize: 15, fontWeight: 600 }}>镜头{sh.no}</span>
+                      <EditInput value={sh.title || ""} disabled={!canEdit} placeholder="镜头标题" onSave={(v) => saveShotField(sh, { title: v })} style={{ fontSize: 14, fontWeight: 600 }} />
+                      <EditInput value={sh.time_start || ""} disabled={!canEdit} mono placeholder="00:00" onSave={(v) => saveShotField(sh, { time_start: v })} style={{ fontSize: 12, color: "var(--text-2)", maxWidth: 70, textAlign: "center" }} />
+                      <span style={{ color: "var(--text-3)" }}>–</span>
+                      <EditInput value={sh.time_end || ""} disabled={!canEdit} mono placeholder="00:04" onSave={(v) => saveShotField(sh, { time_end: v })} style={{ fontSize: 12, color: "var(--text-2)", maxWidth: 70, textAlign: "center" }} />
                     </div>
-                  );
-                })}
+                    <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {BEAT_KEYS.map((k) => (
+                        <div key={k} style={{ display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5 }}>
+                          <span style={{ flex: "none", width: 44, paddingTop: 8, color: "var(--text-3)", fontWeight: 500 }}>{k}</span>
+                          <EditArea value={(sh.script_beat || {})[k] || ""} disabled={!canEdit} minH={0} placeholder="—"
+                            onSave={(v) => saveBeat(sh, k, v)} style={{ minHeight: 36, fontSize: 13.5, lineHeight: 1.6, color: beatColor(k), border: "1px solid transparent", padding: "7px 9px" }} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              {canEdit && epId && <button onClick={addShotToEp} style={{ fontSize: 13, color: "var(--accent)", background: "none", border: "1px dashed var(--stroke-2)", borderRadius: 12, padding: "12px", cursor: "pointer" }}>＋ 手动新增一个镜头</button>}
             </div>
           </div>
         )}
       </div>
 
-      {/* 大纲 抽屉 */}
+      {/* 大纲抽屉 */}
       {olOpen && (
         <div onClick={() => setOlOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.5)", backdropFilter: "blur(6px)", display: "flex", justifyContent: "flex-start" }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 320, maxWidth: "86%", height: "100%", background: "var(--panel-solid)", borderRight: "1px solid var(--stroke)", padding: "20px 18px", overflowY: "auto", boxShadow: "var(--shadow)" }}>
