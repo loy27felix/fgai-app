@@ -4,10 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function createAsset(
   projectId: string,
-  a: { name: string; type: string; source: string; storage_path?: string; external_url?: string; params?: any }
+  a: { name: string; type: string; source: string; storage_path?: string; external_url?: string; params?: any; description?: string; gen_prompt?: string; from_script?: boolean }
 ) {
   const sb = createClient();
-  const { error } = await sb.from("assets").insert({
+  const { data, error } = await sb.from("assets").insert({
     project_id: projectId,
     name: a.name,
     type: a.type,
@@ -15,7 +15,18 @@ export async function createAsset(
     storage_path: a.storage_path || null,
     external_url: a.external_url || null,
     params: a.params || {},
-  });
+    description: a.description || null,
+    gen_prompt: a.gen_prompt || null,
+    from_script: a.from_script || false,
+  }).select("id").single();
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}/assets`);
+  return { ok: true, id: data?.id as string };
+}
+
+export async function updateAsset(projectId: string, assetId: string, patch: Record<string, any>) {
+  const sb = createClient();
+  const { error } = await sb.from("assets").update(patch).eq("id", assetId);
   if (error) return { error: error.message };
   revalidatePath(`/projects/${projectId}/assets`);
   return { ok: true };

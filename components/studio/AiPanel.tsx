@@ -10,11 +10,11 @@ import { Icon, Hov } from "./ui";
 export type AiMsg = { role: "user" | "ai"; text: string; images?: string[]; action?: string };
 
 export default function AiPanel({
-  projectId, scope, title, badge, contextNote, system, quick = [], placeholder, seed, onAction,
+  projectId, scope, title, badge, contextNote, system, quick = [], placeholder, seed, onAction, embedded,
 }: {
   projectId: string; scope: string; title: string; badge?: string; contextNote?: string;
   system: string; quick?: string[]; placeholder?: string; seed?: AiMsg[];
-  onAction?: (action: string) => void;
+  onAction?: (action: string) => void; embedded?: boolean;
 }) {
   const sb = createClient();
   const [messages, setMessages] = useState<AiMsg[]>(seed || []);
@@ -68,9 +68,8 @@ export default function AiPanel({
   const ipt = { display: "block", width: "100%", resize: "none" as const, border: "none", outline: "none", background: "transparent", color: "var(--text)", fontSize: 13.5, lineHeight: 1.6, padding: "12px 13px 4px", fontFamily: "inherit" };
   const toolBtn = { height: 32, padding: "0 10px", borderRadius: 9, display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: "var(--text-2)", background: "transparent", border: "1px solid var(--stroke)", transition: "all .3s var(--ease)" };
 
-  return (
-    <aside style={{ flex: "none", width: 392, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(26px) saturate(1.4)", WebkitBackdropFilter: "blur(26px) saturate(1.4)" }}>
-      {/* header */}
+  const inner = (
+    <>
       <div style={{ flex: "none", padding: "15px 18px", borderBottom: "1px solid var(--stroke)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)", boxShadow: "0 0 10px var(--accent)" }} />
@@ -89,7 +88,6 @@ export default function AiPanel({
         )}
       </div>
 
-      {/* messages */}
       <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 16 }}>
         {messages.length === 0 && <div style={{ margin: "auto", textAlign: "center", color: "var(--text-3)", fontSize: 13, lineHeight: 1.7, maxWidth: 240 }}>开始和 AI 对话。<br />可上传参考图、启用技能或插入 Prompt。</div>}
         {messages.map((m, i) => m.role === "ai" ? (
@@ -123,7 +121,6 @@ export default function AiPanel({
         {busy && <div style={{ display: "flex", gap: 10, alignItems: "center", color: "var(--text-3)", fontSize: 12.5 }}><span style={{ width: 28, height: 28, borderRadius: 9, display: "grid", placeItems: "center", background: "var(--panel-2)", border: "1px solid var(--stroke-2)", color: "var(--accent)" }}><Icon d={["M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"]} size={15} sw={1.7} /></span>AI 思考中…</div>}
       </div>
 
-      {/* composer */}
       <div style={{ flex: "none", padding: "12px 16px 16px", borderTop: "1px solid var(--stroke)" }}>
         {quick.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
@@ -163,6 +160,11 @@ export default function AiPanel({
           </div>
         </div>
       </div>
-    </aside>
+    </>
+  );
+
+  if (embedded) return <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>{inner}</div>;
+  return (
+    <aside style={{ flex: "none", width: 392, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(26px) saturate(1.4)", WebkitBackdropFilter: "blur(26px) saturate(1.4)" }}>{inner}</aside>
   );
 }

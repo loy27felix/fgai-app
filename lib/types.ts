@@ -57,6 +57,9 @@ export interface Asset {
   created_at: string;
   is_lock_ref?: boolean;
   char_name?: string | null;
+  description?: string | null;
+  gen_prompt?: string | null;
+  from_script?: boolean;
 }
 export type LockRef = { char_name: string; url: string };
 export const ASSET_TYPES = ["人物", "服装", "化妆", "道具", "场景", "声音", "风格"];
