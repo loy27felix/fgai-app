@@ -1,193 +1,178 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BibleFields, Episode, Scene, LockRef } from "@/lib/types";
-import { addShot, updateShot, delShot, addSubshot, updateSubshot, delSubshot, insertShots } from "@/app/projects/[id]/board/actions";
+import type { BibleFields, Episode, Scene } from "@/lib/types";
+import { addShot } from "@/app/projects/[id]/board/actions";
 import { createClient } from "@/lib/supabase/client";
-import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
+import { IMG_MODELS, sizeFor } from "@/lib/imageModels";
+import StudioShell from "@/components/studio/StudioShell";
+import AiPanel from "@/components/studio/AiPanel";
+import { Icon, Hov } from "@/components/studio/ui";
 
+type ShotRow = {
+  id: string; scene_id: string; no: string; title?: string | null;
+  time_start?: string | null; time_end?: string | null; duration_s?: number | null;
+  script_beat?: Record<string, string> | null; frame_path?: string | null; roles?: string[] | null;
+};
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const publicUrl = (p?: string | null) => (p ? `${SB_URL}/storage/v1/object/public/project-assets/${p}` : null);
-
-async function urlToB64(url: string): Promise<{ b64: string; type: string } | null> {
-  try {
-    const r = await fetch(url); const blob = await r.blob();
-    return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res({ b64: String(fr.result).split(",")[1] || "", type: blob.type || "image/png" }); fr.onerror = () => res(null); fr.readAsDataURL(blob); });
-  } catch { return null; }
+const fu = (p?: string | null) => (p ? `${SB_URL}/storage/v1/object/public/project-assets/${p}` : null);
+const pad = (n: number) => "EP" + String(n).padStart(2, "0");
+function framePrompt(sh: ShotRow) {
+  const b = sh.script_beat || {};
+  return `黑白电影手绘分镜线稿（storyboard sketch, black-and-white pencil / ink），只表现镜头构图、人物站位与镜头语言，灰度速写质感，不要上色、不要文字、不要水印、不要字幕。\n景别：${b["景别"] || ""}\n画面：${b["画面"] || sh.title || ""}\n运镜：${b["运镜"] || ""}\n动作：${b["动作"] || ""}\n角色：${(sh.roles || []).join("、")}`;
 }
 
-const SPLIT_RULES =
-  "把下面这场剧本拆成导演分镜。规则：每个镜头≤15秒；一个8-12秒镜头通常含3-4句台词且会切镜头，所以每个镜头要拆成多个子分镜（切镜）。" +
-  "景别从【远景/全景/中景/近景/特写】里选；运镜如【固定/缓推/横移/切镜转35°】；相邻子分镜避免相同景别硬切。" +
-  "video_method 取【强把控分镜图】或【故事版】。roles 是该镜头出场角色名数组。" +
-  '只输出合法 JSON：{"shots":[{"no":"S1","duration_s":4,"video_method":"强把控分镜图","roles":["角色"],"subshots":[{"size":"中景","movement":"固定","composition":"主体与构图","action":"动作或台词"}]}]}';
-
 export default function BoardWorkspace({
-  projectId, canEdit, bible, episodes, scenes, selectedSceneId, shots, subshots, scriptBody, lockRefs,
+  projectId, projectName, canEdit, bible, episodes, scenes, shots, scriptText,
 }: {
-  projectId: string; canEdit: boolean; bible: BibleFields;
-  episodes: Episode[]; scenes: Scene[]; selectedSceneId: string | null;
-  shots: any[]; subshots: any[]; scriptBody: string; lockRefs: LockRef[];
+  projectId: string; projectName: string; canEdit: boolean; bible: BibleFields;
+  episodes: Episode[]; scenes: Scene[]; shots: ShotRow[]; scriptText: string;
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const [busy, setBusy] = useState(false);
-  const [ai, setAi] = useState("");
-  const [genId, setGenId] = useState<string | null>(null);
-  const [frameModel, setFrameModel] = useState("nano-banana-pro");
-  const [frameRatio, setFrameRatio] = useState("9:16");
+  const [epId, setEpId] = useState<string | null>(episodes[0]?.id || null);
+  const [view, setView] = useState<"table" | "gallery">("table");
+  const [filter, setFilter] = useState<"all" | "done" | "todo">("all");
+  const [mode, setMode] = useState<"chat" | "gen">("chat");
+  const [selId, setSelId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [batch, setBatch] = useState(false);
+  const [gModel, setGModel] = useState(IMG_MODELS[0].id);
 
-  const selScene = scenes.find((s) => s.id === selectedSceneId) || null;
-  const curEpId = selScene?.episode_id || episodes[0]?.id || null;
-  const curEp = episodes.find((e) => e.id === curEpId) || null;
-  const epScenes = scenes.filter((s) => s.episode_id === curEpId);
-  const subsOf = (shotId: string) => subshots.filter((x) => x.shot_id === shotId);
+  const curEp = episodes.find((e) => e.id === epId) || episodes[0] || null;
+  const epSceneIds = new Set(scenes.filter((s) => s.episode_id === epId).map((s) => s.id));
+  const epShots = useMemo(() => shots.filter((s) => epSceneIds.has(s.scene_id)).sort((a, b) => (a.no || "").localeCompare(b.no || "", "zh", { numeric: true })), [shots, epId]);
+  const shown = epShots.filter((s) => filter === "all" || (filter === "done" ? s.frame_path : !s.frame_path));
+  const done = epShots.filter((s) => s.frame_path).length;
+  const totalDur = epShots.reduce((s, x) => s + (x.duration_s || 0), 0);
+  const selShot = epShots.find((s) => s.id === selId) || null;
 
-  function go(sceneId: string) { router.push(`/projects/${projectId}/board?scene=${sceneId}`); }
-  async function run<T>(fn: () => Promise<T>) { setBusy(true); try { await fn(); router.refresh(); } finally { setBusy(false); } }
+  const bibleText = [bible.style && `画风/主色调：${bible.style}`, bible.characters && `主要人物：${bible.characters}`, bible.worldRules && `世界观：${bible.worldRules}`].filter(Boolean).join("\n");
+  const chatSystem = `你是 FG Studio 的导演 AI，为 AI 漫剧《${projectName}》做分镜。依据故事圣经与剧本镜头，建议每个镜头的景别、运镜、构图与情绪，并能写出"手绘分镜图"的出图提示词。\n\n=== 故事圣经 ===\n${bibleText || "（未填）"}\n\n=== 剧本节选 ===\n${scriptText ? scriptText.slice(0, 4000) : "（暂无）"}`;
 
-  function framePrompt(sh: any) {
-    const subs = subsOf(sh.id);
-    const desc = subs.map((s) => `${s.size || ""} ${s.movement || ""} ${s.composition || ""} ${s.action || ""}`.trim()).filter(Boolean).join("；");
-    return [
-      "导演分镜参考图：单格画面、简练线稿/草图质感，构图清晰。",
-      `整体画风参考：${bible.style || "未定"}。`,
-      `出场角色：${(sh.roles || []).join("、") || "（无）"}。`,
-      `镜头 ${sh.no || ""}（${sh.video_method || ""}）。`,
-      `画面内容：${desc || "见本场剧本"}。`,
-      "画面禁止字幕/水印/logo。",
-    ].join("\n");
-  }
-
-  function lockFor(roles: string[]) {
-    return lockRefs.find((r) => (roles || []).some((role) => role && (role === r.char_name || role.includes(r.char_name) || r.char_name.includes(role))));
-  }
-  async function genFrame(sh: any) {
-    setGenId(sh.id);
+  async function genFrame(sh: ShotRow) {
+    setBusyId(sh.id);
     try {
-      const payload: any = { projectId, shotId: sh.id, shotField: "frame_path", model: frameModel, size: sizeFor(frameModel, frameRatio), prompt: framePrompt(sh) };
-      const ref = lockFor(sh.roles || []);
-      if (ref) { const rb = await urlToB64(ref.url); if (rb) { payload.refImage = rb.b64; payload.refType = rb.type; } }
-      const { data: d, error } = await supabase.functions.invoke("gen-image", { body: payload });
-      if (error || !d?.ok) { alert("生成分镜图失败：" + ((d && d.error) || error?.message || "")); return false; }
-      return true;
-    } catch (e: any) { alert("网络错误：" + (e?.message || "")); return false; }
-    finally { setGenId(null); }
+      const { data: d, error } = await supabase.functions.invoke("gen-image", { body: { projectId, shotId: sh.id, shotField: "frame_path", model: gModel, size: sizeFor(gModel, "16:9"), prompt: framePrompt(sh) } });
+      if (error || !d?.ok) alert("生成失败：" + ((d && d.error) || error?.message || "")); else router.refresh();
+    } finally { setBusyId(null); }
   }
-  async function genFrameAndRefresh(sh: any) { const ok = await genFrame(sh); if (ok) router.refresh(); }
-
-  async function genAllFrames() {
-    if (!shots.length) return;
-    if (!confirm(`为本场 ${shots.length} 个镜头各生成一张分镜图？（按次计费）`)) return;
-    for (const sh of shots) { await genFrame(sh); }
-    router.refresh();
+  async function genMissing() {
+    const todo = epShots.filter((s) => !s.frame_path); if (!todo.length) { alert("本集镜头都已绘制。"); return; }
+    setBatch(true);
+    try { for (const sh of todo) { setBusyId(sh.id); const { data: d, error } = await supabase.functions.invoke("gen-image", { body: { projectId, shotId: sh.id, shotField: "frame_path", model: gModel, size: sizeFor(gModel, "16:9"), prompt: framePrompt(sh) } }); if (error || !d?.ok) break; } router.refresh(); }
+    finally { setBatch(false); setBusyId(null); }
   }
+  async function addRow() { const sid = scenes.filter((s) => s.episode_id === epId)[0]?.id; if (sid) { await addShot(projectId, sid); router.refresh(); } else alert("本集还没有场次，先去剧本工作台建场次。"); }
 
-  async function aiSplit() {
-    if (!selectedSceneId) return;
-    if (!scriptBody.trim()) { alert("这场还没有剧本正文，先去「剧本工作台」写或生成本场剧本。"); return; }
-    if (shots.length && !confirm("本场已有镜头，AI 拆分镜会在末尾追加新镜头，继续？")) return;
-    setBusy(true); setAi("AI 拆分镜中…");
-    try {
-      const sys = [
-        `项目故事圣经：画风=${bible.style || "未填"}；人物=${bible.characters || "未填"}；世界观=${bible.worldRules || "未填"}。`,
-        SPLIT_RULES,
-      ].join("\n");
-      const res = await fetch("/api/ai/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, mode: "pro", thinking: false, jsonOutput: true, messages: [{ role: "system", content: sys }, { role: "user", content: `场号 ${curEp?.idx}-${selScene?.idx}\n剧本：\n${scriptBody}` }] }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "AI 失败");
-      let parsed: any; try { parsed = JSON.parse(data.content); } catch { throw new Error("AI 返回不是合法 JSON，换 pro 模型或重试"); }
-      const list = parsed?.shots || [];
-      if (!list.length) throw new Error("没拆出镜头");
-      const r = await insertShots(projectId, selectedSceneId, list);
-      setAi(r?.ok ? `已生成 ${r.count} 个镜头 ✓` : `失败：${r?.error}`);
-      router.refresh();
-    } catch (e: any) { setAi("⚠️ " + (e?.message || "出错")); }
-    finally { setBusy(false); setTimeout(() => setAi(""), 4000); }
-  }
+  const beat = (s: ShotRow, k: string) => (s.script_beat || {})[k] || "";
+  const stChip = (s: ShotRow) => s.frame_path ? { t: "已绘制", ink: "var(--accent)" } : { t: "待生成", ink: "var(--text-3)" };
+  const toolBtn = { display: "flex", alignItems: "center", gap: 7, height: 40, padding: "0 14px", borderRadius: 12, cursor: "pointer", fontSize: 13, color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)", transition: "all .3s var(--ease)" };
 
-  const railItem = (active: boolean) => ["w-full truncate rounded-lg px-3 py-2 text-left text-[13px] transition", active ? "bg-[#34d399]/14 text-[#1d9e75] ring-1 ring-[#34d399]/30 dark:text-[#5fe3c0]" : "text-black/65 hover:bg-black/5 dark:text-white/65 dark:hover:bg-white/6"].join(" ");
-  const sel = "rounded-lg border border-black/12 bg-transparent px-2 py-1.5 text-[12px] dark:border-white/15";
-  const act = "rounded-full border border-black/12 px-3.5 py-1.5 text-[12.5px] transition hover:border-black/35 disabled:opacity-40 dark:border-white/15 dark:hover:border-white/40";
+  // ---------- RIGHT ----------
+  const right = (
+    <aside style={{ flex: "none", width: 380, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(26px) saturate(1.4)", WebkitBackdropFilter: "blur(26px) saturate(1.4)" }}>
+      <div style={{ flex: "none", padding: "14px 16px 12px", borderBottom: "1px solid var(--stroke)" }}>
+        <div style={{ display: "flex", padding: 4, borderRadius: 13, background: "var(--bg-2)", border: "1px solid var(--stroke)", gap: 4 }}>
+          {([["chat", "对话", ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"]], ["gen", "生成分镜图", ["M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z"]]] as const).map(([k, lbl, d]) => { const on = mode === k; return <button key={k} onClick={() => setMode(k as any)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 9, borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 500, color: on ? "var(--accent-ink)" : "var(--text-2)", background: on ? "var(--accent)" : "transparent", border: "none" }}><Icon d={d} size={16} sw={1.7} />{lbl}</button>; })}
+        </div>
+      </div>
+      <div style={{ flex: "none", display: "flex", gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--stroke)" }}>
+        {[["镜头", String(epShots.length)], ["总时长", totalDur ? totalDur + "s" : "—"], ["已绘制", `${done}/${epShots.length}`]].map(([l, v], i) => (
+          <div key={l} style={{ flex: 1, textAlign: "center", padding: 8, borderRadius: 11, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}><div className="fg-mono" style={{ fontSize: 17, fontWeight: 600, color: i === 2 ? "var(--accent)" : "var(--text)" }}>{v}</div><div style={{ fontSize: 10, color: "var(--text-3)" }}>{l}</div></div>
+        ))}
+      </div>
+      {mode === "chat" ? (
+        <AiPanel embedded projectId={projectId} scope="board" title="导演 AI" badge="FG-Director" contextNote={bibleText ? "已读取 故事圣经 · 剧本" : "圣经/剧本待完善"} system={chatSystem}
+          quick={["这个镜头景别建议", "给本集运镜设计", "写手绘分镜图提示词"]} placeholder="讨论镜头的景别、运镜与情绪……（⌘↵）" />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <div style={{ flex: "none", padding: "11px 16px", borderBottom: "1px solid var(--stroke)", display: "flex", gap: 8 }}>
+            <div style={{ flex: 1, display: "grid", placeItems: "center", height: 36, borderRadius: 11, fontSize: 12.5, fontWeight: 500, color: "var(--accent-ink)", background: "var(--accent)" }}>对话式生图</div>
+            <button onClick={() => router.push(`/projects/${projectId}/board/canvas`)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 36, borderRadius: 11, cursor: "pointer", fontSize: 12.5, fontWeight: 500, color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)" }}><Icon d={["M6 6m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0", "M6 18m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0", "M18 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0", "M8.2 7 15.5 11M8.2 17 15.5 13"]} size={14} sw={1.7} />画布式</button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }}>
+            {!selShot ? <div style={{ margin: "30px auto", textAlign: "center", color: "var(--text-3)", fontSize: 13, lineHeight: 1.7, maxWidth: 240 }}>在左侧表格点一个镜头,这里就能为它生成手绘分镜图。</div> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="fg-mono" style={{ fontSize: 15, fontWeight: 600 }}>镜头{selShot.no}</span><span style={{ fontSize: 13.5, fontWeight: 600 }}>{selShot.title || ""}</span></div>
+                <div style={{ aspectRatio: "16/9", borderRadius: 12, overflow: "hidden", background: "var(--bg-2)", border: "1px solid var(--stroke-2)", display: "grid", placeItems: "center", color: "var(--text-3)", fontSize: 12 }}>{fu(selShot.frame_path) ? <img src={fu(selShot.frame_path) as string} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (busyId === selShot.id ? "生成中…" : "尚无分镜图")}</div>
+                {["景别", "画面", "运镜", "动作"].map((k) => beat(selShot, k) && (
+                  <div key={k} style={{ fontSize: 12.5, lineHeight: 1.5 }}><span style={{ color: "var(--text-3)" }}>{k}：</span><span style={{ color: "var(--text-2)" }}>{beat(selShot, k)}</span></div>
+                ))}
+                <select value={gModel} onChange={(e) => setGModel(e.target.value)} className="fg-mono" style={{ fontSize: 11.5, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 10, padding: "8px 8px", cursor: "pointer" }}>{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+                {canEdit && <button onClick={() => genFrame(selShot)} disabled={busyId === selShot.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 46, borderRadius: 13, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none", boxShadow: "var(--inset),0 9px 22px -10px var(--accent)", opacity: busyId === selShot.id ? 0.6 : 1 }}><Icon d={["M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z"]} size={16} sw={1.8} />{busyId === selShot.id ? "生成中…" : selShot.frame_path ? "重新生成手绘分镜图" : "生成手绘分镜图"}</button>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </aside>
+  );
 
+  const cols = "58px 132px 90px 96px 78px 1fr 130px 120px";
   return (
-    <div className="mx-auto flex max-w-[1560px] flex-col gap-4 px-4 py-4 lg:h-[calc(100vh-108px)] lg:flex-row">
-      {/* 左：集/场 */}
-      <aside className="lglass flex w-full flex-none flex-col overflow-hidden rounded-[20px] lg:w-[230px]">
-        <div className="border-b border-black/8 px-4 py-3 dark:border-white/8"><div className="font-disp text-[14px] font-semibold">分集 / 分场</div></div>
-        <div className="flex-1 space-y-1 overflow-auto p-3">
-          <div className="px-1 pb-1 font-mono text-[10px] uppercase tracking-wider text-black/40 dark:text-white/40">集</div>
-          {episodes.map((e) => (<button key={e.id} onClick={() => { const fs = scenes.find((s) => s.episode_id === e.id); if (fs) go(fs.id); }} className={railItem(e.id === curEpId)}>{e.title || `第${e.idx}集`}</button>))}
-          {curEp && <><div className="px-1 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-black/40 dark:text-white/40">场</div>
-            {epScenes.map((sc) => (<button key={sc.id} onClick={() => go(sc.id)} className={railItem(sc.id === selectedSceneId)}>{curEp.idx}-{sc.idx} {sc.title || "（未命名）"}</button>))}</>}
-        </div>
-      </aside>
-
-      {/* 中：分镜 */}
-      <main className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-disp text-[20px] font-semibold tracking-tight">导演分镜表</h2>
-          {ai && <span className="text-[12px] text-[#1d9e75] dark:text-[#5fe3c0]">{ai}</span>}
-          {canEdit && (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <select className={sel} value={frameModel} onChange={(e) => setFrameModel(e.target.value)} title="分镜图模型">{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
-              <select className={sel} value={frameRatio} onChange={(e) => setFrameRatio(e.target.value)} title="比例">{RATIOS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</select>
-              <button className={act} disabled={busy || !shots.length || !!genId} onClick={genAllFrames}>批量生成分镜图</button>
-              <button className="rounded-full bg-[#34d399] px-4 py-1.5 text-[12.5px] font-medium text-[#0a2018] active:scale-[.98] disabled:opacity-40" disabled={busy || !selectedSceneId} onClick={aiSplit}>AI 拆分镜</button>
-              <button className={act} disabled={busy || !selectedSceneId} onClick={() => run(() => addShot(projectId, selectedSceneId!))}>＋ 镜头</button>
+    <StudioShell projectId={projectId} projectName={projectName} stageKey="board" right={right}>
+      {/* header / toolbar */}
+      <div style={{ flex: "none", padding: "20px 28px 16px", borderBottom: "1px solid var(--stroke)" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 18, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 6 }}>
+              <span className="fg-mono" style={{ fontSize: 11, letterSpacing: 2, color: "var(--text-3)" }}>SHOT LIST</span>
+              <span className="fg-script" style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, transform: "rotate(-5deg)", textShadow: "0 0 18px var(--glow-a)" }}>storyboard</span>
             </div>
-          )}
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto">
-          {!selectedSceneId ? (
-            <div className="grid h-full place-items-center rounded-[20px] border border-dashed border-black/12 text-center text-[14px] text-black/45 dark:border-white/12 dark:text-white/45">先在「剧本工作台」建好集/场。</div>
-          ) : shots.length === 0 ? (
-            <div className="grid h-full place-items-center rounded-[20px] border border-dashed border-black/12 text-center dark:border-white/12"><div><p className="text-[14px] font-medium">这场还没有分镜</p><p className="mt-1 text-[13px] text-black/45 dark:text-white/45">{canEdit ? "点「AI 拆分镜」自动拆，或「＋ 镜头」手动加。" : "等成员拆分镜。"}</p></div></div>
-          ) : (
-            <div className="flex flex-col gap-4 pb-2">
-              {shots.map((sh) => (
-                <div key={sh.id} className="card p-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input defaultValue={sh.no || ""} disabled={!canEdit} className="w-16 rounded-lg border border-hairline bg-transparent px-2 py-1.5 text-center font-mono text-[13px]" onBlur={(e) => e.target.value !== sh.no && run(() => updateShot(projectId, sh.id, { no: e.target.value }))} />
-                    <label className="flex items-center gap-1.5 text-[12px] text-muted">时长<input type="number" min={1} max={15} defaultValue={sh.duration_s ?? 4} disabled={!canEdit} className="w-14 rounded-lg border border-hairline bg-transparent px-2 py-1.5 text-[13px]" onBlur={(e) => Number(e.target.value) !== sh.duration_s && run(() => updateShot(projectId, sh.id, { duration_s: Number(e.target.value) }))} />s</label>
-                    <select defaultValue={sh.video_method || "强把控分镜图"} disabled={!canEdit} className="rounded-lg border border-hairline bg-transparent px-2 py-1.5 text-[13px]" onChange={(e) => run(() => updateShot(projectId, sh.id, { video_method: e.target.value }))}><option>强把控分镜图</option><option>故事版</option></select>
-                    <input defaultValue={(sh.roles || []).join("、")} disabled={!canEdit} placeholder="出场角色，逗号分隔" className="min-w-[160px] flex-1 rounded-lg border border-hairline bg-transparent px-2 py-1.5 text-[13px]" onBlur={(e) => run(() => updateShot(projectId, sh.id, { roles: e.target.value.split(/[,，、]/).map((x) => x.trim()).filter(Boolean) }))} />
-                    {canEdit && <button className="ml-auto rounded-md px-2 py-1 text-[12px] text-[#d85a30] hover:bg-[#ff7759]/10" onClick={() => { if (confirm("删除该镜头及子分镜？")) run(() => delShot(projectId, sh.id)); }}>删镜头</button>}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-4">
-                    <div className="flex w-[150px] flex-none flex-col gap-2">
-                      {sh.frame_path ? <img src={publicUrl(sh.frame_path)!} alt="分镜图" className="h-[100px] w-full rounded-lg border border-hairline object-cover" /> : <div className="grid h-[100px] w-full place-items-center rounded-lg border border-dashed border-hairline text-[11px] text-muted">暂无分镜图</div>}
-                      {canEdit && <button className="rounded-full border border-hairline px-2 py-1 text-[11.5px] hover:border-[#34d399] hover:text-[#1d9e75] disabled:opacity-50 dark:hover:text-[#5fe3c0]" disabled={genId === sh.id} onClick={() => genFrameAndRefresh(sh)}>{genId === sh.id ? "生成中…" : sh.frame_path ? "重生成" : "生成分镜图"}</button>}
-                      {lockFor(sh.roles || []) && <span className="text-center font-mono text-[10px] text-[#1d9e75] dark:text-[#5fe3c0]">锁脸 {lockFor(sh.roles || [])!.char_name}</span>}
-                    </div>
-                    <div className="min-w-0 flex-1 overflow-x-auto">
-                      <table className="w-full border-collapse text-[12.5px]">
-                        <thead><tr className="text-left font-mono text-[10.5px] uppercase tracking-wide text-black/45 dark:text-white/45"><th className="w-20 py-1.5">景别</th><th className="w-24">运镜</th><th>构图 / 主体</th><th>动作 / 台词</th><th className="w-8"></th></tr></thead>
-                        <tbody>
-                          {subsOf(sh.id).map((ss) => (
-                            <tr key={ss.id} className="border-t border-black/6 align-top dark:border-white/8">
-                              <td className="py-1.5 pr-2"><input defaultValue={ss.size || ""} disabled={!canEdit} className="w-full rounded border border-hairline bg-transparent px-1.5 py-1" onBlur={(e) => e.target.value !== ss.size && run(() => updateSubshot(projectId, ss.id, { size: e.target.value }))} /></td>
-                              <td className="pr-2"><input defaultValue={ss.movement || ""} disabled={!canEdit} className="w-full rounded border border-hairline bg-transparent px-1.5 py-1" onBlur={(e) => e.target.value !== ss.movement && run(() => updateSubshot(projectId, ss.id, { movement: e.target.value }))} /></td>
-                              <td className="pr-2"><input defaultValue={ss.composition || ""} disabled={!canEdit} className="w-full rounded border border-hairline bg-transparent px-1.5 py-1" onBlur={(e) => e.target.value !== ss.composition && run(() => updateSubshot(projectId, ss.id, { composition: e.target.value }))} /></td>
-                              <td className="pr-2"><input defaultValue={ss.action || ""} disabled={!canEdit} className="w-full rounded border border-hairline bg-transparent px-1.5 py-1" onBlur={(e) => e.target.value !== ss.action && run(() => updateSubshot(projectId, ss.id, { action: e.target.value }))} /></td>
-                              <td>{canEdit && <button className="text-[#d85a30]" onClick={() => run(() => delSubshot(projectId, ss.id))}>✕</button>}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {canEdit && <button className="mt-2 rounded-full border border-dashed border-hairline px-3 py-1 text-[12px] text-muted hover:border-[#34d399] hover:text-[#1d9e75] dark:hover:text-[#5fe3c0]" disabled={busy} onClick={() => run(() => addSubshot(projectId, sh.id))}>＋ 子分镜（切镜）</button>}
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: "-.6px" }}>导演分镜表 <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-3)" }}>逐镜手绘分镜图</span></h1>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", padding: 3, borderRadius: 11, background: "var(--bg-2)", border: "1px solid var(--stroke)", gap: 3 }}>
+              {([["table", "表格", ["M3 6h18M3 12h18M3 18h18"]], ["gallery", "大图", ["M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"]]] as const).map(([k, l, d]) => { const on = view === k; return <button key={k} onClick={() => setView(k as any)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 500, color: on ? "var(--text)" : "var(--text-3)", background: on ? "var(--panel-2)" : "transparent", border: "none" }}><Icon d={d} size={14} sw={1.7} />{l}</button>; })}
             </div>
-          )}
+            {canEdit && <Hov as="button" onClick={genMissing} base={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 6px 0 15px", borderRadius: 12, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none", boxShadow: "var(--inset),0 8px 20px -8px var(--accent)", opacity: batch ? 0.6 : 1 }} hover={batch ? undefined : { filter: "brightness(1.08)" }}>{batch ? "批量生成中…" : "生成空缺画面"}<span style={{ width: 28, height: 28, borderRadius: 9, display: "grid", placeItems: "center", background: "var(--accent-ink)", color: "var(--accent)" }}><Icon d={["M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"]} size={15} sw={2} /></span></Hov>}
+          </div>
         </div>
-      </main>
-    </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", padding: 3, borderRadius: 11, background: "var(--bg-2)", border: "1px solid var(--stroke)", gap: 3 }}>
+            {episodes.map((e) => { const on = epId === e.id; return <button key={e.id} onClick={() => { setEpId(e.id); setSelId(null); }} style={{ padding: "7px 13px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500, color: on ? "var(--text)" : "var(--text-3)", background: on ? "var(--panel-2)" : "transparent", border: "none" }}>{pad(e.idx)}</button>; })}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {([["all", "全部", epShots.length], ["done", "已绘制", done], ["todo", "待生成", epShots.length - done]] as const).map(([k, l, c]) => { const on = filter === k; return <button key={k} onClick={() => setFilter(k as any)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 9, cursor: "pointer", fontSize: 12.5, fontWeight: 500, color: on ? "var(--accent-ink)" : "var(--text-2)", background: on ? "var(--accent)" : "var(--panel)", border: `1px solid ${on ? "transparent" : "var(--stroke)"}` }}>{l}<span className="fg-mono" style={{ fontSize: 10, opacity: 0.7 }}>{c}</span></button>; })}
+          </div>
+        </div>
+      </div>
+
+      {/* body */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        {epShots.length === 0 ? (
+          <div style={{ textAlign: "center", color: "var(--text-3)", padding: "70px 0" }}>本集还没有镜头。去「剧本工作台 → 分镜头剧本」让 AI 拆镜头,或下方手动添加。</div>
+        ) : view === "table" ? (
+          <div style={{ minWidth: 1024 }}>
+            <div className="fg-mono" style={{ position: "sticky", top: 0, zIndex: 3, display: "grid", gridTemplateColumns: cols, padding: "0 28px", height: 44, alignItems: "center", background: "var(--panel)", backdropFilter: "blur(16px)", borderBottom: "1px solid var(--stroke)", fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" }}>
+              <div>镜号</div><div>画面</div><div>景别</div><div>运镜</div><div>时长</div><div>台词 / 动作</div><div>角色</div><div>状态</div>
+            </div>
+            {shown.map((s) => { const on = selId === s.id; const st = stChip(s); const img = fu(s.frame_path); return (
+              <div key={s.id} onClick={() => { setSelId(s.id); setMode("gen"); }} style={{ display: "grid", gridTemplateColumns: cols, padding: "0 28px", minHeight: 92, alignItems: "center", cursor: "pointer", borderBottom: "1px solid var(--stroke)", background: on ? "var(--row-hover)" : "transparent" }}>
+                <span className="fg-mono" style={{ fontSize: 15, fontWeight: 600 }}>{s.no}</span>
+                <div style={{ width: 116, height: 66, borderRadius: 11, overflow: "hidden", position: "relative", background: "var(--bg-2)", border: "1px solid var(--stroke-2)", display: "grid", placeItems: "center" }}>{img ? <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "var(--text-3)" }}><Icon d={["M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z"]} size={18} sw={1.5} /></span>}{busyId === s.id && <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,.45)", color: "#fff", fontSize: 10 }} className="fg-mono">生成中</span>}</div>
+                <div><span style={{ display: "inline-flex", padding: "4px 9px", borderRadius: 8, fontSize: 12, color: "var(--text)", background: "var(--panel-2)", border: "1px solid var(--stroke)" }}>{beat(s, "景别") || "—"}</span></div>
+                <div style={{ fontSize: 13, color: "var(--text-2)" }}>{beat(s, "运镜") || "—"}</div>
+                <div className="fg-mono" style={{ fontSize: 13 }}>{s.time_start ? `${s.time_start}${s.time_end ? "–" + s.time_end : ""}` : (s.duration_s ? s.duration_s + "s" : "—")}</div>
+                <div style={{ paddingRight: 16, fontSize: 13.5, lineHeight: 1.5, color: "var(--text-2)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } as any}>{beat(s, "对白") || beat(s, "动作") || beat(s, "画面") || "—"}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>{(s.roles || []).slice(0, 3).map((c, i) => <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 7, fontSize: 11.5, color: "var(--text)", background: "var(--panel)", border: "1px solid var(--stroke)" }}><span style={{ width: 12, height: 12, borderRadius: "50%", background: "linear-gradient(150deg,var(--accent),var(--accent-2))" }} />{c}</span>)}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 9, fontSize: 12, fontWeight: 500, color: st.ink, background: "var(--panel)", border: "1px solid var(--stroke)" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: st.ink }} />{st.t}</span>{canEdit && !s.frame_path && <button onClick={(e) => { e.stopPropagation(); genFrame(s); }} disabled={busyId === s.id} title="生成手绘分镜图" style={{ width: 28, height: 28, borderRadius: 8, display: "grid", placeItems: "center", cursor: "pointer", color: "var(--accent-ink)", background: "var(--accent)", border: "none" }}><Icon d={["M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z"]} size={14} sw={1.8} /></button>}</div>
+              </div>
+            ); })}
+            {canEdit && <div onClick={addRow} style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 28px", cursor: "pointer", color: "var(--text-3)" }}><span style={{ width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", border: "1.5px dashed var(--stroke-2)" }}><Icon d={["M12 5v14M5 12h14"]} size={16} sw={1.8} /></span>添加镜头</div>}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 18, padding: "22px 28px 60px" }}>
+            {shown.map((s) => { const img = fu(s.frame_path); return (
+              <div key={s.id} onClick={() => { setSelId(s.id); setMode("gen"); }} style={{ borderRadius: 16, overflow: "hidden", cursor: "pointer", background: "var(--panel)", border: `1px solid ${selId === s.id ? "var(--accent)" : "var(--stroke)"}`, boxShadow: "var(--inset)" }}>
+                <div style={{ aspectRatio: "16/9", background: "var(--bg-2)", display: "grid", placeItems: "center", position: "relative" }}>{img ? <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "var(--text-3)" }}><Icon d={["M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z"]} size={24} sw={1.4} /></span>}{busyId === s.id && <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,.45)", color: "#fff" }} className="fg-mono">生成中…</span>}</div>
+                <div style={{ padding: "11px 13px", display: "flex", alignItems: "center", gap: 8 }}><span className="fg-mono" style={{ fontSize: 14, fontWeight: 600 }}>{s.no}</span><span style={{ fontSize: 13, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title || beat(s, "画面") || ""}</span><div style={{ flex: 1 }} />{canEdit && <button onClick={(e) => { e.stopPropagation(); genFrame(s); }} disabled={busyId === s.id} style={{ width: 28, height: 28, borderRadius: 8, display: "grid", placeItems: "center", cursor: "pointer", color: "var(--accent-ink)", background: "var(--accent)", border: "none" }}><Icon d={["M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z"]} size={14} sw={1.8} /></button>}</div>
+              </div>
+            ); })}
+          </div>
+        )}
+      </div>
+    </StudioShell>
   );
 }

@@ -22,7 +22,7 @@ export default function AiPanel({
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("deepseek-flash");
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [activeSkill, setActiveSkill] = useState<{ name: string; content: string } | null>(null);
+  const [activeSkills, setActiveSkills] = useState<{ name: string; content: string }[]>([]);
   const [imgs, setImgs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -48,9 +48,10 @@ export default function AiPanel({
     ...mine.map((m) => ({ title: m.title, body: m.body, group: "我的预设" })),
   ], [felix, mine]);
   async function pickSkill(it: PaletteItem) {
-    if (it.body.startsWith("@file:")) {
-      try { const r = await fetch("/skills/" + it.body.slice(6)); const t = await r.text(); setActiveSkill({ name: it.title, content: t }); } catch { alert("技能读取失败"); }
-    } else setActiveSkill({ name: it.title, content: it.body });
+    if (activeSkills.some((s) => s.name === it.title)) { setActiveSkills((a) => a.filter((s) => s.name !== it.title)); return; }
+    let content = it.body;
+    if (it.body.startsWith("@file:")) { try { const r = await fetch("/skills/" + it.body.slice(6)); content = await r.text(); } catch { alert("技能读取失败"); return; } }
+    setActiveSkills((a) => [...a, { name: it.title, content }]);
   }
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }); }, [messages, busy]);
@@ -73,7 +74,8 @@ export default function AiPanel({
     setMessages(next); setInput(""); setImgs([]); setBusy(true);
     try {
       const history = next.map((m) => ({ role: m.role === "ai" ? "assistant" : "user", content: m.text }));
-      const sys = system + (activeSkill ? `\n\n=== 已启用技能：${activeSkill.name} ===\n${activeSkill.content}` : "");
+      const skillBlock = activeSkills.map((s) => `=== 已启用技能：${s.name} ===\n${s.content}`).join("\n\n");
+      const sys = system + (skillBlock ? "\n\n" + skillBlock : "");
       const res = await fetch("/api/ai/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, model, images: sendImgs, messages: [{ role: "system", content: sys }, ...history] }),
@@ -172,10 +174,10 @@ export default function AiPanel({
             placeholder={placeholder || "和 AI 对话……（⌘↵ 发送）"} rows={2} style={ipt as any} />
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px 8px" }}>
             <Hov as="button" onClick={() => { ensureData(); setSkillOpen(true); }}
-              base={{ ...toolBtn, color: activeSkill ? "var(--accent)" : "var(--text-2)", borderColor: activeSkill ? "var(--accent)" : "var(--stroke)", maxWidth: 168 }} hover={{ background: "var(--panel)" }}>
+              base={{ ...toolBtn, color: activeSkills.length ? "var(--accent)" : "var(--text-2)", borderColor: activeSkills.length ? "var(--accent)" : "var(--stroke)", maxWidth: 168 }} hover={{ background: "var(--panel)" }}>
               <Icon d={["M14.7 6.3a4 4 0 0 0-5.6 5.6l-6 6V21h3l6-6a4 4 0 0 0 5.6-5.6l-2.3 2.3-2.6-2.6 2.3-2.3z"]} size={14} sw={1.6} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSkill ? activeSkill.name : "Skill"}</span>
-              {activeSkill && <span onClick={(e) => { e.stopPropagation(); setActiveSkill(null); }} style={{ marginLeft: 2, opacity: 0.7 }}>✕</span>}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSkills.length ? `技能 · ${activeSkills.length}` : "Skill"}</span>
+              {activeSkills.length > 0 && <span onClick={(e) => { e.stopPropagation(); setActiveSkills([]); }} style={{ marginLeft: 2, opacity: 0.7 }}>✕</span>}
             </Hov>
             <Hov as="button" onClick={() => { ensureData(); setPromptOpen(true); }} base={toolBtn} hover={{ color: "var(--text)", background: "var(--panel)" }}>
               <Icon d={["M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"]} size={14} sw={1.7} />Prompt
@@ -194,9 +196,9 @@ export default function AiPanel({
         </div>
       </div>
 
-      <CommandPalette open={skillOpen} onClose={() => setSkillOpen(false)} title="启用工作流技能" hint="启用后整段对话按该方法工作" accentGroup="工作流技能"
-        searchPlaceholder="搜索技能…" items={skillItems} onPick={pickSkill}
-        extraTop={activeSkill ? <button onClick={() => { setActiveSkill(null); setSkillOpen(false); }} style={{ width: "100%", marginBottom: 4, padding: "9px 12px", borderRadius: 11, cursor: "pointer", textAlign: "left", fontSize: 12.5, color: "#ff9a8a", background: "transparent", border: "1px solid var(--stroke)" }}>✕ 停用当前技能「{activeSkill.name}」</button> : undefined} />
+      <CommandPalette open={skillOpen} onClose={() => setSkillOpen(false)} title="启用工作流技能" hint="可多选 · 点选叠加 / 再点取消" accentGroup="工作流技能"
+        searchPlaceholder="搜索技能…" items={skillItems} onPick={pickSkill} multi isSelected={(it) => activeSkills.some((s) => s.name === it.title)}
+        extraTop={activeSkills.length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>{activeSkills.map((s) => <span key={s.name} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--accent)", padding: "4px 9px", borderRadius: 8, background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }}>{s.name}<span onClick={() => setActiveSkills((a) => a.filter((x) => x.name !== s.name))} style={{ cursor: "pointer", opacity: 0.7 }}>✕</span></span>)}<button onClick={() => setActiveSkills([])} style={{ fontSize: 11.5, color: "var(--text-3)", background: "transparent", border: "1px solid var(--stroke)", borderRadius: 8, padding: "4px 9px", cursor: "pointer" }}>全部停用</button></div> : undefined} />
       <CommandPalette open={promptOpen} onClose={() => setPromptOpen(false)} title="插入 Prompt 片段" hint="点选把提示词插入输入框"
         searchPlaceholder="搜索提示词…" items={promptItems} onPick={(it) => setInput((v) => (v ? v + "\n" + it.body : it.body))} />
     </>
