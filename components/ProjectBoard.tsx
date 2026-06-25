@@ -1,134 +1,248 @@
 "use client";
-import { useState } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Project, Role } from "@/lib/types";
-import { createProject, requestJoin, approveJoin, deleteProject } from "@/app/projects/actions";
+import { createProject, requestJoin, approveJoin, deleteProject, signOut } from "@/app/projects/actions";
+import { useFgTheme, Icon, Hov } from "@/components/studio/ui";
 
 type Pending = { requestId: string; user_id: string; email: string };
-const ease = "transition duration-500 ease-[cubic-bezier(.32,.72,0,1)]";
+const COVERS = [
+  "radial-gradient(120% 140% at 80% 10%, #2b3a6e, #131a33 60%),linear-gradient(160deg,#1a2348,#0d1530)",
+  "radial-gradient(120% 140% at 80% 10%, #1f4d46, #0a1f1a 60%),linear-gradient(160deg,#13352f,#08130f)",
+  "radial-gradient(120% 140% at 80% 10%, #4a2f5e, #1a1030 60%),linear-gradient(160deg,#2e1f48,#120d1f)",
+  "radial-gradient(120% 140% at 80% 10%, #5e3030, #2a1010 60%),linear-gradient(160deg,#48201f,#1f0d0d)",
+  "radial-gradient(120% 140% at 80% 10%, #2b5a6e, #0a2230 60%),linear-gradient(160deg,#1a3f48,#08171f)",
+];
+const ORBS = ["radial-gradient(circle at 38% 34%, #ffc0a6, #ea8190 46%, transparent 80%)", "radial-gradient(circle at 38% 34%, #a6ffd0, #5ad2a0 46%, transparent 80%)", "radial-gradient(circle at 38% 34%, #c0a6ff, #8a6bd0 46%, transparent 80%)"];
+const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
+function ago(iso: string) { const d = (Date.now() - new Date(iso).getTime()) / 1000; if (d < 3600) return Math.max(1, Math.floor(d / 60)) + " 分钟前"; if (d < 86400) return Math.floor(d / 3600) + " 小时前"; if (d < 604800) return Math.floor(d / 86400) + " 天前"; return new Date(iso).toLocaleDateString("zh-CN"); }
+const EMOJIS = ["✦", "✺", "❂", "✸", "❖", "✶"];
 
-function Arrow() { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>; }
-function Trash() { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" /></svg>; }
-function Plus() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>; }
-
-export default function ProjectBoard({ projects, myRole, myApplied, pending, counts, userId }: {
+export default function ProjectBoard({
+  projects, myRole, myApplied, pending, counts, membersByProject, epCount, genCount, userId, userEmail, isAdmin,
+}: {
   projects: Project[]; myRole: Record<string, Role>; myApplied: string[];
-  pending: Record<string, Pending[]>; counts: Record<string, number>; userId: string;
+  pending: Record<string, Pending[]>; counts: Record<string, number>;
+  membersByProject: Record<string, { ini: string; bg: string }[]>; epCount: Record<string, number>;
+  genCount: number; userId: string; userEmail: string; isAdmin: boolean;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"all" | "mine">("all");
+  const { theme, toggle } = useFgTheme();
+  const [tab, setTab] = useState<"all" | "mine" | "active" | "draft">("all");
+  const [q, setQ] = useState("");
   const [showNew, setShowNew] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [summary, setSummary] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pendOpen, setPendOpen] = useState(false);
   const applied = new Set(myApplied);
-  const list = projects.filter((p) => (tab === "mine" ? !!myRole[p.id] : true));
 
-  async function onJoin(id: string) { await requestJoin(id); router.refresh(); }
-  async function onApprove(p: Pending, projectId: string) { await approveJoin(p.requestId, projectId, p.user_id); router.refresh(); }
-  async function onDelete(id: string, name: string) {
-    if (!confirm(`确定删除项目「${name}」？\n剧本、分镜、资产等全部内容将一并永久删除，且不可恢复。`)) return;
-    setBusyId(id); const r = await deleteProject(id); setBusyId(null);
-    if (r?.error) { alert("删除失败：" + r.error); return; }
-    router.refresh();
+  const statusOf = (p: Project) => (epCount[p.id] > 0 ? "进行中" : "草稿");
+  const stageNoOf = (p: Project) => (epCount[p.id] > 0 ? 2 : 1);
+  const cover = (p: Project) => (p.cover && p.cover.startsWith("linear") ? p.cover : COVERS[hash(p.id) % COVERS.length]);
+  const genre = (p: Project) => (p.story_bible as any)?.genre || "漫剧";
+
+  const filtered = useMemo(() => projects.filter((p) => {
+    if (tab === "mine" && !myRole[p.id]) return false;
+    if (tab === "active" && statusOf(p) !== "进行中") return false;
+    if (tab === "draft" && statusOf(p) !== "草稿") return false;
+    if (q && !(p.name + genre(p)).toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [projects, tab, q, myRole, epCount]);
+
+  const mineCount = projects.filter((p) => myRole[p.id]).length;
+  const activeCount = projects.filter((p) => statusOf(p) === "进行中").length;
+  const draftCount = projects.filter((p) => statusOf(p) === "草稿").length;
+  const pendList = Object.entries(pending).flatMap(([pid, ps]) => ps.map((x) => ({ ...x, projectId: pid, projectName: projects.find((p) => p.id === pid)?.name || "" })));
+  const resume = projects.find((p) => myRole[p.id]);
+  const hour = new Date().getHours();
+  const greeting = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
+  const meIni = (userEmail || "?").replace(/@.*/, "").slice(0, 2).toUpperCase();
+
+  async function onCreate() {
+    if (!name.trim()) return; setBusy(true);
+    const fd = new FormData(); fd.set("name", name.trim()); fd.set("summary", summary.trim()); fd.set("cover", ""); fd.set("emoji", EMOJIS[Math.floor(Math.random() * EMOJIS.length)]);
+    const r: any = await createProject(fd); setBusy(false);
+    if (r?.error) { alert("创建失败：" + r.error); return; }
+    setShowNew(false); setName(""); setSummary(""); router.refresh();
   }
+  async function onJoin(id: string) { await requestJoin(id); router.refresh(); }
+  async function onApprove(p: any) { await approveJoin(p.requestId, p.projectId, p.user_id); router.refresh(); }
+  async function onDelete(id: string, nm: string) { if (!confirm(`删除项目「${nm}」？剧本/分镜/资产将一并永久删除,不可恢复。`)) return; setBusy(true); const r: any = await deleteProject(id); setBusy(false); if (r?.error) { alert("删除失败：" + r.error); return; } router.refresh(); }
 
-  const mineCount = projects.filter((p) => !!myRole[p.id]).length;
-  const pendCount = Object.values(pending).reduce((a, b) => a + b.length, 0);
+  const railItem = (label: string, d: string[], active: boolean, href?: string, badge?: string, onClick?: () => void) => (
+    <Hov as={href ? "a" : "button"} href={href} onClick={onClick}
+      base={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 13px", borderRadius: 13, cursor: "pointer", color: active ? "var(--text)" : "var(--text-2)", background: active ? "var(--panel-2)" : "transparent", border: `1px solid ${active ? "var(--stroke-2)" : "transparent"}`, boxShadow: active ? "var(--inset)" : "none", fontSize: 14, fontWeight: active ? 500 : 400, width: "100%", textAlign: "left", transition: "all .3s var(--ease)" }}
+      hover={active ? undefined : { color: "var(--text)", background: "var(--panel)" }}>
+      <span style={{ color: active ? "var(--accent)" : "currentColor", display: "flex" }}><Icon d={d} size={19} sw={1.7} /></span>{label}
+      {badge && <span className="fg-mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-3)" }}>{badge}</span>}
+    </Hov>
+  );
+
   return (
-    <div className="mx-auto max-w-[1180px] px-6 pb-24 pt-6">
-      {/* 仪表盘 hero */}
-      <div className="lglass relative overflow-hidden rounded-[26px] px-7 py-7">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(52,211,153,.22),transparent_70%)]" />
-        <div className="relative flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#1d9e75] dark:text-[#5fe3c0]">FG STUDIO · 工作台</span>
-            <h1 className="mt-3 font-disp text-[clamp(28px,3.6vw,40px)] font-semibold tracking-tighter">你的项目</h1>
-            <p className="mt-2 text-[13.5px] text-black/50 dark:text-white/50">每个故事 = 一个项目 = 一个带记忆的 Agent。</p>
-            <div className="mt-5 flex flex-wrap gap-x-8 gap-y-2">
-              {[["项目", String(projects.length)], ["我参与", String(mineCount)], ["待审批", String(pendCount)]].map(([k, v]) => (
-                <div key={k}><div className="font-mono text-[20px] font-medium tracking-tight">{v}</div><div className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-black/40 dark:text-white/40">{k}</div></div>
-              ))}
+    <div data-theme={theme} className="fg2" style={{ position: "relative", minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontSize: 15, lineHeight: 1.55, display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(700px 540px at 100% 14%, var(--glow-coral), transparent 60%), radial-gradient(760px 600px at 2% -8%, var(--glow-b), transparent 58%)", animation: "glowpulse 16s var(--ease) infinite" }} />
+      </div>
+
+      {/* TOP BAR */}
+      <header style={{ position: "relative", zIndex: 5, flex: "none", height: 64, display: "flex", alignItems: "center", gap: 16, padding: "0 22px", borderBottom: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(22px) saturate(1.4)", WebkitBackdropFilter: "blur(22px) saturate(1.4)", boxShadow: "var(--inset)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+          <div className="fg-mono" style={{ width: 36, height: 36, borderRadius: 11, display: "grid", placeItems: "center", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontWeight: 600, fontSize: 14, boxShadow: "var(--inset),0 6px 18px -6px var(--glow-b)" }}>FG</div>
+          <div><div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-.3px" }}>FG Studio</div><div className="fg-mono" style={{ fontSize: 9.5, letterSpacing: 1, color: "var(--text-3)" }}>AI 漫剧工业化平台</div></div>
+        </div>
+        <div style={{ flex: 1, maxWidth: 460, marginLeft: 18, display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 14px", borderRadius: 12, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}>
+          <Icon d={["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z", "m20 20-3.5-3.5"]} size={17} sw={1.7} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索项目、题材……" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: "var(--text)", fontSize: 13.5, fontFamily: "inherit" }} />
+        </div>
+        <div style={{ flex: 1 }} />
+        <Hov as="button" onClick={toggle} title="日/夜" base={{ width: 38, height: 38, borderRadius: 11, display: "grid", placeItems: "center", cursor: "pointer", color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }} hover={{ color: "var(--text)", background: "var(--panel-2)" }}>
+          {theme === "dark" ? <Icon d={["M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19", "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"]} size={19} /> : <Icon d={["M21 12.8A8.5 8.5 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8Z"]} size={19} />}
+        </Hov>
+        <Hov as="button" onClick={() => signOut()} title="退出登录" base={{ height: 38, padding: "0 13px", borderRadius: 11, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12.5, color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)" }} hover={{ color: "var(--text)", background: "var(--panel-2)" }}>退出</Hov>
+        <div className="fg-mono" style={{ width: 36, height: 36, borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 600, color: "var(--accent-ink)", background: "linear-gradient(150deg,var(--accent),var(--accent-2))" }}>{meIni}</div>
+      </header>
+
+      <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex" }}>
+        {/* LEFT RAIL */}
+        <aside className="fg-rail" style={{ flex: "none", width: 230, display: "flex", flexDirection: "column", gap: 4, padding: "22px 16px", borderRight: "1px solid var(--stroke)" }}>
+          <div className="fg-mono" style={{ fontSize: 10, letterSpacing: 2, color: "var(--text-3)", padding: "6px 12px 10px" }}>工作区</div>
+          {railItem("项目", ["M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"], true, undefined, String(projects.length))}
+          {railItem("预设库", ["M4 6h8M16 6h4M4 12h2M10 12h10M4 18h6M14 18h6", "M14 6a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M10 12a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M16 18a2 2 0 1 0-4 0 2 2 0 0 0 4 0"], false, "/presets")}
+          {isAdmin && railItem("管理后台", ["M12 3 5 6v5c0 4.6 3.1 7.7 7 9 3.9-1.3 7-4.4 7-9V6l-7-3Z"], false, "/admin")}
+          <div style={{ flex: 1 }} />
+          <div style={{ padding: 14, borderRadius: 15, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 13, fontWeight: 500 }}><span style={{ color: "var(--accent)", display: "flex" }}><Icon d={["M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"]} size={15} sw={1.8} /></span>我的生成</div>
+            <div style={{ height: 7, borderRadius: 6, background: "var(--bg-2)", overflow: "hidden", marginBottom: 7 }}><div style={{ width: Math.min(100, (genCount / 200) * 100) + "%", height: "100%", borderRadius: 6, background: "linear-gradient(90deg,var(--accent),var(--accent-2))" }} /></div>
+            <div className="fg-mono" style={{ fontSize: 10.5, color: "var(--text-3)" }}>{genCount} 次出图</div>
+          </div>
+          {railItem("个人中心", ["M12 8a4 4 0 1 0 0-.01", "M4 21c0-4 3.6-7 8-7s8 3 8 7"], false, "/me")}
+        </aside>
+
+        {/* MAIN */}
+        <main style={{ flex: 1, minWidth: 0, padding: "30px 36px 60px" }}>
+          {/* HERO */}
+          <section style={{ display: "flex", gap: 22, alignItems: "stretch", marginBottom: 34, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 300, display: "flex", flexDirection: "column", justifyContent: "center", padding: "30px 34px", borderRadius: 24, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset),var(--shadow)", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", right: -40, bottom: -60, width: 240, height: 240, borderRadius: "50%", background: "radial-gradient(circle at 40% 35%, var(--glow-coral), transparent 70%)", pointerEvents: "none" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                <span className="fg-mono" style={{ fontSize: 11, letterSpacing: 2, color: "var(--text-3)" }}>{new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</span>
+                <span className="fg-script" style={{ fontSize: 23, color: "var(--accent)", lineHeight: 1, transform: "rotate(-5deg)", textShadow: "0 0 18px var(--glow-a)" }}>let&apos;s create</span>
+              </div>
+              <h1 style={{ margin: 0, fontSize: 33, fontWeight: 700, letterSpacing: "-1px", lineHeight: 1.06 }}>{greeting}，{userEmail.replace(/@.*/, "")}</h1>
+              <div style={{ marginTop: 20, display: "flex", gap: 22 }}>
+                {[["进行中", activeCount], ["我参与", mineCount], ["待审批", pendList.length]].map(([l, v], i) => (
+                  <div key={l as string} style={{ display: "flex", alignItems: "stretch", gap: 22 }}>
+                    {i > 0 && <div style={{ width: 1, background: "var(--stroke)" }} />}
+                    <div><div className="fg-mono" style={{ fontSize: 24, fontWeight: 600, color: i === 2 && (v as number) > 0 ? "var(--accent)" : "var(--text)" }}>{v}</div><div style={{ fontSize: 12, color: "var(--text-3)" }}>{l}</div></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {resume && (
+              <Hov as="a" href={`/projects/${resume.id}/script`} base={{ flex: "none", width: 330, display: "flex", flexDirection: "column", borderRadius: 24, overflow: "hidden", background: "var(--panel-2)", border: "1px solid var(--stroke-2)", boxShadow: "var(--inset),var(--shadow)", cursor: "pointer", transition: "all .35s var(--ease)" }} hover={{ transform: "translateY(-4px)", borderColor: "var(--accent)" }}>
+                <div style={{ height: 128, position: "relative", background: cover(resume), overflow: "hidden" }}>
+                  <div className="fg-mono" style={{ position: "absolute", left: 16, top: 14, fontSize: 10, letterSpacing: 2, color: "rgba(255,255,255,.7)", padding: "3px 8px", borderRadius: 7, background: "rgba(0,0,0,.3)", border: "1px solid rgba(255,255,255,.18)" }}>继续上次</div>
+                  <div style={{ position: "absolute", left: 16, bottom: 12, color: "#fff" }}><div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-.4px" }}>{resume.name}</div><div style={{ fontSize: 11.5, opacity: 0.7 }}>{genre(resume)}</div></div>
+                </div>
+                <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 4 }}>阶段 {String(stageNoOf(resume)).padStart(2, "0")} / 07 · {stageNoOf(resume) > 1 ? "剧本工作台" : "立项 · 故事圣经"}</div><div style={{ height: 6, borderRadius: 6, background: "var(--bg-2)", overflow: "hidden" }}><div style={{ width: (stageNoOf(resume) / 7) * 100 + "%", height: "100%", borderRadius: 6, background: "linear-gradient(90deg,var(--accent),var(--accent-2))" }} /></div></div>
+                  <span style={{ flex: "none", width: 38, height: 38, borderRadius: 12, display: "grid", placeItems: "center", background: "var(--accent)", color: "var(--accent-ink)", boxShadow: "0 8px 20px -8px var(--accent)" }}><Icon d={["M7 17 17 7M9 7h8v8"]} size={18} sw={2} /></span>
+                </div>
+              </Hov>
+            )}
+          </section>
+
+          {/* TOOLBAR */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: "-.3px" }}>我的项目</h2>
+            <div style={{ display: "flex", padding: 4, borderRadius: 13, background: "var(--bg-2)", border: "1px solid var(--stroke)", gap: 3 }}>
+              {([["all", "全部", projects.length], ["mine", "我参与", mineCount], ["active", "进行中", activeCount], ["draft", "草稿", draftCount]] as const).map(([k, l, c]) => { const on = tab === k; return (
+                <button key={k} onClick={() => setTab(k as any)} style={{ padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 500, color: on ? "var(--text)" : "var(--text-3)", background: on ? "var(--panel-2)" : "transparent", border: "none" }}>{l}<span className="fg-mono" style={{ fontSize: 10.5, marginLeft: 6, color: "var(--text-3)" }}>{c}</span></button>
+              ); })}
+            </div>
+            <div style={{ flex: 1 }} />
+            {pendList.length > 0 && <Hov as="button" onClick={() => setPendOpen(true)} base={{ display: "flex", alignItems: "center", gap: 7, height: 40, padding: "0 14px", borderRadius: 12, cursor: "pointer", fontSize: 13, color: "var(--accent)", background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }} hover={{ filter: "brightness(1.05)" }}>{pendList.length} 个加入申请</Hov>}
+            <Hov as="button" onClick={() => setShowNew(true)} base={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 6px 0 16px", borderRadius: 13, cursor: "pointer", fontSize: 13.5, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none", boxShadow: "var(--inset),0 8px 20px -8px var(--accent)" }} hover={{ filter: "brightness(1.08)" }}>新建项目<span style={{ width: 28, height: 28, borderRadius: 9, display: "grid", placeItems: "center", background: "var(--accent-ink)", color: "var(--accent)" }}><Icon d={["M12 5v14M5 12h14"]} size={15} sw={2} /></span></Hov>
+          </div>
+
+          {/* GRID */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(304px,1fr))", gap: 20 }}>
+            {filtered.map((p) => {
+              const isMember = !!myRole[p.id]; const isOwner = p.created_by === userId; const st = statusOf(p); const sn = stageNoOf(p);
+              const team = membersByProject[p.id] || []; const total = counts[p.id] || 1;
+              const inner = (
+                <>
+                  <div style={{ height: 152, position: "relative", background: cover(p), overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: -30, right: -26, width: 120, height: 120, borderRadius: "50%", background: ORBS[hash(p.id) % ORBS.length], opacity: 0.6 }} />
+                    <div style={{ position: "absolute", left: 14, top: 14, display: "flex", gap: 7 }}>
+                      <span style={{ fontSize: 11, fontWeight: 500, color: "#fff", padding: "3px 9px", borderRadius: 8, background: "rgba(0,0,0,.32)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)" }}>{genre(p)}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, color: st === "进行中" ? "#74f08e" : "#ffc06a", padding: "3px 9px", borderRadius: 8, background: "rgba(0,0,0,.32)", border: "1px solid rgba(255,255,255,.18)", backdropFilter: "blur(8px)" }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor" }} />{st}</span>
+                    </div>
+                    {isOwner && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(p.id, p.name); }} title="删除项目" style={{ position: "absolute", right: 12, top: 12, width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", cursor: "pointer", color: "#fff", background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)" }}><Icon d={["M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"]} size={14} sw={1.7} /></button>}
+                    <div style={{ position: "absolute", left: 16, bottom: 13, color: "#fff" }}>
+                      <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-.4px", textShadow: "0 2px 12px rgba(0,0,0,.4)" }}>{p.name}</div>
+                      <div className="fg-mono" style={{ fontSize: 11, opacity: 0.78, letterSpacing: 1 }}>#{p.id.slice(0, 6).toUpperCase()}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: "15px 16px 16px", display: "flex", flexDirection: "column", gap: 13 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontSize: 12.5, color: "var(--text-2)" }}>{sn > 1 ? "剧本工作台" : "立项 · 故事圣经"}</span><span className="fg-mono" style={{ fontSize: 11, color: "var(--text-3)" }}>{String(sn).padStart(2, "0")} / 07</span></div>
+                      <div style={{ display: "flex", gap: 4 }}>{Array.from({ length: 7 }).map((_, i) => <div key={i} style={{ flex: 1, height: 5, borderRadius: 4, background: i < sn ? "var(--accent)" : "var(--stroke)" }} />)}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        {team.map((m, i) => <div key={i} className="fg-mono" style={{ width: 26, height: 26, borderRadius: "50%", marginRight: -7, display: "grid", placeItems: "center", fontSize: 10, fontWeight: 600, color: "#fff", background: m.bg, border: "2px solid var(--panel-solid)" }}>{m.ini}</div>)}
+                        <span style={{ marginLeft: 14, fontSize: 11.5, color: "var(--text-3)" }}>{total} 人{total > team.length ? "" : ""}</span>
+                      </div>
+                      <span className="fg-mono" style={{ fontSize: 10.5, color: "var(--text-3)" }}>{ago(p.created_at)}</span>
+                    </div>
+                    {!isMember && (applied.has(p.id) ? <div style={{ textAlign: "center", fontSize: 12.5, color: "var(--text-3)", padding: "6px 0" }}>申请审批中…</div> : <button onClick={(e) => { e.preventDefault(); onJoin(p.id); }} style={{ height: 36, borderRadius: 11, cursor: "pointer", fontSize: 13, fontWeight: 500, color: "var(--accent)", background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }}>申请加入</button>)}
+                  </div>
+                </>
+              );
+              return isMember
+                ? <Hov as="a" key={p.id} href={`/projects/${p.id}/script`} base={{ display: "flex", flexDirection: "column", borderRadius: 20, overflow: "hidden", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)", cursor: "pointer", transition: "all .35s var(--ease)" }} hover={{ transform: "translateY(-5px)", borderColor: "var(--stroke-2)", boxShadow: "var(--inset),var(--shadow)" }}>{inner}</Hov>
+                : <div key={p.id} style={{ display: "flex", flexDirection: "column", borderRadius: 20, overflow: "hidden", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>{inner}</div>;
+            })}
+            <Hov as="button" onClick={() => setShowNew(true)} base={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, minHeight: 330, borderRadius: 20, cursor: "pointer", color: "var(--text-3)", background: "transparent", border: "1.5px dashed var(--stroke-2)", transition: "all .35s var(--ease)" }} hover={{ color: "var(--text)", borderColor: "var(--accent)", background: "var(--panel)" }}>
+              <div style={{ width: 54, height: 54, borderRadius: 16, display: "grid", placeItems: "center", background: "var(--panel-2)", border: "1px solid var(--stroke-2)" }}><Icon d={["M12 5v14M5 12h14"]} size={24} sw={1.6} /></div>
+              <div style={{ textAlign: "center" }}><div style={{ fontSize: 15, fontWeight: 500, color: "var(--text)" }}>新建漫剧项目</div><div style={{ fontSize: 12, marginTop: 3 }}>从灵感或预设开始</div></div>
+            </Hov>
+          </div>
+        </main>
+      </div>
+
+      {/* 新建项目 */}
+      {showNew && (
+        <div onClick={() => setShowNew(false)} style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(2,6,16,.6)", backdropFilter: "blur(8px)", display: "grid", placeItems: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "100%", background: "var(--panel-solid)", border: "1px solid var(--stroke-2)", borderRadius: 22, padding: 24, boxShadow: "var(--shadow)" }}>
+            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>新建漫剧项目</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-3)", marginBottom: 18 }}>先起个名,之后在「立项 · 故事圣经」里完善设定。</div>
+            <label style={{ fontSize: 12, color: "var(--text-2)" }}>项目名称</label>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onCreate(); }} placeholder="如：量子末日" style={{ width: "100%", height: 44, borderRadius: 12, background: "var(--bg-2)", border: "1px solid var(--stroke)", padding: "0 14px", color: "var(--text)", outline: "none", fontSize: 14, margin: "7px 0 14px" }} />
+            <label style={{ fontSize: 12, color: "var(--text-2)" }}>一句话简介（可选）</label>
+            <input value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="如：深空观测站的孤独与接触" style={{ width: "100%", height: 44, borderRadius: 12, background: "var(--bg-2)", border: "1px solid var(--stroke)", padding: "0 14px", color: "var(--text)", outline: "none", fontSize: 14, margin: "7px 0 18px" }} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowNew(false)} style={{ height: 40, padding: "0 16px", borderRadius: 12, cursor: "pointer", fontSize: 13, color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)" }}>取消</button>
+              <button onClick={onCreate} disabled={busy || !name.trim()} style={{ height: 40, padding: "0 18px", borderRadius: 12, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none", opacity: busy || !name.trim() ? 0.5 : 1 }}>{busy ? "创建中…" : "创建项目"}</button>
             </div>
           </div>
-          <button onClick={() => setShowNew((s) => !s)} className={`group inline-flex items-center gap-2.5 rounded-full bg-[#15151a] py-2 pl-5 pr-2 text-[13.5px] font-medium text-white active:scale-[.98] dark:bg-white dark:text-[#0a0f24] ${ease}`}>
-            新建项目 <span className={`grid h-8 w-8 place-items-center rounded-full bg-white/15 group-hover:rotate-90 dark:bg-black/10 ${ease}`}><Plus /></span>
-          </button>
         </div>
-      </div>
-
-      {showNew && (
-        <form action={createProject} className="card mt-6 flex flex-wrap items-end gap-3 p-4">
-          <div className="w-20"><label className="label">图标</label><input name="emoji" defaultValue="🎬" className="input text-center" /></div>
-          <div className="min-w-[200px] flex-1"><label className="label">项目名称</label><input name="name" required placeholder="例如：狼和七只小山羊" className="input" /></div>
-          <div className="min-w-[220px] flex-[2]"><label className="label">简介（可选）</label><input name="summary" placeholder="暗黑童话短剧 · 6 集" className="input" /></div>
-          <button className="inline-flex items-center gap-2 rounded-full bg-[#34d399] px-5 py-2.5 text-[13px] font-medium text-[#0a2018] active:scale-[.98]" type="submit">创建并进入 <Arrow /></button>
-        </form>
       )}
 
-      {/* 标签 */}
-      <div className="my-7 flex gap-2">
-        {(["all", "mine"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={`rounded-full border px-4 py-1.5 font-mono text-[12px] uppercase tracking-wide ${ease} ${tab === t ? "border-[#34d399] bg-[#34d399]/12 text-[#1d9e75] dark:text-[#5fe3c0]" : "border-black/10 text-black/50 hover:border-black/30 dark:border-white/12 dark:text-white/50 dark:hover:border-white/30"}`}>
-            {t === "all" ? `全部项目 · ${projects.length}` : `我的项目 · ${projects.filter((p) => !!myRole[p.id]).length}`}
-          </button>
-        ))}
-      </div>
-
-      {list.length === 0 ? (
-        <div className="grid place-items-center rounded-[20px] border border-dashed border-black/12 py-24 text-center dark:border-white/12">
-          <p className="text-[15px] font-medium">还没有项目</p>
-          <p className="mt-1 text-[13px] text-black/45 dark:text-white/45">点右上角「新建项目」，从故事圣经开始。</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-5">
-          {list.map((p) => {
-            const role = myRole[p.id];
-            const isOwner = p.created_by === userId || role === "owner";
-            const emoji = p.story_bible?._emoji || "";
-            const pend = pending[p.id] || [];
-            return (
-              <div key={p.id} className={`group rounded-[22px] border border-black/6 bg-black/[.02] p-1.5 ring-1 ring-black/5 hover:-translate-y-1 dark:border-white/8 dark:bg-white/[.03] dark:ring-white/8 ${ease}`}>
-                <div className="overflow-hidden rounded-[calc(22px-0.375rem)] bg-white dark:bg-white/[.02]">
-                  <div className="relative flex h-[128px] items-end p-3.5" style={{ background: p.cover || "linear-gradient(140deg,#0a3d34,#05221d)" }}>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/5 to-transparent" />
-                    {emoji && <span className="absolute left-3 top-3 grid h-10 w-10 place-items-center rounded-xl bg-white/15 text-[21px] ring-1 ring-white/20 backdrop-blur-md">{emoji}</span>}
-                    {role && <span className="relative rounded-full bg-white/15 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-white ring-1 ring-white/15 backdrop-blur-md">{isOwner ? "负责人" : role}</span>}
-                    {isOwner && (
-                      <button title="删除项目" onClick={() => onDelete(p.id, p.name)} disabled={busyId === p.id}
-                        className={`absolute right-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-lg bg-black/35 text-white opacity-0 backdrop-blur hover:bg-red-500 group-hover:opacity-100 ${ease} disabled:opacity-40`}>
-                        {busyId === p.id ? "…" : <Trash />}
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-2.5 p-4">
-                    <h3 className="font-disp text-[19px] font-semibold tracking-tight">{p.name}</h3>
-                    <p className="min-h-[40px] flex-1 text-[13.5px] leading-relaxed text-black/50 dark:text-white/45">{p.summary || "暂无简介"}</p>
-                    <div className="flex items-center justify-between border-t border-black/6 pt-3 dark:border-white/8">
-                      <span className="text-[12px] text-black/40 dark:text-white/40">{counts[p.id] ? `${counts[p.id]} 名成员` : "未加入"}</span>
-                      {role ? (
-                        <Link href={`/projects/${p.id}/bible`} className={`group/btn inline-flex items-center gap-1.5 rounded-full bg-[#15151a] py-1.5 pl-3.5 pr-1.5 text-[12.5px] font-medium text-white dark:bg-white dark:text-[#0a0f24] ${ease}`}>进入 <span className="grid h-6 w-6 place-items-center rounded-full bg-white/15 group-hover/btn:translate-x-0.5 dark:bg-black/10">{<Arrow />}</span></Link>
-                      ) : applied.has(p.id) ? (
-                        <span className="rounded-full border border-[#ff7759]/40 bg-[#ff7759]/10 px-2.5 py-1 font-mono text-[11px] uppercase tracking-wide text-[#ff7759]">待审批</span>
-                      ) : (
-                        <button onClick={() => onJoin(p.id)} className="rounded-full border border-black/12 px-3 py-1.5 text-[12.5px] hover:border-black/40 dark:border-white/15 dark:hover:border-white/40">申请加入</button>
-                      )}
-                    </div>
-                    {isOwner && pend.length > 0 && (
-                      <div className="mt-1 rounded-xl bg-black/[.03] p-3 dark:bg-white/[.04]">
-                        <div className="mb-2 font-mono text-[10px] uppercase tracking-wide text-black/40 dark:text-white/40">待审批 · {pend.length}</div>
-                        {pend.map((a) => (
-                          <div key={a.requestId} className="flex items-center justify-between py-1 text-[13px]">
-                            <span className="truncate">{a.email}</span>
-                            <button onClick={() => onApprove(a, p.id)} className="rounded-full bg-[#34d399] px-3 py-1 text-[12px] font-medium text-[#0a2018]">通过</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+      {/* 加入申请审批 */}
+      {pendOpen && (
+        <div onClick={() => setPendOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(2,6,16,.6)", backdropFilter: "blur(8px)", display: "grid", placeItems: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 480, maxWidth: "100%", maxHeight: "80vh", overflow: "auto", background: "var(--panel-solid)", border: "1px solid var(--stroke-2)", borderRadius: 22, padding: 22, boxShadow: "var(--shadow)" }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>加入申请</div>
+            {pendList.length === 0 ? <div style={{ color: "var(--text-3)", fontSize: 13 }}>暂无</div> : pendList.map((p) => (
+              <div key={p.requestId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--stroke)" }}>
+                <div style={{ flex: 1 }}><div style={{ fontSize: 13.5 }}>{p.email}</div><div style={{ fontSize: 11.5, color: "var(--text-3)" }}>申请加入「{p.projectName}」</div></div>
+                <button onClick={() => onApprove(p)} style={{ height: 34, padding: "0 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none" }}>批准</button>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
     </div>
