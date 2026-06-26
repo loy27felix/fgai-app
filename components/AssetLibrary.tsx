@@ -280,7 +280,7 @@ export default function AssetLibrary({
               {detail.description && <div style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-2)" }}>{detail.description}</div>}
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}><span style={{ fontSize: 13.5, fontWeight: 600 }}>生成提示词</span><button onClick={() => { setMode("gen"); setGInput(detail.gen_prompt || (detail.params as any)?.prompt || detail.name); }} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--accent)", background: "transparent", border: "none", cursor: "pointer" }}><Icon d={["M3 3h18v18H3z", "m21 15-5-5L5 21"]} size={13} sw={1.7} />用它去生图</button></div>
-                <EditArea value={detail.gen_prompt || (detail.params as any)?.prompt || ""} disabled={!canEdit} minH={120} placeholder="用于 AI 出图的中文提示词。可手写，或让左侧资产顾问按剧本生成。" onSave={(v) => updateAsset(projectId, detail.id, { gen_prompt: v }).then(() => router.refresh())} style={{ fontSize: 13, lineHeight: 1.7 }} />
+                <EditArea value={detail.gen_prompt || (detail.params as any)?.prompt || ""} disabled={!canEdit} minH={120} placeholder="用于 AI 出图的中文提示词。可手写，或让左侧资产顾问按剧本生成。" onSave={(v) => updateAsset(projectId, detail.id, { gen_prompt: v })} style={{ fontSize: 13, lineHeight: 1.7 }} />
               </div>
             </div>
             {canEdit && <div style={{ flex: "none", display: "flex", gap: 10, padding: "16px 22px", borderTop: "1px solid var(--stroke)" }}>

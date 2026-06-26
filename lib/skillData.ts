@@ -1,6 +1,7 @@
 // Skill（工作流技能/角色，启用后作为系统提示注入）与 Prompt（提示词片段，插入到输入框）——两者分开
 export const WORKFLOW_SKILLS = [
   { id: "screenwriting", title: "DeepWhite 编剧", desc: "短剧剧本方法 + 格式规范", file: "screenwriting.md" },
+  { id: "emotion-director", title: "情绪导演 · Seedance", desc: "素材 → 影视级视频提示词(物理化/逐秒)", file: "emotion-director.md" },
   { id: "shotlist", title: "分镜表构建师", desc: "剧本 → 镜头表", file: "shotlist-builder.md" },
   { id: "imageprompt", title: "图像提示词构建", desc: "中英双语静帧", file: "image-prompt-builder.md" },
   { id: "seedance", title: "Seedance 视频导演", desc: "场景 → 视频 Prompt", file: "seedance-director.md" },

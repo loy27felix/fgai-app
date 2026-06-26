@@ -1,8 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-/* 线性 SVG 图标：传入 path d 数组 */
 export function Icon({ d, size = 18, sw = 1.6 }: { d: readonly string[]; size?: number; sw?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -12,7 +10,6 @@ export function Icon({ d, size = 18, sw = 1.6 }: { d: readonly string[]; size?: 
   );
 }
 
-/* 日/夜模式：写 .dark 到 <html>，并持久化；新页用 data-theme 取 CSS 变量 */
 export function useFgTheme() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   useEffect(() => {
@@ -32,46 +29,63 @@ export function useFgTheme() {
   return { theme, toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")), setTheme };
 }
 
-/* 带 hover / active 内联样式切换的元素 */
 type HovProps = { as?: any; base?: React.CSSProperties; hover?: React.CSSProperties; active?: React.CSSProperties; children?: React.ReactNode; [k: string]: any; };
 export function Hov({ as, base, hover, active, children, ...rest }: HovProps) {
   const [h, setH] = useState(false);
   const [a, setA] = useState(false);
   const El: any = as || "div";
   return (
-    <El
-      {...rest}
+    <El {...rest}
       style={{ ...(base || {}), ...(h && hover ? hover : {}), ...(a && active ? active : {}) }}
       onMouseEnter={(e: any) => { setH(true); rest.onMouseEnter?.(e); }}
       onMouseLeave={(e: any) => { setH(false); setA(false); rest.onMouseLeave?.(e); }}
       onMouseDown={(e: any) => { setA(true); rest.onMouseDown?.(e); }}
-      onMouseUp={(e: any) => { setA(false); rest.onMouseUp?.(e); }}
-    >
+      onMouseUp={(e: any) => { setA(false); rest.onMouseUp?.(e); }}>
       {children}
     </El>
   );
 }
 
-/* 就地编辑：单行。失焦且有改动才保存（非受控 defaultValue） */
+type SaveState = "idle" | "saving" | "saved";
+function StatusBadge({ st }: { st: SaveState }) {
+  if (st === "idle") return null;
+  return <span className="fg-mono" style={{ position: "absolute", right: 9, bottom: 7, fontSize: 10, padding: "2px 7px", borderRadius: 6, pointerEvents: "none", color: st === "saving" ? "var(--text-3)" : "var(--accent)", background: "var(--panel-solid)", border: "1px solid var(--stroke)" }}>{st === "saving" ? "保存中…" : "已保存 ✓"}</span>;
+}
+
 export function EditInput({ value, onSave, placeholder, mono, disabled, style }: {
-  value: string; onSave: (v: string) => void; placeholder?: string; mono?: boolean; disabled?: boolean; style?: React.CSSProperties;
+  value: string; onSave: (v: string) => void | Promise<any>; placeholder?: string; mono?: boolean; disabled?: boolean; style?: React.CSSProperties;
 }) {
   const [f, setF] = useState(false);
+  const [st, setSt] = useState<SaveState>("idle");
+  async function blur(e: React.FocusEvent<HTMLInputElement>) {
+    setF(false);
+    if (!disabled && e.target.value !== value) { setSt("saving"); try { await onSave(e.target.value); } finally { setSt("saved"); setTimeout(() => setSt("idle"), 1500); } }
+  }
   return (
-    <input defaultValue={value} placeholder={placeholder} disabled={disabled} className={mono ? "fg-mono" : undefined}
-      onFocus={() => setF(true)} onBlur={(e) => { setF(false); if (!disabled && e.target.value !== value) onSave(e.target.value); }}
-      style={{ background: f ? "var(--bg-2)" : "transparent", border: `1px solid ${f ? "var(--stroke-2)" : "transparent"}`, borderRadius: 8, padding: "4px 8px", color: "var(--text)", outline: "none", font: "inherit", width: "100%", ...style }} />
+    <span style={{ position: "relative", display: "block" }}>
+      <input defaultValue={value} placeholder={placeholder} disabled={disabled} className={mono ? "fg-mono" : undefined}
+        onFocus={() => setF(true)} onBlur={blur}
+        style={{ background: f ? "var(--bg-2)" : "transparent", border: `1px solid ${f ? "var(--stroke-2)" : "transparent"}`, borderRadius: 8, padding: "4px 8px", color: "var(--text)", outline: "none", font: "inherit", width: "100%", ...style }} />
+      {st === "saved" && <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", color: "var(--accent)", pointerEvents: "none" }}><Icon d={["M5 13l4 4L19 7"]} size={13} sw={2.4} /></span>}
+    </span>
   );
 }
 
-/* 就地编辑：多行。失焦且有改动才保存 */
 export function EditArea({ value, onSave, placeholder, minH = 90, disabled, style }: {
-  value: string; onSave: (v: string) => void; placeholder?: string; minH?: number; disabled?: boolean; style?: React.CSSProperties;
+  value: string; onSave: (v: string) => void | Promise<any>; placeholder?: string; minH?: number; disabled?: boolean; style?: React.CSSProperties;
 }) {
   const [f, setF] = useState(false);
+  const [st, setSt] = useState<SaveState>("idle");
+  async function blur(e: React.FocusEvent<HTMLTextAreaElement>) {
+    setF(false);
+    if (!disabled && e.target.value !== value) { setSt("saving"); try { await onSave(e.target.value); } finally { setSt("saved"); setTimeout(() => setSt("idle"), 1600); } }
+  }
   return (
-    <textarea defaultValue={value} placeholder={placeholder} disabled={disabled}
-      onFocus={() => setF(true)} onBlur={(e) => { setF(false); if (!disabled && e.target.value !== value) onSave(e.target.value); }}
-      style={{ width: "100%", minHeight: minH, resize: "vertical", background: f ? "var(--bg-2)" : "transparent", border: `1px solid ${f ? "var(--stroke-2)" : "var(--stroke)"}`, borderRadius: 10, padding: "10px 12px", color: "var(--text)", outline: "none", font: "inherit", lineHeight: 1.8, ...style }} />
+    <div style={{ position: "relative" }}>
+      <textarea defaultValue={value} placeholder={placeholder} disabled={disabled}
+        onFocus={() => setF(true)} onBlur={blur}
+        style={{ width: "100%", minHeight: minH, resize: "vertical", background: f ? "var(--bg-2)" : "transparent", border: `1px solid ${f ? "var(--stroke-2)" : "var(--stroke)"}`, borderRadius: 10, padding: "10px 12px", color: "var(--text)", outline: "none", font: "inherit", lineHeight: 1.8, ...style }} />
+      <StatusBadge st={st} />
+    </div>
   );
 }

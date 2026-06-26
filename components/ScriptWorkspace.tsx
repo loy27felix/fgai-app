@@ -55,7 +55,7 @@ export default function ScriptWorkspace({
   const [ovRows, setOvRows] = useState<Over[]>(baseStruct);
   function saveOv(rows?: Over[], syn?: string, tot?: string) {
     if (!canEdit) return;
-    updateOverview(projectId, { synopsis: syn ?? ovSyn, totalDur: tot ?? ovTot, structure: rows ?? ovRows }).then(() => router.refresh());
+    return updateOverview(projectId, { synopsis: syn ?? ovSyn, totalDur: tot ?? ovTot, structure: rows ?? ovRows });
   }
   function setRow(i: number, k: keyof Over, v: string) {
     setOvRows((rs) => { const n = rs.map((r, j) => j === i ? { ...r, [k]: v } : r); return n; });
@@ -69,9 +69,9 @@ export default function ScriptWorkspace({
     if (!canEdit) return;
     const cur = beatRef.current[sh.id] || { ...(sh.script_beat || {}) };
     cur[key] = val; beatRef.current[sh.id] = cur;
-    updateShot(projectId, sh.id, { script_beat: cur }).then(() => router.refresh());
+    return updateShot(projectId, sh.id, { script_beat: cur });
   }
-  function saveShotField(sh: ShotRow, patch: Record<string, any>) { if (canEdit) updateShot(projectId, sh.id, patch).then(() => router.refresh()); }
+  function saveShotField(sh: ShotRow, patch: Record<string, any>) { if (canEdit) return updateShot(projectId, sh.id, patch); }
   async function addShotToEp() {
     if (!epId) return;
     let sceneId = epScenes[0]?.id;
@@ -215,11 +215,11 @@ export default function ScriptWorkspace({
                   <div key={sc.id} style={{ marginBottom: 22 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                       <span className="fg-mono" style={{ flex: "none", fontSize: 13, fontWeight: 600, color: "var(--accent)" }}>第{sc.idx}场</span>
-                      <EditInput value={sc.title || ""} disabled={!canEdit} placeholder="场次标题" onSave={(v) => updateScene(projectId, sc.id, { title: v }).then(() => router.refresh())} style={{ fontWeight: 600 }} />
-                      <EditInput value={sc.setting || ""} disabled={!canEdit} placeholder="景 / 时间（如 内·观测舱·夜）" onSave={(v) => updateScene(projectId, sc.id, { setting: v }).then(() => router.refresh())} style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 260 }} />
+                      <EditInput value={sc.title || ""} disabled={!canEdit} placeholder="场次标题" onSave={(v) => updateScene(projectId, sc.id, { title: v })} style={{ fontWeight: 600 }} />
+                      <EditInput value={sc.setting || ""} disabled={!canEdit} placeholder="景 / 时间（如 内·观测舱·夜）" onSave={(v) => updateScene(projectId, sc.id, { setting: v })} style={{ fontSize: 13, color: "var(--text-3)", maxWidth: 260 }} />
                     </div>
                     <EditArea value={bodyOf(sc.id)} disabled={!canEdit} minH={140} placeholder="本场剧本正文（△动作 + 角色：台词）。可手动写，也可让 AI 生成后再改。"
-                      onSave={(v) => saveScript(projectId, sc.id, v, "manual").then(() => router.refresh())} style={{ fontSize: 15, lineHeight: 1.9 }} />
+                      onSave={(v) => saveScript(projectId, sc.id, v, "manual")} style={{ fontSize: 15, lineHeight: 1.9 }} />
                   </div>
                 ))}
               {canEdit && epId && <button onClick={addSc} style={{ marginTop: 6, fontSize: 13, color: "var(--accent)", background: "none", border: "1px dashed var(--stroke-2)", borderRadius: 10, padding: "8px 14px", cursor: "pointer" }}>＋ 新建场次</button>}
