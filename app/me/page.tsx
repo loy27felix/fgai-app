@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import TopBar from "@/components/TopBar";
 import MeView from "@/components/MeView";
 
 export const dynamic = "force-dynamic";
@@ -28,21 +26,16 @@ export default async function MePage() {
     supabase.from("ai_usage").select("model,total_tokens,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
     supabase.from("generations").select("model,kind,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
   ]);
-  const isAdmin = profile?.platform_role === "admin" || profile?.platform_role === "superadmin";
   const balance = await dsBalance();
-  const crumb = (<><Link href="/projects" className="cursor-pointer">项目</Link><span className="opacity-40">/</span><b className="text-ink">个人中心</b></>);
 
   return (
-    <div className="min-h-screen">
-      <TopBar email={user.email || ""} crumb={crumb} admin={isAdmin} />
-      <MeView
-        email={profile?.email || user.email || ""}
-        role={(profile?.platform_role as string) || "user"}
-        joined={(profile?.created_at as string) || ""}
-        usage={(usage || []) as any[]}
-        gens={(gens || []) as any[]}
-        balance={balance}
-      />
-    </div>
+    <MeView
+      email={profile?.email || user.email || ""}
+      role={(profile?.platform_role as string) || "user"}
+      joined={(profile?.created_at as string) || ""}
+      usage={(usage || []) as any[]}
+      gens={(gens || []) as any[]}
+      balance={balance}
+    />
   );
 }

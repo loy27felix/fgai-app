@@ -1,88 +1,45 @@
-import Link from "next/link";
+"use client";
+import PageShell from "@/components/studio/PageShell";
 
 const ROLE_LABEL: Record<string, string> = { user: "成员", admin: "管理员", superadmin: "超级管理员" };
-
-function tally<T>(arr: T[], key: (x: T) => string) {
-  const m: Record<string, number> = {};
-  for (const x of arr) { const k = key(x) || "—"; m[k] = (m[k] || 0) + 1; }
-  return Object.entries(m).sort((a, b) => b[1] - a[1]);
-}
+function tally<T>(arr: T[], key: (x: T) => string) { const m: Record<string, number> = {}; for (const x of arr) { const k = key(x) || "—"; m[k] = (m[k] || 0) + 1; } return Object.entries(m).sort((a, b) => b[1] - a[1]); }
 
 export default function MeView({ email, role, joined, usage, gens, balance }: {
-  email: string; role: string; joined: string;
-  usage: { model: string; total_tokens: number; created_at: string }[];
-  gens: { model: string; kind: string; created_at: string }[];
-  balance: string | null;
+  email: string; role: string; joined: string; usage: any[]; gens: any[]; balance: string | null;
 }) {
-  const initial = (email[0] || "U").toUpperCase();
-  const calls = usage.length;
-  const tokens = usage.reduce((a, u) => a + (u.total_tokens || 0), 0);
-  const imgs = gens.length;
-  const byText = tally(usage, (u) => u.model);
-  const byImg = tally(gens, (g) => g.model);
-  const joinedStr = joined ? new Date(joined).toLocaleDateString("zh-CN") : "—";
-
+  const tokens = usage.reduce((s, u) => s + (u.total_tokens || 0), 0);
+  const byModel = tally(gens, (g) => g.model || "?");
+  const stat = (l: string, v: string, accent?: boolean) => (
+    <div style={{ flex: 1, minWidth: 150, padding: "16px 18px", borderRadius: 16, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
+      <div className="fg-mono" style={{ fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" }}>{l}</div>
+      <div className="fg-mono" style={{ marginTop: 6, fontSize: 26, fontWeight: 600, color: accent ? "var(--accent)" : "var(--text)" }}>{v}</div>
+    </div>
+  );
   return (
-    <div className="mx-auto max-w-[900px] px-8 py-8">
-      {/* 资料卡 */}
-      <div className="relative overflow-hidden rounded-[22px] bg-primary px-7 py-7 text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_-20%,rgba(60,224,208,.22),transparent_55%),radial-gradient(circle_at_95%_130%,rgba(255,119,89,.2),transparent_55%)]" />
-        <div className="relative flex items-center gap-4">
-          <div className="grid h-16 w-16 flex-none place-items-center rounded-2xl bg-white/15 text-[26px] font-bold backdrop-blur ring-1 ring-white/20">{initial}</div>
-          <div className="min-w-0">
-            <div className="truncate font-disp text-[22px] font-semibold">{email}</div>
-            <div className="mt-1 flex items-center gap-2 text-[13px] text-white/70">
-              <span className="rounded-pill bg-white/15 px-2.5 py-0.5 font-mono text-[11px]">{ROLE_LABEL[role] || role}</span>
-              <span>加入于 {joinedStr}</span>
+    <PageShell title="个人中心" email={email}>
+      <div style={{ maxWidth: 920, margin: "0 auto", padding: "30px 30px 70px", animation: "blurUp .5s var(--ease) both" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "22px 24px", borderRadius: 20, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset),var(--shadow)", marginBottom: 22 }}>
+          <div className="fg-mono" style={{ width: 56, height: 56, borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 20, fontWeight: 600, color: "var(--accent-ink)", background: "linear-gradient(150deg,var(--accent),var(--accent-2))" }}>{(email || "?").slice(0, 2).toUpperCase()}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{email}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
+              <span style={{ fontSize: 11.5, color: "var(--accent)", padding: "2px 9px", borderRadius: 7, background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }}>{ROLE_LABEL[role] || role}</span>
+              {joined && <span className="fg-mono" style={{ fontSize: 11.5, color: "var(--text-3)" }}>加入于 {new Date(joined).toLocaleDateString("zh-CN")}</span>}
             </div>
           </div>
         </div>
-      </div>
-
-      {/* 用量统计 */}
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[["AI 文本调用", String(calls)], ["消耗 tokens", tokens.toLocaleString()], ["AI 生图次数", String(imgs)], ["团队 DeepSeek 余额", balance || "—"]].map(([k, v]) => (
-          <div key={k} className="rounded-2xl bg-stone p-4"><div className="font-mono text-[10.5px] uppercase tracking-wide text-[#75758a]">{k}</div><div className="mt-1 font-disp text-[20px] font-semibold">{v}</div></div>
-        ))}
-      </div>
-      <p className="mt-2 text-[12px] text-muted">注：DeepSeek 余额是团队共用 key 的总额；图片/其它模型走中转站，额度请到中转站后台查看。</p>
-
-      {/* 按模型分布 */}
-      <div className="mt-6 grid gap-5 md:grid-cols-2">
-        <div className="card p-5">
-          <h3 className="mb-3 font-disp text-[15px] font-semibold">文本模型用量</h3>
-          {byText.length === 0 ? <p className="text-[13px] text-muted">还没有文本 AI 调用。</p> : (
-            <div className="flex flex-col gap-2">
-              {byText.map(([m, n]) => (
-                <div key={m} className="flex items-center gap-2 text-[13px]">
-                  <span className="w-40 flex-none truncate font-mono text-[12px]">{m}</span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone"><div className="h-full rounded-full bg-green" style={{ width: `${Math.round((n / calls) * 100)}%` }} /></div>
-                  <span className="w-8 flex-none text-right font-mono text-[12px] text-muted">{n}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 22 }}>
+          {stat("AI 调用次数", String(usage.length))}
+          {stat("AI 总 tokens", tokens.toLocaleString())}
+          {stat("出图次数", String(gens.length), true)}
+          {stat("DeepSeek 余额", balance || "—")}
         </div>
-        <div className="card p-5">
-          <h3 className="mb-3 font-disp text-[15px] font-semibold">图片模型用量</h3>
-          {byImg.length === 0 ? <p className="text-[13px] text-muted">还没有生图记录。</p> : (
-            <div className="flex flex-col gap-2">
-              {byImg.map(([m, n]) => (
-                <div key={m} className="flex items-center gap-2 text-[13px]">
-                  <span className="w-40 flex-none truncate font-mono text-[12px]">{m}</span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone"><div className="h-full rounded-full bg-coral" style={{ width: `${Math.round((n / imgs) * 100)}%` }} /></div>
-                  <span className="w-8 flex-none text-right font-mono text-[12px] text-muted">{n}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div style={{ padding: "18px 20px", borderRadius: 16, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>出图 · 按模型</div>
+          {byModel.length === 0 ? <div style={{ color: "var(--text-3)", fontSize: 13 }}>暂无出图记录</div> :
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{byModel.map(([m, n]) => <span key={m} className="fg-mono" style={{ fontSize: 12, color: "var(--text-2)", padding: "5px 11px", borderRadius: 9, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}>{m} · {n}</span>)}</div>}
         </div>
       </div>
-
-      <div className="mt-6 flex flex-wrap gap-2">
-        <Link href="/projects" className="pill pill-sm pill-ghost">← 回到项目</Link>
-        <Link href="/presets" className="pill pill-sm pill-ghost">浏览预设库 →</Link>
-      </div>
-    </div>
+    </PageShell>
   );
 }
