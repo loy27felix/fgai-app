@@ -21,22 +21,21 @@ function CTA({ href, label, solid, onClick }: { href?: string; label: string; so
 }
 
 const BENTO = [
-  { i: <ILayers />, span: "md:col-span-4", h: "统一工作流", p: "立项 → 剧本 → 资产 → 分镜 → 逐镜头 → 生视频 → BGM → 拼接，把散在十个工具里的活，收进一条标准化又留足人工干预的链路。" },
+  { i: <ILayers />, span: "md:col-span-4", h: "统一工作流", p: "立项 → 剧本 → 资产 → 分镜 → 逐镜头 → 站内生视频 → BGM，把散在多个工具里的活，收进一条标准化又留足人工干预的链路。" },
   { i: <IMemory />, span: "md:col-span-2", h: "带记忆的 Agent", p: "一个故事 = 一个项目 = 一个 Agent。故事圣经锁住画风、世界观、人物与比例。" },
   { i: <ILock />, span: "md:col-span-3", h: "角色一致性", p: "锁定一张标准脸，分镜与关键帧出场该角色时自动作参考图，跨镜头同一张脸。" },
-  { i: <IPlug />, span: "md:col-span-3", h: "接好的 AI", p: "文本、生图、生视频、配乐多模型可选，公司统一 Key，也能接自己的。" },
+  { i: <IPlug />, span: "md:col-span-3", h: "接好的 AI", p: "文本、图片、视频共 16 个模型可选，含 Seedance 2.0 / Fast / Mini 与 FILTER OFF 版本。" },
 ];
 const FLOW: [string, string, string][] = [
   ["01", "立项 & 故事圣经", "AI 破题对话定方向，确认后写入全局记忆并锁定。"],
   ["02", "剧本工作台", "对话生成 + 版本保存 + 剧本医生评分 + 宫格体检。"],
   ["03", "资产库", "对话式 / 画布式生图，人物服装道具场景统一管理，可锁脸。"],
   ["04", "导演分镜表", "拆镜头、子分镜切镜、一键出分镜参考图。"],
-  ["05", "逐镜头设计", "关键帧生成、走位比例、视频 Prompt（含详细分镜格式）。"],
-  ["06", "生视频", "物料打包，跳转外部平台生成，回填成片链接。"],
-  ["07", "BGM / 音频", "基于圣经生成 Suno 配乐方案。"],
-  ["08", "拼接 & 导出", "成片清单、完成度统计、ffmpeg 拼接命令。"],
+  ["05", "逐镜头设计", "镜头独立画布、关键帧生成、视频 Prompt 与图像→视频节点。"],
+  ["06", "生视频", "站内选择 Seedance 模型，提交任务、追踪进度并自动回填成片。"],
+  ["07", "BGM / 音频", "按连续镜头范围生成配乐方案与 Suno Style Prompt。"],
 ];
-const STATS: [string, string][] = [["08", "制作阶段"], ["06", "图像模型"], ["169", "内置预设"], ["1-click", "拼接导出"]];
+const STATS: [string, string][] = [["07", "制作阶段"], ["16", "AI 模型"], ["06", "视频模型"], ["04", "图片模型"]];
 
 export default function Landing() {
   const [ri, setRi] = useState(0);
@@ -165,7 +164,7 @@ export default function Landing() {
         <div className="mx-auto max-w-[1280px] px-6 py-32">
           <div className="rv mb-12 flex flex-wrap items-end justify-between gap-4">
             <h2 className="max-w-[620px] font-disp text-[clamp(26px,3.6vw,46px)] font-semibold leading-[1.05] tracking-tighter">从剧本到成片，一条链路跑通。</h2>
-            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">8 STAGES</span>
+            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">7 STAGES</span>
           </div>
           <div className="rv divide-y divide-black/8 border-t border-black/8 dark:divide-white/8 dark:border-white/8">
             {FLOW.map(([n, t, d]) => (

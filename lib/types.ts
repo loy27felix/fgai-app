@@ -66,7 +66,7 @@ export const ASSET_TYPES = ["人物", "服装", "化妆", "道具", "场景", "�
 export const TYPE_SLUG: Record<string, string> = { 人物: "char", 服装: "outfit", 化妆: "makeup", 道具: "prop", 场景: "scene", 声音: "audio", 风格: "style" };
 export function slugType(t?: string | null): string { if (!t) return "misc"; return TYPE_SLUG[t] || (/^[\w.-]+$/.test(t) ? t : "misc"); }
 
-// 八阶段（单一数据源）
+// 七阶段（单一数据源）
 export interface Stage {
   n: string;
   key: string;
