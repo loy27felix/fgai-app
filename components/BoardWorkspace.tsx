@@ -3,8 +3,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BibleFields, Episode, Scene } from "@/lib/types";
 import { addShot } from "@/app/projects/[id]/board/actions";
-import { createClient } from "@/lib/supabase/client";
 import { IMG_MODELS, sizeFor } from "@/lib/imageModels";
+import { generateImage } from '@/lib/ai/image-client';
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov } from "@/components/studio/ui";
@@ -29,7 +29,6 @@ export default function BoardWorkspace({
   episodes: Episode[]; scenes: Scene[]; shots: ShotRow[]; scriptText: string;
 }) {
   const router = useRouter();
-  const supabase = createClient();
   const [epId, setEpId] = useState<string | null>(episodes[0]?.id || null);
   const [view, setView] = useState<"table" | "gallery">("table");
   const [filter, setFilter] = useState<"all" | "done" | "todo">("all");
@@ -53,14 +52,24 @@ export default function BoardWorkspace({
   async function genFrame(sh: ShotRow) {
     setBusyId(sh.id);
     try {
-      const { data: d, error } = await supabase.functions.invoke("gen-image", { body: { projectId, shotId: sh.id, shotField: "frame_path", model: gModel, size: sizeFor(gModel, "16:9"), prompt: framePrompt(sh) } });
-      if (error || !d?.ok) alert("生成失败：" + ((d && d.error) || error?.message || "")); else router.refresh();
+      await generateImage({ projectId, shotId: sh.id, shotField: "frame_path", model: gModel, size: sizeFor(gModel, "16:9"), prompt: framePrompt(sh) });
+      router.refresh();
+    } catch (error: any) {
+      alert("生成失败：" + (error?.message || ""));
     } finally { setBusyId(null); }
   }
   async function genMissing() {
     const todo = epShots.filter((s) => !s.frame_path); if (!todo.length) { alert("本集镜头都已绘制。"); return; }
     setBatch(true);
-    try { for (const sh of todo) { setBusyId(sh.id); const { data: d, error } = await supabase.functions.invoke("gen-image", { body: { projectId, shotId: sh.id, shotField: "frame_path", model: gModel, size: sizeFor(gModel, "16:9"), prompt: framePrompt(sh) } }); if (error || !d?.ok) break; } router.refresh(); }
+    try {
+      for (const sh of todo) {
+        setBusyId(sh.id);
+        await generateImage({ projectId, shotId: sh.id, shotField: "frame_path", model: gModel, size: sizeFor(gModel, "16:9"), prompt: framePrompt(sh) });
+      }
+      router.refresh();
+    } catch (error: any) {
+      alert("批量生成已停止：" + (error?.message || ""));
+    }
     finally { setBatch(false); setBusyId(null); }
   }
   async function addRow() { const sid = scenes.filter((s) => s.episode_id === epId)[0]?.id; if (sid) { await addShot(projectId, sid); router.refresh(); } else alert("本集还没有场次，先去剧本工作台建场次。"); }

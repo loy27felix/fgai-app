@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
+import { generateImage } from '@/lib/ai/image-client';
 import StudioShell, { StageKey } from "@/components/studio/StudioShell";
 import { Icon, Hov, EditArea } from "@/components/studio/ui";
 
@@ -13,9 +14,6 @@ type Graph = { nodes: Node[]; edges: Edge[] };
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const uid = () => Math.random().toString(36).slice(2, 9);
-async function urlToB64(url: string): Promise<{ b64: string; type: string } | null> {
-  try { const r = await fetch(url); const b = await r.blob(); return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res({ b64: String(fr.result).split(",")[1] || "", type: b.type || "image/png" }); fr.onerror = () => res(null); fr.readAsDataURL(b); }); } catch { return null; }
-}
 const KIND_ICON: Record<Kind, string[]> = {
   ref: ["M3 4h18v16H3z", "M9 9a2 2 0 1 0 0-.01", "m3 17 5-4 4 3 3-2 6 5"],
   prompt: ["M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"],
@@ -75,7 +73,8 @@ export default function GenCanvas({
     const f = files[0];
     const path = `${projectId}/canvas/ref-${Date.now()}-${uid()}.${(f.name.split(".").pop() || "png").toLowerCase()}`;
     const { error } = await sb.storage.from("project-assets").upload(path, f, { upsert: false });
-    const url = error ? URL.createObjectURL(f) : `${SB_URL}/storage/v1/object/public/project-assets/${path}`;
+    if (error) { alert('上传参考图失败：' + error.message); return; }
+    const url = `${SB_URL}/storage/v1/object/public/project-assets/${path}`;
     addNode("ref", { url });
   }
 
@@ -131,9 +130,8 @@ export default function GenCanvas({
     setNodes((ns) => ns.map((n) => n.id === id ? { ...n, busy: true } : n));
     try {
       const payload: any = { projectId, type: assetType, model, size: sizeFor(model, ratio), prompt };
-      if (refUrls.length) { const conv = (await Promise.all(refUrls.map(urlToB64))).filter(Boolean) as { b64: string; type: string }[]; if (conv.length) { payload.refImages = conv.map((c) => c.b64); payload.refTypes = conv.map((c) => c.type); } }
-      const { data: d, error } = await sb.functions.invoke("gen-image", { body: payload });
-      if (error || !d?.ok) { alert("生成失败：" + ((d && d.error) || error?.message || "")); setNodes((ns) => ns.map((n) => n.id === id ? { ...n, busy: false } : n)); return; }
+      if (refUrls.length) payload.refUrls = refUrls;
+      const d = await generateImage(payload);
       const ns = nodes.map((n) => n.id === id ? { ...n, busy: false, result: d.url } : n); commit(ns); router.refresh();
     } catch (e: any) { alert("出错：" + (e?.message || "")); setNodes((ns) => ns.map((n) => n.id === id ? { ...n, busy: false } : n)); }
   }
@@ -171,7 +169,7 @@ export default function GenCanvas({
               </div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "var(--text-2)" }}><span>输入连接</span><span className="fg-mono" style={{ color: "var(--text)" }}>{inputsOf(selNode.id).length} 个</span></div>
               <div style={{ display: "flex", gap: 7 }}>
-                <select value={model} onChange={(e) => setModel(e.target.value)} className="fg-mono" style={{ flex: 1, fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 9, padding: "7px 6px", cursor: "pointer" }}>{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label.split(" ")[0]}</option>)}</select>
+                <select value={model} onChange={(e) => setModel(e.target.value)} className="fg-mono" style={{ flex: 1, fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 9, padding: "7px 6px", cursor: "pointer" }}>{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}</select>
                 <select value={ratio} onChange={(e) => setRatio(e.target.value)} className="fg-mono" style={{ fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 9, padding: "7px 6px", cursor: "pointer" }}>{RATIOS.map((r) => <option key={r.key} value={r.key}>{r.key}</option>)}</select>
               </div>
               <button onClick={() => runGen(selNode.id)} disabled={selNode.busy} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9, height: 46, borderRadius: 13, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none", boxShadow: "var(--inset),0 9px 22px -10px var(--accent)", opacity: selNode.busy ? 0.6 : 1 }}><Icon d={["M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"]} size={16} sw={1.9} />{selNode.busy ? "生成中…" : selNode.result ? "重新生成" : "运行生成"}</button>

@@ -3,8 +3,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BibleFields, Episode, Scene } from "@/lib/types";
 import { updateShot } from "@/app/projects/[id]/board/actions";
-import { createClient } from "@/lib/supabase/client";
 import { IMG_MODELS, sizeFor } from "@/lib/imageModels";
+import { generateImage } from '@/lib/ai/image-client';
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov, EditArea } from "@/components/studio/ui";
@@ -33,7 +33,6 @@ export default function ShotWorkspace({
   episodes: Episode[]; scenes: Scene[]; shots: ShotRow[]; scriptText: string;
 }) {
   const router = useRouter();
-  const supabase = createClient();
   const [epId, setEpId] = useState<string | null>(episodes[0]?.id || null);
   const epSceneIds = useMemo(() => new Set(scenes.filter((s) => s.episode_id === epId).map((s) => s.id)), [scenes, epId]);
   const epShots = useMemo(() => shots.filter((s) => epSceneIds.has(s.scene_id)).sort((a, b) => (a.no || "").localeCompare(b.no || "", "zh", { numeric: true })), [shots, epId]);
@@ -58,8 +57,11 @@ export default function ShotWorkspace({
   async function genImg(sh: ShotRow, field: "keyframe_path" | "storyboard_path", prompt: string) {
     if (!prompt.trim()) { alert("先写该图的提示词。"); return; }
     setBusy(field + sh.id);
-    try { const { data: d, error } = await supabase.functions.invoke("gen-image", { body: { projectId, shotId: sh.id, shotField: field, model: gModel, size: sizeFor(gModel, "16:9"), prompt } });
-      if (error || !d?.ok) alert("生成失败：" + ((d && d.error) || error?.message || "")); else router.refresh();
+    try {
+      await generateImage({ projectId, shotId: sh.id, shotField: field, model: gModel, size: sizeFor(gModel, "16:9"), prompt });
+      router.refresh();
+    } catch (error: any) {
+      alert("生成失败：" + (error?.message || ""));
     } finally { setBusy(null); }
   }
   function savePrompt(sh: ShotRow, field: string, v: string) { if (canEdit) return updateShot(projectId, sh.id, { [field]: v }); }
@@ -131,6 +133,8 @@ export default function ShotWorkspace({
                   <div style={{ display: "flex", padding: 3, borderRadius: 12, background: "var(--bg-2)", border: "1px solid var(--stroke)", gap: 3, flexWrap: "wrap" }}>
                     {COMBOS.map((c) => { const on = combo === c.id; return <button key={c.id} onClick={() => setCombo(sel, c.out)} disabled={!canEdit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 9, cursor: "pointer", fontSize: 12.5, fontWeight: 500, color: on ? "var(--text)" : "var(--text-3)", background: on ? "var(--panel-2)" : "transparent", border: "none" }}><Icon d={c.d} size={14} sw={1.7} />{c.label}</button>; })}
                   </div>
+                  <span className="fg-mono" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--text-3)" }}>图片模型</span>
+                  <select value={gModel} onChange={(e) => setGModel(e.target.value)} className="fg-mono" style={{ maxWidth: 260, fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 9, padding: "7px 8px", cursor: "pointer" }}>{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
                 </div>
 
                 <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "18px 26px 36px", display: "flex", flexDirection: "column", gap: 18 }}>

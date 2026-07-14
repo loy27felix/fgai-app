@@ -6,6 +6,7 @@ import { slugType } from "@/lib/types";
 import { createAsset, deleteAsset, updateAsset, setLockRef } from "@/app/projects/[id]/assets/actions";
 import { createClient } from "@/lib/supabase/client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
+import { generateImage } from '@/lib/ai/image-client';
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov, EditArea } from "@/components/studio/ui";
@@ -13,9 +14,6 @@ import { Icon, Hov, EditArea } from "@/components/studio/ui";
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const publicUrl = (p?: string | null) => (p ? `${SB_URL}/storage/v1/object/public/project-assets/${p}` : null);
 const thumbUrl = (a: Asset) => a.external_url || publicUrl(a.storage_path) || publicUrl(a.poster_path);
-function fileToB64(file: File): Promise<{ b64: string; type: string }> {
-  return new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve({ b64: String(r.result).split(",")[1] || "", type: file.type || "image/png" }); r.onerror = reject; r.readAsDataURL(file); });
-}
 const TABS = ["人物", "场景", "道具", "其他"] as const;
 const TAB_ICON: Record<string, string[]> = {
   人物: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 21a8 8 0 0 1 16 0"],
@@ -119,13 +117,28 @@ export default function AssetLibrary({
     const uid = ++idRef.current, gid = ++idRef.current;
     setGMsgs((m) => [...m, { id: uid, role: "user", text, refs: refsPrev.length ? refsPrev : undefined }, { id: gid, role: "ai", text: "", pending: true }]);
     setGInput(""); setGRefs([]); setGBusy(true);
+    const tempPaths: string[] = [];
     try {
       const payload: any = { projectId, type: tab, model: gModel, size: sizeFor(gModel, gRatio), prompt: text };
-      if (refFiles.length) { const conv = await Promise.all(refFiles.map(fileToB64)); payload.refImages = conv.map((c) => c.b64); payload.refTypes = conv.map((c) => c.type); }
-      const { data: d, error } = await supabase.functions.invoke("gen-image", { body: payload });
-      if (error || !d?.ok) setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, error: true, text: (d && d.error) || error?.message || "生成失败" } : x));
-      else { setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, text: "已生成并存入「" + tab + "」资产", imgs: [d.url] } : x)); router.refresh(); }
-    } catch (e: any) { setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, error: true, text: e?.message || "网络错误" } : x)); } finally { setGBusy(false); }
+      if (refFiles.length) {
+        const urls: string[] = [];
+        for (const file of refFiles) {
+          const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+          const path = `${projectId}/gen-refs/ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+          const { error } = await supabase.storage.from('project-assets').upload(path, file, { upsert: false });
+          if (error) throw new Error('上传参考图失败：' + error.message);
+          tempPaths.push(path);
+          urls.push(supabase.storage.from('project-assets').getPublicUrl(path).data.publicUrl);
+        }
+        payload.refUrls = urls;
+      }
+      const d = await generateImage(payload);
+      setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, text: "已生成并存入「" + tab + "」资产", imgs: [d.url] } : x));
+      router.refresh();
+    } catch (e: any) { setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, error: true, text: e?.message || "网络错误" } : x)); } finally {
+      if (tempPaths.length) await supabase.storage.from('project-assets').remove(tempPaths);
+      setGBusy(false);
+    }
   }
 
   const stBadge = (a: Asset) => a.source === "upload" ? { t: "上传", ink: "#9db4ff" } : a.from_script ? { t: "剧本拆解", ink: "#ffc06a" } : { t: "AI 生成", ink: "var(--accent)" };
@@ -180,7 +193,7 @@ export default function AssetLibrary({
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px 8px" }}>
                 <input ref={gFileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { pickGRefs(e.target.files); e.currentTarget.value = ""; }} />
                 <button onClick={() => gFileRef.current?.click()} title="上传参考图" style={{ width: 32, height: 32, borderRadius: 9, display: "grid", placeItems: "center", cursor: "pointer", color: "var(--text-2)", background: "transparent", border: "1px solid var(--stroke)" }}><Icon d={["M3 4h18v16H3z", "M9 9a2 2 0 1 0 0-.01", "m3 17 5-4 4 3 3-2 6 5"]} size={16} sw={1.6} /></button>
-                <select value={gModel} onChange={(e) => setGModel(e.target.value)} className="fg-mono" style={{ fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 8, padding: "5px 4px", maxWidth: 118, cursor: "pointer" }}>{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label.split(" ")[0]}</option>)}</select>
+                <select value={gModel} onChange={(e) => setGModel(e.target.value)} className="fg-mono" style={{ fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 8, padding: "5px 4px", maxWidth: 166, cursor: "pointer" }}>{IMG_MODELS.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}</select>
                 <select value={gRatio} onChange={(e) => setGRatio(e.target.value)} className="fg-mono" style={{ fontSize: 11, color: "var(--text-2)", background: "var(--panel-solid)", border: "1px solid var(--stroke)", borderRadius: 8, padding: "5px 4px", cursor: "pointer" }}>{RATIOS.map((r) => <option key={r.key} value={r.key}>{r.key}</option>)}</select>
                 <div style={{ flex: 1 }} />
                 <Hov as="button" onClick={() => genSend()} disabled={gBusy} base={{ display: "flex", alignItems: "center", gap: 7, height: 36, padding: "0 5px 0 13px", borderRadius: 12, cursor: gBusy ? "default" : "pointer", fontSize: 13, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none", boxShadow: "var(--inset),0 8px 20px -8px var(--accent)", opacity: gBusy ? 0.6 : 1 }} hover={gBusy ? undefined : { filter: "brightness(1.08)" }}>生成<span style={{ width: 24, height: 24, borderRadius: 8, display: "grid", placeItems: "center", background: "var(--accent-ink)", color: "var(--accent)" }}><Icon d={["M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"]} size={14} sw={2} /></span></Hov>
