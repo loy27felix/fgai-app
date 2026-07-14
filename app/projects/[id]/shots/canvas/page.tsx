@@ -24,7 +24,7 @@ export default async function ShotCanvasPage({
   if (!member || !shotId) redirect(`/projects/${projectId}/shots`);
 
   const { data: shot } = await supabase.from('shots')
-    .select('id,scene_id,no,keyframe_path,frame_path,keyframe_prompt')
+    .select('id,scene_id,no,duration_s,keyframe_path,frame_path,keyframe_prompt,video_prompt')
     .eq('id', shotId).maybeSingle();
   if (!shot) redirect(`/projects/${projectId}/shots`);
   const { data: scene } = await supabase.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle();
@@ -50,6 +50,8 @@ export default async function ShotCanvasPage({
       shotField='keyframe_path'
       initialImageUrl={initialImageUrl}
       initialPrompt={shot.keyframe_prompt}
+      initialVideoPrompt={shot.video_prompt?.text || null}
+      shotDuration={shot.duration_s || 5}
       canvasTitle={`镜头 ${shot.no} · 独立画布`}
     />
   );
