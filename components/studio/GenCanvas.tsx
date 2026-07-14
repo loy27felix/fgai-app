@@ -4,12 +4,13 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { generateImage } from '@/lib/ai/image-client';
+import { buildInitialCanvasGraph, type CanvasEdge, type CanvasKind, type CanvasNode } from '@/lib/canvas';
 import StudioShell, { StageKey } from "@/components/studio/StudioShell";
 import { Icon, Hov, EditArea } from "@/components/studio/ui";
 
-type Kind = "ref" | "prompt" | "gen";
-type Node = { id: string; kind: Kind; x: number; y: number; url?: string | null; text?: string; result?: string | null; busy?: boolean };
-type Edge = { from: string; to: string };
+type Kind = CanvasKind;
+type Node = CanvasNode;
+type Edge = CanvasEdge;
 type Graph = { nodes: Node[]; edges: Edge[] };
 
 const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -22,9 +23,12 @@ const KIND_ICON: Record<Kind, string[]> = {
 const KIND_LABEL: Record<Kind, string> = { ref: "参考图", prompt: "提示词", gen: "生成节点" };
 
 export default function GenCanvas({
-  projectId, projectName, scope = "assets", refKey = "main", assetType = "人物", stageKey = "assets", backHref,
+  projectId, projectName, scope = 'assets', refKey = 'main', assetType = '人物', stageKey = 'assets', backHref,
+  shotId, shotField, initialImageUrl, initialPrompt, canvasTitle,
 }: {
   projectId: string; projectName: string; scope?: string; refKey?: string; assetType?: string; stageKey?: StageKey; backHref: string;
+  shotId?: string; shotField?: 'frame_path' | 'keyframe_path' | 'storyboard_path';
+  initialImageUrl?: string | null; initialPrompt?: string | null; canvasTitle?: string;
 }) {
   const router = useRouter();
   const sb = createClient();
@@ -34,7 +38,7 @@ export default function GenCanvas({
   const [sel, setSel] = useState<string | null>(null);
   const [rowId, setRowId] = useState<string | null>(null);
   const [model, setModel] = useState(IMG_MODELS[0].id);
-  const [ratio, setRatio] = useState("9:16");
+  const [ratio, setRatio] = useState(scope === 'shots' || scope === 'board' ? '16:9' : '9:16');
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null);
   const link = useRef<{ from: string } | null>(null);
   const [linkPos, setLinkPos] = useState<{ x: number; y: number } | null>(null);
@@ -44,10 +48,12 @@ export default function GenCanvas({
   // ---- load graph ----
   useEffect(() => {
     (async () => {
-      const { data } = await sb.from("canvases").select("id,graph").eq("project_id", projectId).eq("scope", scope).eq("ref_key", refKey).maybeSingle();
+      setRowId(null);
+      const { data } = await sb.from('canvases').select('id,graph').eq('project_id', projectId).eq('scope', scope).eq('ref_key', refKey).maybeSingle();
       if (data) { setRowId(data.id); const g = (data.graph || {}) as Graph; setNodes(g.nodes || []); setEdges(g.edges || []); }
+      else { const graph = buildInitialCanvasGraph({ imageUrl: initialImageUrl, prompt: initialPrompt }); setNodes(graph.nodes); setEdges(graph.edges); }
     })();
-  }, [projectId, scope, refKey]);
+  }, [projectId, scope, refKey, initialImageUrl, initialPrompt]);
 
   const persist = useCallback((ns: Node[], es: Edge[]) => {
     if (saveT.current) clearTimeout(saveT.current);
@@ -131,6 +137,7 @@ export default function GenCanvas({
     try {
       const payload: any = { projectId, type: assetType, model, size: sizeFor(model, ratio), prompt };
       if (refUrls.length) payload.refUrls = refUrls;
+      if (shotId && shotField) { payload.shotId = shotId; payload.shotField = shotField; }
       const d = await generateImage(payload);
       const ns = nodes.map((n) => n.id === id ? { ...n, busy: false, result: d.url } : n); commit(ns); router.refresh();
     } catch (e: any) { alert("出错：" + (e?.message || "")); setNodes((ns) => ns.map((n) => n.id === id ? { ...n, busy: false } : n)); }
@@ -195,7 +202,7 @@ export default function GenCanvas({
       <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 14, padding: "13px 22px", borderBottom: "1px solid var(--stroke)" }}>
         <Hov as="a" href={backHref} base={toolBtn} hover={{ color: "var(--text)", background: "var(--panel-2)" }}><Icon d={["m15 6-6 6 6 6"]} size={16} sw={1.7} />返回</Hov>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}><span style={{ fontSize: 16, fontWeight: 600 }}>节点画布</span><span className="fg-mono" style={{ fontSize: 10, color: "var(--accent)", padding: "2px 8px", borderRadius: 6, background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }}>连线 = 参考图</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}><span style={{ fontSize: 16, fontWeight: 600 }}>{canvasTitle || "节点画布"}</span><span className="fg-mono" style={{ fontSize: 10, color: "var(--accent)", padding: "2px 8px", borderRadius: 6, background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }}>连线 = 参考图</span></div>
           <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 1 }}>拖动节点 · 从节点右侧圆点拉线连接 · 生成节点输出图片</div>
         </div>
         <div style={{ flex: 1 }} />
