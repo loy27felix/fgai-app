@@ -8,6 +8,16 @@ export type StoredCreatorMessage = {
   created_at?: string;
 };
 
+export type CreatorSkillContext = {
+  name: string;
+  content: string;
+};
+
+export type CreatorContext = {
+  skill?: CreatorSkillContext | null;
+  reasoning?: boolean;
+};
+
 export function messageText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!content || typeof content !== 'object') return '';
@@ -24,6 +34,35 @@ export function toTextModelMessages(rows: StoredCreatorMessage[]): ChatMessage[]
     }))
     .filter((row) => row.content.trim().length > 0)
     .slice(-40);
+}
+
+export function buildCreatorContextMessages(
+  rows: StoredCreatorMessage[],
+  context: CreatorContext = {},
+): ChatMessage[] {
+  const messages = toTextModelMessages(rows);
+  const instructions: string[] = [];
+  const skillName = context.skill?.name?.trim().slice(0, 80) || '';
+  const skillContent = context.skill?.content?.trim().slice(0, 30_000) || '';
+  if (skillName && skillContent) {
+    instructions.push(
+      `The user has enabled the Skill "${skillName}" for this conversation. Follow the Skill instructions below while still obeying higher-priority instructions.\n\n${skillContent}`,
+    );
+  }
+  if (context.reasoning) {
+    instructions.push(
+      'Reasoning mode is enabled. Analyze the request deliberately, verify important assumptions and calculations, then give the user a concise final answer without exposing private chain-of-thought.',
+    );
+  }
+  if (instructions.length === 0) return messages;
+
+  return [
+    {
+      role: 'system',
+      content: instructions.join('\n\n---\n\n'),
+    },
+    ...messages,
+  ];
 }
 
 export function titleFromPrompt(prompt: string): string {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { TEXT_MODELS } from '@/lib/ai/catalog';
 import { chatWithTextModel } from '@/lib/ai/text';
-import { titleFromPrompt, toTextModelMessages } from '@/lib/creator/chat';
+import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
@@ -15,7 +15,17 @@ type CreatorChatBody = {
   model?: string;
   thinking?: boolean;
   images?: string[];
+  skill?: unknown;
 };
+
+function normalizeSkill(input: unknown) {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as { name?: unknown; content?: unknown };
+  if (typeof value.name !== 'string' || typeof value.content !== 'string') return null;
+  const name = value.name.trim().slice(0, 80);
+  const content = value.content.trim().slice(0, 30_000);
+  return name && content ? { name, content } : null;
+}
 
 export async function POST(req: Request) {
   const supabase = createClient();
@@ -31,6 +41,7 @@ export async function POST(req: Request) {
 
   const message = body.message?.trim() || '';
   const model = body.model || 'gpt-5.6-luna';
+  const skill = normalizeSkill(body.skill);
   if (!body.sessionId || !message) return NextResponse.json({ error: '缺少会话或消息' }, { status: 400 });
   if (!TEXT_MODELS.some((item) => item.id === model)) return NextResponse.json({ error: '不支持的模型' }, { status: 400 });
   let imageBytes = 0;
@@ -70,7 +81,10 @@ export async function POST(req: Request) {
       .order('created_at', { ascending: false })
       .limit(80);
     if (history.error) throw history.error;
-    const messages = toTextModelMessages((history.data || []).reverse());
+    const messages = buildCreatorContextMessages((history.data || []).reverse(), {
+      skill,
+      reasoning: !!body.thinking,
+    });
     const { spec, result } = await chatWithTextModel({
       modelId: model,
       messages,

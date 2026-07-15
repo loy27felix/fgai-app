@@ -3,6 +3,8 @@
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { TEXT_MODELS } from "@/lib/ai/catalog";
 import type { CreatorMessage, CreatorSession } from "@/lib/creator/types";
+import SkillPicker from "@/components/SkillPicker";
+import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
 
 const I = {
@@ -35,6 +37,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   const [model, setModel] = useState(initialSessions.find((s) => s.id === initialSessionId)?.default_model || "gpt-5.6-luna");
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [activeSkill, setActiveSkill] = useState<{ name: string; content: string } | null>(null);
   const [thinking, setThinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,6 +74,8 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   async function newChat() {
     if (busy) return;
     setError("");
+    setActiveSkill(null);
+    setThinking(false);
     try { await createSession(); } catch (e) { setError(e instanceof Error ? e.message : "创建会话失败"); }
   }
 
@@ -84,6 +89,8 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
       setSessions(data.sessions);
       setMessages(data.messages);
       setSessionId(id);
+      setActiveSkill(null);
+      setThinking(false);
       const active = data.sessions.find((s: CreatorSession) => s.id === id);
       if (active?.default_model) setModel(active.default_model);
       history.replaceState(null, "", `/creator?session=${id}`);
@@ -110,7 +117,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
       const response = await fetch("/api/creator/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: activeId, message: text || "请分析这些参考图。", model, thinking, images }),
+        body: JSON.stringify({ sessionId: activeId, message: text || "请分析这些参考图。", model, thinking, images, skill: activeSkill }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "回复失败");
@@ -192,13 +199,18 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
               {images.length > 0 && <div style={{ display: "flex", gap: 7, marginBottom: 8 }}>{images.map((src, index) => <div key={index} style={{ position: "relative" }}><img src={src} alt="参考图" style={{ width: 54, height: 54, objectFit: "cover", borderRadius: 10, border: "1px solid var(--stroke-2)" }} /><button onClick={() => setImages((current) => current.filter((_, i) => i !== index))} style={{ position: "absolute", right: -5, top: -5, width: 18, height: 18, borderRadius: "50%", border: "1px solid var(--stroke)", background: "var(--panel-solid)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>×</button></div>)}</div>}
               <div style={{ borderRadius: 18, border: "1px solid var(--stroke-2)", background: "var(--panel-2)", boxShadow: "var(--inset),0 26px 70px -42px rgba(0,0,0,.8)", overflow: "hidden" }}>
                 <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={keyDown} placeholder="给 FG Studio 发消息…" rows={2} style={{ width: "100%", minHeight: 64, maxHeight: 180, resize: "none", padding: "14px 16px 8px", border: 0, outline: 0, background: "transparent", color: "var(--text)", font: "inherit", fontSize: 14, lineHeight: 1.6 }} />
-                <div style={{ height: 46, display: "flex", alignItems: "center", gap: 7, padding: "0 9px 8px" }}>
+                <div style={{ minHeight: 46, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 7, padding: "0 9px 8px" }}>
                   <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={attach} />
                   <button onClick={() => fileRef.current?.click()} title="上传参考图（最多 4 张，每张 1.5MB）" style={{ width: 34, height: 34, display: "grid", placeItems: "center", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", cursor: "pointer" }}><Icon d={I.clip} size={16} /></button>
-                  <select value={model} onChange={(event) => { setModel(event.target.value); setError(""); }} style={{ height: 34, maxWidth: 220, padding: "0 28px 0 10px", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel-solid)", color: "var(--text-2)", outline: 0, fontSize: 11.5 }}>{TEXT_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
-                  {selectedModel.provider === "deepseek" && <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-3)", cursor: "pointer" }}><input type="checkbox" checked={thinking} onChange={(event) => setThinking(event.target.checked)} />深度思考</label>}
+                  <select value={model} onChange={(event) => { setModel(event.target.value); setError(""); }} style={{ height: 34, maxWidth: 200, padding: "0 28px 0 10px", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel-solid)", color: "var(--text-2)", outline: 0, fontSize: 11.5 }}>{TEXT_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
+                  <SkillPicker active={activeSkill?.name || null} onApply={(name, content) => setActiveSkill({ name, content })} onClear={() => setActiveSkill(null)} />
+                  <PromptPicker onInsert={(text) => setPrompt((current) => current.trim() ? `${current.trimEnd()}\n${text}` : text)} />
+                  <label title="开启后会要求模型先分析、核对，再给出简洁答案" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: thinking ? "var(--accent)" : "var(--text-3)", cursor: "pointer", userSelect: "none" }}>
+                    <input aria-label="推理模式" type="checkbox" checked={thinking} onChange={(event) => setThinking(event.target.checked)} hidden />
+                    <span style={{ width: 28, height: 16, padding: 2, display: "flex", justifyContent: thinking ? "flex-end" : "flex-start", borderRadius: 999, background: thinking ? "var(--accent)" : "var(--stroke-2)", transition: "background .18s ease" }}><span style={{ width: 12, height: 12, borderRadius: "50%", background: thinking ? "var(--accent-ink)" : "var(--text-3)" }} /></span>
+                    推理
+                  </label>
                   <div style={{ flex: 1 }} />
-                  <span className="fg-mono" style={{ fontSize: 9.5, color: "var(--text-3)" }}>Enter 发送 · Shift+Enter 换行</span>
                   <button onClick={() => void send()} disabled={busy || (!prompt.trim() && images.length === 0)} style={{ width: 36, height: 36, display: "grid", placeItems: "center", borderRadius: 11, border: 0, background: "var(--accent)", color: "var(--accent-ink)", cursor: "pointer", opacity: busy || (!prompt.trim() && images.length === 0) ? .4 : 1 }}><Icon d={I.send} size={17} sw={1.9} /></button>
                 </div>
               </div>
