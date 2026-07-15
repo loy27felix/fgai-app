@@ -5,6 +5,7 @@ export const MAX_CREATOR_IMAGE_REFERENCES = 8;
 export const MAX_CREATOR_IMAGE_FILE_BYTES = 7_000_000;
 export const MAX_CREATOR_IMAGE_TOTAL_BYTES = 28_000_000;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
 export type ImageReferenceManifest = { name: string; mimeType: string; size: number };
 export type CreatorImageSkill = { name: string; content: string };
@@ -40,7 +41,22 @@ export function referencePathFor(userId: string, taskId: string, index: number, 
   return `${userId}/image-tasks/${taskId}/references/${String(index + 1).padStart(2, '0')}.${ext}`;
 }
 
+export function normalizeImageIdempotencyKey(input: unknown) {
+  if (typeof input !== 'string') throw new Error('idempotency key is required');
+  const value = input.normalize('NFC').trim();
+  if (!value) throw new Error('idempotency key is required');
+  if (value.length > MAX_IDEMPOTENCY_KEY_LENGTH || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error('invalid idempotency key');
+  }
+  return value;
+}
+
+export function scopedImageIdempotencyKey(userId: string, workspaceId: string, key: string) {
+  return `creator-image:${workspaceId}:${userId}:${key}`;
+}
+
 const OWNED_REFERENCE_ERROR = '\u53c2\u8003\u56fe\u4e0d\u5c5e\u4e8e\u5f53\u524d\u4efb\u52a1';
+const OWNED_RESULT_ERROR = 'result file does not belong to the current task';
 
 function isSafePathSegment(segment: string) {
   return segment.length > 0
@@ -63,6 +79,39 @@ export function assertOwnedReferencePath(path: string, userId: string, taskId: s
     && isSafePathSegment(segments[4]);
 
   if (!isOwned) throw new Error(OWNED_REFERENCE_ERROR);
+}
+
+
+export function assertOwnedResultPath(path: string, userId: string, taskId: string) {
+  const segments = path.split('/');
+  const isOwned = segments.length === 4
+    && segments[0] === userId
+    && segments[1] === 'image-tasks'
+    && segments[2] === taskId
+    && /^result\.(?:png|jpe?g|webp)$/.test(segments[3])
+    && isSafePathSegment(userId)
+    && isSafePathSegment(taskId)
+    && isSafePathSegment(segments[3]);
+
+  if (!isOwned) throw new Error(OWNED_RESULT_ERROR);
+}
+
+export function validateCompletedReferencePaths(
+  paths: unknown,
+  manifest: ImageReferenceManifest[],
+  userId: string,
+  taskId: string,
+) {
+  if (!Array.isArray(paths) || !paths.every((path) => typeof path === 'string')) {
+    throw new Error('invalid referencePaths');
+  }
+  if (paths.length !== manifest.length) throw new Error('reference count does not match manifest');
+  return paths.map((path, index) => {
+    assertOwnedReferencePath(path, userId, taskId);
+    const expected = referencePathFor(userId, taskId, index, manifest[index].mimeType);
+    if (path !== expected) throw new Error('reference upload path does not match server plan');
+    return path;
+  });
 }
 
 export function isCreatorImageTerminal(status: CreatorTaskStatus) {
