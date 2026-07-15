@@ -31,7 +31,7 @@ export type ImageLedgerEntry = {
   user_id: string;
   workspace_id: string | null;
   project_id: string | null;
-  creator_task_id: null;
+  creator_task_id: string | null;
   kind: 'image';
   provider: string;
   model: string;
@@ -39,7 +39,7 @@ export type ImageLedgerEntry = {
   resolution: string;
   cost_source: 'unknown';
   price_snapshot: Record<string, never>;
-  status: 'succeeded';
+  status: UsageLedgerStatus;
   possibly_charged: true;
 };
 
@@ -84,8 +84,13 @@ function deepseekEstimate(model: string, inputTokens: number, outputTokens: numb
   };
 }
 
+type LedgerUpsertOptions = { onConflict: 'request_id' };
+
 type LedgerWriter = {
-  upsert(row: TextLedgerEntry | ImageLedgerEntry | VideoLedgerEntry): Promise<unknown>;
+  upsert(
+    row: TextLedgerEntry | ImageLedgerEntry | VideoLedgerEntry,
+    options?: LedgerUpsertOptions,
+  ): Promise<unknown>;
 };
 
 function tokenCount(value: number | undefined): number {
@@ -153,6 +158,32 @@ export function buildImageLedgerEntry(input: {
   };
 }
 
+export function buildCreatorImageLedgerEntry(input: {
+  requestId: string;
+  userId: string;
+  workspaceId: string;
+  creatorTaskId: string;
+  model: string;
+  resolution: string;
+}): ImageLedgerEntry {
+  return {
+    request_id: input.requestId,
+    user_id: input.userId,
+    workspace_id: input.workspaceId,
+    project_id: null,
+    creator_task_id: input.creatorTaskId,
+    kind: 'image',
+    provider: 'wetoken',
+    model: input.model,
+    image_count: 1,
+    resolution: input.resolution,
+    cost_source: 'unknown',
+    price_snapshot: {},
+    status: 'submitted',
+    possibly_charged: true,
+  };
+}
+
 export function buildVideoLedgerEntry(input: {
   requestId: string;
   providerRequestId: string;
@@ -210,6 +241,51 @@ export async function updateVideoUsageBestEffort(input: {
   } catch {
     return false;
   }
+}
+
+type ImageStatusWriter = {
+  update(values: object, requestId: string): Promise<unknown>;
+};
+
+function hasLedgerError(result: unknown): boolean {
+  if (result === null || typeof result !== 'object' || !('error' in result)) {
+    return false;
+  }
+  const error = (result as { error?: unknown }).error;
+  return error !== null && error !== undefined;
+}
+
+export async function recordUsageRequired(
+  row: ImageLedgerEntry,
+  dependency?: LedgerWriter,
+): Promise<void> {
+  const options: LedgerUpsertOptions = { onConflict: 'request_id' };
+  const result = dependency
+    ? await dependency.upsert(row, options)
+    : await createAdminClient()
+      .from('ai_usage_ledger')
+      .upsert(row, options);
+  if (hasLedgerError(result)) {
+    throw new Error('\u7528\u91cf\u8bb0\u5f55\u5199\u5165\u5931\u8d25');
+  }
+}
+
+export async function updateImageUsageStatus(input: {
+  requestId: string;
+  status: UsageLedgerStatus;
+  completedAt?: string | null;
+}, dependency?: ImageStatusWriter): Promise<boolean> {
+  const values = {
+    status: input.status,
+    completed_at: input.completedAt ?? null,
+  };
+  const result = dependency
+    ? await dependency.update(values, input.requestId)
+    : await createAdminClient()
+      .from('ai_usage_ledger')
+      .update(values)
+      .eq('request_id', input.requestId);
+  return !hasLedgerError(result);
 }
 
 
