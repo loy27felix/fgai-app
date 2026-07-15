@@ -1,18 +1,38 @@
 import { NextResponse } from 'next/server';
 import {
   assertOwnedReferencePath,
-  assertOwnedResultPath,
   referencePathFor,
   validateCompletedReferencePaths,
   type ImageReferenceManifest,
 } from '@/lib/creator/image';
-import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
+import {
+  deleteOwnedImageTask,
+  ImageStorageError,
+  validateReferenceUploadContents,
+  type CreatorImageDeletionStore,
+} from '@/lib/creator/imageStorage';
+import type { CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 type RouteContext = { params: { id: string } };
+
+function response(error: string, code: string, status: number) {
+  return NextResponse.json({ error, code }, { status });
+}
+
+function serverError(error: unknown, fallbackCode: string, fallbackMessage: string) {
+  console.error('[creator image item]', error);
+  if (error instanceof ImageStorageError) {
+    return NextResponse.json(
+      { error: error.message, code: error.code },
+      { status: 409 },
+    );
+  }
+  return response(fallbackMessage, fallbackCode, 500);
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -21,7 +41,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function storedManifest(value: unknown): ImageReferenceManifest[] {
-  if (!Array.isArray(value)) throw new Error('Stored reference manifest is invalid');
+  if (!Array.isArray(value)) throw new Error('stored reference manifest is invalid');
   return value.map((entry) => {
     const reference = asRecord(entry);
     if (
@@ -29,7 +49,7 @@ function storedManifest(value: unknown): ImageReferenceManifest[] {
       || typeof reference.mimeType !== 'string'
       || typeof reference.size !== 'number'
     ) {
-      throw new Error('Stored reference manifest is invalid');
+      throw new Error('stored reference manifest is invalid');
     }
     return {
       name: reference.name,
@@ -67,11 +87,11 @@ async function findOwnedTask(
 export async function PATCH(req: Request, { params }: RouteContext) {
   try {
     const context = await creatorContext();
-    if (!context) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
 
     const owned = await findOwnedTask(context, params.id);
     if (owned.error) throw owned.error;
-    if (!owned.data) return NextResponse.json({ error: 'Image task not found' }, { status: 404 });
+    if (!owned.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404);
     const task = owned.data as CreatorImageTask;
 
     let body: Record<string, unknown>;
@@ -80,10 +100,13 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid body');
       body = value as Record<string, unknown>;
     } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+      return response('\u8bf7\u6c42\u4f53\u683c\u5f0f\u9519\u8bef', 'INVALID_REQUEST_BODY', 400);
     }
-    if (Object.keys(body).some((key) => key !== 'referencePaths')) {
-      return NextResponse.json({ error: 'Only referencePaths can be updated' }, { status: 400 });
+    if (
+      Object.keys(body).length !== 1
+      || !Object.prototype.hasOwnProperty.call(body, 'referencePaths')
+    ) {
+      return response('\u53ea\u80fd\u66f4\u65b0\u53c2\u8003\u56fe\u8def\u5f84', 'INVALID_PATCH_FIELDS', 400);
     }
 
     const request = asRecord(task.request);
@@ -99,29 +122,19 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       paths.forEach((path, index) => {
         assertOwnedReferencePath(path, context.user.id, task.id);
         if (path !== referencePathFor(context.user.id, task.id, index, manifest[index].mimeType)) {
-          throw new Error('Reference upload path does not match server plan');
+          throw new Error('reference path does not match server plan');
         }
       });
     } catch (error: unknown) {
-      return NextResponse.json({
-        error: error instanceof Error ? error.message : 'Invalid reference paths',
-      }, { status: 400 });
+      console.error('[creator image reference paths]', error);
+      return response('\u53c2\u8003\u56fe\u8def\u5f84\u65e0\u6548', 'INVALID_REFERENCE_PATHS', 400);
     }
 
     const bucket = context.supabase.storage.from('creator-assets');
-    for (const path of paths) {
-      const slash = path.lastIndexOf('/');
-      const directory = path.slice(0, slash);
-      const fileName = path.slice(slash + 1);
-      const listed = await bucket.list(directory, { search: fileName, limit: 100 });
-      if (listed.error) {
-        return NextResponse.json({
-          error: `Failed to verify reference upload: ${listed.error.message}`,
-        }, { status: 500 });
-      }
-      if (!(listed.data || []).some((object) => object.name === fileName)) {
-        return NextResponse.json({ error: `Reference upload is missing: ${fileName}` }, { status: 400 });
-      }
+    try {
+      await validateReferenceUploadContents(bucket, paths, manifest);
+    } catch (error: unknown) {
+      return serverError(error, 'REFERENCE_VALIDATION_FAILED', '\u53c2\u8003\u56fe\u6821\u9a8c\u5931\u8d25\uff0c\u8bf7\u91cd\u65b0\u4e0a\u4f20');
     }
 
     const updated = await context.supabase
@@ -140,114 +153,80 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       .select('*')
       .maybeSingle();
     if (updated.error) throw updated.error;
-    if (!updated.data) return NextResponse.json({ error: 'Image task not found' }, { status: 404 });
+    if (!updated.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404);
     return NextResponse.json({ task: updated.data });
   } catch (error: unknown) {
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Failed to complete reference uploads',
-    }, { status: 500 });
+    return serverError(error, 'UPLOAD_CONFIRM_FAILED', '\u53c2\u8003\u56fe\u786e\u8ba4\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
   }
 }
 
 export async function DELETE(_req: Request, { params }: RouteContext) {
   try {
     const context = await creatorContext();
-    if (!context) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
 
     const owned = await findOwnedTask(context, params.id);
     if (owned.error) throw owned.error;
-    if (!owned.data) return NextResponse.json({ error: 'Image task not found' }, { status: 404 });
+    if (!owned.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404);
     const task = owned.data as CreatorImageTask;
     const output = asRecord(task.output);
-    const assetId = typeof output.asset_id === 'string' ? output.asset_id : null;
+    const assetId = typeof output.asset_id === 'string' && output.asset_id
+      ? output.asset_id
+      : null;
 
-    let asset: CreatorImageAsset | null = null;
-    if (assetId) {
-      const found = await context.supabase
-        .from('creator_assets')
-        .select('*')
-        .eq('id', assetId)
-        .eq('workspace_id', context.workspace.id)
-        .eq('kind', 'image')
-        .eq('source', 'generation')
-        .maybeSingle();
-      if (found.error) {
-        return NextResponse.json({
-          error: `Failed to load result asset: ${found.error.message}`,
-        }, { status: 500 });
-      }
-      asset = found.data as CreatorImageAsset | null;
-    }
+    const store: CreatorImageDeletionStore = {
+      loadAsset: async (id, workspaceId) => {
+        const found = await context.supabase
+          .from('creator_assets')
+          .select('id,storage_path')
+          .eq('id', id)
+          .eq('workspace_id', workspaceId)
+          .eq('kind', 'image')
+          .eq('source', 'generation')
+          .maybeSingle();
+        return {
+          data: found.data ? { id: found.data.id, storagePath: found.data.storage_path } : null,
+          error: found.error,
+        };
+      },
+      deleteAsset: async (id, workspaceId) => {
+        const deleted = await context.supabase
+          .from('creator_assets')
+          .delete()
+          .eq('id', id)
+          .eq('workspace_id', workspaceId)
+          .eq('kind', 'image')
+          .eq('source', 'generation')
+          .select('id')
+          .maybeSingle();
+        return { deleted: !!deleted.data, error: deleted.error };
+      },
+      deleteTask: async (id, workspaceId, userId) => {
+        const deleted = await context.supabase
+          .from('creator_generation_tasks')
+          .delete()
+          .eq('id', id)
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', userId)
+          .eq('kind', 'image')
+          .select('id')
+          .maybeSingle();
+        return { deleted: !!deleted.data, error: deleted.error };
+      },
+    };
 
-    const bucket = context.supabase.storage.from('creator-assets');
-    const referencePrefix = `${context.user.id}/image-tasks/${task.id}/references`;
-    const listed = await bucket.list(referencePrefix, { limit: 100 });
-    if (listed.error) {
-      return NextResponse.json({
-        error: `Failed to list task references: ${listed.error.message}`,
-      }, { status: 500 });
-    }
-    const referencePaths: string[] = [];
-    try {
-      for (const object of listed.data || []) {
-        const path = `${referencePrefix}/${object.name}`;
-        assertOwnedReferencePath(path, context.user.id, task.id);
-        referencePaths.push(path);
-      }
-      if (asset) assertOwnedResultPath(asset.storage_path, context.user.id, task.id);
-    } catch (error: unknown) {
-      return NextResponse.json({
-        error: error instanceof Error ? error.message : 'Task storage ownership check failed',
-      }, { status: 500 });
-    }
-
-    const storagePaths = asset
-      ? [...referencePaths, asset.storage_path]
-      : referencePaths;
-    if (storagePaths.length) {
-      const removed = await bucket.remove(storagePaths);
-      if (removed.error) {
-        return NextResponse.json({
-          error: `Failed to delete task storage: ${removed.error.message}`,
-        }, { status: 500 });
-      }
-    }
-
-    if (asset) {
-      const deletedAsset = await context.supabase
-        .from('creator_assets')
-        .delete()
-        .eq('id', asset.id)
-        .eq('workspace_id', context.workspace.id)
-        .eq('kind', 'image')
-        .eq('source', 'generation');
-      if (deletedAsset.error) {
-        return NextResponse.json({
-          error: `Task storage was deleted, but the result asset row could not be deleted: ${deletedAsset.error.message}`,
-        }, { status: 500 });
-      }
-    }
-
-    const deletedTask = await context.supabase
-      .from('creator_generation_tasks')
-      .delete()
-      .eq('id', task.id)
-      .eq('workspace_id', context.workspace.id)
-      .eq('user_id', context.user.id)
-      .eq('kind', 'image')
-      .select('id')
-      .maybeSingle();
-    if (deletedTask.error) {
-      return NextResponse.json({
-        error: `Task storage and asset were deleted, but the task row could not be deleted: ${deletedTask.error.message}`,
-      }, { status: 500 });
-    }
-    if (!deletedTask.data) return NextResponse.json({ error: 'Image task not found' }, { status: 404 });
-
-    return NextResponse.json({ ok: true, id: deletedTask.data.id });
+    const deleted = await deleteOwnedImageTask(
+      context.supabase.storage.from('creator-assets'),
+      store,
+      {
+        id: task.id,
+        userId: context.user.id,
+        workspaceId: context.workspace.id,
+        assetId,
+      },
+    );
+    return NextResponse.json({ ok: true, id: deleted.id });
   } catch (error: unknown) {
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Failed to delete image task',
-    }, { status: 500 });
+    return serverError(error, 'IMAGE_TASK_DELETE_FAILED', '\u56fe\u7247\u4efb\u52a1\u5220\u9664\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
   }
 }

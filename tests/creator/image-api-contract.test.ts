@@ -41,21 +41,30 @@ test('task and asset queries are explicitly scoped and draft snapshots include s
   assert.match(collection, /createSignedUrl/);
 });
 
-test('upload completion validates exact server-planned paths and existing private objects', () => {
+test('upload completion validates exact server-planned paths and downloaded private contents', () => {
   assert.match(item, /validateCompletedReferencePaths/);
   assert.match(item, /assertOwnedReferencePath/);
   assert.match(item, /referencePathFor/);
-  assert.match(item, /\.list\(/);
+  assert.match(item, /validateReferenceUploadContents/);
+  assert.doesNotMatch(item, /\.list\([^)]*search:/);
   assert.match(item, /uploads_complete: true/);
 });
 
 test('deletion cleans only the owned task prefix and result asset before database rows', () => {
-  assert.match(item, /image-tasks/);
-  assert.match(item, /\.remove\(/);
+  assert.match(item, /imageStorage/);
+  assert.match(item, /deleteOwnedImageTask/);
   assert.match(item, /creator_assets/);
   assert.match(item, /creator_generation_tasks/);
+  assert.match(item, /\.select\(['"]id['"]\)\s*\.maybeSingle\(\)/s);
   assert.doesNotMatch(item, /from\(['"]ai_usage_ledger['"]\)\.delete/);
   assert.doesNotMatch(item, /remove\(\[?`?\$\{user\.id\}`?\]?\)/);
+});
+
+test('item route returns stable storage error codes without raw dependency details', () => {
+  assert.match(item, /error instanceof ImageStorageError/);
+  assert.match(item, /code: error\.code/);
+  assert.match(item, /console\.error/);
+  assert.doesNotMatch(item, /error: `[^`]*\$\{[^}]*\.error\.message\}/);
 });
 
 test('idempotency keys are required, normalized and namespaced per private owner', () => {
