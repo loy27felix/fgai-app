@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getWetokenVideoTask } from '@/lib/ai/video';
+import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
@@ -26,6 +27,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       completed_at: terminal ? (task.completed_at || new Date().toISOString()) : null,
     };
     const { error: updateError } = await supabase.from('generation_tasks').update(patch).eq('id', task.id);
+    await updateVideoUsageBestEffort({
+      requestId: `wetoken-video:${task.external_task_id}`,
+      providerStatus: result.status,
+      completedAt: patch.completed_at,
+    });
     if (updateError) return NextResponse.json({ error: `同步任务状态失败：${updateError.message}` }, { status: 500 });
     if (result.status === 'succeeded' && result.videoUrl && task.shot_id) {
       const { error: shotError } = await supabase.from('shots').update({ video_url: result.videoUrl }).eq('id', task.shot_id);

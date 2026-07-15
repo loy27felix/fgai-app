@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { generateWetokenImage } from '@/lib/ai/image';
 import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
+import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -113,6 +114,14 @@ export async function POST(req: Request) {
       size: body.size || '1024x1024',
       references,
     });
+    await recordUsageBestEffort(buildImageLedgerEntry({
+      userId: user.id,
+      projectId,
+      provider: 'wetoken',
+      model,
+      resolution: body.size || '1024x1024',
+    }));
+
     const ext = extensionFor(generated.mimeType);
     const folder = toShot ? 'board' : slugType(body.type || '人物');
     const basename = toShot ? `${body.shotId}-${body.shotField}` : 'gen';

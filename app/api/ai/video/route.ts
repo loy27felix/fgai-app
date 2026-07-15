@@ -5,6 +5,7 @@ import {
   type SeedanceInput,
   type VideoReference,
 } from '@/lib/ai/video';
+import { buildVideoLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -79,6 +80,18 @@ export async function POST(req: Request) {
 
   try {
     const created = await createWetokenVideoTask(input);
+    await recordUsageBestEffort(buildVideoLedgerEntry({
+      requestId: `wetoken-video:${created.externalTaskId}`,
+      providerRequestId: created.externalTaskId,
+      userId: user.id,
+      projectId,
+      provider: 'wetoken',
+      model: input.model,
+      duration: input.duration,
+      resolution: input.resolution,
+      generateAudio: input.generateAudio,
+    }));
+
     const requestRecord = {
       prompt: input.prompt,
       references: input.references,

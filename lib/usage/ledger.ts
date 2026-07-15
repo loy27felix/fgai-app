@@ -19,14 +19,73 @@ export type TextLedgerEntry = {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  estimated_cost_usd?: number;
+  cost_source: 'estimated' | 'unknown';
+  price_snapshot: Record<string, string | number>;
+  status: 'succeeded';
+  possibly_charged: true;
+};
+
+export type ImageLedgerEntry = {
+  request_id: string;
+  user_id: string;
+  workspace_id: string | null;
+  project_id: string | null;
+  creator_task_id: null;
+  kind: 'image';
+  provider: string;
+  model: string;
+  image_count: number;
+  resolution: string;
   cost_source: 'unknown';
   price_snapshot: Record<string, never>;
   status: 'succeeded';
   possibly_charged: true;
 };
 
+export type VideoLedgerEntry = {
+  request_id: string;
+  provider_request_id: string;
+  user_id: string;
+  workspace_id: string | null;
+  project_id: string | null;
+  creator_task_id: null;
+  kind: 'video';
+  provider: string;
+  model: string;
+  video_seconds: number;
+  resolution: string;
+  generate_audio: boolean;
+  cost_source: 'unknown';
+  price_snapshot: Record<string, never>;
+  status: 'submitted';
+  possibly_charged: true;
+};
+
+const DEEPSEEK_PRICES = {
+  'deepseek-flash': { input: 0.14, output: 0.28 },
+  'deepseek-pro': { input: 0.435, output: 0.87 },
+} as const;
+
+function deepseekEstimate(model: string, inputTokens: number, outputTokens: number) {
+  const price = DEEPSEEK_PRICES[model as keyof typeof DEEPSEEK_PRICES];
+  if (!price) return null;
+  const cost = Number(((inputTokens * price.input + outputTokens * price.output) / 1_000_000).toFixed(10));
+  return {
+    cost,
+    snapshot: {
+      currency: 'USD',
+      unit: '1M tokens',
+      input_per_million: price.input,
+      output_per_million: price.output,
+      assumption: 'cache_miss',
+      source: 'https://api-docs.deepseek.com/quick_start/pricing',
+    },
+  };
+}
+
 type LedgerWriter = {
-  upsert(row: TextLedgerEntry): Promise<unknown>;
+  upsert(row: TextLedgerEntry | ImageLedgerEntry | VideoLedgerEntry): Promise<unknown>;
 };
 
 function tokenCount(value: number | undefined): number {
@@ -44,6 +103,9 @@ export function buildTextLedgerEntry(input: {
 }): TextLedgerEntry {
   const inputTokens = tokenCount(input.usage?.prompt_tokens);
   const outputTokens = tokenCount(input.usage?.completion_tokens);
+  const estimate = input.provider === 'deepseek'
+    ? deepseekEstimate(input.model, inputTokens, outputTokens)
+    : null;
   return {
     request_id: input.requestId || randomUUID(),
     user_id: input.userId,
@@ -56,6 +118,34 @@ export function buildTextLedgerEntry(input: {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     total_tokens: tokenCount(input.usage?.total_tokens) || inputTokens + outputTokens,
+    ...(estimate ? { estimated_cost_usd: estimate.cost } : {}),
+    cost_source: estimate ? 'estimated' : 'unknown',
+    price_snapshot: estimate?.snapshot || {},
+    status: 'succeeded',
+    possibly_charged: true,
+  };
+}
+
+export function buildImageLedgerEntry(input: {
+  requestId?: string;
+  userId: string;
+  workspaceId?: string | null;
+  projectId?: string | null;
+  provider: string;
+  model: string;
+  resolution: string;
+}): ImageLedgerEntry {
+  return {
+    request_id: input.requestId || randomUUID(),
+    user_id: input.userId,
+    workspace_id: input.workspaceId ?? null,
+    project_id: input.projectId ?? null,
+    creator_task_id: null,
+    kind: 'image',
+    provider: input.provider,
+    model: input.model,
+    image_count: 1,
+    resolution: input.resolution,
     cost_source: 'unknown',
     price_snapshot: {},
     status: 'succeeded',
@@ -63,8 +153,68 @@ export function buildTextLedgerEntry(input: {
   };
 }
 
+export function buildVideoLedgerEntry(input: {
+  requestId: string;
+  providerRequestId: string;
+  userId: string;
+  workspaceId?: string | null;
+  projectId?: string | null;
+  provider: string;
+  model: string;
+  duration: number;
+  resolution: string;
+  generateAudio: boolean;
+}): VideoLedgerEntry {
+  return {
+    request_id: input.requestId,
+    provider_request_id: input.providerRequestId,
+    user_id: input.userId,
+    workspace_id: input.workspaceId ?? null,
+    project_id: input.projectId ?? null,
+    creator_task_id: null,
+    kind: 'video',
+    provider: input.provider,
+    model: input.model,
+    video_seconds: input.duration > 0 ? input.duration : 0,
+    resolution: input.resolution,
+    generate_audio: input.generateAudio,
+    cost_source: 'unknown',
+    price_snapshot: {},
+    status: 'submitted',
+    possibly_charged: true,
+  };
+}
+export type UsageLedgerStatus = 'submitted' | 'succeeded' | 'failed' | 'unknown';
+
+export function normalizeVideoLedgerStatus(status: string): UsageLedgerStatus {
+  if (status === 'succeeded') return 'succeeded';
+  if (status === 'failed' || status === 'expired') return 'failed';
+  if (status === 'queued' || status === 'running') return 'submitted';
+  return 'unknown';
+}
+
+export async function updateVideoUsageBestEffort(input: {
+  requestId: string;
+  providerStatus: string;
+  completedAt?: string | null;
+}): Promise<boolean> {
+  try {
+    const result = await createAdminClient()
+      .from('ai_usage_ledger')
+      .update({
+        status: normalizeVideoLedgerStatus(input.providerStatus),
+        completed_at: input.completedAt ?? null,
+      })
+      .eq('request_id', input.requestId);
+    return !result.error;
+  } catch {
+    return false;
+  }
+}
+
+
 export async function recordUsageBestEffort(
-  row: TextLedgerEntry,
+  row: TextLedgerEntry | ImageLedgerEntry | VideoLedgerEntry,
   dependency?: LedgerWriter,
 ): Promise<boolean> {
   try {

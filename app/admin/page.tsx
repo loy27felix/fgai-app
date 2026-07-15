@@ -32,7 +32,10 @@ export default async function AdminPage() {
   const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: projects }] = await Promise.all([
     supabase.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     supabase.from("whitelist").select("*").order("requested_at", { ascending: false }),
-    supabase.from("ai_usage").select("model,total_tokens,created_at").order("created_at", { ascending: false }).limit(5000),
+    supabase.from("ai_usage_ledger")
+      .select("user_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
+      .order("created_at", { ascending: false })
+      .limit(5000),
     supabase.from("projects").select("id"),
   ]);
   const balance = await dsBalance();
