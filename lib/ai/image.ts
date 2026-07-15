@@ -89,7 +89,7 @@ export async function generateWetokenImage(
   const spec = getImageModel(input.model);
   if (!spec) throw new Error(`不支持的图片模型：${input.model}`);
   if (!input.prompt.trim()) throw new Error('图片提示词为空');
-  if (input.references.length > 4) throw new Error('参考图最多 4 张');
+  if (input.references.length > 8) throw new Error('参考图最多 8 张');
 
   const base = (process.env.WETOKEN_BASE_URL || 'https://wetoken.ai/v1').replace(/\/$/, '');
   const fetcher = dependencies.fetcher ?? fetch;

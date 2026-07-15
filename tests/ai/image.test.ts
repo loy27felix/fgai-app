@@ -121,3 +121,11 @@ test('image client rejects unknown models and missing key before fetching', asyn
     /缺少 WETOKEN_API_KEY/,
   );
 });
+
+test('shared image generator accepts eight references and rejects the ninth', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const reference = { data: 'YWJj', mimeType: 'image/png' };
+  const fetcher = async () => new Response(JSON.stringify({ data: [{ b64_json: 'YWJj' }] }), { status: 200 });
+  await generateWetokenImage({ model: 'gpt-image-2', prompt: 'x', size: '1024x1024', references: Array(8).fill(reference) }, { fetcher });
+  await assert.rejects(() => generateWetokenImage({ model: 'gpt-image-2', prompt: 'x', size: '1024x1024', references: Array(9).fill(reference) }, { fetcher }), /最多 8 张/);
+});

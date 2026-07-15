@@ -5,13 +5,14 @@ export type ImageModelSpec = {
   label: string;
   provider: ImageProvider;
   experimental: boolean;
+  maxReferences: number;
 };
 
 export const IMG_MODELS: ImageModelSpec[] = [
-  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false },
-  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false },
-  { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true },
-  { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true },
+  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false, maxReferences: 8 },
+  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8 },
+  { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8 },
+  { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8 },
 ];
 
 export const RATIOS = [
