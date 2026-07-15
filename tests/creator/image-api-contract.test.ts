@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { createImageItemHandlers } from '../../app/api/creator/images/[id]/route';
+import { ImageStorageError } from '../../lib/creator/imageStorage';
 import {
   assertOwnedResultPath,
   normalizeImageIdempotencyKey,
@@ -21,6 +23,9 @@ test('all creator image operations authenticate and bootstrap the private worksp
   assert.match(collection, /export async function POST/);
   assert.match(item, /export async function PATCH/);
   assert.match(item, /export async function DELETE/);
+  assert.match(item, /defaultImageItemHandlers\s*=\s*createImageItemHandlers/);
+  assert.match(item, /defaultImageItemHandlers\.PATCH/);
+  assert.match(item, /defaultImageItemHandlers\.DELETE/);
   for (const source of [collection, item]) {
     assert.match(source, /auth\.getUser\(\)/);
     assert.match(source, /ensureCreatorWorkspace/);
@@ -108,4 +113,143 @@ test('result deletion cannot escape the owned task result path', () => {
   assert.throws(() => assertOwnedResultPath('u1/image-tasks/t2/result.png', 'u1', 't1'), /current task/);
   assert.throws(() => assertOwnedResultPath('u1/image-tasks/t1/references/01.png', 'u1', 't1'), /current task/);
   assert.throws(() => assertOwnedResultPath('u1/image-tasks/t1/../other.png', 'u1', 't1'), /current task/);
+});
+
+type LookupResult = { data: Record<string, unknown> | null; error: unknown | null };
+
+class FakeItemLookup {
+  readonly filters: Array<[string, unknown]> = [];
+  constructor(private readonly result: LookupResult) {}
+  select(_columns: string) { return this; }
+  eq(column: string, value: unknown) { this.filters.push([column, value]); return this; }
+  async maybeSingle() { return this.result; }
+}
+
+class FakeItemSupabase {
+  readonly queries: FakeItemLookup[] = [];
+  readonly auth = { getUser: async () => ({ data: { user: { id: 'u1' } } }) };
+  readonly storage = { from: (_bucket: string) => ({ bucket: 'creator-assets' }) };
+  constructor(private readonly lookup: LookupResult) {}
+  from(table: string) {
+    assert.equal(table, 'creator_generation_tasks');
+    const query = new FakeItemLookup(this.lookup);
+    this.queries.push(query);
+    return query;
+  }
+  async rpc() { return { data: 'w1', error: null }; }
+}
+
+const routeTask = {
+  id: 't1', workspace_id: 'w1', user_id: 'u1', kind: 'image', model: 'gpt-image-2',
+  request: {}, output: { asset_id: 'a1' },
+};
+
+function itemRequest(body: string) {
+  return new Request('http://local/api/creator/images/t1', {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body,
+  });
+}
+
+function itemFixture(options: { lookup?: LookupResult; confirmError?: unknown; deleteError?: unknown } = {}) {
+  const supabase = new FakeItemSupabase(options.lookup || { data: routeTask, error: null });
+  const calls = { confirm: 0, delete: 0 };
+  const handlers = createImageItemHandlers({
+    createClient: () => supabase,
+    ensureCreatorWorkspace: async () => ({ id: 'w1' }),
+    confirmImageReferenceUploads: async () => {
+      calls.confirm += 1;
+      if (options.confirmError) throw options.confirmError;
+      return { id: 't1', status: 'draft' };
+    },
+    deleteOwnedImageTask: async () => {
+      calls.delete += 1;
+      if (options.deleteError) throw options.deleteError;
+      return { id: 't1' };
+    },
+  });
+  return { handlers, supabase, calls };
+}
+
+function assertItemLookup(query: FakeItemLookup) {
+  assert.deepEqual(query.filters, [
+    ['id', 't1'], ['workspace_id', 'w1'], ['user_id', 'u1'], ['kind', 'image'],
+  ]);
+}
+
+test('PATCH factory handler scopes owned lookup and confirms once on success', async () => {
+  const { handlers, supabase, calls } = itemFixture();
+  const response = await handlers.PATCH(itemRequest('{"referencePaths":[]}'), { params: { id: 't1' } });
+  assert.equal(response.status, 200);
+  assert.equal(calls.confirm, 1);
+  assertItemLookup(supabase.queries[0]);
+});
+
+test('PATCH factory handler returns 404 without confirming an absent task', async () => {
+  const { handlers, calls } = itemFixture({ lookup: { data: null, error: null } });
+  const response = await handlers.PATCH(itemRequest('{"referencePaths":[]}'), { params: { id: 't1' } });
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).code, 'IMAGE_TASK_NOT_FOUND');
+  assert.equal(calls.confirm, 0);
+});
+
+test('PATCH factory handler rejects invalid JSON and fields without confirming', async () => {
+  for (const body of ['{', '{"referencePaths":[],"prompt":"forbidden"}']) {
+    const { handlers, calls } = itemFixture();
+    const response = await handlers.PATCH(itemRequest(body), { params: { id: 't1' } });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).code, /^INVALID_/);
+    assert.equal(calls.confirm, 0);
+  }
+});
+
+test('PATCH factory handler returns stable 4xx for confirm failure', async () => {
+  const error = new ImageStorageError('REFERENCE_STORAGE_MISSING', new Error('secret confirm detail'));
+  const { handlers, calls } = itemFixture({ confirmError: error });
+  const response = await handlers.PATCH(itemRequest('{"referencePaths":[]}'), { params: { id: 't1' } });
+  const payload = await response.json();
+  assert.equal(response.status, 409);
+  assert.equal(payload.code, 'REFERENCE_STORAGE_MISSING');
+  assert.doesNotMatch(JSON.stringify(payload), /secret confirm detail/);
+  assert.equal(calls.confirm, 1);
+});
+
+test('PATCH factory handler returns stable 500 for owned lookup error', async () => {
+  const { handlers, supabase, calls } = itemFixture({
+    lookup: { data: null, error: new Error('secret database detail') },
+  });
+  const response = await handlers.PATCH(itemRequest('{"referencePaths":[]}'), { params: { id: 't1' } });
+  const payload = await response.json();
+  assert.equal(response.status, 500);
+  assert.equal(payload.code, 'UPLOAD_CONFIRM_FAILED');
+  assert.doesNotMatch(JSON.stringify(payload), /secret database detail/);
+  assert.equal(calls.confirm, 0);
+  assertItemLookup(supabase.queries[0]);
+});
+
+test('DELETE factory handler scopes owned lookup and deletes once on success', async () => {
+  const { handlers, supabase, calls } = itemFixture();
+  const response = await handlers.DELETE(new Request('http://local', { method: 'DELETE' }), { params: { id: 't1' } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, id: 't1' });
+  assert.equal(calls.delete, 1);
+  assertItemLookup(supabase.queries[0]);
+});
+
+test('DELETE factory handler returns 404 without deleting an absent task', async () => {
+  const { handlers, calls } = itemFixture({ lookup: { data: null, error: null } });
+  const response = await handlers.DELETE(new Request('http://local', { method: 'DELETE' }), { params: { id: 't1' } });
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).code, 'IMAGE_TASK_NOT_FOUND');
+  assert.equal(calls.delete, 0);
+});
+
+test('DELETE factory handler returns stable 500 for service failure', async () => {
+  const error = new ImageStorageError('TASK_STORAGE_DELETE_FAILED', new Error('secret delete detail'));
+  const { handlers, calls } = itemFixture({ deleteError: error });
+  const response = await handlers.DELETE(new Request('http://local', { method: 'DELETE' }), { params: { id: 't1' } });
+  const payload = await response.json();
+  assert.equal(response.status, 500);
+  assert.equal(payload.code, 'TASK_STORAGE_DELETE_FAILED');
+  assert.doesNotMatch(JSON.stringify(payload), /secret delete detail/);
+  assert.equal(calls.delete, 1);
 });
