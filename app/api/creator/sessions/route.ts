@@ -92,3 +92,24 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '更新会话失败' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const context = await creatorContext();
+    if (!context) return NextResponse.json({ error: '未登录' }, { status: 401 });
+    const sessionId = new URL(req.url).searchParams.get('sessionId');
+    if (!sessionId) return NextResponse.json({ error: '缺少会话 ID' }, { status: 400 });
+    const { data, error } = await context.supabase
+      .from('creator_sessions')
+      .delete()
+      .eq('id', sessionId)
+      .eq('workspace_id', context.workspace.id)
+      .select('id')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ error: '会话不存在' }, { status: 404 });
+    return NextResponse.json({ ok: true, id: data.id });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '删除会话失败' }, { status: 500 });
+  }
+}

@@ -2,6 +2,7 @@
 
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { TEXT_MODELS } from "@/lib/ai/catalog";
+import { isConversationNearBottom } from "@/lib/creator/history";
 import type { CreatorMessage, CreatorSession } from "@/lib/creator/types";
 import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
@@ -16,6 +17,9 @@ const I = {
   clip: ["m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 1 1-2.8-2.8l8.9-8.9"],
   back: ["m15 18-6-6 6-6"],
   spark: ["M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6Z"],
+  more: ["M12 7.5h.01M12 12h.01M12 16.5h.01"],
+  trash: ["M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"],
+  down: ["m6 9 6 6 6-6"],
 };
 
 type Props = {
@@ -42,13 +46,36 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CreatorSession | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const selectedModel = TEXT_MODELS.find((item) => item.id === model) || TEXT_MODELS[2];
   const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
 
+  function scrollToLatest(behavior: ScrollBehavior = "smooth") {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  }
+
+  function handleConversationScroll() {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const nearBottom = isConversationNearBottom(viewport);
+    stickToBottomRef.current = nearBottom;
+    setShowJumpToLatest(!nearBottom);
+  }
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    if (!stickToBottomRef.current) return;
+    const frame = requestAnimationFrame(() => scrollToLatest(messages.length ? "smooth" : "auto"));
+    return () => cancelAnimationFrame(frame);
   }, [messages, busy]);
 
   const grouped = useMemo(() => ({
@@ -67,6 +94,8 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     setSessions((current) => [data.session, ...current]);
     setSessionId(data.session.id);
     setMessages([]);
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
     history.replaceState(null, "", `/creator?session=${data.session.id}`);
     return data.session.id as string;
   }
@@ -74,6 +103,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   async function newChat() {
     if (busy) return;
     setError("");
+    setMenuSessionId(null);
     setActiveSkill(null);
     setThinking(false);
     try { await createSession(); } catch (e) { setError(e instanceof Error ? e.message : "创建会话失败"); }
@@ -81,6 +111,9 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
 
   async function openSession(id: string) {
     if (id === sessionId || busy) return;
+    setMenuSessionId(null);
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
     setLoading(true); setError("");
     try {
       const response = await fetch(`/api/creator/sessions?sessionId=${encodeURIComponent(id)}`);
@@ -105,6 +138,8 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
       setError("当前模型不支持图片，请选择 GPT-5.6 或 Claude Opus 4.8。");
       return;
     }
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
     setBusy(true); setError("");
     try {
       const activeId = sessionId || await createSession();
@@ -127,6 +162,42 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     finally { setBusy(false); }
   }
 
+  async function confirmDeleteSession() {
+    if (!deleteTarget || deleting || busy) return;
+    setDeleting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/creator/sessions?sessionId=${encodeURIComponent(deleteTarget.id)}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "删除会话失败");
+
+      const remaining = sessions.filter((item) => item.id !== deleteTarget.id);
+      const deletedActiveSession = deleteTarget.id === sessionId;
+      setSessions(remaining);
+      setMenuSessionId(null);
+      setDeleteTarget(null);
+      if (deletedActiveSession) {
+        const next = remaining[0];
+        if (next) {
+          setSessionId(null);
+          await openSession(next.id);
+        } else {
+          setSessionId(null);
+          setMessages([]);
+          setActiveSkill(null);
+          setThinking(false);
+          history.replaceState(null, "", "/creator");
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "删除会话失败");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
   }
@@ -143,7 +214,15 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   }
 
   const sessionRows = (items: CreatorSession[]) => items.map((session) => (
-    <button key={session.id} onClick={() => void openSession(session.id)} style={{ width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: 10, border: `1px solid ${session.id === sessionId ? "var(--stroke-2)" : "transparent"}`, color: session.id === sessionId ? "var(--text)" : "var(--text-2)", background: session.id === sessionId ? "var(--panel-2)" : "transparent", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5 }}>{session.title}</button>
+    <div key={session.id} style={{ position: "relative", display: "flex", alignItems: "center", borderRadius: 10, border: `1px solid ${session.id === sessionId ? "var(--stroke-2)" : "transparent"}`, background: session.id === sessionId ? "var(--panel-2)" : "transparent" }}>
+      <button onClick={() => void openSession(session.id)} title={session.title} style={{ flex: 1, minWidth: 0, textAlign: "left", padding: "9px 5px 9px 11px", border: 0, color: session.id === sessionId ? "var(--text)" : "var(--text-2)", background: "transparent", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5 }}>{session.title}</button>
+      <button aria-label={`更多：${session.title}`} title="更多" onClick={() => setMenuSessionId((current) => current === session.id ? null : session.id)} style={{ width: 30, height: 30, flex: "none", display: "grid", placeItems: "center", marginRight: 3, border: 0, borderRadius: 8, background: menuSessionId === session.id ? "var(--panel-solid)" : "transparent", color: "var(--text-3)", cursor: "pointer" }}><Icon d={I.more} size={17} sw={2.2} /></button>
+      {menuSessionId === session.id && (
+        <div role="menu" style={{ position: "absolute", zIndex: 20, top: 34, right: 3, width: 142, padding: 5, borderRadius: 11, border: "1px solid var(--stroke-2)", background: "var(--panel-solid)", boxShadow: "0 18px 45px rgba(0,0,0,.28)" }}>
+          <button role="menuitem" onClick={() => { setMenuSessionId(null); setDeleteTarget(session); }} style={{ width: "100%", height: 34, display: "flex", alignItems: "center", gap: 8, padding: "0 10px", border: 0, borderRadius: 8, background: "transparent", color: "#ff8d7c", cursor: "pointer", fontSize: 12.5 }}><Icon d={I.trash} size={15} />删除</button>
+        </div>
+      )}
+    </div>
   ));
 
   return (
@@ -167,13 +246,13 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
             {[["对话", I.chat, true], ["独立生图", I.image, false], ["视频画布", I.video, false]].map(([label, path, active]) => <button key={label as string} disabled={!active} title={active ? "" : "下一模块接入"} style={{ minHeight: 58, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 11, border: `1px solid ${active ? "var(--stroke-2)" : "var(--stroke)"}`, background: active ? "var(--panel-2)" : "var(--panel)", color: active ? "var(--accent)" : "var(--text-3)", fontSize: 10.5, cursor: active ? "default" : "not-allowed", opacity: active ? 1 : .72 }}><Icon d={path as string[]} size={16} />{label as string}</button>)}
           </div>
           <div className="fg-mono" style={{ padding: "20px 9px 7px", fontSize: 9.5, letterSpacing: 1.5, color: "var(--text-3)" }}>今天</div>
-          <div style={{ overflowY: "auto" }}>{sessionRows(grouped.today)}{grouped.earlier.length > 0 && <><div className="fg-mono" style={{ padding: "16px 9px 7px", fontSize: 9.5, letterSpacing: 1.5, color: "var(--text-3)" }}>更早</div>{sessionRows(grouped.earlier)}</>}</div>
-          <div style={{ flex: 1 }} />
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>{sessionRows(grouped.today)}{grouped.earlier.length > 0 && <><div className="fg-mono" style={{ padding: "16px 9px 7px", fontSize: 9.5, letterSpacing: 1.5, color: "var(--text-3)" }}>更早</div>{sessionRows(grouped.earlier)}</>}</div>
           <div style={{ padding: "10px 11px", borderRadius: 11, border: "1px solid var(--stroke)", background: "var(--panel)", fontSize: 11.5, color: "var(--text-3)", lineHeight: 1.55 }}>媒体生成不会由聊天自动执行。生图和视频必须在草稿卡或画布节点中再次确认。</div>
         </aside>
 
         <main style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "38px 24px 22px" }}>
+          <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+          <div ref={scrollRef} role="log" aria-live="polite" aria-label="对话消息" onScroll={handleConversationScroll} style={{ height: "100%", minHeight: 0, overflowY: "auto", overscrollBehaviorY: "contain", scrollbarGutter: "stable", padding: "38px 24px 22px" }}>
             <div style={{ width: "min(760px,100%)", margin: "0 auto" }}>
               {loading ? <div style={{ textAlign: "center", color: "var(--text-3)", paddingTop: 80 }}>读取会话…</div> : messages.length === 0 ? (
                 <div style={{ paddingTop: "min(16vh,130px)", textAlign: "center" }}>
@@ -191,6 +270,8 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
               ))}
               {busy && <div style={{ display: "grid", gridTemplateColumns: "28px 1fr", gap: 12, margin: "26px 0" }}><div className="fg-mono" style={{ width: 28, height: 28, display: "grid", placeItems: "center", borderRadius: 9, background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontSize: 9, fontWeight: 700 }}>FG</div><div style={{ color: "var(--text-3)", paddingTop: 4 }}>正在思考<span style={{ letterSpacing: 3 }}>…</span></div></div>}
             </div>
+          </div>
+          {showJumpToLatest && <button onClick={() => scrollToLatest()} aria-label="回到最新消息" style={{ position: "absolute", zIndex: 5, left: "50%", bottom: 12, transform: "translateX(-50%)", height: 34, display: "flex", alignItems: "center", gap: 6, padding: "0 12px", borderRadius: 999, border: "1px solid var(--stroke-2)", background: "var(--panel-solid)", color: "var(--text-2)", boxShadow: "0 12px 34px rgba(0,0,0,.22)", cursor: "pointer", fontSize: 11.5 }}><Icon d={I.down} size={14} />回到最新</button>}
           </div>
 
           <div style={{ flex: "none", padding: "0 20px 18px" }}>
@@ -219,6 +300,17 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
           </div>
         </main>
       </div>
+      {deleteTarget && (
+        <div onMouseDown={() => !deleting && setDeleteTarget(null)} style={{ position: "fixed", zIndex: 50, inset: 0, display: "grid", placeItems: "center", padding: 20, background: "rgba(5,7,9,.62)", backdropFilter: "blur(8px)" }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-session-title" onMouseDown={(event) => event.stopPropagation()} style={{ width: "min(420px,100%)", padding: 22, borderRadius: 18, border: "1px solid var(--stroke-2)", background: "var(--panel-solid)", boxShadow: "0 28px 90px rgba(0,0,0,.48)" }}>
+            <div style={{ width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 12, background: "rgba(255,111,91,.12)", color: "#ff8d7c" }}><Icon d={I.trash} size={18} /></div>
+            <h2 id="delete-session-title" style={{ margin: "16px 0 7px", fontSize: 18 }}>删除对话？</h2>
+            <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13, lineHeight: 1.7 }}>“{deleteTarget.title}”及其中的全部消息将被永久删除。</p>
+            <p style={{ margin: "7px 0 0", color: "#ff9b85", fontSize: 12 }}>此操作无法撤销。</p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 22 }}><button disabled={deleting} onClick={() => setDeleteTarget(null)} style={{ height: 38, padding: "0 15px", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", cursor: "pointer" }}>取消</button><button disabled={deleting} onClick={() => void confirmDeleteSession()} style={{ height: 38, padding: "0 15px", borderRadius: 10, border: 0, background: "#e65f4c", color: "white", cursor: deleting ? "wait" : "pointer", fontWeight: 650 }}>{deleting ? "删除中…" : "删除对话"}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
