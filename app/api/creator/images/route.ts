@@ -17,6 +17,15 @@ export const runtime = 'nodejs';
 
 const SIGNED_URL_TTL_SECONDS = 300;
 
+function response(error: string, code: string, status: number) {
+  return NextResponse.json({ error, code }, { status });
+}
+
+function serverError(error: unknown, code: string, message: string) {
+  console.error('[creator image collection]', error);
+  return response(message, code, 500);
+}
+
 type CreateDraftBody = {
   prompt?: unknown;
   model?: unknown;
@@ -83,7 +92,7 @@ async function creatorContext() {
 export async function GET() {
   try {
     const context = await creatorContext();
-    if (!context) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
 
     const { data, error } = await context.supabase
       .from('creator_generation_tasks')
@@ -139,16 +148,14 @@ export async function GET() {
 
     return NextResponse.json({ workspace: context.workspace, tasks: views });
   } catch (error: unknown) {
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Failed to load image tasks',
-    }, { status: 500 });
+    return serverError(error, 'IMAGE_TASK_LIST_FAILED', '\u56fe\u7247\u4efb\u52a1\u52a0\u8f7d\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
   }
 }
 
 export async function POST(req: Request) {
   try {
     const context = await creatorContext();
-    if (!context) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
 
     let body: CreateDraftBody;
     try {
@@ -156,7 +163,7 @@ export async function POST(req: Request) {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid body');
       body = value as CreateDraftBody;
     } catch {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+      return response('\u8bf7\u6c42\u4f53\u683c\u5f0f\u9519\u8bef', 'INVALID_REQUEST_BODY', 400);
     }
 
     let input;
@@ -172,9 +179,8 @@ export async function POST(req: Request) {
         skill: normalizeSkill(body.skill),
       });
     } catch (error: unknown) {
-      return NextResponse.json({
-        error: error instanceof Error ? error.message : 'Invalid image draft',
-      }, { status: 400 });
+      console.error('[creator image draft validation]', error);
+      return response('\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548', 'INVALID_IMAGE_DRAFT', 400);
     }
 
     const inserted = await context.supabase
@@ -217,7 +223,7 @@ export async function POST(req: Request) {
       if (existing.error) throw existing.error;
       task = existing.data as CreatorImageTask | null;
       if (!task) {
-        return NextResponse.json({ error: 'Idempotency key conflict' }, { status: 409 });
+        return response('\u5e42\u7b49\u952e\u51b2\u7a81', 'IDEMPOTENCY_CONFLICT', 409);
       }
     }
 
@@ -226,7 +232,7 @@ export async function POST(req: Request) {
       || task.user_id !== context.user.id
       || task.kind !== 'image'
     ) {
-      return NextResponse.json({ error: 'Idempotency key conflict' }, { status: 409 });
+      return response('\u5e42\u7b49\u952e\u51b2\u7a81', 'IDEMPOTENCY_CONFLICT', 409);
     }
 
     const request = asRecord(task.request);
@@ -236,8 +242,6 @@ export async function POST(req: Request) {
     ));
     return NextResponse.json({ task, uploadPaths, replayed }, { status: replayed ? 200 : 201 });
   } catch (error: unknown) {
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Failed to create image draft',
-    }, { status: 500 });
+    return serverError(error, 'IMAGE_TASK_CREATE_FAILED', '\u56fe\u7247\u4efb\u52a1\u521b\u5efa\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
   }
 }

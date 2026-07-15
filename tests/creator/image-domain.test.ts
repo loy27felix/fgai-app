@@ -4,6 +4,7 @@ import {
   assertOwnedReferencePath,
   isCreatorImageTerminal,
   referencePathFor,
+  validateStoredImageDraftRequest,
   validateImageDraftInput,
 } from '../../lib/creator/image';
 
@@ -86,4 +87,55 @@ test('only settled image task statuses are terminal', () => {
   assert.equal(isCreatorImageTerminal('draft'), false);
   assert.equal(isCreatorImageTerminal('submitting'), false);
   assert.equal(isCreatorImageTerminal('unknown'), false);
+});
+
+function storedRequest(references: Array<{ name: string; mimeType: string; size: number }>) {
+  const validated = validateImageDraftInput({
+    prompt: 'a fox',
+    model: 'gpt-image-2',
+    ratio: '1:1',
+    references: [],
+    skill: { name: 'cinematic', content: 'Use rim light.' },
+  });
+  return {
+    prompt: validated.prompt,
+    effective_prompt: validated.effectivePrompt,
+    skill: validated.skill,
+    ratio: validated.ratio,
+    size: validated.size,
+    reference_manifest: references,
+    reference_paths: [],
+    uploads_complete: false,
+  };
+}
+
+test('stored draft validation accepts all legal manifest boundaries', () => {
+  const references = Array.from({ length: 8 }, (_, index) => ({
+    name: `${index}.png`,
+    mimeType: 'image/png',
+    size: index === 0 ? 7_000_000 : 3_000_000,
+  }));
+  assert.equal(validateStoredImageDraftRequest('gpt-image-2', storedRequest(references)).references.length, 8);
+});
+
+test('stored draft validation rejects owner-tampered manifest limits and MIME', () => {
+  const cases = [
+    Array.from({ length: 9 }, (_, index) => ({ name: `${index}.png`, mimeType: 'image/png', size: 1 })),
+    [{ name: 'large.png', mimeType: 'image/png', size: 7_000_001 }],
+    [
+      ...Array.from({ length: 4 }, (_, index) => ({ name: `${index}.png`, mimeType: 'image/png', size: 7_000_000 })),
+      { name: 'extra.png', mimeType: 'image/png', size: 1 },
+    ],
+    [{ name: 'payload.gif', mimeType: 'image/gif', size: 1 }],
+  ];
+  for (const references of cases) {
+    assert.throws(() => validateStoredImageDraftRequest('gpt-image-2', storedRequest(references)));
+  }
+});
+
+test('stored draft validation rejects invalid model, ratio and effective prompt snapshots', () => {
+  const request = storedRequest([{ name: 'a.png', mimeType: 'image/png', size: 1 }]);
+  assert.throws(() => validateStoredImageDraftRequest('unknown-model', request));
+  assert.throws(() => validateStoredImageDraftRequest('gpt-image-2', { ...request, ratio: '10:1' }));
+  assert.throws(() => validateStoredImageDraftRequest('gpt-image-2', { ...request, effective_prompt: 'tampered' }));
 });

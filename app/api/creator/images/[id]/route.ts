@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server';
 import {
-  assertOwnedReferencePath,
-  referencePathFor,
-  validateCompletedReferencePaths,
-  type ImageReferenceManifest,
-} from '@/lib/creator/image';
-import {
+  confirmImageReferenceUploads,
   deleteOwnedImageTask,
   ImageStorageError,
-  validateReferenceUploadContents,
   type CreatorImageDeletionStore,
+  type CreatorImagePatchStore,
 } from '@/lib/creator/imageStorage';
 import type { CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
@@ -27,7 +22,7 @@ function serverError(error: unknown, fallbackCode: string, fallbackMessage: stri
   console.error('[creator image item]', error);
   if (error instanceof ImageStorageError) {
     return NextResponse.json(
-      { error: error.message, code: error.code },
+      { error: error.publicMessage, code: error.code },
       { status: 409 },
     );
   }
@@ -38,25 +33,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-}
-
-function storedManifest(value: unknown): ImageReferenceManifest[] {
-  if (!Array.isArray(value)) throw new Error('stored reference manifest is invalid');
-  return value.map((entry) => {
-    const reference = asRecord(entry);
-    if (
-      typeof reference.name !== 'string'
-      || typeof reference.mimeType !== 'string'
-      || typeof reference.size !== 'number'
-    ) {
-      throw new Error('stored reference manifest is invalid');
-    }
-    return {
-      name: reference.name,
-      mimeType: reference.mimeType,
-      size: reference.size,
-    };
-  });
 }
 
 async function creatorContext() {
@@ -109,52 +85,33 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       return response('\u53ea\u80fd\u66f4\u65b0\u53c2\u8003\u56fe\u8def\u5f84', 'INVALID_PATCH_FIELDS', 400);
     }
 
-    const request = asRecord(task.request);
-    const manifest = storedManifest(request.reference_manifest);
-    let paths: string[];
-    try {
-      paths = validateCompletedReferencePaths(
-        body.referencePaths,
-        manifest,
-        context.user.id,
-        task.id,
-      );
-      paths.forEach((path, index) => {
-        assertOwnedReferencePath(path, context.user.id, task.id);
-        if (path !== referencePathFor(context.user.id, task.id, index, manifest[index].mimeType)) {
-          throw new Error('reference path does not match server plan');
-        }
-      });
-    } catch (error: unknown) {
-      console.error('[creator image reference paths]', error);
-      return response('\u53c2\u8003\u56fe\u8def\u5f84\u65e0\u6548', 'INVALID_REFERENCE_PATHS', 400);
-    }
-
-    const bucket = context.supabase.storage.from('creator-assets');
-    try {
-      await validateReferenceUploadContents(bucket, paths, manifest);
-    } catch (error: unknown) {
-      return serverError(error, 'REFERENCE_VALIDATION_FAILED', '\u53c2\u8003\u56fe\u6821\u9a8c\u5931\u8d25\uff0c\u8bf7\u91cd\u65b0\u4e0a\u4f20');
-    }
-
-    const updated = await context.supabase
-      .from('creator_generation_tasks')
-      .update({
-        request: {
-          ...request,
-          reference_paths: paths,
-          uploads_complete: true,
-        },
-      })
-      .eq('id', task.id)
-      .eq('workspace_id', context.workspace.id)
-      .eq('user_id', context.user.id)
-      .eq('kind', 'image')
-      .select('*')
-      .maybeSingle();
-    if (updated.error) throw updated.error;
-    if (!updated.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404);
-    return NextResponse.json({ task: updated.data });
+    const store: CreatorImagePatchStore = {
+      updateTask: async (id, workspaceId, userId, request) => {
+        const updated = await context.supabase
+          .from('creator_generation_tasks')
+          .update({ request })
+          .eq('id', id)
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', userId)
+          .eq('kind', 'image')
+          .select('*')
+          .maybeSingle();
+        return { data: updated.data, error: updated.error };
+      },
+    };
+    const updated = await confirmImageReferenceUploads(
+      context.supabase.storage.from('creator-assets'),
+      store,
+      {
+        id: task.id,
+        userId: context.user.id,
+        workspaceId: context.workspace.id,
+        model: task.model,
+        request: task.request,
+      },
+      body.referencePaths,
+    );
+    return NextResponse.json({ task: updated });
   } catch (error: unknown) {
     return serverError(error, 'UPLOAD_CONFIRM_FAILED', '\u53c2\u8003\u56fe\u786e\u8ba4\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');
   }

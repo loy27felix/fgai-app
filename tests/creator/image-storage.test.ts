@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { referencePathFor, validateImageDraftInput } from '../../lib/creator/image';
 import {
   cleanupImageTaskPrefix,
+  confirmImageReferenceUploads,
   deleteOwnedImageTask,
   ImageStorageError,
   validateReferenceUploadContents,
   type CreatorImageDeletionStore,
+  type CreatorImagePatchStore,
   type CreatorImageStorage,
   type StorageListEntry,
 } from '../../lib/creator/imageStorage';
@@ -31,6 +34,7 @@ class FakeStorage implements CreatorImageStorage {
   removeFails = false;
   leaveBehind: string | null = null;
   listOverride: ((prefix: string, limit: number, offset: number) => StorageListEntry[]) | null = null;
+  onRemove: (() => void) | null = null;
 
   async download(path: string) {
     if (path === this.downloadErrorFor) return { data: null, error: new Error('secret storage detail') };
@@ -56,6 +60,7 @@ class FakeStorage implements CreatorImageStorage {
 
   async remove(paths: string[]) {
     this.removeCalls.push([...paths]);
+    this.onRemove?.();
     if (this.removeFails) return { error: new Error('secret remove detail') };
     for (const path of paths) {
       if (path !== this.leaveBehind) this.objects.delete(path);
@@ -225,4 +230,144 @@ test('owned deletion refuses ok when task delete affects zero rows', async () =>
     deleteOwnedImageTask(storage, store, { ...ownedTask, assetId: null }),
     expectCode('IMAGE_TASK_DELETE_MISSING'),
   );
+});
+
+function imagePatchTask(references: Array<{ name: string; mimeType: string; size: number }>) {
+  const canonical = validateImageDraftInput({
+    prompt: 'a fox', model: 'gpt-image-2', ratio: '1:1', references: [],
+  });
+  return {
+    id: 't1',
+    userId: 'u1',
+    workspaceId: 'w1',
+    model: 'gpt-image-2',
+    request: {
+      prompt: canonical.prompt,
+      effective_prompt: canonical.effectivePrompt,
+      skill: canonical.skill,
+      ratio: canonical.ratio,
+      size: canonical.size,
+      reference_manifest: references,
+      reference_paths: [],
+      uploads_complete: false,
+    },
+  };
+}
+
+function imagePatchStore(onUpdate: () => void): CreatorImagePatchStore {
+  return {
+    updateTask: async (_taskId, _workspaceId, _userId, request) => {
+      onUpdate();
+      return { data: { id: 't1', request }, error: null };
+    },
+  };
+}
+
+test('patch orchestration never updates owner-tampered stored manifests', async () => {
+  const cases = [
+    Array.from({ length: 9 }, (_, index) => ({ name: `${index}.png`, mimeType: 'image/png', size: 1 })),
+    [{ name: 'large.png', mimeType: 'image/png', size: 7_000_001 }],
+    [
+      ...Array.from({ length: 4 }, (_, index) => ({ name: `${index}.png`, mimeType: 'image/png', size: 7_000_000 })),
+      { name: 'extra.png', mimeType: 'image/png', size: 1 },
+    ],
+    [{ name: 'payload.gif', mimeType: 'image/gif', size: 1 }],
+  ];
+  for (const references of cases) {
+    let updates = 0;
+    const task = imagePatchTask(references);
+    const paths = references.map((reference, index) => (
+      referencePathFor(task.userId, task.id, index, reference.mimeType)
+    ));
+    await assert.rejects(
+      confirmImageReferenceUploads(new FakeStorage(), imagePatchStore(() => { updates += 1; }), task, paths),
+      expectCode('STORED_IMAGE_DRAFT_INVALID'),
+    );
+    assert.equal(updates, 0);
+  }
+});
+
+test('patch orchestration never updates missing or MIME-spoofed uploads', async () => {
+  const reference = { name: 'a.png', mimeType: 'image/png', size: PNG.byteLength };
+  const task = imagePatchTask([reference]);
+  const paths = [referencePathFor(task.userId, task.id, 0, reference.mimeType)];
+  for (const bytes of [null, new Uint8Array(PNG.byteLength)]) {
+    const storage = new FakeStorage();
+    if (bytes) storage.objects.set(paths[0], blob(bytes));
+    let updates = 0;
+    await assert.rejects(
+      confirmImageReferenceUploads(storage, imagePatchStore(() => { updates += 1; }), task, paths),
+      expectCode(bytes ? 'REFERENCE_TYPE_MISMATCH' : 'REFERENCE_STORAGE_MISSING'),
+    );
+    assert.equal(updates, 0);
+  }
+});
+
+test('patch orchestration updates only after stored draft and exact blob validation', async () => {
+  const reference = { name: 'a.png', mimeType: 'image/png', size: PNG.byteLength };
+  const task = imagePatchTask([reference]);
+  const path = referencePathFor(task.userId, task.id, 0, reference.mimeType);
+  const storage = new FakeStorage();
+  storage.objects.set(path, blob(PNG));
+  let updates = 0;
+  const result = await confirmImageReferenceUploads(
+    storage,
+    imagePatchStore(() => { updates += 1; }),
+    task,
+    [path],
+  );
+  assert.equal(updates, 1);
+  assert.equal((result as { id: string }).id, 't1');
+});
+
+test('owned deletion blocks every mutation for an invalid result path', async () => {
+  const storage = new FakeStorage();
+  let mutations = 0;
+  const store = deletionStore({
+    loadAsset: async () => ({ data: { id: 'a1', storagePath: 'u1/image-tasks/t2/result.png' }, error: null }),
+    deleteAsset: async () => { mutations += 1; return { deleted: true, error: null }; },
+    deleteTask: async () => { mutations += 1; return { deleted: true, error: null }; },
+  });
+  await assert.rejects(deleteOwnedImageTask(storage, store, ownedTask), expectCode('RESULT_ASSET_PATH_INVALID'));
+  assert.equal(storage.listCalls.length, 0);
+  assert.equal(storage.removeCalls.length, 0);
+  assert.equal(mutations, 0);
+});
+
+test('owned deletion blocks database mutations on list or remove failure', async () => {
+  for (const kind of ['list', 'remove'] as const) {
+    const storage = new FakeStorage();
+    const prefix = 'u1/image-tasks/t1';
+    if (kind === 'list') storage.listErrorFor = prefix;
+    if (kind === 'remove') {
+      storage.objects.set(`${prefix}/result.png`, blob(PNG));
+      storage.removeFails = true;
+    }
+    let mutations = 0;
+    const store = deletionStore({
+      loadAsset: async () => ({ data: { id: 'a1', storagePath: `${prefix}/result.png` }, error: null }),
+      deleteAsset: async () => { mutations += 1; return { deleted: true, error: null }; },
+      deleteTask: async () => { mutations += 1; return { deleted: true, error: null }; },
+    });
+    await assert.rejects(
+      deleteOwnedImageTask(storage, store, ownedTask),
+      expectCode(kind === 'list' ? 'TASK_STORAGE_LIST_FAILED' : 'TASK_STORAGE_DELETE_FAILED'),
+    );
+    assert.equal(mutations, 0);
+  }
+});
+
+test('owned deletion mutation order is storage then asset then task', async () => {
+  const storage = new FakeStorage();
+  const prefix = 'u1/image-tasks/t1';
+  storage.objects.set(`${prefix}/result.png`, blob(PNG));
+  const events: string[] = [];
+  storage.onRemove = () => events.push('storage');
+  const store = deletionStore({
+    loadAsset: async () => ({ data: { id: 'a1', storagePath: `${prefix}/result.png` }, error: null }),
+    deleteAsset: async () => { events.push('asset'); return { deleted: true, error: null }; },
+    deleteTask: async () => { events.push('task'); return { deleted: true, error: null }; },
+  });
+  await deleteOwnedImageTask(storage, store, ownedTask);
+  assert.deepEqual(events, ['storage', 'asset', 'task']);
 });

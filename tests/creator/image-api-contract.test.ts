@@ -11,8 +11,10 @@ import {
 
 const collectionPath = path.join(process.cwd(), 'app/api/creator/images/route.ts');
 const itemPath = path.join(process.cwd(), 'app/api/creator/images/[id]/route.ts');
+const storagePath = path.join(process.cwd(), 'lib/creator/imageStorage.ts');
 const collection = fs.readFileSync(collectionPath, 'utf8');
 const item = fs.readFileSync(itemPath, 'utf8');
+const storageService = fs.readFileSync(storagePath, 'utf8');
 
 test('all creator image operations authenticate and bootstrap the private workspace', () => {
   assert.match(collection, /export async function GET/);
@@ -42,12 +44,12 @@ test('task and asset queries are explicitly scoped and draft snapshots include s
 });
 
 test('upload completion validates exact server-planned paths and downloaded private contents', () => {
-  assert.match(item, /validateCompletedReferencePaths/);
-  assert.match(item, /assertOwnedReferencePath/);
-  assert.match(item, /referencePathFor/);
-  assert.match(item, /validateReferenceUploadContents/);
+  assert.match(item, /confirmImageReferenceUploads/);
+  assert.match(storageService, /validateStoredImageDraftRequest/);
+  assert.match(storageService, /validateCompletedReferencePaths/);
+  assert.match(storageService, /validateReferenceUploadContents/);
   assert.doesNotMatch(item, /\.list\([^)]*search:/);
-  assert.match(item, /uploads_complete: true/);
+  assert.match(storageService, /uploads_complete: true/);
 });
 
 test('deletion cleans only the owned task prefix and result asset before database rows', () => {
@@ -60,11 +62,14 @@ test('deletion cleans only the owned task prefix and result asset before databas
   assert.doesNotMatch(item, /remove\(\[?`?\$\{user\.id\}`?\]?\)/);
 });
 
-test('item route returns stable storage error codes without raw dependency details', () => {
+test('image routes return stable error codes without raw dependency details', () => {
   assert.match(item, /error instanceof ImageStorageError/);
   assert.match(item, /code: error\.code/);
-  assert.match(item, /console\.error/);
-  assert.doesNotMatch(item, /error: `[^`]*\$\{[^}]*\.error\.message\}/);
+  for (const source of [collection, item]) {
+    assert.match(source, /console\.error/);
+    assert.doesNotMatch(source, /error:\s*error instanceof Error\s*\?\s*error\.message/);
+    assert.doesNotMatch(source, /error:\s*[^,}\n]*\.message/);
+  }
 });
 
 test('idempotency keys are required, normalized and namespaced per private owner', () => {
