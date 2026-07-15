@@ -1,4 +1,5 @@
 import { getImageModel, sizeFor } from '@/lib/imageModels';
+import type { CreatorTaskStatus } from './types';
 
 export const MAX_CREATOR_IMAGE_REFERENCES = 8;
 export const MAX_CREATOR_IMAGE_FILE_BYTES = 7_000_000;
@@ -37,4 +38,33 @@ export function validateImageDraftInput(input: ImageDraftInput) {
 export function referencePathFor(userId: string, taskId: string, index: number, mimeType: string) {
   const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
   return `${userId}/image-tasks/${taskId}/references/${String(index + 1).padStart(2, '0')}.${ext}`;
+}
+
+const OWNED_REFERENCE_ERROR = '\u53c2\u8003\u56fe\u4e0d\u5c5e\u4e8e\u5f53\u524d\u4efb\u52a1';
+
+function isSafePathSegment(segment: string) {
+  return segment.length > 0
+    && segment !== '.'
+    && segment !== '..'
+    && !segment.includes('/')
+    && !segment.includes('\\')
+    && !segment.includes('\0');
+}
+
+export function assertOwnedReferencePath(path: string, userId: string, taskId: string) {
+  const segments = path.split('/');
+  const isOwned = segments.length === 5
+    && segments[0] === userId
+    && segments[1] === 'image-tasks'
+    && segments[2] === taskId
+    && segments[3] === 'references'
+    && isSafePathSegment(userId)
+    && isSafePathSegment(taskId)
+    && isSafePathSegment(segments[4]);
+
+  if (!isOwned) throw new Error(OWNED_REFERENCE_ERROR);
+}
+
+export function isCreatorImageTerminal(status: CreatorTaskStatus) {
+  return status === 'succeeded' || status === 'failed' || status === 'expired';
 }

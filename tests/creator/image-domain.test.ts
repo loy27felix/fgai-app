@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { referencePathFor, validateImageDraftInput } from '../../lib/creator/image';
+import {
+  assertOwnedReferencePath,
+  isCreatorImageTerminal,
+  referencePathFor,
+  validateImageDraftInput,
+} from '../../lib/creator/image';
 
 const file = (index: number) => ({ name: `ref-${index}.png`, mimeType: 'image/png', size: 1024 });
 
@@ -55,4 +60,30 @@ test('reference paths include owner, task, padded sequence and MIME extension', 
   assert.equal(referencePathFor('user-1', 'task-9', 0, 'image/jpeg'), 'user-1/image-tasks/task-9/references/01.jpg');
   assert.equal(referencePathFor('user-1', 'task-9', 8, 'image/png'), 'user-1/image-tasks/task-9/references/09.png');
   assert.equal(referencePathFor('user-1', 'task-9', 11, 'image/webp'), 'user-1/image-tasks/task-9/references/12.webp');
+});
+
+test('reference paths are task and user scoped without prefix or traversal bypasses', () => {
+  assert.doesNotThrow(() => assertOwnedReferencePath('u1/image-tasks/t1/references/01.png', 'u1', 't1'));
+
+  for (const path of [
+    'u2/image-tasks/t1/references/01.png',
+    'u1-other/image-tasks/t1/references/01.png',
+    'u1/image-tasks/t1-other/references/01.png',
+    'u1/image-tasks/t1/references/.',
+    'u1/image-tasks/t1/references/..',
+    'u1/image-tasks/t1/references/../result.png',
+    'u1/image-tasks/t1/references/subdir/../../result.png',
+    'u1\\image-tasks\\t1\\references\\01.png',
+  ]) {
+    assert.throws(() => assertOwnedReferencePath(path, 'u1', 't1'), /\u4e0d\u5c5e\u4e8e\u5f53\u524d\u4efb\u52a1/);
+  }
+});
+
+test('only settled image task statuses are terminal', () => {
+  assert.equal(isCreatorImageTerminal('succeeded'), true);
+  assert.equal(isCreatorImageTerminal('failed'), true);
+  assert.equal(isCreatorImageTerminal('expired'), true);
+  assert.equal(isCreatorImageTerminal('draft'), false);
+  assert.equal(isCreatorImageTerminal('submitting'), false);
+  assert.equal(isCreatorImageTerminal('unknown'), false);
 });
