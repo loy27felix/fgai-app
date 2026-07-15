@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { chatWithTextModel } from '@/lib/ai/text';
 import type { ChatMessage, ChatMode } from '@/lib/deepseek';
 import { createClient } from '@/lib/supabase/server';
+import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -58,6 +59,14 @@ export async function POST(req: Request) {
     } catch {
       // Usage accounting must not hide a successful model response.
     }
+
+    await recordUsageBestEffort(buildTextLedgerEntry({
+      userId: user.id,
+      projectId: body.projectId ?? null,
+      provider: spec.provider,
+      model: spec.id,
+      usage: result.usage,
+    }));
 
     return NextResponse.json({ content: result.content, usage: result.usage });
   } catch (error: unknown) {
