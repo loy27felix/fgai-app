@@ -107,6 +107,7 @@ export default function ProjectBoard({
         {/* LEFT RAIL */}
         <aside className="fg-rail" style={{ flex: "none", width: 230, display: "flex", flexDirection: "column", gap: 4, padding: "22px 16px", borderRight: "1px solid var(--stroke)" }}>
           <div className="fg-mono" style={{ fontSize: 10, letterSpacing: 2, color: "var(--text-3)", padding: "6px 12px 10px" }}>工作区</div>
+          {railItem("AI 创作台", ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"], false, "/creator")}
           {railItem("项目", ["M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"], true, undefined, String(projects.length))}
           {railItem("预设库", ["M4 6h8M16 6h4M4 12h2M10 12h10M4 18h6M14 18h6", "M14 6a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M10 12a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M16 18a2 2 0 1 0-4 0 2 2 0 0 0 4 0"], false, "/presets")}
           {isAdmin && railItem("管理后台", ["M12 3 5 6v5c0 4.6 3.1 7.7 7 9 3.9-1.3 7-4.4 7-9V6l-7-3Z"], false, "/admin")}
