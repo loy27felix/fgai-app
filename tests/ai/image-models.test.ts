@@ -23,3 +23,7 @@ test('sizeFor keeps supported ratio dimensions stable', () => {
   assert.equal(sizeFor('gemini-3-pro-image-preview', '9:16'), '768x1344');
   assert.equal(sizeFor('unknown', 'unknown'), '1024x1024');
 });
+
+test('all image models accept eight references', () => {
+  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8]);
+});
