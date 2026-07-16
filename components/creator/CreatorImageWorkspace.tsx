@@ -870,7 +870,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
           <div className="image-mode-list" aria-label="创作模式">
             <a href="/creator" className="image-mode-link"><Icon d={I.chat} size={16} />对话</a>
             <a href="/creator/image" aria-current="page" className="image-mode-link active"><Icon d={I.image} size={16} />独立生图<span className="image-mode-dot" /></a>
-            <button type="button" disabled className="image-mode-link disabled"><Icon d={I.video} size={16} />视频画布<span className="image-coming">即将接入</span></button>
+            <a href="/creator/video" className="image-mode-link"><Icon d={I.video} size={16} />视频画布</a>
           </div>
           <div className="fg-mono image-section-label">画布</div>
           <div className="image-canvas-list">{canvasLoading ? <div className="image-history-loading">{"\u8bfb\u53d6\u4e2d\u2026"}</div> : canvasRows.length ? canvasRows : <div className="image-history-empty">{"\u6682\u65e0\u753b\u5e03\uff0c\u53ef\u4ee5\u65b0\u5efa\u4e00\u4e2a\u3002"}</div>}</div>

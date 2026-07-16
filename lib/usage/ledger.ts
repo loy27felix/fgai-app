@@ -49,7 +49,7 @@ export type VideoLedgerEntry = {
   user_id: string;
   workspace_id: string | null;
   project_id: string | null;
-  creator_task_id: null;
+  creator_task_id: string | null;
   kind: 'video';
   provider: string;
   model: string;
@@ -195,6 +195,7 @@ export function buildVideoLedgerEntry(input: {
   duration: number;
   resolution: string;
   generateAudio: boolean;
+  creatorTaskId?: string | null;
 }): VideoLedgerEntry {
   return {
     request_id: input.requestId,
@@ -202,7 +203,7 @@ export function buildVideoLedgerEntry(input: {
     user_id: input.userId,
     workspace_id: input.workspaceId ?? null,
     project_id: input.projectId ?? null,
-    creator_task_id: null,
+    creator_task_id: input.creatorTaskId ?? null,
     kind: 'video',
     provider: input.provider,
     model: input.model,
@@ -266,7 +267,7 @@ function hasUpdatedLedgerRow(result: unknown, requestId: string): boolean {
 }
 
 export async function recordUsageRequired(
-  row: ImageLedgerEntry,
+  row: ImageLedgerEntry | VideoLedgerEntry,
   dependency?: LedgerWriter,
 ): Promise<void> {
   const options: LedgerUpsertOptions = { onConflict: 'request_id' };

@@ -31,6 +31,33 @@ export type CreatorImageTask = {
   completed_at: string | null;
 };
 
+export type CreatorVideoTask = {
+  id: string;
+  workspace_id: string;
+  canvas_id?: string | null;
+  node_id?: string | null;
+  user_id: string;
+  kind: 'video';
+  provider: 'wetoken';
+  model: string;
+  filter_off?: boolean;
+  external_task_id?: string | null;
+  status: CreatorTaskStatus;
+  idempotency_key: string;
+  request: Record<string, unknown>;
+  output: Record<string, unknown>;
+  error: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type CreatorVideoTaskView = CreatorVideoTask & {
+  videoUrl: string | null;
+  referenceUrls: string[];
+};
+
 export type CreatorImageAsset = {
   id: string;
   workspace_id: string;
