@@ -1,0 +1,619 @@
+"use client";
+
+import {
+  ChangeEvent,
+  DragEvent,
+  KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import SkillPicker from "@/components/SkillPicker";
+import PromptPicker from "@/components/PromptPicker";
+import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
+import { createClient } from "@/lib/supabase/client";
+import {
+  MAX_CREATOR_IMAGE_FILE_BYTES,
+  MAX_CREATOR_IMAGE_REFERENCES,
+  MAX_CREATOR_IMAGE_TOTAL_BYTES,
+  validateImageDraftInput,
+  type CreatorImageSkill,
+  type ImageReferenceManifest,
+} from "@/lib/creator/image";
+import type { CreatorImageTask, CreatorImageTaskView } from "@/lib/creator/types";
+import {
+  confirmImageTask,
+  createImageDraft,
+  CreatorImageClientError,
+  deleteImageTask,
+  finalizeImageUploads,
+  listImageTasks,
+} from "@/lib/creator/image-client";
+import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
+
+type Props = { userEmail: string };
+type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown" | "submitting";
+
+const I = {
+  chat: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
+  image: ["M4 4h16v16H4z", "m4 16 4-4 3 3 4-5 5 6", "M9 9h.01"],
+  video: ["M3 5h14v14H3z", "m17 9 4-2v10l-4-2"],
+  plus: ["M12 5v14M5 12h14"],
+  back: ["m15 18-6-6 6-6"],
+  refresh: ["M20 11a8.1 8.1 0 0 0-15.4-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.4 2M20 19v-4h-4"],
+  upload: ["M12 16V4", "m7 9 5-5 5 5", "M5 20h14"],
+  trash: ["M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"],
+  download: ["M12 4v11", "m7 11 5 5 5-5", "M5 20h14"],
+  copy: ["M8 8h11v12H8z", "M5 16H4V4h12v1"],
+  spark: ["M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6Z"],
+  close: ["M6 6l12 12M18 6 6 18"],
+  check: ["M5 13l4 4L19 7"],
+} as const;
+
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function taskPrompt(task: CreatorImageTaskView | CreatorImageTask) {
+  const prompt = asRecord(task.request).prompt;
+  return typeof prompt === "string" ? prompt : "";
+}
+
+function taskSkill(task: CreatorImageTaskView | CreatorImageTask): CreatorImageSkill | null {
+  const skill = asRecord(asRecord(task.request).skill);
+  return typeof skill.name === "string" && typeof skill.content === "string"
+    ? { name: skill.name, content: skill.content }
+    : null;
+}
+
+function taskSize(task: CreatorImageTaskView | CreatorImageTask) {
+  const value = asRecord(task.request).size;
+  return typeof value === "string" ? value : sizeFor(task.model, String(asRecord(task.request).ratio || "1:1"));
+}
+
+function taskReferenceCount(task: CreatorImageTaskView | CreatorImageTask) {
+  const request = asRecord(task.request);
+  return Array.isArray(request.reference_manifest) ? request.reference_manifest.length : 0;
+}
+
+function taskDate(value: string) {
+  try {
+    return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  } catch {
+    return "";
+  }
+}
+
+function statusLabel(status: CreatorImageTask["status"]) {
+  const labels: Record<CreatorImageTask["status"], string> = {
+    draft: "草稿",
+    submitting: "提交中",
+    queued: "排队中",
+    running: "生成中",
+    succeeded: "已完成",
+    failed: "失败",
+    expired: "已过期",
+    unknown: "状态未知",
+  };
+  return labels[status] || status;
+}
+
+function publicError(error: unknown, fallback: string) {
+  return error instanceof CreatorImageClientError ? error.message : fallback;
+}
+
+function createIdempotencyKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `creator-image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export default function CreatorImageWorkspace({ userEmail }: Props) {
+  const { theme, toggle } = useFgTheme();
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!supabaseRef.current) supabaseRef.current = createClient();
+  const supabase = supabaseRef.current;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [model, setModel] = useState(IMG_MODELS[0].id);
+  const [ratio, setRatio] = useState(RATIOS[1].key);
+  const [prompt, setPrompt] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<Array<{ file: File; url: string }>>([]);
+  const [activeSkill, setActiveSkill] = useState<CreatorImageSkill | null>(null);
+  const [tasks, setTasks] = useState<CreatorImageTaskView[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<CreatorImageTask | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CreatorImageTaskView | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const selectedTask = tasks.find((item) => item.id === selectedTaskId) || null;
+  const selectedModel = IMG_MODELS.find((item) => item.id === model) || IMG_MODELS[0];
+  const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
+
+  function localFileError(nextFiles: File[]) {
+    if (nextFiles.length > MAX_CREATOR_IMAGE_REFERENCES) return "最多 8 张参考图";
+    let total = 0;
+    for (const file of nextFiles) {
+      if (!ALLOWED_IMAGE_TYPES.has(file.type)) return "参考图仅支持 JPEG、PNG 或 WebP";
+      if (file.size <= 0 || file.size > MAX_CREATOR_IMAGE_FILE_BYTES) return "单张参考图不能超过 7MB";
+      total += file.size;
+    }
+    if (total > MAX_CREATOR_IMAGE_TOTAL_BYTES) return "参考图总大小不能超过 28MB";
+    return null;
+  }
+
+  function addFiles(incoming: File[]) {
+    const merged = [...files];
+    for (const file of incoming) {
+      const duplicate = merged.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified);
+      if (!duplicate) merged.push(file);
+    }
+    const validationError = localFileError(merged);
+    if (validationError) {
+      setError(validationError);
+      setPhase("error");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setFiles(merged);
+  }
+
+  function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+    addFiles(Array.from(event.target.files || []));
+    event.target.value = "";
+  }
+
+  function onDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    addFiles(Array.from(event.dataTransfer.files || []));
+  }
+
+  function openFilePicker() {
+    fileInputRef.current?.click();
+  }
+
+  function onDropzoneKeyDown(event: KeyboardEvent<HTMLLabelElement>) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openFilePicker();
+    }
+  }
+
+  function removeFile(index: number) {
+    setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setError("");
+  }
+
+  function clearComposer() {
+    setPrompt("");
+    setFiles([]);
+    setActiveSkill(null);
+    setConfirmTarget(null);
+    setError("");
+    setNotice("");
+    setPhase("idle");
+  }
+
+  function selectTask(task: CreatorImageTaskView) {
+    setSelectedTaskId(task.id);
+    setConfirmTarget(null);
+    setError("");
+    setNotice("");
+    setPhase(task.status === "unknown" ? "unknown" : task.status === "submitting" || task.status === "queued" || task.status === "running" ? "submitting" : "idle");
+  }
+
+  async function refreshHistory(preferId?: string) {
+    setLoadingHistory(true);
+    try {
+      const response = await listImageTasks();
+      setTasks(response.tasks || []);
+      setSelectedTaskId((current) => {
+        if (preferId && response.tasks.some((task) => task.id === preferId)) return preferId;
+        if (current && response.tasks.some((task) => task.id === current)) return current;
+        return response.tasks[0]?.id || null;
+      });
+    } catch (loadError) {
+      setError(publicError(loadError, "历史加载失败，请稍后重试"));
+      setPhase("error");
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  async function prepareDraft() {
+    if (phase === "preparing" || phase === "confirming" || confirmTarget) return;
+    setError("");
+    setNotice("");
+    const references: ImageReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size }));
+    const fileError = localFileError(files);
+    if (fileError) {
+      setError(fileError);
+      setPhase("error");
+      return;
+    }
+    try {
+      validateImageDraftInput({ prompt, model, ratio, references, skill: activeSkill });
+    } catch (validationError) {
+      setError(validationError instanceof Error ? validationError.message : "请输入有效的提示词");
+      setPhase("error");
+      return;
+    }
+
+    setPhase("preparing");
+    try {
+      const draft = await createImageDraft({
+        prompt,
+        model,
+        ratio,
+        references,
+        skill: activeSkill,
+        idempotencyKey: createIdempotencyKey(),
+      });
+      if (draft.uploadPaths.length !== files.length) throw new Error("upload plan mismatch");
+      for (let index = 0; index < files.length; index += 1) {
+        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], {
+          upsert: false,
+          contentType: files[index].type,
+        });
+        if (upload.error) throw upload.error;
+      }
+      const ready = await finalizeImageUploads(draft.task.id, draft.uploadPaths);
+      setTasks((current) => {
+        const view: CreatorImageTaskView = { ...ready.task, asset: null, resultUrl: null, referenceUrls: [] };
+        return [view, ...current.filter((item) => item.id !== view.id)];
+      });
+      setSelectedTaskId(ready.task.id);
+      setConfirmTarget(ready.task);
+      setPhase("idle");
+    } catch (draftError) {
+      setError(publicError(draftError, "草稿准备失败，参考图未完成上传"));
+      setPhase("error");
+    }
+  }
+
+  async function confirmTargetTask() {
+    if (!confirmTarget || phase === "confirming") return;
+    const target = confirmTarget;
+    setError("");
+    setNotice("");
+    setPhase("confirming");
+    try {
+      const response = await confirmImageTask(target.id);
+      setConfirmTarget(null);
+      if (response.requiresReconciliation || response.ledgerStatus === "unknown") {
+        setPhase("unknown");
+        setNotice("任务已提交，但账本状态需要对账；刷新只读取任务列表，不会自动确认。请稍后查看状态。");
+        await refreshHistory(target.id);
+        return;
+      }
+      const nextStatus = response.task?.status;
+      if (nextStatus === "unknown") {
+        setPhase("unknown");
+        setNotice("任务状态未知；刷新只读取任务列表，不会自动确认。");
+      } else if (nextStatus === "submitting" || nextStatus === "queued" || nextStatus === "running") {
+        setPhase("submitting");
+        setNotice("任务已提交，正在生成；刷新只读取任务列表，不会自动确认。");
+      } else {
+        setPhase("idle");
+      }
+      await refreshHistory(target.id);
+    } catch (confirmError) {
+      setConfirmTarget(null);
+      if (confirmError instanceof CreatorImageClientError && confirmError.status === 503) {
+        setPhase("unknown");
+        setNotice("服务返回对账或状态未知（503）；这次不会重试确认。刷新只读取任务列表。");
+        await refreshHistory(target.id);
+      } else if (confirmError instanceof CreatorImageClientError && confirmError.code === "IDEMPOTENCY_CONFLICT") {
+        setPhase("submitting");
+        setNotice("任务已被其他请求提交；刷新只读取任务列表，不会重复确认。");
+        await refreshHistory(target.id);
+      } else {
+        setPhase("error");
+        setError(publicError(confirmError, "图片确认失败，请稍后重试"));
+      }
+    }
+  }
+
+  async function copyPrompt() {
+    if (!selectedTask) return;
+    try {
+      await navigator.clipboard.writeText(taskPrompt(selectedTask));
+      setNotice("提示词已复制");
+    } catch {
+      setNotice("浏览器未允许复制，请手动选择提示词");
+    }
+  }
+
+  function reuseParameters() {
+    if (!selectedTask) return;
+    const request = asRecord(selectedTask.request);
+    if (typeof request.model === "string" && IMG_MODELS.some((item) => item.id === request.model)) setModel(request.model);
+    if (typeof request.ratio === "string" && RATIOS.some((item) => item.key === request.ratio)) setRatio(request.ratio);
+    setPrompt(taskPrompt(selectedTask));
+    setActiveSkill(taskSkill(selectedTask));
+    setFiles([]);
+    setSelectedTaskId(null);
+    setNotice("已复用模型、比例和提示词；参考图需要重新上传。");
+    setPhase("idle");
+  }
+
+  async function removeTask() {
+    if (!deleteTarget || deleting) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    try {
+      await deleteImageTask(target.id);
+      setTasks((current) => {
+        const next = current.filter((task) => task.id !== target.id);
+        setSelectedTaskId((selected) => selected === target.id ? (next[0]?.id || null) : selected);
+        return next;
+      });
+      if (selectedTaskId === target.id) setPhase("idle");
+      setDeleteTarget(null);
+      setNotice("任务、结果和参考图已删除；历史费用账本仍保留。");
+    } catch (deleteError) {
+      setError(publicError(deleteError, "删除任务失败，请稍后重试"));
+      setPhase("error");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  // Keep browser effects below the action handlers so refresh can never call confirmation.
+  useEffect(() => {
+    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+    setPreviews(next);
+    return () => next.forEach(({ url }) => URL.revokeObjectURL(url));
+  }, [files]);
+
+  useEffect(() => {
+    void refreshHistory();
+  }, []);
+
+  const historyRows = tasks.map((task) => (
+    <div key={task.id} className="image-history-row" style={{ display: "flex", alignItems: "center", gap: 4, borderRadius: 10, border: `1px solid ${selectedTaskId === task.id ? "var(--stroke-2)" : "transparent"}`, background: selectedTaskId === task.id ? "var(--panel-2)" : "transparent" }}>
+      <button type="button" onClick={() => selectTask(task)} title={taskPrompt(task) || "独立生图任务"} style={{ flex: 1, minWidth: 0, padding: "10px 5px 10px 11px", textAlign: "left", border: 0, background: "transparent", color: selectedTaskId === task.id ? "var(--text)" : "var(--text-2)", cursor: "pointer" }}>
+        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5 }}>{taskPrompt(task) || "未命名生图任务"}</span>
+        <span className="fg-mono" style={{ display: "block", marginTop: 4, fontSize: 9.5, color: task.status === "failed" ? "#ff9b85" : "var(--text-3)" }}>{statusLabel(task.status)} · {taskDate(task.created_at)}</span>
+      </button>
+      <button type="button" aria-label={`删除任务 ${task.id}`} title="删除任务" onClick={() => setDeleteTarget(task)} style={{ width: 30, height: 30, flex: "none", display: "grid", placeItems: "center", border: 0, borderRadius: 8, background: "transparent", color: "var(--text-3)", cursor: "pointer" }}><Icon d={I.trash} size={14} /></button>
+    </div>
+  ));
+
+  const renderCenter = () => {
+    if (confirmTarget) {
+      const size = taskSize(confirmTarget);
+      return (
+        <section className="image-confirm-card" aria-labelledby="image-confirm-title" style={{ width: "min(620px,100%)", margin: "auto", padding: 26, borderRadius: 22, border: "1px solid var(--user-stroke)", background: "linear-gradient(145deg,var(--panel-2),var(--user-bubble))", boxShadow: "var(--shadow)" }}>
+          <div className="fg-mono" style={{ color: "var(--accent)", fontSize: 10, letterSpacing: 1.5 }}>READY TO COMMIT · ONE CALL</div>
+          <h1 id="image-confirm-title" style={{ margin: "12px 0 8px", fontSize: 24, letterSpacing: "-.5px" }}>确认并生成</h1>
+          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13, lineHeight: 1.75 }}>草稿已准备完成。确认后将只调用 1 次图片生成服务。</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, marginTop: 22 }}>
+            <div className="image-confirm-stat"><span>模型</span><strong>{confirmTarget.model}</strong></div>
+            <div className="image-confirm-stat"><span>尺寸</span><strong>{size}</strong></div>
+            <div className="image-confirm-stat"><span>参考图</span><strong>{taskReferenceCount(confirmTarget)} 张</strong></div>
+          </div>
+          <div style={{ marginTop: 15, padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,.045)", border: "1px solid var(--stroke)", color: "var(--text-2)", fontSize: 12.5, lineHeight: 1.7 }}>
+            实际费用以 Wetoken 账单为准。确认后不可撤销，失败或状态未知时请先查看任务历史。
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 22 }}>
+            <button type="button" disabled={phase === "confirming"} onClick={() => { setConfirmTarget(null); setPhase("idle"); setNotice("已取消确认，草稿仍保留在历史中。"); }} style={{ height: 40, padding: "0 16px", borderRadius: 11, border: "1px solid var(--stroke-2)", background: "var(--panel)", color: "var(--text-2)", cursor: "pointer" }}>稍后确认</button>
+            <button type="button" disabled={phase === "confirming"} onClick={() => void confirmTargetTask()} style={{ height: 40, padding: "0 18px", borderRadius: 11, border: 0, background: "var(--accent)", color: "var(--accent-ink)", cursor: phase === "confirming" ? "wait" : "pointer", fontWeight: 700 }}>{phase === "confirming" ? "确认提交中…" : "确认并生成"}</button>
+          </div>
+        </section>
+      );
+    }
+    if (loadingHistory || phase === "preparing" || phase === "confirming") {
+      return <div className="image-state-card" role="status"><div className="image-spinner" /><h1>{phase === "preparing" ? "准备参考图…" : phase === "confirming" ? "确认提交中…" : "加载任务历史…"}</h1><p>只会在明确操作后继续下一步。</p></div>;
+    }
+    if (phase === "error" && error) {
+      return <div className="image-state-card image-state-error" role="alert"><div className="image-state-mark">!</div><h1>这次没有生成</h1><p>{error}</p><button type="button" onClick={() => { setPhase("idle"); setError(""); }}>返回编辑</button></div>;
+    }
+    if (selectedTask && (selectedTask.status === "submitting" || selectedTask.status === "queued" || selectedTask.status === "running" || selectedTask.status === "unknown")) {
+      return <div className="image-state-card image-state-pending" role="status"><div className="image-state-mark"><Icon d={I.refresh} size={22} /></div><h1>{selectedTask.status === "unknown" ? "任务状态未知" : "任务正在路上"}</h1><p>{notice || "正在等待服务端状态。刷新只读取任务列表，不会自动确认。"}</p><button type="button" onClick={() => void refreshHistory(selectedTask.id)}><Icon d={I.refresh} size={14} />刷新任务状态</button></div>;
+    }
+    if (selectedTask?.status === "failed" || selectedTask?.status === "expired") {
+      return <div className="image-state-card image-state-error" role="alert"><div className="image-state-mark">!</div><h1>生成未完成</h1><p>{selectedTask.error || "任务失败或已过期；不会自动重试。"}</p><button type="button" onClick={() => { setSelectedTaskId(null); setPhase("idle"); }}>开始新的草稿</button></div>;
+    }
+    if (selectedTask?.status === "succeeded" && selectedTask.resultUrl) {
+      return <section className="image-result-card" aria-labelledby="image-result-title"><div className="image-result-head"><div><div className="fg-mono image-kicker">PRIVATE RESULT</div><h1 id="image-result-title">生成结果</h1></div><span className="image-status-chip"><Icon d={I.check} size={13} />已完成</span></div><div className="image-result-frame"><img src={selectedTask.resultUrl} alt="独立生图结果" /></div>{selectedTask.referenceUrls.length > 0 && <div className="image-result-references" aria-label="参考图"><span className="fg-mono">REFERENCES</span>{selectedTask.referenceUrls.map((url, index) => <img key={url} src={url} alt={`参考图 ${index + 1}`} />)}</div>}<div className="image-result-meta"><span>{selectedTask.model}</span><span>{taskSize(selectedTask)}</span><span>{taskReferenceCount(selectedTask)} 张参考图</span></div><div className="image-result-actions"><a href={selectedTask.resultUrl} download={`creator-image-${selectedTask.id}.png`} target="_blank" rel="noreferrer"><Icon d={I.download} size={15} />下载原图</a><button type="button" onClick={() => void copyPrompt()}><Icon d={I.copy} size={15} />复制提示词</button><button type="button" onClick={reuseParameters}><Icon d={I.refresh} size={15} />复用参数</button><button type="button" onClick={() => setDeleteTarget(selectedTask)} className="danger"><Icon d={I.trash} size={15} />删除结果</button></div></section>;
+    }
+    if (selectedTask?.status === "succeeded") {
+      return <div className="image-state-card" role="status"><div className="image-state-mark"><Icon d={I.check} size={22} /></div><h1>结果已完成</h1><p>结果链接正在刷新，请重新读取历史列表。</p><button type="button" onClick={() => void refreshHistory(selectedTask.id)}><Icon d={I.refresh} size={14} />刷新结果</button></div>;
+    }
+    return <div className="image-empty-state"><div className="image-empty-orbit"><Icon d={I.spark} size={28} /></div><div className="fg-mono image-kicker">FG STUDIO · IMAGE CONTROL ROOM</div><h1>把一帧画面，交给明确的确认。</h1><p>在右侧准备模型、比例、参考图与 Prompt。提交前会先保存草稿，只有你确认后才会调用一次生成服务。</p><div className="image-empty-note"><span>01</span><span>草稿和上传分离保存</span><span>02</span><span>确认卡显示预计尺寸</span><span>03</span><span>历史结果可复用</span></div></div>;
+  };
+
+  return (
+    <div data-theme={theme} className="fg2 image-workspace" style={{ minHeight: "100vh", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", color: "var(--text)" }}>
+      <div className="image-backdrop" />
+      <header className="image-workspace-header">
+        <div className="fg-mono image-logo">FG</div>
+        <div><div className="image-title">AI 创作台</div><div className="fg-mono image-subtitle">STANDALONE IMAGE · PRIVATE</div></div>
+        <div className="image-header-divider" />
+        <span className="image-header-context">独立生图</span>
+        <div style={{ flex: 1 }} />
+        <a href="/creator" className="image-header-link"><Icon d={I.back} size={15} />返回对话</a>
+        <Hov as="button" aria-label="切换主题" onClick={toggle} base={{ width: 36, height: 36, display: "grid", placeItems: "center", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", cursor: "pointer" }} hover={{ background: "var(--panel-2)", color: "var(--text)" }}><span style={{ fontSize: 15 }}>{theme === "dark" ? "☼" : "☾"}</span></Hov>
+        <div className="fg-mono image-avatar">{me}</div>
+      </header>
+
+      <div className="image-workspace-grid">
+        <aside className="image-sidebar image-sidebar-left">
+          <button type="button" onClick={clearComposer} className="image-new-button"><Icon d={I.plus} size={16} sw={2} />新草稿</button>
+          <div className="image-mode-list" aria-label="创作模式">
+            <a href="/creator" className="image-mode-link"><Icon d={I.chat} size={16} />对话</a>
+            <a href="/creator/image" aria-current="page" className="image-mode-link active"><Icon d={I.image} size={16} />独立生图<span className="image-mode-dot" /></a>
+            <button type="button" disabled className="image-mode-link disabled"><Icon d={I.video} size={16} />视频画布<span className="image-coming">即将接入</span></button>
+          </div>
+          <div className="fg-mono image-section-label">任务历史</div>
+          <div className="image-history-list">{loadingHistory && !tasks.length ? <div className="image-history-loading">读取中…</div> : historyRows.length ? historyRows : <div className="image-history-empty">确认后的任务会留在这里。</div>}</div>
+          <div className="image-sidebar-note"><span className="fg-mono">SAFE COMMIT</span><br />媒体生成始终先保存草稿，再由你明确确认；历史费用账本不会随删除移除。</div>
+        </aside>
+
+        <main className="image-canvas-column">
+          <div className="image-canvas-toolbar"><div><div className="fg-mono image-kicker">CANVAS / {selectedTask ? statusLabel(selectedTask.status).toUpperCase() : "EMPTY"}</div><h2>生成画布</h2></div>{notice && <div className="image-notice" role="status">{notice}</div>}</div>
+          <div className="image-canvas-scroll">{renderCenter()}</div>
+        </main>
+
+        <aside className="image-sidebar image-sidebar-right">
+          <div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><span className="image-dim-label">{sizeFor(model, ratio)}</span></div>
+          <div className="image-control-scroll">
+            <label className="image-field-label" htmlFor="image-model">模型</label>
+            <select id="image-model" className="image-select" value={model} onChange={(event) => setModel(event.target.value)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"}>{IMG_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}{item.experimental ? " · 实验" : ""}</option>)}</select>
+            <div className="image-field-label">比例 / 输出尺寸</div>
+            <div className="image-ratio-grid">{RATIOS.map((item) => <button type="button" key={item.key} onClick={() => setRatio(item.key)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} className={item.key === ratio ? "active" : ""}>{item.key}<small>{sizeFor(model, item.key)}</small></button>)}</div>
+
+            <div className="image-field-label image-reference-label"><span>参考图</span><span>{files.length}/{MAX_CREATOR_IMAGE_REFERENCES}</span></div>
+            <label htmlFor="creator-image-files" className="image-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={onDrop} onKeyDown={onDropzoneKeyDown} tabIndex={0} role="button" aria-label="拖放或选择参考图"><Icon d={I.upload} size={20} /><strong>拖放或选择参考图</strong><span>JPEG / PNG / WebP · 单张 ≤ 7MB · 总计 ≤ 28MB</span><input ref={fileInputRef} id="creator-image-files" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFileChange} disabled={files.length >= MAX_CREATOR_IMAGE_REFERENCES} /></label>
+            {previews.length > 0 && <div className="image-reference-grid">{previews.map(({ file, url }, index) => <div className="image-reference-thumb" key={`${file.name}-${file.lastModified}-${index}`}><img src={url} alt={file.name} /><button type="button" aria-label={`删除参考图 ${file.name}`} onClick={() => removeFile(index)}><Icon d={I.close} size={12} /></button><span>{index + 1}</span></div>)}</div>}
+
+            <div className="image-picker-row"><SkillPicker active={activeSkill?.name || null} onApply={(name, content) => setActiveSkill({ name, content })} onClear={() => setActiveSkill(null)} /><PromptPicker onInsert={(text) => setPrompt((current) => current.trim() ? `${current.trimEnd()}\n${text}` : text)} /></div>
+            <label className="image-field-label" htmlFor="creator-image-prompt">Prompt</label>
+            <textarea id="creator-image-prompt" className="image-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述主体、构图、光线、材质与情绪…" disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} />
+            <div className="image-prompt-meta"><span>{activeSkill ? `Skill · ${activeSkill.name}` : "未启用 Skill"}</span><span>{prompt.length}/30k</span></div>
+          </div>
+          <div className="image-generate-footer"><button type="button" className="image-generate-button" onClick={() => void prepareDraft()} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming" || !prompt.trim()}><Icon d={I.spark} size={16} />{phase === "preparing" ? "准备中…" : "生成 1 张"}</button><div className="image-generate-footnote">会先建立草稿；确认卡出现后才会产生调用。</div></div>
+        </aside>
+      </div>
+
+      {deleteTarget && <div className="image-modal-backdrop" onMouseDown={() => !deleting && setDeleteTarget(null)}><div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-delete-title" onMouseDown={(event) => event.stopPropagation()}><div className="image-delete-icon"><Icon d={I.trash} size={18} /></div><h2 id="image-delete-title">永久删除任务与结果？</h2><p>任务、生成结果和参考图文件会被永久删除，无法恢复。</p><p className="image-delete-warning">历史费用账本会保留，不会随删除移除。</p><div className="image-modal-actions"><button type="button" disabled={deleting} onClick={() => setDeleteTarget(null)}>取消</button><button type="button" disabled={deleting} onClick={() => void removeTask()} className="danger">{deleting ? "删除中…" : "永久删除"}</button></div></div></div>}
+
+      <style jsx>{`
+        .image-workspace { position: relative; isolation: isolate; }
+        .image-backdrop { position: fixed; inset: 0; pointer-events: none; z-index: -1; background: radial-gradient(720px 520px at 100% 0%,var(--glow-coral),transparent 62%),radial-gradient(800px 600px at -10% 110%,var(--glow-b),transparent 60%); }
+        .image-workspace-header { position: relative; z-index: 3; height: 60px; flex: none; display: flex; align-items: center; gap: 13px; padding: 0 18px; border-bottom: 1px solid var(--stroke); background: var(--panel); backdrop-filter: blur(24px) saturate(1.4); }
+        .image-logo { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: linear-gradient(150deg,var(--accent),var(--accent-2)); color: var(--accent-ink); font-size: 12px; font-weight: 700; }
+        .image-title { font-size: 14px; font-weight: 650; }
+        .image-subtitle,.image-kicker { color: var(--text-3); font-size: 9px; letter-spacing: 1.1px; }
+        .image-header-divider { width: 1px; height: 24px; margin-left: 5px; background: var(--stroke); }
+        .image-header-context { color: var(--text-2); font-size: 12.5px; }
+        .image-header-link { height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--stroke); border-radius: 10px; color: var(--text-2); background: var(--panel); font-size: 12px; text-decoration: none; }
+        .image-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(150deg,var(--accent),var(--accent-2)); color: var(--accent-ink); font-size: 11px; font-weight: 700; }
+        .image-workspace-grid { position: relative; z-index: 1; flex: 1; min-height: 0; display: grid; grid-template-columns: 248px minmax(0,1fr) 336px; }
+        .image-sidebar { min-height: 0; display: flex; flex-direction: column; padding: 12px; background: color-mix(in srgb,var(--panel) 86%,transparent); backdrop-filter: blur(20px); }
+        .image-sidebar-left { border-right: 1px solid var(--stroke); }
+        .image-sidebar-right { border-left: 1px solid var(--stroke); }
+        .image-new-button { height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--user-stroke); border-radius: 12px; background: var(--user-bubble); color: var(--text); cursor: pointer; font-size: 13px; font-weight: 600; }
+        .image-mode-list { display: grid; gap: 5px; margin-top: 10px; }
+        .image-mode-link { position: relative; min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--text-2); font-size: 12px; text-decoration: none; }
+        .image-mode-link.active { border-color: var(--stroke-2); background: var(--panel-2); color: var(--accent); }
+        .image-mode-link.disabled { color: var(--text-3); cursor: not-allowed; }
+        .image-mode-dot { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+        .image-coming { margin-left: auto; font-size: 9px; color: var(--text-3); }
+        .image-section-label { padding: 22px 9px 7px; color: var(--text-3); font-size: 9.5px; letter-spacing: 1.4px; }
+        .image-history-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+        .image-history-loading,.image-history-empty { padding: 12px 9px; color: var(--text-3); font-size: 11px; line-height: 1.6; }
+        .image-sidebar-note { margin-top: 12px; padding: 10px 11px; border: 1px solid var(--stroke); border-radius: 11px; background: var(--panel); color: var(--text-3); font-size: 11px; line-height: 1.6; }
+        .image-sidebar-note .fg-mono { color: var(--accent); font-size: 9px; letter-spacing: 1px; }
+        .image-canvas-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+        .image-canvas-toolbar,.image-control-heading { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--stroke); }
+        .image-canvas-toolbar h2,.image-control-heading h2 { margin: 3px 0 0; font-size: 14px; font-weight: 650; }
+        .image-notice { max-width: 52%; color: var(--text-2); font-size: 11px; line-height: 1.5; text-align: right; }
+        .image-canvas-scroll { flex: 1; min-height: 0; display: flex; overflow: auto; padding: 24px; }
+        .image-empty-state,.image-state-card,.image-result-card { width: min(850px,100%); margin: auto; }
+        .image-empty-state { padding: 25px; text-align: center; }
+        .image-empty-orbit { width: 68px; height: 68px; display: grid; place-items: center; margin: 0 auto 20px; border: 1px solid var(--user-stroke); border-radius: 22px; background: linear-gradient(145deg,var(--user-bubble),var(--panel-2)); color: var(--accent); box-shadow: 0 24px 60px -30px var(--accent); }
+        .image-empty-state h1 { max-width: 590px; margin: 17px auto 10px; font-size: clamp(24px,3vw,34px); letter-spacing: -.8px; }
+        .image-empty-state p { max-width: 570px; margin: 0 auto; color: var(--text-2); font-size: 13.5px; line-height: 1.85; }
+        .image-empty-note { display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr; gap: 8px 10px; max-width: 630px; margin: 30px auto 0; padding: 12px 15px; border: 1px solid var(--stroke); border-radius: 12px; background: var(--panel); color: var(--text-2); text-align: left; font-size: 11px; }
+        .image-empty-note span:nth-child(odd) { color: var(--accent); font-family: "JetBrains Mono",monospace; }
+        .image-state-card { max-width: 480px; padding: 28px; border: 1px solid var(--stroke); border-radius: 20px; background: var(--panel); text-align: center; box-shadow: var(--shadow); }
+        .image-state-card h1 { margin: 15px 0 7px; font-size: 20px; }
+        .image-state-card p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.7; }
+        .image-state-card button { display: inline-flex; align-items: center; gap: 7px; height: 36px; margin-top: 18px; padding: 0 13px; border: 1px solid var(--stroke-2); border-radius: 10px; background: var(--panel-2); color: var(--text); cursor: pointer; font-size: 12px; }
+        .image-state-mark { width: 44px; height: 44px; display: grid; place-items: center; margin: 0 auto; border-radius: 14px; background: var(--user-bubble); color: var(--accent); }
+        .image-state-error .image-state-mark { background: rgba(255,119,89,.12); color: #ff9b85; }
+        .image-state-error h1 { color: #ffb0a0; }
+        .image-spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 2px solid var(--stroke-2); border-top-color: var(--accent); border-radius: 50%; animation: image-spin .9s linear infinite; }
+        @keyframes image-spin { to { transform: rotate(360deg); } }
+        .image-result-card { padding: 6px 0 18px; }
+        .image-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+        .image-result-head h1 { margin: 5px 0 0; font-size: 22px; }
+        .image-status-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--user-stroke); border-radius: 999px; color: var(--accent); font-size: 11px; }
+        .image-result-frame { overflow: hidden; border: 1px solid var(--stroke-2); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+        .image-result-frame img { display: block; width: 100%; max-height: min(64vh,680px); object-fit: contain; background: rgba(0,0,0,.18); }
+        .image-result-references { display: flex; align-items: center; gap: 6px; overflow-x: auto; padding: 9px 2px 2px; }
+        .image-result-references .fg-mono { margin-right: 3px; color: var(--text-3); font-size: 9px; letter-spacing: 1px; }
+        .image-result-references img { width: 38px; height: 38px; flex: none; border: 1px solid var(--stroke); border-radius: 7px; object-fit: cover; }
+        .image-result-meta { display: flex; flex-wrap: wrap; gap: 7px 16px; padding: 11px 2px; color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 10px; }
+        .image-result-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .image-result-actions a,.image-result-actions button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid var(--stroke); border-radius: 9px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 11.5px; text-decoration: none; }
+        .image-result-actions a:hover,.image-result-actions button:hover { border-color: var(--stroke-2); color: var(--text); background: var(--panel-2); }
+        .image-result-actions .danger,.image-modal-actions .danger { color: #ff9b85; }
+        .image-control-heading { padding: 0 16px; }
+        .image-dim-label { color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 10px; }
+        .image-control-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 17px 16px 8px; }
+        .image-field-label { display: flex; align-items: center; justify-content: space-between; margin: 0 0 7px; color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; }
+        .image-select { width: 100%; height: 40px; margin-bottom: 18px; padding: 0 10px; border: 1px solid var(--stroke); border-radius: 10px; outline: none; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; }
+        .image-select:focus,.image-prompt:focus { border-color: var(--stroke-2); }
+        .image-ratio-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 5px; margin-bottom: 19px; }
+        .image-ratio-grid button { min-height: 43px; padding: 4px 2px; border: 1px solid var(--stroke); border-radius: 9px; background: var(--panel); color: var(--text-2); cursor: pointer; font-family: "JetBrains Mono",monospace; font-size: 10px; }
+        .image-ratio-grid button small { display: block; margin-top: 3px; color: var(--text-3); font-size: 8px; }
+        .image-ratio-grid button.active { border-color: var(--user-stroke); background: var(--user-bubble); color: var(--accent); }
+        .image-reference-label { margin-bottom: 7px; }
+        .image-dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 104px; gap: 7px; padding: 14px; border: 1px dashed var(--stroke-2); border-radius: 13px; background: var(--panel); color: var(--text-2); cursor: pointer; text-align: center; }
+        .image-dropzone:hover,.image-dropzone:focus-visible { border-color: var(--accent); outline: none; background: var(--panel-2); }
+        .image-dropzone svg { color: var(--accent); }
+        .image-dropzone strong { font-size: 12px; font-weight: 600; }
+        .image-dropzone span { color: var(--text-3); font-size: 10px; }
+        .image-dropzone input { display: none; }
+        .image-reference-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; margin: 9px 0 17px; }
+        .image-reference-thumb { position: relative; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--stroke); border-radius: 8px; background: var(--panel); }
+        .image-reference-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
+        .image-reference-thumb button { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 6px; background: rgba(5,7,9,.72); color: #fff; cursor: pointer; }
+        .image-reference-thumb span { position: absolute; bottom: 3px; left: 4px; padding: 1px 4px; border-radius: 4px; background: rgba(5,7,9,.72); color: #fff; font-family: "JetBrains Mono",monospace; font-size: 8px; }
+        .image-picker-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+        .image-picker-row :global(button) { min-height: 29px; }
+        .image-prompt { width: 100%; min-height: 148px; resize: vertical; padding: 11px 12px; border: 1px solid var(--stroke); border-radius: 11px; outline: none; background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.7; }
+        .image-prompt::placeholder { color: var(--text-3); }
+        .image-prompt-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; color: var(--text-3); font-size: 10px; }
+        .image-generate-footer { flex: none; padding: 12px 16px 15px; border-top: 1px solid var(--stroke); background: var(--panel); }
+        .image-generate-button { width: 100%; height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink); cursor: pointer; font-size: 13px; font-weight: 700; }
+        .image-generate-button:disabled { cursor: not-allowed; opacity: .42; }
+        .image-generate-footnote { margin-top: 7px; color: var(--text-3); font-size: 10px; text-align: center; }
+        .image-modal-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(5,7,9,.62); backdrop-filter: blur(8px); }
+        .image-delete-modal { width: min(430px,100%); padding: 23px; border: 1px solid var(--stroke-2); border-radius: 18px; background: var(--panel-solid); box-shadow: 0 28px 90px rgba(0,0,0,.48); }
+        .image-delete-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: rgba(255,111,91,.12); color: #ff8d7c; }
+        .image-delete-modal h2 { margin: 16px 0 8px; font-size: 18px; }
+        .image-delete-modal p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.7; }
+        .image-delete-modal .image-delete-warning { margin-top: 7px; color: #ff9b85; font-size: 12px; }
+        .image-modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+        .image-modal-actions button { height: 38px; padding: 0 15px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 12px; }
+        .image-modal-actions .danger { border: 0; background: #e65f4c; color: #fff; font-weight: 650; }
+        @media (max-width: 900px) {
+          .image-workspace { height: auto !important; min-height: 100vh; overflow: auto !important; }
+          .image-workspace-grid { grid-template-columns: 1fr; min-height: 0; }
+          .image-sidebar-left,.image-sidebar-right { border: 0; }
+          .image-sidebar-left { min-height: auto; }
+          .image-history-list { max-height: 230px; }
+          .image-canvas-column { min-height: 560px; order: 2; }
+          .image-sidebar-right { order: 3; min-height: 650px; border-top: 1px solid var(--stroke); }
+          .image-canvas-scroll { min-height: 470px; }
+          .image-notice { max-width: 48%; }
+        }
+        @media (max-width: 560px) {
+          .image-workspace-header { padding: 0 12px; gap: 9px; }
+          .image-header-context,.image-header-link span { display: none; }
+          .image-header-divider { display: none; }
+          .image-avatar { margin-left: 2px; }
+          .image-canvas-toolbar { padding: 0 15px; }
+          .image-canvas-scroll { padding: 15px; }
+          .image-empty-note { grid-template-columns: auto 1fr; }
+          .image-confirm-card { padding: 21px !important; }
+          .image-confirm-card > div:nth-of-type(2) { grid-template-columns: 1fr !important; }
+          .image-result-actions a,.image-result-actions button { flex: 1 1 calc(50% - 8px); justify-content: center; }
+        }
+      `}</style>
+    </div>
+  );
+}
