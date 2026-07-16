@@ -7,6 +7,8 @@ import type {
 } from '@/lib/creator/types';
 
 export type CreateImageDraftPayload = {
+  canvasId?: string | null;
+  nodeId?: string | null;
   prompt: string;
   model: string;
   ratio: string;

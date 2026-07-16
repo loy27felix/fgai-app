@@ -14,6 +14,8 @@ export type CreatorTaskStatus = (typeof CREATOR_TASK_STATUSES)[number];
 export type CreatorImageTask = {
   id: string;
   workspace_id: string;
+  canvas_id?: string | null;
+  node_id?: string | null;
   user_id: string;
   kind: 'image';
   provider: 'wetoken';
@@ -79,4 +81,23 @@ export type CreatorMessage = {
   content: { text?: string; images?: string[]; image_count?: number; usage?: Record<string, number> };
   status: 'draft' | 'streaming' | 'complete' | 'failed';
   created_at: string;
+};
+
+export type CreatorCanvasGraph = {
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<{ from: string; to: string }>;
+  viewport?: { x: number; y: number; zoom: number };
+};
+
+export type CreatorCanvas = {
+  id: string;
+  workspace_id: string;
+  session_id: string | null;
+  folder_id: string | null;
+  kind: 'image' | 'video';
+  title: string;
+  graph: CreatorCanvasGraph;
+  version: number;
+  created_at: string;
+  updated_at: string;
 };

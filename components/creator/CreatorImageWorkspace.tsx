@@ -13,7 +13,7 @@ import {
 import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
-import CreatorImageNodeCanvas, { creatorImageReferenceKey, type CreatorImageCanvasGenerateInput } from "@/components/creator/CreatorImageNodeCanvas";
+import CreatorImageNodeCanvas, { creatorImageReferenceKey, type CreatorImageCanvasGenerateInput, type CreatorImageCanvasGraph } from "@/components/creator/CreatorImageNodeCanvas";
 import { createClient } from "@/lib/supabase/client";
 import {
   MAX_CREATOR_IMAGE_FILE_BYTES,
@@ -23,7 +23,7 @@ import {
   type CreatorImageSkill,
   type ImageReferenceManifest,
 } from "@/lib/creator/image";
-import type { CreatorImageTask, CreatorImageTaskView } from "@/lib/creator/types";
+import type { CreatorCanvas, CreatorImageTask, CreatorImageTaskView } from "@/lib/creator/types";
 import {
   confirmImageTask,
   createImageDraft,
@@ -33,6 +33,7 @@ import {
   listImageTasks,
 } from "@/lib/creator/image-client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
+import { createCreatorCanvas, deleteCreatorCanvas, listCreatorCanvases, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 
 type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown" | "submitting";
@@ -159,6 +160,34 @@ function resultFileExtension(task: CreatorImageTaskView) {
   return "png";
 }
 
+function canvasGraphFromRecord(canvas: CreatorCanvas): CreatorImageCanvasGraph | null {
+  const graph = canvas.graph;
+  if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return null;
+  return {
+    nodes: graph.nodes as CreatorImageCanvasGraph["nodes"],
+    edges: graph.edges as CreatorImageCanvasGraph["edges"],
+  };
+}
+
+function canvasPrompt(graph: CreatorImageCanvasGraph | null) {
+  if (!graph) return "";
+  return graph.nodes
+    .filter((node) => node.kind === "prompt")
+    .map((node) => typeof node.text === "string" ? node.text.trim() : "")
+    .filter(Boolean)
+    .join("\n");
+}
+
+function persistableCanvasGraph(graph: CreatorImageCanvasGraph): CreatorImageCanvasGraph {
+  return {
+    nodes: graph.nodes.map((node) => ({
+      ...node,
+      url: node.kind === "ref" ? null : node.url || null,
+      busy: false,
+    })),
+    edges: graph.edges.map((edge) => ({ from: edge.from, to: edge.to })),
+  };
+}
 export default function CreatorImageWorkspace({ userEmail }: Props) {
   const { theme, toggle } = useFgTheme();
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -186,7 +215,14 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [controlPanelWidth, setControlPanelWidth] = useState(IMAGE_PANEL_DEFAULT_WIDTH);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [canvasReferenceKeys, setCanvasReferenceKeys] = useState<string[] | null>(null);
+  const [canvases, setCanvases] = useState<CreatorCanvas[]>([]);
+  const [selectedCanvasId, setSelectedCanvasId] = useState<string | null>(null);
+  const [canvasGraph, setCanvasGraph] = useState<CreatorImageCanvasGraph | null>(null);
+  const [canvasLoading, setCanvasLoading] = useState(true);
+  const [canvasDeleteTarget, setCanvasDeleteTarget] = useState<CreatorCanvas | null>(null);
+  const [canvasDeleting, setCanvasDeleting] = useState(false);
   const resizeStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const canvasSaveTimerRef = useRef<number | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -331,6 +367,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       : files;
     return JSON.stringify({
       prompt: input?.prompt ?? prompt,
+      nodeId: input?.nodeId || null,
       model,
       ratio,
       skill: activeSkill,
@@ -354,6 +391,10 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setPhase("idle");
   }
 
+  function startNewGeneration() {
+    clearComposer();
+    setNotice("\u5df2\u65b0\u5f00\u4e00\u8f6e\u751f\u6210\uff1b\u5f53\u524d\u753b\u5e03\u8282\u70b9\u4ecd\u4fdd\u7559");
+  }
   function openDeleteModal(task: CreatorImageTaskView, trigger?: HTMLButtonElement) {
     deleteReturnFocusRef.current = trigger || null;
     setDeleteTarget(task);
@@ -374,6 +415,102 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setPhase(task.status === "unknown" ? "unknown" : task.status === "submitting" || task.status === "queued" || task.status === "running" ? "submitting" : "idle");
   }
 
+  function selectCanvasRecord(canvas: CreatorCanvas) {
+    const graph = canvasGraphFromRecord(canvas);
+    setSelectedCanvasId(canvas.id);
+    setCanvasGraph(graph);
+    setPrompt(canvasPrompt(graph));
+    setFiles([]);
+    setCanvasReferenceKeys(null);
+    setActiveSkill(null);
+    setConfirmTarget(null);
+    setIdempotencyKey(null);
+    setIdempotencySignature(null);
+    setSelectedTaskId(null);
+    replaceTaskQuery(null);
+    setError("");
+    setNotice("");
+    setPhase("idle");
+  }
+
+  async function refreshCanvases(preferId?: string) {
+    setCanvasLoading(true);
+    try {
+      let nextCanvases = (await listCreatorCanvases()).canvases || [];
+      if (!nextCanvases.length) {
+        const created = await createCreatorCanvas({ title: "新画布" });
+        nextCanvases = [created.canvas];
+      }
+      const target = nextCanvases.find((canvas) => canvas.id === preferId)
+        || nextCanvases.find((canvas) => canvas.id === selectedCanvasId)
+        || nextCanvases[0];
+      setCanvases(nextCanvases);
+      if (target) selectCanvasRecord(target);
+    } catch (loadError) {
+      setNotice(publicError(loadError, "画布读取失败；仍可先使用临时画布"));
+    } finally {
+      setCanvasLoading(false);
+    }
+  }
+
+  async function createNewCanvas() {
+    if (canvasLoading || canvasDeleting) return;
+    setError("");
+    try {
+      const response = await createCreatorCanvas({ title: "新画布" });
+      setCanvases((current) => [response.canvas, ...current]);
+      selectCanvasRecord(response.canvas);
+      setNotice("已新建画布；生成记录不会自动带入");
+    } catch (createError) {
+      setError(publicError(createError, "新建画布失败，请稍后重试"));
+      setPhase("error");
+    }
+  }
+
+  function handleCanvasGraphChange(graph: CreatorImageCanvasGraph) {
+    const nextGraph = persistableCanvasGraph(graph);
+    setCanvasGraph(nextGraph);
+    const canvasId = selectedCanvasId;
+    if (!canvasId) return;
+    if (canvasSaveTimerRef.current) window.clearTimeout(canvasSaveTimerRef.current);
+    canvasSaveTimerRef.current = window.setTimeout(() => {
+      void updateCreatorCanvas(canvasId, { graph: nextGraph })
+        .then((response) => {
+          setCanvases((current) => current.map((canvas) => canvas.id === response.canvas.id ? response.canvas : canvas));
+        })
+        .catch(() => setNotice("画布已在本地更新，云端保存稍后重试"));
+    }, 700);
+  }
+
+  async function removeCanvas() {
+    if (!canvasDeleteTarget || canvasDeleting) return;
+    const target = canvasDeleteTarget;
+    if (canvasSaveTimerRef.current) {
+      window.clearTimeout(canvasSaveTimerRef.current);
+      canvasSaveTimerRef.current = null;
+    }
+    setCanvasDeleting(true);
+    try {
+      await deleteCreatorCanvas(target.id);
+      const remaining = canvases.filter((canvas) => canvas.id !== target.id);
+      setCanvases(remaining);
+      setCanvasDeleteTarget(null);
+      if (selectedCanvasId === target.id) {
+        if (remaining[0]) selectCanvasRecord(remaining[0]);
+        else {
+          setSelectedCanvasId(null);
+          setCanvasGraph(null);
+          clearComposer();
+        }
+      }
+      setNotice("画布已删除；生成记录和费用账本保持不变");
+    } catch (deleteError) {
+      setError(publicError(deleteError, "画布删除失败，请稍后重试"));
+      setPhase("error");
+    } finally {
+      setCanvasDeleting(false);
+    }
+  }
   async function refreshHistory(preferId?: string) {
     setLoadingHistory(true);
     try {
@@ -430,6 +567,8 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setIdempotencySignature(inputSignature);
     try {
       const draft = await createImageDraft({
+        canvasId: selectedCanvasId,
+        nodeId: input?.nodeId || null,
         prompt: draftPrompt,
         model,
         ratio,
@@ -625,9 +764,24 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
   useEffect(() => {
     const taskId = taskIdFromLocation();
-    void refreshHistory(taskId || undefined);
+    void (async () => {
+      await refreshCanvases();
+      await refreshHistory(taskId || undefined);
+    })();
   }, []);
 
+  const canvasRows = canvases.map((canvas) => (
+    <div key={canvas.id} className={"image-canvas-row" + (selectedCanvasId === canvas.id ? " active" : "")}>
+      <button type="button" onClick={() => selectCanvasRecord(canvas)} title={canvas.title}>
+        <Icon d={I.image} size={14} />
+        <span>{canvas.title}</span>
+        <small className="fg-mono">{taskDate(canvas.updated_at)}</small>
+      </button>
+      <button type="button" className="image-canvas-delete" aria-label={"\u5220\u9664\u753b\u5e03 " + canvas.title} title={"\u5220\u9664\u753b\u5e03"} onClick={(event) => { event.stopPropagation(); setCanvasDeleteTarget(canvas); }}>
+        <Icon d={I.trash} size={13} />
+      </button>
+    </div>
+  ));
   const historyRows = tasks.map((task) => (
     <div key={task.id} className="image-history-row" style={{ display: "flex", alignItems: "center", gap: 4, borderRadius: 10, border: `1px solid ${selectedTaskId === task.id ? "var(--stroke-2)" : "transparent"}`, background: selectedTaskId === task.id ? "var(--panel-2)" : "transparent" }}>
       <button type="button" onClick={() => selectTask(task)} title={taskPrompt(task) || "独立生图任务"} style={{ flex: 1, minWidth: 0, padding: "10px 5px 10px 11px", textAlign: "left", border: 0, background: "transparent", color: selectedTaskId === task.id ? "var(--text)" : "var(--text-2)", cursor: "pointer" }}>
@@ -681,6 +835,9 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     }
     return (
       <CreatorImageNodeCanvas
+        key={selectedCanvasId || "local-canvas"}
+        initialGraph={canvasGraph}
+        onGraphChange={handleCanvasGraphChange}
         prompt={prompt}
         previews={previews}
         onPromptChange={setPrompt}
@@ -709,13 +866,15 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
       <div className="image-workspace-grid" style={{ "--image-control-width": controlPanelWidth + "px" } as CSSProperties}>
         <aside className="image-sidebar image-sidebar-left">
-          <button type="button" onClick={clearComposer} className="image-new-button"><Icon d={I.plus} size={16} sw={2} />新草稿</button>
+          <button type="button" onClick={() => void createNewCanvas()} className="image-new-button"><Icon d={I.plus} size={16} sw={2} />{"\u65b0\u5efa\u753b\u5e03"}</button>
           <div className="image-mode-list" aria-label="创作模式">
             <a href="/creator" className="image-mode-link"><Icon d={I.chat} size={16} />对话</a>
             <a href="/creator/image" aria-current="page" className="image-mode-link active"><Icon d={I.image} size={16} />独立生图<span className="image-mode-dot" /></a>
             <button type="button" disabled className="image-mode-link disabled"><Icon d={I.video} size={16} />视频画布<span className="image-coming">即将接入</span></button>
           </div>
-          <div className="fg-mono image-section-label">任务历史</div>
+          <div className="fg-mono image-section-label">画布</div>
+          <div className="image-canvas-list">{canvasLoading ? <div className="image-history-loading">{"\u8bfb\u53d6\u4e2d\u2026"}</div> : canvasRows.length ? canvasRows : <div className="image-history-empty">{"\u6682\u65e0\u753b\u5e03\uff0c\u53ef\u4ee5\u65b0\u5efa\u4e00\u4e2a\u3002"}</div>}</div>
+          <div className="image-section-heading"><div className="fg-mono image-section-label">生成记录</div><button type="button" className="image-section-action" onClick={startNewGeneration}><Icon d={I.plus} size={12} />{"\u65b0\u751f\u6210"}</button></div>
           <div className="image-history-list">{loadingHistory && !tasks.length ? <div className="image-history-loading">读取中…</div> : historyRows.length ? historyRows : <div className="image-history-empty">确认后的任务会留在这里。</div>}</div>
           <div className="image-sidebar-note"><span className="fg-mono">SAFE COMMIT</span><br />媒体生成始终先保存草稿，再由你明确确认；历史费用账本不会随删除移除。</div>
         </aside>
@@ -762,6 +921,15 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
           <div className="image-preview-footer"><span>{imageModelLabel(selectedTask.model)} / {taskSize(selectedTask)}</span><a href={selectedTask.resultUrl} download={"creator-image-" + selectedTask.id + "." + resultFileExtension(selectedTask)} target="_blank" rel="noreferrer"><Icon d={I.download} size={14} />{"\u4e0b\u8f7d\u539f\u56fe"}</a></div>
         </div>
       </div>}
+      {canvasDeleteTarget && <div className="image-modal-backdrop" onMouseDown={() => { if (!canvasDeleting) setCanvasDeleteTarget(null); }}>
+        <div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-canvas-delete-title" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="image-delete-icon"><Icon d={I.trash} size={18} /></div>
+          <h2 id="image-canvas-delete-title">{"\u5220\u9664\u8fd9\u4e2a\u753b\u5e03\uff1f"}</h2>
+          <p>{"\u4f1a\u5220\u9664\u8fd9\u4e2a\u753b\u5e03\u548c\u8282\u70b9\u5e03\u5c40\uff0c\u4f46\u4e0d\u4f1a\u5220\u9664\u5df2\u7ecf\u751f\u6210\u7684\u8bb0\u5f55\u3002"}</p>
+          <p className="image-delete-warning">{"\u8d39\u7528\u8d26\u672c\u4e5f\u4f1a\u4fdd\u7559\u3002"}</p>
+          <div className="image-modal-actions"><button type="button" disabled={canvasDeleting} onClick={() => setCanvasDeleteTarget(null)}>{"\u53d6\u6d88"}</button><button type="button" disabled={canvasDeleting} onClick={() => void removeCanvas()} className="danger">{canvasDeleting ? "\u5220\u9664\u4e2d\u2026" : "\u5220\u9664\u753b\u5e03"}</button></div>
+        </div>
+      </div>}
       {deleteTarget && <div className="image-modal-backdrop" onMouseDown={closeDeleteModal}><div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-delete-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}><div className="image-delete-icon"><Icon d={I.trash} size={18} /></div><h2 id="image-delete-title">永久删除任务与结果？</h2><p>任务、生成结果和参考图文件会被永久删除，无法恢复。</p><p className="image-delete-warning">历史费用账本会保留，不会随删除移除。</p><div className="image-modal-actions"><button ref={deleteCancelRef} type="button" disabled={deleting} onClick={closeDeleteModal}>取消</button><button ref={deleteConfirmRef} type="button" disabled={deleting} onClick={() => void removeTask()} className="danger">{deleting ? "删除中…" : "永久删除"}</button></div></div></div>}
 
       <style jsx>{`
@@ -791,6 +959,20 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-coming { margin-left: auto; font-size: 9px; color: var(--text-3); }
         .image-section-label { padding: 22px 9px 7px; color: var(--text-3); font-size: 9.5px; letter-spacing: 1.4px; }
         .image-history-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+         .image-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+         .image-section-heading .image-section-label { flex: 1; }
+         .image-section-action { display: inline-flex; align-items: center; gap: 4px; margin: 17px 4px 0 0; padding: 4px 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-3); cursor: pointer; font-size: 10px; }
+         .image-section-action:hover,.image-section-action:focus-visible { border-color: var(--stroke-2); color: var(--accent); outline: none; }
+         .image-canvas-list { flex: none; max-height: 190px; overflow-y: auto; scrollbar-gutter: stable; }
+         .image-canvas-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; border: 1px solid transparent; border-radius: 10px; }
+         .image-canvas-row.active { border-color: var(--stroke-2); background: var(--panel-2); }
+         .image-canvas-row > button:first-child { min-width: 0; flex: 1; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; column-gap: 8px; padding: 8px 5px 8px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--text-2); cursor: pointer; text-align: left; }
+         .image-canvas-row > button:first-child:hover { color: var(--text); }
+         .image-canvas-row > button:first-child > svg { grid-row: 1 / span 2; color: var(--accent); }
+         .image-canvas-row > button:first-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+         .image-canvas-row > button:first-child small { display: block; margin-top: 3px; color: var(--text-3); font-size: 8.5px; }
+         .image-canvas-delete { width: 28px; height: 28px; flex: none; display: grid; place-items: center; margin-right: 3px; border: 0; border-radius: 8px; background: transparent; color: var(--text-3); cursor: pointer; }
+         .image-canvas-delete:hover,.image-canvas-delete:focus-visible { background: rgba(255,111,91,.12); color: #ff9b85; outline: none; }
         .image-history-loading,.image-history-empty { padding: 12px 9px; color: var(--text-3); font-size: 11px; line-height: 1.6; }
         .image-sidebar-note { margin-top: 12px; padding: 10px 11px; border: 1px solid var(--stroke); border-radius: 11px; background: var(--panel); color: var(--text-3); font-size: 11px; line-height: 1.6; }
         .image-sidebar-note .fg-mono { color: var(--accent); font-size: 9px; letter-spacing: 1px; }
@@ -895,6 +1077,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
           .image-panel-resizer { display: none; }
           .image-sidebar-left { min-height: auto; border: 0; }
           .image-history-list { max-height: 180px; }
+          .image-canvas-list { max-height: 150px; }
           .image-canvas-column { min-height: 0; height: 100%; order: 2; }
           .image-canvas-scroll { min-height: 0; padding-bottom: 90px; }
           .image-canvas-board { min-height: calc(100vh - 150px); }

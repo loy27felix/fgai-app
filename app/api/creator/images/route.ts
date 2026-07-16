@@ -27,6 +27,8 @@ function serverError(error: unknown, code: string, message: string) {
 }
 
 type CreateDraftBody = {
+  canvasId?: unknown;
+  nodeId?: unknown;
   prompt?: unknown;
   model?: unknown;
   ratio?: unknown;
@@ -168,6 +170,12 @@ export async function POST(req: Request) {
 
     let input;
     let idempotencyKey: string;
+    const nodeId = typeof body.nodeId === 'string' && body.nodeId.trim()
+      ? body.nodeId.trim().slice(0, 128)
+      : null;
+    const canvasId = typeof body.canvasId === 'string' && body.canvasId.trim()
+      ? body.canvasId.trim()
+      : null;
     try {
       const rawKey = normalizeImageIdempotencyKey(body.idempotencyKey);
       idempotencyKey = scopedImageIdempotencyKey(context.user.id, context.workspace.id, rawKey);
@@ -183,12 +191,25 @@ export async function POST(req: Request) {
       return response('\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548', 'INVALID_IMAGE_DRAFT', 400);
     }
 
+    if (canvasId) {
+      const ownedCanvas = await context.supabase
+        .from('creator_canvases')
+        .select('id')
+        .eq('id', canvasId)
+        .eq('workspace_id', context.workspace.id)
+        .eq('kind', 'image')
+        .maybeSingle();
+      if (ownedCanvas.error) throw ownedCanvas.error;
+      if (!ownedCanvas.data) return response('\u753b\u5e03\u4e0d\u5b58\u5728', 'INVALID_CANVAS', 400);
+    }
     const inserted = await context.supabase
       .from('creator_generation_tasks')
       .upsert({
         workspace_id: context.workspace.id,
         user_id: context.user.id,
         kind: 'image',
+        canvas_id: canvasId,
+        node_id: nodeId,
         provider: 'wetoken',
         model: input.model,
         idempotency_key: idempotencyKey,

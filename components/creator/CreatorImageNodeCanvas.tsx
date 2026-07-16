@@ -35,10 +35,12 @@ const NODE_LABEL: Record<CanvasKind, string> = {
   video: "视频节点",
 };
 
-type ImageCanvasNode = CanvasNode & {
+export type ImageCanvasNode = CanvasNode & {
   fileKey?: string | null;
   label?: string | null;
 };
+
+export type CreatorImageCanvasGraph = { nodes: ImageCanvasNode[]; edges: CanvasEdge[] };
 
 type Preview = { file: File; url: string };
 type Point = { x: number; y: number };
@@ -59,6 +61,8 @@ type Props = {
   onReferenceKeysChange?: (keys: string[]) => void;
   canGenerate: boolean;
   generating?: boolean;
+  initialGraph?: CreatorImageCanvasGraph | null;
+  onGraphChange?: (graph: CreatorImageCanvasGraph) => void;
 };
 
 export function creatorImageReferenceKey(file: File) {
@@ -124,8 +128,10 @@ export default function CreatorImageNodeCanvas({
   onReferenceKeysChange,
   canGenerate,
   generating = false,
+  initialGraph,
+  onGraphChange,
 }: Props) {
-  const initial = seedGraph(previews, prompt);
+  const initial = initialGraph ? initialGraph : seedGraph(previews, prompt);
   const canvasRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +175,10 @@ export default function CreatorImageNodeCanvas({
       .map((node) => node.fileKey as string),
     [generationInputs],
   );
+
+  useEffect(() => {
+    onGraphChange?.({ nodes, edges });
+  }, [nodes, edges]);
 
   useEffect(() => {
     setNodes((current) => {

@@ -72,3 +72,29 @@ test('image workspace makes the canvas primary and the control surface resizable
   assert.match(ui, /image-preview-modal/);
   assert.match(ui, /backdrop-filter: none/);
 });
+test('image canvas lifecycle keeps canvases separate from generation history', () => {
+  const canvasCollection = fs.readFileSync(
+    path.join(process.cwd(), 'app/api/creator/canvases/route.ts'),
+    'utf8',
+  );
+  const canvasItem = fs.readFileSync(
+    path.join(process.cwd(), 'app/api/creator/canvases/[id]/route.ts'),
+    'utf8',
+  );
+  const imageCollection = fs.readFileSync(
+    path.join(process.cwd(), 'app/api/creator/images/route.ts'),
+    'utf8',
+  );
+  assert.match(ui, /createCreatorCanvas/);
+  assert.match(ui, /deleteCreatorCanvas/);
+  assert.match(ui, /startNewGeneration/);
+  assert.match(ui, /initialGraph=\{canvasGraph\}/);
+  assert.match(ui, /onGraphChange=\{handleCanvasGraphChange\}/);
+  assert.match(canvasCollection, /from\(['"]creator_canvases['"]\)/);
+  assert.match(canvasCollection, /ensureCreatorWorkspace/);
+  assert.match(canvasItem, /export async function DELETE/);
+  assert.match(canvasItem, /\.eq\(['"]workspace_id['"]/);
+  assert.doesNotMatch(canvasItem, /ai_usage_ledger/);
+  assert.match(imageCollection, /canvas_id: canvasId/);
+  assert.match(imageCollection, /node_id: nodeId/);
+});
