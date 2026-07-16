@@ -255,6 +255,16 @@ function hasLedgerError(result: unknown): boolean {
   return error !== null && error !== undefined;
 }
 
+function hasUpdatedLedgerRow(result: unknown, requestId: string): boolean {
+  if (result === null || typeof result !== 'object') return false;
+  const payload = result as { error?: unknown; data?: unknown };
+  if (payload.error !== null && payload.error !== undefined) return false;
+  if (payload.data === null || typeof payload.data !== 'object' || Array.isArray(payload.data)) {
+    return false;
+  }
+  return (payload.data as { request_id?: unknown }).request_id === requestId;
+}
+
 export async function recordUsageRequired(
   row: ImageLedgerEntry,
   dependency?: LedgerWriter,
@@ -279,13 +289,19 @@ export async function updateImageUsageStatus(input: {
     status: input.status,
     completed_at: input.completedAt ?? null,
   };
-  const result = dependency
-    ? await dependency.update(values, input.requestId)
-    : await createAdminClient()
-      .from('ai_usage_ledger')
-      .update(values)
-      .eq('request_id', input.requestId);
-  return !hasLedgerError(result);
+  try {
+    const result = dependency
+      ? await dependency.update(values, input.requestId)
+      : await createAdminClient()
+        .from('ai_usage_ledger')
+        .update(values)
+        .eq('request_id', input.requestId)
+        .select('request_id')
+        .maybeSingle();
+    return hasUpdatedLedgerRow(result, input.requestId);
+  } catch {
+    return false;
+  }
 }
 
 

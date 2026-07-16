@@ -177,7 +177,7 @@ test('image status updates use the injected dependency and complete the request'
   }, {
     update: async (values, requestId) => {
       calls.push({ values, requestId });
-      return { error: null };
+      return { data: { request_id: requestId }, error: null };
     },
   });
 
@@ -191,23 +191,39 @@ test('image status updates use the injected dependency and complete the request'
   }]);
 });
 
-test('image status updates distinguish Supabase errors from empty success results', async () => {
+test('image status updates require a returned ledger row', async () => {
   const statuses: UsageLedgerStatus[] = ['submitted', 'succeeded', 'failed', 'unknown'];
 
-  for (const result of [{ error: null }, { error: undefined }, null, undefined]) {
+  for (const result of [{ data: null, error: null }, { data: [], error: null }, { error: null }, null, undefined]) {
     assert.equal(await updateImageUsageStatus({
-      requestId: 'r-status-success',
+      requestId: 'r-status-empty',
       status: statuses[3],
     }, {
       update: async () => result,
-    }), true);
+    }), false);
   }
+
+  assert.equal(await updateImageUsageStatus({
+    requestId: 'r-status-row',
+    status: statuses[1],
+  }, {
+    update: async (_values, requestId) => ({ data: { request_id: requestId }, error: null }),
+  }), true);
 
   assert.equal(await updateImageUsageStatus({
     requestId: 'r-status-failure',
     status: statuses[2],
   }, {
-    update: async () => ({ error: new Error('down') }),
+    update: async () => ({ data: null, error: new Error('down') }),
+  }), false);
+});
+
+test('image status updates convert dependency exceptions to false', async () => {
+  assert.equal(await updateImageUsageStatus({
+    requestId: 'r-status-throw',
+    status: 'unknown',
+  }, {
+    update: async () => { throw new Error('ledger unavailable'); },
   }), false);
 });
 

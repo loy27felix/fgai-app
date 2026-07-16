@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { createImageItemHandlers } from '../../app/api/creator/images/[id]/route';
+import { createImageItemHandlers } from '../../lib/creator/image-item-route';
+import { createImageConfirmHandlers } from '../../lib/creator/image-confirm-route';
 import { ImageStorageError } from '../../lib/creator/imageStorage';
+import { CreatorImageConfirmError } from '../../lib/creator/image-service';
 import {
   assertOwnedResultPath,
   normalizeImageIdempotencyKey,
@@ -13,9 +15,13 @@ import {
 
 const collectionPath = path.join(process.cwd(), 'app/api/creator/images/route.ts');
 const itemPath = path.join(process.cwd(), 'app/api/creator/images/[id]/route.ts');
+const confirmRoutePath = path.join(process.cwd(), 'app/api/creator/images/[id]/confirm/route.ts');
 const storagePath = path.join(process.cwd(), 'lib/creator/imageStorage.ts');
+const itemHandlerPath = path.join(process.cwd(), 'lib/creator/image-item-route.ts');
+const confirmHandlerPath = path.join(process.cwd(), 'lib/creator/image-confirm-route.ts');
 const collection = fs.readFileSync(collectionPath, 'utf8');
-const item = fs.readFileSync(itemPath, 'utf8');
+const item = fs.readFileSync(itemPath, 'utf8') + fs.readFileSync(itemHandlerPath, 'utf8');
+const confirmRoute = fs.readFileSync(confirmRoutePath, 'utf8') + fs.readFileSync(confirmHandlerPath, 'utf8');
 const storageService = fs.readFileSync(storagePath, 'utf8');
 
 test('all creator image operations authenticate and bootstrap the private workspace', () => {
@@ -252,4 +258,178 @@ test('DELETE factory handler returns stable 500 for service failure', async () =
   assert.equal(payload.code, 'TASK_STORAGE_DELETE_FAILED');
   assert.doesNotMatch(JSON.stringify(payload), /secret delete detail/);
   assert.equal(calls.delete, 1);
+});
+
+
+test('confirm route is authenticated, owner-scoped, atomic and ledger-first', () => {
+  assert.match(confirmRoute, /auth\.getUser\(\)/);
+  assert.match(confirmRoute, /ensureCreatorWorkspace/);
+  assert.match(confirmRoute, /\.eq\(['"]workspace_id['"]/);
+  assert.match(confirmRoute, /\.eq\(['"]user_id['"]/);
+  assert.match(confirmRoute, /\.eq\(['"]kind['"], ['"]image['"]\)/);
+  assert.match(confirmRoute, /\.eq\(['"]status['"], ['"]draft['"]\)/);
+  assert.match(confirmRoute, /buildCreatorImageLedgerEntry/);
+  assert.match(confirmRoute, /recordUsageRequired/);
+  assert.match(confirmRoute, /status: 'succeeded'/);
+  assert.match(confirmRoute, /assertOwnedResultPath/);
+  assert.match(confirmRoute, /loadValidatedReferenceContents/);
+  assert.doesNotMatch(confirmRoute, /error:\s*error instanceof Error\s*\?\s*error\.message/);
+});
+
+class FakeConfirmQuery {
+  readonly filters: Array<[string, unknown]> = [];
+  constructor(private readonly result: { data: unknown; error: unknown | null }) {}
+  update(_values: unknown) { return this; }
+  select(_columns: string) { return this; }
+  eq(column: string, value: unknown) { this.filters.push([column, value]); return this; }
+  async maybeSingle() { return this.result; }
+}
+
+class FakeConfirmSupabase {
+  readonly auth = { getUser: async () => ({ data: { user: { id: 'u1' } } }) };
+  readonly storage = { from: (_bucket: string) => ({}) };
+  readonly queries: FakeConfirmQuery[] = [];
+  constructor(private readonly current: { data: unknown; error: unknown | null }) {}
+  from(table: string) {
+    assert.equal(table, 'creator_generation_tasks');
+    const query = new FakeConfirmQuery(this.current);
+    this.queries.push(query);
+    return query;
+  }
+}
+
+function confirmFixture(
+  confirm: (input: unknown, deps: unknown) => Promise<unknown>,
+  current: { data: unknown; error: unknown | null } = { data: { id: 't1', status: 'submitting' }, error: null },
+) {
+  const supabase = new FakeConfirmSupabase(current);
+  const handlers = createImageConfirmHandlers({
+    createClient: () => supabase,
+    ensureCreatorWorkspace: async () => ({ id: 'w1' }),
+    confirmCreatorImage: confirm as never,
+  });
+  return { handlers, supabase };
+}
+
+function assertConfirmClaimFilters(query: FakeConfirmQuery) {
+  assert.deepEqual(query.filters, [
+    ['id', 't1'],
+    ['workspace_id', 'w1'],
+    ['user_id', 'u1'],
+    ['kind', 'image'],
+    ['status', 'draft'],
+  ]);
+}
+
+function assertConfirmLookupFilters(query: FakeConfirmQuery) {
+  assert.deepEqual(query.filters, [
+    ['id', 't1'],
+    ['workspace_id', 'w1'],
+    ['user_id', 'u1'],
+    ['kind', 'image'],
+  ]);
+}
+
+test('confirm factory returns a real Response on success', async () => {
+  const { handlers } = confirmFixture(async () => ({
+    task: { id: 't1', status: 'succeeded' },
+    asset: { id: 'a1' },
+    resultUrl: 'signed',
+  }));
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), {
+    task: { id: 't1', status: 'succeeded' },
+    asset: { id: 'a1' },
+    resultUrl: 'signed',
+  });
+});
+
+test('confirm factory replays the current task for duplicate confirmation', async () => {
+  const { handlers, supabase } = confirmFixture(async () => ({ duplicate: true }));
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), {
+    duplicate: true,
+    task: { id: 't1', status: 'submitting' },
+  });
+  assertConfirmLookupFilters(supabase.queries[0]);
+});
+
+test('confirm factory claim uses an atomic owner-scoped draft filter', async () => {
+  const { handlers, supabase } = confirmFixture(async (_input, dependencies) => {
+    await (dependencies as { claimDraft: (input: { taskId: string; userId: string; workspaceId: string }) => Promise<unknown> })
+      .claimDraft({ taskId: 't1', userId: 'u1', workspaceId: 'w1' });
+    return { duplicate: true };
+  });
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  assert.equal(result.status, 200);
+  assertConfirmClaimFilters(supabase.queries[0]);
+  assertConfirmLookupFilters(supabase.queries[1]);
+});
+
+test('confirm factory duplicate reconciliation state never replays as a normal duplicate', async () => {
+  const { handlers, supabase } = confirmFixture(
+    async () => ({ duplicate: true }),
+    { data: { id: 't1', status: 'succeeded', output: { requires_reconciliation: true } }, error: null },
+  );
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  const payload = await result.json();
+  assert.equal(result.status, 503);
+  assert.equal(payload.code, 'LEDGER_RECONCILIATION_REQUIRED');
+  assert.equal(payload.requiresReconciliation, true);
+  assertConfirmLookupFilters(supabase.queries[0]);
+});
+
+test('confirm factory maps result reconciliation to a stable 503', async () => {
+  const { handlers } = confirmFixture(async () => {
+    throw new CreatorImageConfirmError('RESULT_RECONCILIATION_REQUIRED', new Error('secret persistence detail'));
+  });
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  const payload = await result.json();
+  assert.equal(result.status, 503);
+  assert.equal(payload.code, 'RESULT_RECONCILIATION_REQUIRED');
+  assert.doesNotMatch(JSON.stringify(payload), /secret persistence detail/);
+});
+
+test('confirm factory maps timeout to 504 without leaking provider details', async () => {
+  const timeout = Object.assign(new Error('secret provider detail'), { name: 'TimeoutError' });
+  const { handlers } = confirmFixture(async () => { throw timeout; });
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  const payload = await result.json();
+  assert.equal(result.status, 504);
+  assert.equal(payload.code, 'GENERATION_TIMEOUT');
+  assert.doesNotMatch(JSON.stringify(payload), /secret provider detail/);
+});
+
+test('confirm factory rejects unauthenticated requests before invoking the service', async () => {
+  let calls = 0;
+  const supabase = new FakeConfirmSupabase({ data: null, error: null });
+  (supabase.auth.getUser as () => Promise<unknown>) = async () => ({ data: { user: null } });
+  const handlers = createImageConfirmHandlers({
+    createClient: () => supabase,
+    ensureCreatorWorkspace: async () => ({ id: 'w1' }),
+    confirmCreatorImage: async () => { calls += 1; return {}; },
+  });
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  assert.equal(result.status, 401);
+  assert.equal(calls, 0);
+});
+
+
+test('confirm factory returns 503 reconciliation state after a successful task with unknown ledger status', async () => {
+  const { handlers } = confirmFixture(async () => ({
+    task: { id: 't1', status: 'succeeded' },
+    asset: { id: 'a1' },
+    resultUrl: 'signed',
+    ledgerStatus: 'unknown',
+    requiresReconciliation: true,
+  }));
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  const payload = await result.json();
+  assert.equal(result.status, 503);
+  assert.equal(payload.code, 'LEDGER_RECONCILIATION_REQUIRED');
+  assert.equal(payload.ledgerStatus, 'unknown');
+  assert.equal(payload.requiresReconciliation, true);
+  assert.doesNotMatch(JSON.stringify(payload), /secret/);
 });

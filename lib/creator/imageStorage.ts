@@ -4,6 +4,7 @@ import {
   validateStoredImageDraftRequest,
   type ImageReferenceManifest,
 } from './image';
+import type { ImageReference } from '@/lib/ai/image';
 
 export type StorageListEntry = { name: string; id?: string | null };
 
@@ -109,12 +110,14 @@ function matchesMime(bytes: Uint8Array, mimeType: string) {
   return false;
 }
 
-export async function validateReferenceUploadContents(
+/** Read and validate private reference objects once for a provider request. */
+export async function loadValidatedReferenceContents(
   storage: CreatorImageStorage,
   paths: string[],
   manifest: ImageReferenceManifest[],
-) {
+): Promise<ImageReference[]> {
   if (paths.length !== manifest.length) throw new ImageStorageError('REFERENCE_MANIFEST_INVALID');
+  const references: ImageReference[] = [];
   for (let index = 0; index < paths.length; index += 1) {
     const result = await storage.download(paths[index]);
     if (result.error) throw new ImageStorageError('REFERENCE_STORAGE_READ_FAILED', result.error);
@@ -126,7 +129,20 @@ export async function validateReferenceUploadContents(
     if (!matchesMime(bytes, manifest[index].mimeType)) {
       throw new ImageStorageError('REFERENCE_TYPE_MISMATCH');
     }
+    references.push({
+      data: Buffer.from(bytes).toString('base64'),
+      mimeType: manifest[index].mimeType,
+    });
   }
+  return references;
+}
+
+export async function validateReferenceUploadContents(
+  storage: CreatorImageStorage,
+  paths: string[],
+  manifest: ImageReferenceManifest[],
+) {
+  await loadValidatedReferenceContents(storage, paths, manifest);
 }
 
 const LIST_PAGE_SIZE = 100;
