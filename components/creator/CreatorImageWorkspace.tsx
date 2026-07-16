@@ -863,7 +863,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-modal-actions button { height: 38px; padding: 0 15px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 12px; }
         .image-modal-actions .danger { border: 0; background: #e65f4c; color: #fff; font-weight: 650; }
         .image-mobile-controls-toggle,.image-mobile-controls-handle { display: none; }
-        @media (max-width: 1200px) { .image-workspace-grid { grid-template-columns: 220px minmax(300px,1fr) 12px var(--image-control-width); } }
+        @media (max-width: 1200px) { .image-workspace-grid { grid-template-columns: 220px minmax(0,1fr) 12px min(38vw,var(--image-control-width)); } }
         @media (max-width: 900px) {
           .image-workspace { height: 100vh !important; min-height: 100vh; overflow: hidden !important; }
           .image-workspace-grid { grid-template-columns: 1fr; min-height: 0; }
