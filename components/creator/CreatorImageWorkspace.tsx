@@ -34,6 +34,23 @@ import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown" | "submitting";
 
+const TASK_QUERY_MAX_LENGTH = 128;
+
+function taskIdFromLocation() {
+  if (typeof window === "undefined") return null;
+  const candidate = new URLSearchParams(window.location.search).get("task")?.trim() || "";
+  if (!candidate || candidate.length > TASK_QUERY_MAX_LENGTH || !/^[A-Za-z0-9_-]+$/.test(candidate)) return null;
+  return candidate;
+}
+
+function replaceTaskQuery(taskId: string | null) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (taskId) url.searchParams.set("task", taskId);
+  else url.searchParams.delete("task");
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 const I = {
   chat: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
   image: ["M4 4h16v16H4z", "m4 16 4-4 3 3 4-5 5 6", "M9 9h.01"],
@@ -154,6 +171,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [idempotencySignature, setIdempotencySignature] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -267,6 +285,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setIdempotencySignature(null);
     setDragIndex(null);
     setSelectedTaskId(null);
+    replaceTaskQuery(null);
     setError("");
     setNotice("");
     setPhase("idle");
@@ -285,6 +304,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
   function selectTask(task: CreatorImageTaskView) {
     setSelectedTaskId(task.id);
+    replaceTaskQuery(task.id);
     setConfirmTarget(isConfirmableDraft(task) ? task : null);
     setError("");
     setNotice("");
@@ -305,6 +325,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       setTasks(nextTasks);
       setSelectedTaskId(nextId);
       setConfirmTarget(nextTask && isConfirmableDraft(nextTask) ? nextTask : null);
+      replaceTaskQuery(nextId);
     } catch (loadError) {
       setError(publicError(loadError, "历史加载失败，请稍后重试"));
       setPhase("error");
@@ -440,6 +461,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setIdempotencyKey(null);
     setIdempotencySignature(null);
     setSelectedTaskId(null);
+    replaceTaskQuery(null);
     setNotice("已复用模型、比例和提示词；参考图需要重新上传。");
     setPhase("idle");
   }
@@ -450,13 +472,24 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setDeleting(true);
     try {
       await deleteImageTask(target.id);
-      setTasks((current) => {
-        const next = current.filter((task) => task.id !== target.id);
-        setSelectedTaskId((selected) => selected === target.id ? (next[0]?.id || null) : selected);
-        return next;
-      });
-      if (selectedTaskId === target.id) setPhase("idle");
-      if (confirmTarget?.id === target.id) setConfirmTarget(null);
+      const nextTasks = tasks.filter((task) => task.id !== target.id);
+      const nextId = selectedTaskId === target.id
+        ? nextTasks[0]?.id || null
+        : selectedTaskId;
+      const nextTask = nextTasks.find((task) => task.id === nextId) || null;
+      setTasks(nextTasks);
+      setSelectedTaskId(nextId);
+      replaceTaskQuery(nextId);
+      setConfirmTarget(nextTask && isConfirmableDraft(nextTask) ? nextTask : null);
+      if (!nextTask) {
+        setPhase("idle");
+      } else if (nextTask.status === "unknown") {
+        setPhase("unknown");
+      } else if (nextTask.status === "submitting" || nextTask.status === "queued" || nextTask.status === "running") {
+        setPhase("submitting");
+      } else {
+        setPhase("idle");
+      }
       setDeleteTarget(null);
       setNotice("任务、结果和参考图已删除；历史费用账本仍保留。");
     } catch (deleteError) {
@@ -499,7 +532,8 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   }, [deleteTarget, deleting]);
 
   useEffect(() => {
-    void refreshHistory();
+    const taskId = taskIdFromLocation();
+    void refreshHistory(taskId || undefined);
   }, []);
 
   const historyRows = tasks.map((task) => (
@@ -584,12 +618,12 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         </aside>
 
         <main className="image-canvas-column">
-          <div className="image-canvas-toolbar"><div><div className="fg-mono image-kicker">CANVAS / {selectedTask ? statusLabel(selectedTask.status).toUpperCase() : "EMPTY"}</div><h2>生成画布</h2></div>{notice && <div className="image-notice" role="status">{notice}</div>}</div>
+          <div className="image-canvas-toolbar"><div><div className="fg-mono image-kicker">CANVAS / {selectedTask ? statusLabel(selectedTask.status).toUpperCase() : "EMPTY"}</div><h2>生成画布</h2></div>{notice && <div className="image-notice" role="status">{notice}</div>}<button type="button" className="image-mobile-controls-toggle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}>{mobileControlsOpen ? "收起参数" : "打开参数"}<Icon d={I.plus} size={14} /></button></div>
           <div className="image-canvas-scroll">{renderCenter()}</div>
         </main>
 
-        <aside className="image-sidebar image-sidebar-right">
-          <div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><span className="image-dim-label">{sizeFor(model, ratio)}</span></div>
+        <aside id="image-control-panel" className={`image-sidebar image-sidebar-right${mobileControlsOpen ? " mobile-open" : ""}`}>
+          <button type="button" className="image-mobile-controls-handle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}><span>参数面板</span><span>{mobileControlsOpen ? "收起" : "展开"}</span></button><div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><span className="image-dim-label">{sizeFor(model, ratio)}</span></div>
           <div className="image-control-scroll">
             <label className="image-field-label" htmlFor="image-model">模型</label>
             <select id="image-model" className="image-select" value={model} onChange={(event) => setModel(event.target.value)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"}>{IMG_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}{item.experimental ? " · 实验" : ""}</option>)}</select>
@@ -713,18 +747,25 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
         .image-modal-actions button { height: 38px; padding: 0 15px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 12px; }
         .image-modal-actions .danger { border: 0; background: #e65f4c; color: #fff; font-weight: 650; }
+        .image-mobile-controls-toggle,.image-mobile-controls-handle { display: none; }
         @media (max-width: 900px) {
-          .image-workspace { height: auto !important; min-height: 100vh; overflow: auto !important; }
+          .image-workspace { height: 100vh !important; min-height: 100vh; overflow: hidden !important; }
           .image-workspace-grid { grid-template-columns: 1fr; min-height: 0; }
-          .image-sidebar-left,.image-sidebar-right { border: 0; }
-          .image-sidebar-left { min-height: auto; }
-          .image-history-list { max-height: 230px; }
-          .image-canvas-column { min-height: 560px; order: 2; }
-          .image-sidebar-right { order: 3; min-height: 650px; border-top: 1px solid var(--stroke); }
-          .image-canvas-scroll { min-height: 470px; }
+          .image-sidebar-left { min-height: auto; border: 0; }
+          .image-history-list { max-height: 180px; }
+          .image-canvas-column { min-height: 0; height: 100%; order: 2; }
+          .image-canvas-scroll { min-height: 0; padding-bottom: 90px; }
           .image-notice { max-width: 48%; }
+          .image-mobile-controls-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 0 9px; border: 1px solid var(--stroke-2); border-radius: 9px; background: var(--panel-2); color: var(--text-2); cursor: pointer; font-size: 10px; }
+          .image-sidebar-right { position: fixed; z-index: 20; left: 10px; right: 10px; bottom: 0; order: initial; min-height: 0; max-height: min(78vh,720px); border: 1px solid var(--stroke-2); border-bottom: 0; border-radius: 18px 18px 0 0; box-shadow: 0 -20px 70px rgba(0,0,0,.35); overflow: hidden; transform: translateY(calc(100% - 58px)); transition: transform .24s ease; }
+          .image-sidebar-right.mobile-open { transform: translateY(0); }
+          .image-mobile-controls-handle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 58px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--stroke); background: var(--panel); color: var(--text); cursor: pointer; font-size: 12px; font-weight: 650; }
+          .image-mobile-controls-handle span:last-child { color: var(--accent); font-family: "JetBrains Mono",monospace; font-size: 9px; letter-spacing: .8px; }
+          .image-sidebar-right .image-control-heading { min-height: 60px; }
+          .image-sidebar-right .image-control-scroll { max-height: calc(78vh - 170px); overflow-y: auto; }
         }
         @media (max-width: 560px) {
+          .image-sidebar-right { left: 0; right: 0; border-radius: 16px 16px 0 0; }
           .image-workspace-header { padding: 0 12px; gap: 9px; }
           .image-header-context,.image-header-link span { display: none; }
           .image-header-divider { display: none; }
