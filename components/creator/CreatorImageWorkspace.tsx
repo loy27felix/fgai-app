@@ -73,6 +73,7 @@ const I = {
   copy: ["M8 8h11v12H8z", "M5 16H4V4h12v1"],
   spark: ["M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6Z"],
   close: ["M6 6l12 12M18 6 6 18"],
+  expand: ["M8 3H3v5M3 3l6 6M16 3h5v5M21 3l-6 6M8 21H3v-5M3 21l6-6M16 21h5v-5M21 21l-6-6"],
   check: ["M5 13l4 4L19 7"],
 } as const;
 
@@ -720,6 +721,18 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         </aside>
       </div>
 
+      {selectedTask && selectedTask.resultUrl && <button type="button" className="image-canvas-preview-button" onClick={() => setPreviewOpen(true)} aria-label="???????"><Icon d={I.expand} size={15} />????</button>}
+
+      {previewOpen && selectedTask && selectedTask.resultUrl && <div className="image-preview-backdrop" role="presentation" onMouseDown={() => setPreviewOpen(false)}>
+        <div className="image-preview-modal" role="dialog" aria-modal="true" aria-labelledby="image-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="image-preview-header">
+            <div><div className="fg-mono image-kicker">FULL FRAME PREVIEW</div><h2 id="image-preview-title">????</h2></div>
+            <button type="button" className="image-preview-close" onClick={() => setPreviewOpen(false)} aria-label="??????"><Icon d={I.close} size={16} />??</button>
+          </div>
+          <div className="image-preview-stage"><img src={selectedTask.resultUrl} alt="????????" /></div>
+          <div className="image-preview-footer"><span>{imageModelLabel(selectedTask.model)} ? {taskSize(selectedTask)}</span><a href={selectedTask.resultUrl} download={"creator-image-" + selectedTask.id + "." + resultFileExtension(selectedTask)} target="_blank" rel="noreferrer"><Icon d={I.download} size={14} />????</a></div>
+        </div>
+      </div>}
       {deleteTarget && <div className="image-modal-backdrop" onMouseDown={closeDeleteModal}><div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-delete-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}><div className="image-delete-icon"><Icon d={I.trash} size={18} /></div><h2 id="image-delete-title">永久删除任务与结果？</h2><p>任务、生成结果和参考图文件会被永久删除，无法恢复。</p><p className="image-delete-warning">历史费用账本会保留，不会随删除移除。</p><div className="image-modal-actions"><button ref={deleteCancelRef} type="button" disabled={deleting} onClick={closeDeleteModal}>取消</button><button ref={deleteConfirmRef} type="button" disabled={deleting} onClick={() => void removeTask()} className="danger">{deleting ? "删除中…" : "永久删除"}</button></div></div></div>}
 
       <style jsx>{`
