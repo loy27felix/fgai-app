@@ -2,8 +2,10 @@
 
 import {
   ChangeEvent,
+  CSSProperties,
   DragEvent,
   KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
   useState,
@@ -35,6 +37,13 @@ type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown" | "submitting";
 
 const TASK_QUERY_MAX_LENGTH = 128;
+const IMAGE_PANEL_MIN_WIDTH = 320;
+const IMAGE_PANEL_MAX_WIDTH = 560;
+const IMAGE_PANEL_DEFAULT_WIDTH = 408;
+
+function clampImagePanelWidth(value: number) {
+  return Math.min(IMAGE_PANEL_MAX_WIDTH, Math.max(IMAGE_PANEL_MIN_WIDTH, Math.round(value)));
+}
 
 function taskIdFromLocation() {
   if (typeof window === "undefined") return null;
@@ -172,6 +181,9 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [idempotencySignature, setIdempotencySignature] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
+  const [controlPanelWidth, setControlPanelWidth] = useState(IMAGE_PANEL_DEFAULT_WIDTH);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const resizeStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -235,6 +247,48 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   function removeFile(index: number) {
     setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
     setError("");
+  }
+
+  function updateControlPanelWidth(value: number) {
+    const next = clampImagePanelWidth(value);
+    setControlPanelWidth(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("fg-creator-image-panel-width", String(next));
+    }
+  }
+
+  function beginControlPanelResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (window.innerWidth <= 900) return;
+    event.preventDefault();
+    resizeStartRef.current = { startX: event.clientX, startWidth: controlPanelWidth };
+    const onMove = (moveEvent: globalThis.PointerEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      updateControlPanelWidth(start.startWidth + start.startX - moveEvent.clientX);
+    };
+    const onUp = () => {
+      resizeStartRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function onControlPanelResizeKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      updateControlPanelWidth(controlPanelWidth + 24);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      updateControlPanelWidth(controlPanelWidth - 24);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      updateControlPanelWidth(IMAGE_PANEL_MIN_WIDTH);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      updateControlPanelWidth(IMAGE_PANEL_MAX_WIDTH);
+    }
   }
 
   function onReferenceDragStart(event: DragEvent<HTMLDivElement>, index: number) {
