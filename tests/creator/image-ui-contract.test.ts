@@ -12,6 +12,10 @@ const chat = fs.readFileSync(
   'utf8',
 );
 
+const nodeCanvas = fs.readFileSync(
+  path.join(process.cwd(), 'components/creator/CreatorImageNodeCanvas.tsx'),
+  'utf8',
+);
 test('creator exposes standalone image mode with explicit confirmation', () => {
   assert.match(chat, /href="\/creator\/image"/);
   assert.match(ui, /生成 1 张/);
@@ -23,6 +27,15 @@ test('creator exposes standalone image mode with explicit confirmation', () => {
   assert.match(ui, /删除结果/);
 });
 
+
+test('standalone image canvas supports TapNow-style node wiring', () => {
+  assert.match(nodeCanvas, /onContextMenu/);
+  assert.match(nodeCanvas, /参考图节点/);
+  assert.match(nodeCanvas, /onPortDown/);
+  assert.match(nodeCanvas, /referenceKeys/);
+  assert.match(ui, /onReferenceKeysChange/);
+  assert.match(ui, /draftFiles/);
+});
 test('history refresh is read-only and never auto-confirms a task', () => {
   assert.match(ui, /listImageTasks/);
   assert.doesNotMatch(ui, /useEffect\([\s\S]*confirmImageTask/);

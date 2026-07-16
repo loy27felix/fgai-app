@@ -13,6 +13,7 @@ import {
 import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
+import CreatorImageNodeCanvas, { creatorImageReferenceKey, type CreatorImageCanvasGenerateInput } from "@/components/creator/CreatorImageNodeCanvas";
 import { createClient } from "@/lib/supabase/client";
 import {
   MAX_CREATOR_IMAGE_FILE_BYTES,
@@ -184,6 +185,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [controlPanelWidth, setControlPanelWidth] = useState(IMAGE_PANEL_DEFAULT_WIDTH);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [canvasReferenceKeys, setCanvasReferenceKeys] = useState<string[] | null>(null);
   const resizeStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -206,7 +208,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     return null;
   }
 
-  function addFiles(incoming: File[]) {
+  function addFiles(incoming: File[]): boolean {
     const merged = [...files];
     for (const file of incoming) {
       const duplicate = merged.some((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified);
@@ -216,11 +218,12 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     if (validationError) {
       setError(validationError);
       setPhase("error");
-      return;
+      return false;
     }
     setError("");
     setNotice("");
     setFiles(merged);
+    return true;
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -321,19 +324,24 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setDragIndex(null);
   }
 
-  function draftInputSignature() {
+  function draftInputSignature(input?: CreatorImageCanvasGenerateInput) {
+    const selectedReferenceKeys = input?.referenceKeys ?? canvasReferenceKeys;
+    const signatureFiles = selectedReferenceKeys
+      ? files.filter((file) => selectedReferenceKeys.includes(creatorImageReferenceKey(file)))
+      : files;
     return JSON.stringify({
-      prompt,
+      prompt: input?.prompt ?? prompt,
       model,
       ratio,
       skill: activeSkill,
-      files: files.map((file) => ({ name: file.name, type: file.type, size: file.size, lastModified: file.lastModified })),
+      referenceKeys: selectedReferenceKeys,
+      files: signatureFiles.map((file) => ({ name: file.name, type: file.type, size: file.size, lastModified: file.lastModified })),
     });
   }
-
   function clearComposer() {
     setPrompt("");
     setFiles([]);
+    setCanvasReferenceKeys(null);
     setActiveSkill(null);
     setConfirmTarget(null);
     setIdempotencyKey(null);
@@ -389,19 +397,24 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     }
   }
 
-  async function prepareDraft() {
+  async function prepareDraft(input?: CreatorImageCanvasGenerateInput) {
     if (phase === "preparing" || phase === "confirming" || confirmTarget) return;
     setError("");
     setNotice("");
-    const references: ImageReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size }));
-    const fileError = localFileError(files);
+    const draftPrompt = input?.prompt?.trim() || prompt.trim();
+    const selectedReferenceKeys = input?.referenceKeys ?? canvasReferenceKeys;
+    const draftFiles = selectedReferenceKeys
+      ? files.filter((file) => selectedReferenceKeys.includes(creatorImageReferenceKey(file)))
+      : files;
+    const references: ImageReferenceManifest[] = draftFiles.map((file) => ({ name: file.name, mimeType: file.type, size: file.size }));
+    const fileError = localFileError(draftFiles);
     if (fileError) {
       setError(fileError);
       setPhase("error");
       return;
     }
     try {
-      validateImageDraftInput({ prompt, model, ratio, references, skill: activeSkill });
+      validateImageDraftInput({ prompt: draftPrompt, model, ratio, references, skill: activeSkill });
     } catch (validationError) {
       setError(validationError instanceof Error ? validationError.message : "请输入有效的提示词");
       setPhase("error");
@@ -409,7 +422,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     }
 
     setPhase("preparing");
-    const inputSignature = draftInputSignature();
+    const inputSignature = draftInputSignature(input);
     const attemptKey = idempotencyKey && idempotencySignature === inputSignature
       ? idempotencyKey
       : createIdempotencyKey();
@@ -417,18 +430,18 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setIdempotencySignature(inputSignature);
     try {
       const draft = await createImageDraft({
-        prompt,
+        prompt: draftPrompt,
         model,
         ratio,
         references,
         skill: activeSkill,
         idempotencyKey: attemptKey,
       });
-      if (draft.uploadPaths.length !== files.length) throw new Error("upload plan mismatch");
-      for (let index = 0; index < files.length; index += 1) {
-        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], {
+      if (draft.uploadPaths.length !== draftFiles.length) throw new Error("upload plan mismatch");
+      for (let index = 0; index < draftFiles.length; index += 1) {
+        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], draftFiles[index], {
           upsert: false,
-          contentType: files[index].type,
+          contentType: draftFiles[index].type,
         });
         if (upload.error) throw upload.error;
       }
@@ -513,6 +526,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setPrompt(taskPrompt(selectedTask));
     setActiveSkill(taskSkill(selectedTask));
     setFiles([]);
+    setCanvasReferenceKeys(null);
     setIdempotencyKey(null);
     setIdempotencySignature(null);
     setSelectedTaskId(null);
@@ -665,7 +679,18 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     if (selectedTask?.status === "succeeded") {
       return <div className="image-state-card" role="status"><div className="image-state-mark"><Icon d={I.check} size={22} /></div><h1>结果已完成</h1><p>结果链接正在刷新，请重新读取历史列表。</p><button type="button" onClick={() => void refreshHistory(selectedTask.id)}><Icon d={I.refresh} size={14} />刷新结果</button></div>;
     }
-    return <div className="image-empty-state"><div className="image-empty-orbit"><Icon d={I.spark} size={28} /></div><div className="fg-mono image-kicker">FG STUDIO · IMAGE CONTROL ROOM</div><h1>把一帧画面，交给明确的确认。</h1><p>在右侧准备模型、比例、参考图与 Prompt。提交前会先保存草稿，只有你确认后才会调用一次生成服务。</p><div className="image-empty-note"><span>01</span><span>草稿和上传分离保存</span><span>02</span><span>确认卡显示预计尺寸</span><span>03</span><span>历史结果可复用</span></div></div>;
+    return (
+      <CreatorImageNodeCanvas
+        prompt={prompt}
+        previews={previews}
+        onPromptChange={setPrompt}
+        onAddFiles={addFiles}
+        onGenerate={(input) => void prepareDraft(input)}
+        onReferenceKeysChange={setCanvasReferenceKeys}
+        canGenerate={!confirmTarget}
+        generating={false}
+      />
+    );
   };
 
   return (
