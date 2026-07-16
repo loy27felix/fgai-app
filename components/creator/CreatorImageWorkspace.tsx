@@ -682,7 +682,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         <div className="fg-mono image-avatar">{me}</div>
       </header>
 
-      <div className="image-workspace-grid">
+      <div className="image-workspace-grid" style={{ "--image-control-width": controlPanelWidth + "px" } as CSSProperties}>
         <aside className="image-sidebar image-sidebar-left">
           <button type="button" onClick={clearComposer} className="image-new-button"><Icon d={I.plus} size={16} sw={2} />新草稿</button>
           <div className="image-mode-list" aria-label="创作模式">
@@ -697,11 +697,17 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
         <main className="image-canvas-column">
           <div className="image-canvas-toolbar"><div><div className="fg-mono image-kicker">CANVAS / {selectedTask ? statusLabel(selectedTask.status).toUpperCase() : "EMPTY"}</div><h2>生成画布</h2></div>{notice && <div className="image-notice" role="status">{notice}</div>}<button type="button" className="image-mobile-controls-toggle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}>{mobileControlsOpen ? "收起参数" : "打开参数"}<Icon d={I.plus} size={14} /></button></div>
-          <div className="image-canvas-scroll">{renderCenter()}</div>
+          <div className="image-canvas-scroll">
+            <div className="image-canvas-board" aria-label="Image generation canvas">
+              <div className="image-canvas-board-header"><div><div className="fg-mono image-kicker">IMAGE CANVAS</div><strong>STAGE / {selectedTask ? statusLabel(selectedTask.status).toUpperCase() : "EMPTY"}</strong></div><span className="image-canvas-board-hint">PRIMARY GENERATION SURFACE</span></div>
+              <div className="image-canvas-board-content">{renderCenter()}</div>
+            </div>
+          </div>
         </main>
 
-        <aside id="image-control-panel" className={`image-sidebar image-sidebar-right${mobileControlsOpen ? " mobile-open" : ""}`}>
-          <button type="button" className="image-mobile-controls-handle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}><span>参数面板</span><span>{mobileControlsOpen ? "收起" : "展开"}</span></button><div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><span className="image-dim-label">{sizeFor(model, ratio)}</span></div>
+        <button type="button" className="image-panel-resizer" role="separator" aria-orientation="vertical" aria-valuemin={IMAGE_PANEL_MIN_WIDTH} aria-valuemax={IMAGE_PANEL_MAX_WIDTH} aria-valuenow={controlPanelWidth} aria-valuetext={controlPanelWidth + "px"} onPointerDown={beginControlPanelResize} onKeyDown={onControlPanelResizeKeyDown} title="Resize control panel"><span /></button>
+        <aside id="image-control-panel" className={"image-sidebar image-sidebar-right" + (mobileControlsOpen ? " mobile-open" : "")}>
+          <button type="button" className="image-mobile-controls-handle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}><span>参数面板</span><span>{mobileControlsOpen ? "收起" : "展开"}</span></button><div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><div className="image-control-heading-actions"><span className="image-dim-label">{sizeFor(model, ratio)}</span><button type="button" className="image-panel-reset" onClick={() => updateControlPanelWidth(IMAGE_PANEL_DEFAULT_WIDTH)} aria-label="Reset control panel width" title="Reset width"><Icon d={I.refresh} size={13} /></button></div></div>
           <div className="image-control-scroll">
             <label className="image-field-label" htmlFor="image-model">模型</label>
             <select id="image-model" className="image-select" value={model} onChange={(event) => setModel(event.target.value)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"}>{IMG_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}{item.experimental ? " · 实验" : ""}</option>)}</select>
@@ -721,16 +727,16 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         </aside>
       </div>
 
-      {selectedTask && selectedTask.resultUrl && <button type="button" className="image-canvas-preview-button" onClick={() => setPreviewOpen(true)} aria-label="???????"><Icon d={I.expand} size={15} />????</button>}
+      {selectedTask && selectedTask.resultUrl && <button type="button" className="image-canvas-preview-button" onClick={() => setPreviewOpen(true)} aria-label="Open full-size preview"><Icon d={I.expand} size={15} />{"\u5927\u5c4f\u9884\u89c8"}</button>}
 
       {previewOpen && selectedTask && selectedTask.resultUrl && <div className="image-preview-backdrop" role="presentation" onMouseDown={() => setPreviewOpen(false)}>
         <div className="image-preview-modal" role="dialog" aria-modal="true" aria-labelledby="image-preview-title" onMouseDown={(event) => event.stopPropagation()}>
           <div className="image-preview-header">
-            <div><div className="fg-mono image-kicker">FULL FRAME PREVIEW</div><h2 id="image-preview-title">????</h2></div>
-            <button type="button" className="image-preview-close" onClick={() => setPreviewOpen(false)} aria-label="??????"><Icon d={I.close} size={16} />??</button>
+            <div><div className="fg-mono image-kicker">FULL FRAME PREVIEW</div><h2 id="image-preview-title">{"\u5927\u5c4f\u9884\u89c8"}</h2></div>
+            <button type="button" className="image-preview-close" onClick={() => setPreviewOpen(false)} aria-label="Close preview"><Icon d={I.close} size={16} />{"\u5173\u95ed"}</button>
           </div>
-          <div className="image-preview-stage"><img src={selectedTask.resultUrl} alt="????????" /></div>
-          <div className="image-preview-footer"><span>{imageModelLabel(selectedTask.model)} ? {taskSize(selectedTask)}</span><a href={selectedTask.resultUrl} download={"creator-image-" + selectedTask.id + "." + resultFileExtension(selectedTask)} target="_blank" rel="noreferrer"><Icon d={I.download} size={14} />????</a></div>
+          <div className="image-preview-stage"><img src={selectedTask.resultUrl} alt="Generated image full-screen preview" /></div>
+          <div className="image-preview-footer"><span>{imageModelLabel(selectedTask.model)} / {taskSize(selectedTask)}</span><a href={selectedTask.resultUrl} download={"creator-image-" + selectedTask.id + "." + resultFileExtension(selectedTask)} target="_blank" rel="noreferrer"><Icon d={I.download} size={14} />{"\u4e0b\u8f7d\u539f\u56fe"}</a></div>
         </div>
       </div>}
       {deleteTarget && <div className="image-modal-backdrop" onMouseDown={closeDeleteModal}><div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-delete-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}><div className="image-delete-icon"><Icon d={I.trash} size={18} /></div><h2 id="image-delete-title">永久删除任务与结果？</h2><p>任务、生成结果和参考图文件会被永久删除，无法恢复。</p><p className="image-delete-warning">历史费用账本会保留，不会随删除移除。</p><div className="image-modal-actions"><button ref={deleteCancelRef} type="button" disabled={deleting} onClick={closeDeleteModal}>取消</button><button ref={deleteConfirmRef} type="button" disabled={deleting} onClick={() => void removeTask()} className="danger">{deleting ? "删除中…" : "永久删除"}</button></div></div></div>}
@@ -746,10 +752,13 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-header-context { color: var(--text-2); font-size: 12.5px; }
         .image-header-link { height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--stroke); border-radius: 10px; color: var(--text-2); background: var(--panel); font-size: 12px; text-decoration: none; }
         .image-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(150deg,var(--accent),var(--accent-2)); color: var(--accent-ink); font-size: 11px; font-weight: 700; }
-        .image-workspace-grid { position: relative; z-index: 1; flex: 1; min-height: 0; display: grid; grid-template-columns: 248px minmax(0,1fr) 336px; }
+        .image-workspace-grid { position: relative; z-index: 1; flex: 1; min-height: 0; display: grid; grid-template-columns: 248px minmax(360px,1fr) 12px var(--image-control-width); }
         .image-sidebar { min-height: 0; display: flex; flex-direction: column; padding: 12px; background: color-mix(in srgb,var(--panel) 86%,transparent); backdrop-filter: blur(20px); }
         .image-sidebar-left { border-right: 1px solid var(--stroke); }
-        .image-sidebar-right { border-left: 1px solid var(--stroke); }
+        .image-sidebar-right { border-left: 1px solid var(--stroke); background: color-mix(in srgb,var(--panel-solid) 82%,transparent); backdrop-filter: none; -webkit-backdrop-filter: none; }        .image-panel-resizer { position: relative; z-index: 4; display: flex; align-items: center; justify-content: center; width: 12px; padding: 0; border: 0; border-right: 1px solid var(--stroke); border-left: 1px solid var(--stroke); background: color-mix(in srgb,var(--panel) 72%,transparent); color: var(--text-3); cursor: col-resize; }
+        .image-panel-resizer::before { width: 3px; height: 48px; border-radius: 99px; background: currentColor; content: ""; opacity: .34; transition: height .2s ease,opacity .2s ease,background .2s ease; }
+        .image-panel-resizer:hover,.image-panel-resizer:focus-visible { outline: none; color: var(--accent); background: var(--panel-2); }
+        .image-panel-resizer:hover::before,.image-panel-resizer:focus-visible::before { height: 72px; opacity: .9; }
         .image-new-button { height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--user-stroke); border-radius: 12px; background: var(--user-bubble); color: var(--text); cursor: pointer; font-size: 13px; font-weight: 600; }
         .image-mode-list { display: grid; gap: 5px; margin-top: 10px; }
         .image-mode-link { position: relative; min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--text-2); font-size: 12px; text-decoration: none; }
@@ -766,7 +775,13 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-canvas-toolbar,.image-control-heading { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--stroke); }
         .image-canvas-toolbar h2,.image-control-heading h2 { margin: 3px 0 0; font-size: 14px; font-weight: 650; }
         .image-notice { max-width: 52%; color: var(--text-2); font-size: 11px; line-height: 1.5; text-align: right; }
-        .image-canvas-scroll { flex: 1; min-height: 0; display: flex; overflow: auto; padding: 24px; }
+        .image-canvas-scroll { position: relative; flex: 1; min-height: 0; display: flex; overflow: auto; padding: clamp(16px,2.4vw,30px); background: linear-gradient(rgba(116,240,142,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(116,240,142,.035) 1px,transparent 1px),var(--bg); background-size: 32px 32px; }        .image-canvas-board { position: relative; width: min(1160px,100%); min-height: min(720px,calc(100vh - 160px)); display: flex; flex-direction: column; margin: auto; overflow: hidden; border: 1px solid var(--stroke-2); border-radius: 24px; background: radial-gradient(700px 420px at 50% 0%,var(--glow-a),transparent 68%),color-mix(in srgb,var(--panel) 88%,transparent); box-shadow: var(--shadow),inset 0 1px 0 rgba(255,255,255,.08); }
+        .image-canvas-board::after { position: absolute; inset: 0; z-index: 0; pointer-events: none; content: ""; background: radial-gradient(circle at 50% 45%,transparent 0 35%,rgba(4,8,18,.08) 72%); }
+        .image-canvas-board-header { position: relative; z-index: 1; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 17px; border-bottom: 1px solid var(--stroke); background: color-mix(in srgb,var(--panel-solid) 44%,transparent); }
+        .image-canvas-board-header strong { display: block; margin-top: 4px; color: var(--text-2); font-family: "JetBrains Mono",monospace; font-size: 10px; letter-spacing: .6px; }
+        .image-canvas-board-hint { color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 9px; letter-spacing: .7px; }
+        .image-canvas-board-content { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; overflow: auto; padding: clamp(18px,3vw,42px); }
+        .image-canvas-board-content > * { margin-top: auto; margin-bottom: auto; }
         .image-empty-state,.image-state-card,.image-result-card { width: min(850px,100%); margin: auto; }
         .image-empty-state { padding: 25px; text-align: center; }
         .image-empty-orbit { width: 68px; height: 68px; display: grid; place-items: center; margin: 0 auto 20px; border: 1px solid var(--user-stroke); border-radius: 22px; background: linear-gradient(145deg,var(--user-bubble),var(--panel-2)); color: var(--accent); box-shadow: 0 24px 60px -30px var(--accent); }
@@ -787,8 +802,20 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
         .image-result-head h1 { margin: 5px 0 0; font-size: 22px; }
         .image-status-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--user-stroke); border-radius: 999px; color: var(--accent); font-size: 11px; }
-        .image-result-frame { overflow: hidden; border: 1px solid var(--stroke-2); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
-        .image-result-frame img { display: block; width: 100%; max-height: min(64vh,680px); object-fit: contain; background: rgba(0,0,0,.18); }
+        .image-result-frame { width: 100%; display: block; padding: 0; overflow: hidden; border: 1px solid var(--stroke-2); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); cursor: zoom-in; text-align: left; } .image-result-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+        .image-result-frame img { display: block; width: 100%; max-height: min(64vh,680px); object-fit: contain; background: rgba(0,0,0,.18); }        .image-canvas-preview-button { position: absolute; right: clamp(28px,4vw,58px); bottom: clamp(28px,4vw,58px); z-index: 5; display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 13px; border: 1px solid var(--user-stroke); border-radius: 11px; background: var(--panel-solid); color: var(--accent); box-shadow: 0 12px 32px rgba(0,0,0,.25); cursor: pointer; font-size: 11.5px; }
+        .image-canvas-preview-button:hover { border-color: var(--accent); background: var(--panel-2); transform: translateY(-1px); }
+        .image-preview-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: clamp(14px,3vw,42px); background: rgba(4,8,18,.78); backdrop-filter: blur(18px) saturate(1.3); }
+        .image-preview-modal { width: min(1480px,100%); height: min(900px,100%); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--stroke-2); border-radius: 22px; background: var(--panel-solid); box-shadow: 0 36px 110px rgba(0,0,0,.55); }
+        .image-preview-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--stroke); }
+        .image-preview-header h2 { margin: 4px 0 0; font-size: 17px; }
+        .image-preview-close { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid var(--stroke); border-radius: 9px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 11px; }
+        .image-preview-close:hover,.image-preview-close:focus-visible { border-color: var(--stroke-2); color: var(--text); outline: none; }
+        .image-preview-stage { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; padding: clamp(16px,3vw,40px); background: radial-gradient(circle at 50% 42%,rgba(116,240,142,.08),transparent 48%),#050812; }
+        .image-preview-stage img { display: block; width: auto; max-width: 100%; height: auto; max-height: 100%; object-fit: contain; border-radius: 10px; box-shadow: 0 20px 70px rgba(0,0,0,.38); }
+        .image-preview-footer { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 20px; border-top: 1px solid var(--stroke); color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 10px; }
+        .image-preview-footer a { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); text-decoration: none; }
+        .image-preview-footer a:hover { color: var(--text); }
         .image-result-references { display: flex; align-items: center; gap: 6px; overflow-x: auto; padding: 9px 2px 2px; }
         .image-result-references .fg-mono { margin-right: 3px; color: var(--text-3); font-size: 9px; letter-spacing: 1px; }
         .image-result-references img { width: 38px; height: 38px; flex: none; border: 1px solid var(--stroke); border-radius: 7px; object-fit: cover; }
@@ -797,7 +824,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-result-actions a,.image-result-actions button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid var(--stroke); border-radius: 9px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 11.5px; text-decoration: none; }
         .image-result-actions a:hover,.image-result-actions button:hover { border-color: var(--stroke-2); color: var(--text); background: var(--panel-2); }
         .image-result-actions .danger,.image-modal-actions .danger { color: #ff9b85; }
-        .image-control-heading { padding: 0 16px; }
+        .image-control-heading { padding: 0 16px; } .image-control-heading-actions { display: flex; align-items: center; gap: 7px; } .image-panel-reset { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid var(--stroke); border-radius: 7px; background: transparent; color: var(--text-3); cursor: pointer; } .image-panel-reset:hover,.image-panel-reset:focus-visible { border-color: var(--stroke-2); color: var(--accent); outline: none; }
         .image-dim-label { color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 10px; }
         .image-control-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 17px 16px 8px; }
         .image-field-label { display: flex; align-items: center; justify-content: space-between; margin: 0 0 7px; color: var(--text-3); font-family: "JetBrains Mono",monospace; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; }
@@ -838,13 +865,16 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         .image-modal-actions button { height: 38px; padding: 0 15px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 12px; }
         .image-modal-actions .danger { border: 0; background: #e65f4c; color: #fff; font-weight: 650; }
         .image-mobile-controls-toggle,.image-mobile-controls-handle { display: none; }
+        @media (max-width: 1200px) { .image-workspace-grid { grid-template-columns: 220px minmax(300px,1fr) 12px var(--image-control-width); } }
         @media (max-width: 900px) {
           .image-workspace { height: 100vh !important; min-height: 100vh; overflow: hidden !important; }
           .image-workspace-grid { grid-template-columns: 1fr; min-height: 0; }
+          .image-panel-resizer { display: none; }
           .image-sidebar-left { min-height: auto; border: 0; }
           .image-history-list { max-height: 180px; }
           .image-canvas-column { min-height: 0; height: 100%; order: 2; }
           .image-canvas-scroll { min-height: 0; padding-bottom: 90px; }
+          .image-canvas-board { min-height: calc(100vh - 150px); }
           .image-notice { max-width: 48%; }
           .image-mobile-controls-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 0 9px; border: 1px solid var(--stroke-2); border-radius: 9px; background: var(--panel-2); color: var(--text-2); cursor: pointer; font-size: 10px; }
           .image-sidebar-right { position: fixed; z-index: 20; left: 10px; right: 10px; bottom: 0; order: initial; min-height: 0; max-height: min(78vh,720px); border: 1px solid var(--stroke-2); border-bottom: 0; border-radius: 18px 18px 0 0; box-shadow: 0 -20px 70px rgba(0,0,0,.35); overflow: hidden; transform: translateY(calc(100% - 58px)); transition: transform .24s ease; }

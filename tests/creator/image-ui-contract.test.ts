@@ -49,3 +49,13 @@ test('deleting an image task does not delete usage ledger rows', () => {
   );
   assert.doesNotMatch(itemRoute, /ai_usage_ledger[^\n]*delete/);
 });
+
+test('image workspace makes the canvas primary and the control surface resizable', () => {
+  assert.match(ui, /image-canvas-board/);
+  assert.match(ui, /image-panel-resizer/);
+  assert.match(ui, /aria-valuenow=\{controlPanelWidth\}/);
+  assert.match(ui, /IMAGE_PANEL_MIN_WIDTH/);
+  assert.match(ui, /image-preview-backdrop/);
+  assert.match(ui, /image-preview-modal/);
+  assert.match(ui, /backdrop-filter: none/);
+});
