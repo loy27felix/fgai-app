@@ -111,12 +111,35 @@ function createIdempotencyKey() {
   return `creator-image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function isConfirmableDraft(task: CreatorImageTask | CreatorImageTaskView) {
+  return task.status === "draft" && asRecord(task.request).uploads_complete === true;
+}
+
+function imageModelLabel(model: string) {
+  return IMG_MODELS.find((item) => item.id === model)?.label || model;
+}
+
+function resultFileExtension(task: CreatorImageTaskView) {
+  const mime = task.asset?.mime_type?.toLowerCase();
+  if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/png") return "png";
+  const path = (task.resultUrl || "").split("?")[0];
+  const ext = path.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
+  if (ext === "jpeg" || ext === "jpg") return "jpg";
+  if (ext === "webp") return "webp";
+  return "png";
+}
+
 export default function CreatorImageWorkspace({ userEmail }: Props) {
   const { theme, toggle } = useFgTheme();
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   if (!supabaseRef.current) supabaseRef.current = createClient();
   const supabase = supabaseRef.current;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const deleteConfirmRef = useRef<HTMLButtonElement>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const [model, setModel] = useState(IMG_MODELS[0].id);
   const [ratio, setRatio] = useState(RATIOS[1].key);
@@ -128,6 +151,9 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<CreatorImageTask | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CreatorImageTaskView | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+  const [idempotencySignature, setIdempotencySignature] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -135,7 +161,6 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [notice, setNotice] = useState("");
 
   const selectedTask = tasks.find((item) => item.id === selectedTaskId) || null;
-  const selectedModel = IMG_MODELS.find((item) => item.id === model) || IMG_MODELS[0];
   const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
 
   function localFileError(nextFiles: File[]) {
@@ -174,6 +199,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
   function onDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
+    if (confirmTarget) return;
     addFiles(Array.from(event.dataTransfer.files || []));
   }
 
@@ -193,19 +219,73 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setError("");
   }
 
+  function onReferenceDragStart(event: DragEvent<HTMLDivElement>, index: number) {
+    if (confirmTarget) return;
+    setDragIndex(index);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(index));
+  }
+
+  function onReferenceDragEnd() {
+    setDragIndex(null);
+  }
+
+  function onReferenceDrop(event: DragEvent<HTMLDivElement>, targetIndex: number) {
+    event.preventDefault();
+    if (confirmTarget) return;
+    const fromTransfer = Number(event.dataTransfer.getData("text/plain"));
+    const sourceIndex = dragIndex ?? fromTransfer;
+    if (!Number.isInteger(sourceIndex) || sourceIndex < 0 || sourceIndex >= files.length || sourceIndex === targetIndex) {
+      setDragIndex(null);
+      return;
+    }
+    setFiles((current) => {
+      const reordered = [...current];
+      const [moved] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, moved);
+      return reordered;
+    });
+    setDragIndex(null);
+  }
+
+  function draftInputSignature() {
+    return JSON.stringify({
+      prompt,
+      model,
+      ratio,
+      skill: activeSkill,
+      files: files.map((file) => ({ name: file.name, type: file.type, size: file.size, lastModified: file.lastModified })),
+    });
+  }
+
   function clearComposer() {
     setPrompt("");
     setFiles([]);
     setActiveSkill(null);
     setConfirmTarget(null);
+    setIdempotencyKey(null);
+    setIdempotencySignature(null);
+    setDragIndex(null);
+    setSelectedTaskId(null);
     setError("");
     setNotice("");
     setPhase("idle");
   }
 
+  function openDeleteModal(task: CreatorImageTaskView, trigger?: HTMLButtonElement) {
+    deleteReturnFocusRef.current = trigger || null;
+    setDeleteTarget(task);
+  }
+
+  function closeDeleteModal() {
+    if (deleting) return;
+    setDeleteTarget(null);
+    window.setTimeout(() => deleteReturnFocusRef.current?.focus(), 0);
+  }
+
   function selectTask(task: CreatorImageTaskView) {
     setSelectedTaskId(task.id);
-    setConfirmTarget(null);
+    setConfirmTarget(isConfirmableDraft(task) ? task : null);
     setError("");
     setNotice("");
     setPhase(task.status === "unknown" ? "unknown" : task.status === "submitting" || task.status === "queued" || task.status === "running" ? "submitting" : "idle");
@@ -215,12 +295,16 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setLoadingHistory(true);
     try {
       const response = await listImageTasks();
-      setTasks(response.tasks || []);
-      setSelectedTaskId((current) => {
-        if (preferId && response.tasks.some((task) => task.id === preferId)) return preferId;
-        if (current && response.tasks.some((task) => task.id === current)) return current;
-        return response.tasks[0]?.id || null;
-      });
+      const nextTasks = response.tasks || [];
+      const nextId = preferId && nextTasks.some((task) => task.id === preferId)
+        ? preferId
+        : selectedTaskId && nextTasks.some((task) => task.id === selectedTaskId)
+          ? selectedTaskId
+          : nextTasks[0]?.id || null;
+      const nextTask = nextTasks.find((task) => task.id === nextId) || null;
+      setTasks(nextTasks);
+      setSelectedTaskId(nextId);
+      setConfirmTarget(nextTask && isConfirmableDraft(nextTask) ? nextTask : null);
     } catch (loadError) {
       setError(publicError(loadError, "历史加载失败，请稍后重试"));
       setPhase("error");
@@ -249,6 +333,12 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     }
 
     setPhase("preparing");
+    const inputSignature = draftInputSignature();
+    const attemptKey = idempotencyKey && idempotencySignature === inputSignature
+      ? idempotencyKey
+      : createIdempotencyKey();
+    setIdempotencyKey(attemptKey);
+    setIdempotencySignature(inputSignature);
     try {
       const draft = await createImageDraft({
         prompt,
@@ -256,7 +346,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         ratio,
         references,
         skill: activeSkill,
-        idempotencyKey: createIdempotencyKey(),
+        idempotencyKey: attemptKey,
       });
       if (draft.uploadPaths.length !== files.length) throw new Error("upload plan mismatch");
       for (let index = 0; index < files.length; index += 1) {
@@ -273,6 +363,8 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       });
       setSelectedTaskId(ready.task.id);
       setConfirmTarget(ready.task);
+      setIdempotencyKey(null);
+      setIdempotencySignature(null);
       setPhase("idle");
     } catch (draftError) {
       setError(publicError(draftError, "草稿准备失败，参考图未完成上传"));
@@ -316,6 +408,10 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         setPhase("submitting");
         setNotice("任务已被其他请求提交；刷新只读取任务列表，不会重复确认。");
         await refreshHistory(target.id);
+      } else if (confirmError instanceof CreatorImageClientError && confirmError.status === 0) {
+        setPhase("unknown");
+        setNotice("确认请求可能未返回；这次不会自动重试，请刷新任务历史后再决定。");
+        await refreshHistory(target.id);
       } else {
         setPhase("error");
         setError(publicError(confirmError, "图片确认失败，请稍后重试"));
@@ -341,6 +437,8 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setPrompt(taskPrompt(selectedTask));
     setActiveSkill(taskSkill(selectedTask));
     setFiles([]);
+    setIdempotencyKey(null);
+    setIdempotencySignature(null);
     setSelectedTaskId(null);
     setNotice("已复用模型、比例和提示词；参考图需要重新上传。");
     setPhase("idle");
@@ -358,6 +456,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         return next;
       });
       if (selectedTaskId === target.id) setPhase("idle");
+      if (confirmTarget?.id === target.id) setConfirmTarget(null);
       setDeleteTarget(null);
       setNotice("任务、结果和参考图已删除；历史费用账本仍保留。");
     } catch (deleteError) {
@@ -376,6 +475,30 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   }, [files]);
 
   useEffect(() => {
+    if (!deleteTarget) return;
+    deleteCancelRef.current?.focus();
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeDeleteModal();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const first = deleteCancelRef.current;
+      const last = deleteConfirmRef.current;
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [deleteTarget, deleting]);
+
+  useEffect(() => {
     void refreshHistory();
   }, []);
 
@@ -385,7 +508,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5 }}>{taskPrompt(task) || "未命名生图任务"}</span>
         <span className="fg-mono" style={{ display: "block", marginTop: 4, fontSize: 9.5, color: task.status === "failed" ? "#ff9b85" : "var(--text-3)" }}>{statusLabel(task.status)} · {taskDate(task.created_at)}</span>
       </button>
-      <button type="button" aria-label={`删除任务 ${task.id}`} title="删除任务" onClick={() => setDeleteTarget(task)} style={{ width: 30, height: 30, flex: "none", display: "grid", placeItems: "center", border: 0, borderRadius: 8, background: "transparent", color: "var(--text-3)", cursor: "pointer" }}><Icon d={I.trash} size={14} /></button>
+      <button type="button" aria-label={`删除任务 ${task.id}`} title="删除任务" onClick={(event) => openDeleteModal(task, event.currentTarget)} style={{ width: 30, height: 30, flex: "none", display: "grid", placeItems: "center", border: 0, borderRadius: 8, background: "transparent", color: "var(--text-3)", cursor: "pointer" }}><Icon d={I.trash} size={14} /></button>
     </div>
   ));
 
@@ -398,7 +521,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
           <h1 id="image-confirm-title" style={{ margin: "12px 0 8px", fontSize: 24, letterSpacing: "-.5px" }}>确认并生成</h1>
           <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13, lineHeight: 1.75 }}>草稿已准备完成。确认后将只调用 1 次图片生成服务。</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, marginTop: 22 }}>
-            <div className="image-confirm-stat"><span>模型</span><strong>{confirmTarget.model}</strong></div>
+            <div className="image-confirm-stat"><span>模型</span><strong>{imageModelLabel(confirmTarget.model)}</strong></div>
             <div className="image-confirm-stat"><span>尺寸</span><strong>{size}</strong></div>
             <div className="image-confirm-stat"><span>参考图</span><strong>{taskReferenceCount(confirmTarget)} 张</strong></div>
           </div>
@@ -425,7 +548,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       return <div className="image-state-card image-state-error" role="alert"><div className="image-state-mark">!</div><h1>生成未完成</h1><p>{selectedTask.error || "任务失败或已过期；不会自动重试。"}</p><button type="button" onClick={() => { setSelectedTaskId(null); setPhase("idle"); }}>开始新的草稿</button></div>;
     }
     if (selectedTask?.status === "succeeded" && selectedTask.resultUrl) {
-      return <section className="image-result-card" aria-labelledby="image-result-title"><div className="image-result-head"><div><div className="fg-mono image-kicker">PRIVATE RESULT</div><h1 id="image-result-title">生成结果</h1></div><span className="image-status-chip"><Icon d={I.check} size={13} />已完成</span></div><div className="image-result-frame"><img src={selectedTask.resultUrl} alt="独立生图结果" /></div>{selectedTask.referenceUrls.length > 0 && <div className="image-result-references" aria-label="参考图"><span className="fg-mono">REFERENCES</span>{selectedTask.referenceUrls.map((url, index) => <img key={url} src={url} alt={`参考图 ${index + 1}`} />)}</div>}<div className="image-result-meta"><span>{selectedTask.model}</span><span>{taskSize(selectedTask)}</span><span>{taskReferenceCount(selectedTask)} 张参考图</span></div><div className="image-result-actions"><a href={selectedTask.resultUrl} download={`creator-image-${selectedTask.id}.png`} target="_blank" rel="noreferrer"><Icon d={I.download} size={15} />下载原图</a><button type="button" onClick={() => void copyPrompt()}><Icon d={I.copy} size={15} />复制提示词</button><button type="button" onClick={reuseParameters}><Icon d={I.refresh} size={15} />复用参数</button><button type="button" onClick={() => setDeleteTarget(selectedTask)} className="danger"><Icon d={I.trash} size={15} />删除结果</button></div></section>;
+      return <section className="image-result-card" aria-labelledby="image-result-title"><div className="image-result-head"><div><div className="fg-mono image-kicker">PRIVATE RESULT</div><h1 id="image-result-title">生成结果</h1></div><span className="image-status-chip"><Icon d={I.check} size={13} />已完成</span></div><div className="image-result-frame"><img src={selectedTask.resultUrl} alt="独立生图结果" /></div>{selectedTask.referenceUrls.length > 0 && <div className="image-result-references" aria-label="参考图"><span className="fg-mono">REFERENCES</span>{selectedTask.referenceUrls.map((url, index) => <img key={url} src={url} alt={`参考图 ${index + 1}`} />)}</div>}<div className="image-result-meta"><span>{imageModelLabel(selectedTask.model)}</span><span>{taskSize(selectedTask)}</span><span>{taskReferenceCount(selectedTask)} 张参考图</span></div><div className="image-result-actions"><a href={selectedTask.resultUrl} download={`creator-image-${selectedTask.id}.${resultFileExtension(selectedTask)}`} target="_blank" rel="noreferrer"><Icon d={I.download} size={15} />下载原图</a><button type="button" onClick={() => void copyPrompt()}><Icon d={I.copy} size={15} />复制提示词</button><button type="button" onClick={reuseParameters}><Icon d={I.refresh} size={15} />复用参数</button><button type="button" onClick={(event) => openDeleteModal(selectedTask, event.currentTarget)} className="danger"><Icon d={I.trash} size={15} />删除结果</button></div></section>;
     }
     if (selectedTask?.status === "succeeded") {
       return <div className="image-state-card" role="status"><div className="image-state-mark"><Icon d={I.check} size={22} /></div><h1>结果已完成</h1><p>结果链接正在刷新，请重新读取历史列表。</p><button type="button" onClick={() => void refreshHistory(selectedTask.id)}><Icon d={I.refresh} size={14} />刷新结果</button></div>;
@@ -471,11 +594,11 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
             <label className="image-field-label" htmlFor="image-model">模型</label>
             <select id="image-model" className="image-select" value={model} onChange={(event) => setModel(event.target.value)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"}>{IMG_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}{item.experimental ? " · 实验" : ""}</option>)}</select>
             <div className="image-field-label">比例 / 输出尺寸</div>
-            <div className="image-ratio-grid">{RATIOS.map((item) => <button type="button" key={item.key} onClick={() => setRatio(item.key)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} className={item.key === ratio ? "active" : ""}>{item.key}<small>{sizeFor(model, item.key)}</small></button>)}</div>
+            <div className="image-ratio-grid">{RATIOS.map((item) => <button type="button" key={item.key} onClick={() => setRatio(item.key)} aria-pressed={item.key === ratio} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} className={item.key === ratio ? "active" : ""}>{item.key}<small>{sizeFor(model, item.key)}</small></button>)}</div>
 
             <div className="image-field-label image-reference-label"><span>参考图</span><span>{files.length}/{MAX_CREATOR_IMAGE_REFERENCES}</span></div>
-            <label htmlFor="creator-image-files" className="image-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={onDrop} onKeyDown={onDropzoneKeyDown} tabIndex={0} role="button" aria-label="拖放或选择参考图"><Icon d={I.upload} size={20} /><strong>拖放或选择参考图</strong><span>JPEG / PNG / WebP · 单张 ≤ 7MB · 总计 ≤ 28MB</span><input ref={fileInputRef} id="creator-image-files" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFileChange} disabled={files.length >= MAX_CREATOR_IMAGE_REFERENCES} /></label>
-            {previews.length > 0 && <div className="image-reference-grid">{previews.map(({ file, url }, index) => <div className="image-reference-thumb" key={`${file.name}-${file.lastModified}-${index}`}><img src={url} alt={file.name} /><button type="button" aria-label={`删除参考图 ${file.name}`} onClick={() => removeFile(index)}><Icon d={I.close} size={12} /></button><span>{index + 1}</span></div>)}</div>}
+            <label htmlFor="creator-image-files" className="image-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={onDrop} onKeyDown={onDropzoneKeyDown} tabIndex={0} role="button" aria-label="拖放或选择参考图"><Icon d={I.upload} size={20} /><strong>拖放或选择参考图</strong><span>JPEG / PNG / WebP · 单张 ≤ 7MB · 总计 ≤ 28MB</span><input ref={fileInputRef} id="creator-image-files" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFileChange} disabled={files.length >= MAX_CREATOR_IMAGE_REFERENCES || !!confirmTarget} /></label>
+            {previews.length > 0 && <div className="image-reference-grid">{previews.map(({ file, url }, index) => <div className="image-reference-thumb" key={`${file.name}-${file.lastModified}-${index}`} draggable={!confirmTarget} role="group" aria-label={`Reference image ${index + 1}: ${file.name}`} style={{ opacity: dragIndex === index ? 0.65 : 1 }} onDragStart={(event) => onReferenceDragStart(event, index)} onDragEnd={onReferenceDragEnd} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onReferenceDrop(event, index)}><img src={url} alt={file.name} /><button type="button" aria-label={`删除参考图 ${file.name}`} disabled={!!confirmTarget} onClick={() => removeFile(index)}><Icon d={I.close} size={12} /></button><span>{index + 1}</span></div>)}</div>}
 
             <div className="image-picker-row"><SkillPicker active={activeSkill?.name || null} onApply={(name, content) => setActiveSkill({ name, content })} onClear={() => setActiveSkill(null)} /><PromptPicker onInsert={(text) => setPrompt((current) => current.trim() ? `${current.trimEnd()}\n${text}` : text)} /></div>
             <label className="image-field-label" htmlFor="creator-image-prompt">Prompt</label>
@@ -486,7 +609,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         </aside>
       </div>
 
-      {deleteTarget && <div className="image-modal-backdrop" onMouseDown={() => !deleting && setDeleteTarget(null)}><div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-delete-title" onMouseDown={(event) => event.stopPropagation()}><div className="image-delete-icon"><Icon d={I.trash} size={18} /></div><h2 id="image-delete-title">永久删除任务与结果？</h2><p>任务、生成结果和参考图文件会被永久删除，无法恢复。</p><p className="image-delete-warning">历史费用账本会保留，不会随删除移除。</p><div className="image-modal-actions"><button type="button" disabled={deleting} onClick={() => setDeleteTarget(null)}>取消</button><button type="button" disabled={deleting} onClick={() => void removeTask()} className="danger">{deleting ? "删除中…" : "永久删除"}</button></div></div></div>}
+      {deleteTarget && <div className="image-modal-backdrop" onMouseDown={closeDeleteModal}><div className="image-delete-modal" role="dialog" aria-modal="true" aria-labelledby="image-delete-title" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}><div className="image-delete-icon"><Icon d={I.trash} size={18} /></div><h2 id="image-delete-title">永久删除任务与结果？</h2><p>任务、生成结果和参考图文件会被永久删除，无法恢复。</p><p className="image-delete-warning">历史费用账本会保留，不会随删除移除。</p><div className="image-modal-actions"><button ref={deleteCancelRef} type="button" disabled={deleting} onClick={closeDeleteModal}>取消</button><button ref={deleteConfirmRef} type="button" disabled={deleting} onClick={() => void removeTask()} className="danger">{deleting ? "删除中…" : "永久删除"}</button></div></div></div>}
 
       <style jsx>{`
         .image-workspace { position: relative; isolation: isolate; }
