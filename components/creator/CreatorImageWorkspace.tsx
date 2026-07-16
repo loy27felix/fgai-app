@@ -586,6 +586,29 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   }, [deleteTarget, deleting]);
 
   useEffect(() => {
+    const stored = Number(window.localStorage.getItem("fg-creator-image-panel-width"));
+    if (Number.isFinite(stored) && stored > 0) setControlPanelWidth(clampImagePanelWidth(stored));
+  }, []);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewOpen]);
+
+  useEffect(() => {
+    if (!selectedTask?.resultUrl) setPreviewOpen(false);
+  }, [selectedTask?.resultUrl]);
+
+  useEffect(() => {
     const taskId = taskIdFromLocation();
     void refreshHistory(taskId || undefined);
   }, []);
