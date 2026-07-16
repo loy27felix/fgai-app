@@ -700,7 +700,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
           <div className="image-canvas-scroll">
             <div className="image-canvas-board" aria-label="Image generation canvas">
               <div className="image-canvas-board-header"><div><div className="fg-mono image-kicker">IMAGE CANVAS</div><strong>STAGE / {selectedTask ? statusLabel(selectedTask.status).toUpperCase() : "EMPTY"}</strong></div><span className="image-canvas-board-hint">PRIMARY GENERATION SURFACE</span></div>
-              <div className="image-canvas-board-content">{renderCenter()}</div>
+              <div className="image-canvas-board-content">{renderCenter()}{selectedTask && selectedTask.resultUrl && <button type="button" className="image-canvas-preview-button" onClick={() => setPreviewOpen(true)} aria-label="Open full-size preview"><Icon d={I.expand} size={15} />{"\u5927\u5c4f\u9884\u89c8"}</button>}</div>
             </div>
           </div>
         </main>
@@ -726,8 +726,6 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
           <div className="image-generate-footer"><button type="button" className="image-generate-button" onClick={() => void prepareDraft()} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming" || !prompt.trim()}><Icon d={I.spark} size={16} />{phase === "preparing" ? "准备中…" : "生成 1 张"}</button><div className="image-generate-footnote">会先建立草稿；确认卡出现后才会产生调用。</div></div>
         </aside>
       </div>
-
-      {selectedTask && selectedTask.resultUrl && <button type="button" className="image-canvas-preview-button" onClick={() => setPreviewOpen(true)} aria-label="Open full-size preview"><Icon d={I.expand} size={15} />{"\u5927\u5c4f\u9884\u89c8"}</button>}
 
       {previewOpen && selectedTask && selectedTask.resultUrl && <div className="image-preview-backdrop" role="presentation" onMouseDown={() => setPreviewOpen(false)}>
         <div className="image-preview-modal" role="dialog" aria-modal="true" aria-labelledby="image-preview-title" onMouseDown={(event) => event.stopPropagation()}>
