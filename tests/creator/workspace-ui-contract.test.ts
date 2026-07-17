@@ -22,3 +22,19 @@ test('AI creator is an additive project-independent workspace', () => {
   assert.match(ui, /\/api\/creator\/chat/);
   assert.match(projectBoard, /href:\s*"\/creator"|"\/creator"/);
 });
+
+test('standalone video workspace exposes continuous duration and readable controls', () => {
+  const video = fs.readFileSync(
+    path.join(process.cwd(), 'components/creator/CreatorVideoWorkspace.tsx'),
+    'utf8',
+  );
+
+  assert.match(video, /const DURATION_MIN = 4/);
+  assert.match(video, /const DURATION_MAX = 15/);
+  assert.match(video, /type="range"/);
+  assert.match(video, /min=\{DURATION_MIN\}/);
+  assert.match(video, /max=\{DURATION_MAX\}/);
+  assert.match(video, /adaptive-choice/);
+  assert.match(video, /video-workspace\[data-theme="light"\]/);
+  assert.match(video, /controls select option/);
+});
