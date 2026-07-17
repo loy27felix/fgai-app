@@ -43,8 +43,8 @@ test('history refresh is read-only and never auto-confirms a task', () => {
 
 test('standalone image workspace keeps the confirm call behind the confirmation card', () => {
   assert.match(ui, /setConfirmTarget/);
-  assert.match(ui, /confirmImageTask\(confirmTarget\.id\)/);
-  assert.match(ui, /confirmTarget &&/);
+  assert.match(ui, /confirmImageTask\((?:confirmTarget|target)\.id\)/);
+  assert.match(ui, /if \(confirmTarget\)|confirmTarget &&/);
 });
 
 

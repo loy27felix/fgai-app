@@ -17,6 +17,8 @@ test('AI creator is an additive project-independent workspace', () => {
   assert.match(ui, /新对话/);
   assert.match(ui, /独立生图/);
   assert.match(ui, /视频画布/);
+  assert.match(ui, /href="\/creator\/video"/);
+  assert.doesNotMatch(ui, /disabled[^>]*title="下一模块接入"/);
   assert.match(ui, /\/api\/creator\/chat/);
   assert.match(projectBoard, /href:\s*"\/creator"|"\/creator"/);
 });
