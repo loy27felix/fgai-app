@@ -65,6 +65,22 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const FG_BUILTIN_MODELS: ChannelModel[] = [
+    { name: "gpt-image-2", capability: "image" },
+    { name: "gemini-3-pro-image-preview", capability: "image" },
+    { name: "gemini-3.1-flash-image-preview", capability: "image" },
+    { name: "gemini-3.1-flash-lite-image", capability: "image" },
+    { name: "doubao-seedance-2-0", capability: "video" },
+    { name: "doubao-seedance-2-0-filter-off", capability: "video" },
+    { name: "doubao-seedance-2-0-fast", capability: "video" },
+    { name: "doubao-seedance-2-0-fast-filter-off", capability: "video" },
+    { name: "dreamina-seedance-2-0-mini", capability: "video" },
+    { name: "dreamina-seedance-2-0-mini-filter-off", capability: "video" },
+    { name: "gpt-5.6-luna", capability: "text" },
+    { name: "gpt-5.6-terra", capability: "text" },
+    { name: "gpt-5.6-sol", capability: "text" },
+    { name: "claude-opus-4-8", capability: "text" },
+];
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -78,22 +94,8 @@ export const defaultConfig: AiConfig = {
             baseUrl: OPENAI_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
-            models: [
-                { name: "gpt-image-2", capability: "image" },
-                { name: "gemini-3-pro-image-preview", capability: "image" },
-                { name: "gemini-3.1-flash-image-preview", capability: "image" },
-                { name: "gemini-3.1-flash-lite-image", capability: "image" },
-                { name: "doubao-seedance-2-0", capability: "video" },
-                { name: "doubao-seedance-2-0-filter-off", capability: "video" },
-                { name: "doubao-seedance-2-0-fast", capability: "video" },
-                { name: "doubao-seedance-2-0-fast-filter-off", capability: "video" },
-                { name: "dreamina-seedance-2-0-mini", capability: "video" },
-                { name: "dreamina-seedance-2-0-mini-filter-off", capability: "video" },
-                { name: "gpt-5.6-luna", capability: "text" },
-                { name: "gpt-5.6-terra", capability: "text" },
-                { name: "gpt-5.6-sol", capability: "text" },
-                { name: "claude-opus-4-8", capability: "text" },
-            ],
+            models: FG_BUILTIN_MODELS.map((model) => ({ ...model })),
+
         },
     ],
     model: "gpt-image-2",
@@ -111,7 +113,7 @@ export const defaultConfig: AiConfig = {
     videoWatermark: "false",
     systemPrompt: "",
     reasoningEffort: "auto",
-    models: ["gpt-image-2", "doubao-seedance-2-0", "gpt-5.6-luna", "gpt-5.6-sol", "claude-opus-4-8"],
+    models: FG_BUILTIN_MODELS.map((model) => model.name),
     quality: "auto",
     size: "1:1",
     background: "",
@@ -191,7 +193,7 @@ export function resolveModelScript(config: AiConfig, value: string) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const normalized = modelOptionName(model);
-    const fgModels = new Set(["gpt-image-2", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-3.1-flash-lite-image", "doubao-seedance-2-0", "doubao-seedance-2-0-filter-off", "doubao-seedance-2-0-fast", "doubao-seedance-2-0-fast-filter-off", "dreamina-seedance-2-0-mini", "dreamina-seedance-2-0-mini-filter-off", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "claude-opus-4-8"]);
+    const fgModels = new Set(FG_BUILTIN_MODELS.map((model) => model.name));
     if (fgModels.has(normalized)) return true;
     const channel = resolveModelChannel(config, model);
     return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
@@ -363,7 +365,8 @@ function normalizeChannels(config: AiConfig) {
             ...channel,
             id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
             name: channel.name || (index === 0 ? "默认渠道" : `渠道 ${index + 1}`),
-            models: normalizeChannelModels(channel.models),
+            models: normalizeChannelModels(index === 0 ? [...FG_BUILTIN_MODELS, ...(channel.models || [])] : channel.models),
+
         }),
     );
     if (!channels.length) {
@@ -374,7 +377,7 @@ function normalizeChannels(config: AiConfig) {
                 baseUrl: config.baseUrl || defaultConfig.baseUrl,
                 apiKey: config.apiKey || "",
                 apiFormat: config.apiFormat || defaultConfig.apiFormat,
-                models: normalizeChannelModels([config.model, config.imageModel, config.videoModel, config.textModel, config.audioModel].map(modelOptionName)),
+                models: normalizeChannelModels([...FG_BUILTIN_MODELS, config.model, config.imageModel, config.videoModel, config.textModel, config.audioModel].map((item) => modelOptionName(typeof item === "string" ? item : item.name))),
             }),
         );
     }

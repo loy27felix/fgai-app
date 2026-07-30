@@ -1,6 +1,7 @@
 import type { CreatorVideoSkill, VideoReferenceManifest } from '@/lib/creator/video';
 import type { CreatorVideoTask, CreatorVideoTaskView, CreatorWorkspace } from '@/lib/creator/types';
 import { requestJson, CreatorImageClientError } from './image-client';
+import { notifyCreatorUsageUpdated } from '@/lib/creator/usage-events';
 
 export { CreatorImageClientError };
 
@@ -54,10 +55,12 @@ export function finalizeVideoUploads(taskId: string, referencePaths: string[]) {
   });
 }
 
-export function confirmVideoTask(taskId: string) {
-  return requestJson<ConfirmVideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId) + '/confirm', {
+export async function confirmVideoTask(taskId: string) {
+  const result = await requestJson<ConfirmVideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId) + '/confirm', {
     method: 'POST',
   });
+  notifyCreatorUsageUpdated();
+  return result;
 }
 
 export function listVideoTasks() {

@@ -9,6 +9,7 @@ import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-s
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import { createClient } from "@/lib/supabase/client";
 import { createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
+import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
 
 export type AiTextMessage = {
     role: "system" | "user" | "assistant";
@@ -757,6 +758,7 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
     const response = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages, model, thinking: config.reasoningEffort !== "auto" }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "文本模型请求失败");
+    notifyCreatorUsageUpdated();
     const text = typeof data.content === "string" ? data.content : "没有返回内容";
     onDelta(text);
     return text;

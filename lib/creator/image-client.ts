@@ -1,4 +1,5 @@
 import type { CreatorImageSkill, ImageReferenceManifest } from '@/lib/creator/image';
+import { notifyCreatorUsageUpdated } from '@/lib/creator/usage-events';
 import type {
   CreatorImageAsset,
   CreatorImageTask,
@@ -128,11 +129,13 @@ export function finalizeImageUploads(taskId: string, referencePaths: string[]) {
   });
 }
 
-export function confirmImageTask(taskId: string) {
-  return requestJson<ConfirmImageTaskResponse>(
-    `/api/creator/images/${encodeURIComponent(taskId)}/confirm`,
+export async function confirmImageTask(taskId: string) {
+  const result = await requestJson<ConfirmImageTaskResponse>(
+    '/api/creator/images/' + encodeURIComponent(taskId) + '/confirm',
     { method: 'POST' },
   );
+  notifyCreatorUsageUpdated();
+  return result;
 }
 
 export function listImageTasks() {

@@ -6,6 +6,7 @@ import { AppProviders } from "@/reference/infinite-canvas/src/components/layout/
 import { AgentPanel } from "@/reference/infinite-canvas/src/components/agent/agent-panel";
 import CanvasProjectPage from "@/reference/infinite-canvas/src/pages/canvas/project";
 import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
+import CreatorUsageLedger from "@/components/creator/CreatorUsageLedger";
 
 function CanvasRedirect() {
   const navigate = useNavigate();
@@ -49,9 +50,10 @@ export default function InfiniteCanvasReferenceHost() {
   return (
     <AppProviders>
       <MemoryRouter initialEntries={["/canvas"]}>
-        <div className="fg-reference-root flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+        <div className="fg-reference-root relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
           <div className="min-w-0 flex-1 overflow-hidden"><CanvasBootstrap /></div>
           <AgentPanel />
+          <CreatorUsageLedger />
         </div>
       </MemoryRouter>
     </AppProviders>
