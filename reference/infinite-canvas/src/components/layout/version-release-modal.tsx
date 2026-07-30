@@ -60,7 +60,7 @@ export function VersionReleaseModal({ className, style }: VersionReleaseModalPro
                 <div className="max-h-[56vh] overflow-y-auto pr-2">
                     <Timeline
                         items={releases.map((release) => ({
-                            content: (
+                            children: (
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className="text-sm font-semibold text-stone-950 dark:text-stone-100">{getReleaseTitle(release.version)}</span>

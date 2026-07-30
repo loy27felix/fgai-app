@@ -54,7 +54,7 @@ export default function IndexPage() {
                         ，让创作从单次生成变成连续推演。
                     </p>
                     <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-                        <Button type="primary" size="large" onClick={() => navigate(`/${primaryTool.slug}`)} icon={<ArrowRight className="size-4" />} iconPlacement="end">
+                        <Button type="primary" size="large" onClick={() => navigate(`/${primaryTool.slug}`)} icon={<ArrowRight className="size-4" />}>
                             开始使用
                         </Button>
                         <Button size="large" onClick={() => navigate("/canvas")}>
@@ -70,7 +70,7 @@ export default function IndexPage() {
                             <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">沉淀每一次好结果</h2>
                             <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">收藏稳定出图的提示词、参考风格和结果图片，让下一次创作从已有经验开始。</p>
                         </div>
-                        <Button type="link" onClick={() => navigate("/prompts")} className="justify-self-center md:justify-self-end" icon={<ArrowRight className="size-4" />} iconPlacement="end">
+                        <Button type="link" onClick={() => navigate("/prompts")} className="justify-self-center md:justify-self-end" icon={<ArrowRight className="size-4" />}>
                             查看提示词库
                         </Button>
                     </div>
@@ -93,7 +93,7 @@ export default function IndexPage() {
                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-4 text-white">
                                     <div className="mb-2 flex flex-wrap gap-1.5">
                                         {item.tags.slice(0, 2).map((tag) => (
-                                            <Tag key={tag} variant="filled" className="m-0 bg-white/15 text-[11px] text-white backdrop-blur">
+                                            <Tag key={tag} className="m-0 bg-white/15 text-[11px] text-white backdrop-blur">
                                                 {tag}
                                             </Tag>
                                         ))}
@@ -108,9 +108,9 @@ export default function IndexPage() {
             </section>
             <Image.PreviewGroup
                 preview={{
-                    open: previewOpen,
+                    visible: previewOpen,
                     current: previewIndex,
-                    onOpenChange: setPreviewOpen,
+                    onVisibleChange: setPreviewOpen,
                     onChange: setPreviewIndex,
                 }}
             >
