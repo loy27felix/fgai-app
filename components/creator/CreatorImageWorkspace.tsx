@@ -166,6 +166,8 @@ function canvasGraphFromRecord(canvas: CreatorCanvas): CreatorImageCanvasGraph |
   return {
     nodes: graph.nodes as CreatorImageCanvasGraph["nodes"],
     edges: graph.edges as CreatorImageCanvasGraph["edges"],
+    viewport: graph.viewport,
+    background: graph.background,
   };
 }
 
@@ -186,6 +188,8 @@ function persistableCanvasGraph(graph: CreatorImageCanvasGraph): CreatorImageCan
       busy: false,
     })),
     edges: graph.edges.map((edge) => ({ from: edge.from, to: edge.to })),
+    viewport: graph.viewport,
+    background: graph.background,
   };
 }
 export default function CreatorImageWorkspace({ userEmail }: Props) {

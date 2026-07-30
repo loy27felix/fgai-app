@@ -25,7 +25,13 @@ function normalizeGraph(value: unknown): CreatorCanvasGraph {
   const edges = Array.isArray(record.edges)
     ? record.edges.map(asRecord).filter((edge) => typeof edge.from === 'string' && typeof edge.to === 'string').slice(0, 1_000).map((edge) => ({ from: edge.from as string, to: edge.to as string }))
     : [];
-  const graph = { nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } };
+  const viewportRecord = asRecord(record.viewport);
+  const x = typeof viewportRecord.x === 'number' && Number.isFinite(viewportRecord.x) ? Math.max(-10000, Math.min(10000, viewportRecord.x)) : 0;
+  const y = typeof viewportRecord.y === 'number' && Number.isFinite(viewportRecord.y) ? Math.max(-10000, Math.min(10000, viewportRecord.y)) : 0;
+  const zoomValue = typeof viewportRecord.zoom === 'number' ? viewportRecord.zoom : viewportRecord.k;
+  const zoom = typeof zoomValue === 'number' && Number.isFinite(zoomValue) ? Math.max(0.35, Math.min(2.4, zoomValue)) : 1;
+  const background: 'grid' | 'dots' | 'blank' = record.background === 'dots' || record.background === 'blank' ? record.background : 'grid';
+  const graph = { nodes, edges, viewport: { x, y, zoom, k: zoom }, background };
   if (JSON.stringify(graph).length > MAX_GRAPH_BYTES) throw new Error('canvas graph is too large');
   return graph;
 }

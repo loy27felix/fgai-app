@@ -1,9 +1,15 @@
 export type CanvasKind = 'ref' | 'prompt' | 'gen' | 'video';
+export type CanvasViewport = { x: number; y: number; zoom: number };
+export type CanvasBackground = "grid" | "dots" | "blank";
+
+/** Shared node shape used by both creator canvases and the infinite-canvas adapter. */
 export type CanvasNode = {
   id: string;
   kind: CanvasKind;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
   url?: string | null;
   text?: string;
   result?: string | null;
@@ -11,9 +17,13 @@ export type CanvasNode = {
   taskId?: string | null;
   status?: string | null;
   error?: string | null;
+  label?: string | null;
+  locked?: boolean;
+  groupId?: string | null;
+  metadata?: Record<string, unknown>;
 };
 export type CanvasEdge = { from: string; to: string };
-export type CanvasGraph = { nodes: CanvasNode[]; edges: CanvasEdge[] };
+export type CanvasGraph = { nodes: CanvasNode[]; edges: CanvasEdge[]; viewport?: CanvasViewport; background?: CanvasBackground };
 
 export function buildInitialCanvasGraph(input: { imageUrl?: string | null; prompt?: string | null; videoPrompt?: string | null }): CanvasGraph {
   const imageUrl = input.imageUrl || '';

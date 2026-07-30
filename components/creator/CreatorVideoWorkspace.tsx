@@ -69,13 +69,13 @@ function roleOptions(kind: VideoReferenceKind) {
 }
 function graphOf(canvas: CreatorCanvas | null): CreatorVideoCanvasGraph | null {
   if (!canvas?.graph || !Array.isArray(canvas.graph.nodes) || !Array.isArray(canvas.graph.edges)) return null;
-  return { nodes: canvas.graph.nodes as CreatorVideoCanvasGraph["nodes"], edges: canvas.graph.edges as CreatorVideoCanvasGraph["edges"] };
+  return { nodes: canvas.graph.nodes as CreatorVideoCanvasGraph["nodes"], edges: canvas.graph.edges as CreatorVideoCanvasGraph["edges"], viewport: canvas.graph.viewport, background: canvas.graph.background };
 }
 function graphPrompt(graph: CreatorVideoCanvasGraph | null) {
   return graph?.nodes.filter((node) => node.kind === "prompt").map((node) => typeof node.text === "string" ? node.text.trim() : "").filter(Boolean).join("\n") || "";
 }
 function saveGraph(graph: CreatorVideoCanvasGraph): CreatorVideoCanvasGraph {
-  return { nodes: graph.nodes.map((node) => ({ ...node, url: node.kind === "ref" ? null : node.url || null, busy: false })), edges: graph.edges.map((edge) => ({ from: edge.from, to: edge.to })) };
+  return { nodes: graph.nodes.map((node) => ({ ...node, url: node.kind === "ref" ? null : node.url || null, busy: false })), edges: graph.edges.map((edge) => ({ from: edge.from, to: edge.to })), viewport: graph.viewport, background: graph.background };
 }
 function errorText(error: unknown, fallback: string) { return error instanceof CreatorImageClientError ? error.message : fallback; }
 function newKey() { return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "creator-video-" + Date.now(); }

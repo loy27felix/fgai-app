@@ -113,7 +113,9 @@ export type CreatorMessage = {
 export type CreatorCanvasGraph = {
   nodes: Array<Record<string, unknown>>;
   edges: Array<{ from: string; to: string }>;
-  viewport?: { x: number; y: number; zoom: number };
+  /** Persisted viewport state, compatible with the infinite-canvas reference. */
+  viewport?: { x: number; y: number; zoom: number; k?: number };
+  background?: "grid" | "dots" | "blank";
 };
 
 export type CreatorCanvas = {
