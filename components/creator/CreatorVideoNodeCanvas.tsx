@@ -342,7 +342,9 @@ export default function CreatorVideoNodeCanvas({
     setViewport({ x: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom, y: (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom, zoom });
   }
 
-  function updatePromptNode(id: string, value: string) { setNodes((current) => current.map((node) => node.id === id ? { ...node, text: value } : node)); }  function exportGraph() {
+  function updatePromptNode(id: string, value: string) { setNodes((current) => current.map((node) => node.id === id ? { ...node, text: value } : node)); }
+
+  function exportGraph() {
     const payload = { version: 1, kind: "fg-video-canvas", exportedAt: new Date().toISOString(), nodes: nodes.map((node) => ({ ...node, url: node.kind === "ref" ? null : node.url || null, busy: false })), edges, viewport, background };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
