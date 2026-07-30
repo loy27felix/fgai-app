@@ -32,7 +32,7 @@ export function getPluginRuntime(): PluginRuntime {
             jsx: React.createElement,
             Fragment: React.Fragment,
             injectCSS,
-            version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev",
+            version: process.env.NEXT_PUBLIC_APP_VERSION || "dev",
             emit: emitCanvasEvent,
             on: onCanvasEvent,
         };
