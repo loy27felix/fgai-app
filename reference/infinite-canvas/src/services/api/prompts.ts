@@ -3,6 +3,7 @@ import localforage from "localforage";
 import { runPromptSource, type RawPrompt } from "./prompt-source-runtime";
 import { usePromptSourceStore } from "@/reference/infinite-canvas/src/stores/use-prompt-source-store";
 import type { PromptSource } from "./prompt-source-presets";
+import { toPromptImageUrl } from "./prompt-image-url";
 
 export type Prompt = RawPrompt & {
     sourceId: string;
@@ -67,7 +68,8 @@ function withSourceMeta(source: PromptSource, items: RawPrompt[]): Prompt[] {
     return items.map((item) => ({
         ...item,
         description: item.description || "",
-        referenceImageUrls: Array.isArray(item.referenceImageUrls) ? item.referenceImageUrls : [],
+        coverUrl: toPromptImageUrl(item.coverUrl || ""),
+        referenceImageUrls: (Array.isArray(item.referenceImageUrls) ? item.referenceImageUrls : []).map((url) => toPromptImageUrl(url)),
         sourceId: source.id,
         category: source.name,
         githubUrl: item.sourceUrl || source.homepage,

@@ -1,4 +1,5 @@
 import type { PromptSource } from "./prompt-source-presets";
+import { toPromptImageUrl } from "./prompt-image-url";
 
 export type RawPrompt = {
     id: string;
@@ -58,8 +59,8 @@ function normalizeItems(values: unknown[], source: PromptSource) {
         const id = stringValue(record.id).trim() || `${source.id}-${leftPad(index + 1)}`;
         if (seen.has(id)) return;
         seen.add(id);
-        const referenceImageUrls = stringArray(record.referenceImageUrls).map((url) => absoluteUrl(source.url, url));
-        const coverUrl = absoluteUrl(source.url, stringValue(record.coverUrl)) || referenceImageUrls[0] || "";
+        const referenceImageUrls = stringArray(record.referenceImageUrls).map((url) => toPromptImageUrl(absoluteUrl(source.url, url)));
+        const coverUrl = toPromptImageUrl(absoluteUrl(source.url, stringValue(record.coverUrl))) || referenceImageUrls[0] || "";
         items.push({
             id,
             title,
