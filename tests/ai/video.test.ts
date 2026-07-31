@@ -109,6 +109,76 @@ test('video client creates a task on the native Wetoken endpoint', async () => {
   assert.deepEqual(result, { externalTaskId: 'task-123', status: 'queued', raw: { id: 'task-123', status: 'queued' } });
 });
 
+
+test('video client unwraps a gateway task envelope and pending status', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
+  const fetcher = async () => new Response(JSON.stringify({
+    code: 'ok',
+    data: { id: 'task-enveloped', status: 'pending' },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  assert.deepEqual(await createWetokenVideoTask({
+    model: 'doubao-seedance-2-0',
+    prompt: 'fox',
+    references: [],
+    duration: 6,
+    ratio: '16:9',
+    resolution: '720p',
+    watermark: false,
+    generateAudio: false,
+  }, { fetcher }), {
+    externalTaskId: 'task-enveloped',
+    status: 'running',
+    raw: { code: 'ok', data: { id: 'task-enveloped', status: 'pending' } },
+  });
+});
+
+test('video client unwraps a gateway status and content envelope', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
+  const fetcher = async () => new Response(JSON.stringify({
+    code: 'ok',
+    data: { status: 'completed', content: { url: 'https://cdn.example.com/enveloped.mp4' } },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  assert.deepEqual(await getWetokenVideoTask('task-enveloped', { fetcher }), {
+    externalTaskId: 'task-enveloped',
+    status: 'succeeded',
+    videoUrl: 'https://cdn.example.com/enveloped.mp4',
+    error: undefined,
+    usage: undefined,
+  });
+});
+test('video client surfaces the useful message from a Wetoken gateway error envelope', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
+  const fetcher = async () => new Response(JSON.stringify({
+    code: 'upstream_error',
+    message: JSON.stringify({
+      error: { code: 'InvalidParameter', message: 'the ratio is not valid', param: 'ratio' },
+    }),
+    data: null,
+  }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+
+  await assert.rejects(
+    () => createWetokenVideoTask({
+      model: 'doubao-seedance-2-0',
+      prompt: 'fox',
+      references: [],
+      duration: 6,
+      ratio: '16:9',
+      resolution: '720p',
+      watermark: false,
+      generateAudio: false,
+    }, { fetcher }),
+    (error: unknown) => {
+      assert.match(String(error), /the ratio is not valid/);
+      assert.doesNotMatch(String(error), /"param":"ratio"/);
+      return true;
+    },
+  );
+});
 test('video client normalizes a succeeded query result', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';

@@ -22,6 +22,19 @@ export type SeedanceInput = {
 
 export type VideoTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired';
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+export class WetokenVideoError extends Error {
+  readonly status: number;
+  readonly providerCode: string | null;
+  readonly retryable: boolean;
+
+  constructor(message: string, status: number, providerCode?: string | null) {
+    super(`Wetoken video request failed (${status}): ${message}`);
+    this.name = 'WetokenVideoError';
+    this.status = status;
+    this.providerCode = providerCode || null;
+    this.retryable = status === 408 || status === 429 || (status >= 500 && providerCode !== 'model_not_found');
+  }
+}
 
 const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']);
 
@@ -91,15 +104,76 @@ function requireKey() {
 function normalizeStatus(value: unknown): VideoTaskStatus {
   if (value === 'queued' || value === 'running' || value === 'succeeded' || value === 'failed' || value === 'expired') return value;
   if (value === 'completed') return 'succeeded';
+  if (value === 'cancelled' || value === 'canceled' || value === 'error') return 'failed';
+  if (value === 'submitted' || value === 'created') return 'queued';
   if (value === 'pending' || value === 'processing') return 'running';
   return 'running';
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readProviderError(value: unknown): { code: string | null; message: string } {
+  let current: unknown = value;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (typeof current === 'string') {
+      const text = current.trim();
+      if (!text) return { code: null, message: 'request failed' };
+      try {
+        current = JSON.parse(text);
+        continue;
+      } catch {
+        return { code: null, message: text };
+      }
+    }
+    const record = asRecord(current);
+    const nested = asRecord(record.error);
+    const code = typeof nested.code === 'string'
+      ? nested.code
+      : typeof record.code === 'string' ? record.code : null;
+    if (typeof nested.message === 'string') return { code, message: nested.message };
+    if (typeof record.message === 'string') {
+      if (record.message.trim().startsWith('{') || record.message.trim().startsWith('[')) {
+        current = record.message;
+        continue;
+      }
+      return { code, message: record.message };
+    }
+    if (typeof record.error === 'string') {
+      current = record.error;
+      continue;
+    }
+    return { code, message: 'request failed' };
+  }
+  return { code: null, message: 'request failed' };
+}
+
+function hasTaskShape(value: Record<string, unknown>) {
+  return typeof value.id === 'string'
+    || typeof value.task_id === 'string'
+    || typeof value.status === 'string'
+    || 'content' in value
+    || 'error' in value
+    || 'usage' in value
+    || typeof value.video_url === 'string'
+    || typeof value.url === 'string';
+}
+
+function taskPayload(value: unknown): Record<string, unknown> {
+  const root = asRecord(value);
+  if (typeof root.id === 'string' || typeof root.task_id === 'string') return root;
+  const nested = asRecord(root.data);
+  const candidates = [asRecord(nested.task), nested, asRecord(root.task)];
+  return candidates.find((candidate) => hasTaskShape(candidate)) || root;
+}
 async function providerJson(response: Response) {
   const data = await response.json().catch(() => ({})) as any;
   if (!response.ok) {
-    const message = String(data?.error?.message || data?.message || response.statusText || 'request failed').slice(0, 300);
-    throw new Error(`Wetoken 视频请求失败 (${response.status}): ${message}`);
+    const parsedError = readProviderError(data);
+    throw new WetokenVideoError(parsedError.message.slice(0, 500) || response.statusText || 'request failed', response.status, parsedError.code);
   }
   return data;
 }
@@ -117,9 +191,10 @@ export async function createWetokenVideoTask(
     signal: AbortSignal.timeout(55_000),
   });
   const data = await providerJson(response);
-  const externalTaskId = data?.id || data?.task_id;
-  if (!externalTaskId) throw new Error('Wetoken 未返回视频任务 ID');
-  return { externalTaskId: String(externalTaskId), status: normalizeStatus(data?.status || 'queued'), raw: data };
+  const payload = taskPayload(data);
+  const externalTaskId = payload.id || payload.task_id;
+  if (!externalTaskId) throw new Error('Wetoken video task ID missing');
+  return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || data?.status || 'queued'), raw: data };
 }
 
 export async function getWetokenVideoTask(
@@ -136,12 +211,17 @@ export async function getWetokenVideoTask(
     },
   );
   const data = await providerJson(response);
-  const error = data?.error?.message || (typeof data?.error === 'string' ? data.error : undefined);
+  const payload = taskPayload(data);
+  const taskContent = asRecord(payload.content);
+  const taskError = asRecord(payload.error);
+  const taskErrorMessage = typeof taskError.message === 'string'
+    ? taskError.message
+    : typeof payload.error === 'string' ? payload.error : undefined;
   return {
-    externalTaskId: String(data?.id || externalTaskId),
-    status: normalizeStatus(data?.status),
-    videoUrl: data?.content?.video_url || data?.content?.url || undefined,
-    error: error ? String(error).slice(0, 500) : undefined,
-    usage: data?.usage,
+    externalTaskId: String(payload.id || payload.task_id || externalTaskId),
+    status: normalizeStatus(payload.status),
+    error: taskErrorMessage ? String(taskErrorMessage).slice(0, 500) : undefined,
+    videoUrl: typeof taskContent.video_url === 'string' ? taskContent.video_url : typeof taskContent.url === 'string' ? taskContent.url : undefined,
+    usage: payload.usage,
   };
 }

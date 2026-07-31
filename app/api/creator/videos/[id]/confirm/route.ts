@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createWetokenVideoTask, type VideoReference } from '@/lib/ai/video';
+import { WetokenVideoError, createWetokenVideoTask, type VideoReference } from '@/lib/ai/video';
 import {
   validateCompletedReferencePaths,
   validateStoredVideoDraftRequest,
@@ -7,6 +7,7 @@ import {
 } from '@/lib/creator/video';
 import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import {
   buildVideoLedgerEntry,
@@ -67,6 +68,69 @@ async function creatorContext() {
     load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
   return { supabase, user, workspace };
+}
+type CreatorVideoContext = NonNullable<Awaited<ReturnType<typeof creatorContext>>>;
+
+function safeErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : '';
+  return message
+    .replace(/sk-[A-Za-z0-9_-]{16,}/g, 'sk-***')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500) || fallback;
+}
+
+function providerFailureStatus(error: unknown): 'failed' | 'unknown' {
+  return error instanceof WetokenVideoError && !error.retryable ? 'failed' : 'unknown';
+}
+
+async function updateOwnedTask(
+  context: CreatorVideoContext,
+  taskId: string,
+  values: Record<string, unknown>,
+  expectedStatus?: string,
+) {
+  const apply = async (client: any) => {
+    let query = client
+      .from('creator_generation_tasks')
+      .update(values)
+      .eq('id', taskId)
+      .eq('workspace_id', context.workspace.id)
+      .eq('user_id', context.user.id)
+      .eq('kind', 'video');
+    if (expectedStatus) query = query.eq('status', expectedStatus);
+    return query.select('*').maybeSingle();
+  };
+
+  let sessionResult: { data?: unknown; error?: unknown } = {};
+  try {
+    sessionResult = await apply(context.supabase);
+    if (!sessionResult.error && sessionResult.data) return sessionResult.data as CreatorVideoTask;
+  } catch (error) {
+    sessionResult = { error };
+  }
+  console.error('[creator video task persistence]', {
+    taskId,
+    path: 'session',
+    error: safeErrorMessage(sessionResult.error, 'no row returned'),
+  });
+
+  try {
+    const adminResult = await apply(createAdminClient());
+    if (!adminResult.error && adminResult.data) return adminResult.data as CreatorVideoTask;
+    console.error('[creator video task persistence]', {
+      taskId,
+      path: 'service-role',
+      error: safeErrorMessage(adminResult.error, 'no row returned'),
+    });
+  } catch (error) {
+    console.error('[creator video task persistence]', {
+      taskId,
+      path: 'service-role',
+      error: safeErrorMessage(error, 'service role unavailable'),
+    });
+  }
+  throw new Error(ERRORS.SUBMIT_FAILED);
 }
 
 async function ownedTask(context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>, taskId: string) {
@@ -133,6 +197,14 @@ function publicError(error: unknown) {
   if (message === ERRORS.REFERENCES_NOT_READY) return { message, code: 'REFERENCES_NOT_READY', status: 409 };
   if (message === ERRORS.INVALID_DRAFT) return { message, code: 'INVALID_DRAFT', status: 409 };
   if (message === ERRORS.USAGE_RECORD_FAILED) return { message, code: 'USAGE_RECORD_FAILED', status: 409 };
+  if (error instanceof WetokenVideoError) {
+    const rejected = !error.retryable;
+    return {
+      message: `Wetoken: ${safeErrorMessage(error, ERRORS.SUBMIT_FAILED)}`,
+      code: rejected ? 'VIDEO_PROVIDER_REJECTED' : 'VIDEO_CONFIRM_FAILED',
+      status: rejected ? 400 : 502,
+    };
+  }
   return { message: ERRORS.SUBMIT_FAILED, code: 'VIDEO_CONFIRM_FAILED', status: 502 };
 }
 
@@ -208,48 +280,67 @@ export async function POST(_req: Request, { params }: RouteContext) {
       throw new Error(ERRORS.USAGE_RECORD_FAILED);
     }
 
-    try {
-      const providerTask = await createWetokenVideoTask({
-        model: claimed.model,
-        prompt: validated.effectivePrompt,
-        references,
-        duration: validated.duration,
-        ratio: validated.ratio,
-        resolution: validated.resolution,
-        watermark: validated.watermark,
-        generateAudio: validated.generateAudio,
-      });
+    {
+      let providerTask: Awaited<ReturnType<typeof createWetokenVideoTask>>;
+      try {
+        providerTask = await createWetokenVideoTask({
+          model: claimed.model,
+          prompt: validated.effectivePrompt,
+          references,
+          duration: validated.duration,
+          ratio: validated.ratio,
+          resolution: validated.resolution,
+          watermark: validated.watermark,
+          generateAudio: validated.generateAudio,
+        });
+      } catch (error) {
+        const providerStatus = providerFailureStatus(error);
+        const completedAt = providerStatus === 'failed' ? new Date().toISOString() : null;
+        try {
+          await updateOwnedTask(context, claimed.id, {
+            status: providerStatus,
+            error: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+            completed_at: completedAt,
+          }, 'submitting');
+        } catch (persistError) {
+          console.error('[creator video provider failure persistence]', persistError);
+        }
+        await updateVideoUsageBestEffort({ requestId, providerStatus, completedAt });
+        throw error;
+      }
+
       const raw = asRecord(providerTask.raw);
-      const providerContent = asRecord(raw.content);
+      const providerData = asRecord(raw.data);
+      const providerNestedTask = asRecord(providerData.task);
+      const providerContent = asRecord(raw.content || providerData.content || providerNestedTask.content);
       const output = {
         provider_task_id: providerTask.externalTaskId,
         ...(typeof providerContent.video_url === 'string' ? { video_url: providerContent.video_url } : {}),
       };
-      const updated = await context.supabase
-        .from('creator_generation_tasks')
-        .update({
+      let updated: CreatorVideoTask;
+      try {
+        updated = await updateOwnedTask(context, claimed.id, {
           external_task_id: providerTask.externalTaskId,
           status: providerTask.status,
           output,
           error: null,
-        })
-        .eq('id', claimed.id)
-        .eq('workspace_id', context.workspace.id)
-        .eq('user_id', context.user.id)
-        .eq('kind', 'video')
-        .eq('status', 'submitting')
-        .select('*')
-        .maybeSingle();
-      if (updated.error || !updated.data) throw new Error(ERRORS.SUBMIT_FAILED);
-      return NextResponse.json({ task: await viewTask(context, updated.data as CreatorVideoTask) });
-    } catch (error) {
-      console.error('[creator video provider submit]', error);
-      await context.supabase.from('creator_generation_tasks').update({
-        status: 'unknown',
-        error: ERRORS.SUBMIT_FAILED,
-      }).eq('id', claimed.id).eq('status', 'submitting');
-      await updateVideoUsageBestEffort({ requestId, providerStatus: 'unknown' });
-      throw error;
+        }, 'submitting');
+      } catch (error) {
+        console.error('[creator video provider submit]', error);
+        try {
+          await updateOwnedTask(context, claimed.id, {
+            external_task_id: providerTask.externalTaskId,
+            output,
+            status: 'unknown',
+            error: ERRORS.SUBMIT_FAILED,
+          }, 'submitting');
+        } catch (persistError) {
+          console.error('[creator video unknown persistence]', persistError);
+        }
+        await updateVideoUsageBestEffort({ requestId, providerStatus: 'unknown' });
+        throw error;
+      }
+      return NextResponse.json({ task: await viewTask(context, updated) });
     }
   } catch (error: unknown) {
     if (context && claimed && error instanceof Error && error.message === ERRORS.SUBMIT_FAILED) {
