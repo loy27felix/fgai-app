@@ -30,8 +30,18 @@ export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: stri
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
-/** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
+/** Results for scripted and FG-owned video models, which run their own create+poll flow. */
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
+const pluginVideoErrors = new Map<string, string>();
+const pluginVideoPromises = new Map<string, Promise<void>>();
+const FG_VIDEO_MODELS = new Set([
+    "doubao-seedance-2-0",
+    "doubao-seedance-2-0-filter-off",
+    "doubao-seedance-2-0-fast",
+    "doubao-seedance-2-0-fast-filter-off",
+    "dreamina-seedance-2-0-mini",
+    "dreamina-seedance-2-0-mini-filter-off",
+]);
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
@@ -51,20 +61,26 @@ async function fgVideoFile(url: string, name: string, mime: string) {
     return new File([blob], name, { type: blob.type || mime });
 }
 
-async function fgGenerateVideo(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], signal?: AbortSignal): Promise<VideoGenerationResult> {
+async function fgGenerateVideo(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[] = [], signal?: AbortSignal): Promise<VideoGenerationResult> {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const imageFiles = await Promise.all(references.slice(0, 8).map(async (image, index) => {
+    const imageFiles = await Promise.all(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images).map(async (image, index) => {
         const dataUrl = await imageToDataUrl(image);
         return fgVideoFile(dataUrl, image.name || `reference-${index + 1}.png`, image.type || "image/png");
     }));
     const videoFiles = await Promise.all(videoReferences.slice(0, 3).map((video, index) => fgVideoFile(video.url, video.name || `reference-video-${index + 1}.mp4`, video.type || "video/mp4")));
-    const files = [...imageFiles, ...videoFiles];
+    const audioFiles = await Promise.all(audioReferences.slice(0, 3).map((audio, index) => fgVideoFile(audio.url, audio.name || `reference-audio-${index + 1}.mp3`, audio.type || "audio/mpeg")));
+    const files = [...imageFiles, ...videoFiles, ...audioFiles];
     const model = (config.model || config.videoModel || "doubao-seedance-2-0").replace(/^.*::/, "");
     const ratio = config.size.includes(":") ? config.size : "16:9";
     const seconds = Math.max(4, Math.min(15, Number(config.videoSeconds) || 5));
-    const resolution = config.vquality && config.vquality !== "auto" ? (/p$/i.test(config.vquality) ? config.vquality : `${config.vquality}p`) : "720p";
+    const resolution = normalizeCreatorVideoResolution(config.vquality);
+    const referencesManifest = files.map((file) => {
+        const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image";
+        const role = kind === "video" ? "reference_video" : kind === "audio" ? "reference_audio" : "reference_image";
+        return { name: file.name, mimeType: file.type, size: file.size, kind, role };
+    });
     const supabase = createClient();
-    const draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: files.map((file, index) => ({ name: file.name, mimeType: file.type, size: file.size, kind: file.type.startsWith("video/") ? "video" : "image", role: file.type.startsWith("video/") ? "reference_video" : index === 0 ? "first_frame" : "reference_image" } as any)), duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: crypto.randomUUID() });
+    const draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: crypto.randomUUID() });
     for (let index = 0; index < files.length; index += 1) {
         const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
         if (upload.error) throw upload.error;
@@ -81,14 +97,28 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     }
     throw new Error("视频生成超时，请稍后重试");
 }
-export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], _audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
-    return fgGenerateVideo(config, prompt, references, videoReferences, options?.signal);
+
+function normalizeCreatorVideoResolution(value: string) {
+    const normalized = String(value || "720").trim().toLowerCase();
+    if (normalized === "4k") return "4K";
+    if (normalized === "auto" || normalized === "high" || normalized === "medium") return "720p";
+    const token = normalized.replace(/p$/i, "") || "720";
+    return `${token}p`;
+}
+
+function isFgCreatorVideoModel(value: string) {
+    return FG_VIDEO_MODELS.has(modelOptionName(value));
+}
+
+export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
+    return fgGenerateVideo(config, prompt, references, videoReferences, audioReferences, options?.signal);
 }
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
+    if (isFgCreatorVideoModel(selectedModel)) return createCreatorVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
@@ -102,13 +132,30 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     if (task.provider === "plugin") {
         const result = pluginVideoResults.get(task.id);
-        return result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
+        if (result) return { status: "completed", result };
+        const error = pluginVideoErrors.get(task.id);
+        if (error) return { status: "failed", error };
+        if (pluginVideoPromises.has(task.id)) return { status: "pending" };
+        return { status: "failed", error: "视频任务已失效，请重新生成" };
     }
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
     return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
 }
 
+async function createCreatorVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const id = nanoid();
+    const work = fgGenerateVideo(config, prompt, references, videoReferences, audioReferences, options?.signal)
+        .then((result) => {
+            pluginVideoResults.set(id, result);
+        })
+        .catch((error) => {
+            pluginVideoErrors.set(id, error instanceof Error ? error.message : "视频生成失败");
+        });
+    pluginVideoPromises.set(id, work);
+    void work.then(() => pluginVideoPromises.delete(id), () => pluginVideoPromises.delete(id));
+    return { id, provider: "plugin", model };
+}
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error("请先配置 Base URL");
     if (!config.apiKey.trim()) throw new Error("请先配置 API Key");
@@ -324,7 +371,7 @@ function assertVideoConfig(config: AiConfig, model: string) {
 
 function normalizeVideoSeconds(value: string) {
     const seconds = Math.floor(Number(value) || 6);
-    return String(Math.max(1, Math.min(20, seconds)));
+    return String(Math.max(4, Math.min(15, seconds)));
 }
 
 function normalizeVideoSize(value: string) {

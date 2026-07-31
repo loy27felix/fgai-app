@@ -26,6 +26,11 @@ function serverError(error: unknown, code: string, message: string) {
   return response(message, code, 500);
 }
 
+function clientValidationMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  return message.replace(/\s+/g, ' ').trim().slice(0, 300) || '视频任务参数无效';
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -160,7 +165,7 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       console.error('[creator video draft validation]', error);
-      return response('视频任务参数无效', 'INVALID_VIDEO_DRAFT', 400);
+      return response(clientValidationMessage(error), 'INVALID_VIDEO_DRAFT', 400);
     }
 
     const nodeId = typeof body.nodeId === 'string' && body.nodeId.trim() ? body.nodeId.trim().slice(0, 128) : null;

@@ -48,3 +48,21 @@ test('standalone video workspace exposes continuous duration and readable contro
   assert.match(video, /video-workspace\[data-theme="light"\]/);
   assert.match(video, /controls select option/);
 });
+test('reference canvas mounts the full source navigation and owns Seedance video calls', () => {
+  const host = fs.readFileSync(
+    path.join(process.cwd(), 'components/creator/InfiniteCanvasReferenceHost.tsx'),
+    'utf8',
+  );
+  const video = fs.readFileSync(
+    path.join(process.cwd(), 'reference/infinite-canvas/src/services/api/video.ts'),
+    'utf8',
+  );
+
+  for (const page of ['HomePage', 'CanvasPage', 'ImagePage', 'VideoPage', 'PromptsPage', 'AssetsPage', 'ConfigPage']) {
+    assert.match(host, new RegExp(`<Route path=.*${page}`));
+  }
+  assert.match(host, /UserLayout/);
+  assert.match(video, /kind === "video" \? "reference_video" : kind === "audio" \? "reference_audio" : "reference_image"/);
+  assert.doesNotMatch(video, /index === 0 \? "first_frame" : "reference_image"/);
+  assert.match(video, /FG_VIDEO_MODELS/);
+});
