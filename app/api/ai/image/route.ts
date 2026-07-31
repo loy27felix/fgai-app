@@ -4,6 +4,7 @@ import { generateWetokenImage } from '@/lib/ai/image';
 import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
 import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
+import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -120,6 +121,8 @@ export async function POST(req: Request) {
       provider: 'wetoken',
       model,
       resolution: body.size || '1024x1024',
+      pricing: estimateImagePrice(model, body.size || '1024x1024'),
+      reportedCostUsd: extractReportedCostUsd(generated.usage),
     }));
 
     const ext = extensionFor(generated.mimeType);

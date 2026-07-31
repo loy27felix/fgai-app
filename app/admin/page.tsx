@@ -2,8 +2,21 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import AdminConsole from "@/components/AdminConsole";
+import { getUsdToCnyRate } from "@/lib/usage/fx";
+import { estimateLedgerPrice } from "@/lib/usage/pricing";
 
 export const dynamic = "force-dynamic";
+
+function withKnownMediaEstimate(row: any) {
+  if (row.reported_cost_usd != null || row.estimated_cost_usd != null) return row;
+  const estimate = estimateLedgerPrice({
+    kind: row.kind === "image" || row.kind === "video" ? row.kind : "text",
+    model: String(row.model || ""),
+    resolution: row.resolution,
+    videoSeconds: row.video_seconds,
+  });
+  return estimate ? { ...row, estimated_cost_usd: estimate.estimatedCostUsd, cost_source: "estimated" } : row;
+}
 
 async function dsBalance(): Promise<string | null> {
   try {
@@ -39,8 +52,9 @@ export default async function AdminPage() {
     supabase.from("projects").select("id"),
   ]);
   const balance = await dsBalance();
+  const usdToCnyRate = getUsdToCnyRate();
 
   return (
-    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={usage || []} projectCount={(projects || []).length} balance={balance} email={user.email || ""} />
+    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withKnownMediaEstimate(row))} projectCount={(projects || []).length} balance={balance} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
   );
 }

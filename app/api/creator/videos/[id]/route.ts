@@ -12,6 +12,7 @@ import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
+import { extractReportedCostUsd } from '@/lib/usage/pricing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -164,6 +165,7 @@ async function pollTask(
     requestId,
     providerStatus: polled.status,
     completedAt,
+    reportedCostUsd: extractReportedCostUsd(polled.usage),
   });
   return update.data as CreatorVideoTask;
 }

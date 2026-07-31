@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
+import type { MediaPrice } from './pricing';
 
 type TextUsage = {
   prompt_tokens?: number;
@@ -37,8 +38,10 @@ export type ImageLedgerEntry = {
   model: string;
   image_count: number;
   resolution: string;
-  cost_source: 'unknown';
-  price_snapshot: Record<string, never>;
+  reported_cost_usd?: number;
+  estimated_cost_usd?: number;
+  cost_source: 'reported' | 'estimated' | 'unknown';
+  price_snapshot: Record<string, string | number>;
   status: UsageLedgerStatus;
   possibly_charged: true;
 };
@@ -56,8 +59,10 @@ export type VideoLedgerEntry = {
   video_seconds: number;
   resolution: string;
   generate_audio: boolean;
-  cost_source: 'unknown';
-  price_snapshot: Record<string, never>;
+  reported_cost_usd?: number;
+  estimated_cost_usd?: number;
+  cost_source: 'reported' | 'estimated' | 'unknown';
+  price_snapshot: Record<string, string | number>;
   status: 'submitted';
   possibly_charged: true;
 };
@@ -96,7 +101,28 @@ type LedgerWriter = {
 function tokenCount(value: number | undefined): number {
   return Number.isSafeInteger(value) && (value ?? 0) >= 0 ? value! : 0;
 }
+type MediaLedgerPricing = {
+  pricing?: MediaPrice | null;
+  reportedCostUsd?: number;
+};
 
+function mediaCostFields(input: MediaLedgerPricing) {
+  if (typeof input.reportedCostUsd === 'number' && Number.isFinite(input.reportedCostUsd)) {
+    return {
+      reported_cost_usd: Math.abs(input.reportedCostUsd),
+      cost_source: 'reported' as const,
+      price_snapshot: input.pricing?.snapshot || { currency: 'USD', source: 'provider_response' },
+    };
+  }
+  if (input.pricing) {
+    return {
+      estimated_cost_usd: input.pricing.estimatedCostUsd,
+      cost_source: 'estimated' as const,
+      price_snapshot: input.pricing.snapshot,
+    };
+  }
+  return { cost_source: 'unknown' as const, price_snapshot: {} };
+}
 export function buildTextLedgerEntry(input: {
   requestId?: string;
   userId: string;
@@ -139,6 +165,8 @@ export function buildImageLedgerEntry(input: {
   provider: string;
   model: string;
   resolution: string;
+  pricing?: MediaPrice | null;
+  reportedCostUsd?: number;
 }): ImageLedgerEntry {
   return {
     request_id: input.requestId || randomUUID(),
@@ -151,8 +179,7 @@ export function buildImageLedgerEntry(input: {
     model: input.model,
     image_count: 1,
     resolution: input.resolution,
-    cost_source: 'unknown',
-    price_snapshot: {},
+    ...mediaCostFields(input),
     status: 'succeeded',
     possibly_charged: true,
   };
@@ -165,6 +192,8 @@ export function buildCreatorImageLedgerEntry(input: {
   creatorTaskId: string;
   model: string;
   resolution: string;
+  pricing?: MediaPrice | null;
+  reportedCostUsd?: number;
 }): ImageLedgerEntry {
   return {
     request_id: input.requestId,
@@ -177,8 +206,7 @@ export function buildCreatorImageLedgerEntry(input: {
     model: input.model,
     image_count: 1,
     resolution: input.resolution,
-    cost_source: 'unknown',
-    price_snapshot: {},
+    ...mediaCostFields(input),
     status: 'submitted',
     possibly_charged: true,
   };
@@ -196,6 +224,8 @@ export function buildVideoLedgerEntry(input: {
   resolution: string;
   generateAudio: boolean;
   creatorTaskId?: string | null;
+  pricing?: MediaPrice | null;
+  reportedCostUsd?: number;
 }): VideoLedgerEntry {
   return {
     request_id: input.requestId,
@@ -210,8 +240,7 @@ export function buildVideoLedgerEntry(input: {
     video_seconds: input.duration > 0 ? input.duration : 0,
     resolution: input.resolution,
     generate_audio: input.generateAudio,
-    cost_source: 'unknown',
-    price_snapshot: {},
+    ...mediaCostFields(input),
     status: 'submitted',
     possibly_charged: true,
   };
@@ -229,14 +258,22 @@ export async function updateVideoUsageBestEffort(input: {
   requestId: string;
   providerStatus: string;
   completedAt?: string | null;
+  reportedCostUsd?: number;
+  priceSnapshot?: Record<string, string | number>;
 }): Promise<boolean> {
   try {
+    const values: Record<string, unknown> = {
+      status: normalizeVideoLedgerStatus(input.providerStatus),
+      completed_at: input.completedAt ?? null,
+    };
+    if (typeof input.reportedCostUsd === 'number' && Number.isFinite(input.reportedCostUsd)) {
+      values.reported_cost_usd = Math.abs(input.reportedCostUsd);
+      values.cost_source = 'reported';
+      values.price_snapshot = input.priceSnapshot || { currency: 'USD', source: 'provider_response' };
+    }
     const result = await createAdminClient()
       .from('ai_usage_ledger')
-      .update({
-        status: normalizeVideoLedgerStatus(input.providerStatus),
-        completed_at: input.completedAt ?? null,
-      })
+      .update(values)
       .eq('request_id', input.requestId);
     return !result.error;
   } catch {
@@ -285,11 +322,18 @@ export async function updateImageUsageStatus(input: {
   requestId: string;
   status: UsageLedgerStatus;
   completedAt?: string | null;
+  reportedCostUsd?: number;
+  priceSnapshot?: Record<string, string | number>;
 }, dependency?: ImageStatusWriter): Promise<boolean> {
-  const values = {
+  const values: Record<string, unknown> = {
     status: input.status,
     completed_at: input.completedAt ?? null,
   };
+  if (typeof input.reportedCostUsd === 'number' && Number.isFinite(input.reportedCostUsd)) {
+    values.reported_cost_usd = Math.abs(input.reportedCostUsd);
+    values.cost_source = 'reported';
+    values.price_snapshot = input.priceSnapshot || { currency: 'USD', source: 'provider_response' };
+  }
   try {
     const result = dependency
       ? await dependency.update(values, input.requestId)

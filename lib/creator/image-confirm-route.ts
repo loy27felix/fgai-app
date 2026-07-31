@@ -21,6 +21,7 @@ import {
   type ConfirmImageTask,
 } from '@/lib/creator/image-service';
 import { generateWetokenImage, type ImageGenerationResult } from '@/lib/ai/image';
+import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import {
   buildCreatorImageLedgerEntry,
   recordUsageRequired,
@@ -384,14 +385,22 @@ function productionDependencies(
         creatorTaskId: task.id,
         model: task.model,
         resolution,
+        pricing: estimateImagePrice(task.model, resolution),
       }));
     },
     generate: generateWetokenImage,
     validateGenerated: validateGeneratedImage,
-    persistSuccess: ({ task, requestId, generated }) => persistGeneratedImage(
-      supabase,
-      { task, requestId, generated, userId, workspaceId },
-    ),
+    persistSuccess: async ({ task, requestId, generated }) => {
+      const result = await persistGeneratedImage(
+        supabase,
+        { task, requestId, generated, userId, workspaceId },
+      );
+      const reportedCostUsd = extractReportedCostUsd(generated.usage);
+      if (reportedCostUsd !== undefined) {
+        await updateImageUsageStatus({ requestId, status: 'succeeded', completedAt: new Date().toISOString(), reportedCostUsd });
+      }
+      return result;
+    },
     settleFailure: async ({ task, requestId, status, error }) => {
       const failureUpdate: Record<string, unknown> = {
         status,

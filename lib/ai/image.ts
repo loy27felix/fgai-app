@@ -11,6 +11,7 @@ export type ImageGenerationResult = {
   bytes: Uint8Array;
   mimeType: string;
   sourceUrl?: string;
+  usage?: unknown;
 };
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -130,5 +131,6 @@ export async function generateWetokenImage(
 
   const data = await response.json().catch(() => ({})) as any;
   if (!response.ok) throw providerError(response.status, response.statusText, data);
-  return spec.provider === 'gemini' ? parseGeminiResult(data) : parseGptResult(data, fetcher);
+  const parsed = spec.provider === 'gemini' ? parseGeminiResult(data) : await parseGptResult(data, fetcher);
+  return { ...parsed, usage: data?.usage };
 }

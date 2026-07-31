@@ -6,6 +6,7 @@ import {
   type VideoReference,
 } from '@/lib/ai/video';
 import { buildVideoLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
+import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -80,6 +81,7 @@ export async function POST(req: Request) {
 
   try {
     const created = await createWetokenVideoTask(input);
+    const pricing = estimateVideoPrice({ model: input.model, duration: input.duration, resolution: input.resolution });
     await recordUsageBestEffort(buildVideoLedgerEntry({
       requestId: `wetoken-video:${created.externalTaskId}`,
       providerRequestId: created.externalTaskId,
@@ -90,6 +92,8 @@ export async function POST(req: Request) {
       duration: input.duration,
       resolution: input.resolution,
       generateAudio: input.generateAudio,
+      pricing,
+      reportedCostUsd: extractReportedCostUsd(created.raw),
     }));
 
     const requestRecord = {

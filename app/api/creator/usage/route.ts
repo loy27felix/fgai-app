@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { fxSnapshot, getUsdToCnyRate } from '@/lib/usage/fx';
+import { estimateLedgerPrice } from '@/lib/usage/pricing';
 
 export const runtime = 'nodejs';
 
@@ -63,7 +65,7 @@ function numberValue(value: unknown) {
 function nullableNumber(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  return Number.isFinite(number) ? Math.abs(number) : null;
 }
 
 function normalizeRecord(value: Record<string, unknown>): UsageRecord {
@@ -112,7 +114,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: '用量记录加载失败，请稍后重试', code: 'USAGE_LOAD_FAILED' }, { status: 500 });
   }
 
-  const records = ((result.data || []) as unknown as Array<Record<string, unknown>>).map(normalizeRecord);
+  const records = ((result.data || []) as unknown as Array<Record<string, unknown>>).map((value) => {
+    const record = normalizeRecord(value);
+    if (record.reported_cost_usd === null && record.estimated_cost_usd === null) {
+      const estimate = estimateLedgerPrice({ kind: record.kind, model: record.model, resolution: record.resolution, videoSeconds: record.video_seconds });
+      if (estimate) return { ...record, estimated_cost_usd: estimate.estimatedCostUsd, cost_source: 'estimated' as const };
+    }
+    return record;
+  });
+  const usdToCnyRate = getUsdToCnyRate();
   const totals = records.reduce((summary, record) => {
     summary.calls += 1;
     summary.inputTokens += record.input_tokens;
@@ -122,9 +132,12 @@ export async function GET(req: Request) {
     summary.videoSeconds += record.video_seconds;
     const cost = record.reported_cost_usd ?? record.estimated_cost_usd;
     if (cost === null) summary.unpriced += 1;
-    else summary.knownCostUsd += cost;
+    else {
+      summary.knownCostUsd += cost;
+      summary.knownCostCny += cost * usdToCnyRate;
+    }
     return summary;
-  }, { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, knownCostUsd: 0, unpriced: 0 });
+  }, { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, knownCostUsd: 0, knownCostCny: 0, unpriced: 0 });
 
-  return NextResponse.json({ ok: true, records, count: result.count || records.length, totals });
+  return NextResponse.json({ ok: true, records, count: result.count || records.length, totals: { ...totals, knownCostCny: Number(totals.knownCostCny.toFixed(6)) }, fx: fxSnapshot(usdToCnyRate) });
 }

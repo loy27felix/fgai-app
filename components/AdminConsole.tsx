@@ -32,7 +32,7 @@ type UsageGroup = { calls: number; tokens: number; images: number; videoSeconds:
 
 const emptyGroup = (): UsageGroup => ({ calls: 0, tokens: 0, images: 0, videoSeconds: 0, cost: 0, unpriced: 0 });
 const numeric = (value: number | string | null | undefined) => Number(value || 0);
-const knownCost = (row: Usage) => numeric(row.reported_cost_usd ?? row.estimated_cost_usd);
+const knownCost = (row: Usage) => Math.abs(numeric(row.reported_cost_usd ?? row.estimated_cost_usd));
 
 function addUsage(group: UsageGroup, row: Usage) {
   group.calls += 1;
@@ -43,7 +43,7 @@ function addUsage(group: UsageGroup, row: Usage) {
   if (row.cost_source === "unknown") group.unpriced += 1;
 }
 
-export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, projectCount, balance, email }: {
+export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, projectCount, balance, usdToCnyRate, email }: {
   meId: string;
   isSuperadmin: boolean;
   profiles: Profile[];
@@ -51,6 +51,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   usage: Usage[];
   projectCount: number;
   balance: string | null;
+  usdToCnyRate: number;
   email?: string;
 }) {
   const router = useRouter();
@@ -84,7 +85,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   const chip = (text: string, color?: string) => <span style={{ fontSize: 11.5, color: color || "var(--text-2)", padding: "2px 9px", borderRadius: 7, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}>{text}</span>;
   const priceLabel = (row: Usage) => row.cost_source === "unknown"
     ? "待定价"
-    : `$${knownCost(row).toFixed(10)} · ${row.cost_source === "reported" ? "供应商返回" : "估算"}`;
+    : `$${knownCost(row).toFixed(10)} · ¥${(knownCost(row) * usdToCnyRate).toFixed(4)} · ${row.cost_source === "reported" ? "供应商返回" : "估算"}`;
   const unitLabel = (row: Usage) => row.kind === "text"
     ? `${numeric(row.total_tokens).toLocaleString()} tokens`
     : row.kind === "image"
@@ -98,7 +99,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     ["总 TOKENS", totals.tokens.toLocaleString()],
     ["生成图片", `${totals.images.toLocaleString()} 张`],
     ["视频时长", `${totals.videoSeconds.toLocaleString()} 秒`],
-    ["已核算费用", `$${totals.cost.toFixed(6)}`],
+    ["已核算费用", `$${totals.cost.toFixed(6)} · ¥${(totals.cost * usdToCnyRate).toFixed(2)}`],
     ["待定价", `${totals.unpriced.toLocaleString()} 笔`],
     ["DeepSeek 余额", balance || "—"],
   ];
@@ -107,7 +108,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     <PageShell title="管理后台" email={email}>
       <div style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 30px 70px" }}>
         <h1 style={{ margin: "0 0 6px", fontSize: 26, fontWeight: 700, letterSpacing: "-.5px" }}>管理后台</h1>
-        <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>可信用量账本 · 报价未知的请求保留为待定价，不计入已核算费用</p>
+        <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>可信用量账本 · 已核算费用同时显示 USD 与 CNY；未知报价保留为待定价（1 USD = ¥{usdToCnyRate.toFixed(4)}）</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
           {tabBtn("overview", "概览")}
           {tabBtn("whitelist", `白名单${pendingWl ? ` · ${pendingWl} 待审` : ""}`)}
@@ -129,7 +130,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
                 {Object.keys(byModel).length === 0 ? <span style={{ color: "var(--text-3)", fontSize: 13 }}>暂无调用</span> : Object.entries(byModel).map(([model, group]) => (
                   <div key={model} style={{ padding: "11px 12px", borderRadius: 11, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}>
                     <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>{model}</div>
-                    <div className="fg-mono" style={{ marginTop: 5, fontSize: 11, color: "var(--text-3)" }}>{group.calls} 次 · {group.tokens.toLocaleString()} tokens · ${group.cost.toFixed(6)}</div>
+                    <div className="fg-mono" style={{ marginTop: 5, fontSize: 11, color: "var(--text-3)" }}>{group.calls} 次 · {group.tokens.toLocaleString()} tokens · ${group.cost.toFixed(6)} · ¥{(group.cost * usdToCnyRate).toFixed(4)}</div>
                     {group.unpriced > 0 && <div style={{ marginTop: 6 }}>{chip(`${group.unpriced} 笔待定价`, "#e6b85c")}</div>}
                   </div>
                 ))}
@@ -139,10 +140,10 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
             <section style={{ gridColumn: "1 / -1", borderRadius: 16, overflow: "hidden", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
               <div className="fg-mono" style={{ padding: "14px 18px", fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase", borderBottom: "1px solid var(--stroke)" }}>按用户</div>
               <div style={{ overflowX: "auto" }}>
-                <div className="fg-mono" style={{ minWidth: 720, display: "grid", gridTemplateColumns: "2fr .6fr 1fr 1fr .7fr", padding: "10px 16px", background: "var(--bg-2)", fontSize: 10.5, color: "var(--text-3)" }}><div>用户</div><div>请求</div><div>TOKENS</div><div>已核算 USD</div><div>待定价</div></div>
+                <div className="fg-mono" style={{ minWidth: 780, display: "grid", gridTemplateColumns: "2fr .6fr 1fr 1.4fr .7fr", padding: "10px 16px", background: "var(--bg-2)", fontSize: 10.5, color: "var(--text-3)" }}><div>用户</div><div>请求</div><div>TOKENS</div><div>已核算 USD / CNY</div><div>待定价</div></div>
                 {Object.keys(byUser).length === 0 ? <div style={{ padding: 16, color: "var(--text-3)", fontSize: 13 }}>暂无用量</div> : Object.entries(byUser).map(([userId, group]) => (
-                  <div key={userId} style={{ minWidth: 720, display: "grid", gridTemplateColumns: "2fr .6fr 1fr 1fr .7fr", alignItems: "center", padding: "11px 16px", borderTop: "1px solid var(--stroke)", fontSize: 12.5 }}>
-                    <div>{profileById.get(userId)?.email || userId}</div><div>{group.calls}</div><div>{group.tokens.toLocaleString()}</div><div className="fg-mono">${group.cost.toFixed(6)}</div><div>{group.unpriced || "—"}</div>
+                  <div key={userId} style={{ minWidth: 780, display: "grid", gridTemplateColumns: "2fr .6fr 1fr 1.4fr .7fr", alignItems: "center", padding: "11px 16px", borderTop: "1px solid var(--stroke)", fontSize: 12.5 }}>
+                    <div>{profileById.get(userId)?.email || userId}</div><div>{group.calls}</div><div>{group.tokens.toLocaleString()}</div><div className="fg-mono">${group.cost.toFixed(6)} · ¥{(group.cost * usdToCnyRate).toFixed(4)}</div><div>{group.unpriced || "—"}</div>
                   </div>
                 ))}
               </div>
