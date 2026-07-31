@@ -1,4 +1,5 @@
-import { resolveModelRequestConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { resolveModelRequestConfig, modelOptionName, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { getVideoModel } from "@/lib/ai/video-models";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
 
@@ -16,6 +17,7 @@ export const seedanceResolutionOptions = [
     { value: "480p", label: "480p" },
     { value: "720p", label: "720p" },
     { value: "1080p", label: "1080p" },
+    { value: "4K", label: "4K" },
 ] as const;
 
 export const seedanceRatioOptions = [
@@ -28,7 +30,7 @@ export const seedanceRatioOptions = [
     { value: "adaptive", label: "自适应" },
 ] as const;
 
-export const seedanceDurationOptions = [-1, 4, 5, 6, 8, 10, 12, 15] as const;
+export const seedanceDurationOptions = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 
 const seedancePixels = {
     "480p": {
@@ -55,11 +57,19 @@ const seedancePixels = {
         "9:16": "1080x1920",
         "21:9": "2206x946",
     },
+    "4K": {
+        "16:9": "3840x2160",
+        "4:3": "3328x2496",
+        "1:1": "2880x2880",
+        "3:4": "2496x3328",
+        "9:16": "2160x3840",
+        "21:9": "4412x1892",
+    },
 } as const;
 
 export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" | "videoModel" | "apiFormat">) {
     const requestConfig = "channels" in config ? resolveModelRequestConfig(config, config.model || config.videoModel) : config;
-    return requestConfig.apiFormat === "ark";
+    return requestConfig.apiFormat === "ark" || Boolean(getVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel)));
 }
 
 export function normalizeSeedanceResolution(value: string) {
@@ -70,7 +80,9 @@ export function normalizeSeedanceResolution(value: string) {
 export function normalizeResolutionToken(value: string) {
     if (value === "low") return "480p";
     if (value === "auto" || value === "high" || value === "medium") return "720p";
-    const resolution = String(value || "").replace(/p$/i, "") || "720";
+    const raw = String(value || "").trim();
+    if (raw.toLowerCase() === "4k") return "4K";
+    const resolution = raw.replace(/p$/i, "") || "720";
     return `${resolution}p`;
 }
 

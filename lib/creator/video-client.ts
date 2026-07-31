@@ -41,6 +41,25 @@ export type ListVideoTasksResponse = {
 export type VideoTaskResponse = { task: CreatorVideoTaskView };
 export type DeleteVideoTaskResponse = { ok: boolean; id: string };
 
+export async function uploadVideoReference(taskId: string, path: string, file: File) {
+  const body = new FormData();
+  body.append('path', path);
+  body.append('file', file, file.name);
+  let response: Response;
+  try {
+    response = await fetch('/api/creator/videos/' + encodeURIComponent(taskId), { method: 'POST', body });
+  } catch (error) {
+    throw new CreatorImageClientError(error instanceof Error ? error.message : '参考素材上传网络请求失败', 0);
+  }
+  let payload: Record<string, unknown> = {};
+  try { payload = await response.json() as Record<string, unknown>; } catch { /* stable error below */ }
+  if (!response.ok) {
+    const message = typeof payload.error === 'string' ? payload.error : '参考素材上传失败';
+    const code = typeof payload.code === 'string' ? payload.code : null;
+    throw new CreatorImageClientError(message, response.status, code);
+  }
+  return payload;
+}
 export function createVideoDraft(payload: CreateVideoDraftPayload) {
   return requestJson<CreateVideoDraftResponse>('/api/creator/videos', {
     method: 'POST',

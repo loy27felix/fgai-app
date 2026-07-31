@@ -28,7 +28,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -110,11 +110,19 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     const duration = normalizeSeedanceDuration(config.videoSeconds);
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
+    const referenceMode = config.videoReferenceMode === "first_last" ? "first_last" : "reference";
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
+                <SettingGroup title="生成方式" color={theme.node.muted}>
+                    <div className="grid grid-cols-2 gap-2.5">
+                        <OptionPill selected={referenceMode === "reference"} theme={theme} onClick={() => onConfigChange("videoReferenceMode", "reference")}>全能参考</OptionPill>
+                        <OptionPill selected={referenceMode === "first_last"} theme={theme} onClick={() => onConfigChange("videoReferenceMode", "first_last")}>首尾帧</OptionPill>
+                    </div>
+                    {referenceMode === "first_last" ? <div className="text-xs leading-5" style={{ color: theme.node.muted }}>首尾帧按连接顺序使用前两张图片；此模式不能混合视频或音频参考。</div> : null}
+                </SettingGroup>
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {seedanceResolutionOptions.map((item) => (
@@ -164,7 +172,8 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
 }
 
 export function videoResolutionLabel(value: string) {
-    return `${normalizeVideoResolutionValue(value)}p`;
+    const normalized = normalizeVideoResolutionValue(value);
+    return normalized === "4K" ? "4K" : `${normalized}p`;
 }
 
 export function videoSizeLabel(value: string) {

@@ -10,7 +10,8 @@ import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
 import { createClient } from "@/lib/supabase/client";
-import { createVideoDraft, confirmVideoTask, finalizeVideoUploads, getVideoTask } from "@/lib/creator/video-client";
+import { createVideoDraft, confirmVideoTask, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
+import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -55,49 +56,114 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 }
 
 async function fgVideoFile(url: string, name: string, mime: string) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("视频参考素材读取失败");
+    let response: Response;
+    try {
+        response = await fetch(url);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : "network error";
+        throw new Error(`参考素材读取失败（${name}）：${detail}`);
+    }
+    if (!response.ok) throw new Error(`参考素材读取失败（${name}）：HTTP ${response.status}`);
     const blob = await response.blob();
     return new File([blob], name, { type: blob.type || mime });
+}
+function normalizedVideoReferenceMode(config: AiConfig): VideoReferenceMode {
+    return config.videoReferenceMode === "first_last" ? "first_last" : "reference";
+}
+
+function assertVideoReferenceMode(mode: VideoReferenceMode, imageCount: number, videoCount: number, audioCount: number) {
+    if (mode === "first_last" && (videoCount > 0 || audioCount > 0)) {
+        throw new Error("首尾帧模式只能连接图片，不能混合视频或音频参考");
+    }
+    return videoImageRoles(mode, imageCount);
 }
 
 async function fgGenerateVideo(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[] = [], signal?: AbortSignal): Promise<VideoGenerationResult> {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const imageFiles = await Promise.all(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images).map(async (image, index) => {
-        const dataUrl = await imageToDataUrl(image);
-        return fgVideoFile(dataUrl, image.name || `reference-${index + 1}.png`, image.type || "image/png");
+    const mode = normalizedVideoReferenceMode(config);
+    const imageInputs = references.slice(0, SEEDANCE_REFERENCE_LIMITS.images);
+    const videoInputs = videoReferences.slice(0, 3);
+    const audioInputs = audioReferences.slice(0, 3);
+    const imageRoles = assertVideoReferenceMode(mode, imageInputs.length, videoInputs.length, audioInputs.length);
+    const imageFiles = await Promise.all(imageInputs.map(async (image, index) => {
+        try {
+            const dataUrl = await imageToDataUrl(image);
+            return await fgVideoFile(dataUrl, image.name || `reference-${index + 1}.png`, image.type || "image/png");
+        } catch (error) {
+            if (error instanceof Error && error.message.startsWith("参考素材读取失败")) throw error;
+            const detail = error instanceof Error ? error.message : "读取失败";
+            throw new Error(`参考图片读取失败（${image.name || `reference-${index + 1}`}）：${detail}`);
+        }
     }));
-    const videoFiles = await Promise.all(videoReferences.slice(0, 3).map((video, index) => fgVideoFile(video.url, video.name || `reference-video-${index + 1}.mp4`, video.type || "video/mp4")));
-    const audioFiles = await Promise.all(audioReferences.slice(0, 3).map((audio, index) => fgVideoFile(audio.url, audio.name || `reference-audio-${index + 1}.mp3`, audio.type || "audio/mpeg")));
+    const videoFiles = await Promise.all(videoInputs.map((video, index) => fgVideoFile(video.url, video.name || `reference-video-${index + 1}.mp4`, video.type || "video/mp4")));
+    const audioFiles = await Promise.all(audioInputs.map((audio, index) => fgVideoFile(audio.url, audio.name || `reference-audio-${index + 1}.mp3`, audio.type || "audio/mpeg")));
     const files = [...imageFiles, ...videoFiles, ...audioFiles];
     const model = (config.model || config.videoModel || "doubao-seedance-2-0").replace(/^.*::/, "");
     const ratio = config.size.includes(":") ? config.size : "16:9";
-    const seconds = Math.max(4, Math.min(15, Number(config.videoSeconds) || 5));
+    const rawSeconds = Number(config.videoSeconds);
+    const seconds = rawSeconds === -1 ? -1 : Math.max(4, Math.min(15, rawSeconds || 5));
     const resolution = normalizeCreatorVideoResolution(config.vquality);
+    let imageIndex = 0;
     const referencesManifest = files.map((file) => {
         const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image";
-        const role = kind === "video" ? "reference_video" : kind === "audio" ? "reference_audio" : "reference_image";
+        const ordinaryRole = kind === "video" ? "reference_video" : kind === "audio" ? "reference_audio" : "reference_image";
+        const role = kind === "image" ? imageRoles[imageIndex++] : ordinaryRole;
         return { name: file.name, mimeType: file.type, size: file.size, kind, role };
     });
-    const supabase = createClient();
-    const draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: crypto.randomUUID() });
-    for (let index = 0; index < files.length; index += 1) {
-        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
-        if (upload.error) throw upload.error;
+    let draft: Awaited<ReturnType<typeof createVideoDraft>>;
+    try {
+        draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: crypto.randomUUID() });
+    } catch (error) {
+        throw new Error(`视频草稿创建失败：${error instanceof Error ? error.message : "网络请求失败"}`);
     }
-    await finalizeVideoUploads(draft.task.id, draft.uploadPaths);
-    const immediate = await confirmVideoTask(draft.task.id);
+    for (let index = 0; index < files.length; index += 1) {
+        try {
+            const upload = await supabaseUploadVideoReference(draft.task.id, draft.uploadPaths[index], files[index]);
+            if (upload.error) throw upload.error;
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : "网络请求失败";
+            throw new Error(`参考素材上传失败（${files[index].name}）：${detail}`);
+        }
+    }
+    try {
+        await finalizeVideoUploads(draft.task.id, draft.uploadPaths);
+    } catch (error) {
+        throw new Error(`参考素材确认失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+    }
+    let immediate: Awaited<ReturnType<typeof confirmVideoTask>>;
+    try {
+        immediate = await confirmVideoTask(draft.task.id);
+    } catch (error) {
+        throw new Error(`视频任务提交失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+    }
     if (immediate.videoUrl) return { url: immediate.videoUrl, mimeType: "video/mp4" };
     for (let attempt = 0; attempt < 60; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const task = (await getVideoTask(draft.task.id)).task;
+        let task: Awaited<ReturnType<typeof getVideoTask>>["task"];
+        try {
+            task = (await getVideoTask(draft.task.id)).task;
+        } catch (error) {
+            throw new Error(`视频任务状态读取失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+        }
         if (task.videoUrl) return { url: task.videoUrl, mimeType: "video/mp4" };
-        if (task.status === "failed" || task.status === "expired") throw new Error("视频生成失败，请查看历史任务");
+        if (task.status === "failed" || task.status === "expired") throw new Error(task.error || "视频生成失败，请查看历史任务");
         await new Promise((resolve) => setTimeout(resolve, 4000));
     }
     throw new Error("视频生成超时，请稍后重试");
 }
 
+async function supabaseUploadVideoReference(taskId: string, path: string, file: File) {
+    const supabase = createClient();
+    try {
+        const direct = await supabase.storage.from("creator-assets").upload(path, file, { upsert: false, contentType: file.type });
+        if (!direct.error) return direct;
+    } catch {
+        // Fall through to the same-origin server upload. This covers browsers or
+        // deployments where the Supabase Storage CORS preflight is unavailable.
+    }
+    await uploadVideoReference(taskId, path, file);
+    return { data: { path }, error: null };
+}
 function normalizeCreatorVideoResolution(value: string) {
     const normalized = String(value || "720").trim().toLowerCase();
     if (normalized === "4k") return "4K";
@@ -249,7 +315,9 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     }
     assertSeedanceVideoReferences(videoReferences);
     assertSeedanceAudioReferences(audioReferences);
-    const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
+    const mode = normalizedVideoReferenceMode(config);
+    assertVideoReferenceMode(mode, Math.min(references.length, SEEDANCE_REFERENCE_LIMITS.images), Math.min(videoReferences.length, SEEDANCE_REFERENCE_LIMITS.videos), Math.min(audioReferences.length, SEEDANCE_REFERENCE_LIMITS.audios));
+    const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences, mode);
     if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
     const payload = {
         model: modelOptionName(model),
@@ -309,12 +377,15 @@ function seedanceApiUrl(config: AiConfig, taskId?: string) {
     return buildApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
 }
 
-async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
+async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], mode: VideoReferenceMode = normalizedVideoReferenceMode(config)) {
     const content: Array<Record<string, unknown>> = [];
     const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
     if (text) content.push({ type: "text", text });
-    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
-        content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(config, image) }, role: "reference_image" });
+    const imageInputs = references.slice(0, SEEDANCE_REFERENCE_LIMITS.images);
+    const imageRoles = assertVideoReferenceMode(mode, imageInputs.length, videoReferences.length, audioReferences.length);
+    for (let index = 0; index < imageInputs.length; index += 1) {
+        const image = imageInputs[index];
+        content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(config, image) }, role: imageRoles[index] });
     }
     for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
         content.push({ type: "video_url", video_url: { url: await resolveSeedanceVideoUrl(video) }, role: "reference_video" });

@@ -6,7 +6,7 @@ import {
   createWetokenVideoTask,
   getWetokenVideoTask,
 } from '../../lib/ai/video';
-import { validateVideoDraftInput } from '../../lib/creator/video';
+import { validateVideoDraftInput, videoImageRoles } from '../../lib/creator/video';
 
 const originalKey = process.env.WETOKEN_API_KEY;
 const originalBase = process.env.WETOKEN_BASE_URL;
@@ -30,6 +30,12 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
   assert.deepEqual(VIDEO_MODELS.map((model) => model.filterOff), [
     false, true, false, true, false, true,
   ]);
+});
+
+test('video reference mode assigns ordinary and first/last-frame roles', () => {
+  assert.deepEqual(videoImageRoles('reference', 3), ['reference_image', 'reference_image', 'reference_image']);
+  assert.deepEqual(videoImageRoles('first_last', 2), ['first_frame', 'last_frame']);
+  assert.throws(() => videoImageRoles('first_last', 3), /最多需要 2 张图片/);
 });
 
 test('Seedance request maps text and reference media roles', () => {

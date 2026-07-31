@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getWetokenVideoTask } from '@/lib/ai/video';
 import {
   assertOwnedReferencePath,
+  referencePathFor,
   validateCompletedReferencePaths,
   validateStoredVideoDraftRequest,
   type VideoReferenceManifest,
@@ -9,6 +10,7 @@ import {
 import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 
 export const runtime = 'nodejs';
@@ -166,6 +168,39 @@ async function pollTask(
   return update.data as CreatorVideoTask;
 }
 
+export async function POST(req: Request, { params }: RouteContext) {
+  try {
+    const context = await creatorContext();
+    if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
+    const task = await loadOwnedTask(context, params.id);
+    if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
+    if (task.status !== 'draft') return response('当前任务已经确认，不能上传参考素材', 'VIDEO_TASK_NOT_DRAFT', 409);
+    const form = await req.formData();
+    const path = typeof form.get('path') === 'string' ? String(form.get('path')) : '';
+    const file = form.get('file');
+    if (!(file instanceof File) || !path) return response('参考素材上传参数无效', 'INVALID_UPLOAD', 400);
+    const validated = validateStoredVideoDraftRequest(task.model, task.request);
+    const manifest = validated.references;
+    const expectedPaths = manifest.map((reference, index) => referencePathFor(context.user.id, task.id, index, reference.mimeType));
+    const index = expectedPaths.indexOf(path);
+    if (index < 0) return response('参考素材上传路径不匹配', 'INVALID_UPLOAD_PATH', 400);
+    const expected = manifest[index];
+    if (file.type !== expected.mimeType || file.size !== expected.size) return response('参考素材文件与草稿不匹配', 'INVALID_UPLOAD_FILE', 400);
+    const body = new Blob([await file.arrayBuffer()], { type: file.type });
+    let upload = await context.supabase.storage.from('creator-assets').upload(path, body, { upsert: false, contentType: file.type });
+    if (upload.error) {
+      try {
+        upload = await createAdminClient().storage.from('creator-assets').upload(path, body, { upsert: false, contentType: file.type });
+      } catch (error) {
+        console.error('[creator video server upload]', error);
+      }
+    }
+    if (upload.error) return response('参考素材上传失败，请稍后重试', 'VIDEO_REFERENCE_UPLOAD_FAILED', 502);
+    return NextResponse.json({ ok: true, path });
+  } catch (error: unknown) {
+    return serverError(error, 'VIDEO_REFERENCE_UPLOAD_FAILED', '参考素材上传失败，请稍后重试');
+  }
+}
 export async function GET(_req: Request, { params }: RouteContext) {
   try {
     const context = await creatorContext();

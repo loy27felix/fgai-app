@@ -16,6 +16,18 @@ const AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/mp4", "audio/wav"
 const RATIOS = new Set(["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"]);
 
 export type CreatorVideoSkill = { name: string; content: string };
+export type VideoReferenceMode = "reference" | "first_last";
+export type VideoImageRole = "first_frame" | "last_frame" | "reference_image";
+
+/** Keep browser and server manifests aligned with the provider's two image modes. */
+export function videoImageRoles(mode: VideoReferenceMode, imageCount: number): VideoImageRole[] {
+  if (!Number.isInteger(imageCount) || imageCount < 0) throw new Error("invalid image reference count");
+  if (mode === "first_last") {
+    if (imageCount > 2) throw new Error("首尾帧模式最多需要 2 张图片");
+    return Array.from({ length: imageCount }, (_, index) => index === 0 ? "first_frame" : "last_frame");
+  }
+  return Array.from({ length: imageCount }, () => "reference_image");
+}
 export type VideoReferenceKind = "image" | "video" | "audio";
 export type VideoReferenceRole = "first_frame" | "last_frame" | "reference_image" | "reference_video" | "reference_audio";
 export type VideoReferenceManifest = {

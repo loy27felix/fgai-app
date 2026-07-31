@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
+import type { VideoReferenceMode } from "@/lib/creator/video";
 
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -41,6 +42,7 @@ export type AiConfig = {
     vquality: string;
     videoGenerateAudio: string;
     videoWatermark: string;
+    videoReferenceMode: VideoReferenceMode;
     systemPrompt: string;
     reasoningEffort: ReasoningEffort;
     models: string[];
@@ -111,6 +113,7 @@ export const defaultConfig: AiConfig = {
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
+    videoReferenceMode: "reference",
     systemPrompt: "",
     reasoningEffort: "auto",
     models: FG_BUILTIN_MODELS.map((model) => model.name),
@@ -259,6 +262,7 @@ export const useConfigStore = create<ConfigStore>()(
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
+                        videoReferenceMode: config.videoReferenceMode === "first_last" ? "first_last" : "reference",
                         canvasImageCount: config.canvasImageCount || "3",
                     },
                 };
