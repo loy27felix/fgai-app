@@ -23,6 +23,16 @@ test('AI creator is an additive project-independent workspace', () => {
   assert.match(projectBoard, /href:\s*"\/creator"|"\/creator"/);
 });
 
+test('infinite video canvas treats connected images as reference media', () => {
+  const canvas = fs.readFileSync(
+    path.join(process.cwd(), 'components/creator/InfiniteCanvasWorkspace.tsx'),
+    'utf8',
+  );
+
+  assert.match(canvas, /role: file\.type\.startsWith\("video\/"\) \? "reference_video" : "reference_image"/);
+  assert.doesNotMatch(canvas, /index === 0 \? "first_frame" : "reference_image"/);
+});
+
 test('standalone video workspace exposes continuous duration and readable controls', () => {
   const video = fs.readFileSync(
     path.join(process.cwd(), 'components/creator/CreatorVideoWorkspace.tsx'),

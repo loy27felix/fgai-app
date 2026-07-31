@@ -109,6 +109,9 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   if (audioCount > MAX_CREATOR_VIDEO_FILE_REFERENCES) throw new Error("参考音频最多 3 个");
   if (firstFrameCount > 1) throw new Error("首帧图片最多 1 张");
   if (lastFrameCount > 1) throw new Error("尾帧图片最多 1 张");
+  const hasFrameImage = firstFrameCount > 0 || lastFrameCount > 0;
+  const referenceMediaCount = imageCount - firstFrameCount - lastFrameCount + videoCount + audioCount;
+  if (hasFrameImage && referenceMediaCount > 0) throw new Error("首帧/尾帧不能与参考图、参考视频或参考音频混用");
   if (total > MAX_CREATOR_VIDEO_TOTAL_BYTES) throw new Error("参考素材总大小不能超过 180MB");
   if (audioCount > 0 && imageCount === 0 && videoCount === 0) throw new Error("音频不能单独作为参考");
   return {

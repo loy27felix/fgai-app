@@ -65,6 +65,9 @@ export function buildSeedanceRequest(input: SeedanceInput) {
   if (audios.length > 3) throw new Error('参考音频最多 3 个');
   if (images.filter((item) => item.role === 'first_frame').length > 1) throw new Error('首帧图片最多 1 张');
   if (images.filter((item) => item.role === 'last_frame').length > 1) throw new Error('尾帧图片最多 1 张');
+  const hasFrameImage = images.some((item) => item.role === 'first_frame' || item.role === 'last_frame');
+  const referenceMediaCount = images.filter((item) => item.role === 'reference_image').length + videos.length + audios.length;
+  if (hasFrameImage && referenceMediaCount > 0) throw new Error('首帧/尾帧不能与参考图、参考视频或参考音频混用');
 
   const content: any[] = [];
   if (input.prompt.trim()) content.push({ type: 'text', text: input.prompt.trim() });

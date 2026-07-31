@@ -270,7 +270,7 @@ export default function InfiniteCanvasWorkspace({ userEmail, initialKind = "imag
         await finalizeImageUploads(draft.task.id, draft.uploadPaths);
         setPending({ kind: "image", nodeId: output.id, taskId: draft.task.id, prompt: text, model, references: files.length });
       } else {
-        const references: VideoReferenceManifest[] = files.map((file, index) => ({ name: file.name, mimeType: file.type, size: file.size, kind: file.type.startsWith("video/") ? "video" : "image", role: file.type.startsWith("video/") ? "reference_video" : index === 0 ? "first_frame" : "reference_image" } as VideoReferenceManifest));
+        const references: VideoReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size, kind: file.type.startsWith("video/") ? "video" : "image", role: file.type.startsWith("video/") ? "reference_video" : "reference_image" } as VideoReferenceManifest));
         const spec = getVideoModel(model);
         const draft = await createVideoDraft({ canvasId: null, nodeId: output.id, prompt: text, model, references, duration: Math.max(4, Math.min(15, Number.isFinite(duration) ? duration : 5)), ratio, resolution: spec?.resolutions?.[0] || "720p", watermark: false, generateAudio: false, skill: null, idempotencyKey: crypto.randomUUID() });
         for (let index = 0; index < files.length; index += 1) { const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }

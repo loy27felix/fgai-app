@@ -6,6 +6,7 @@ import {
   createWetokenVideoTask,
   getWetokenVideoTask,
 } from '../../lib/ai/video';
+import { validateVideoDraftInput } from '../../lib/creator/video';
 
 const originalKey = process.env.WETOKEN_API_KEY;
 const originalBase = process.env.WETOKEN_BASE_URL;
@@ -31,13 +32,12 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
   ]);
 });
 
-test('Seedance request maps text and every reference role', () => {
+test('Seedance request maps text and reference media roles', () => {
   assert.deepEqual(buildSeedanceRequest({
     model: 'doubao-seedance-2-0',
     prompt: 'cinematic move',
     references: [
-      { type: 'image', url: 'https://example.com/first.jpg', role: 'first_frame' },
-      { type: 'image', url: 'https://example.com/last.jpg', role: 'last_frame' },
+      { type: 'image', url: 'https://example.com/ref.jpg', role: 'reference_image' },
       { type: 'video', url: 'https://example.com/ref.mp4', role: 'reference_video' },
       { type: 'audio', url: 'https://example.com/ref.mp3', role: 'reference_audio' },
     ],
@@ -50,8 +50,7 @@ test('Seedance request maps text and every reference role', () => {
     model: 'doubao-seedance-2-0',
     content: [
       { type: 'text', text: 'cinematic move' },
-      { type: 'image_url', image_url: { url: 'https://example.com/first.jpg' }, role: 'first_frame' },
-      { type: 'image_url', image_url: { url: 'https://example.com/last.jpg' }, role: 'last_frame' },
+      { type: 'image_url', image_url: { url: 'https://example.com/ref.jpg' }, role: 'reference_image' },
       { type: 'video_url', video_url: { url: 'https://example.com/ref.mp4' }, role: 'reference_video' },
       { type: 'audio_url', audio_url: { url: 'https://example.com/ref.mp3' }, role: 'reference_audio' },
     ],
@@ -63,6 +62,25 @@ test('Seedance request maps text and every reference role', () => {
   });
 });
 
+test('Seedance request maps first and last frame roles', () => {
+  const request = buildSeedanceRequest({
+    model: 'doubao-seedance-2-0',
+    prompt: 'cinematic move',
+    references: [
+      { type: 'image', url: 'https://example.com/first.jpg', role: 'first_frame' },
+      { type: 'image', url: 'https://example.com/last.jpg', role: 'last_frame' },
+    ],
+    duration: 5,
+    ratio: '16:9',
+    resolution: '720p',
+    watermark: false,
+    generateAudio: true,
+  });
+  assert.deepEqual(request.content.slice(1), [
+    { type: 'image_url', image_url: { url: 'https://example.com/first.jpg' }, role: 'first_frame' },
+    { type: 'image_url', image_url: { url: 'https://example.com/last.jpg' }, role: 'last_frame' },
+  ]);
+});
 test('Seedance validation rejects invalid combinations and model capabilities', () => {
   const base = {
     prompt: 'x', references: [], duration: 5, ratio: '16:9',
@@ -77,6 +95,31 @@ test('Seedance validation rejects invalid combinations and model capabilities', 
     prompt: '',
     references: [{ type: 'audio', url: 'https://example.com/a.mp3', role: 'reference_audio' }],
   }), /音频不能单独作为参考/);
+  assert.throws(() => buildSeedanceRequest({
+    ...base,
+    model: 'doubao-seedance-2-0',
+    references: [
+      { type: 'image', url: 'https://example.com/first.jpg', role: 'first_frame' },
+      { type: 'image', url: 'https://example.com/ref.jpg', role: 'reference_image' },
+    ],
+  }), /首帧\/尾帧不能与参考图/);
+});
+
+
+test('creator video drafts reject mixed frame and reference media roles', () => {
+  assert.throws(() => validateVideoDraftInput({
+    prompt: 'x',
+    model: 'doubao-seedance-2-0',
+    references: [
+      { name: 'first.jpg', mimeType: 'image/jpeg', size: 100, kind: 'image', role: 'first_frame' },
+      { name: 'ref.jpg', mimeType: 'image/jpeg', size: 100, kind: 'image', role: 'reference_image' },
+    ],
+    duration: 5,
+    ratio: '16:9',
+    resolution: '720p',
+    watermark: false,
+    generateAudio: false,
+  }), /首帧\/尾帧不能与参考图/);
 });
 
 test('video client creates a task on the native Wetoken endpoint', async () => {
