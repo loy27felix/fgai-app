@@ -57,7 +57,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
-                className="z-[1200] w-80 max-w-[calc(100vw-24px)] rounded-xl border border-border/70 bg-popover p-1 shadow-xl"
+                className="fg-reference-portal z-[1200] w-80 max-w-[calc(100vw-24px)] rounded-xl border border-border/70 bg-popover p-1 shadow-xl"
                 position="popper"
                 align="start"
                 side="bottom"
@@ -89,9 +89,9 @@ function emptyModelLabel(config: AiConfig, capability?: ModelCapability) {
 
 function ModelLabel({ config, model }: { config: AiConfig; model: string }) {
     return (
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2" title={modelOptionLabel(config, model)}>
             <ModelIcon model={model} />
-            <span className="truncate">{modelOptionLabel(config, model)}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-all text-left leading-5">{modelOptionLabel(config, model)}</span>
         </span>
     );
 }

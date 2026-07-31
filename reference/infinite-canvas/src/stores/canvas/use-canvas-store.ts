@@ -24,6 +24,7 @@ type CanvasStore = {
     hydrated: boolean;
     projects: CanvasProject[];
     createProject: (title?: string) => string;
+    duplicateProject: (id: string, title?: string) => string | null;
     importProject: (project: Partial<CanvasProject>) => string;
     openProject: (id: string) => CanvasProject | null;
     renameProject: (id: string, title: string) => void;
@@ -82,6 +83,57 @@ export const useCanvasStore = create<CanvasStore>()(
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
                 return id;
+            },
+            duplicateProject: (id, title) => {
+                const source = get().projects.find((item) => item.id === id);
+                if (!source) return null;
+                const nodeIdMap = new Map(source.nodes.map((node) => [node.id, nanoid()]));
+                const remapId = (value?: string | null) => (value && nodeIdMap.get(value)) || value || undefined;
+                const remapText = (value?: string) => {
+                    if (!value) return value;
+                    let next = value;
+                    nodeIdMap.forEach((nextId, previousId) => {
+                        next = next.replaceAll(previousId, nextId);
+                    });
+                    return next;
+                };
+                const nodes = source.nodes.map((node) => ({
+                    ...node,
+                    id: nodeIdMap.get(node.id) || nanoid(),
+                    title: `${node.title || "未命名节点"} 副本`,
+                    position: { x: node.position.x + 48, y: node.position.y + 48 },
+                    metadata: node.metadata
+                        ? {
+                              ...node.metadata,
+                              composerContent: remapText(node.metadata.composerContent),
+                              groupId: remapId(node.metadata.groupId),
+                              batchRootId: remapId(node.metadata.batchRootId),
+                              batchChildIds: node.metadata.batchChildIds?.map((childId) => remapId(childId) || childId),
+                              primaryImageId: remapId(node.metadata.primaryImageId),
+                          }
+                        : undefined,
+                }));
+                const connections = source.connections.map((connection) => ({
+                    ...connection,
+                    id: nanoid(),
+                    fromNodeId: nodeIdMap.get(connection.fromNodeId) || connection.fromNodeId,
+                    toNodeId: nodeIdMap.get(connection.toNodeId) || connection.toNodeId,
+                }));
+                const now = new Date().toISOString();
+                const project: CanvasProject = {
+                    ...source,
+                    id: nanoid(),
+                    title: title?.trim() || `${source.title || "未命名画布"} 副本`,
+                    createdAt: now,
+                    updatedAt: now,
+                    nodes,
+                    connections,
+                    chatSessions: source.chatSessions.map((session) => ({ ...session, id: nanoid() })),
+                    activeChatId: null,
+                    viewport: { ...source.viewport },
+                };
+                set((state) => ({ projects: [project, ...state.projects] }));
+                return project.id;
             },
             importProject: (source) => {
                 const now = new Date().toISOString();

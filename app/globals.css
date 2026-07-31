@@ -332,6 +332,40 @@ body {
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Reference canvas controls stay readable at desktop and do not hide long model names. */
+.fg-reference-portal {
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --border: oklch(0.922 0 0);
+}
+.dark .fg-reference-portal {
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --border: oklch(1 0 0 / 10%);
+}
+.fg-reference-root .canvas-model-picker-node {
+    width: clamp(13rem, 24vw, 22rem);
+    max-width: min(22rem, calc(100vw - 8rem));
+}
+.fg-reference-root .canvas-model-picker-node .canvas-model-picker-text {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+}
+@media (max-width: 760px) {
+    .fg-reference-root .canvas-model-picker-node {
+        width: min(17rem, 48vw);
+        min-width: 0;
+    }
+}
+.dark .fg-reference-root .text-stone-500 { color: #a8a29e !important; }
+.dark .fg-reference-root .text-stone-600 { color: #d6d3d1 !important; }
+.dark .fg-reference-root .text-stone-700 { color: #e7e5e4 !important; }
+.dark .fg-reference-root .bg-white { background-color: #1f1d1a !important; }
 @layer base {
     .fg-reference-root,
     .fg-reference-root * {

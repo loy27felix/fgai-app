@@ -17,20 +17,22 @@ import CreatorUsageLedger from "@/components/creator/CreatorUsageLedger";
 
 function ReferenceRoutes() {
   return (
-    <UserLayout>
-      <AnalyticsTracker />
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/canvas" element={<CanvasPage />} />
-        <Route path="/canvas/:id" element={<CanvasProjectPage />} />
-        <Route path="/image" element={<ImagePage />} />
-        <Route path="/video" element={<VideoPage />} />
-        <Route path="/prompts" element={<PromptsPage />} />
-        <Route path="/assets" element={<AssetsPage />} />
-        <Route path="/config" element={<ConfigPage />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </UserLayout>
+    <div className="fg-reference-root h-full min-h-0">
+      <UserLayout>
+        <AnalyticsTracker />
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/canvas" element={<CanvasPage />} />
+          <Route path="/canvas/:id" element={<CanvasProjectPage />} />
+          <Route path="/image" element={<ImagePage />} />
+          <Route path="/video" element={<VideoPage />} />
+          <Route path="/prompts" element={<PromptsPage />} />
+          <Route path="/assets" element={<AssetsPage />} />
+          <Route path="/config" element={<ConfigPage />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </UserLayout>
+    </div>
   );
 }
 

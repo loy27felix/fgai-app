@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { BookOpen, Bot, CopyPlus, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
 
 import { UserStatusActions } from "@/reference/infinite-canvas/src/components/layout/user-status-actions";
@@ -21,6 +21,7 @@ export function CanvasTopBar({
     onHome,
     onProjects,
     onCreateProject,
+    onDuplicateProject,
     onDeleteProject,
     onExportProject,
     onImportImage,
@@ -43,6 +44,7 @@ export function CanvasTopBar({
     onHome: () => void;
     onProjects: () => void;
     onCreateProject: () => void;
+    onDuplicateProject: () => void;
     onDeleteProject: () => void;
     onExportProject: () => void;
     onImportImage: () => void;
@@ -93,6 +95,7 @@ export function CanvasTopBar({
                                 { key: "projects", icon: <Images className="size-4" />, label: "我的画布", onClick: onProjects },
                                 { type: "divider" },
                                 { key: "new", icon: <Plus className="size-4" />, label: "新建画布", onClick: onCreateProject },
+                                { key: "duplicate", icon: <CopyPlus className="size-4" />, label: "创建画布副本", onClick: onDuplicateProject },
                                 { key: "delete", danger: true, icon: <Trash2 className="size-4" />, label: "删除当前画布", onClick: onDeleteProject },
                                 { type: "divider" },
                                 { key: "import", icon: <Upload className="size-4" />, label: "导入资产", onClick: onImportImage },

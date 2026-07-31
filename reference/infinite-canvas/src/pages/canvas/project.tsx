@@ -193,6 +193,7 @@ function InfiniteCanvasPage() {
     const cleanupAssetImages = useAssetStore((state) => state.cleanupImages);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const createProject = useCanvasStore((state) => state.createProject);
+    const duplicateProject = useCanvasStore((state) => state.duplicateProject);
     const openProject = useCanvasStore((state) => state.openProject);
     const updateProject = useCanvasStore((state) => state.updateProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
@@ -806,7 +807,7 @@ function InfiniteCanvasPage() {
         const next: CanvasNodeData = {
             ...source,
             id,
-            title: `${source.title} Copy`,
+            title: `${source.title} 副本`,
             position: { x: source.position.x + 36, y: source.position.y + 36 },
         };
 
@@ -859,7 +860,7 @@ function InfiniteCanvasPage() {
             return {
                 ...node,
                 id,
-                title: node.title.endsWith(" Copy") ? node.title : `${node.title} Copy`,
+                title: node.title.endsWith(" 副本") ? node.title : `${node.title} 副本`,
                 position: {
                     x: node.position.x + dx,
                     y: node.position.y + dy,
@@ -988,6 +989,13 @@ function InfiniteCanvasPage() {
         const id = createProject(`无限画布 ${useCanvasStore.getState().projects.length + 1}`);
         navigate(`/canvas/${id}`);
     }, [createProject, navigate]);
+
+    const duplicateCurrentProject = useCallback(() => {
+        const id = duplicateProject(projectId);
+        if (!id) return message.error("未找到当前画布");
+        message.success("已创建画布副本");
+        navigate(`/canvas/${id}`);
+    }, [duplicateProject, message, navigate, projectId]);
 
     const deleteCurrentProject = useCallback(() => {
         deleteProjects([projectId]);
@@ -2786,6 +2794,7 @@ function InfiniteCanvasPage() {
                     onHome={() => navigate("/")}
                     onProjects={() => navigate("/canvas")}
                     onCreateProject={createAndOpenProject}
+                    onDuplicateProject={duplicateCurrentProject}
                     onDeleteProject={deleteCurrentProject}
                     onExportProject={exportCurrentProject}
                     onImportImage={() => handleUploadRequest()}
@@ -2943,6 +2952,7 @@ function InfiniteCanvasPage() {
                     onReversePrompt={createImageReversePromptNodes}
                     onRetry={(node) => void handleRetryNode(node)}
                     onToggleFreeResize={(node) => toggleNodeFreeResize(node.id)}
+                    onDuplicate={(node) => duplicateNode(node.id)}
                     onDelete={(node) => deleteNodes(new Set([node.id]))}
                 />
 
