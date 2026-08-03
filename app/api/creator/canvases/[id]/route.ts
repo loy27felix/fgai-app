@@ -47,6 +47,23 @@ async function creatorContext() {
   return { supabase, user, workspace };
 }
 
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  try {
+    const context = await creatorContext();
+    if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
+    const { data, error } = await context.supabase
+      .from('creator_canvases')
+      .select('*')
+      .eq('id', params.id)
+      .eq('workspace_id', context.workspace.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ error: '画布不存在' }, { status: 404 });
+    return NextResponse.json({ canvas: data });
+  } catch (error: unknown) {
+    return serverError(error, 'CANVAS_FAILED', '画布读取失败，请稍后重试');
+  }
+}
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const context = await creatorContext();

@@ -29,7 +29,9 @@ export function GenerationPriceBadge({ kind, model, size = "", count = 1, durati
     const units = kind === "image" ? Math.max(1, Math.floor(Number(count) || 1)) : 1;
     const totalUsd = pricing ? pricing.estimatedCostUsd * units : null;
     const totalCny = totalUsd === null ? null : totalUsd * getUsdToCnyRate();
-    const unitLabel = kind === "image" ? (units > 1 ? `${units} 张` : "1 张") : `${Math.max(0, Math.floor(Number(duration) || 0))} 秒`;
+    const videoSeconds = Math.max(0, Math.floor(Number(duration) || 0));
+    const perSecondCny = kind === "video" && totalCny !== null && videoSeconds > 0 ? totalCny / videoSeconds : null;
+    const unitLabel = kind === "image" ? (units > 1 ? String(units) + " 张" : "1 张") : String(videoSeconds) + " 秒";
 
     return (
         <div className={`inline-flex min-w-0 items-center gap-2 rounded-full border px-3 py-2 text-xs ${className}`} style={{ borderColor: "rgba(120,113,108,.28)", color: "var(--foreground, #292524)", background: "color-mix(in srgb, var(--card, #fff) 78%, transparent)" }} title={pricing ? `按已确认价格预估：${pricing.snapshot.note || ""}` : "该模型组合暂无已确认价格；实际供应商扣费仍会写入用量账本"}>
@@ -39,7 +41,7 @@ export function GenerationPriceBadge({ kind, model, size = "", count = 1, durati
             ) : (
                 <span className="truncate">
                     预计 <strong className="font-semibold">¥{totalCny.toFixed(2)}</strong>
-                    <span className="ml-1 opacity-60">(${totalUsd!.toFixed(4)} · {unitLabel})</span>
+                    <span className="ml-1 opacity-60">(${totalUsd!.toFixed(4)} · {unitLabel}{perSecondCny === null ? "" : " · ¥" + perSecondCny.toFixed(2) + "/秒"})</span>
                 </span>
             )}
         </div>

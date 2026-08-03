@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { localForageStorage } from "@/reference/infinite-canvas/src/lib/localforage-storage";
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
+import { readGenerationLogStorageSnapshot } from "@/reference/infinite-canvas/src/services/generation-storage";
 
 export type AssetKind = "text" | "image" | "video";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
@@ -88,8 +89,9 @@ export const useAssetStore = create<AssetStore>()(
             cleanupImages: (extra) => {
                 window.setTimeout(async () => {
                     const { useCanvasStore } = await import("@/reference/infinite-canvas/src/stores/canvas/use-canvas-store");
-                    await cleanupUnusedImages({ assets: get().assets, projects: useCanvasStore.getState().projects, extra });
-                    await cleanupUnusedMedia({ assets: get().assets, projects: useCanvasStore.getState().projects, extra });
+                    const generationLogs = await readGenerationLogStorageSnapshot();
+                    await cleanupUnusedImages({ assets: get().assets, projects: useCanvasStore.getState().projects, generationLogs, extra });
+                    await cleanupUnusedMedia({ assets: get().assets, projects: useCanvasStore.getState().projects, generationLogs, extra });
                 }, 0);
             },
         }),

@@ -3,8 +3,8 @@
  *
  * The provider does not consistently return a billable amount in generation
  * responses, so the small catalog below intentionally contains only prices
- * that have been observed in the owner's Wetoken billing export. Unknown
- * combinations stay unpriced instead of being guessed.
+ * observed in the owner's Wetoken billing export or prorated from an
+ * observed anchor. Unknown model/resolution combinations stay unpriced.
  */
 
 export type MediaPrice = {
@@ -56,9 +56,11 @@ export function estimateImagePrice(model: string, resolution: string): MediaPric
 }
 
 /**
- * Returns a price only for the two Seedance billing rows supplied by the
- * owner. This deliberately leaves other duration/resolution/model pairs as
- * pending rather than extrapolating a provider price.
+ * Returns a price for the captured Seedance rows. The provider billing export
+ * gave us two duration anchors (720p/6s and 4K/15s), so durations between the
+ * supported 4–15 second range are prorated from the matching anchor. We keep
+ * other models/resolutions unknown rather than pretending that they share the
+ * same tariff; the supported duration extrapolation is marked as a local estimate.
  */
 export function estimateLedgerPrice(input: {
   kind: 'text' | 'image' | 'video';
@@ -81,31 +83,49 @@ export function estimateVideoPrice(input: {
   resolution: string;
 }): MediaPrice | null {
   const resolution = normalizedResolution(input.resolution);
-  if (input.model === 'doubao-seedance-2-0' && input.duration === 15 && resolution === '4k') {
+  const duration = Math.floor(Number(input.duration));
+  if (!Number.isFinite(duration) || duration < 4 || duration > 15) return null;
+
+  const anchor =
+    input.model === 'doubao-seedance-2-0' && resolution === '4k'
+      ? { seconds: 15, cost: 11.696721, note: 'Observed 4K / 15s Seedance 2.0 charge.' }
+      : resolution === '720p' && (input.model === 'doubao-seedance-2-0' || input.model === 'doubao-seedance-2-0-filter-off')
+        ? { seconds: 6, cost: 0.913501, note: 'Observed 720p / 6s Seedance 2.0 charge.' }
+        : null;
+  if (!anchor) return null;
+
+  // Preserve the observed row exactly; all other durations are clearly
+  // labelled as a local proration so the ledger never presents it as a
+  // provider-returned charge.
+  if (duration === anchor.seconds) {
     return snapshot({
       model: input.model,
       unit: 'per_generation',
-      cost: 11.696721,
+      cost: anchor.cost,
       resolution: input.resolution,
-      durationSeconds: input.duration,
-      note: 'Observed 4K / 15s Seedance 2.0 charge.',
+      durationSeconds: duration,
+      note: anchor.note,
     });
   }
-  if (
-    input.duration === 6
-    && resolution === '720p'
-    && (input.model === 'doubao-seedance-2-0' || input.model === 'doubao-seedance-2-0-filter-off')
-  ) {
-    return snapshot({
+
+  const cost = Number(((anchor.cost / anchor.seconds) * duration).toFixed(6));
+  return {
+    estimatedCostUsd: cost,
+    snapshot: {
+      currency: 'USD',
+      source: BILLING_SOURCE,
+      captured_at: BILLING_SNAPSHOT_DATE,
+      pricing_basis: 'per_generation',
       model: input.model,
-      unit: 'per_generation',
-      cost: 0.913501,
       resolution: input.resolution,
-      durationSeconds: input.duration,
-      note: 'Observed 720p / 6s Seedance 2.0 charge.',
-    });
-  }
-  return null;
+      duration_seconds: duration,
+      unit_cost_usd: cost,
+      anchor_duration_seconds: anchor.seconds,
+      anchor_cost_usd: anchor.cost,
+      derivation: 'linear_proration_from_observed_anchor',
+      note: `按已观测的 ${input.resolution}/${anchor.seconds}s 账单锚点线性估算；实际扣费以 Wetoken 账单为准。`,
+    },
+  };
 }
 
 function numericMoney(value: unknown): number | undefined {

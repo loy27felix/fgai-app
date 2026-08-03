@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CREATOR_USAGE_UPDATED_EVENT } from '@/lib/creator/usage-events';
+import { useAgentStore } from '@/reference/infinite-canvas/src/stores/use-agent-store';
 
 type UsageRecord = {
   id: string;
@@ -119,6 +120,10 @@ export default function CreatorUsageLedger() {
   }, [open, refresh]);
 
   const latest = data.records[0];
+  const agentPanelOpen = useAgentStore((state) => state.panelOpen);
+  const agentPanelClosing = useAgentStore((state) => state.panelClosing);
+  const agentPanelWidth = useAgentStore((state) => state.width);
+  const agentPanelVisible = agentPanelOpen || agentPanelClosing;
   const usdToCnyRate = data.fx?.rate || 6.77;
   const summaryLabel = useMemo(() => {
     if (!data.totals.calls) return '暂无生成记录';
@@ -131,7 +136,7 @@ export default function CreatorUsageLedger() {
         type="button"
         onClick={() => setOpen(true)}
         title="查看自己的生成与费用记录"
-        style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 80, display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 11px', border: '1px solid var(--stroke-2, rgba(120,130,150,.3))', borderRadius: 999, background: 'var(--panel-solid, #fff)', color: 'var(--text, #111)', boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer', fontSize: 11 }}
+        style={{ position: 'fixed', right: agentPanelVisible ? Math.max(20, agentPanelWidth + 20) : 20, bottom: 20, zIndex: 80, display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 11px', border: '1px solid var(--stroke-2, rgba(120,130,150,.3))', borderRadius: 999, background: 'var(--panel-solid, #fff)', color: 'var(--text, #111)', boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer', fontSize: 11, transition: 'right 220ms ease, opacity 160ms ease' }}
       >
         <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--accent, #4ade80)' }} />
         用量记录

@@ -15,6 +15,7 @@ import {
   updateVideoUsageBestEffort,
 } from '@/lib/usage/ledger';
 import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing';
+import { persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -163,7 +164,7 @@ async function viewTask(context: NonNullable<Awaited<ReturnType<typeof creatorCo
   const output = asRecord(task.output);
   return {
     ...task,
-    videoUrl: typeof output.video_url === 'string' ? output.video_url : null,
+    videoUrl: await signedVideoOutputUrl(context, output, 300),
     referenceUrls,
   };
 }
@@ -316,10 +317,11 @@ export async function POST(_req: Request, { params }: RouteContext) {
       const providerData = asRecord(raw.data);
       const providerNestedTask = asRecord(providerData.task);
       const providerContent = asRecord(raw.content || providerData.content || providerNestedTask.content);
-      const output = {
+      let output: Record<string, unknown> = {
         provider_task_id: providerTask.externalTaskId,
         ...(typeof providerContent.video_url === 'string' ? { video_url: providerContent.video_url } : {}),
       };
+      if (providerTask.status === 'succeeded') output = await persistVideoOutput(context, claimed, output);
       let updated: CreatorVideoTask;
       try {
         updated = await updateOwnedTask(context, claimed.id, {

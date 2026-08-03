@@ -1,0 +1,65 @@
+import { NextResponse } from 'next/server';
+
+import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
+import { createClient } from '@/lib/supabase/server';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const SIGNED_URL_TTL_SECONDS = 3600;
+
+function errorResponse(error: string, code: string, status: number) {
+  return NextResponse.json({ error, code }, { status });
+}
+
+function serverError(error: unknown) {
+  console.error('[creator assets route]', error);
+  return errorResponse('资产加载失败，请稍后重试', 'ASSETS_FAILED', 500);
+}
+
+async function creatorContext() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const workspace = await ensureCreatorWorkspace({
+    rpc: async () => supabase.rpc('ensure_creator_workspace'),
+    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+  }, user.id);
+  return { supabase, workspace };
+}
+
+export async function GET() {
+  try {
+    const context = await creatorContext();
+    if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
+    const result = await context.supabase
+      .from('creator_assets')
+      .select('*')
+      .eq('workspace_id', context.workspace.id)
+      .in('kind', ['image', 'video', 'audio', 'document'])
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (result.error) throw result.error;
+    const bucket = context.supabase.storage.from('creator-assets');
+    const assets = await Promise.all((result.data || []).map(async (asset) => {
+      const signed = await bucket.createSignedUrl(asset.storage_path, SIGNED_URL_TTL_SECONDS);
+      return {
+        id: asset.id,
+        kind: asset.kind,
+        name: asset.name,
+        storagePath: asset.storage_path,
+        mimeType: asset.mime_type,
+        width: asset.width,
+        height: asset.height,
+        durationMs: asset.duration_ms,
+        metadata: asset.metadata || {},
+        createdAt: asset.created_at,
+        updatedAt: asset.updated_at,
+        signedUrl: signed.error ? null : signed.data?.signedUrl || null,
+      };
+    }));
+    return NextResponse.json({ assets });
+  } catch (error) {
+    return serverError(error);
+  }
+}

@@ -13,6 +13,7 @@ import {
 import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
+import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -89,16 +90,27 @@ async function taskViews(
   context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
   tasks: CreatorVideoTask[],
 ) {
-  const bucket = context.supabase.storage.from('creator-assets');
+  // Repair only a small recent batch per history read so an old provider URL
+  // cannot trigger a burst of large downloads. Individual task GETs still
+  // repair any older item on demand.
+  const repaired = new Map<string, CreatorVideoTask>();
+  const repairCandidates = tasks.filter((task) => {
+    const output = asRecord(task.output);
+    return task.status === 'succeeded' && typeof output.video_storage_path !== 'string' && typeof output.video_url === 'string';
+  }).slice(0, 4);
+  for (const task of repairCandidates) {
+    repaired.set(task.id, await ensureVideoOutputStored(context, task));
+  }
   return Promise.all(tasks.map(async (task): Promise<CreatorVideoTaskView> => {
-    const referenceUrls = (await Promise.all(taskReferencePaths(task).map(async (path) => {
-      const signed = await bucket.createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+    const durableTask = repaired.get(task.id) || task;
+    const referenceUrls = (await Promise.all(taskReferencePaths(durableTask).map(async (path) => {
+      const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
       return signed.error ? null : signed.data.signedUrl;
     }))).filter((url): url is string => typeof url === 'string');
-    const output = asRecord(task.output);
+    const output = asRecord(durableTask.output);
     return {
-      ...task,
-      videoUrl: typeof output.video_url === 'string' ? output.video_url : null,
+      ...durableTask,
+      videoUrl: await signedVideoOutputUrl(context, output, SIGNED_URL_TTL_SECONDS),
       referenceUrls,
     };
   }));
