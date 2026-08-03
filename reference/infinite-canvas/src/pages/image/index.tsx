@@ -777,6 +777,7 @@ async function readStoredLogs() {
             values.push(value);
         });
         const logs = await Promise.all(values.map(normalizeLog));
+        await Promise.all(logs.map((log) => logStore.setItem(log.id, serializeLog(log))));
         return logs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     } catch {
         return [];
@@ -785,16 +786,10 @@ async function readStoredLogs() {
 
 async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
     const references = await Promise.all(
-        (log.references || []).map(async (item) => ({
-            ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
-        })),
+        (log.references || []).map((item) => localizeImage(item)),
     );
     const images = await Promise.all(
-        (log.images || []).map(async (item) => ({
-            ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
-        })),
+        (log.images || []).map((item) => localizeImage(item)),
     );
     const config = normalizeLogConfig(log);
     return {
@@ -827,6 +822,21 @@ function serializeLog(log: GenerationLog): GenerationLog {
     };
 }
 
+async function localizeImage<T extends { dataUrl: string; storageKey?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>(item: T) {
+    if (item.storageKey) {
+        const localUrl = await resolveImageUrl(item.storageKey, "");
+        if (localUrl) return { ...item, dataUrl: localUrl };
+    }
+    if (!item.storageKey && item.dataUrl) {
+        try {
+            const stored = await uploadImage(item.dataUrl);
+            return { ...item, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+        } catch {
+            // Keep the original URL when local migration is not possible.
+        }
+    }
+    return item;
+}
 function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
     return {
         model: log.config?.model || log.model || "",

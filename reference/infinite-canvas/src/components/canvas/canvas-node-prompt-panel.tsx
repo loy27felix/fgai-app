@@ -61,24 +61,25 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     return (
         <div
             data-canvas-no-zoom
-            className="rounded-2xl border p-3 shadow-2xl backdrop-blur"
+            className="thin-scrollbar max-h-[min(560px,calc(100vh-120px))] overflow-y-auto rounded-[24px] border p-3 shadow-2xl backdrop-blur"
             style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
+            <ReferenceStrip references={mentionReferences} theme={theme} />
             <CanvasPromptChipInput
                 value={prompt}
                 references={mentionReferences}
                 onChange={updatePrompt}
                 onSubmit={submit}
-                className="thin-scrollbar h-40 w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
+                className="thin-scrollbar min-h-[120px] h-[min(190px,28vh)] max-h-[260px] w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
                 style={{ background: "transparent", color: theme.node.text }}
                 placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
             />
 
-            <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
+            <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     {mode === "image" ? (
                         <>
@@ -109,7 +110,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     )}
                 </div>
-                {mode === "image" ? <GenerationPriceBadge kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /> : mode === "video" ? <GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} /> : null}
+                {mode === "image" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /> : mode === "video" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} /> : null}
                 <Button
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
@@ -135,6 +136,28 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     );
 }
 
+function ReferenceStrip({ references, theme }: { references: CanvasResourceReference[]; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    if (!references.length) return null;
+    return (
+        <div
+            className="mb-2 flex min-w-0 items-center gap-2 overflow-x-auto rounded-2xl border px-2.5 py-2"
+            style={{ borderColor: theme.toolbar.border, background: theme.toolbar.activeBg + "66" }}
+            aria-label={"已连接 " + references.length + " 个参考素材"}
+        >
+            <span className="shrink-0 text-[11px] font-semibold opacity-70">参考素材</span>
+            <div className="flex min-w-0 items-center gap-1.5">
+                {references.map((reference) => (
+                    <div key={reference.id} className="flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }} title={reference.label + " · " + reference.title}>
+                        {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
+                        {reference.previewUrl && reference.kind === "video" ? <video src={reference.previewUrl} className="size-7 rounded-lg bg-black object-cover" muted preload="metadata" /> : null}
+                        {!reference.previewUrl || (reference.kind !== "image" && reference.kind !== "video") ? <span className="grid size-7 place-items-center rounded-lg bg-black/10 text-[10px] font-bold">{reference.kind === "text" ? "TXT" : reference.kind === "audio" ? "AUD" : "REF"}</span> : null}
+                        <span className="max-w-28 truncate text-[11px] font-medium">{reference.label}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
     return type === CanvasNodeType.Text ? "text" : type === CanvasNodeType.Video ? "video" : type === CanvasNodeType.Audio ? "audio" : "image";
 }

@@ -17,8 +17,13 @@ const objectUrls = new Map<string, string>();
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
+    if (!(blob instanceof Blob) || blob.size === 0) throw new Error("无法读取图片文件");
     const storageKey = `image:${nanoid()}`;
-    await store.setItem(storageKey, blob);
+    try {
+        await store.setItem(storageKey, blob);
+    } catch (error) {
+        throw new Error("本地浏览器存储空间不足，请清理后重试");
+    }
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = await readImageMeta(url);
@@ -41,7 +46,11 @@ export async function getImageBlob(storageKey: string) {
 }
 
 export async function setImageBlob(storageKey: string, blob: Blob) {
-    await store.setItem(storageKey, blob);
+    try {
+        await store.setItem(storageKey, blob);
+    } catch (error) {
+        throw new Error("本地浏览器存储空间不足，请清理后重试");
+    }
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;

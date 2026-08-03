@@ -8,6 +8,7 @@ import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, Viewport
 
 export type CanvasProject = {
     id: string;
+    cloudCanvasId?: string;
     title: string;
     createdAt: string;
     updatedAt: string;
@@ -30,7 +31,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
+    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "cloudCanvasId" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
@@ -70,6 +71,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 const id = nanoid();
                 const project: CanvasProject = {
                     id,
+                    cloudCanvasId: undefined,
                     title,
                     createdAt: now,
                     updatedAt: now,
@@ -122,6 +124,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 const now = new Date().toISOString();
                 const project: CanvasProject = {
                     ...source,
+                    cloudCanvasId: undefined,
                     id: nanoid(),
                     title: title?.trim() || `${source.title || "未命名画布"} 副本`,
                     createdAt: now,

@@ -10,9 +10,17 @@ test('matches the supplied Wetoken billing snapshot for image and Seedance rows'
   assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0', duration: 15, resolution: '4K' })?.estimatedCostUsd, 11.696721);
 });
 
+test('derives supported durations from the observed Seedance anchors', () => {
+  assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0', duration: 12, resolution: '720p' })?.estimatedCostUsd, 1.827002);
+  assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0-filter-off', duration: 4, resolution: '720p' })?.estimatedCostUsd, 0.609001);
+  assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0', duration: 10, resolution: '4K' })?.estimatedCostUsd, 7.797814);
+  assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0', duration: 12, resolution: '4K' })?.snapshot.derivation, 'linear_proration_from_observed_anchor');
+});
+
 test('keeps unobserved media combinations unpriced', () => {
   assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0-fast', duration: 6, resolution: '720p' }), null);
   assert.equal(estimateImagePrice('gemini-3-pro-image-preview', '1024x1024'), null);
+  assert.equal(estimateVideoPrice({ model: 'doubao-seedance-2-0', duration: 3, resolution: '720p' }), null);
 });
 
 test('converts the four supplied rows with a configurable display rate', () => {

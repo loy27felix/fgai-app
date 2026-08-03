@@ -8,8 +8,8 @@ import { requestEdit, requestGeneration, requestImageQuestion } from "@/referenc
 import { requestAudioGeneration, storeGeneratedAudio } from "@/reference/infinite-canvas/src/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinite-canvas/src/services/api/video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
-import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
-import { uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
@@ -40,6 +40,7 @@ import { CanvasSidePanel } from "@/reference/infinite-canvas/src/components/canv
 import { CanvasZoomControls } from "@/reference/infinite-canvas/src/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
 import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
+import { createCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
@@ -131,6 +132,54 @@ const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用�
 2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
 3. 尽量写成可直接用于生图模型的完整提示词。`;
 
+function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], viewport: ViewportTransform, background: CanvasBackgroundMode) {
+    const safeNodes = nodes.map((node) => {
+        const safeNode = { ...node, metadata: node.metadata ? { ...node.metadata } : undefined };
+        const content = safeNode.metadata?.content;
+        // Signed/blob/data URLs are either temporary or too large for the graph.
+        // The durable path is stored instead and signed again when the canvas opens.
+        if (safeNode.metadata?.cloudStoragePath || safeNode.metadata?.storageKey || (typeof content === "string" && (content.startsWith("blob:") || content.startsWith("data:") || content.length > 12000))) {
+            if (safeNode.metadata) delete safeNode.metadata.content;
+        }
+        return safeNode;
+    });
+    return {
+        nodes: safeNodes,
+        edges: connections.map((connection) => ({ from: connection.fromNodeId, to: connection.toNodeId })),
+        viewport: { x: viewport.x, y: viewport.y, zoom: viewport.k },
+        background: background === "dots" || background === "blank" ? background : "grid",
+    };
+}
+
+async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
+    return Promise.all(
+        nodes.map(async (node) => {
+            const path = node.metadata?.cloudStoragePath;
+            if (!path) return node;
+            if (node.metadata?.storageKey) {
+                const localUrl = node.type === CanvasNodeType.Image
+                    ? await resolveImageUrl(node.metadata.storageKey, "")
+                    : await resolveMediaUrl(node.metadata.storageKey, "");
+                if (localUrl) return { ...node, metadata: { ...node.metadata, content: localUrl } };
+            }
+            try {
+                const response = await fetch("/api/creator/canvas-assets?path=" + encodeURIComponent(path), { cache: "no-store" });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || typeof payload.signedUrl !== "string") return node;
+                try {
+                    const stored = node.type === CanvasNodeType.Image
+                        ? await uploadImage(payload.signedUrl)
+                        : await uploadMediaFile(payload.signedUrl, node.type === CanvasNodeType.Audio ? "audio-cloud-migration" : "video-cloud-migration");
+                    return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
+                } catch {
+                    return { ...node, metadata: { ...node.metadata, content: payload.signedUrl } };
+                }
+            } catch {
+                return node;
+            }
+        }),
+    );
+}
 export default function CanvasPage() {
     const [mounted, setMounted] = useState(false);
 
@@ -256,6 +305,8 @@ function InfiniteCanvasPage() {
     const selectionBoxRef = useRef(selectionBox);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+    const cloudCanvasIdRef = useRef<string | null>(null);
+    const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -326,7 +377,9 @@ function InfiniteCanvasPage() {
         }
 
         const restore = async () => {
-            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
+            cloudCanvasIdRef.current = project.cloudCanvasId || null;
+            const cloudNodes = await hydrateCloudNodeUrls(project.nodes);
+            const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(cloudNodes));
             const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
             setNodes(restoredNodes);
             setConnections(project.connections);
@@ -403,6 +456,35 @@ function InfiniteCanvasPage() {
         updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo });
     }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
 
+    useEffect(() => {
+        if (!projectLoaded || !currentProject) return;
+        if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
+        cloudSyncTimerRef.current = setTimeout(() => {
+            const graph = toCloudGraph(nodes, connections, viewport, backgroundMode);
+            const cloudId = cloudCanvasIdRef.current;
+            const kind = nodes.some((node) => node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) ? "video" : "image";
+            const request = cloudId
+                ? updateCreatorCanvas(cloudId, { title: currentProject.title, graph: graph as any })
+                : createCreatorCanvas({ title: currentProject.title, graph: graph as any }, kind);
+            void request
+                .then((result) => {
+                    if (cloudId) return;
+                    const nextId = result.canvas?.id;
+                    if (!nextId) return;
+                    cloudCanvasIdRef.current = nextId;
+                    updateProject(projectId, { cloudCanvasId: nextId });
+                })
+                .catch((error) => {
+                    // Guests and older deployments may not have the creator tables;
+                    // localForage remains the immediate fallback in that case.
+                    console.warn("[canvas cloud sync]", error);
+                });
+            cloudSyncTimerRef.current = null;
+        }, 900);
+        return () => {
+            if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
+        };
+    }, [backgroundMode, connections, currentProject, nodes, projectId, projectLoaded, updateProject, viewport]);
     useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);
@@ -800,21 +882,71 @@ function InfiniteCanvasPage() {
     }, [cleanupCanvasFiles, deselectCanvas, projectId]);
 
     const duplicateNode = useCallback((nodeId: string) => {
-        const source = nodesRef.current.find((node) => node.id === nodeId);
-        if (!source) return;
+        const sourceNodes = nodesRef.current;
+        const sourceConnections = connectionsRef.current;
+        const nodeById = new Map(sourceNodes.map((node) => [node.id, node]));
+        const includedIds = new Set<string>([nodeId]);
 
-        const id = `${source.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const next: CanvasNodeData = {
+        // A node copy carries its upstream references (including a connected
+        // config node), while downstream results remain independent.
+        let changed = true;
+        while (changed) {
+            changed = false;
+            sourceConnections.forEach((connection) => {
+                if (!includedIds.has(connection.toNodeId) || includedIds.has(connection.fromNodeId)) return;
+                if (!nodeById.has(connection.fromNodeId)) return;
+                includedIds.add(connection.fromNodeId);
+                changed = true;
+            });
+        }
+
+        const selectedSources = sourceNodes.filter((node) => includedIds.has(node.id));
+        if (!selectedSources.length) return;
+
+        const idMap = new Map<string, string>();
+        selectedSources.forEach((node, index) => {
+            idMap.set(node.id, node.type + "-" + Date.now() + "-" + index + "-" + Math.random().toString(36).slice(2, 7));
+        });
+
+        const clones = selectedSources.map((source) => ({
             ...source,
-            id,
-            title: `${source.title} 副本`,
-            position: { x: source.position.x + 36, y: source.position.y + 36 },
-        };
+            id: idMap.get(source.id)!,
+            title: (source.title || "未命名节点") + " 副本",
+            position: { x: source.position.x + 48, y: source.position.y + 48 },
+            metadata: source.metadata
+                ? {
+                      ...source.metadata,
+                      status: source.metadata.status === "loading" ? "idle" : source.metadata.status,
+                      errorDetails: undefined,
+                      groupId: source.metadata.groupId ? idMap.get(source.metadata.groupId) : undefined,
+                      batchRootId: undefined,
+                      batchChildIds: undefined,
+                      isBatchRoot: undefined,
+                      imageBatchExpanded: undefined,
+                      primaryImageId: undefined,
+                  }
+                : undefined,
+        }));
 
-        setNodes((prev) => [...prev, next]);
-        setSelectedNodeIds(new Set([id]));
+        const clonedConnections = sourceConnections.flatMap((connection, index) => {
+            const fromNodeId = idMap.get(connection.fromNodeId);
+            const toNodeId = idMap.get(connection.toNodeId);
+            if (!fromNodeId || !toNodeId) return [];
+            return [{
+                ...connection,
+                id: "conn-" + Date.now() + "-" + index + "-" + Math.random().toString(36).slice(2, 7),
+                fromNodeId,
+                toNodeId,
+            }];
+        });
+
+        setNodes((prev) => [...prev, ...clones]);
+        setConnections((prev) => [...prev, ...clonedConnections]);
+        setSelectedNodeIds(new Set(clones.map((node) => node.id)));
         setSelectedConnectionId(null);
-        if (next.type !== CanvasNodeType.Group) setDialogNodeId(id);
+        setContextMenu(null);
+        const rootCloneId = idMap.get(nodeId) || clones[0]?.id;
+        if (rootCloneId && clones.find((node) => node.id === rootCloneId)?.type !== CanvasNodeType.Group) setDialogNodeId(rootCloneId);
     }, []);
 
     const copySelectedNodes = useCallback(() => {

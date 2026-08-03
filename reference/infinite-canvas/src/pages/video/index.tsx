@@ -762,31 +762,24 @@ async function readStoredLogs() {
         await logStore.iterate<GenerationLog, void>((value) => {
             logs.push(value);
         });
-        return (await Promise.all(logs.map(normalizeLog))).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const normalized = await Promise.all(logs.map(normalizeLog));
+        await Promise.all(normalized.map((log) => logStore.setItem(log.id, serializeLog(log))));
+        return normalized.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     } catch {
         return [];
     }
 }
 
 async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
-    const video = log.video?.storageKey ? { ...log.video, url: await resolveMediaUrl(log.video.storageKey, log.video.url) } : log.video;
+    const video = await localizeVideo(log.video);
     const videoReferences = await Promise.all(
-        (log.videoReferences || []).map(async (item) => ({
-            ...item,
-            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url) : item.url,
-        })),
+        (log.videoReferences || []).map((item) => localizeVideoReference(item)),
     );
     const audioReferences = await Promise.all(
-        (log.audioReferences || []).map(async (item) => ({
-            ...item,
-            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url) : item.url,
-        })),
+        (log.audioReferences || []).map((item) => localizeAudioReference(item)),
     );
     const references = await Promise.all(
-        (log.references || []).map(async (item) => ({
-            ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
-        })),
+        (log.references || []).map((item) => localizeImageReference(item)),
     );
     const config = normalizeLogConfig(log);
     return {
@@ -811,6 +804,71 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
     };
 }
 
+async function localizeVideo(video?: GeneratedVideo) {
+    if (!video) return video;
+    if (video.storageKey) {
+        const localUrl = await resolveMediaUrl(video.storageKey, "");
+        if (localUrl) return { ...video, url: localUrl };
+    }
+    if (!video.storageKey && video.url) {
+        try {
+            const stored = await uploadMediaFile(video.url, "video-history");
+            return { ...video, url: stored.url, storageKey: stored.storageKey, bytes: stored.bytes, mimeType: stored.mimeType, width: stored.width || video.width, height: stored.height || video.height, durationMs: stored.durationMs || video.durationMs };
+        } catch {
+            // The provider URL may already be expired or blocked by CORS. Keep
+            // it as a last-resort fallback so the log remains inspectable.
+        }
+    }
+    return video;
+}
+
+async function localizeVideoReference(item: ReferenceVideo) {
+    if (item.storageKey) {
+        const localUrl = await resolveMediaUrl(item.storageKey, "");
+        if (localUrl) return { ...item, url: localUrl };
+    }
+    if (!item.storageKey && item.url) {
+        try {
+            const stored = await uploadMediaFile(item.url, "video-history-reference");
+            return { ...item, url: stored.url, storageKey: stored.storageKey, bytes: stored.bytes, mimeType: stored.mimeType };
+        } catch {
+            // Keep the original URL when local migration is not possible.
+        }
+    }
+    return item;
+}
+
+async function localizeAudioReference(item: ReferenceAudio) {
+    if (item.storageKey) {
+        const localUrl = await resolveMediaUrl(item.storageKey, "");
+        if (localUrl) return { ...item, url: localUrl };
+    }
+    if (!item.storageKey && item.url) {
+        try {
+            const stored = await uploadMediaFile(item.url, "audio-history-reference");
+            return { ...item, url: stored.url, storageKey: stored.storageKey, durationMs: stored.durationMs };
+        } catch {
+            // Keep the original URL when local migration is not possible.
+        }
+    }
+    return item;
+}
+
+async function localizeImageReference(item: ReferenceImage) {
+    if (item.storageKey) {
+        const localUrl = await resolveImageUrl(item.storageKey, "");
+        if (localUrl) return { ...item, dataUrl: localUrl };
+    }
+    if (!item.storageKey && item.dataUrl) {
+        try {
+            const stored = await uploadImage(item.dataUrl);
+            return { ...item, dataUrl: stored.url, storageKey: stored.storageKey };
+        } catch {
+            // Keep the original URL when local migration is not possible.
+        }
+    }
+    return item;
+}
 function serializeLog(log: GenerationLog): GenerationLog {
     return {
         ...log,

@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { extractReportedCostUsd } from '@/lib/usage/pricing';
+import { ensureVideoOutputStored, persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -88,15 +89,14 @@ async function taskView(context: NonNullable<Awaited<ReturnType<typeof creatorCo
   const request = asRecord(task.request);
   let paths: string[] = [];
   try { paths = referencePathsFor(task); } catch { paths = []; }
-  const bucket = context.supabase.storage.from('creator-assets');
   const referenceUrls = (await Promise.all(paths.map(async (path) => {
-    const signed = await bucket.createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+    const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
     return signed.error ? null : signed.data.signedUrl;
   }))).filter((url): url is string => typeof url === 'string');
   const output = asRecord(task.output);
   return {
     ...task,
-    videoUrl: typeof output.video_url === 'string' ? output.video_url : null,
+    videoUrl: await signedVideoOutputUrl(context, output, SIGNED_URL_TTL_SECONDS),
     referenceUrls,
   };
 }
@@ -135,7 +135,8 @@ async function pollTask(
   context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
   task: CreatorVideoTask,
 ) {
-  if (!task.external_task_id || ['succeeded', 'failed', 'expired'].includes(task.status)) return task;
+  if (!task.external_task_id || ['failed', 'expired'].includes(task.status)) return task;
+  if (task.status === 'succeeded') return ensureVideoOutputStored(context, task);
   let polled;
   try {
     polled = await getWetokenVideoTask(task.external_task_id);
@@ -144,7 +145,8 @@ async function pollTask(
     return task;
   }
   const completedAt = ['succeeded', 'failed', 'expired'].includes(polled.status) ? new Date().toISOString() : null;
-  const output = { ...asRecord(task.output), ...(polled.videoUrl ? { video_url: polled.videoUrl } : {}) };
+  let output: Record<string, unknown> = { ...asRecord(task.output), ...(polled.videoUrl ? { video_url: polled.videoUrl } : {}) };
+  if (polled.status === 'succeeded') output = await persistVideoOutput(context, task, output);
   const update = await context.supabase
     .from('creator_generation_tasks')
     .update({

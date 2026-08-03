@@ -12,6 +12,7 @@ import type { CanvasExportFile } from "@/reference/infinite-canvas/src/types/can
 import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
+import { listCreatorCanvases } from "@/lib/creator/canvas-client";
 
 export default function CanvasPage() {
     const { message } = App.useApp();
@@ -19,12 +20,14 @@ export default function CanvasPage() {
     const [searchParams] = useSearchParams();
     const inputRef = useRef<HTMLInputElement>(null);
     const autoOpenRef = useRef(false);
+    const cloudLoadedRef = useRef(false);
     const hydrated = useCanvasStore((state) => state.hydrated);
     const projects = useCanvasStore((state) => state.projects);
     const createProject = useCanvasStore((state) => state.createProject);
     const importProject = useCanvasStore((state) => state.importProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
+    const updateProject = useCanvasStore((state) => state.updateProject);
 
     const mode = searchParams.get("mode");
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
@@ -59,6 +62,39 @@ export default function CanvasPage() {
         }
     };
 
+    useEffect(() => {
+        if (!hydrated || cloudLoadedRef.current) return;
+        cloudLoadedRef.current = true;
+        void (async () => {
+            try {
+                const responses = await Promise.all([listCreatorCanvases("image"), listCreatorCanvases("video")]);
+                const remote = responses.flatMap((response) => response.canvases || []);
+                const known = new Set(projects.map((project) => project.cloudCanvasId).filter(Boolean));
+                remote.filter((canvas) => !known.has(canvas.id)).forEach((canvas) => {
+                    const graph = canvas.graph && typeof canvas.graph === "object" ? canvas.graph as Record<string, unknown> : {};
+                    const nodes = Array.isArray(graph.nodes) ? graph.nodes as any[] : [];
+                    const edges = Array.isArray(graph.edges) ? graph.edges as any[] : [];
+                    const viewport = graph.viewport && typeof graph.viewport === "object" ? graph.viewport as Record<string, unknown> : {};
+                    const localId = importProject({
+                        title: canvas.title || "云端画布",
+                        nodes: nodes as any,
+                        connections: edges
+                            .filter((edge) => typeof edge?.from === "string" && typeof edge?.to === "string")
+                            .map((edge) => ({ id: "cloud-" + crypto.randomUUID(), fromNodeId: edge.from, toNodeId: edge.to })),
+                        backgroundMode: graph.background === "dots" || graph.background === "blank" ? graph.background : "lines",
+                        viewport: {
+                            x: typeof viewport.x === "number" ? viewport.x : 0,
+                            y: typeof viewport.y === "number" ? viewport.y : 0,
+                            k: typeof viewport.zoom === "number" ? viewport.zoom : typeof viewport.k === "number" ? viewport.k : 1,
+                        },
+                    });
+                    updateProject(localId, { cloudCanvasId: canvas.id });
+                });
+            } catch {
+                // Unauthenticated/private deployments continue with localForage.
+            }
+        })();
+    }, [hydrated, importProject, projects, updateProject]);
     useEffect(() => {
         if (!hydrated || autoOpenRef.current || (mode !== "new" && mode !== "recent")) return;
         autoOpenRef.current = true;
