@@ -1,4 +1,4 @@
-const DEFAULT_USD_TO_CNY = 6.77;
+export const DEFAULT_USD_TO_CNY = 6.77;
 
 function parsedRate(value: string | undefined) {
   const rate = Number(value);

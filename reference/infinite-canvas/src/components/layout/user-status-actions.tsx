@@ -1,10 +1,9 @@
 import type { CSSProperties } from "react";
-import { BookOpen, Keyboard, Puzzle, Settings2 } from "lucide-react";
+import { Keyboard, Puzzle, Settings2 } from "lucide-react";
 
 import { AnimatedThemeToggler } from "@/reference/infinite-canvas/src/components/ui/animated-theme-toggler";
 import { GitHubLink } from "@/reference/infinite-canvas/src/components/layout/github-link";
 import { VersionReleaseModal } from "@/reference/infinite-canvas/src/components/layout/version-release-modal";
-import { DOCS_URL } from "@/reference/infinite-canvas/src/constant/env";
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useConfigStore } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -35,9 +34,6 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                     <Puzzle className="size-4" />
                 </button>
             ) : null}
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="文档" title="文档">
-                <BookOpen className="size-4" />
-            </a>
             {showConfig ? (
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={() => openConfigDialog(false)} aria-label="配置" title="配置">
                     <Settings2 className="size-4" />

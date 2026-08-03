@@ -9,6 +9,7 @@ import { AssetPickerModal, type InsertAssetPayload } from "@/reference/infinite-
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
 import { PromptSelectDialog } from "@/reference/infinite-canvas/src/components/prompts/prompt-select-dialog";
 import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeValue, videoSizeLabel } from "@/reference/infinite-canvas/src/components/video-settings-panel";
+import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components/generation-price-badge";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/reference/infinite-canvas/src/lib/seedance-video";
@@ -557,8 +558,9 @@ export default function VideoPage() {
                             </div>
                         </div>
 
-                        <div className="mt-auto pt-6">
-                            <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
+                        <div className="mt-auto flex flex-wrap items-center gap-3 pt-6">
+                            <GenerationPriceBadge kind="video" model={model} duration={normalizeVideoSeconds(effectiveConfig.videoSeconds)} resolution={effectiveConfig.vquality} />
+                            <Button type="primary" size="large" icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
                                 开始生成
                             </Button>
                         </div>
@@ -924,7 +926,7 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
 function normalizeVideoSeconds(value: string) {
     if (String(value).trim() === "-1") return "-1";
     const seconds = Math.floor(Number(value) || 6);
-    return String(Math.max(1, Math.min(20, seconds)));
+    return String(Math.max(4, Math.min(15, seconds)));
 }
 
 function normalizeVideoSize(value: string) {
