@@ -15,7 +15,7 @@ function IPlug() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="
 function ILock() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>; }
 
 function CTA({ href, label, solid, onClick }: { href?: string; label: string; solid?: boolean; onClick?: () => void }) {
-  const cls = `group inline-flex items-center gap-3 rounded-full py-2 pl-6 pr-2 text-[14px] font-medium transition-all duration-500 ease-[cubic-bezier(.32,.72,0,1)] active:scale-[.98] ${solid ? "bg-white text-[#0a0f24]" : "border border-white/20 text-white hover:bg-white/8"}`;
+  const cls = `group inline-flex items-center gap-3 rounded-full py-2 pl-6 pr-2 text-[14px] font-medium transition-all duration-500 ease-[cubic-bezier(.32,.72,0,1)] active:scale-[.98] ${solid ? "landing-cta-solid bg-white text-[#0a0f24]" : "border border-white/20 text-white hover:bg-white/8"}`;
   const inner = (<>{label}<span className={`grid h-8 w-8 place-items-center rounded-full transition duration-500 ease-[cubic-bezier(.32,.72,0,1)] group-hover:translate-x-0.5 ${solid ? "bg-[#0a0f24]/10" : "bg-white/12"}`}><Arrow /></span></>);
   return onClick ? <button onClick={onClick} className={cls}>{inner}</button> : <Link href={href || "#"} className={cls}>{inner}</Link>;
 }
@@ -72,8 +72,18 @@ export default function Landing() {
     return () => { clearInterval(t); io.disconnect(); };
   }, []);
 
+  // Keep the page behind the sign-in/register dialog from scrolling. The
+  // stable scrollbar gutter above prevents the nav and hero from shifting when
+  // the modal opens or closes.
+  useEffect(() => {
+    if (!showLogin) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [showLogin]);
+
   return (
-    <div ref={rootRef} className="min-h-screen bg-[#f4f3ef] text-[#15151a] transition-colors dark:bg-[#08080b] dark:text-white">
+    <div ref={rootRef} className="landing-shell min-h-screen w-full bg-[#f4f3ef] text-[#15151a] transition-colors dark:bg-[#08080b] dark:text-white">
       <div className="grain pointer-events-none fixed inset-0 z-[60]" />
 
       {/* 悬浮玻璃胶囊导航 */}

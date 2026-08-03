@@ -4,7 +4,13 @@
 @tailwind utilities;
 
 :root { color-scheme: light; }
-html, body { height: 100%; }
+html, body {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
 body {
   font-family: Geist, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   color: #212121;
@@ -15,6 +21,38 @@ body {
     #f7f6f2;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The marketing surface intentionally uses a dark, image-led hero. Keep its
+   foreground controls readable even though the workbench's generic dark theme
+   remaps utility classes such as `.bg-white`. */
+.landing-shell {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+.landing-shell .landing-cta-solid,
+.dark .landing-shell .landing-cta-solid {
+  background-color: #fff !important;
+  color: #0a0f24 !important;
+}
+.dark .landing-shell .text-white\/35 { color: rgba(255,255,255,.58) !important; }
+.dark .landing-shell .text-white\/40 { color: rgba(255,255,255,.64) !important; }
+.dark .landing-shell .text-white\/45 { color: rgba(255,255,255,.69) !important; }
+.dark .landing-shell .text-white\/50 { color: rgba(255,255,255,.73) !important; }
+.dark .landing-shell .text-white\/55 { color: rgba(255,255,255,.77) !important; }
+.dark .landing-shell .text-white\/60 { color: rgba(255,255,255,.81) !important; }
+.dark .landing-shell .text-white\/70 { color: rgba(255,255,255,.87) !important; }
+
+/* Auth pages should scroll inside their own viewport when the form is taller
+   than a small screen, never widening the document or nudging the layout. */
+.auth-shell {
+  width: 100%;
+  min-width: 0;
+  min-height: 100dvh;
+  max-width: 100%;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 @layer components {
