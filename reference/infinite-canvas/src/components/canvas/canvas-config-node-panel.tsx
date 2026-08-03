@@ -4,6 +4,7 @@ import { Button, Segmented } from "antd";
 
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components/generation-price-badge";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -109,6 +110,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                 )}
             </div>
 
+            {mode === "image" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /></div> : mode === "video" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} /></div> : null}
             <Button
                 type="primary"
                 className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"

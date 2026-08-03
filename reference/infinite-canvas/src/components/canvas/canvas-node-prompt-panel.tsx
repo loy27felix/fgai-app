@@ -4,6 +4,7 @@ import { Button } from "antd";
 
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components/generation-price-badge";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -108,6 +109,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     )}
                 </div>
+                {mode === "image" ? <GenerationPriceBadge kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /> : mode === "video" ? <GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} /> : null}
                 <Button
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"

@@ -5,6 +5,7 @@ import localforage from "localforage";
 import { saveAs } from "file-saver";
 
 import { ImageSettingsPanel } from "@/reference/infinite-canvas/src/components/image-settings-panel";
+import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components/generation-price-badge";
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
 import { PromptSelectDialog } from "@/reference/infinite-canvas/src/components/prompts/prompt-select-dialog";
 import { AssetPickerModal, type InsertAssetPayload } from "@/reference/infinite-canvas/src/components/canvas/asset-picker-modal";
@@ -489,8 +490,9 @@ export default function ImagePage() {
                             </div>
                         </div>
 
-                        <div className="mt-auto pt-6">
-                            <Button type="primary" size="large" block icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
+                        <div className="mt-auto flex flex-wrap items-center gap-3 pt-6">
+                            <GenerationPriceBadge kind="image" model={model} size={effectiveConfig.size} count={generationCount} />
+                            <Button type="primary" size="large" icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
                                 开始生成
                             </Button>
                         </div>

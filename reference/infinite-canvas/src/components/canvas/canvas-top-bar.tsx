@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, CopyPlus, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { Bot, CopyPlus, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
 
 import { UserStatusActions } from "@/reference/infinite-canvas/src/components/layout/user-status-actions";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useCanvasSidePanelStore } from "@/reference/infinite-canvas/src/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
-import { DOCS_URL } from "@/reference/infinite-canvas/src/constant/env";
 
 export function CanvasTopBar({
     title,
@@ -91,7 +90,6 @@ export function CanvasTopBar({
                         menu={{
                             items: [
                                 { key: "home", icon: <Home className="size-4" />, label: "主页", onClick: onHome },
-                                { key: "docs", icon: <BookOpen className="size-4" />, label: "文档", onClick: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
                                 { key: "projects", icon: <Images className="size-4" />, label: "我的画布", onClick: onProjects },
                                 { type: "divider" },
                                 { key: "new", icon: <Plus className="size-4" />, label: "新建画布", onClick: onCreateProject },

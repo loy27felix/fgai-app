@@ -324,6 +324,11 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                     </Button>
                 </div>
             ) : null}
+            <div className="mt-3 border-t border-stone-200 pt-3 text-right text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
+                <a href="/NOTICE.md" target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                    开源许可与来源
+                </a>
+            </div>
             <ChannelEditorDrawer open={Boolean(editingChannel)} channel={editingChannel} onSave={saveChannel} onClose={() => setEditingChannelId("")} />
         </>
     );
