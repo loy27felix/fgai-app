@@ -156,18 +156,86 @@ async function loadOwnedLegacyTask(
   context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
   id: string,
 ) {
-  const query = () => context.supabase
+  // Legacy `generation_tasks` is protected by the director-project RLS
+  // policy (`is_member(project_id)`). A creator canvas task can outlive that
+  // membership, so a normal user query can hide a task that still belongs to
+  // this user. Use the server-only client for this read fallback while
+  // keeping explicit user/kind predicates to prevent cross-account access.
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    console.error('[creator legacy video admin client]', error);
+    return null;
+  }
+  const query = () => admin
     .from('generation_tasks')
     .select('id,project_id,shot_id,user_id,kind,provider,model,status,external_task_id,request,output,error,created_at,updated_at,completed_at')
     .eq('user_id', context.user.id)
     .eq('kind', 'video');
   let result = await query().eq('id', id).maybeSingle();
-  if (result.error) throw result.error;
+  if (result.error) {
+    console.error('[creator legacy video read by id]', result.error);
+    return null;
+  }
   if (!result.data) {
     result = await query().eq('external_task_id', id).maybeSingle();
-    if (result.error) throw result.error;
+    if (result.error) {
+      console.error('[creator legacy video read by external id]', result.error);
+      return null;
+    }
   }
   return result.data as LegacyVideoTask | null;
+}
+
+async function loadOwnedUsageVideoTask(
+  context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
+  id: string,
+) {
+  // The usage ledger is intentionally retained even when an old director
+  // task row or project is removed. It is a second ownership proof for a
+  // Reference ID, not a public task lookup: the service-role query remains
+  // restricted to the authenticated user's ledger rows and video kind.
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    console.error('[creator usage video admin client]', error);
+    return null;
+  }
+  const result = await admin
+    .from('ai_usage_ledger')
+    .select('id,user_id,project_id,provider,model,video_seconds,resolution,status,provider_request_id,created_at,completed_at')
+    .eq('user_id', context.user.id)
+    .eq('kind', 'video')
+    .eq('provider_request_id', id)
+    .maybeSingle();
+  if (result.error) {
+    console.error('[creator usage video read]', result.error);
+    return null;
+  }
+  const row = result.data;
+  if (!row || typeof row.provider_request_id !== 'string') return null;
+  return {
+    id: 'usage-recovery-' + String(row.id),
+    project_id: typeof row.project_id === 'string' ? row.project_id : '',
+    shot_id: null,
+    user_id: row.user_id,
+    kind: 'video',
+    provider: typeof row.provider === 'string' ? row.provider : 'wetoken',
+    model: typeof row.model === 'string' ? row.model : 'unknown',
+    status: row.status === 'failed' ? 'failed' : row.status === 'succeeded' ? 'succeeded' : 'queued',
+    external_task_id: row.provider_request_id,
+    request: {
+      duration: typeof row.video_seconds === 'number' ? row.video_seconds : undefined,
+      resolution: typeof row.resolution === 'string' ? row.resolution : undefined,
+    },
+    output: {},
+    error: null,
+    created_at: row.created_at,
+    updated_at: row.created_at,
+    completed_at: row.completed_at,
+  } satisfies LegacyVideoTask;
 }
 
 async function legacyTaskSnapshot(
@@ -201,18 +269,33 @@ async function recoverLegacyTask(
       if (['succeeded', 'failed', 'expired'].includes(status)) completedAt = completedAt || new Date().toISOString();
     } catch (pollError) {
       console.error('[creator legacy video poll]', pollError);
+      error = providerErrorMessage(pollError);
     }
   }
 
   const creatorTask = legacyAsCreatorTask(context, { ...task, error, completed_at: completedAt }, output, status);
   if (status === 'succeeded') output = await persistVideoOutput(context, creatorTask, output);
-  const updated = await context.supabase
+  let updated = await context.supabase
     .from('generation_tasks')
     .update({ status, output, error, completed_at: completedAt })
     .eq('id', task.id)
     .eq('user_id', context.user.id)
     .select('*')
     .maybeSingle();
+  if (updated.error || !updated.data) {
+    try {
+      updated = await createAdminClient()
+        .from('generation_tasks')
+        .update({ status, output, error, completed_at: completedAt })
+        .eq('id', task.id)
+        .eq('user_id', context.user.id)
+        .eq('kind', 'video')
+        .select('*')
+        .maybeSingle();
+    } catch (updateError) {
+      console.error('[creator legacy video update admin]', updateError);
+    }
+  }
   if (updated.error) console.error('[creator legacy video update]', updated.error);
   const finalTask = legacyAsCreatorTask(context, { ...task, error, completed_at: completedAt }, output, status);
   if (task.external_task_id) {
@@ -367,8 +450,10 @@ export async function GET(_req: Request, { params }: RouteContext) {
     // external task/reference ID so an old provider task can be recovered.
     const task = await loadOwnedTask(context, params.id, true);
     const legacy = task ? null : await loadOwnedLegacyTask(context, params.id);
+    const usageRecovery = task || legacy ? null : await loadOwnedUsageVideoTask(context, params.id);
     if (legacy) return NextResponse.json({ task: await recoverLegacyTask(context, legacy) });
-    if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
+    if (usageRecovery) return NextResponse.json({ task: await recoverLegacyTask(context, usageRecovery) });
+    if (!task) return response('未找到该 Reference ID 对应的历史视频任务。请确认 ID 属于当前账号，且 Wetoken 仍保留该任务。', 'VIDEO_TASK_NOT_FOUND', 404);
     const current = await pollTask(context, task);
     return NextResponse.json({ task: await taskView(context, current) });
   } catch (error: unknown) {

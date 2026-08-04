@@ -27,7 +27,7 @@ type SeedanceTask = {
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
 type RequestOptions = { signal?: AbortSignal };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; storagePath?: string; assetId?: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; storagePath?: string; assetId?: string; externalTaskId?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
@@ -136,7 +136,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     } catch (error) {
         throw new Error(`视频任务提交失败：${error instanceof Error ? error.message : "网络请求失败"}`);
     }
-    if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal })), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined };
+    if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal })), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined, externalTaskId: typeof immediate.task?.external_task_id === "string" ? immediate.task.external_task_id : undefined };
     for (let attempt = 0; attempt < 60; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let task: Awaited<ReturnType<typeof getVideoTask>>["task"];
@@ -145,7 +145,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
         } catch (error) {
             throw new Error(`视频任务状态读取失败：${error instanceof Error ? error.message : "网络请求失败"}`);
         }
-        if (task.videoUrl) return { ...(await videoResultFromUrl(task.videoUrl, { signal })), storagePath: typeof task.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined, assetId: typeof task.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined };
+        if (task.videoUrl) return { ...(await videoResultFromUrl(task.videoUrl, { signal })), storagePath: typeof task.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined, assetId: typeof task.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined, externalTaskId: typeof task.external_task_id === "string" ? task.external_task_id : undefined };
         if (task.status === "failed" || task.status === "expired") throw new Error(task.error || "视频生成失败，请查看历史任务");
         await new Promise((resolve) => setTimeout(resolve, 4000));
     }
@@ -262,10 +262,16 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
-    if (result.blob) return uploadMediaFile(result.blob, "video");
+    const store = (input: Blob | string) => uploadMediaFile(input, "video").then((stored) => ({
+        ...stored,
+        ...(result.storagePath ? { cloudStoragePath: result.storagePath } : {}),
+        ...(result.assetId ? { cloudAssetId: result.assetId } : {}),
+        ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
+    }));
+    if (result.blob) return store(result.blob);
     if (result.url) {
         try {
-            return await uploadMediaFile(result.url, "video");
+            return await store(result.url);
         } catch (error) {
             throw new Error("视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试");
         }

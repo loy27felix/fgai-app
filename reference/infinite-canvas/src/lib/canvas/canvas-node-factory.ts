@@ -29,7 +29,7 @@ export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
 }
 
 export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
-    return { content: video.url, storageKey: video.storageKey, cloudStoragePath: video.cloudStoragePath, cloudAssetId: video.cloudAssetId, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
+    return { content: video.url, storageKey: video.storageKey, cloudStoragePath: video.cloudStoragePath, cloudAssetId: video.cloudAssetId, externalTaskId: video.externalTaskId, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
 }
 
 export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {

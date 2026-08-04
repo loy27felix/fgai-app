@@ -283,11 +283,20 @@ export default function VideoPage() {
             setRecoveredTask(task);
             if (!task.videoUrl) {
                 setResults([]);
-                message.info(`已找到任务，当前状态：${task.status}`);
+                message.info(task.error ? `任务暂时没有可播放视频：${task.error}` : `已找到任务，当前状态：${task.status}`);
                 return;
             }
             let stored: Awaited<ReturnType<typeof storeGeneratedVideo>> | null = null;
-            try { stored = await storeGeneratedVideo({ url: task.videoUrl, mimeType: "video/mp4" }); } catch { /* keep the provider URL */ }
+            const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
+            try {
+                stored = await storeGeneratedVideo({
+                    url: task.videoUrl,
+                    mimeType: "video/mp4",
+                    externalTaskId: id,
+                    storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
+                    assetId: typeof output.video_asset_id === "string" ? output.video_asset_id : undefined,
+                });
+            } catch { /* keep the provider URL */ }
             const video: GeneratedVideo = {
                 id: nanoid(),
                 url: stored?.url || task.videoUrl,

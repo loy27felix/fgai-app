@@ -10,6 +10,7 @@ import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinit
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import { getVideoTaskByReferenceId } from "@/lib/creator/video-client";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
@@ -154,29 +155,63 @@ function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], 
 async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
-            const path = node.metadata?.cloudStoragePath;
-            if (!path) return node;
             if (node.metadata?.storageKey) {
                 const localUrl = node.type === CanvasNodeType.Image
                     ? await resolveImageUrl(node.metadata.storageKey, "")
                     : await resolveMediaUrl(node.metadata.storageKey, "");
                 if (localUrl) return { ...node, metadata: { ...node.metadata, content: localUrl } };
             }
-            try {
-                const response = await fetch("/api/creator/canvas-assets?path=" + encodeURIComponent(path), { cache: "no-store" });
-                const payload = await response.json().catch(() => ({}));
-                if (!response.ok || typeof payload.signedUrl !== "string") return node;
+            const path = node.metadata?.cloudStoragePath;
+            if (path) {
                 try {
-                    const stored = node.type === CanvasNodeType.Image
-                        ? await uploadImage(payload.signedUrl)
-                        : await uploadMediaFile(payload.signedUrl, node.type === CanvasNodeType.Audio ? "audio-cloud-migration" : "video-cloud-migration");
-                    return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
+                    const response = await fetch("/api/creator/canvas-assets?path=" + encodeURIComponent(path), { cache: "no-store" });
+                    const payload = await response.json().catch(() => ({}));
+                    if (response.ok && typeof payload.signedUrl === "string") {
+                        try {
+                            const stored = node.type === CanvasNodeType.Image
+                                ? await uploadImage(payload.signedUrl)
+                                : await uploadMediaFile(payload.signedUrl, node.type === CanvasNodeType.Audio ? "audio-cloud-migration" : "video-cloud-migration");
+                            return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
+                        } catch {
+                            return { ...node, metadata: { ...node.metadata, content: payload.signedUrl } };
+                        }
+                    }
                 } catch {
-                    return { ...node, metadata: { ...node.metadata, content: payload.signedUrl } };
+                    // The task/reference recovery below may still be able to
+                    // produce a fresh URL when the canvas asset path is gone.
                 }
-            } catch {
-                return node;
             }
+            if (node.type === CanvasNodeType.Video && node.metadata?.externalTaskId) {
+                try {
+                    const recovered = await getVideoTaskByReferenceId(node.metadata.externalTaskId);
+                    const task = recovered.task;
+                    if (task.videoUrl) {
+                        const stored = await uploadMediaFile(task.videoUrl, "video-recovered");
+                        const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
+                        return {
+                            ...node,
+                            metadata: {
+                                ...node.metadata,
+                                content: stored.url,
+                                storageKey: stored.storageKey,
+                                mimeType: stored.mimeType,
+                                bytes: stored.bytes,
+                                width: stored.width,
+                                height: stored.height,
+                                durationMs: stored.durationMs,
+                                cloudStoragePath: typeof output.video_storage_path === "string" ? output.video_storage_path : node.metadata.cloudStoragePath,
+                                cloudAssetId: typeof output.video_asset_id === "string" ? output.video_asset_id : node.metadata.cloudAssetId,
+                                status: NODE_STATUS_SUCCESS,
+                                errorDetails: undefined,
+                            },
+                        };
+                    }
+                } catch {
+                    // Keep the node visible; the canvas toolbar can still
+                    // offer an explicit Reference ID recovery action.
+                }
+            }
+            return node;
         }),
     );
 }
@@ -2754,6 +2789,38 @@ function InfiniteCanvasPage() {
         [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
+    const handleRecoverVideoNode = useCallback(async (node: CanvasNodeData) => {
+        if (node.type !== CanvasNodeType.Video) return;
+        const referenceId = window.prompt("粘贴 Wetoken Reference ID（例如 cgt-20260731153353-t4dlx）", node.metadata?.externalTaskId || "")?.trim();
+        if (!referenceId) return;
+        setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item));
+        try {
+            const recovered = await getVideoTaskByReferenceId(referenceId);
+            const task = recovered.task;
+            if (!task.videoUrl) throw new Error(task.error || "该任务尚未返回可播放视频，或 Wetoken 已清理任务");
+            const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
+            const stored = await storeGeneratedVideo({
+                url: task.videoUrl,
+                mimeType: "video/mp4",
+                externalTaskId: referenceId,
+                storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
+                assetId: typeof output.video_asset_id === "string" ? output.video_asset_id : undefined,
+            });
+            const videoSize = fitNodeSize(stored.width || node.width, stored.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+            setNodes((prev) => prev.map((item) => item.id === node.id ? {
+                ...item,
+                width: videoSize.width,
+                height: videoSize.height,
+                metadata: { ...item.metadata, ...videoMetadata(stored), externalTaskId: referenceId, model: item.metadata?.model || task.model, status: NODE_STATUS_SUCCESS, errorDetails: undefined },
+            } : item));
+            message.success("视频已找回并写回当前画布");
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : "视频找回失败";
+            setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: detail } } : item));
+            message.error(detail);
+        }
+    }, [message]);
+
     const generateImageFromTextNode = useCallback(
         (node: CanvasNodeData) => {
             const prompt = (node.metadata?.content || node.metadata?.prompt || "").trim();
@@ -3104,6 +3171,7 @@ function InfiniteCanvasPage() {
                     onViewImage={(node) => setPreviewNodeId(node.id)}
                     onReversePrompt={createImageReversePromptNodes}
                     onRetry={(node) => void handleRetryNode(node)}
+                    onRecoverVideo={(node) => void handleRecoverVideoNode(node)}
                     onToggleFreeResize={(node) => toggleNodeFreeResize(node.id)}
                     onDuplicate={(node) => duplicateNode(node.id)}
                     onDelete={(node) => deleteNodes(new Set([node.id]))}

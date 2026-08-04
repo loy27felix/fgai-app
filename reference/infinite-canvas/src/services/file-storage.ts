@@ -1,7 +1,7 @@
 import localforage from "localforage";
 import { nanoid } from "nanoid";
 
-export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number; cloudStoragePath?: string; cloudAssetId?: string };
+export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number; cloudStoragePath?: string; cloudAssetId?: string; externalTaskId?: string };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
