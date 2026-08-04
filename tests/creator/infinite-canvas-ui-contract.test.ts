@@ -87,3 +87,11 @@ test('legacy canvas deep links and video recovery routes remain available', () =
   assert.match(video, /getVideoTaskByReferenceId/);
   assert.match(video, /查询并找回/);
 });
+
+test('reference-id recovery skips UUID-only task predicates', () => {
+  const route = read('app/api/creator/videos/[id]/route.ts');
+
+  assert.match(route, /function isUuid\(value: string\)/);
+  assert.match(route, /if \(isUuid\(id\)\) \{[\s\S]*?\.eq\('id', id\)/);
+  assert.match(route, /if \(!task && allowExternalTaskId\) \{[\s\S]*?\.eq\('external_task_id', id\)/);
+});

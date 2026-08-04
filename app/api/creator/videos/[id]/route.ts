@@ -34,6 +34,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function normalizeReferences(value: unknown): VideoReferenceManifest[] {
   if (!Array.isArray(value)) throw new Error('invalid reference manifest');
   return value.map((entry) => {
@@ -78,13 +82,21 @@ async function loadOwnedTask(
     .eq('user_id', context.user.id)
     .eq('kind', 'video');
 
-  let result = await baseQuery().eq('id', id).maybeSingle();
-  if (result.error) throw result.error;
-  if (!result.data && allowExternalTaskId) {
-    result = await baseQuery().eq('external_task_id', id).maybeSingle();
+  let task: CreatorVideoTask | null = null;
+  // `id` is UUID. Wetoken Reference IDs (for example `cgt-...`) must skip
+  // this predicate or Postgres rejects the request before the external-ID
+  // fallback can run.
+  if (isUuid(id)) {
+    const result = await baseQuery().eq('id', id).maybeSingle();
     if (result.error) throw result.error;
+    task = result.data as CreatorVideoTask | null;
   }
-  return result.data as CreatorVideoTask | null;
+  if (!task && allowExternalTaskId) {
+    const result = await baseQuery().eq('external_task_id', id).maybeSingle();
+    if (result.error) throw result.error;
+    task = result.data as CreatorVideoTask | null;
+  }
+  return task;
 }
 
 type LegacyVideoTask = {
@@ -173,19 +185,24 @@ async function loadOwnedLegacyTask(
     .select('id,project_id,shot_id,user_id,kind,provider,model,status,external_task_id,request,output,error,created_at,updated_at,completed_at')
     .eq('user_id', context.user.id)
     .eq('kind', 'video');
-  let result = await query().eq('id', id).maybeSingle();
-  if (result.error) {
-    console.error('[creator legacy video read by id]', result.error);
-    return null;
+  let task: LegacyVideoTask | null = null;
+  if (isUuid(id)) {
+    const result = await query().eq('id', id).maybeSingle();
+    if (result.error) {
+      console.error('[creator legacy video read by id]', result.error);
+      return null;
+    }
+    task = result.data as LegacyVideoTask | null;
   }
-  if (!result.data) {
-    result = await query().eq('external_task_id', id).maybeSingle();
+  if (!task) {
+    const result = await query().eq('external_task_id', id).maybeSingle();
     if (result.error) {
       console.error('[creator legacy video read by external id]', result.error);
       return null;
     }
+    task = result.data as LegacyVideoTask | null;
   }
-  return result.data as LegacyVideoTask | null;
+  return task;
 }
 
 async function loadOwnedUsageVideoTask(
