@@ -87,6 +87,149 @@ async function loadOwnedTask(
   return result.data as CreatorVideoTask | null;
 }
 
+type LegacyVideoTask = {
+  id: string;
+  project_id: string;
+  shot_id: string | null;
+  user_id: string;
+  kind: 'video';
+  provider: string;
+  model: string;
+  status: string;
+  external_task_id: string;
+  request: unknown;
+  output: unknown;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+function creatorTaskStatus(value: string): CreatorVideoTask['status'] {
+  return ['draft', 'submitting', 'queued', 'running', 'succeeded', 'failed', 'expired', 'unknown'].includes(value)
+    ? value as CreatorVideoTask['status']
+    : 'unknown';
+}
+
+function legacyOutput(task: LegacyVideoTask): Record<string, unknown> {
+  const output = asRecord(task.output);
+  const videoUrl = typeof output.video_url === 'string'
+    ? output.video_url
+    : typeof output.videoUrl === 'string'
+      ? output.videoUrl
+      : typeof output.result_url === 'string'
+        ? output.result_url
+        : null;
+  return { ...output, ...(videoUrl ? { video_url: videoUrl } : {}) };
+}
+
+function legacyAsCreatorTask(
+  context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
+  task: LegacyVideoTask,
+  output = legacyOutput(task),
+  status = creatorTaskStatus(task.status),
+): CreatorVideoTask {
+  return {
+    id: task.id,
+    workspace_id: context.workspace.id,
+    canvas_id: null,
+    node_id: null,
+    user_id: task.user_id,
+    kind: 'video',
+    provider: 'wetoken',
+    model: task.model,
+    filter_off: false,
+    external_task_id: task.external_task_id,
+    status,
+    idempotency_key: `legacy:${task.id}`,
+    request: asRecord(task.request),
+    output,
+    error: task.error,
+    confirmed_at: task.created_at,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+    completed_at: task.completed_at,
+  };
+}
+
+async function loadOwnedLegacyTask(
+  context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
+  id: string,
+) {
+  const query = () => context.supabase
+    .from('generation_tasks')
+    .select('id,project_id,shot_id,user_id,kind,provider,model,status,external_task_id,request,output,error,created_at,updated_at,completed_at')
+    .eq('user_id', context.user.id)
+    .eq('kind', 'video');
+  let result = await query().eq('id', id).maybeSingle();
+  if (result.error) throw result.error;
+  if (!result.data) {
+    result = await query().eq('external_task_id', id).maybeSingle();
+    if (result.error) throw result.error;
+  }
+  return result.data as LegacyVideoTask | null;
+}
+
+async function legacyTaskSnapshot(
+  context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
+  task: LegacyVideoTask,
+) {
+  const creatorTask = legacyAsCreatorTask(context, task);
+  return {
+    ...creatorTask,
+    videoUrl: await signedVideoOutputUrl(context, creatorTask.output, SIGNED_URL_TTL_SECONDS),
+    referenceUrls: [],
+  } satisfies CreatorVideoTaskView;
+}
+
+async function recoverLegacyTask(
+  context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
+  task: LegacyVideoTask,
+) {
+  let status = creatorTaskStatus(task.status);
+  let output = legacyOutput(task);
+  let error = task.error;
+  let completedAt = task.completed_at;
+  const hasDurableOutput = typeof output.video_storage_path === 'string';
+
+  if (task.external_task_id && !['failed', 'expired'].includes(status) && !hasDurableOutput) {
+    try {
+      const polled = await getWetokenVideoTask(task.external_task_id);
+      status = creatorTaskStatus(polled.status);
+      output = { ...output, ...(polled.videoUrl ? { video_url: polled.videoUrl } : {}), ...(polled.usage ? { usage: polled.usage } : {}) };
+      error = polled.error || null;
+      if (['succeeded', 'failed', 'expired'].includes(status)) completedAt = completedAt || new Date().toISOString();
+    } catch (pollError) {
+      console.error('[creator legacy video poll]', pollError);
+    }
+  }
+
+  const creatorTask = legacyAsCreatorTask(context, { ...task, error, completed_at: completedAt }, output, status);
+  if (status === 'succeeded') output = await persistVideoOutput(context, creatorTask, output);
+  const updated = await context.supabase
+    .from('generation_tasks')
+    .update({ status, output, error, completed_at: completedAt })
+    .eq('id', task.id)
+    .eq('user_id', context.user.id)
+    .select('*')
+    .maybeSingle();
+  if (updated.error) console.error('[creator legacy video update]', updated.error);
+  const finalTask = legacyAsCreatorTask(context, { ...task, error, completed_at: completedAt }, output, status);
+  if (task.external_task_id) {
+    await updateVideoUsageBestEffort({
+      requestId: 'wetoken-video:' + task.external_task_id,
+      providerStatus: status,
+      completedAt,
+      reportedCostUsd: extractReportedCostUsd(asRecord(output).usage),
+    });
+  }
+  return {
+    ...finalTask,
+    videoUrl: await signedVideoOutputUrl(context, output, SIGNED_URL_TTL_SECONDS),
+    referenceUrls: [],
+  } satisfies CreatorVideoTaskView;
+}
+
 function referencePathsFor(task: CreatorVideoTask) {
   const request = asRecord(task.request);
   const manifest = normalizeReferences(request.reference_manifest);
@@ -223,6 +366,8 @@ export async function GET(_req: Request, { params }: RouteContext) {
     // Accept both the internal cgt-* task ID and Wetoken's
     // external task/reference ID so an old provider task can be recovered.
     const task = await loadOwnedTask(context, params.id, true);
+    const legacy = task ? null : await loadOwnedLegacyTask(context, params.id);
+    if (legacy) return NextResponse.json({ task: await recoverLegacyTask(context, legacy) });
     if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
     const current = await pollTask(context, task);
     return NextResponse.json({ task: await taskView(context, current) });

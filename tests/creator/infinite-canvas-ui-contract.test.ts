@@ -73,3 +73,17 @@ test('creator browser history bridge and reference-id recovery are wired', () =>
   assert.match(route, /external_task_id/);
   assert.match(route, /fresh URL can be copied/);
 });
+
+test('legacy canvas deep links and video recovery routes remain available', () => {
+  const root = read('app/canvas/page.tsx');
+  const project = read('app/canvas/[...slug]/page.tsx');
+  const route = read('app/api/creator/videos/[id]/route.ts');
+  const video = read('reference/infinite-canvas/src/pages/video/index.tsx');
+
+  assert.match(root, /\/creator#\/canvas/);
+  assert.match(project, /\/creator#\/canvas/);
+  assert.match(route, /loadOwnedLegacyTask/);
+  assert.match(route, /recoverLegacyTask/);
+  assert.match(video, /getVideoTaskByReferenceId/);
+  assert.match(video, /查询并找回/);
+});

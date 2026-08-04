@@ -16,6 +16,8 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/reference/infinite-canvas/src/services/api/video";
+import { getVideoTaskByReferenceId } from "@/lib/creator/video-client";
+import type { CreatorVideoTaskView } from "@/lib/creator/types";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/reference/infinite-canvas/src/stores/use-workbench-agent-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -97,6 +99,9 @@ export default function VideoPage() {
     const [previewLog, setPreviewLog] = useState<GenerationLog | null>(null);
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
     const [referenceDragTarget, setReferenceDragTarget] = useState<"image" | "video" | "audio" | null>(null);
+    const [referenceId, setReferenceId] = useState("");
+    const [recovering, setRecovering] = useState(false);
+    const [recoveredTask, setRecoveredTask] = useState<CreatorVideoTaskView | null>(null);
     const [autoRunToken, setAutoRunToken] = useState(0);
     const videoCommand = useWorkbenchAgentStore((state) => state.videoCommand);
     const clearVideoCommand = useWorkbenchAgentStore((state) => state.clearVideoCommand);
@@ -268,6 +273,45 @@ export default function VideoPage() {
         void generate();
     };
 
+    const recoverByReferenceId = async () => {
+        const id = referenceId.trim();
+        if (!id) { message.warning("请粘贴 Wetoken Reference ID"); return; }
+        setRecovering(true);
+        setRecoveredTask(null);
+        try {
+            const { task } = await getVideoTaskByReferenceId(id);
+            setRecoveredTask(task);
+            if (!task.videoUrl) {
+                setResults([]);
+                message.info(`已找到任务，当前状态：${task.status}`);
+                return;
+            }
+            let stored: Awaited<ReturnType<typeof storeGeneratedVideo>> | null = null;
+            try { stored = await storeGeneratedVideo({ url: task.videoUrl, mimeType: "video/mp4" }); } catch { /* keep the provider URL */ }
+            const video: GeneratedVideo = {
+                id: nanoid(),
+                url: stored?.url || task.videoUrl,
+                storageKey: stored?.storageKey || "",
+                durationMs: stored?.durationMs || 0,
+                width: stored?.width || 1280,
+                height: stored?.height || 720,
+                bytes: stored?.bytes || 0,
+                mimeType: stored?.mimeType || "video/mp4",
+            };
+            const recoveredConfig = buildVideoConfig({ ...effectiveConfig, model: task.model, videoModel: task.model }, task.model);
+            const requestPrompt = typeof task.request?.prompt === "string" ? task.request.prompt : `Reference ID ${id}`;
+            await saveLog(buildLog({ prompt: requestPrompt, model: task.model, config: recoveredConfig, references: [], videoReferences: [], audioReferences: [], durationMs: video.durationMs, status: "成功", video }), false);
+            setPrompt(requestPrompt);
+            setResults([{ id: video.id, status: "success", video }]);
+            setPreviewLog(null);
+            message.success("视频已找回，并已保存到本地生成记录");
+        } catch (error) {
+            setResults([]);
+            message.error(error instanceof Error ? error.message : "找回失败，请确认 Reference ID 属于当前账号");
+        } finally {
+            setRecovering(false);
+        }
+    };
     const downloadVideo = (video: GeneratedVideo) => {
         saveAs(video.url, "video.mp4");
     };
@@ -424,6 +468,15 @@ export default function VideoPage() {
                                     参数
                                 </Button>
                             </div>
+                        </div>
+                        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
+                            <div className="text-sm font-semibold text-stone-900 dark:text-stone-100">找回旧视频</div>
+                            <p className="mt-1 text-xs text-stone-600 dark:text-stone-400">粘贴 Wetoken Reference ID（例如 cgt-…）；仅能找回当前账号拥有、且供应商仍保留的任务。</p>
+                            <div className="mt-3 flex gap-2">
+                                <Input value={referenceId} onChange={(event) => setReferenceId(event.target.value)} onPressEnter={() => void recoverByReferenceId()} placeholder="cgt-..." />
+                                <Button type="primary" loading={recovering} onClick={() => void recoverByReferenceId()}>查询并找回</Button>
+                            </div>
+                            {recoveredTask ? <div className="mt-2 text-xs text-stone-600 dark:text-stone-400">任务状态：{recoveredTask.status}{recoveredTask.videoUrl ? " · 已找到视频" : " · 暂无可播放链接"}</div> : null}
                         </div>
 
                         <div className="mt-6 space-y-5">
