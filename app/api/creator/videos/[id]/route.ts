@@ -66,16 +66,24 @@ async function creatorContext() {
   return { supabase, user, workspace };
 }
 
-async function loadOwnedTask(context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>, id: string) {
-  const result = await context.supabase
+async function loadOwnedTask(
+  context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
+  id: string,
+  allowExternalTaskId = false,
+) {
+  const baseQuery = () => context.supabase
     .from('creator_generation_tasks')
     .select('*')
-    .eq('id', id)
     .eq('workspace_id', context.workspace.id)
     .eq('user_id', context.user.id)
-    .eq('kind', 'video')
-    .maybeSingle();
+    .eq('kind', 'video');
+
+  let result = await baseQuery().eq('id', id).maybeSingle();
   if (result.error) throw result.error;
+  if (!result.data && allowExternalTaskId) {
+    result = await baseQuery().eq('external_task_id', id).maybeSingle();
+    if (result.error) throw result.error;
+  }
   return result.data as CreatorVideoTask | null;
 }
 
@@ -136,7 +144,10 @@ async function pollTask(
   task: CreatorVideoTask,
 ) {
   if (!task.external_task_id || ['failed', 'expired'].includes(task.status)) return task;
-  if (task.status === 'succeeded') return ensureVideoOutputStored(context, task);
+  // A succeeded task may still only contain a temporary provider URL. Poll
+  // Wetoken once more on an explicit task read so a fresh URL can be copied
+  // into durable storage after the old URL has expired.
+  if (task.status === 'succeeded' && typeof asRecord(task.output).video_storage_path === 'string') return task;
   let polled;
   try {
     polled = await getWetokenVideoTask(task.external_task_id);
@@ -209,7 +220,9 @@ export async function GET(_req: Request, { params }: RouteContext) {
   try {
     const context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
-    const task = await loadOwnedTask(context, params.id);
+    // Accept both the internal cgt-* task ID and Wetoken's
+    // external task/reference ID so an old provider task can be recovered.
+    const task = await loadOwnedTask(context, params.id, true);
     if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
     const current = await pollTask(context, task);
     return NextResponse.json({ task: await taskView(context, current) });

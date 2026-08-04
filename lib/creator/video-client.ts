@@ -90,6 +90,11 @@ export function getVideoTask(taskId: string) {
   return requestJson<VideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId), { method: 'GET' });
 }
 
+/** Recover a task by either the internal cgt-* ID or Wetoken external task/reference ID. */
+export function getVideoTaskByReferenceId(referenceId: string) {
+  return getVideoTask(referenceId);
+}
+
 export function deleteVideoTask(taskId: string) {
   return requestJson<DeleteVideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId), { method: 'DELETE' });
 }

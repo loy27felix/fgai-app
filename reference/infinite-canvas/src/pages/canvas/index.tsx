@@ -13,6 +13,37 @@ import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/us
 import { useCanvasUiStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { listCreatorCanvases } from "@/lib/creator/canvas-client";
+function matchesRemoteCanvas(
+    project: { title: string; nodes: unknown[]; connections: unknown[] },
+    canvas: { title?: string | null },
+    remoteNodes: unknown[],
+    remoteEdges: unknown[],
+) {
+    if ((project.title || "").trim() !== (canvas.title || "").trim()) return false;
+    if (project.nodes.length !== remoteNodes.length || project.connections.length !== remoteEdges.length) return false;
+
+    const nodeKey = (value: unknown) => {
+        const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+        return `${String(record.id || "")}:${String(record.type || "")}`;
+    };
+    const localNodeKeys = project.nodes.map(nodeKey).sort();
+    const remoteNodeKeys = remoteNodes.map(nodeKey).sort();
+    if (localNodeKeys.some((key, index) => key !== remoteNodeKeys[index])) return false;
+
+    const edgeKey = (value: unknown) => {
+        const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+        return `${String(record.fromNodeId || "")}:${String(record.toNodeId || "")}`;
+    };
+    const remoteEdgeKey = (value: unknown) => {
+        const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+        return `${String(record.from || "")}:${String(record.to || "")}`;
+    };
+    const localEdgeKeys = project.connections.map(edgeKey).sort();
+    const remoteEdgeKeys = remoteEdges.map(remoteEdgeKey).sort();
+    return localEdgeKeys.every((key, index) => key === remoteEdgeKeys[index]);
+}
+
+
 
 export default function CanvasPage() {
     const { message } = App.useApp();
@@ -69,12 +100,29 @@ export default function CanvasPage() {
             try {
                 const responses = await Promise.all([listCreatorCanvases("image"), listCreatorCanvases("video")]);
                 const remote = responses.flatMap((response) => response.canvases || []);
-                const known = new Set(projects.map((project) => project.cloudCanvasId).filter(Boolean));
-                remote.filter((canvas) => !known.has(canvas.id)).forEach((canvas) => {
+                const uniqueRemote = Array.from(new Map(remote.map((canvas) => [canvas.id, canvas])).values());
+
+                for (const canvas of uniqueRemote) {
+                    // Always read the current Zustand snapshot. The hook's
+                    // `projects` value is stale while importProject/updateProject
+                    // are mutating the store during this loop.
+                    const currentProjects = useCanvasStore.getState().projects;
+                    if (currentProjects.some((project) => project.cloudCanvasId === canvas.id)) continue;
+
                     const graph = canvas.graph && typeof canvas.graph === "object" ? canvas.graph as Record<string, unknown> : {};
                     const nodes = Array.isArray(graph.nodes) ? graph.nodes as any[] : [];
                     const edges = Array.isArray(graph.edges) ? graph.edges as any[] : [];
                     const viewport = graph.viewport && typeof graph.viewport === "object" ? graph.viewport as Record<string, unknown> : {};
+                    const matchingLocal = currentProjects.find((project) => !project.cloudCanvasId && matchesRemoteCanvas(project, canvas, nodes, edges));
+
+                    if (matchingLocal) {
+                        // Older local projects were created before cloudCanvasId
+                        // existed. Adopt the matching project instead of importing
+                        // a second copy on every visit.
+                        updateProject(matchingLocal.id, { cloudCanvasId: canvas.id });
+                        continue;
+                    }
+
                     const localId = importProject({
                         title: canvas.title || "云端画布",
                         nodes: nodes as any,
@@ -89,12 +137,12 @@ export default function CanvasPage() {
                         },
                     });
                     updateProject(localId, { cloudCanvasId: canvas.id });
-                });
+                }
             } catch {
                 // Unauthenticated/private deployments continue with localForage.
             }
         })();
-    }, [hydrated, importProject, projects, updateProject]);
+    }, [hydrated, importProject, updateProject]);
     useEffect(() => {
         if (!hydrated || autoOpenRef.current || (mode !== "new" && mode !== "recent")) return;
         autoOpenRef.current = true;

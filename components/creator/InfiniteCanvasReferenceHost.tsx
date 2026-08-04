@@ -1,6 +1,7 @@
 "use client";
 
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppProviders } from "@/reference/infinite-canvas/src/components/layout/app-providers";
 import { AnalyticsTracker } from "@/reference/infinite-canvas/src/components/layout/analytics-tracker";
 import UserLayout from "@/reference/infinite-canvas/src/layouts/user-layout";
@@ -36,10 +37,49 @@ function ReferenceRoutes() {
   );
 }
 
+function initialCreatorRoute() {
+  if (typeof window === "undefined") return "/";
+  const route = window.location.hash.slice(1);
+  return route.startsWith("/") ? route : "/";
+}
+
+/**
+ * The reference canvas intentionally uses a MemoryRouter, but the outer Next
+ * page still needs normal browser Back/Forward behavior. Mirror route changes
+ * into a hash entry so leaving the canvas only happens after its inner routes
+ * have been traversed.
+ */
+function BrowserHistoryBridge() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const route = location.pathname + location.search + location.hash;
+    const hash = route === "/" ? "" : route;
+    if (window.location.hash.slice(1) === hash) return;
+    const base = window.location.pathname + window.location.search;
+    const target = base + (hash ? "#" + hash : "");
+    window.history.pushState({ fgCreatorRoute: route }, "", target);
+  }, [location.hash, location.pathname, location.search]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = window.location.hash.slice(1);
+      navigate(route.startsWith("/") ? route : "/", { replace: true });
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [navigate]);
+
+  return null;
+}
+
 export default function InfiniteCanvasReferenceHost() {
   return (
     <AppProviders>
-      <MemoryRouter initialEntries={["/"]}>
+      <MemoryRouter initialEntries={[initialCreatorRoute()]}>
+        <BrowserHistoryBridge />
         <ReferenceRoutes />
         <CreatorUsageLedger />
       </MemoryRouter>

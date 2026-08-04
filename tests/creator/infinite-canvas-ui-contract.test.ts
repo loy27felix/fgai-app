@@ -47,3 +47,29 @@ test('canvas Agent is wired to the creator chat API with skills and reasoning', 
   assert.match(agent, /skill/);
   assert.match(api, /recordUsageBestEffort/);
 });
+
+
+test('canvas cloud sync adopts legacy local projects and deletes remote rows', () => {
+  const index = read('reference/infinite-canvas/src/pages/canvas/index.tsx');
+  const dialog = read('reference/infinite-canvas/src/components/canvas/canvas-delete-projects-dialog.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(index, /matchesRemoteCanvas/);
+  assert.match(index, /useCanvasStore\.getState\(\)\.projects/);
+  assert.match(index, /uniqueRemote/);
+  assert.match(dialog, /deleteCreatorCanvas/);
+  assert.match(dialog, /云端副本也会同步删除/);
+  assert.match(project, /cloudCreateInFlightRef/);
+});
+
+test('creator browser history bridge and reference-id recovery are wired', () => {
+  const host = read('components/creator/InfiniteCanvasReferenceHost.tsx');
+  const route = read('app/api/creator/videos/[id]/route.ts');
+
+  assert.match(host, /BrowserHistoryBridge/);
+  assert.match(host, /pushState/);
+  assert.match(host, /initialCreatorRoute/);
+  assert.match(route, /allowExternalTaskId/);
+  assert.match(route, /external_task_id/);
+  assert.match(route, /fresh URL can be copied/);
+});

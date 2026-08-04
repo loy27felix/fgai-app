@@ -40,7 +40,7 @@ import { CanvasSidePanel } from "@/reference/infinite-canvas/src/components/canv
 import { CanvasZoomControls } from "@/reference/infinite-canvas/src/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
 import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
-import { createCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
+import { createCreatorCanvas, deleteCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
@@ -307,6 +307,8 @@ function InfiniteCanvasPage() {
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const cloudCanvasIdRef = useRef<string | null>(null);
     const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const cloudCreateInFlightRef = useRef(false);
+    const cloudProjectIdRef = useRef<string | null>(null);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -378,6 +380,8 @@ function InfiniteCanvasPage() {
 
         const restore = async () => {
             cloudCanvasIdRef.current = project.cloudCanvasId || null;
+            cloudCreateInFlightRef.current = false;
+            cloudProjectIdRef.current = projectId;
             const cloudNodes = await hydrateCloudNodeUrls(project.nodes);
             const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(cloudNodes));
             const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
@@ -458,17 +462,20 @@ function InfiniteCanvasPage() {
 
     useEffect(() => {
         if (!projectLoaded || !currentProject) return;
+        if (cloudProjectIdRef.current !== projectId) return;
+        if (!cloudCanvasIdRef.current && cloudCreateInFlightRef.current) return;
         if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         cloudSyncTimerRef.current = setTimeout(() => {
             const graph = toCloudGraph(nodes, connections, viewport, backgroundMode);
             const cloudId = cloudCanvasIdRef.current;
             const kind = nodes.some((node) => node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) ? "video" : "image";
+            if (!cloudId) cloudCreateInFlightRef.current = true;
             const request = cloudId
                 ? updateCreatorCanvas(cloudId, { title: currentProject.title, graph: graph as any })
                 : createCreatorCanvas({ title: currentProject.title, graph: graph as any }, kind);
             void request
                 .then((result) => {
-                    if (cloudId) return;
+                    if (cloudId || cloudProjectIdRef.current !== projectId) return;
                     const nextId = result.canvas?.id;
                     if (!nextId) return;
                     cloudCanvasIdRef.current = nextId;
@@ -478,6 +485,9 @@ function InfiniteCanvasPage() {
                     // Guests and older deployments may not have the creator tables;
                     // localForage remains the immediate fallback in that case.
                     console.warn("[canvas cloud sync]", error);
+                })
+                .finally(() => {
+                    if (!cloudId && cloudProjectIdRef.current === projectId) cloudCreateInFlightRef.current = false;
                 });
             cloudSyncTimerRef.current = null;
         }, 900);
@@ -1129,11 +1139,22 @@ function InfiniteCanvasPage() {
         navigate(`/canvas/${id}`);
     }, [duplicateProject, message, navigate, projectId]);
 
-    const deleteCurrentProject = useCallback(() => {
+    const deleteCurrentProject = useCallback(async () => {
+        const project = useCanvasStore.getState().projects.find((item) => item.id === projectId);
+        if (!project) return message.error("未找到当前画布");
+        try {
+            if (project.cloudCanvasId) await deleteCreatorCanvas(project.cloudCanvasId);
+        } catch (error) {
+            const status = error && typeof error === "object" && "status" in error ? Number((error as { status?: unknown }).status) : 0;
+            if (status !== 404) {
+                console.error("[canvas delete]", error);
+                return message.error("云端画布删除失败，本地画布未删除");
+            }
+        }
         deleteProjects([projectId]);
         cleanupAssetImages();
         navigate("/canvas");
-    }, [cleanupAssetImages, deleteProjects, navigate, projectId]);
+    }, [cleanupAssetImages, deleteProjects, message, navigate, projectId]);
 
     const exportCurrentProject = useCallback(async () => {
         const project = useCanvasStore.getState().projects.find((item) => item.id === projectId);
