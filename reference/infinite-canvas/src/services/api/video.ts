@@ -254,27 +254,34 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
     if (typeof result === "string") return { url: result, mimeType: "video/mp4" };
     if (result && typeof result === "object") {
         const record = result as Record<string, unknown>;
-        if (record.blob instanceof Blob) return { blob: record.blob };
         const url = [record.url, record.video_url, record.result_url].find((value) => typeof value === "string" && value) as string | undefined;
+        if (record.blob instanceof Blob) return { blob: record.blob, ...(url ? { url } : {}), mimeType: "video/mp4" };
         if (url) return { url, mimeType: "video/mp4" };
     }
     throw new Error("模型调用脚本没有返回视频");
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
-    const store = (input: Blob | string) => uploadMediaFile(input, "video").then((stored) => ({
+    const withCloudMetadata = (stored: UploadedFile): UploadedFile => ({
         ...stored,
         ...(result.storagePath ? { cloudStoragePath: result.storagePath } : {}),
         ...(result.assetId ? { cloudAssetId: result.assetId } : {}),
         ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
-    }));
-    if (result.blob) return store(result.blob);
-    if (result.url) {
-        try {
-            return await store(result.url);
-        } catch (error) {
-            throw new Error("视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试");
-        }
+    });
+    const store = (input: Blob | string) => uploadMediaFile(input, "video").then(withCloudMetadata);
+    const remoteFallback = result.url ? withCloudMetadata({
+        url: result.url,
+        storageKey: "",
+        bytes: 0,
+        mimeType: result.mimeType || "video/mp4",
+    }) : null;
+    try {
+        if (result.blob) return await store(result.blob);
+        if (result.url) return await store(result.url);
+    } catch (error) {
+        if (remoteFallback) return remoteFallback;
+        const detail = error instanceof Error ? `：${error.message}` : "";
+        throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
     }
     throw new Error("视频接口没有返回可播放的视频");
 }
@@ -432,7 +439,7 @@ async function videoResultFromUrl(url: string, options?: RequestOptions): Promis
     try {
         const response = await axios.get<Blob>(url, { responseType: "blob", signal: options?.signal });
         await assertVideoBlob(response.data);
-        return { blob: response.data };
+        return { blob: response.data, url, mimeType: response.data.type || "video/mp4" };
     } catch (error) {
         if (axios.isCancel(error) || options?.signal?.aborted) throw error;
         return { url, mimeType: "video/mp4" };

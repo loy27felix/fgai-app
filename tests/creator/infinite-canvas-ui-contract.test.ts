@@ -95,3 +95,14 @@ test('reference-id recovery skips UUID-only task predicates', () => {
   assert.match(route, /if \(isUuid\(id\)\) \{[\s\S]*?\.eq\('id', id\)/);
   assert.match(route, /if \(!task && allowExternalTaskId\) \{[\s\S]*?\.eq\('external_task_id', id\)/);
 });
+
+test('video persistence keeps a cloud URL when browser media storage is unavailable', () => {
+  const video = read('reference/infinite-canvas/src/services/api/video.ts');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(video, /return \{ blob: response\.data, url, mimeType:/);
+  assert.match(video, /const remoteFallback(?:[^=]*)= result\.url \?/);
+  assert.match(video, /storageKey: ""/);
+  assert.match(video, /return remoteFallback;/);
+  assert.match(project, /storeGeneratedVideo\(\{[\s\S]*?url: task\.videoUrl/);
+});

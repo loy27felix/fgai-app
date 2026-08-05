@@ -170,7 +170,9 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                         try {
                             const stored = node.type === CanvasNodeType.Image
                                 ? await uploadImage(payload.signedUrl)
-                                : await uploadMediaFile(payload.signedUrl, node.type === CanvasNodeType.Audio ? "audio-cloud-migration" : "video-cloud-migration");
+                                : node.type === CanvasNodeType.Audio
+                                    ? await uploadMediaFile(payload.signedUrl, "audio-cloud-migration")
+                                    : await storeGeneratedVideo({ url: payload.signedUrl, mimeType: "video/mp4", storagePath: path, assetId: node.metadata?.cloudAssetId, externalTaskId: node.metadata?.externalTaskId });
                             return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
                         } catch {
                             return { ...node, metadata: { ...node.metadata, content: payload.signedUrl } };
@@ -186,8 +188,14 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                     const recovered = await getVideoTaskByReferenceId(node.metadata.externalTaskId);
                     const task = recovered.task;
                     if (task.videoUrl) {
-                        const stored = await uploadMediaFile(task.videoUrl, "video-recovered");
                         const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
+                        const stored = await storeGeneratedVideo({
+                            url: task.videoUrl,
+                            mimeType: "video/mp4",
+                            externalTaskId: node.metadata.externalTaskId,
+                            storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
+                            assetId: typeof output.video_asset_id === "string" ? output.video_asset_id : undefined,
+                        });
                         return {
                             ...node,
                             metadata: {
