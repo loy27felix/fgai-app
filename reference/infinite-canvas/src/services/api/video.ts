@@ -12,6 +12,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas
 import { createClient } from "@/lib/supabase/client";
 import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
+import { assertPlayableVideoUrl } from "@/lib/creator/video-recovery";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -288,11 +289,17 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         if (result.blob) return await store(result.blob);
         if (result.url) return await store(result.url);
     } catch (error) {
-        if (remoteFallback) return remoteFallback;
+        if (remoteFallback) {
+            await assertPlayableVideoUrl(remoteFallback.url);
+            return remoteFallback;
+        }
         const detail = error instanceof Error ? `：${error.message}` : "";
         throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
     }
-    if (remoteFallback) return remoteFallback;
+    if (remoteFallback) {
+        await assertPlayableVideoUrl(remoteFallback.url);
+        return remoteFallback;
+    }
     throw new Error("视频接口没有返回可播放的视频");
 }
 

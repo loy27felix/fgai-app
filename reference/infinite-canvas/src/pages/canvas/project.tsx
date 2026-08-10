@@ -155,14 +155,21 @@ function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], 
 async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
+            let recoveryError: string | undefined;
+            let staleCloudUrl: string | undefined;
+
             if (node.metadata?.storageKey) {
                 const localUrl = node.type === CanvasNodeType.Image
                     ? await resolveImageUrl(node.metadata.storageKey, "")
                     : await resolveMediaUrl(node.metadata.storageKey, "");
                 if (localUrl) return { ...node, metadata: { ...node.metadata, content: localUrl } };
             }
+
             const path = node.metadata?.cloudStoragePath;
             if (path) {
+                if (node.type === CanvasNodeType.Video) {
+                    staleCloudUrl = creatorCanvasAssetContentUrl(path);
+                }
                 try {
                     const response = await fetch("/api/creator/canvas-assets?path=" + encodeURIComponent(path), { cache: "no-store" });
                     const payload = await response.json().catch(() => ({}));
@@ -174,20 +181,24 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                                     ? await uploadMediaFile(payload.signedUrl, "audio-cloud-migration")
                                     : await storeGeneratedVideo({ url: payload.signedUrl, mimeType: "video/mp4", storagePath: path, assetId: node.metadata?.cloudAssetId, externalTaskId: node.metadata?.externalTaskId });
                             return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
-                        } catch {
-                            return { ...node, metadata: { ...node.metadata, content: node.type === CanvasNodeType.Video ? creatorCanvasAssetContentUrl(path) : payload.signedUrl } };
+                        } catch (error) {
+                            recoveryError = error instanceof Error ? error.message : "云端视频文件不可用";
                         }
+                    } else if (node.type === CanvasNodeType.Video) {
+                        recoveryError = "云端视频资产不存在或已过期";
                     }
-                } catch {
-                    // The task/reference recovery below may still be able to
-                    // produce a fresh URL when the canvas asset path is gone.
+                } catch (error) {
+                    recoveryError = error instanceof Error ? error.message : "读取云端视频资产失败";
                 }
             }
+
             if (node.type === CanvasNodeType.Video && node.metadata?.externalTaskId) {
                 try {
                     const recovered = await getVideoTaskByReferenceId(node.metadata.externalTaskId);
                     const task = recovered.task;
-                    if (task.videoUrl) {
+                    if (!task.videoUrl) {
+                        recoveryError = task.error || "任务已找到，但没有可播放的视频文件";
+                    } else {
                         const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
                         const stored = await storeGeneratedVideo({
                             url: task.videoUrl,
@@ -217,10 +228,21 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                             },
                         };
                     }
-                } catch {
-                    // Keep the node visible; the canvas toolbar can still
-                    // offer an explicit Reference ID recovery action.
+                } catch (error) {
+                    recoveryError = error instanceof Error ? error.message : "视频任务恢复失败";
                 }
+            }
+
+            if (node.type === CanvasNodeType.Video && recoveryError) {
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        ...(staleCloudUrl ? { content: staleCloudUrl } : {}),
+                        status: NODE_STATUS_ERROR,
+                        errorDetails: recoveryError,
+                    },
+                };
             }
             return node;
         }),

@@ -286,20 +286,17 @@ export default function VideoPage() {
                 message.info(task.error ? `任务暂时没有可播放视频：${task.error}` : `已找到任务，当前状态：${task.status}`);
                 return;
             }
-            let stored: Awaited<ReturnType<typeof storeGeneratedVideo>> | null = null;
             const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
-            try {
-                stored = await storeGeneratedVideo({
-                    url: task.videoUrl,
-                    fallbackUrl: typeof output.video_storage_path === "string"
-                        ? creatorCanvasAssetContentUrl(output.video_storage_path)
-                        : creatorVideoContentUrl(id),
-                    mimeType: "video/mp4",
-                    externalTaskId: id,
-                    storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
-                    assetId: typeof output.video_asset_id === "string" ? output.video_asset_id : undefined,
-                });
-            } catch { /* keep the provider URL */ }
+            const stored = await storeGeneratedVideo({
+                url: task.videoUrl,
+                fallbackUrl: typeof output.video_storage_path === "string"
+                    ? creatorCanvasAssetContentUrl(output.video_storage_path)
+                    : creatorVideoContentUrl(id),
+                mimeType: "video/mp4",
+                externalTaskId: id,
+                storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
+                assetId: typeof output.video_asset_id === "string" ? output.video_asset_id : undefined,
+            });
             const video: GeneratedVideo = {
                 id: nanoid(),
                 url: stored?.url || (typeof output.video_storage_path === "string" ? creatorCanvasAssetContentUrl(output.video_storage_path) : creatorVideoContentUrl(id)),
