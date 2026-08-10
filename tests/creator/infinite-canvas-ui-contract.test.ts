@@ -101,7 +101,7 @@ test('video persistence keeps a cloud URL when browser media storage is unavaila
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
 
   assert.match(video, /return \{ blob: response\.data, url, mimeType:/);
-  assert.match(video, /const remoteFallback(?:[^=]*)= result\.url \?/);
+  assert.match(video, /const fallbackUrl = result\.fallbackUrl/);
   assert.match(video, /storageKey: ""/);
   assert.match(video, /return remoteFallback;/);
   assert.match(project, /storeGeneratedVideo\(\{[\s\S]*?url: task\.videoUrl/);

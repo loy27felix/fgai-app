@@ -95,6 +95,16 @@ export function getVideoTaskByReferenceId(referenceId: string) {
   return getVideoTask(referenceId);
 }
 
+/** Stable same-origin playback URL for a recovered creator video task. */
+export function creatorVideoContentUrl(taskId: string) {
+  return '/api/creator/videos/' + encodeURIComponent(taskId) + '/content';
+}
+
+/** Stable same-origin playback URL for a private canvas asset. */
+export function creatorCanvasAssetContentUrl(storagePath: string) {
+  return '/api/creator/canvas-assets/content?path=' + encodeURIComponent(storagePath);
+}
+
 export function deleteVideoTask(taskId: string) {
   return requestJson<DeleteVideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId), { method: 'DELETE' });
 }

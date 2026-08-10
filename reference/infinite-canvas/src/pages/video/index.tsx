@@ -16,7 +16,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/reference/infinite-canvas/src/services/api/video";
-import { getVideoTaskByReferenceId } from "@/lib/creator/video-client";
+import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTaskByReferenceId } from "@/lib/creator/video-client";
 import type { CreatorVideoTaskView } from "@/lib/creator/types";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/reference/infinite-canvas/src/stores/use-workbench-agent-store";
@@ -291,6 +291,9 @@ export default function VideoPage() {
             try {
                 stored = await storeGeneratedVideo({
                     url: task.videoUrl,
+                    fallbackUrl: typeof output.video_storage_path === "string"
+                        ? creatorCanvasAssetContentUrl(output.video_storage_path)
+                        : creatorVideoContentUrl(id),
                     mimeType: "video/mp4",
                     externalTaskId: id,
                     storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
@@ -299,7 +302,7 @@ export default function VideoPage() {
             } catch { /* keep the provider URL */ }
             const video: GeneratedVideo = {
                 id: nanoid(),
-                url: stored?.url || task.videoUrl,
+                url: stored?.url || (typeof output.video_storage_path === "string" ? creatorCanvasAssetContentUrl(output.video_storage_path) : creatorVideoContentUrl(id)),
                 storageKey: stored?.storageKey || "",
                 durationMs: stored?.durationMs || 0,
                 width: stored?.width || 1280,

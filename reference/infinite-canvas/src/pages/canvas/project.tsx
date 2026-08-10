@@ -10,7 +10,7 @@ import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinit
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
-import { getVideoTaskByReferenceId } from "@/lib/creator/video-client";
+import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTaskByReferenceId } from "@/lib/creator/video-client";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
@@ -175,7 +175,7 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                                     : await storeGeneratedVideo({ url: payload.signedUrl, mimeType: "video/mp4", storagePath: path, assetId: node.metadata?.cloudAssetId, externalTaskId: node.metadata?.externalTaskId });
                             return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
                         } catch {
-                            return { ...node, metadata: { ...node.metadata, content: payload.signedUrl } };
+                            return { ...node, metadata: { ...node.metadata, content: node.type === CanvasNodeType.Video ? creatorCanvasAssetContentUrl(path) : payload.signedUrl } };
                         }
                     }
                 } catch {
@@ -191,6 +191,9 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                         const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
                         const stored = await storeGeneratedVideo({
                             url: task.videoUrl,
+                            fallbackUrl: typeof output.video_storage_path === "string"
+                                ? creatorCanvasAssetContentUrl(output.video_storage_path)
+                                : creatorVideoContentUrl(node.metadata.externalTaskId),
                             mimeType: "video/mp4",
                             externalTaskId: node.metadata.externalTaskId,
                             storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,
@@ -2824,6 +2827,9 @@ function InfiniteCanvasPage() {
             const output = task.output && typeof task.output === "object" ? task.output as Record<string, unknown> : {};
             const stored = await storeGeneratedVideo({
                 url: task.videoUrl,
+                fallbackUrl: typeof output.video_storage_path === "string"
+                    ? creatorCanvasAssetContentUrl(output.video_storage_path)
+                    : creatorVideoContentUrl(referenceId),
                 mimeType: "video/mp4",
                 externalTaskId: referenceId,
                 storagePath: typeof output.video_storage_path === "string" ? output.video_storage_path : undefined,

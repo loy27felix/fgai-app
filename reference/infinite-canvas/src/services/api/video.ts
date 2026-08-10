@@ -10,7 +10,7 @@ import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
 import { createClient } from "@/lib/supabase/client";
-import { createVideoDraft, confirmVideoTask, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
+import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
@@ -27,7 +27,7 @@ type SeedanceTask = {
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
 type RequestOptions = { signal?: AbortSignal };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; storagePath?: string; assetId?: string; externalTaskId?: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; fallbackUrl?: string; mimeType?: string; storagePath?: string; assetId?: string; externalTaskId?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
@@ -269,8 +269,9 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
     });
     const store = (input: Blob | string) => uploadMediaFile(input, "video").then(withCloudMetadata);
-    const remoteFallback = result.url ? withCloudMetadata({
-        url: result.url,
+    const fallbackUrl = result.fallbackUrl || (result.storagePath ? creatorCanvasAssetContentUrl(result.storagePath) : result.url);
+    const remoteFallback = fallbackUrl ? withCloudMetadata({
+        url: fallbackUrl,
         storageKey: "",
         bytes: 0,
         mimeType: result.mimeType || "video/mp4",

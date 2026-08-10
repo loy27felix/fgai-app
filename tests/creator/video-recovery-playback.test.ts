@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+
+const read = (file: string) => fs.readFileSync(path.join(process.cwd(), file), 'utf8');
+
+test('video recovery has a durable same-origin playback fallback', () => {
+  const video = read('reference/infinite-canvas/src/services/api/video.ts');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const contentRoute = read('app/api/creator/videos/[id]/content/route.ts');
+
+  assert.match(video, /fallbackUrl\?: string/);
+  assert.match(video, /result\.fallbackUrl/);
+  assert.match(project, /creatorVideoContentUrl\(referenceId\)/);
+  assert.match(contentRoute, /Accept-Ranges/);
+});
