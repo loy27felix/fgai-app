@@ -1005,20 +1005,24 @@ function InfiniteCanvasPage() {
     const copySelectedNodes = useCallback(() => {
         const selectedIds = selectedNodeIdsRef.current;
         if (!selectedIds.size) return;
-
-        const copiedNodes = nodesRef.current
-            .filter((node) => selectedIds.has(node.id))
-            .map((node) => ({
-                ...node,
-                position: { ...node.position },
-                metadata: node.metadata ? { ...node.metadata } : undefined,
-            }));
-
+        const sourceNodes = nodesRef.current;
+        const sourceConnections = connectionsRef.current;
+        const includedIds = new Set(selectedIds);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            sourceConnections.forEach((connection) => {
+                if (!includedIds.has(connection.toNodeId) || includedIds.has(connection.fromNodeId)) return;
+                if (!sourceNodes.some((node) => node.id === connection.fromNodeId)) return;
+                includedIds.add(connection.fromNodeId);
+                changed = true;
+            });
+        }
+        const copiedNodes = sourceNodes.filter((node) => includedIds.has(node.id)).map((node) => ({ ...node, position: { ...node.position }, metadata: node.metadata ? { ...node.metadata, batchChildIds: node.metadata.batchChildIds ? [...node.metadata.batchChildIds] : undefined } : undefined }));
         if (!copiedNodes.length) return;
-
         clipboardRef.current = {
             nodes: copiedNodes,
-            connections: connectionsRef.current.filter((connection) => selectedIds.has(connection.fromNodeId) && selectedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
+            connections: sourceConnections.filter((connection) => includedIds.has(connection.fromNodeId) && includedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
     }, []);
 
@@ -1055,9 +1059,20 @@ function InfiniteCanvasPage() {
         });
 
         const pastedNodes = nextNodes.map((node) => {
-            const groupId = node.metadata?.groupId;
-            if (!groupId) return node;
-            return { ...node, metadata: { ...node.metadata, groupId: idMap.get(groupId) } };
+            if (!node.metadata) return node;
+            const batchChildIds = node.metadata.batchChildIds?.map((id) => idMap.get(id)).filter((id): id is string => Boolean(id));
+            return {
+                ...node,
+                metadata: {
+                    ...node.metadata,
+                    groupId: node.metadata.groupId ? idMap.get(node.metadata.groupId) : undefined,
+                    batchRootId: node.metadata.batchRootId ? idMap.get(node.metadata.batchRootId) : undefined,
+                    primaryImageId: node.metadata.primaryImageId ? idMap.get(node.metadata.primaryImageId) : undefined,
+                    batchChildIds,
+                    isBatchRoot: node.metadata.isBatchRoot && Boolean(batchChildIds?.length),
+                    imageBatchExpanded: node.metadata.isBatchRoot && Boolean(batchChildIds?.length) ? node.metadata.imageBatchExpanded : undefined,
+                },
+            };
         });
 
         const nextConnections = clipboard.connections.flatMap((connection, index) => {

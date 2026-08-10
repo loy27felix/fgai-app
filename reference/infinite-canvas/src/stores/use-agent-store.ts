@@ -124,7 +124,22 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         connectTimer = null;
         set({ enabled: false, connected: false, silentConnect: false, activity: "离线", ...patch });
     },
-    addMessage: (item) => set((state) => ({ messages: [...state.messages.slice(-120), item] })),
-    addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),
+    addMessage: (item) => set((state) => {
+        if (state.messages.some((current) => current.id === item.id)) return state;
+        const previous = state.messages[state.messages.length - 1];
+        if (previous && previous.role === item.role && previous.text === item.text && previous.streamId === item.streamId) return state;
+        return { messages: [...state.messages.slice(-120), item] };
+    }),
+    addEventLog: (item) => set((state) => {
+        const existingIndex = state.eventLogs.findIndex((current) => current.id === item.id);
+        if (existingIndex >= 0) {
+            const eventLogs = [...state.eventLogs];
+            eventLogs[existingIndex] = item;
+            return { eventLogs };
+        }
+        const previous = state.eventLogs[state.eventLogs.length - 1];
+        if (previous && previous.title === item.title && previous.text === item.text) return state;
+        return { eventLogs: [...state.eventLogs.slice(-160), item] };
+    }),
     clearEventLogs: () => set({ eventLogs: [] }),
 }));

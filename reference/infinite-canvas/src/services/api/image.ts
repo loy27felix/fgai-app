@@ -755,7 +755,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const model = (config.model || config.textModel || "gpt-5.6-luna").replace(/^.*::/, "");
-    const response = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages, model, thinking: config.reasoningEffort !== "auto" }) });
+    const response = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages, model, thinking: config.reasoningEffort !== "auto", reasoningEffort: config.reasoningEffort }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "文本模型请求失败");
     notifyCreatorUsageUpdated();

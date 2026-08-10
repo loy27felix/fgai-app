@@ -150,6 +150,8 @@ export const CanvasNode = React.memo(function CanvasNode({
         startHeight: 0,
         keepRatio: false,
         ratio: 1,
+        frame: null as number | null,
+        pending: null as { width: number; height: number; position: Position } | null,
     });
 
     useEffect(() => {
@@ -216,6 +218,14 @@ export const CanvasNode = React.memo(function CanvasNode({
         return () => window.removeEventListener("pointerdown", handleOutsidePointerDown, true);
     }, [isEditingContent]);
 
+    const flushResize = useCallback(() => {
+        const pending = resizeRef.current.pending;
+        if (!pending) return;
+        if (resizeRef.current.frame !== null) cancelAnimationFrame(resizeRef.current.frame);
+        resizeRef.current.frame = null;
+        resizeRef.current.pending = null;
+        onResize(data.id, pending.width, pending.height, pending.position);
+    }, [data.id, onResize]);
     const handleResizeMove = useCallback(
         (event: MouseEvent) => {
             if (!resizeRef.current.isResizing) return;
@@ -249,19 +259,34 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }
             }
 
-            onResize(data.id, width, height, {
-                x: fromLeft ? startRight - width : resizeRef.current.startLeft,
-                y: fromTop ? startBottom - height : resizeRef.current.startTop,
-            });
+            const pending = {
+                width,
+                height,
+                position: {
+                    x: fromLeft ? startRight - width : resizeRef.current.startLeft,
+                    y: fromTop ? startBottom - height : resizeRef.current.startTop,
+                },
+            };
+            resizeRef.current.pending = pending;
+            if (resizeRef.current.frame === null) {
+                resizeRef.current.frame = requestAnimationFrame(() => {
+                    resizeRef.current.frame = null;
+                    const next = resizeRef.current.pending;
+                    resizeRef.current.pending = null;
+                    if (!next || !resizeRef.current.isResizing) return;
+                    onResize(data.id, next.width, next.height, next.position);
+                });
+            }
         },
         [data.id, onResize, scale],
     );
 
     const handleResizeUp = useCallback(() => {
+        flushResize();
         resizeRef.current.isResizing = false;
         window.removeEventListener("mousemove", handleResizeMove);
         window.removeEventListener("mouseup", handleResizeUp);
-    }, [handleResizeMove]);
+    }, [flushResize, handleResizeMove]);
 
     const handleResizeMouseDown = (event: React.MouseEvent, corner: ResizeCorner) => {
         event.stopPropagation();
@@ -277,6 +302,8 @@ export const CanvasNode = React.memo(function CanvasNode({
             startHeight: data.height,
             keepRatio: (data.type === CanvasNodeType.Image && !data.metadata?.freeResize) || data.type === CanvasNodeType.Video || Boolean(definition?.keepAspectRatio?.(data)),
             ratio: (data.metadata?.naturalWidth || data.width) / (data.metadata?.naturalHeight || data.height || 1),
+            frame: null,
+            pending: null,
         };
         window.addEventListener("mousemove", handleResizeMove);
         window.addEventListener("mouseup", handleResizeUp);
@@ -284,6 +311,9 @@ export const CanvasNode = React.memo(function CanvasNode({
 
     useEffect(() => {
         return () => {
+            if (resizeRef.current.frame !== null) {
+                cancelAnimationFrame(resizeRef.current.frame);
+            }
             window.removeEventListener("mousemove", handleResizeMove);
             window.removeEventListener("mouseup", handleResizeUp);
         };

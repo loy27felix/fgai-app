@@ -3,10 +3,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VideoReferenceMode } from "@/lib/creator/video";
+import type { ReasoningEffort } from "@/lib/ai/reasoning";
+export type { ReasoningEffort } from "@/lib/ai/reasoning";
 
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
-export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
 export type ChannelModel = {
     name: string;

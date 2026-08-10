@@ -1,18 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import { Bot, ChevronDown, ImagePlus, MessageSquarePlus, Paperclip, Send, Sparkles, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type UIEvent } from "react";
+import { ArrowDown, Bot, ChevronDown, MessageSquarePlus, Paperclip, Send, Sparkles, Trash2, X } from "lucide-react";
 import { TEXT_MODELS } from "@/lib/ai/catalog";
+import { REASONING_EFFORT_OPTIONS, type ReasoningEffort } from "@/lib/ai/reasoning";
 import { isConversationNearBottom } from "@/lib/creator/history";
 import type { CreatorMessage, CreatorSession } from "@/lib/creator/types";
 import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 
 type Props = { embedded?: boolean };
-
 type ActiveSkill = { name: string; content: string };
 
-function textOf(message: CreatorMessage) { return typeof message.content?.text === "string" ? message.content.text : ""; }
+function textOf(message: CreatorMessage) {
+  return typeof message.content?.text === "string" ? message.content.text : "";
+}
+
+function dedupeMessages(items: CreatorMessage[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.id || `${item.role}:${item.created_at}:${textOf(item)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 export function LocalAgentPanel({ embedded: _embedded }: Props) {
   const [sessions, setSessions] = useState<CreatorSession[]>([]);
@@ -23,19 +35,22 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
   const [images, setImages] = useState<string[]>([]);
   const [skill, setSkill] = useState<ActiveSkill | null>(null);
   const [thinking, setThinking] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("auto");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const followMessagesRef = useRef(true);
   const selectedModel = useMemo(() => TEXT_MODELS.find((item) => item.id === model) || TEXT_MODELS[0], [model]);
 
   useEffect(() => { void loadSessions(); }, []);
 
   useEffect(() => {
     const viewport = scrollRef.current;
-    if (!viewport) return;
+    if (!viewport || !followMessagesRef.current) return;
     requestAnimationFrame(() => viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" }));
   }, [messages, busy]);
 
@@ -59,9 +74,13 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "读取会话失败");
       setSessions((data.sessions || knownSessions) as CreatorSession[]);
-      setSessionId(id); setMessages((data.messages || []) as CreatorMessage[]);
+      setSessionId(id);
+      setMessages(dedupeMessages((data.messages || []) as CreatorMessage[]));
+      followMessagesRef.current = true;
+      setShowScrollToLatest(false);
       const active = (data.sessions || knownSessions).find((item: CreatorSession) => item.id === id);
       if (active?.default_model) setModel(active.default_model);
+      requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "读取会话失败"); }
   }
 
@@ -69,23 +88,27 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
     const response = await fetch("/api/creator/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "chat", model }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "创建会话失败");
-    setSessions((current) => [data.session, ...current]); setSessionId(data.session.id); setMessages([]); setHistoryOpen(false);
+    setSessions((current) => [data.session, ...current]);
+    setSessionId(data.session.id);
+    setMessages([]);
+    setHistoryOpen(false);
+    followMessagesRef.current = true;
     return data.session.id as string;
   }
 
   async function send() {
     const text = prompt.trim();
     if ((!text && !images.length) || busy) return;
-    if (images.length && !selectedModel.supportsImages) { setError("当前文本模型不支持图片，请选择 GPT-5.6 或 Claude Opus 4.8。"); return; }
-    setBusy(true); setError("");
+    if (images.length && !selectedModel.supportsImages) { setError("当前文本模型不支持图片输入，请选择支持视觉的模型。"); return; }
+    setBusy(true); setError(""); followMessagesRef.current = true;
     try {
       const activeId = sessionId || await createSession();
       const optimistic: CreatorMessage = { id: `local-${Date.now()}`, session_id: activeId, role: "user", content: { text, images }, status: "complete", created_at: new Date().toISOString() };
-      setMessages((current) => [...current, optimistic]); setPrompt(""); setImages([]);
-      const response = await fetch("/api/creator/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: activeId, message: text || "请分析这些参考图。", model, thinking, images, skill }) });
+      setMessages((current) => dedupeMessages([...current, optimistic])); setPrompt(""); setImages([]);
+      const response = await fetch("/api/creator/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: activeId, message: text || "请分析这些参考图。", model, thinking: thinking || reasoningEffort !== "auto", reasoningEffort, images, skill }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Agent 回复失败");
-      setMessages((current) => [...current, data.message]);
+      setMessages((current) => dedupeMessages([...current, data.message as CreatorMessage]));
       setSessions((current) => current.map((item) => item.id === activeId ? { ...item, title: data.title, default_model: data.model, updated_at: new Date().toISOString() } : item));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Agent 回复失败"); }
     finally { setBusy(false); }
@@ -106,21 +129,36 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
     event.target.value = "";
   }
 
+  function handleMessagesScroll(event: UIEvent<HTMLDivElement>) {
+    const nearBottom = isConversationNearBottom(event.currentTarget);
+    followMessagesRef.current = nearBottom;
+    setShowScrollToLatest(!nearBottom);
+  }
+
+  function scrollToLatest() {
+    followMessagesRef.current = true;
+    setShowScrollToLatest(false);
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }
 
   return (
     <section className="fg-agent-panel" aria-label="FG Agent 对话">
       <header className="fg-agent-header"><div className="fg-agent-title"><span className="fg-agent-icon"><Bot size={16} /></span><div><strong>画布 Agent</strong><small>TEXT MODELS · CANVAS COPILOT</small></div></div><button type="button" onClick={() => void createSession()} title="新对话"><MessageSquarePlus size={16} /></button><button type="button" onClick={() => setHistoryOpen((value) => !value)} title="历史会话"><ChevronDown size={16} className={historyOpen ? "rotate-180" : ""} /></button></header>
       {historyOpen ? <div className="fg-agent-history">{sessions.length ? sessions.slice(0, 20).map((item) => <div className={item.id === sessionId ? "fg-agent-history-row active" : "fg-agent-history-row"} key={item.id}><button type="button" onClick={() => void openSession(item.id)}><span>{item.title}</span><small>{new Date(item.updated_at).toLocaleDateString("zh-CN")}</small></button><button type="button" onClick={() => void deleteSession(item.id)} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div>) : <p>暂无历史对话</p>}</div> : null}
-      <div ref={scrollRef} className="fg-agent-messages" onScroll={(event) => { if (!isConversationNearBottom(event.currentTarget)) return; }}>
-        {loading ? <div className="fg-agent-empty">正在加载对话…</div> : messages.length ? messages.map((message) => <article className={message.role === "user" ? "fg-agent-message user" : "fg-agent-message assistant"} key={message.id}><div className="fg-agent-message-role">{message.role === "user" ? "你" : "Agent"}</div><div className="fg-agent-message-text">{textOf(message)}</div>{message.content?.usage ? <small className="fg-agent-usage">{message.content.usage.total_tokens ? `${message.content.usage.total_tokens.toLocaleString()} tokens` : ""}</small> : null}</article>) : <div className="fg-agent-empty"><Sparkles size={22} /><strong>让 Agent 参与画布工作</strong><span>可以写提示词、拆解镜头、分析参考图，也可以帮你规划节点连接。</span></div>}
-        {busy ? <div className="fg-agent-working"><span /><span /><span />Agent 正在思考…</div> : null}
+      <div className="fg-agent-message-wrap">
+        <div ref={scrollRef} className="fg-agent-messages" onScroll={handleMessagesScroll}>
+          {loading ? <div className="fg-agent-empty">正在加载对话…</div> : messages.length ? messages.map((message) => <article className={message.role === "user" ? "fg-agent-message user" : "fg-agent-message assistant"} key={message.id}><div className="fg-agent-message-role">{message.role === "user" ? "你" : "Agent"}</div><div className="fg-agent-message-text">{textOf(message)}</div>{message.content?.usage ? <small className="fg-agent-usage">{message.content.usage.total_tokens ? `${message.content.usage.total_tokens.toLocaleString()} tokens` : ""}</small> : null}</article>) : <div className="fg-agent-empty"><Sparkles size={22} /><strong>让 Agent 参与画布工作</strong><span>可以写提示词、拆解镜头、分析参考图，也可以帮你规划节点连接。</span></div>}
+          {busy ? <div className="fg-agent-working"><span /><span /><span />Agent 正在思考…</div> : null}
+        </div>
+        {showScrollToLatest ? <button type="button" className="fg-agent-scroll-latest" onClick={scrollToLatest}><ArrowDown size={13} /> 回到最新</button> : null}
       </div>
       {error ? <div className="fg-agent-error">{error}<button type="button" onClick={() => setError("")}><X size={13} /></button></div> : null}
       <div className="fg-agent-composer">
         {images.length ? <div className="fg-agent-attachments">{images.map((image, index) => <div key={`${image.slice(0, 16)}-${index}`}><img src={image} alt={`参考图 ${index + 1}`} /><button type="button" onClick={() => setImages((current) => current.filter((_, item) => item !== index))}><X size={11} /></button></div>)}</div> : null}
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="让 Agent 帮你写、想、分析或规划…" />
-        <div className="fg-agent-composer-tools"><input ref={fileRef} hidden type="file" accept="image/*" multiple onChange={attach} /><button type="button" onClick={() => fileRef.current?.click()} title="上传参考图"><Paperclip size={14} /></button><label className="fg-agent-model"><select value={model} onChange={(event) => setModel(event.target.value)}>{TEXT_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button type="button" className={thinking ? "active" : ""} onClick={() => setThinking((value) => !value)} title="推理模式"><Sparkles size={14} />推理</button><SkillPicker active={skill?.name || null} onApply={(name, content) => setSkill({ name, content })} onClear={() => setSkill(null)} /><PromptPicker onInsert={(text) => setPrompt((current) => current ? `${current}\n${text}` : text)} /><button type="button" className="fg-agent-send" onClick={() => void send()} disabled={busy || (!prompt.trim() && !images.length)} title="发送"><Send size={15} /></button></div>
+        <div className="fg-agent-composer-tools"><input ref={fileRef} hidden type="file" accept="image/*" multiple onChange={attach} /><button type="button" onClick={() => fileRef.current?.click()} title="上传参考图"><Paperclip size={14} /></button><label className="fg-agent-model"><select value={model} onChange={(event) => setModel(event.target.value)}>{TEXT_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button type="button" className={thinking || reasoningEffort !== "auto" ? "active" : ""} onClick={() => setThinking((value) => !value)} title="推理模式"><Sparkles size={14} />推理</button><select className="fg-agent-reasoning" value={reasoningEffort} onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)} aria-label="推理强度">{REASONING_EFFORT_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><SkillPicker active={skill?.name || null} draftText={prompt} onApply={(name, content) => setSkill({ name, content })} onClear={() => setSkill(null)} /><PromptPicker onInsert={(text) => setPrompt((current) => current ? `${current}\n${text}` : text)} /><button type="button" className="fg-agent-send" onClick={() => void send()} disabled={busy || (!prompt.trim() && !images.length)} title="发送"><Send size={15} /></button></div>
       </div>
     </section>
   );

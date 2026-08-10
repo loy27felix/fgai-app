@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { TEXT_MODELS } from '@/lib/ai/catalog';
 import { chatWithTextModel } from '@/lib/ai/text';
+import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
@@ -14,6 +15,7 @@ type CreatorChatBody = {
   message?: string;
   model?: string;
   thinking?: boolean;
+  reasoningEffort?: unknown;
   images?: string[];
   skill?: unknown;
 };
@@ -42,6 +44,7 @@ export async function POST(req: Request) {
   const message = body.message?.trim() || '';
   const model = body.model || 'gpt-5.6-luna';
   const skill = normalizeSkill(body.skill);
+  const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
   if (!body.sessionId || !message) return NextResponse.json({ error: '缺少会话或消息' }, { status: 400 });
   if (!TEXT_MODELS.some((item) => item.id === model)) return NextResponse.json({ error: '不支持的模型' }, { status: 400 });
   let imageBytes = 0;
@@ -83,13 +86,15 @@ export async function POST(req: Request) {
     if (history.error) throw history.error;
     const messages = buildCreatorContextMessages((history.data || []).reverse(), {
       skill,
-      reasoning: !!body.thinking,
+      reasoning: !!body.thinking || reasoningEffort !== "auto",
+      reasoningEffort,
     });
     const { spec, result } = await chatWithTextModel({
       modelId: model,
       messages,
       images,
-      thinking: !!body.thinking,
+      thinking: !!body.thinking || reasoningEffort !== "auto",
+      reasoningEffort,
       maxTokens: 4000,
     });
 

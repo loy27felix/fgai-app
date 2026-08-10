@@ -32,7 +32,7 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
     };
 
     return (
-        <Modal title="提示词库" open={open} onCancel={() => onOpenChange(false)} footer={null} width={1040} centered>
+        <Modal className="prompt-library-dialog" title="提示词库" open={open} onCancel={() => onOpenChange(false)} footer={null} width={1040} centered>
             <div data-canvas-no-zoom onWheelCapture={(event) => event.stopPropagation()}>
                 <div className="mx-auto max-w-2xl">
                     <Input size="large" prefix={<Search className="size-4 text-stone-400" />} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="按标题查询" />
@@ -62,13 +62,13 @@ export function PromptSelectDialog({ open, onOpenChange, onSelect }: { open: boo
                         </div>
                     </div>
                 </div>
-                <div className="thin-scrollbar mt-6 max-h-[520px] overflow-y-auto pr-2" data-canvas-no-zoom onScroll={handleListScroll} onWheelCapture={(event) => event.stopPropagation()}>
+                <div className="thin-scrollbar mt-6 max-h-[calc(78vh-210px)] overflow-y-auto pr-2" data-canvas-no-zoom onScroll={handleListScroll} onWheelCapture={(event) => event.stopPropagation()}>
                     {query.isLoading ? (
                         <div className="flex h-40 items-center justify-center">
                             <Spin />
                         </div>
                     ) : null}
-                    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                         {items.map((item) => (
                             <PromptCard key={item.id} item={item} onOpen={() => selectPrompt(item.prompt)} onCopy={() => selectPrompt(item.prompt)} actionLabel="使用此提示词" actionIcon={<Check className="size-3.5" />} actionType="primary" />
                         ))}

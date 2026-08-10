@@ -1,36 +1,30 @@
-import { deepseekChat, type ChatMessage, type ChatResult } from '../deepseek';
-import { resolveTextModel, type TextModel } from './catalog';
-import { wetokenChat, type OpenAIMessage } from './wetoken-client';
+import { deepseekChat, type ChatMessage, type ChatResult } from "../deepseek";
+import { resolveTextModel, type TextModel } from "./catalog";
+import { wetokenChat, type OpenAIMessage } from "./wetoken-client";
+import type { ReasoningEffort } from "./reasoning";
 
 export interface TextChatOptions {
   modelId?: string;
   messages: ChatMessage[];
   images?: string[];
   thinking?: boolean;
+  reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
   maxTokens?: number;
 }
 
-type TextDependencies = {
-  deepseek?: typeof deepseekChat;
-  wetoken?: typeof wetokenChat;
-};
+type TextDependencies = { deepseek?: typeof deepseekChat; wetoken?: typeof wetokenChat };
 
-export async function chatWithTextModel(
-  options: TextChatOptions,
-  dependencies: TextDependencies = {},
-): Promise<{ spec: TextModel; result: ChatResult }> {
+export async function chatWithTextModel(options: TextChatOptions, dependencies: TextDependencies = {}): Promise<{ spec: TextModel; result: ChatResult }> {
   const spec = resolveTextModel(options.modelId);
   const images = (options.images ?? []).filter(Boolean);
-
-  if (spec.provider === 'deepseek') {
-    if (images.length > 0) {
-      throw new Error('DeepSeek 当前不支持图片输入，请选择 GPT-5.6 或 Claude Opus 4.8');
-    }
+  if (spec.provider === "deepseek") {
+    if (images.length > 0) throw new Error("DeepSeek 当前不支持图片输入，请选择 GPT-5.6 或 Claude Opus 4.8");
     const result = await (dependencies.deepseek ?? deepseekChat)({
       messages: options.messages,
-      mode: spec.id === 'deepseek-pro' ? 'pro' : 'flash',
+      mode: spec.id === "deepseek-pro" ? "pro" : "flash",
       thinking: options.thinking,
+      ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       jsonOutput: options.jsonOutput,
       maxTokens: options.maxTokens,
     });
@@ -40,27 +34,16 @@ export async function chatWithTextModel(
   const messages: OpenAIMessage[] = options.messages.map((message) => ({ ...message }));
   if (images.length > 0) {
     let finalUserIndex = -1;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].role === 'user') {
-        finalUserIndex = index;
-        break;
-      }
-    }
-    if (finalUserIndex < 0) throw new Error('图片输入缺少 user 消息');
+    for (let index = messages.length - 1; index >= 0; index -= 1) if (messages[index].role === "user") { finalUserIndex = index; break; }
+    if (finalUserIndex < 0) throw new Error("图片输入缺少 user 消息");
     const finalUser = messages[finalUserIndex];
-    const text = typeof finalUser.content === 'string' ? finalUser.content : '';
-    messages[finalUserIndex] = {
-      role: 'user',
-      content: [
-        { type: 'text', text },
-        ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
-      ],
-    };
+    const text = typeof finalUser.content === "string" ? finalUser.content : "";
+    messages[finalUserIndex] = { role: "user", content: [{ type: "text", text }, ...images.map((url) => ({ type: "image_url" as const, image_url: { url } }))] };
   }
-
   const result = await (dependencies.wetoken ?? wetokenChat)({
     model: spec.apiModel,
     messages,
+    ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     jsonOutput: options.jsonOutput,
     maxTokens: options.maxTokens,
   });

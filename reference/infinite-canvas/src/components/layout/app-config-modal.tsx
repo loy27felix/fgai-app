@@ -167,14 +167,11 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3 dark:border-stone-800">
-                <div className="text-xs text-stone-500">JSON 文件包含 API Key 和 WebDAV 凭据，请妥善保管。</div>
-                <div className="flex gap-2">
-                    <Button icon={<Upload className="size-4" />} onClick={() => configInputRef.current?.click()}>
-                        导入配置
-                    </Button>
-                    <Button icon={<Download className="size-4" />} onClick={exportAppConfig}>
-                        导出配置
-                    </Button>
+                <div className="text-xs text-stone-500">默认导出会自动移除 API Key 与 WebDAV 密码；完整配置仅适合在可信设备间传递。</div>
+                <div className="flex flex-wrap gap-2">
+                    <Button icon={<Upload className="size-4" />} onClick={() => configInputRef.current?.click()}>导入配置</Button>
+                    <Button icon={<Download className="size-4" />} onClick={() => exportAppConfig()}>导出脱敏配置</Button>
+                    <Button danger icon={<Download className="size-4" />} onClick={() => Modal.confirm({ title: "导出完整配置？", content: "文件会包含 API Key 和 WebDAV 密码，请只保存到可信位置。", okText: "导出", cancelText: "取消", onOk: () => exportAppConfig({ includeSecrets: true }) })}>导出完整配置</Button>
                     <input ref={configInputRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => event.target.files?.[0] && void loadConfigFile(event.target.files[0])} />
                 </div>
             </div>

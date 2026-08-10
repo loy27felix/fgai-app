@@ -171,7 +171,7 @@ export const PLUGIN_VARIABLES: PluginVariable[] = [
     { name: "baseUrl", type: "string", desc: "渠道接口地址（原样，未拼 /v1）" },
     { name: "apiKey", type: "string", desc: "渠道 API Key，请求头里自己带上" },
     { name: "systemPrompt", type: "string", desc: "系统提示词原文" },
-    { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh"', desc: "文本推理强度；auto 表示由脚本决定是否传递", capabilities: ["text"] },
+    { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"', desc: "文本推理强度；auto 表示由脚本决定是否传递", capabilities: ["text"] },
     { name: "http", type: "object", desc: "便捷请求：http.post(path, body, {headers,params,responseType})、http.get(path, opts)、http.url(path)；默认带 Authorization: Bearer apiKey，可用 headers 覆盖；path 相对时按 baseUrl 拼 /v1" },
     { name: "request", type: "function", desc: "原始请求 request({ method, url, headers, params, data, responseType })，不加任何默认头，鉴权头自己写；url 相对时按 baseUrl 拼接（不加 /v1）" },
     { name: "poll", type: "function", desc: "轮询 poll(request, extract, {intervalMs,timeoutMs})，extract 返回真值即结束" },

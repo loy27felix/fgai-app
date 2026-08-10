@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from "@/lib/ai/reasoning";
 export type Position = {
     x: number;
     y: number;
@@ -35,7 +36,7 @@ export type CanvasNodeMetadata = {
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
     model?: string;
-    reasoningEffort?: "auto" | "low" | "medium" | "high" | "xhigh";
+    reasoningEffort?: ReasoningEffort;
     size?: string;
     quality?: string;
     background?: string;

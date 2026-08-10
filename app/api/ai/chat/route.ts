@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { chatWithTextModel } from '@/lib/ai/text';
+import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import type { ChatMessage, ChatMode } from '@/lib/deepseek';
 import { createClient } from '@/lib/supabase/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
@@ -12,6 +13,7 @@ type ChatRequestBody = {
   model?: string;
   mode?: ChatMode;
   thinking?: boolean;
+  reasoningEffort?: unknown;
   jsonOutput?: boolean;
   projectId?: string;
   images?: string[];
@@ -36,13 +38,15 @@ export async function POST(req: Request) {
 
   const modelId = body.model || (body.mode === 'pro' ? 'deepseek-pro' : 'deepseek-flash');
   const images = Array.isArray(body.images) ? body.images.filter(Boolean) : [];
+  const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
 
   try {
     const { spec, result } = await chatWithTextModel({
       modelId,
       messages,
       images,
-      thinking: !!body.thinking,
+      thinking: !!body.thinking || reasoningEffort !== "auto",
+      reasoningEffort,
       jsonOutput: !!body.jsonOutput,
     });
 

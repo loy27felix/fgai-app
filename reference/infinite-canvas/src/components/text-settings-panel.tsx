@@ -3,14 +3,7 @@ import { type ReactNode } from "react";
 import { ImageSettingsTheme } from "@/reference/infinite-canvas/src/components/image-settings-panel";
 import { type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import type { AiConfig, ReasoningEffort } from "@/reference/infinite-canvas/src/stores/use-config-store";
-
-const reasoningEffortOptions: Array<{ value: ReasoningEffort; label: string }> = [
-    { value: "auto", label: "自动" },
-    { value: "low", label: "低" },
-    { value: "medium", label: "中" },
-    { value: "high", label: "高" },
-    { value: "xhigh", label: "极高" },
-];
+import { REASONING_EFFORT_OPTIONS, reasoningEffortLabel as getReasoningEffortLabel } from "@/lib/ai/reasoning";
 
 type TextSettingsPanelProps = {
     config: AiConfig;
@@ -25,11 +18,9 @@ export function TextSettingsPanel({ config, onConfigChange, theme, className = "
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 <div className="text-lg font-semibold">文本设置</div>
                 <div className="space-y-2.5">
-                    <div className="text-sm font-medium" style={{ color: theme.node.muted }}>
-                        推理强度
-                    </div>
-                    <div className="grid grid-cols-5 gap-2">
-                        {reasoningEffortOptions.map((item) => (
+                    <div className="text-sm font-medium" style={{ color: theme.node.muted }}>推理强度</div>
+                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                        {REASONING_EFFORT_OPTIONS.map((item) => (
                             <OptionPill key={item.value} selected={config.reasoningEffort === item.value} theme={theme} onClick={() => onConfigChange("reasoningEffort", item.value)}>
                                 {item.label}
                             </OptionPill>
@@ -42,7 +33,7 @@ export function TextSettingsPanel({ config, onConfigChange, theme, className = "
 }
 
 export function reasoningEffortLabel(value: ReasoningEffort) {
-    return reasoningEffortOptions.find((item) => item.value === value)?.label || value;
+    return getReasoningEffortLabel(value);
 }
 
 function OptionPill({ selected, theme, onClick, children }: { selected: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
