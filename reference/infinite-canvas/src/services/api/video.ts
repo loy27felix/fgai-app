@@ -2,7 +2,7 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/reference/infinite-canvas/src/lib/image-utils";
-import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import { deleteStoredMedia, getMediaBlob, uploadMediaFile, type UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -268,7 +268,15 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         ...(result.assetId ? { cloudAssetId: result.assetId } : {}),
         ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
     });
-    const store = (input: Blob | string) => uploadMediaFile(input, "video").then(withCloudMetadata);
+    const store = async (input: Blob | string) => {
+        const stored = withCloudMetadata(await uploadMediaFile(input, "video"));
+        const mimeType = stored.mimeType || "";
+        if (mimeType && mimeType !== "application/octet-stream" && !mimeType.startsWith("video/")) {
+            if (stored.storageKey) await deleteStoredMedia([stored.storageKey]).catch(() => undefined);
+            throw new Error("视频接口返回的不是视频文件");
+        }
+        return { ...stored, mimeType: mimeType || result.mimeType || "video/mp4" };
+    };
     const fallbackUrl = result.fallbackUrl || (result.storagePath ? creatorCanvasAssetContentUrl(result.storagePath) : result.url);
     const remoteFallback = fallbackUrl ? withCloudMetadata({
         url: fallbackUrl,
@@ -284,6 +292,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         const detail = error instanceof Error ? `：${error.message}` : "";
         throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
     }
+    if (remoteFallback) return remoteFallback;
     throw new Error("视频接口没有返回可播放的视频");
 }
 

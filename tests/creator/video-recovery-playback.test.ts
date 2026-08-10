@@ -14,4 +14,7 @@ test('video recovery has a durable same-origin playback fallback', () => {
   assert.match(video, /result\.fallbackUrl/);
   assert.match(project, /creatorVideoContentUrl\(referenceId\)/);
   assert.match(contentRoute, /Accept-Ranges/);
+  assert.match(contentRoute, /video_storage_path/);
+  assert.match(contentRoute, /createAdminClient/);
+  assert.match(video, /mimeType && mimeType !== "application\/octet-stream"/);
 });

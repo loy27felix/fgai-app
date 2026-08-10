@@ -25,6 +25,9 @@ export async function persistVideoOutput(
     const response = await fetch(output.video_url, { redirect: 'follow' });
     if (!response.ok) throw new Error('provider video download returned HTTP ' + response.status);
     const mimeType = response.headers.get('content-type')?.split(';')[0] || 'video/mp4';
+    if (mimeType.includes('json') || mimeType.startsWith('text/')) {
+      throw new Error('provider returned a non-video response');
+    }
     const body = await response.arrayBuffer();
     if (body.byteLength > MAX_VIDEO_BYTES) throw new Error('provider video exceeds durable storage limit');
     const storagePath = context.user.id + '/video-tasks/' + task.id + '/result.mp4';
