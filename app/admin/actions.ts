@@ -1,6 +1,8 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { isMonthStartKey } from "@/lib/usage/budget";
 import { getUsdToCnyRate } from "@/lib/usage/fx";
 
 async function requireAdmin() {
@@ -53,7 +55,7 @@ export async function setMonthlyBudget(userId: string, monthStart: string, limit
   const access = await requireAdmin();
   if ("error" in access) return access;
   const { sb } = access;
-  if (!/^\d{4}-\d{2}-01$/.test(monthStart)) return { error: "月份格式无效" };
+  if (!isMonthStartKey(monthStart)) return { error: "月份格式无效" };
   if (!userId) return { error: "用户无效" };
   if (!limitCny.trim()) {
     const { error } = await sb.from("ai_usage_budgets").delete().eq("user_id", userId).eq("month_start", monthStart);
@@ -68,4 +70,29 @@ export async function setMonthlyBudget(userId: string, monthStart: string, limit
   if (error) return { error: error.message };
   revalidatePath("/admin");
   return { ok: true, limitUsd };
+}
+
+/** Records a Wetoken amount that an administrator has matched to this ledger row. */
+export async function reconcileUsageCost(ledgerId: string, reportedUsd: string) {
+  const access = await requireAdmin();
+  if ("error" in access) return access;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ledgerId)) return { error: "账本记录 ID 无效" };
+  const amount = Number(reportedUsd);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000_000) return { error: "实际费用必须是 0 到 10 亿美元之间的数字" };
+
+  const admin = createAdminClient();
+  const { data: existing, error: lookupError } = await admin.from("ai_usage_ledger").select("id,price_snapshot").eq("id", ledgerId).maybeSingle();
+  if (lookupError) return { error: lookupError.message };
+  if (!existing) return { error: "未找到这条账本记录" };
+  const existingSnapshot = existing.price_snapshot && typeof existing.price_snapshot === "object" && !Array.isArray(existing.price_snapshot)
+    ? existing.price_snapshot as Record<string, unknown>
+    : {};
+  const { error } = await admin.from("ai_usage_ledger").update({
+    reported_cost_usd: Number(amount.toFixed(10)),
+    cost_source: "reported",
+    price_snapshot: { ...existingSnapshot, reconciliation_source: "manual_wetoken_billing", reconciled_at: new Date().toISOString(), reconciled_by: access.userId },
+  }).eq("id", ledgerId);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  return { ok: true };
 }

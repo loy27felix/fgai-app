@@ -13,4 +13,10 @@ test('admin usage dashboard reads the trusted ledger and exposes cost transparen
   assert.match(consoleSource, /cost_source/);
   assert.match(consoleSource, /待定价/);
   assert.match(consoleSource, /按用户/);
+  assert.match(consoleSource, /用户 × 模型/);
+  assert.match(consoleSource, /type="month"/);
+  assert.match(consoleSource, /供应商已确认费用/);
+  assert.match(consoleSource, /额度占用/);
+  assert.match(consoleSource, /reconcileUsageCost/);
+  assert.doesNotMatch(page, /withKnownMediaEstimate/);
 });

@@ -52,9 +52,14 @@ type UsageResponse = {
     totalTokens: number;
     images: number;
     videoSeconds: number;
-    knownCostUsd: number;
-    knownCostCny: number;
-    unpriced: number;
+    confirmedCostUsd: number;
+    confirmedCostCny: number;
+    estimatedCostUsd: number;
+    estimatedCostCny: number;
+    quotaReservedUsd: number;
+    quotaReservedCny: number;
+    failedCalls: number;
+    unpricedCalls: number;
     durationMs: number;
     projects: number;
   };
@@ -65,7 +70,7 @@ type UsageResponse = {
 const emptyData: UsageResponse = {
   records: [],
   count: 0,
-  totals: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, knownCostUsd: 0, knownCostCny: 0, unpriced: 0, durationMs: 0, projects: 0 },
+  totals: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, confirmedCostUsd: 0, confirmedCostCny: 0, estimatedCostUsd: 0, estimatedCostCny: 0, quotaReservedUsd: 0, quotaReservedCny: 0, failedCalls: 0, unpricedCalls: 0, durationMs: 0, projects: 0 },
   budget: null,
 };
 
@@ -82,9 +87,10 @@ function statusColor(status: UsageRecord['status']) {
 }
 
 function costLabel(record: UsageRecord, usdToCnyRate: number) {
-  const cost = record.reported_cost_usd ?? record.estimated_cost_usd;
-  if (cost === null) return '待核算';
-  return record.currency === 'USD' ? `$${cost.toFixed(6)} · ¥${(cost * usdToCnyRate).toFixed(4)}` : `${record.currency} ${cost.toFixed(6)}`;
+  if (record.reported_cost_usd !== null) return `已对账 $${record.reported_cost_usd.toFixed(6)} · ¥${(record.reported_cost_usd * usdToCnyRate).toFixed(4)}`;
+  if (record.status === 'failed') return record.possibly_charged ? '失败未计费 · 请核对账单' : '失败未计费';
+  if (record.estimated_cost_usd !== null) return `待对账估 $${record.estimated_cost_usd.toFixed(6)} · ¥${(record.estimated_cost_usd * usdToCnyRate).toFixed(4)}`;
+  return '待定价';
 }
 
 function recordMeta(record: UsageRecord) {
@@ -151,8 +157,8 @@ export default function CreatorUsageLedger() {
       return '本月 ¥' + (data.budget.usedUsd * usdToCnyRate).toFixed(2) + ' / ¥' + (data.budget.limitUsd * usdToCnyRate).toFixed(2);
     }
     if (!data.totals.calls) return '暂无生成记录';
-    return data.totals.knownCostUsd > 0 ? '已核算 $' + data.totals.knownCostUsd.toFixed(4) + ' · ¥' + data.totals.knownCostCny.toFixed(2) : data.totals.calls + ' 次调用';
-  }, [data.budget, data.totals.calls, data.totals.knownCostUsd, data.totals.knownCostCny, usdToCnyRate]);
+    return data.totals.quotaReservedUsd > 0 ? '额度占用 $' + data.totals.quotaReservedUsd.toFixed(4) + ' · ¥' + data.totals.quotaReservedCny.toFixed(2) : data.totals.calls + ' 次调用';
+  }, [data.budget, data.totals.calls, data.totals.quotaReservedUsd, data.totals.quotaReservedCny]);
   return (
     <>
       <button
@@ -180,6 +186,8 @@ export default function CreatorUsageLedger() {
               <Summary label="本月 Token" value={(data.budget?.totalTokens ?? 0).toLocaleString()} />
               <Summary label="本月图片 / 视频" value={(data.budget?.images ?? 0) + " / " + (data.budget?.videoSeconds ?? 0) + "s"} />
               <Summary label="本月项目 / 耗时" value={(data.budget?.projects ?? 0) + " / " + Math.round((data.budget?.durationMs ?? 0) / 1000) + "s"} />
+              <Summary label="供应商已确认" value={'¥' + data.totals.confirmedCostCny.toFixed(2)} />
+              <Summary label="待对账 / 失败" value={'¥' + data.totals.estimatedCostCny.toFixed(2) + ' / ' + data.totals.failedCalls} />
             </div>
             {error ? <div style={{ margin: '12px 14px 0', padding: '9px 11px', border: '1px solid rgba(255,120,100,.35)', borderRadius: 9, color: '#ff9b85', fontSize: 12 }}>{error}</div> : null}
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 14 }}>
@@ -187,10 +195,10 @@ export default function CreatorUsageLedger() {
               {data.records.map((record) => <div key={record.id || record.request_id} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '11px 4px', borderBottom: '1px solid var(--stroke, rgba(120,130,150,.16))' }}>
                 <div><div style={{ color: 'var(--accent, #4ade80)', fontSize: 11, fontWeight: 700 }}>{kindLabel(record.kind)}</div><div style={{ marginTop: 3, color: 'var(--text-3, #777)', fontSize: 10 }}>{timeLabel(record.created_at)}</div></div>
                 <div style={{ minWidth: 0 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{record.model}</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 10 }}>{recordMeta(record)} · {record.provider || 'provider'}</div></div>
-                <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.cost_source === 'unknown' ? '#e6b85c' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div></div>
+                <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.status === 'failed' ? '#ff9b85' : record.reported_cost_usd === null ? '#e6b85c' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div></div>
               </div>)}
             </div>
-             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>最近显示 {data.records.length} / {data.count} 条；1 USD = ¥{usdToCnyRate.toFixed(4)}；{data.totals.unpriced ? `${data.totals.unpriced} 条等待供应商价格核算。` : '价格均已返回。'}</footer>
+             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>最近显示 {data.records.length} / {data.count} 条；1 USD = ¥{usdToCnyRate.toFixed(4)}；已确认费用仅来自供应商账单，待对账预估不等于实际扣费；{data.totals.unpricedCalls ? `${data.totals.unpricedCalls} 条待定价。` : ''}</footer>
           </section>
         </div>
       ) : null}

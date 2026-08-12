@@ -3,21 +3,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import AdminConsole from "@/components/AdminConsole";
 import { getUsdToCnyRate } from "@/lib/usage/fx";
-import { estimateLedgerPrice } from "@/lib/usage/pricing";
-import { monthStartKey } from "@/lib/usage/budget";
+import { isMonthStartKey, monthRangeForKey, monthStartKey } from "@/lib/usage/budget";
+import { withEligibleCatalogEstimate } from "@/lib/usage/reporting";
 
 export const dynamic = "force-dynamic";
-
-function withKnownMediaEstimate(row: any) {
-  if (row.reported_cost_usd != null || row.estimated_cost_usd != null) return row;
-  const estimate = estimateLedgerPrice({
-    kind: row.kind === "image" || row.kind === "video" ? row.kind : "text",
-    model: String(row.model || ""),
-    resolution: row.resolution,
-    videoSeconds: row.video_seconds,
-  });
-  return estimate ? { ...row, estimated_cost_usd: estimate.estimatedCostUsd, cost_source: "estimated" } : row;
-}
 
 async function dsBalance(): Promise<string | null> {
   try {
@@ -31,7 +20,7 @@ async function dsBalance(): Promise<string | null> {
   } catch { return null; }
 }
 
-export default async function AdminPage() {
+export default async function AdminPage({ searchParams }: { searchParams?: { month?: string | string[] } }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/");
@@ -43,12 +32,17 @@ export default async function AdminPage() {
     return (<div className="min-h-screen grid place-items-center px-6 text-center"><div><h2 className="font-disp text-2xl font-semibold">无权访问</h2><p className="mt-3 text-[#616161] dark:text-white/55">管理后台仅限 管理员 / 超级管理员。</p><Link href="/projects" className="pill mt-6 inline-flex">← 返回项目列表</Link></div></div>);
   }
 
-  const monthStart = monthStartKey();
+  const rawMonth = typeof searchParams?.month === "string" ? searchParams.month.trim() : "";
+  const requestedMonthStart = rawMonth ? `${rawMonth}-01` : monthStartKey();
+  const monthStart = isMonthStartKey(requestedMonthStart) ? requestedMonthStart : monthStartKey();
+  const monthRange = monthRangeForKey(monthStart);
   const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: projects }, { data: budgets }] = await Promise.all([
     supabase.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     supabase.from("whitelist").select("*").order("requested_at", { ascending: false }),
     supabase.from("ai_usage_ledger")
-      .select("user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
+      .select("id,request_id,provider_request_id,user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
+      .gte("created_at", monthRange.start)
+      .lt("created_at", monthRange.end)
       .order("created_at", { ascending: false })
       .limit(5000),
     supabase.from("projects").select("id"),
@@ -58,6 +52,6 @@ export default async function AdminPage() {
   const usdToCnyRate = getUsdToCnyRate();
 
   return (
-    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withKnownMediaEstimate(row))} budgets={budgets || []} monthStart={monthStart} projectCount={(projects || []).length} balance={balance} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
+    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withEligibleCatalogEstimate(row))} budgets={budgets || []} monthStart={monthStart} projectCount={(projects || []).length} balance={balance} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
   );
 }

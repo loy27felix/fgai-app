@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { fxSnapshot, getUsdToCnyRate } from '@/lib/usage/fx';
-import { estimateLedgerPrice } from '@/lib/usage/pricing';
 import { getMonthlyUsageSummary } from '@/lib/usage/budget';
+import { summarizeUsageRows, withEligibleCatalogEstimate } from '@/lib/usage/reporting';
 
 export const runtime = 'nodejs';
 
@@ -118,33 +118,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: '用量记录加载失败，请稍后重试', code: 'USAGE_LOAD_FAILED' }, { status: 500 });
   }
 
-  const records = ((result.data || []) as unknown as Array<Record<string, unknown>>).map((value) => {
-    const record = normalizeRecord(value);
-    if (record.reported_cost_usd === null && record.estimated_cost_usd === null) {
-      const estimate = estimateLedgerPrice({ kind: record.kind, model: record.model, resolution: record.resolution, videoSeconds: record.video_seconds });
-      if (estimate) return { ...record, estimated_cost_usd: estimate.estimatedCostUsd, cost_source: 'estimated' as const };
-    }
-    return record;
-  });
+  const records = ((result.data || []) as unknown as Array<Record<string, unknown>>)
+    .map((value) => withEligibleCatalogEstimate(normalizeRecord(value)));
   const usdToCnyRate = getUsdToCnyRate();
-  const totals = records.reduce((summary, record) => {
-    summary.calls += 1;
-    summary.inputTokens += record.input_tokens;
-    summary.outputTokens += record.output_tokens;
-    summary.totalTokens += record.total_tokens;
-    summary.images += record.image_count;
-    summary.videoSeconds += record.video_seconds;
-    summary.durationMs += record.duration_ms;
-    const contextId = record.project_id || record.workspace_id;
-    if (contextId) summary.projects.add(contextId);
-    const cost = record.reported_cost_usd ?? record.estimated_cost_usd;
-    if (cost === null) summary.unpriced += 1;
-    else {
-      summary.knownCostUsd += cost;
-      summary.knownCostCny += cost * usdToCnyRate;
-    }
-    return summary;
-}, { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, durationMs: 0, projects: new Set<string>(), knownCostUsd: 0, knownCostCny: 0, unpriced: 0 });
+  const usageTotals = summarizeUsageRows(records);
+  const totals = {
+    ...usageTotals,
+    inputTokens: records.reduce((total, record) => total + record.input_tokens, 0),
+    outputTokens: records.reduce((total, record) => total + record.output_tokens, 0),
+    projects: usageTotals.projectIds.size,
+    confirmedCostCny: Number((usageTotals.confirmedCostUsd * usdToCnyRate).toFixed(6)),
+    estimatedCostCny: Number((usageTotals.estimatedCostUsd * usdToCnyRate).toFixed(6)),
+    quotaReservedCny: Number((usageTotals.quotaReservedUsd * usdToCnyRate).toFixed(6)),
+  };
 
   let budget: Awaited<ReturnType<typeof getMonthlyUsageSummary>> | null = null;
   try {
@@ -159,9 +145,7 @@ export async function GET(req: Request) {
     count: result.count || records.length,
     totals: {
       ...totals,
-      projects: totals.projects.size,
       durationMs: totals.durationMs,
-      knownCostCny: Number(totals.knownCostCny.toFixed(6)),
     },
     budget,
     fx: fxSnapshot(usdToCnyRate),

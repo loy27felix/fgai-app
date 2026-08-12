@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { summarizeUsageRows } from './reporting';
 
 export const MONTHLY_BUDGET_EXCEEDED = 'MONTHLY_BUDGET_EXCEEDED';
 export const MONTHLY_BUDGET_PRICE_UNKNOWN = 'MONTHLY_BUDGET_PRICE_UNKNOWN';
@@ -72,6 +73,22 @@ export function monthStartDate(date = new Date()) {
   const { year, month } = shanghaiYearMonth(date);
   return new Date(Date.UTC(year, month - 1, 1) - 8 * 60 * 60 * 1000);
 }
+
+export function isMonthStartKey(value: string) {
+  if (!/^\d{4}-\d{2}-01$/.test(value)) return false;
+  const [year, month] = value.slice(0, 7).split('-').map(Number);
+  return year >= 2000 && year <= 9999 && month >= 1 && month <= 12;
+}
+
+/** The SQL range for a Shanghai calendar month. */
+export function monthRangeForKey(monthStart: string) {
+  if (!isMonthStartKey(monthStart)) throw new Error('月份格式无效');
+  const [year, month] = monthStart.slice(0, 7).split('-').map(Number);
+  return {
+    start: new Date(Date.UTC(year, month - 1, 1) - 8 * 60 * 60 * 1000).toISOString(),
+    end: new Date(Date.UTC(year, month, 1) - 8 * 60 * 60 * 1000).toISOString(),
+  };
+}
 /**
  * Conservative preflight estimate for text calls. Wetoken models without a
  * published price intentionally return null so a configured quota cannot be
@@ -92,64 +109,42 @@ export function estimateTextBudgetUsd(input: {
   return Number(((inputTokens * price.input + outputTokens * price.output) / 1_000_000).toFixed(10));
 }
 
-function monthEndIso(date = new Date()) {
-  return nextMonthStart(date).toISOString();
-}
-
-function rowCost(row: UsageRow) {
-  const cost = row.reported_cost_usd ?? row.estimated_cost_usd;
-  return cost === null || cost === undefined ? null : numberValue(cost);
-}
-
 export async function getMonthlyUsageSummary(userId: string, date = new Date()): Promise<MonthlyUsageSummary> {
   const admin = createAdminClient();
   const monthStart = monthStartKey(date);
+  const range = monthRangeForKey(monthStart);
   const [budgetResult, usageResult] = await Promise.all([
     admin.from('ai_usage_budgets').select('limit_usd').eq('user_id', userId).eq('month_start', monthStart).maybeSingle(),
     admin.from('ai_usage_ledger')
       .select('workspace_id,project_id,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,reported_cost_usd,estimated_cost_usd,cost_source,status')
       .eq('user_id', userId)
-      .gte('created_at', monthStartDate(date).toISOString())
-      .lt('created_at', monthEndIso(date))
+      .gte('created_at', range.start)
+      .lt('created_at', range.end)
       .in('status', ['submitted', 'succeeded', 'unknown']),
   ]);
   if (budgetResult.error) throw budgetResult.error;
   if (usageResult.error) throw usageResult.error;
 
   const rows = (usageResult.data || []) as UsageRow[];
-  const projects = new Set<string>();
-  const summary = rows.reduce((value, row) => {
-    const contextId = row.project_id || row.workspace_id;
-    if (contextId) projects.add(contextId);
-    value.calls += 1;
-    value.inputTokens += numberValue(row.input_tokens);
-    value.outputTokens += numberValue(row.output_tokens);
-    value.totalTokens += numberValue(row.total_tokens);
-    value.images += numberValue(row.image_count);
-    value.videoSeconds += numberValue(row.video_seconds);
-    value.durationMs += numberValue(row.duration_ms);
-    const cost = rowCost(row);
-    if (cost === null) value.unknownCostCalls += 1;
-    else value.usedUsd += Math.abs(cost);
-    return value;
-  }, { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, projects: 0, durationMs: 0, usedUsd: 0, unknownCostCalls: 0 });
-  summary.projects = projects.size;
+  const summary = summarizeUsageRows(rows);
+  const inputTokens = rows.reduce((total, row) => total + numberValue(row.input_tokens), 0);
+  const outputTokens = rows.reduce((total, row) => total + numberValue(row.output_tokens), 0);
   const budget = budgetResult.data as BudgetRow;
   const limitUsd = budget?.limit_usd === null || budget?.limit_usd === undefined ? null : Math.max(0, numberValue(budget.limit_usd));
   return {
     monthStart,
     limitUsd,
-    usedUsd: Number(summary.usedUsd.toFixed(10)),
-    remainingUsd: limitUsd === null ? null : Number(Math.max(0, limitUsd - summary.usedUsd).toFixed(10)),
+    usedUsd: Number(summary.quotaReservedUsd.toFixed(10)),
+    remainingUsd: limitUsd === null ? null : Number(Math.max(0, limitUsd - summary.quotaReservedUsd).toFixed(10)),
     calls: summary.calls,
     totalTokens: summary.totalTokens,
-    inputTokens: summary.inputTokens,
-    outputTokens: summary.outputTokens,
+    inputTokens,
+    outputTokens,
     images: summary.images,
     videoSeconds: summary.videoSeconds,
-    projects: summary.projects,
+    projects: summary.projectIds.size,
     durationMs: summary.durationMs,
-    unknownCostCalls: summary.unknownCostCalls,
+    unknownCostCalls: summary.unpricedCalls,
   };
 }
 
