@@ -4,6 +4,7 @@ export const WORKFLOW_SKILLS = [
   { id: "emotion-director", title: "情绪导演 · Seedance", desc: "素材 → 影视级视频提示词(物理化/逐秒)", file: "emotion-director.md" },
   { id: "shotlist", title: "分镜表构建师", desc: "剧本 → 镜头表", file: "shotlist-builder.md" },
   { id: "imageprompt", title: "图像提示词构建", desc: "中英双语静帧", file: "image-prompt-builder.md" },
+  { id: "minimal-zine-poster", title: "Minimal Zine 海报", desc: "诗性纸感 · 留白微编辑海报", file: "gc-minimal-zine-poster-v0-3.md" },
   { id: "seedance", title: "Seedance 视频导演", desc: "场景 → 视频 Prompt", file: "seedance-director.md" },
   { id: "seedance-combat", title: "Seedance 二次元打戏", desc: "15 秒打戏 · 攻防/运镜/节奏", file: "seedance-combat-prompt.md" },
   { id: "cinematic-realism", title: "造梦师 · 电影真实感", desc: "真实电影感 · 机位/光线/胶片", file: "zy-cinematic-realism.md" },

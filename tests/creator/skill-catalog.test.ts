@@ -11,6 +11,7 @@ const expectedSkills = [
   ["emotion-director", "emotion-director.md", "# Seedance"],
   ["shotlist", "shotlist-builder.md", "#"],
   ["imageprompt", "image-prompt-builder.md", "#"],
+  ["minimal-zine-poster", "gc-minimal-zine-poster-v0-3.md", "# Minimal Zine Poster v0.3"],
   ["seedance", "seedance-director.md", "#"],
   ["seedance-combat", "seedance-combat-prompt.md", "# Seedance 二次元打戏"],
   ["cinematic-realism", "zy-cinematic-realism.md", "# 造梦师 · 电影真实感"],
