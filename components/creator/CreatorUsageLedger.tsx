@@ -4,6 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CREATOR_USAGE_UPDATED_EVENT } from '@/lib/creator/usage-events';
 import { useAgentStore } from '@/reference/infinite-canvas/src/stores/use-agent-store';
 
+type BudgetSummary = {
+  monthStart: string;
+  limitUsd: number | null;
+  usedUsd: number;
+  remainingUsd: number | null;
+  calls: number;
+  totalTokens: number;
+  images: number;
+  videoSeconds: number;
+  projects: number;
+  durationMs: number;
+  unknownCostCalls: number;
+};
 type UsageRecord = {
   id: string;
   request_id: string;
@@ -15,6 +28,8 @@ type UsageRecord = {
   total_tokens: number;
   image_count: number;
   video_seconds: number;
+  duration_ms: number;
+  project_id?: string | null;
   resolution: string | null;
   generate_audio: boolean | null;
   reported_cost_usd: number | null;
@@ -40,14 +55,18 @@ type UsageResponse = {
     knownCostUsd: number;
     knownCostCny: number;
     unpriced: number;
+    durationMs: number;
+    projects: number;
   };
+  budget?: BudgetSummary | null;
   fx?: { rate: number; source?: string };
 };
 
 const emptyData: UsageResponse = {
   records: [],
   count: 0,
-  totals: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, knownCostUsd: 0, knownCostCny: 0, unpriced: 0 },
+  totals: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, knownCostUsd: 0, knownCostCny: 0, unpriced: 0, durationMs: 0, projects: 0 },
+  budget: null,
 };
 
 function kindLabel(kind: UsageRecord['kind']) {
@@ -92,7 +111,7 @@ export default function CreatorUsageLedger() {
       const response = await fetch('/api/creator/usage?limit=100', { cache: 'no-store' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || '用量记录加载失败');
-      setData({ records: Array.isArray(payload.records) ? payload.records : [], count: Number(payload.count || 0), totals: { ...emptyData.totals, ...(payload.totals || {}) }, fx: payload.fx || undefined });
+      setData({ records: Array.isArray(payload.records) ? payload.records : [], count: Number(payload.count || 0), totals: { ...emptyData.totals, ...(payload.totals || {}) }, budget: payload.budget || null, fx: payload.fx || undefined });
       setError('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '用量记录加载失败');
@@ -100,6 +119,8 @@ export default function CreatorUsageLedger() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
     if (open) void refresh();
@@ -126,10 +147,12 @@ export default function CreatorUsageLedger() {
   const agentPanelVisible = agentPanelOpen || agentPanelClosing;
   const usdToCnyRate = data.fx?.rate || 6.77;
   const summaryLabel = useMemo(() => {
+    if (data.budget?.limitUsd !== null && data.budget?.limitUsd !== undefined) {
+      return '本月 ¥' + (data.budget.usedUsd * usdToCnyRate).toFixed(2) + ' / ¥' + (data.budget.limitUsd * usdToCnyRate).toFixed(2);
+    }
     if (!data.totals.calls) return '暂无生成记录';
-    return data.totals.knownCostUsd > 0 ? `已核算 $${data.totals.knownCostUsd.toFixed(4)} · ¥${data.totals.knownCostCny.toFixed(2)}` : `${data.totals.calls} 次调用`;
-  }, [data.totals.calls, data.totals.knownCostUsd, data.totals.knownCostCny]);
-
+    return data.totals.knownCostUsd > 0 ? '已核算 $' + data.totals.knownCostUsd.toFixed(4) + ' · ¥' + data.totals.knownCostCny.toFixed(2) : data.totals.calls + ' 次调用';
+  }, [data.budget, data.totals.calls, data.totals.knownCostUsd, data.totals.knownCostCny, usdToCnyRate]);
   return (
     <>
       <button
@@ -140,7 +163,7 @@ export default function CreatorUsageLedger() {
       >
         <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--accent, #4ade80)' }} />
         用量记录
-        {latest ? <span style={{ color: 'var(--text-3, #777)' }}>{summaryLabel}</span> : null}
+        {(latest || data.budget) ? <span style={{ color: 'var(--text-3, #777)' }}>{summaryLabel}</span> : null}
       </button>
 
       {open ? (
@@ -150,11 +173,13 @@ export default function CreatorUsageLedger() {
               <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>生成与费用记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>只显示当前账号；金额以供应商账单为准，人民币按 1 USD = ¥{usdToCnyRate.toFixed(4)} 换算。</div></div>
               <div style={{ display: 'flex', gap: 7 }}><button type="button" onClick={() => void refresh()} disabled={loading} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>{loading ? '刷新中…' : '刷新'}</button><button type="button" onClick={() => setOpen(false)} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>关闭</button></div>
             </header>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, padding: 14, borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
-              <Summary label="调用" value={String(data.totals.calls)} />
-              <Summary label="Token" value={data.totals.totalTokens.toLocaleString()} />
-              <Summary label="图片 / 视频" value={`${data.totals.images} / ${data.totals.videoSeconds}s`} />
-              <Summary label="已核算" value={data.totals.knownCostUsd ? `$${data.totals.knownCostUsd.toFixed(6)} · ¥${data.totals.knownCostCny.toFixed(4)}` : '待核算'} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8, padding: 14, borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
+              <Summary label="本月额度" value={data.budget?.limitUsd === null || data.budget?.limitUsd === undefined ? "不限额" : "¥" + (data.budget.limitUsd * usdToCnyRate).toFixed(2)} />
+              <Summary label="本月剩余" value={data.budget?.remainingUsd === null || data.budget?.remainingUsd === undefined ? "—" : "¥" + (data.budget.remainingUsd * usdToCnyRate).toFixed(2)} />
+              <Summary label="本月调用" value={String(data.budget?.calls ?? 0)} />
+              <Summary label="本月 Token" value={(data.budget?.totalTokens ?? 0).toLocaleString()} />
+              <Summary label="本月图片 / 视频" value={(data.budget?.images ?? 0) + " / " + (data.budget?.videoSeconds ?? 0) + "s"} />
+              <Summary label="本月项目 / 耗时" value={(data.budget?.projects ?? 0) + " / " + Math.round((data.budget?.durationMs ?? 0) / 1000) + "s"} />
             </div>
             {error ? <div style={{ margin: '12px 14px 0', padding: '9px 11px', border: '1px solid rgba(255,120,100,.35)', borderRadius: 9, color: '#ff9b85', fontSize: 12 }}>{error}</div> : null}
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 14 }}>

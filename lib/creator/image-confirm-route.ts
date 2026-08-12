@@ -22,6 +22,7 @@ import {
 } from '@/lib/creator/image-service';
 import { generateWetokenImage, type ImageGenerationResult } from '@/lib/ai/image';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
+import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import {
   buildCreatorImageLedgerEntry,
   recordUsageRequired,
@@ -104,6 +105,8 @@ function serviceError(
   if (error instanceof CreatorImageConfirmError) {
     const status = error.code === 'GENERATION_TIMEOUT' ? 504
       : error.code === 'RESULT_RECONCILIATION_REQUIRED' ? 503
+        : error.code === 'MONTHLY_BUDGET_EXCEEDED' || error.code === 'MONTHLY_BUDGET_PRICE_UNKNOWN'
+          ? 402
         : error.code === 'REFERENCES_NOT_READY' || error.code === 'INVALID_DRAFT' || error.code === 'USAGE_RECORD_FAILED'
           ? 409
           : 502;
@@ -376,8 +379,14 @@ function productionDependencies(
       };
     },
     loadReferences: async () => [],
-    recordAttempt: async ({ requestId, task }) => {
+recordAttempt: async ({ requestId, task }) => {
       const resolution = typeof task.request.size === 'string' ? task.request.size : '';
+      const pricing = estimateImagePrice(task.model, resolution);
+      const budget = await assertMonthlyBudgetAvailable({
+        userId,
+        estimatedCostUsd: pricing?.estimatedCostUsd,
+      });
+      if (!budget.allowed) throw new CreatorImageConfirmError(budget.code as keyof typeof IMAGE_CONFIRM_PUBLIC_ERRORS);
       await recordUsageRequired(buildCreatorImageLedgerEntry({
         requestId,
         userId,
@@ -385,7 +394,7 @@ function productionDependencies(
         creatorTaskId: task.id,
         model: task.model,
         resolution,
-        pricing: estimateImagePrice(task.model, resolution),
+        pricing,
       }));
     },
     generate: generateWetokenImage,

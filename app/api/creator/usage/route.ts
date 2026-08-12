@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { fxSnapshot, getUsdToCnyRate } from '@/lib/usage/fx';
 import { estimateLedgerPrice } from '@/lib/usage/pricing';
+import { getMonthlyUsageSummary } from '@/lib/usage/budget';
 
 export const runtime = 'nodejs';
 
@@ -19,6 +20,7 @@ const USAGE_FIELDS = [
   'total_tokens',
   'image_count',
   'video_seconds',
+  'duration_ms',
   'resolution',
   'generate_audio',
   'reported_cost_usd',
@@ -45,6 +47,7 @@ type UsageRecord = {
   total_tokens: number;
   image_count: number;
   video_seconds: number;
+  duration_ms: number;
   resolution: string | null;
   generate_audio: boolean | null;
   reported_cost_usd: number | null;
@@ -83,6 +86,7 @@ function normalizeRecord(value: Record<string, unknown>): UsageRecord {
     total_tokens: numberValue(value.total_tokens),
     image_count: numberValue(value.image_count),
     video_seconds: numberValue(value.video_seconds),
+    duration_ms: numberValue(value.duration_ms),
     resolution: typeof value.resolution === 'string' ? value.resolution : null,
     generate_audio: typeof value.generate_audio === 'boolean' ? value.generate_audio : null,
     reported_cost_usd: nullableNumber(value.reported_cost_usd),
@@ -130,6 +134,9 @@ export async function GET(req: Request) {
     summary.totalTokens += record.total_tokens;
     summary.images += record.image_count;
     summary.videoSeconds += record.video_seconds;
+    summary.durationMs += record.duration_ms;
+    const contextId = record.project_id || record.workspace_id;
+    if (contextId) summary.projects.add(contextId);
     const cost = record.reported_cost_usd ?? record.estimated_cost_usd;
     if (cost === null) summary.unpriced += 1;
     else {
@@ -137,7 +144,26 @@ export async function GET(req: Request) {
       summary.knownCostCny += cost * usdToCnyRate;
     }
     return summary;
-  }, { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, knownCostUsd: 0, knownCostCny: 0, unpriced: 0 });
+}, { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, durationMs: 0, projects: new Set<string>(), knownCostUsd: 0, knownCostCny: 0, unpriced: 0 });
 
-  return NextResponse.json({ ok: true, records, count: result.count || records.length, totals: { ...totals, knownCostCny: Number(totals.knownCostCny.toFixed(6)) }, fx: fxSnapshot(usdToCnyRate) });
+  let budget: Awaited<ReturnType<typeof getMonthlyUsageSummary>> | null = null;
+  try {
+    budget = await getMonthlyUsageSummary(user.id);
+  } catch (error) {
+    console.error('[creator usage budget]', error);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    records,
+    count: result.count || records.length,
+    totals: {
+      ...totals,
+      projects: totals.projects.size,
+      durationMs: totals.durationMs,
+      knownCostCny: Number(totals.knownCostCny.toFixed(6)),
+    },
+    budget,
+    fx: fxSnapshot(usdToCnyRate),
+  });
 }

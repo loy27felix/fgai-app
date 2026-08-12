@@ -5,6 +5,7 @@ import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
 import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
+import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -106,7 +107,11 @@ export async function POST(req: Request) {
     }
   }
 
-  try {
+try {
+    const pricing = estimateImagePrice(model, body.size || '1024x1024');
+    const budget = await assertMonthlyBudgetAvailable({ userId: user.id, estimatedCostUsd: pricing?.estimatedCostUsd });
+    if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });
+    const startedAt = Date.now();
     const urlReferences = await Promise.all(refUrls.map(referenceFromStorageUrl));
     const references = [...inlineReferences, ...urlReferences];
     const generated = await generateWetokenImage({
@@ -121,7 +126,8 @@ export async function POST(req: Request) {
       provider: 'wetoken',
       model,
       resolution: body.size || '1024x1024',
-      pricing: estimateImagePrice(model, body.size || '1024x1024'),
+      pricing,
+      durationMs: Date.now() - startedAt,
       reportedCostUsd: extractReportedCostUsd(generated.usage),
     }));
 

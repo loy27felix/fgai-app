@@ -15,6 +15,7 @@ import {
   updateVideoUsageBestEffort,
 } from '@/lib/usage/ledger';
 import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing';
+import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
@@ -263,6 +264,20 @@ export async function POST(_req: Request, { params }: RouteContext) {
       throw error;
     }
 
+const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.duration, resolution: validated.resolution });
+    const budget = await assertMonthlyBudgetAvailable({
+      userId: context.user.id,
+      estimatedCostUsd: pricing?.estimatedCostUsd,
+    });
+    if (!budget.allowed) {
+      await context.supabase.from('creator_generation_tasks').update({
+        status: 'draft',
+        confirmed_at: null,
+        error: budget.message,
+      }).eq('id', claimed.id).eq('status', 'submitting');
+      return response(budget.message, budget.code, 402);
+    }
+
     try {
       await recordUsageRequired(buildVideoLedgerEntry({
         requestId,
@@ -275,7 +290,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
         resolution: validated.resolution,
         generateAudio: validated.generateAudio,
         creatorTaskId: claimed.id,
-        pricing: estimateVideoPrice({ model: claimed.model, duration: validated.duration, resolution: validated.resolution }),
+        pricing,
       }));
     } catch (error) {
       console.error('[creator video ledger]', error);

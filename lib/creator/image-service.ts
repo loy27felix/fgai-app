@@ -8,6 +8,8 @@ export const IMAGE_CONFIRM_PUBLIC_ERRORS = {
   REFERENCES_NOT_READY: '\u53c2\u8003\u56fe\u5c1a\u672a\u4e0a\u4f20\u5b8c\u6210',
   INVALID_DRAFT: '\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548\uff0c\u5df2\u505c\u6b62\u786e\u8ba4',
   USAGE_RECORD_FAILED: '\u56fe\u7247\u7528\u91cf\u8bb0\u5f55\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
+  MONTHLY_BUDGET_EXCEEDED: '\u672c\u6708\u989d\u5ea6\u5df2\u7528\u5b8c\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458',
+  MONTHLY_BUDGET_PRICE_UNKNOWN: '\u5f53\u524d\u6a21\u578b\u6216\u53c2\u6570\u6ca1\u6709\u53ef\u786e\u8ba4\u7684\u4ef7\u683c\uff0c\u5df2\u542f\u7528\u6708\u5ea6\u989d\u5ea6\u540e\u6682\u4e0d\u80fd\u8c03\u7528',
   GENERATION_TIMEOUT: '\u56fe\u7247\u751f\u6210\u8d85\u65f6\uff0c\u53ef\u80fd\u5df2\u7ecf\u4ea7\u751f\u8d39\u7528\uff0c\u8bf7\u67e5\u770b\u4efb\u52a1\u72b6\u6001',
   GENERATION_FAILED: '\u56fe\u7247\u751f\u6210\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
   RESULT_INVALID: '\u56fe\u7247\u751f\u6210\u7ed3\u679c\u65e0\u6548\uff0c\u4efb\u52a1\u672a\u5b8c\u6210',
@@ -229,7 +231,9 @@ export async function confirmCreatorImage(
   try {
     await deps.recordAttempt({ requestId, task });
   } catch (error: unknown) {
-    const normalized = new CreatorImageConfirmError('USAGE_RECORD_FAILED', error);
+    const normalized = error instanceof CreatorImageConfirmError
+      ? error
+      : new CreatorImageConfirmError('USAGE_RECORD_FAILED', error);
     await bestEffortSettle(deps, {
       task,
       requestId,

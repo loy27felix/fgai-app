@@ -6,6 +6,7 @@ import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/supabase/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
+import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from '@/lib/usage/budget';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -89,6 +90,16 @@ export async function POST(req: Request) {
       reasoning: !!body.thinking || reasoningEffort !== "auto",
       reasoningEffort,
     });
+    const budget = await assertMonthlyBudgetAvailable({
+      userId: user.id,
+      estimatedCostUsd: estimateTextBudgetUsd({
+        model,
+        inputText: JSON.stringify(messages),
+        maxOutputTokens: 4000,
+      }),
+    });
+    if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });
+    const startedAt = Date.now();
     const { spec, result } = await chatWithTextModel({
       modelId: model,
       messages,
@@ -116,6 +127,7 @@ export async function POST(req: Request) {
       provider: spec.provider,
       model: spec.id,
       usage: result.usage,
+      durationMs: Date.now() - startedAt,
     }));
 
     return NextResponse.json({

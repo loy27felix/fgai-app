@@ -23,6 +23,7 @@ export type TextLedgerEntry = {
   estimated_cost_usd?: number;
   cost_source: 'estimated' | 'unknown';
   price_snapshot: Record<string, string | number>;
+  duration_ms?: number;
   status: 'succeeded';
   possibly_charged: true;
 };
@@ -42,6 +43,7 @@ export type ImageLedgerEntry = {
   estimated_cost_usd?: number;
   cost_source: 'reported' | 'estimated' | 'unknown';
   price_snapshot: Record<string, string | number>;
+  duration_ms?: number;
   status: UsageLedgerStatus;
   possibly_charged: true;
 };
@@ -63,6 +65,7 @@ export type VideoLedgerEntry = {
   estimated_cost_usd?: number;
   cost_source: 'reported' | 'estimated' | 'unknown';
   price_snapshot: Record<string, string | number>;
+  duration_ms?: number;
   status: 'submitted';
   possibly_charged: true;
 };
@@ -131,6 +134,7 @@ export function buildTextLedgerEntry(input: {
   provider: string;
   model: string;
   usage: TextUsage;
+  durationMs?: number;
 }): TextLedgerEntry {
   const inputTokens = tokenCount(input.usage?.prompt_tokens);
   const outputTokens = tokenCount(input.usage?.completion_tokens);
@@ -152,6 +156,7 @@ export function buildTextLedgerEntry(input: {
     ...(estimate ? { estimated_cost_usd: estimate.cost } : {}),
     cost_source: estimate ? 'estimated' : 'unknown',
     price_snapshot: estimate?.snapshot || {},
+    ...(Number.isFinite(input.durationMs) && (input.durationMs || 0) >= 0 ? { duration_ms: Math.floor(input.durationMs || 0) } : {}),
     status: 'succeeded',
     possibly_charged: true,
   };
@@ -167,6 +172,7 @@ export function buildImageLedgerEntry(input: {
   resolution: string;
   pricing?: MediaPrice | null;
   reportedCostUsd?: number;
+  durationMs?: number;
 }): ImageLedgerEntry {
   return {
     request_id: input.requestId || randomUUID(),
@@ -180,6 +186,7 @@ export function buildImageLedgerEntry(input: {
     image_count: 1,
     resolution: input.resolution,
     ...mediaCostFields(input),
+    ...(Number.isFinite(input.durationMs) && (input.durationMs || 0) >= 0 ? { duration_ms: Math.floor(input.durationMs || 0) } : {}),
     status: 'succeeded',
     possibly_charged: true,
   };
@@ -194,6 +201,7 @@ export function buildCreatorImageLedgerEntry(input: {
   resolution: string;
   pricing?: MediaPrice | null;
   reportedCostUsd?: number;
+  durationMs?: number;
 }): ImageLedgerEntry {
   return {
     request_id: input.requestId,
@@ -207,6 +215,7 @@ export function buildCreatorImageLedgerEntry(input: {
     image_count: 1,
     resolution: input.resolution,
     ...mediaCostFields(input),
+    ...(Number.isFinite(input.durationMs) && (input.durationMs || 0) >= 0 ? { duration_ms: Math.floor(input.durationMs || 0) } : {}),
     status: 'submitted',
     possibly_charged: true,
   };
@@ -226,6 +235,7 @@ export function buildVideoLedgerEntry(input: {
   creatorTaskId?: string | null;
   pricing?: MediaPrice | null;
   reportedCostUsd?: number;
+  durationMs?: number;
 }): VideoLedgerEntry {
   return {
     request_id: input.requestId,
@@ -241,6 +251,7 @@ export function buildVideoLedgerEntry(input: {
     resolution: input.resolution,
     generate_audio: input.generateAudio,
     ...mediaCostFields(input),
+    ...(Number.isFinite(input.durationMs) && (input.durationMs || 0) >= 0 ? { duration_ms: Math.floor(input.durationMs || 0) } : {}),
     status: 'submitted',
     possibly_charged: true,
   };
