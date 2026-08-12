@@ -3,19 +3,22 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { companyEmailFromUsername, normalizeCompanyUsername } from "@/lib/auth/company-email";
 
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
+  const [signupUsername, setSignupUsername] = useState("");
   const [pw, setPw] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit() {
     setMsg("");
-    const e = email.trim().toLowerCase();
+    const e = mode === "signup" ? companyEmailFromUsername(signupUsername) : email.trim().toLowerCase();
+    if (!e) { setMsg("请输入 @beva.com 前的邮箱用户名"); return; }
     if (pw.length < 6) { setMsg("密码至少 6 位"); return; }
     setBusy(true);
     try {
@@ -52,9 +55,13 @@ export default function LoginPage() {
           <h1 className="font-disp text-[26px] font-semibold tracking-tight">{mode === "signin" ? "登录工作台" : "注册账号"}</h1>
           <p className="mb-6 mt-1.5 text-sm text-white/55">用公司邮箱开始你的 AI 漫剧项目。</p>
 
-          <label className="mb-1.5 block font-mono text-[10.5px] uppercase tracking-wide text-white/45">邮箱</label>
-          <input className="mb-4 w-full rounded-xl border border-white/12 bg-white/[.05] px-3.5 py-3 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-violet focus:bg-white/[.08]"
-            value={email} placeholder="yourname@beva.com" onChange={(ev) => setEmail(ev.target.value)} />
+          <label className="mb-1.5 block font-mono text-[10.5px] uppercase tracking-wide text-white/45">{mode === "signup" ? "公司邮箱用户名" : "邮箱"}</label>
+          {mode === "signup" ? (
+            <div className="mb-4 flex overflow-hidden rounded-xl border border-white/12 bg-white/[.05] transition focus-within:border-violet focus-within:bg-white/[.08]">
+              <input className="min-w-0 flex-1 bg-transparent px-3.5 py-3 text-[15px] text-white outline-none placeholder:text-white/30" value={signupUsername} placeholder="例如：meilinle" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(ev) => setSignupUsername(normalizeCompanyUsername(ev.target.value))} />
+              <span className="flex items-center border-l border-white/10 bg-white/[.035] px-3 text-[14px] text-cyan">@beva.com</span>
+            </div>
+          ) : <input className="mb-4 w-full rounded-xl border border-white/12 bg-white/[.05] px-3.5 py-3 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-violet focus:bg-white/[.08]" value={email} placeholder="yourname@beva.com" autoCapitalize="none" onChange={(ev) => setEmail(ev.target.value)} />}
           <label className="mb-1.5 block font-mono text-[10.5px] uppercase tracking-wide text-white/45">密码</label>
           <input className="mb-2 w-full rounded-xl border border-white/12 bg-white/[.05] px-3.5 py-3 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-violet focus:bg-white/[.08]"
             type="password" value={pw} placeholder="至少 6 位" onChange={(ev) => setPw(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && submit()} />
@@ -71,7 +78,7 @@ export default function LoginPage() {
             </button>
           </div>
           <p className="mt-5 border-t border-white/8 pt-4 text-[12px] leading-relaxed text-white/40">
-            仅限 <b className="text-cyan">@beva.com</b> 或已审批白名单的邮箱注册登录，其他邮箱请联系管理员。
+            注册仅限公司 <b className="text-cyan">@beva.com</b> 邮箱；登录可使用已有的白名单账号。
           </p>
         </div>
       </div>

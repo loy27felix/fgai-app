@@ -4,6 +4,7 @@ import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { companyEmailFromUsername, normalizeCompanyUsername } from "@/lib/auth/company-email";
 
 const ROT = ["剧组", "工作流", "宇宙", "Agent", "片场"];
 const WORKS = ["狼和七只小山羊", "侏儒怪", "大拇指汤姆", "画眉嘴国王", "快乐王子与列那狐", "瓶中精灵"];
@@ -45,11 +46,13 @@ export default function Landing() {
   const [authed, setAuthed] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState(""); const [pw, setPw] = useState("");
+  const [email, setEmail] = useState(""); const [signupUsername, setSignupUsername] = useState(""); const [pw, setPw] = useState("");
   const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
   function enter() { if (authed) router.push("/projects"); else { setMsg(""); setShowLogin(true); } }
   async function submit() {
-    setMsg(""); const e = email.trim().toLowerCase();
+    setMsg("");
+    const e = mode === "signup" ? companyEmailFromUsername(signupUsername) : email.trim().toLowerCase();
+    if (!e) { setMsg("请输入 @beva.com 前的邮箱用户名，例如：meilinle"); return; }
     if (pw.length < 6) { setMsg("密码至少 6 位"); return; }
     setBusy(true);
     try {
@@ -214,14 +217,19 @@ export default function Landing() {
             <div className="mb-1 font-mono text-[10.5px] uppercase tracking-[0.18em] text-[#5fe3c0]">FableGlitch · AI MANGA STUDIO</div>
             <h3 className="font-disp text-[24px] font-semibold tracking-tight">{mode === "signin" ? "登录工作台" : "注册账号"}</h3>
             <p className="mb-6 mt-1.5 text-[13px] text-white/50">用公司邮箱开始你的 AI 漫剧项目。</p>
-            <input className="mb-3 w-full rounded-xl border border-white/12 bg-white/[.05] px-3.5 py-3 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-[#5fe3c0] focus:bg-white/[.08]" value={email} placeholder="yourname@beva.com" onChange={(ev) => setEmail(ev.target.value)} />
+            {mode === "signup" ? (
+              <div className="mb-3 flex overflow-hidden rounded-xl border border-white/12 bg-white/[.05] transition focus-within:border-[#5fe3c0] focus-within:bg-white/[.08]">
+                <input className="min-w-0 flex-1 bg-transparent px-3.5 py-3 text-[15px] text-white outline-none placeholder:text-white/30" value={signupUsername} placeholder="例如：meilinle" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(ev) => setSignupUsername(normalizeCompanyUsername(ev.target.value))} />
+                <span className="flex items-center border-l border-white/10 bg-white/[.035] px-3 text-[14px] text-[#5fe3c0]">@beva.com</span>
+              </div>
+            ) : <input className="mb-3 w-full rounded-xl border border-white/12 bg-white/[.05] px-3.5 py-3 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-[#5fe3c0] focus:bg-white/[.08]" value={email} placeholder="yourname@beva.com" autoCapitalize="none" onChange={(ev) => setEmail(ev.target.value)} />}
             <input className="mb-2 w-full rounded-xl border border-white/12 bg-white/[.05] px-3.5 py-3 text-[15px] text-white outline-none transition placeholder:text-white/30 focus:border-[#5fe3c0] focus:bg-white/[.08]" type="password" value={pw} placeholder="密码（至少 6 位）" onChange={(ev) => setPw(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && submit()} />
             {msg && <div className="mb-2 text-[13px] font-medium text-[#ff9b85]">{msg}</div>}
             <button className="mt-3 w-full rounded-full bg-[#34d399] py-3 text-[14px] font-semibold text-[#0a2018] transition hover:brightness-105 active:scale-[.98] disabled:opacity-60" disabled={busy} onClick={submit}>{busy ? "处理中…" : mode === "signin" ? "登录" : "注册并登录"}</button>
             <div className="mt-5 text-center text-[13px] text-white/55">{mode === "signin" ? "还没有账号？" : "已有账号？"}{" "}
               <button className="font-medium text-[#5fe3c0] hover:underline" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setMsg(""); }}>{mode === "signin" ? "去注册" : "去登录"}</button>
             </div>
-            <p className="mt-5 border-t border-white/8 pt-4 text-[12px] leading-relaxed text-white/40">仅限 <b className="text-[#5fe3c0]">@beva.com</b> 或已审批白名单邮箱，其他邮箱请联系管理员。</p>
+            <p className="mt-5 border-t border-white/8 pt-4 text-[12px] leading-relaxed text-white/40">注册仅限公司 <b className="text-[#5fe3c0]">@beva.com</b> 邮箱；登录可使用已有的白名单账号。</p>
           </div>
         </div>
       )}
