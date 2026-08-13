@@ -405,9 +405,10 @@ recordAttempt: async ({ requestId, task }) => {
         { task, requestId, generated, userId, workspaceId },
       );
       const reportedCostUsd = extractReportedCostUsd(generated.usage);
-      if (reportedCostUsd !== undefined) {
-        await updateImageUsageStatus({ requestId, status: 'succeeded', completedAt: new Date().toISOString(), reportedCostUsd });
-      }
+      // A successful image must settle its ledger row even when Wetoken does
+      // not return a granular cost. The stored catalog estimate then becomes
+      // the current-price cost shown to the user; failures remain zero.
+      await updateImageUsageStatus({ requestId, status: 'succeeded', completedAt: new Date().toISOString(), reportedCostUsd });
       return result;
     },
     settleFailure: async ({ task, requestId, status, error }) => {

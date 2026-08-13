@@ -26,9 +26,11 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
     'doubao-seedance-2-0-fast-filter-off',
     'dreamina-seedance-2-0-mini',
     'dreamina-seedance-2-0-mini-filter-off',
+    'dreamina-seedance-2-5',
+    'dreamina-seedance-2-5-filter-off',
   ]);
   assert.deepEqual(VIDEO_MODELS.map((model) => model.filterOff), [
-    false, true, false, true, false, true,
+    false, true, false, true, false, true, false, true,
   ]);
 });
 
@@ -95,6 +97,13 @@ test('Seedance validation rejects invalid combinations and model capabilities', 
   assert.throws(() => buildSeedanceRequest({ ...base, model: 'other' }), /不支持的视频模型/);
   assert.throws(() => buildSeedanceRequest({ ...base, model: 'doubao-seedance-2-0-fast', resolution: '1080p' }), /不支持 1080p/);
   assert.throws(() => buildSeedanceRequest({ ...base, model: 'doubao-seedance-2-0', duration: 3 }), /时长/);
+  assert.throws(() => buildSeedanceRequest({ ...base, model: 'dreamina-seedance-2-5', duration: 31 }), /时长/);
+  assert.throws(() => buildSeedanceRequest({ ...base, model: 'dreamina-seedance-2-5', duration: -1 }), /时长/);
+  assert.throws(() => buildSeedanceRequest({
+    ...base,
+    model: 'dreamina-seedance-2-5',
+    references: [{ type: 'video', url: 'https://example.com/ref.mp4', role: 'reference_video' }],
+  }), /不支持参考视频/);
   assert.throws(() => buildSeedanceRequest({
     ...base,
     model: 'doubao-seedance-2-0',
@@ -109,6 +118,14 @@ test('Seedance validation rejects invalid combinations and model capabilities', 
       { type: 'image', url: 'https://example.com/ref.jpg', role: 'reference_image' },
     ],
   }), /首帧\/尾帧不能与参考图/);
+});
+
+test('Seedance 2.5 omits unsupported audio generation fields', () => {
+  const request = buildSeedanceRequest({
+    model: 'dreamina-seedance-2-5', prompt: 'fox', references: [], duration: 12,
+    ratio: '16:9', resolution: '720p', watermark: false, generateAudio: true,
+  });
+  assert.equal('generate_audio' in request, false);
 });
 
 

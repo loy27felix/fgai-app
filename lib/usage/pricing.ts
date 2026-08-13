@@ -2,9 +2,10 @@
  * Media pricing used by the trusted usage ledger.
  *
  * The provider does not consistently return a billable amount in generation
- * responses, so the small catalog below intentionally contains only prices
- * observed in the owner's Wetoken billing export or prorated from an
- * observed anchor. Unknown model/resolution combinations stay unpriced.
+ * responses, so the catalog uses the provider's published price examples
+ * supplied by the workspace owner. Image prices are fixed output prices where
+ * Wetoken publishes one. Video prices are a transparent linear estimate from
+ * the published five-second example, not a provider bill.
  */
 
 export type MediaPrice = {
@@ -12,8 +13,8 @@ export type MediaPrice = {
   snapshot: Record<string, string | number>;
 };
 
-const BILLING_SNAPSHOT_DATE = '2026-07-31';
-const BILLING_SOURCE = 'Wetoken billing screenshot supplied by project owner';
+const BILLING_SNAPSHOT_DATE = '2026-08-13';
+const BILLING_SOURCE = 'Wetoken model pricing supplied by workspace owner';
 
 function snapshot(input: {
   model: string;
@@ -43,24 +44,43 @@ function normalizedResolution(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, '');
 }
 
-/** Returns a price only for a captured, known image combination. */
+function imageTier(resolution: string) {
+  const value = normalizedResolution(resolution);
+  if (value.includes('0.5k') || value.includes('512')) return '0.5k';
+  if (value.includes('4k') || value.includes('4096')) return '4k';
+  if (value.includes('2k') || value.includes('2048')) return '2k';
+  return '1k';
+}
+
+/** Returns the published fixed image output price or its documented example. */
 export function estimateImagePrice(model: string, resolution: string): MediaPrice | null {
-  if (model !== 'gpt-image-2') return null;
+  const tier = imageTier(resolution);
+  const knownPrices: Record<string, number | undefined> = {
+    'gemini-3-pro-image-preview': tier === '4k' ? 0.24 : 0.134,
+    'gemini-3.1-flash-image-preview': ({ '0.5k': 0.045, '1k': 0.067, '2k': 0.101, '4k': 0.151 } as Record<string, number>)[tier],
+    // These providers publish token rates rather than a flat per-image fee.
+    // We use the first documented cost example as the initial job estimate.
+    'gemini-3.1-flash-lite-image': 0.01525,
+    'gpt-image-2': 0.02,
+  };
+  const cost = knownPrices[model];
+  if (cost === undefined) return null;
   return snapshot({
     model,
     unit: 'per_image',
-    cost: 0.015,
+    cost,
     resolution,
-    note: 'Observed one gpt-image-2 image charge; verify if provider changes size-based pricing.',
+    note: model === 'gemini-3-pro-image-preview' || model === 'gemini-3.1-flash-image-preview'
+      ? `Wetoken published ${tier.toUpperCase()} image output price.`
+      : 'Wetoken published token-price example used as the initial per-image estimate.',
   });
 }
 
 /**
- * Returns a price for the captured Seedance rows. The provider billing export
- * gave us two duration anchors (720p/6s and 4K/15s), so durations between the
- * supported 4–15 second range are prorated from the matching anchor. We keep
- * other models/resolutions unknown rather than pretending that they share the
- * same tariff; the supported duration extrapolation is marked as a local estimate.
+ * Returns a price for the current Seedance catalog. Wetoken publishes the
+ * example as a five-second generation, therefore selected durations are
+ * linearly prorated and clearly stored as estimates. The browser never calls
+ * this a provider-confirmed charge.
  */
 export function estimateLedgerPrice(input: {
   kind: 'text' | 'image' | 'video';
@@ -84,19 +104,35 @@ export function estimateVideoPrice(input: {
 }): MediaPrice | null {
   const resolution = normalizedResolution(input.resolution);
   const duration = Math.floor(Number(input.duration));
-  if (!Number.isFinite(duration) || duration < 4 || duration > 15) return null;
+  const isSeedance25 = input.model === 'dreamina-seedance-2-5' || input.model === 'dreamina-seedance-2-5-filter-off';
+  const maxDuration = isSeedance25 ? 30 : 15;
+  if (!Number.isFinite(duration) || duration < 4 || duration > maxDuration) return null;
 
-  const anchor =
-    input.model === 'doubao-seedance-2-0' && resolution === '4k'
-      ? { seconds: 15, cost: 11.696721, note: 'Observed 4K / 15s Seedance 2.0 charge.' }
-      : resolution === '720p' && (input.model === 'doubao-seedance-2-0' || input.model === 'doubao-seedance-2-0-filter-off')
-        ? { seconds: 6, cost: 0.913501, note: 'Observed 720p / 6s Seedance 2.0 charge.' }
-        : null;
+  const normal = new Set(['doubao-seedance-2-0', 'doubao-seedance-2-0-filter-off']);
+  const fast = new Set(['doubao-seedance-2-0-fast', 'doubao-seedance-2-0-fast-filter-off']);
+  const mini = new Set(['dreamina-seedance-2-0-mini', 'dreamina-seedance-2-0-mini-filter-off']);
+  const reference720 = normal.has(input.model) ? 4.97
+    : fast.has(input.model) ? 4
+      : mini.has(input.model) ? (4.97 * 3.5) / 7
+        : isSeedance25 ? (4.97 * 10.7) / 7
+          : null;
+  if (reference720 === null) return null;
+
+  // Published 480p examples are explicit for normal and fast. Mini and 2.5
+  // are derived from the same 720p sample using their published token ratio.
+  const resolutionRatio: Record<string, number> = {
+    '480p': normal.has(input.model) ? 2.31 / 4.97 : fast.has(input.model) ? 1.86 / 4 : 2.31 / 4.97,
+    '720p': 1,
+    '1080p': normal.has(input.model) ? 7.7 / 7 : Number.NaN,
+    '4k': normal.has(input.model) ? 4 / 7 : Number.NaN,
+  };
+  const ratio = resolutionRatio[resolution];
+  const costAtFiveSeconds = Number.isFinite(ratio) ? Number((reference720 * ratio).toFixed(6)) : null;
+  const anchor = costAtFiveSeconds === null
+    ? null
+    : { seconds: 5, cost: costAtFiveSeconds, note: 'Wetoken published five-second Seedance price example; selected duration is prorated locally.' };
   if (!anchor) return null;
 
-  // Preserve the observed row exactly; all other durations are clearly
-  // labelled as a local proration so the ledger never presents it as a
-  // provider-returned charge.
   if (duration === anchor.seconds) {
     return snapshot({
       model: input.model,
@@ -122,8 +158,8 @@ export function estimateVideoPrice(input: {
       unit_cost_usd: cost,
       anchor_duration_seconds: anchor.seconds,
       anchor_cost_usd: anchor.cost,
-      derivation: 'linear_proration_from_observed_anchor',
-      note: `按已观测的 ${input.resolution}/${anchor.seconds}s 账单锚点线性估算；实际扣费以 Wetoken 账单为准。`,
+      derivation: 'linear_proration_from_published_five_second_example',
+      note: `按 Wetoken 公布的 ${input.resolution}/${anchor.seconds}s 示例线性估算；实际扣费以 Wetoken 账单为准。`,
     },
   };
 }

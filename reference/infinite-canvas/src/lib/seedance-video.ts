@@ -30,7 +30,7 @@ export const seedanceRatioOptions = [
     { value: "adaptive", label: "自适应" },
 ] as const;
 
-export const seedanceDurationOptions = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
+export const seedanceDurationOptions = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] as const;
 
 const seedancePixels = {
     "480p": {
@@ -72,9 +72,12 @@ export function isSeedanceVideoConfig(config: AiConfig | Pick<AiConfig, "model" 
     return requestConfig.apiFormat === "ark" || Boolean(getVideoModel(modelOptionName(requestConfig.model || requestConfig.videoModel)));
 }
 
-export function normalizeSeedanceResolution(value: string) {
+export function normalizeSeedanceResolution(value: string, model?: string) {
     const normalized = normalizeResolutionToken(value);
-    return seedanceResolutionOptions.some((item) => item.value === normalized) ? normalized : "720p";
+    const spec = model ? getVideoModel(model) : undefined;
+    const fallback = spec?.resolutions.includes("720p") ? "720p" : spec?.resolutions[0] || "720p";
+    if (!seedanceResolutionOptions.some((item) => item.value === normalized)) return fallback;
+    return spec && !spec.resolutions.includes(normalized) ? fallback : normalized;
 }
 
 export function normalizeResolutionToken(value: string) {
@@ -86,10 +89,11 @@ export function normalizeResolutionToken(value: string) {
     return `${resolution}p`;
 }
 
-export function normalizeSeedanceDuration(value: string) {
-    if (String(value).trim() === "-1") return -1;
+export function normalizeSeedanceDuration(value: string, model?: string) {
+    const spec = model ? getVideoModel(model) : undefined;
+    if (String(value).trim() === "-1") return spec?.supportsAdaptiveDuration === false ? 5 : -1;
     const seconds = Math.floor(Number(value) || 5);
-    return Math.max(4, Math.min(15, seconds));
+    return Math.max(spec?.minDuration || 4, Math.min(spec?.maxDuration || 15, seconds));
 }
 
 export function normalizeSeedanceRatio(value: string) {

@@ -30,6 +30,8 @@ test('usage reporting keeps confirmed provider cost separate from quota estimate
   assert.equal(summary.estimatedCostUsd, 11.696721);
   assert.equal(summary.quotaReservedUsd, 23.393442);
   assert.equal(summary.unpricedCalls, 1);
+  assert.equal(summary.successfulCalls, 2);
+  assert.equal(summary.successfulCostUsd, 11.696721);
 });
 
 test('a failed estimate is never presented as a charge', () => {
@@ -48,8 +50,8 @@ test('known successful media is priced immediately when the provider omits cost'
     status: 'succeeded', kind: 'video', model: 'doubao-seedance-2-0', resolution: '720p', video_seconds: 6,
     reported_cost_usd: null, estimated_cost_usd: null,
   });
-  assert.equal(image.estimated_cost_usd, 0.015);
-  assert.equal(video.estimated_cost_usd, 0.913501);
+  assert.equal(image.estimated_cost_usd, 0.02);
+  assert.equal(video.estimated_cost_usd, 5.964);
 });
 
 test('historical known media receives the same price for a real-time dashboard total', () => {
@@ -59,6 +61,7 @@ test('historical known media receives the same price for a real-time dashboard t
   ].map(withEligibleCatalogEstimate);
   const summary = summarizeUsageRows(rows);
   assert.equal(summary.confirmedCostUsd, 0);
-  assert.equal(summary.estimatedCostUsd, 0.928501);
-  assert.equal(summary.quotaReservedUsd, 0.928501);
+  assert.equal(summary.estimatedCostUsd, 5.984);
+  assert.equal(summary.quotaReservedUsd, 5.984);
+  assert.equal(summary.successfulCostUsd, 5.984);
 });

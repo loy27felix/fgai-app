@@ -79,6 +79,8 @@ const FG_BUILTIN_MODELS: ChannelModel[] = [
     { name: "doubao-seedance-2-0-fast-filter-off", capability: "video" },
     { name: "dreamina-seedance-2-0-mini", capability: "video" },
     { name: "dreamina-seedance-2-0-mini-filter-off", capability: "video" },
+    { name: "dreamina-seedance-2-5", capability: "video" },
+    { name: "dreamina-seedance-2-5-filter-off", capability: "video" },
     { name: "gpt-5.6-luna", capability: "text" },
     { name: "gpt-5.6-terra", capability: "text" },
     { name: "gpt-5.6-sol", capability: "text" },

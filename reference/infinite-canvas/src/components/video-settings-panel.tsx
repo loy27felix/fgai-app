@@ -4,7 +4,8 @@ import { Switch } from "antd";
 import { ImageSettingsTheme } from "@/reference/infinite-canvas/src/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
-import { type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { modelOptionName, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { getVideoModel } from "@/lib/ai/video-models";
 
 const resolutionOptions = [
     { value: "720", label: "720p" },
@@ -105,9 +106,16 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
 }
 
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
-    const resolution = normalizeSeedanceResolution(config.vquality);
+    const modelSpec = getVideoModel(modelOptionName(config.model || config.videoModel));
+    const resolution = normalizeSeedanceResolution(config.vquality, modelSpec?.id);
     const ratio = normalizeSeedanceRatio(config.size);
-    const duration = normalizeSeedanceDuration(config.videoSeconds);
+    const duration = normalizeSeedanceDuration(config.videoSeconds, modelSpec?.id);
+    const allowedResolutions = modelSpec
+        ? seedanceResolutionOptions.filter((item) => modelSpec.resolutions.includes(item.value))
+        : seedanceResolutionOptions;
+    const allowedDurations = seedanceDurationOptions.filter((value) => value === -1
+        ? modelSpec?.supportsAdaptiveDuration !== false
+        : value >= (modelSpec?.minDuration || 4) && value <= (modelSpec?.maxDuration || 15));
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
     const referenceMode = config.videoReferenceMode === "first_last" ? "first_last" : "reference";
@@ -125,7 +133,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 </SettingGroup>
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {seedanceResolutionOptions.map((item) => (
+                        {allowedResolutions.map((item) => (
                             <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                 {item.label}
                             </OptionPill>
@@ -152,17 +160,17 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 </SettingGroup>
                 <SettingGroup title="时长" color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {seedanceDurationOptions.map((value) => (
+                        {allowedDurations.map((value) => (
                             <OptionPill key={value} selected={duration === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
                                 {value === -1 ? "智能" : `${value}s`}
                             </OptionPill>
                         ))}
                     </div>
-                    <NumberInput value={String(duration)} min={-1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                    <NumberInput value={String(duration)} min={modelSpec?.minDuration || 4} max={modelSpec?.maxDuration || 15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
                 </SettingGroup>
                 <SettingGroup title="输出" color={theme.node.muted}>
                     <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
-                        <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                        {modelSpec?.supportsAudioGeneration !== false ? <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} /> : null}
                         <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} />
                     </div>
                 </SettingGroup>

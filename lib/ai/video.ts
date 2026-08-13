@@ -47,8 +47,8 @@ function assertUrl(value: string) {
 export function buildSeedanceRequest(input: SeedanceInput) {
   const spec = getVideoModel(input.model);
   if (!spec) throw new Error(`不支持的视频模型：${input.model}`);
-  if (input.duration !== -1 && (input.duration < 4 || input.duration > 15)) {
-    throw new Error('视频时长必须为 4 到 15 秒，或使用 -1 自适应');
+  if ((input.duration === -1 && !spec.supportsAdaptiveDuration) || (input.duration !== -1 && (input.duration < spec.minDuration || input.duration > spec.maxDuration))) {
+    throw new Error(`视频时长必须为 ${spec.minDuration} 到 ${spec.maxDuration} 秒${spec.supportsAdaptiveDuration ? '，或使用 -1 自适应' : ''}`);
   }
   if (!RATIOS.has(input.ratio)) throw new Error(`不支持的画幅：${input.ratio}`);
   if (!spec.resolutions.includes(input.resolution)) {
@@ -58,6 +58,8 @@ export function buildSeedanceRequest(input: SeedanceInput) {
   const images = input.references.filter((item) => item.type === 'image');
   const videos = input.references.filter((item) => item.type === 'video');
   const audios = input.references.filter((item) => item.type === 'audio');
+  const unsupportedReference = input.references.find((item) => !spec.referenceTypes.includes(item.type));
+  if (unsupportedReference) throw new Error(`${spec.label} 不支持参考${unsupportedReference.type === 'video' ? '视频' : unsupportedReference.type === 'audio' ? '音频' : '图片'}`);
   if (!input.prompt.trim() && input.references.length === 0) throw new Error('提示词和参考素材不能同时为空');
   if (audios.length && !images.length && !videos.length) throw new Error('音频不能单独作为参考，至少同时提供图片或视频');
   if (images.length > 9) throw new Error('参考图片最多 9 张');
@@ -89,7 +91,7 @@ export function buildSeedanceRequest(input: SeedanceInput) {
     ratio: input.ratio,
     resolution: input.resolution,
     watermark: input.watermark,
-    generate_audio: input.generateAudio,
+    ...(spec.supportsAudioGeneration ? { generate_audio: input.generateAudio } : {}),
   };
 }
 

@@ -8,18 +8,6 @@ import { withEligibleCatalogEstimate } from "@/lib/usage/reporting";
 
 export const dynamic = "force-dynamic";
 
-async function dsBalance(): Promise<string | null> {
-  try {
-    const r = await fetch("https://api.deepseek.com/user/balance", {
-      headers: { Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}` }, cache: "no-store",
-    });
-    if (!r.ok) return null;
-    const d = await r.json();
-    const b = d?.balance_infos?.[0];
-    return b ? `${b.total_balance} ${b.currency}` : null;
-  } catch { return null; }
-}
-
 export default async function AdminPage({ searchParams }: { searchParams?: { month?: string | string[] } }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -36,7 +24,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
   const requestedMonthStart = rawMonth ? `${rawMonth}-01` : monthStartKey();
   const monthStart = isMonthStartKey(requestedMonthStart) ? requestedMonthStart : monthStartKey();
   const monthRange = monthRangeForKey(monthStart);
-  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: historicalUsage }, { data: projects }, { data: budgets }] = await Promise.all([
+  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: budgets }] = await Promise.all([
     supabase.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     supabase.from("whitelist").select("*").order("requested_at", { ascending: false }),
     supabase.from("ai_usage_ledger")
@@ -45,19 +33,11 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
       .lt("created_at", monthRange.end)
       .order("created_at", { ascending: false })
       .limit(5000),
-    // Retained solely for the cross-month accounting context. Selected-month
-    // quotas and tables below remain scoped by the Shanghai calendar month.
-    supabase.from("ai_usage_ledger")
-      .select("id,request_id,provider_request_id,user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
-      .order("created_at", { ascending: false })
-      .limit(5000),
-    supabase.from("projects").select("id"),
     supabase.from("ai_usage_budgets").select("user_id,month_start,limit_usd").eq("month_start", monthStart),
   ]);
-  const balance = await dsBalance();
   const usdToCnyRate = getUsdToCnyRate();
 
   return (
-    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withEligibleCatalogEstimate(row))} historicalUsage={(historicalUsage || []).map((row) => withEligibleCatalogEstimate(row))} budgets={budgets || []} monthStart={monthStart} projectCount={(projects || []).length} balance={balance} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
+    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withEligibleCatalogEstimate(row))} budgets={budgets || []} monthStart={monthStart} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
   );
 }

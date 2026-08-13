@@ -58,6 +58,11 @@ type UsageResponse = {
     estimatedCostCny: number;
     quotaReservedUsd: number;
     quotaReservedCny: number;
+    successfulCalls: number;
+    successfulImages: number;
+    successfulVideoSeconds: number;
+    successfulCostUsd: number;
+    successfulCostCny: number;
     failedCalls: number;
     unpricedCalls: number;
     durationMs: number;
@@ -70,7 +75,7 @@ type UsageResponse = {
 const emptyData: UsageResponse = {
   records: [],
   count: 0,
-  totals: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, confirmedCostUsd: 0, confirmedCostCny: 0, estimatedCostUsd: 0, estimatedCostCny: 0, quotaReservedUsd: 0, quotaReservedCny: 0, failedCalls: 0, unpricedCalls: 0, durationMs: 0, projects: 0 },
+  totals: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, videoSeconds: 0, confirmedCostUsd: 0, confirmedCostCny: 0, estimatedCostUsd: 0, estimatedCostCny: 0, quotaReservedUsd: 0, quotaReservedCny: 0, successfulCalls: 0, successfulImages: 0, successfulVideoSeconds: 0, successfulCostUsd: 0, successfulCostCny: 0, failedCalls: 0, unpricedCalls: 0, durationMs: 0, projects: 0 },
   budget: null,
 };
 
@@ -79,7 +84,7 @@ function kindLabel(kind: UsageRecord['kind']) {
 }
 
 function statusLabel(status: UsageRecord['status']) {
-  return status === 'submitted' ? '已提交' : status === 'succeeded' ? '已完成' : status === 'failed' ? '失败' : '待对账';
+  return status === 'submitted' ? '生成中' : status === 'succeeded' ? '成功' : status === 'failed' ? '失败' : '处理中';
 }
 
 function statusColor(status: UsageRecord['status']) {
@@ -87,10 +92,10 @@ function statusColor(status: UsageRecord['status']) {
 }
 
 function costLabel(record: UsageRecord, usdToCnyRate: number) {
-  if (record.reported_cost_usd !== null) return `已对账 $${record.reported_cost_usd.toFixed(6)} · ¥${(record.reported_cost_usd * usdToCnyRate).toFixed(4)}`;
-  if (record.status === 'failed') return record.possibly_charged ? '失败未计费 · 请核对账单' : '失败未计费';
-  if (record.estimated_cost_usd !== null) return `待对账估 $${record.estimated_cost_usd.toFixed(6)} · ¥${(record.estimated_cost_usd * usdToCnyRate).toFixed(4)}`;
-  return '待定价';
+  if (record.status === 'failed') return '¥0.00';
+  if (record.status !== 'succeeded') return '—';
+  const usd = record.reported_cost_usd ?? record.estimated_cost_usd;
+  return usd === null ? '—' : `$${usd.toFixed(6)} · ¥${(usd * usdToCnyRate).toFixed(2)}`;
 }
 
 function recordMeta(record: UsageRecord) {
@@ -153,12 +158,9 @@ export default function CreatorUsageLedger() {
   const agentPanelVisible = agentPanelOpen || agentPanelClosing;
   const usdToCnyRate = data.fx?.rate || 6.77;
   const summaryLabel = useMemo(() => {
-    if (data.budget?.limitUsd !== null && data.budget?.limitUsd !== undefined) {
-      return '本月 ¥' + (data.budget.usedUsd * usdToCnyRate).toFixed(2) + ' / ¥' + (data.budget.limitUsd * usdToCnyRate).toFixed(2);
-    }
     if (!data.totals.calls) return '暂无生成记录';
-    return data.totals.quotaReservedUsd > 0 ? '额度占用 $' + data.totals.quotaReservedUsd.toFixed(4) + ' · ¥' + data.totals.quotaReservedCny.toFixed(2) : data.totals.calls + ' 次调用';
-  }, [data.budget, data.totals.calls, data.totals.quotaReservedUsd, data.totals.quotaReservedCny]);
+    return `成功 ${data.totals.successfulCalls} · 失败 ${data.totals.failedCalls} · ¥${data.totals.successfulCostCny.toFixed(2)}`;
+  }, [data.totals.calls, data.totals.failedCalls, data.totals.successfulCalls, data.totals.successfulCostCny]);
   return (
     <>
       <button
@@ -176,18 +178,16 @@ export default function CreatorUsageLedger() {
         <div role="presentation" onMouseDown={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(3,7,14,.62)', backdropFilter: 'blur(8px)' }}>
           <section role="dialog" aria-modal="true" aria-labelledby="fg-usage-title" onMouseDown={(event) => event.stopPropagation()} style={{ width: 'min(720px, 100%)', maxHeight: 'min(760px, 90vh)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--stroke-2, rgba(120,130,150,.35))', borderRadius: 18, background: 'var(--panel-solid, #fff)', color: 'var(--text, #111)', boxShadow: '0 30px 100px rgba(0,0,0,.35)' }}>
             <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 18px', borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
-              <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>生成与费用记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>只显示当前账号；金额以供应商账单为准，人民币按 1 USD = ¥{usdToCnyRate.toFixed(4)} 换算。</div></div>
+              <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>生成记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>成功任务按当前模型价格计费；失败任务为 ¥0。人民币按 1 USD = ¥{usdToCnyRate.toFixed(4)} 换算。</div></div>
               <div style={{ display: 'flex', gap: 7 }}><button type="button" onClick={() => void refresh()} disabled={loading} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>{loading ? '刷新中…' : '刷新'}</button><button type="button" onClick={() => setOpen(false)} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>关闭</button></div>
             </header>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8, padding: 14, borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
-              <Summary label="本月额度" value={data.budget?.limitUsd === null || data.budget?.limitUsd === undefined ? "不限额" : "¥" + (data.budget.limitUsd * usdToCnyRate).toFixed(2)} />
-              <Summary label="本月剩余" value={data.budget?.remainingUsd === null || data.budget?.remainingUsd === undefined ? "—" : "¥" + (data.budget.remainingUsd * usdToCnyRate).toFixed(2)} />
-              <Summary label="本月调用" value={String(data.budget?.calls ?? 0)} />
-              <Summary label="本月 Token" value={(data.budget?.totalTokens ?? 0).toLocaleString()} />
-              <Summary label="本月图片 / 视频" value={(data.budget?.images ?? 0) + " / " + (data.budget?.videoSeconds ?? 0) + "s"} />
-              <Summary label="本月项目 / 耗时" value={(data.budget?.projects ?? 0) + " / " + Math.round((data.budget?.durationMs ?? 0) / 1000) + "s"} />
-              <Summary label="供应商已确认" value={'¥' + data.totals.confirmedCostCny.toFixed(2)} />
-              <Summary label="待对账 / 失败" value={'¥' + data.totals.estimatedCostCny.toFixed(2) + ' / ' + data.totals.failedCalls} />
+              <Summary label="成功" value={String(data.totals.successfulCalls)} />
+              <Summary label="失败" value={String(data.totals.failedCalls)} />
+              <Summary label="本月费用" value={'¥' + data.totals.successfulCostCny.toFixed(2)} />
+              <Summary label="成功图片 / 视频" value={data.totals.successfulImages + " / " + data.totals.successfulVideoSeconds + "s"} />
+              <Summary label="月额度" value={data.budget?.limitUsd === null || data.budget?.limitUsd === undefined ? "不限额" : "¥" + (data.budget.limitUsd * usdToCnyRate).toFixed(2)} />
+              <Summary label="可用额度" value={data.budget?.remainingUsd === null || data.budget?.remainingUsd === undefined ? "—" : "¥" + (data.budget.remainingUsd * usdToCnyRate).toFixed(2)} />
             </div>
             {error ? <div style={{ margin: '12px 14px 0', padding: '9px 11px', border: '1px solid rgba(255,120,100,.35)', borderRadius: 9, color: '#ff9b85', fontSize: 12 }}>{error}</div> : null}
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 14 }}>
@@ -195,10 +195,10 @@ export default function CreatorUsageLedger() {
               {data.records.map((record) => <div key={record.id || record.request_id} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '11px 4px', borderBottom: '1px solid var(--stroke, rgba(120,130,150,.16))' }}>
                 <div><div style={{ color: 'var(--accent, #4ade80)', fontSize: 11, fontWeight: 700 }}>{kindLabel(record.kind)}</div><div style={{ marginTop: 3, color: 'var(--text-3, #777)', fontSize: 10 }}>{timeLabel(record.created_at)}</div></div>
                 <div style={{ minWidth: 0 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{record.model}</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 10 }}>{recordMeta(record)} · {record.provider || 'provider'}</div></div>
-                <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.status === 'failed' ? '#ff9b85' : record.reported_cost_usd === null ? '#e6b85c' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div></div>
+                <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.status === 'failed' ? '#ff9b85' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div></div>
               </div>)}
             </div>
-             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>最近显示 {data.records.length} / {data.count} 条；1 USD = ¥{usdToCnyRate.toFixed(4)}；已确认费用仅来自供应商账单，待对账预估不等于实际扣费；{data.totals.unpricedCalls ? `${data.totals.unpricedCalls} 条待定价。` : ''}</footer>
+             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>最近显示 {data.records.length} / {data.count} 条；成功按当前模型价格计费，失败不计费。</footer>
           </section>
         </div>
       ) : null}

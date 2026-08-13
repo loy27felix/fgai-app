@@ -6,6 +6,7 @@ import { deleteStoredMedia, getMediaBlob, uploadMediaFile, type UploadedFile } f
 import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { getVideoModel } from "@/lib/ai/video-models";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
@@ -43,6 +44,8 @@ const FG_VIDEO_MODELS = new Set([
     "doubao-seedance-2-0-fast-filter-off",
     "dreamina-seedance-2-0-mini",
     "dreamina-seedance-2-0-mini-filter-off",
+    "dreamina-seedance-2-5",
+    "dreamina-seedance-2-5-filter-off",
 ]);
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -85,6 +88,10 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const imageInputs = references.slice(0, SEEDANCE_REFERENCE_LIMITS.images);
     const videoInputs = videoReferences.slice(0, 3);
     const audioInputs = audioReferences.slice(0, 3);
+    const model = (config.model || config.videoModel || "doubao-seedance-2-0").replace(/^.*::/, "");
+    const modelSpec = getVideoModel(model);
+    if (videoInputs.length && modelSpec && !modelSpec.referenceTypes.includes("video")) throw new Error(`${modelSpec.label} 不支持参考视频`);
+    if (audioInputs.length && modelSpec && !modelSpec.referenceTypes.includes("audio")) throw new Error(`${modelSpec.label} 不支持参考音频`);
     const imageRoles = assertVideoReferenceMode(mode, imageInputs.length, videoInputs.length, audioInputs.length);
     const imageFiles = await Promise.all(imageInputs.map(async (image, index) => {
         try {
@@ -99,10 +106,11 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const videoFiles = await Promise.all(videoInputs.map((video, index) => fgVideoFile(video.url, video.name || `reference-video-${index + 1}.mp4`, video.type || "video/mp4")));
     const audioFiles = await Promise.all(audioInputs.map((audio, index) => fgVideoFile(audio.url, audio.name || `reference-audio-${index + 1}.mp3`, audio.type || "audio/mpeg")));
     const files = [...imageFiles, ...videoFiles, ...audioFiles];
-    const model = (config.model || config.videoModel || "doubao-seedance-2-0").replace(/^.*::/, "");
     const ratio = config.size.includes(":") ? config.size : "16:9";
     const rawSeconds = Number(config.videoSeconds);
-    const seconds = rawSeconds === -1 ? -1 : Math.max(4, Math.min(15, rawSeconds || 5));
+    const seconds = rawSeconds === -1 && modelSpec?.supportsAdaptiveDuration !== false
+        ? -1
+        : Math.max(modelSpec?.minDuration || 4, Math.min(modelSpec?.maxDuration || 15, rawSeconds || 5));
     const resolution = normalizeCreatorVideoResolution(config.vquality);
     let imageIndex = 0;
     const referencesManifest = files.map((file) => {
@@ -340,6 +348,10 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
 }
 
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const modelId = modelOptionName(model);
+    const modelSpec = getVideoModel(modelId);
+    if (videoReferences.length && modelSpec && !modelSpec.referenceTypes.includes("video")) throw new Error(`${modelSpec.label} 不支持参考视频`);
+    if (audioReferences.length && modelSpec && !modelSpec.referenceTypes.includes("audio")) throw new Error(`${modelSpec.label} 不支持参考音频`);
     if (audioReferences.length && !references.length && !videoReferences.length) {
         throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
     }
@@ -353,9 +365,9 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
         model: modelOptionName(model),
         content,
         ratio: normalizeSeedanceRatio(config.size),
-        resolution: normalizeSeedanceResolution(config.vquality),
-        duration: normalizeSeedanceDuration(config.videoSeconds),
-        generate_audio: boolConfig(config.videoGenerateAudio, true),
+        resolution: normalizeSeedanceResolution(config.vquality, modelId),
+        duration: normalizeSeedanceDuration(config.videoSeconds, modelId),
+        ...(modelSpec?.supportsAudioGeneration === false ? {} : { generate_audio: boolConfig(config.videoGenerateAudio, true) }),
         watermark: boolConfig(config.videoWatermark, false),
     };
 

@@ -130,6 +130,7 @@ export async function GET(req: Request) {
     confirmedCostCny: Number((usageTotals.confirmedCostUsd * usdToCnyRate).toFixed(6)),
     estimatedCostCny: Number((usageTotals.estimatedCostUsd * usdToCnyRate).toFixed(6)),
     quotaReservedCny: Number((usageTotals.quotaReservedUsd * usdToCnyRate).toFixed(6)),
+    successfulCostCny: Number((usageTotals.successfulCostUsd * usdToCnyRate).toFixed(6)),
   };
 
   let budget: Awaited<ReturnType<typeof getMonthlyUsageSummary>> | null = null;

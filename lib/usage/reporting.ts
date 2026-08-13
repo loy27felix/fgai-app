@@ -22,10 +22,15 @@ export type UsageSummary = {
   calls: number;
   chargeableCalls: number;
   failedCalls: number;
+  successfulCalls: number;
   totalTokens: number;
   images: number;
   videoSeconds: number;
   durationMs: number;
+  successfulImages: number;
+  successfulVideoSeconds: number;
+  successfulDurationMs: number;
+  successfulCostUsd: number;
   confirmedCostUsd: number;
   estimatedCostUsd: number;
   quotaReservedUsd: number;
@@ -84,10 +89,15 @@ export function emptyUsageSummary(): UsageSummary {
     calls: 0,
     chargeableCalls: 0,
     failedCalls: 0,
+    successfulCalls: 0,
     totalTokens: 0,
     images: 0,
     videoSeconds: 0,
     durationMs: 0,
+    successfulImages: 0,
+    successfulVideoSeconds: 0,
+    successfulDurationMs: 0,
+    successfulCostUsd: 0,
     confirmedCostUsd: 0,
     estimatedCostUsd: 0,
     quotaReservedUsd: 0,
@@ -119,6 +129,18 @@ export function addUsageToSummary(summary: UsageSummary, row: UsageReportingRow)
     summary.quotaReservedUsd += estimated;
   } else if (state === 'unpriced') {
     summary.unpricedCalls += 1;
+  }
+
+  // The simple accounting view deliberately only charges successful work.
+  // Submitted work can still reserve quota in the server-side guard above,
+  // but it is not displayed as spend until the provider marks it successful.
+  if (row.status === 'succeeded') {
+    summary.successfulCalls += 1;
+    summary.successfulImages += numberValue(row.image_count);
+    summary.successfulVideoSeconds += numberValue(row.video_seconds);
+    summary.successfulDurationMs += numberValue(row.duration_ms);
+    if (reported !== null) summary.successfulCostUsd += reported;
+    else if (estimated !== null) summary.successfulCostUsd += estimated;
   }
   return summary;
 }

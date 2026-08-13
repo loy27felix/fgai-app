@@ -85,8 +85,8 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   const model = getVideoModel(input.model);
   if (!model) throw new Error("不支持的视频模型");
   if (!prompt && input.references.length === 0) throw new Error("提示词和参考素材不能同时为空");
-  if (input.duration !== -1 && (!Number.isInteger(input.duration) || input.duration < 4 || input.duration > 15)) {
-    throw new Error("视频时长必须为 4 到 15 秒，或使用自适应");
+  if ((input.duration === -1 && !model.supportsAdaptiveDuration) || (input.duration !== -1 && (!Number.isInteger(input.duration) || input.duration < model.minDuration || input.duration > model.maxDuration))) {
+    throw new Error(`视频时长必须为 ${model.minDuration} 到 ${model.maxDuration} 秒${model.supportsAdaptiveDuration ? '，或使用自适应' : ''}`);
   }
   if (!RATIOS.has(input.ratio)) throw new Error("不支持的画幅");
   if (!model.resolutions.includes(input.resolution)) throw new Error("当前模型不支持这个清晰度");
@@ -101,6 +101,7 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   for (const reference of input.references) {
     if (!["image", "video", "audio"].includes(reference.kind)) throw new Error("参考素材类型无效");
     if (!isRoleForKind(reference.kind, reference.role)) throw new Error("参考素材角色无效");
+    if (!model.referenceTypes.includes(reference.kind)) throw new Error(`${model.label} 不支持参考${reference.kind === "video" ? "视频" : reference.kind === "audio" ? "音频" : "图片"}`);
     if (!mimeAllowed(reference.kind, reference.mimeType)) throw new Error("参考素材格式不受支持");
     if (!Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > maxBytesFor(reference.kind)) {
       throw new Error(reference.kind === "image" ? "单张参考图不能超过 7MB" : reference.kind === "video" ? "单个参考视频不能超过 120MB" : "单个参考音频不能超过 24MB");
