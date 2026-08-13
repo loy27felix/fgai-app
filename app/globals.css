@@ -55,6 +55,18 @@ body {
   scrollbar-gutter: stable;
 }
 
+/* FG Studio marketing homepage. It owns its own palette so generic dark-mode
+   utility overrides do not make its text fade into the background. */
+.fg-home { font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+.fg-home .font-disp { font-family: "Space Grotesk", "Noto Sans SC", sans-serif; }
+.fg-home .font-mono { font-family: "JetBrains Mono", "Space Mono", ui-monospace, monospace; }
+.fg-home .text-white { color: #fff !important; }
+.fg-home .bg-white { background-color: #fff !important; }
+@keyframes fg-home-rise {
+  from { opacity: 0; transform: translateY(24px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @layer components {
   .pill {
     @apply inline-flex items-center gap-2 rounded-pill bg-primary px-5 py-3 text-sm font-medium text-white transition;

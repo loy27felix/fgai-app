@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="FG Studio">
+  <defs>
+    <linearGradient id="blue" x1="24" y1="32" x2="199" y2="221" gradientUnits="userSpaceOnUse"><stop stop-color="#10189D"/><stop offset=".5" stop-color="#123BD8"/><stop offset="1" stop-color="#246EF6"/></linearGradient>
+    <linearGradient id="feather" x1="85" y1="217" x2="206" y2="23" gradientUnits="userSpaceOnUse"><stop stop-color="#08A9DC"/><stop offset=".48" stop-color="#20DDE9"/><stop offset="1" stop-color="#83FFF4"/></linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="#07101e"/>
+  <path fill="url(#blue)" d="M36 48h115l-22 23H70v40h53l-21 23H70v73H36V48Z"/>
+  <path fill="url(#blue)" d="M162 143h58v28c0 27-18 44-45 44-32 0-52-23-52-58 0-36 20-60 54-60 17 0 32 6 42 17l-19 22c-7-7-14-11-24-11-13 0-23 10-23 31 0 21 9 32 23 32 10 0 16-5 16-15v-6h-30v-22Z"/>
+  <path fill="url(#feather)" stroke="#DFFFFE" stroke-width="2" d="M76 229c9-57 31-103 66-139 29-30 51-54 62-89 3 44-8 80-33 109-24 28-51 50-80 71-7 5-12 10-15 18Z"/>
+  <path fill="#E6FFFF" fill-opacity=".87" d="M86 212c24-47 50-85 96-143-37 58-59 97-84 145l-12-2Z"/>
+</svg>
