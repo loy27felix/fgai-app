@@ -13,6 +13,7 @@ import {
 import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
+import FGLogo from "@/components/FGLogo";
 import CreatorImageNodeCanvas, { creatorImageReferenceKey, type CreatorImageCanvasGenerateInput, type CreatorImageCanvasGraph } from "@/components/creator/CreatorImageNodeCanvas";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -858,12 +859,12 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     <div data-theme={theme} className="fg2 image-workspace" style={{ minHeight: "100vh", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", color: "var(--text)" }}>
       <div className="image-backdrop" />
       <header className="image-workspace-header">
-        <div className="fg-mono image-logo">FG</div>
-        <div><div className="image-title">AI 创作台</div><div className="fg-mono image-subtitle">STANDALONE IMAGE · PRIVATE</div></div>
+        <a href="/workspace" title="返回工作区"><FGLogo size={36} /></a>
+        <div><div className="image-title">无限画布</div><div className="fg-mono image-subtitle">STANDALONE IMAGE · PRIVATE</div></div>
         <div className="image-header-divider" />
         <span className="image-header-context">独立生图</span>
         <div style={{ flex: 1 }} />
-        <a href="/creator" className="image-header-link"><Icon d={I.back} size={15} />返回对话</a>
+        <a href="/workspace" className="image-header-link"><Icon d={I.back} size={15} />返回工作区</a>
         <Hov as="button" aria-label="切换主题" onClick={toggle} base={{ width: 36, height: 36, display: "grid", placeItems: "center", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", cursor: "pointer" }} hover={{ background: "var(--panel-2)", color: "var(--text)" }}><span style={{ fontSize: 15 }}>{theme === "dark" ? "☼" : "☾"}</span></Hov>
         <div className="fg-mono image-avatar">{me}</div>
       </header>

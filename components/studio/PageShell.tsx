@@ -1,6 +1,7 @@
 "use client";
 import { ReactNode } from "react";
 import { useFgTheme, Icon, Hov } from "./ui";
+import FGLogo from "@/components/FGLogo";
 
 export default function PageShell({ title, email, children }: { title: string; email?: string; children: ReactNode }) {
   const { theme, toggle } = useFgTheme();
@@ -9,8 +10,8 @@ export default function PageShell({ title, email, children }: { title: string; e
     <div data-theme={theme} className="fg2" style={{ position: "relative", minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontSize: 15, lineHeight: 1.55, display: "flex", flexDirection: "column" }}>
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}><div style={{ position: "absolute", inset: 0, background: "radial-gradient(700px 540px at 100% 14%, var(--glow-coral), transparent 60%), radial-gradient(760px 600px at 2% -8%, var(--glow-b), transparent 58%)", animation: "glowpulse 16s var(--ease) infinite" }} /></div>
       <header style={{ position: "relative", zIndex: 5, flex: "none", height: 60, display: "flex", alignItems: "center", gap: 16, padding: "0 22px", borderBottom: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(22px) saturate(1.4)", WebkitBackdropFilter: "blur(22px) saturate(1.4)", boxShadow: "var(--inset)" }}>
-        <a href="/projects" style={{ display: "flex", alignItems: "center", gap: 11 }}>
-          <div className="fg-mono" style={{ width: 34, height: 34, borderRadius: 10, display: "grid", placeItems: "center", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontWeight: 600, fontSize: 13, boxShadow: "var(--inset),0 6px 18px -6px var(--glow-b)" }}>FG</div>
+        <a href="/workspace" title="返回工作区" style={{ display: "flex", alignItems: "center", gap: 11 }}>
+          <FGLogo size={36} />
         </a>
         <div style={{ width: 1, height: 24, background: "var(--stroke)" }} />
         <nav style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "var(--text-3)" }}>

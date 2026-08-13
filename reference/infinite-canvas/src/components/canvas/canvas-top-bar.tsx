@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CopyPlus, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { ArrowLeft, Bot, CopyPlus, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
 
 import { UserStatusActions } from "@/reference/infinite-canvas/src/components/layout/user-status-actions";
@@ -84,6 +84,11 @@ export function CanvasTopBar({
                         >
                             {sidePanelOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
                         </button>
+                    </Tooltip>
+                    <Tooltip title="返回工作区">
+                        <a href="/workspace" className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="返回工作区">
+                            <ArrowLeft className="size-4" />
+                        </a>
                     </Tooltip>
                     <Dropdown
                         trigger={["click"]}

@@ -7,6 +7,7 @@ import type { CreatorMessage, CreatorSession } from "@/lib/creator/types";
 import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
+import FGLogo from "@/components/FGLogo";
 
 const I = {
   chat: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
@@ -229,12 +230,12 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     <div data-theme={theme} className="fg2" style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", color: "var(--text)" }}>
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", background: "radial-gradient(700px 520px at 100% 0%,var(--glow-coral),transparent 62%),radial-gradient(800px 600px at -10% 110%,var(--glow-b),transparent 60%)" }} />
       <header style={{ position: "relative", zIndex: 3, height: 60, flex: "none", display: "flex", alignItems: "center", gap: 13, padding: "0 18px", borderBottom: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(24px) saturate(1.4)" }}>
-        <div className="fg-mono" style={{ width: 34, height: 34, borderRadius: 10, display: "grid", placeItems: "center", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontSize: 12, fontWeight: 700 }}>FG</div>
-        <div><div style={{ fontWeight: 650, fontSize: 14 }}>AI 创作台</div><div className="fg-mono" style={{ fontSize: 9, color: "var(--text-3)", letterSpacing: 1.2 }}>PRIVATE CREATIVE SPACE</div></div>
+        <a href="/workspace" title="返回工作区"><FGLogo size={36} /></a>
+        <div><div style={{ fontWeight: 650, fontSize: 14 }}>无限画布</div><div className="fg-mono" style={{ fontSize: 9, color: "var(--text-3)", letterSpacing: 1.2 }}>PRIVATE CREATIVE SPACE</div></div>
         <div style={{ width: 1, height: 24, background: "var(--stroke)", marginLeft: 5 }} />
         <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>对话</span>
         <div style={{ flex: 1 }} />
-        <a href="/projects" style={{ height: 36, padding: "0 12px", display: "flex", alignItems: "center", gap: 6, borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", fontSize: 12 }}><Icon d={I.back} size={15} />导演台</a>
+        <a href="/workspace" style={{ height: 36, padding: "0 12px", display: "flex", alignItems: "center", gap: 6, borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", fontSize: 12 }}><Icon d={I.back} size={15} />工作区</a>
         <Hov as="button" onClick={toggle} base={{ width: 36, height: 36, display: "grid", placeItems: "center", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text-2)", cursor: "pointer" }} hover={{ background: "var(--panel-2)", color: "var(--text)" }}><span style={{ fontSize: 15 }}>{theme === "dark" ? "☀" : "☾"}</span></Hov>
         <div className="fg-mono" style={{ width: 34, height: 34, display: "grid", placeItems: "center", borderRadius: "50%", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontSize: 11, fontWeight: 700 }}>{me}</div>
       </header>

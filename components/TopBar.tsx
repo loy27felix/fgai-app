@@ -2,13 +2,14 @@
 import Link from "next/link";
 import { signOut } from "@/app/projects/actions";
 import ThemeToggle from "@/components/ThemeToggle";
+import FGLogo from "@/components/FGLogo";
 
 export default function TopBar({ email, crumb, admin }: { email: string; crumb?: React.ReactNode; admin?: boolean }) {
   const initial = (email[0] || "U").toUpperCase();
   return (
     <header className="sticky top-0 z-30 flex h-[58px] items-center gap-2 glass-bar px-5">
-      <Link href="/projects" className="flex items-center gap-2.5 font-disp text-base font-semibold">
-        <span className="pop-grad grid h-7 w-7 place-items-center rounded-lg text-[12px] font-bold text-black">FG</span>
+      <Link href="/workspace" className="flex items-center gap-2.5 font-disp text-base font-semibold">
+        <FGLogo size={31} />
         <span className="hidden sm:block">FG Studio</span>
       </Link>
       <span className="text-[#d9d9dd]">/</span>
@@ -16,6 +17,7 @@ export default function TopBar({ email, crumb, admin }: { email: string; crumb?:
       <div className="flex-1" />
       <nav className="hidden items-center gap-0.5 md:flex">
         <Link href="/" className="rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-stone hover:text-ink">首页</Link>
+        <Link href="/workspace" className="rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-stone hover:text-ink">工作区</Link>
         <Link href="/projects" className="rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-stone hover:text-ink">项目</Link>
         <Link href="/presets" className="rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-stone hover:text-ink">预设库</Link>
         {admin && <Link href="/admin" className="rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-stone hover:text-ink">管理</Link>}

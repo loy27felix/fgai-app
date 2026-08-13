@@ -5,6 +5,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { companyEmailFromUsername, normalizeCompanyUsername } from "@/lib/auth/company-email";
+import FGLogo from "@/components/FGLogo";
 
 const ROT = ["剧组", "工作流", "宇宙", "Agent", "片场"];
 const WORKS = ["狼和七只小山羊", "侏儒怪", "大拇指汤姆", "画眉嘴国王", "快乐王子与列那狐", "瓶中精灵"];
@@ -48,7 +49,7 @@ export default function Landing() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState(""); const [signupUsername, setSignupUsername] = useState(""); const [pw, setPw] = useState("");
   const [msg, setMsg] = useState(""); const [busy, setBusy] = useState(false);
-  function enter() { if (authed) router.push("/projects"); else { setMsg(""); setShowLogin(true); } }
+  function enter() { if (authed) router.push("/workspace"); else { setMsg(""); setShowLogin(true); } }
   async function submit() {
     setMsg("");
     const e = mode === "signup" ? companyEmailFromUsername(signupUsername) : email.trim().toLowerCase();
@@ -60,10 +61,10 @@ export default function Landing() {
         const { error } = await supabase.auth.signUp({ email: e, password: pw });
         if (error) throw error;
         const { data } = await supabase.auth.getSession();
-        if (data.session) router.replace("/projects"); else setMsg("注册成功，请到邮箱点确认链接后再登录。");
+        if (data.session) router.replace("/workspace"); else setMsg("注册成功，请到邮箱点确认链接后再登录。");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: e, password: pw });
-        if (error) throw error; router.replace("/projects");
+        if (error) throw error; router.replace("/workspace");
       }
     } catch (err: any) { setMsg(err?.message || "出错了，请重试"); } finally { setBusy(false); }
   }
@@ -93,7 +94,7 @@ export default function Landing() {
       <nav className="fixed inset-x-0 top-5 z-50 flex justify-center px-4">
         <div className="flex w-full max-w-[920px] items-center gap-3 rounded-full border border-black/8 bg-white/70 px-4 py-2 backdrop-blur-xl dark:border-white/10 dark:bg-white/[.06]">
           <div className="flex items-center gap-2 pl-1 font-disp text-[15px] font-semibold tracking-tight">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-[#34d399] text-[10px] font-bold text-[#0a0f24]">FG</span>
+            <FGLogo size={28} />
             FG Studio
           </div>
           <div className="mx-auto hidden gap-6 text-[13px] text-black/55 dark:text-white/55 sm:flex">

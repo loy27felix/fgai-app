@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { Drawer } from "antd";
 import { Link } from "react-router-dom";
 
@@ -14,6 +15,9 @@ export function MobileNavDrawer({ open, activeToolSlug, onClose }: MobileNavDraw
     return (
         <Drawer title="导航" placement="left" width={280} open={open} onClose={onClose} className="md:hidden">
             <div className="space-y-1">
+                <a href="/workspace" onClick={onClose} className="mb-3 flex items-center gap-3 rounded-lg px-3 py-3 text-base text-stone-600 transition hover:bg-stone-100 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-stone-100">
+                    <ArrowLeft className="size-5" /> 返回工作区
+                </a>
                 {navigationTools.map((tool) => {
                     const Icon = tool.icon;
                     const active = tool.slug === activeToolSlug;

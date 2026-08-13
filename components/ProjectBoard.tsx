@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import type { Project, Role } from "@/lib/types";
 import { createProject, requestJoin, approveJoin, deleteProject, signOut } from "@/app/projects/actions";
 import { useFgTheme, Icon, Hov } from "@/components/studio/ui";
+import FGLogo from "@/components/FGLogo";
 
 type Pending = { requestId: string; user_id: string; email: string };
 const COVERS = [
@@ -87,10 +88,10 @@ export default function ProjectBoard({
 
       {/* TOP BAR */}
       <header style={{ position: "relative", zIndex: 5, flex: "none", height: 64, display: "flex", alignItems: "center", gap: 16, padding: "0 22px", borderBottom: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(22px) saturate(1.4)", WebkitBackdropFilter: "blur(22px) saturate(1.4)", boxShadow: "var(--inset)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-          <div className="fg-mono" style={{ width: 36, height: 36, borderRadius: 11, display: "grid", placeItems: "center", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontWeight: 600, fontSize: 14, boxShadow: "var(--inset),0 6px 18px -6px var(--glow-b)" }}>FG</div>
+        <a href="/workspace" title="返回工作区" style={{ display: "flex", alignItems: "center", gap: 11, color: "inherit", textDecoration: "none" }}>
+          <FGLogo size={38} />
           <div><div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-.3px" }}>FG Studio</div><div className="fg-mono" style={{ fontSize: 9.5, letterSpacing: 1, color: "var(--text-3)" }}>AI 漫剧工业化平台</div></div>
-        </div>
+        </a>
         <div style={{ flex: 1, maxWidth: 460, marginLeft: 18, display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 14px", borderRadius: 12, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}>
           <Icon d={["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z", "m20 20-3.5-3.5"]} size={17} sw={1.7} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索项目、题材……" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: "var(--text)", fontSize: 13.5, fontFamily: "inherit" }} />
@@ -107,7 +108,7 @@ export default function ProjectBoard({
         {/* LEFT RAIL */}
         <aside className="fg-rail" style={{ flex: "none", width: 230, display: "flex", flexDirection: "column", gap: 4, padding: "22px 16px", borderRight: "1px solid var(--stroke)" }}>
           <div className="fg-mono" style={{ fontSize: 10, letterSpacing: 2, color: "var(--text-3)", padding: "6px 12px 10px" }}>工作区</div>
-          {railItem("AI 创作台", ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"], false, "/creator")}
+          {railItem("无限画布", ["M4 5h16v14H4z", "M8 9h8M8 13h5", "m15 5-3-3-3 3"], false, "/creator")}
           {railItem("项目", ["M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"], true, undefined, String(projects.length))}
           {railItem("预设库", ["M4 6h8M16 6h4M4 12h2M10 12h10M4 18h6M14 18h6", "M14 6a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M10 12a2 2 0 1 0-4 0 2 2 0 0 0 4 0", "M16 18a2 2 0 1 0-4 0 2 2 0 0 0 4 0"], false, "/presets")}
           {isAdmin && railItem("管理后台", ["M12 3 5 6v5c0 4.6 3.1 7.7 7 9 3.9-1.3 7-4.4 7-9V6l-7-3Z"], false, "/admin")}

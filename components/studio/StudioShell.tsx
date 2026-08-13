@@ -1,6 +1,7 @@
 "use client";
 import { ReactNode } from "react";
 import { Icon, Hov, useFgTheme } from "./ui";
+import FGLogo from "@/components/FGLogo";
 
 export type StageKey = "bible" | "script" | "assets" | "board" | "shots" | "video" | "bgm";
 
@@ -34,8 +35,8 @@ export default function StudioShell({
 
       {/* TOP BAR */}
       <header style={{ position: "relative", zIndex: 5, flex: "none", height: 60, display: "flex", alignItems: "center", gap: 18, padding: "0 18px", borderBottom: "1px solid var(--stroke)", background: "var(--panel)", backdropFilter: "blur(22px) saturate(1.4)", WebkitBackdropFilter: "blur(22px) saturate(1.4)", boxShadow: "var(--inset)" }}>
-        <a href="/projects" style={{ display: "flex", alignItems: "center", gap: 11, cursor: "pointer" }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(150deg,var(--accent),var(--accent-2))", color: "var(--accent-ink)", fontWeight: 600, fontSize: 13, boxShadow: "var(--inset),0 6px 18px -6px var(--glow-b)" }} className="fg-mono">FG</div>
+        <a href="/workspace" title="返回工作区" style={{ display: "flex", alignItems: "center", gap: 11, cursor: "pointer" }}>
+          <FGLogo size={36} />
         </a>
         <div style={{ width: 1, height: 24, background: "var(--stroke)" }} />
         <nav style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "var(--text-3)" }}>

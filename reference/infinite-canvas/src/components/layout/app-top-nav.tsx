@@ -1,4 +1,4 @@
-import { Bot, Menu } from "lucide-react";
+import { ArrowLeft, Bot, Menu } from "lucide-react";
 import { Button, Tooltip } from "antd";
 import { Link, useLocation } from "react-router-dom";
 
@@ -36,16 +36,10 @@ export function AppTopNav() {
                 <header className="sticky top-0 z-20 h-14 shrink-0 border-b border-stone-200 bg-background/90 backdrop-blur-xl dark:border-stone-800">
                     <div className="mx-auto flex h-full max-w-7xl items-stretch justify-between gap-5 px-6">
                         <div className="flex min-w-0 items-center">
-                            <Link to="/" className="flex h-full shrink-0 items-center gap-2 text-sm font-semibold leading-none tracking-tight text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300">
-                                <span
-                                    className="size-5 shrink-0 bg-current"
-                                    style={{
-                                        mask: "url(/logo.svg) center / contain no-repeat",
-                                        WebkitMask: "url(/logo.svg) center / contain no-repeat",
-                                    }}
-                                />
+                            <a href="/workspace" className="flex h-full shrink-0 items-center gap-2 text-sm font-semibold leading-none tracking-tight text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300" title="返回工作区">
+                                <img src="/fg-logo.svg" className="size-7 shrink-0 object-contain" alt="FG Studio" />
                                 <span className="text-base font-medium">无限画布</span>
-                            </Link>
+                            </a>
 
                             <button
                                 type="button"
@@ -81,6 +75,9 @@ export function AppTopNav() {
                         </div>
 
                         <div className="my-auto flex h-9 min-w-0 items-center justify-end gap-2 justify-self-end whitespace-nowrap">
+                            <a href="/workspace" className="hidden h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-stone-500 transition hover:bg-stone-100 hover:text-stone-950 lg:inline-flex dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100" title="返回工作区">
+                                <ArrowLeft className="size-3.5" /> 工作区
+                            </a>
                             <Tooltip title={panelOpen ? "收起 Agent" : "打开 Agent"}>
                                 <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" icon={<Bot className="size-4" />} onClick={togglePanel} aria-label="打开 Agent" />
                             </Tooltip>

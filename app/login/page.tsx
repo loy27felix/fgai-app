@@ -26,12 +26,12 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signUp({ email: e, password: pw });
         if (error) throw error;
         const { data } = await supabase.auth.getSession();
-        if (data.session) { router.replace("/projects"); router.refresh(); }
+        if (data.session) { router.replace("/workspace"); router.refresh(); }
         else setMsg("注册成功，请到邮箱点确认链接后再登录。");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: e, password: pw });
         if (error) throw error;
-        router.replace("/projects"); router.refresh();
+        router.replace("/workspace"); router.refresh();
       }
     } catch (err: any) { setMsg(err?.message || "出错了，请重试"); }
     finally { setBusy(false); }
@@ -47,7 +47,7 @@ export default function LoginPage() {
 
       <div className="relative z-10 w-[440px] max-w-full">
         <Link href="/" className="mb-6 flex items-center justify-center gap-2.5 font-disp text-lg font-semibold text-white">
-          <span className="pop-grad grid h-8 w-8 place-items-center rounded-lg text-[13px] font-bold text-black">FG</span>
+          <img src="/fg-logo.svg" width={34} height={34} alt="FG Studio" className="h-8 w-8 object-contain" />
           FG Studio
         </Link>
         <div className="rounded-[24px] border border-white/12 bg-white/[.04] p-9 shadow-[0_30px_80px_-30px_rgba(0,0,0,.8)] backdrop-blur-2xl">
