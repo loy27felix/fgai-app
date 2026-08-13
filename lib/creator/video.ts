@@ -2,16 +2,17 @@ import { getVideoModel } from "@/lib/ai/video-models";
 import type { CreatorTaskStatus } from "./types";
 
 export const MAX_CREATOR_VIDEO_IMAGE_REFERENCES = 9;
+/** The legacy maximum remains exported for non-model-specific callers. */
 export const MAX_CREATOR_VIDEO_FILE_REFERENCES = 3;
 export const MAX_CREATOR_VIDEO_TOTAL_REFERENCES = 15;
-export const MAX_CREATOR_VIDEO_TOTAL_BYTES = 180_000_000;
+export const MAX_CREATOR_VIDEO_TOTAL_BYTES = 200_000_000;
 export const MAX_CREATOR_VIDEO_IMAGE_BYTES = 7_000_000;
-export const MAX_CREATOR_VIDEO_FILE_BYTES = 120_000_000;
-export const MAX_CREATOR_VIDEO_AUDIO_BYTES = 24_000_000;
+export const MAX_CREATOR_VIDEO_FILE_BYTES = 200_000_000;
+export const MAX_CREATOR_VIDEO_AUDIO_BYTES = 15_000_000;
 
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const VIDEO_TYPES = new Set(["video/mp4", "video/quicktime"]);
 const AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/mp4", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm"]);
 const RATIOS = new Set(["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"]);
 
@@ -104,7 +105,7 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
     if (!model.referenceTypes.includes(reference.kind)) throw new Error(`${model.label} 不支持参考${reference.kind === "video" ? "视频" : reference.kind === "audio" ? "音频" : "图片"}`);
     if (!mimeAllowed(reference.kind, reference.mimeType)) throw new Error("参考素材格式不受支持");
     if (!Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > maxBytesFor(reference.kind)) {
-      throw new Error(reference.kind === "image" ? "单张参考图不能超过 7MB" : reference.kind === "video" ? "单个参考视频不能超过 120MB" : "单个参考音频不能超过 24MB");
+      throw new Error(reference.kind === "image" ? "单张参考图不能超过 7MB" : reference.kind === "video" ? "单个参考视频不能超过 200MB" : "单个参考音频不能超过 15MB");
     }
     total += reference.size;
     if (reference.kind === "image") {
@@ -117,16 +118,19 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
       audioCount += 1;
     }
   }
-  if (imageCount > MAX_CREATOR_VIDEO_IMAGE_REFERENCES) throw new Error("参考图片最多 9 张");
-  if (videoCount > MAX_CREATOR_VIDEO_FILE_REFERENCES) throw new Error("参考视频最多 3 个");
-  if (audioCount > MAX_CREATOR_VIDEO_FILE_REFERENCES) throw new Error("参考音频最多 3 个");
+  if (imageCount > model.maxImageReferences) throw new Error(`参考图片最多 ${model.maxImageReferences} 张`);
+  if (videoCount > model.maxVideoReferences) throw new Error(`参考视频最多 ${model.maxVideoReferences} 个`);
+  if (audioCount > model.maxAudioReferences) throw new Error(`参考音频最多 ${model.maxAudioReferences} 个`);
   if (firstFrameCount > 1) throw new Error("首帧图片最多 1 张");
   if (lastFrameCount > 1) throw new Error("尾帧图片最多 1 张");
   const hasFrameImage = firstFrameCount > 0 || lastFrameCount > 0;
   const referenceMediaCount = imageCount - firstFrameCount - lastFrameCount + videoCount + audioCount;
   if (hasFrameImage && referenceMediaCount > 0) throw new Error("首帧/尾帧不能与参考图、参考视频或参考音频混用");
-  if (total > MAX_CREATOR_VIDEO_TOTAL_BYTES) throw new Error("参考素材总大小不能超过 180MB");
-  if (audioCount > 0 && imageCount === 0 && videoCount === 0) throw new Error("音频不能单独作为参考");
+  if (hasFrameImage && model.requiresAdaptiveRatioForFrameMode && input.ratio !== "adaptive") {
+    throw new Error(`${model.label} 的首帧/首尾帧模式只能使用 adaptive 画幅`);
+  }
+  if (total > MAX_CREATOR_VIDEO_TOTAL_BYTES) throw new Error("参考素材总大小不能超过 200MB");
+  if (audioCount > 0 && imageCount === 0 && videoCount === 0 && !model.supportsAudioOnlyReference) throw new Error("音频不能单独作为参考");
   return {
     prompt,
     effectivePrompt,
@@ -151,7 +155,6 @@ function extensionFor(mimeType: string) {
     "image/png": "png",
     "image/webp": "webp",
     "video/mp4": "mp4",
-    "video/webm": "webm",
     "video/quicktime": "mov",
     "audio/mpeg": "mp3",
     "audio/mp3": "mp3",

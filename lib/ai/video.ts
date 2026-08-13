@@ -61,15 +61,20 @@ export function buildSeedanceRequest(input: SeedanceInput) {
   const unsupportedReference = input.references.find((item) => !spec.referenceTypes.includes(item.type));
   if (unsupportedReference) throw new Error(`${spec.label} 不支持参考${unsupportedReference.type === 'video' ? '视频' : unsupportedReference.type === 'audio' ? '音频' : '图片'}`);
   if (!input.prompt.trim() && input.references.length === 0) throw new Error('提示词和参考素材不能同时为空');
-  if (audios.length && !images.length && !videos.length) throw new Error('音频不能单独作为参考，至少同时提供图片或视频');
-  if (images.length > 9) throw new Error('参考图片最多 9 张');
-  if (videos.length > 3) throw new Error('参考视频最多 3 个');
-  if (audios.length > 3) throw new Error('参考音频最多 3 个');
+  if (audios.length && !images.length && !videos.length && !spec.supportsAudioOnlyReference) {
+    throw new Error('音频不能单独作为参考，至少同时提供图片或视频');
+  }
+  if (images.length > spec.maxImageReferences) throw new Error(`参考图片最多 ${spec.maxImageReferences} 张`);
+  if (videos.length > spec.maxVideoReferences) throw new Error(`参考视频最多 ${spec.maxVideoReferences} 个`);
+  if (audios.length > spec.maxAudioReferences) throw new Error(`参考音频最多 ${spec.maxAudioReferences} 个`);
   if (images.filter((item) => item.role === 'first_frame').length > 1) throw new Error('首帧图片最多 1 张');
   if (images.filter((item) => item.role === 'last_frame').length > 1) throw new Error('尾帧图片最多 1 张');
   const hasFrameImage = images.some((item) => item.role === 'first_frame' || item.role === 'last_frame');
   const referenceMediaCount = images.filter((item) => item.role === 'reference_image').length + videos.length + audios.length;
   if (hasFrameImage && referenceMediaCount > 0) throw new Error('首帧/尾帧不能与参考图、参考视频或参考音频混用');
+  if (hasFrameImage && spec.requiresAdaptiveRatioForFrameMode && input.ratio !== 'adaptive') {
+    throw new Error(`${spec.label} 的首帧/首尾帧模式只能使用 adaptive 画幅`);
+  }
 
   const content: any[] = [];
   if (input.prompt.trim()) content.push({ type: 'text', text: input.prompt.trim() });

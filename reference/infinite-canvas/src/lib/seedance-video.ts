@@ -135,6 +135,16 @@ export function seedanceReferenceLabel(kind: "image" | "video" | "audio", index:
     return `音频${index + 1}`;
 }
 
+export function seedanceReferenceLimits(model?: string) {
+    const spec = model ? getVideoModel(model) : undefined;
+    return {
+        images: spec?.maxImageReferences || SEEDANCE_REFERENCE_LIMITS.images,
+        videos: spec?.maxVideoReferences || SEEDANCE_REFERENCE_LIMITS.videos,
+        audios: spec?.maxAudioReferences || SEEDANCE_REFERENCE_LIMITS.audios,
+        maxDurationMs: spec?.speed === "v2_5" ? 30_000 : 15_000,
+    };
+}
+
 export function buildSeedancePromptText(prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
     const labels = [
         ...images.map((_, index) => seedanceReferenceLabel("image", index)),
@@ -146,7 +156,9 @@ export function buildSeedancePromptText(prompt: string, images: ReferenceImage[]
     return `参考资产编号：${labels.join("、")}。请按这些编号理解提示词中的图片、视频和音频引用。\n\n${text}`;
 }
 
-export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
+export function seedanceVideoReferenceError(videos: ReferenceVideo[], model?: string) {
+    const limits = seedanceReferenceLimits(model);
+    if (videos.length > limits.videos) return `参考视频最多 ${limits.videos} 个`;
     let totalDurationMs = 0;
     for (let index = 0; index < videos.length; index += 1) {
         const video = videos[index];
@@ -154,7 +166,7 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
         if (!SEEDANCE_VIDEO_MIME_TYPES.includes(video.type)) return `${label} 仅支持 mp4/mov 格式`;
         if (video.bytes && video.bytes > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes) return `${label} 超过 200MB，请压缩后再上传`;
         if (video.durationMs) {
-            if (video.durationMs < 2000 || video.durationMs > 15000) return `${label} 时长需要在 2-15 秒之间`;
+            if (video.durationMs < 2000 || video.durationMs > limits.maxDurationMs) return `${label} 时长需要在 2-${limits.maxDurationMs / 1000} 秒之间`;
             totalDurationMs += video.durationMs;
         }
         if (video.width && video.height) {
@@ -165,7 +177,7 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
             if (pixels < 640 * 640 || pixels > 3326 * 2494) return `${label} 总像素需要在 409600-8295044 之间`;
         }
     }
-    if (totalDurationMs > 15000) return "Seedance 参考视频总时长不能超过 15 秒";
+    if (totalDurationMs > limits.maxDurationMs) return `Seedance 参考视频总时长不能超过 ${limits.maxDurationMs / 1000} 秒`;
     return "";
 }
 

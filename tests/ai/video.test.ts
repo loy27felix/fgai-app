@@ -98,12 +98,12 @@ test('Seedance validation rejects invalid combinations and model capabilities', 
   assert.throws(() => buildSeedanceRequest({ ...base, model: 'doubao-seedance-2-0-fast', resolution: '1080p' }), /不支持 1080p/);
   assert.throws(() => buildSeedanceRequest({ ...base, model: 'doubao-seedance-2-0', duration: 3 }), /时长/);
   assert.throws(() => buildSeedanceRequest({ ...base, model: 'dreamina-seedance-2-5', duration: 31 }), /时长/);
-  assert.throws(() => buildSeedanceRequest({ ...base, model: 'dreamina-seedance-2-5', duration: -1 }), /时长/);
-  assert.throws(() => buildSeedanceRequest({
+  assert.doesNotThrow(() => buildSeedanceRequest({ ...base, model: 'dreamina-seedance-2-5', duration: -1, ratio: 'adaptive' }));
+  assert.doesNotThrow(() => buildSeedanceRequest({
     ...base,
     model: 'dreamina-seedance-2-5',
     references: [{ type: 'video', url: 'https://example.com/ref.mp4', role: 'reference_video' }],
-  }), /不支持参考视频/);
+  }));
   assert.throws(() => buildSeedanceRequest({
     ...base,
     model: 'doubao-seedance-2-0',
@@ -118,14 +118,25 @@ test('Seedance validation rejects invalid combinations and model capabilities', 
       { type: 'image', url: 'https://example.com/ref.jpg', role: 'reference_image' },
     ],
   }), /首帧\/尾帧不能与参考图/);
+  assert.throws(() => buildSeedanceRequest({
+    ...base,
+    model: 'dreamina-seedance-2-5',
+    references: [{ type: 'image', url: 'https://example.com/first.jpg', role: 'first_frame' }],
+  }), /只能使用 adaptive/);
 });
 
-test('Seedance 2.5 omits unsupported audio generation fields', () => {
+test('Seedance 2.5 follows the documented multimodal request capabilities', () => {
   const request = buildSeedanceRequest({
-    model: 'dreamina-seedance-2-5', prompt: 'fox', references: [], duration: 12,
-    ratio: '16:9', resolution: '720p', watermark: false, generateAudio: true,
+    model: 'dreamina-seedance-2-5', prompt: '', references: [
+      { type: 'audio', url: 'https://example.com/ref.mp3', role: 'reference_audio' },
+    ], duration: -1,
+    ratio: 'adaptive', resolution: '720p', watermark: false, generateAudio: true,
   });
-  assert.equal('generate_audio' in request, false);
+  assert.equal(request.generate_audio, true);
+  assert.equal(request.duration, -1);
+  assert.deepEqual(request.content, [
+    { type: 'audio_url', audio_url: { url: 'https://example.com/ref.mp3' }, role: 'reference_audio' },
+  ]);
 });
 
 
@@ -143,6 +154,29 @@ test('creator video drafts reject mixed frame and reference media roles', () => 
     watermark: false,
     generateAudio: false,
   }), /首帧\/尾帧不能与参考图/);
+});
+
+test('creator video drafts apply Seedance 2.5 frame and audio reference rules', () => {
+  assert.doesNotThrow(() => validateVideoDraftInput({
+    prompt: '',
+    model: 'dreamina-seedance-2-5',
+    references: [{ name: 'ref.mp3', mimeType: 'audio/mpeg', size: 100, kind: 'audio', role: 'reference_audio' }],
+    duration: -1,
+    ratio: 'adaptive',
+    resolution: '720p',
+    watermark: false,
+    generateAudio: true,
+  }));
+  assert.throws(() => validateVideoDraftInput({
+    prompt: 'x',
+    model: 'dreamina-seedance-2-5',
+    references: [{ name: 'first.jpg', mimeType: 'image/jpeg', size: 100, kind: 'image', role: 'first_frame' }],
+    duration: 6,
+    ratio: '16:9',
+    resolution: '720p',
+    watermark: false,
+    generateAudio: true,
+  }), /只能使用 adaptive/);
 });
 
 test('video client creates a task on the native Wetoken endpoint', async () => {
