@@ -36,13 +36,19 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
   const requestedMonthStart = rawMonth ? `${rawMonth}-01` : monthStartKey();
   const monthStart = isMonthStartKey(requestedMonthStart) ? requestedMonthStart : monthStartKey();
   const monthRange = monthRangeForKey(monthStart);
-  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: projects }, { data: budgets }] = await Promise.all([
+  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: historicalUsage }, { data: projects }, { data: budgets }] = await Promise.all([
     supabase.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     supabase.from("whitelist").select("*").order("requested_at", { ascending: false }),
     supabase.from("ai_usage_ledger")
       .select("id,request_id,provider_request_id,user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
       .gte("created_at", monthRange.start)
       .lt("created_at", monthRange.end)
+      .order("created_at", { ascending: false })
+      .limit(5000),
+    // Retained solely for the cross-month accounting context. Selected-month
+    // quotas and tables below remain scoped by the Shanghai calendar month.
+    supabase.from("ai_usage_ledger")
+      .select("id,request_id,provider_request_id,user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
       .order("created_at", { ascending: false })
       .limit(5000),
     supabase.from("projects").select("id"),
@@ -52,6 +58,6 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
   const usdToCnyRate = getUsdToCnyRate();
 
   return (
-    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withEligibleCatalogEstimate(row))} budgets={budgets || []} monthStart={monthStart} projectCount={(projects || []).length} balance={balance} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
+    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row) => withEligibleCatalogEstimate(row))} historicalUsage={(historicalUsage || []).map((row) => withEligibleCatalogEstimate(row))} budgets={budgets || []} monthStart={monthStart} projectCount={(projects || []).length} balance={balance} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
   );
 }

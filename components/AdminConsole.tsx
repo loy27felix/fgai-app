@@ -69,12 +69,13 @@ function costColor(state: BillingState) {
   return "#ff9a8a";
 }
 
-export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, projectCount, balance, usdToCnyRate, budgets, monthStart, email }: {
+export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, historicalUsage, projectCount, balance, usdToCnyRate, budgets, monthStart, email }: {
   meId: string;
   isSuperadmin: boolean;
   profiles: Profile[];
   whitelist: WL[];
   usage: Usage[];
+  historicalUsage: Usage[];
   projectCount: number;
   balance: string | null;
   usdToCnyRate: number;
@@ -100,6 +101,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   // filter by the UTC ISO string here, otherwise late-night local requests can
   // be assigned to the wrong month in the browser.
   const totals = useMemo(() => buildGroup(usage), [usage]);
+  const historicalTotals = useMemo(() => buildGroup(historicalUsage), [historicalUsage]);
   const byModel = useMemo(() => {
     const groups: Record<string, UsageGroup> = {};
     for (const row of usage) {
@@ -178,6 +180,12 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     ["待定价", `${totals.unpricedCalls} 笔`],
     ["DeepSeek 余额", balance || "—"],
   ];
+  const historicalCards = [
+    ["累计供应商已确认", currency(historicalTotals.confirmedCostUsd, usdToCnyRate)],
+    ["累计实时预估", currency(historicalTotals.estimatedCostUsd, usdToCnyRate)],
+    ["累计额度占用", currency(historicalTotals.quotaReservedUsd, usdToCnyRate)],
+    ["累计待定价", `${historicalTotals.unpricedCalls} 笔`],
+  ];
 
   return (
     <PageShell title="管理后台" email={email}>
@@ -186,7 +194,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
           <div><h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>供应商已确认费用只来自 API 回传或管理员对账；失败任务不自动计费，额度占用 = 已确认 + 待对账预估。</p></div>
           <label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询账期<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={{ height: 36, borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--panel)", color: "var(--text)", padding: "0 10px", outline: "none" }} /></label>
         </div>
-        <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；1 USD = ¥{usdToCnyRate.toFixed(4)}。历史估算仅用于预估与额度，不会改写原始账本。</p>
+        <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；1 USD = ¥{usdToCnyRate.toFixed(4)}。实时预估按已知模型价格入账；供应商回传或账单对账后覆盖为实际费用。</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
           {tabBtn("overview", "概览")}{tabBtn("whitelist", `白名单${pendingWl ? ` · ${pendingWl} 待审` : ""}`)}{tabBtn("users", `用户 · ${profiles.length}`)}
         </div>
@@ -194,6 +202,11 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
 
         {tab === "overview" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 14 }}>
           {cards.map(([label, value]) => <div key={label} style={{ padding: "16px 18px", borderRadius: 16, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}><div className="fg-mono" style={{ fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" }}>{label}</div><div className="fg-mono" style={{ marginTop: 6, fontSize: 19, fontWeight: 600 }}>{value}</div></div>)}
+
+          <section style={{ gridColumn: "1 / -1", padding: "14px 18px", borderRadius: 16, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}>
+            <div className="fg-mono" style={{ fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase", marginBottom: 9 }}>跨账期累计 · 仅作全局成本参考</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 10 }}>{historicalCards.map(([label, value]) => <div key={label} style={{ padding: "11px 12px", borderRadius: 11, background: "var(--panel)", border: "1px solid var(--stroke)" }}><div className="fg-mono" style={{ fontSize: 10, letterSpacing: .7, color: "var(--text-3)" }}>{label}</div><div className="fg-mono" style={{ marginTop: 5, fontSize: 15, fontWeight: 600 }}>{value}</div></div>)}</div>
+          </section>
 
           <section style={{ gridColumn: "1 / -1", padding: "16px 18px", borderRadius: 16, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }}>
             <div className="fg-mono" style={{ fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase", marginBottom: 12 }}>{monthStart.slice(0, 7)} 按模型</div>
