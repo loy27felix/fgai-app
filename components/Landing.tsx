@@ -120,13 +120,14 @@ export default function Landing() {
   }
 
   const introStyle = { opacity: 1 - introProgress * 0.9, transform: `translate3d(0, ${introProgress * 52}px, 0) scale(${1 - introProgress * 0.055})` };
-  const catStyle = { opacity: 1 - introProgress * 1.25 };
   const heroStyle = { opacity: Math.min(1, heroProgress * 1.45 + 0.12), transform: `translate3d(0, ${(1 - heroProgress) * 44}px, 0)` };
 
   return (
     <main className="fg-home fg-home--magenta min-h-screen overflow-x-clip text-white">
       <section className="relative h-[158svh] overflow-clip bg-[#e40057]">
         <div className="sticky top-0 flex h-[100svh] min-h-[680px] flex-col overflow-hidden px-5 pb-7 pt-5 sm:px-9 sm:pb-9 sm:pt-7 lg:px-12">
+          <HeroMedia animated className="absolute inset-0 h-full w-full object-cover object-[63%_center]" />
+          <div className="fg-home-intro-veil pointer-events-none absolute inset-0" />
           <div className="fg-home-grid pointer-events-none absolute inset-0" />
           <div className="fg-home-orbit fg-home-orbit--one pointer-events-none" />
           <div className="fg-home-orbit fg-home-orbit--two pointer-events-none" />
@@ -143,10 +144,6 @@ export default function Landing() {
           </nav>
 
           <div className="relative z-10 mx-auto flex w-full max-w-[1320px] flex-1 items-center">
-            <div className="pointer-events-none absolute bottom-[-1%] right-[-25%] block h-[min(86vw,360px)] w-[min(86vw,360px)] opacity-75 sm:bottom-[-4%] sm:right-[-13%] sm:h-[min(62vw,500px)] sm:w-[min(62vw,500px)] sm:opacity-90 lg:bottom-auto lg:right-[-10%] lg:top-1/2 lg:h-[min(74vw,850px)] lg:w-[min(74vw,850px)] lg:-translate-y-1/2 lg:opacity-100" style={catStyle}>
-              <HeroMedia className="fg-home-cat absolute inset-0 h-full w-full object-contain object-right" />
-              <div className="fg-home-cat-shadow absolute bottom-[8%] right-[6%] h-[13%] w-[52%] rounded-full bg-[#3d001e]/35 blur-3xl" />
-            </div>
             <div className="relative w-full max-w-[920px] pb-6 sm:pb-0" style={introStyle}>
               <p className="mb-3 font-mono text-[10px] uppercase tracking-[.21em] text-white/75 sm:mb-5">FableGlitch / AI film production workspace</p>
               <div className="h-[clamp(90px,15.8vw,205px)] max-w-[890px]"><ParticleText text="WORLDS" particleSize={2.15} density={4.15} color="#ffffff" highlightColor="#7effd4" scatter={185} gatherDuration={1500} stagger={430} pointerRepel={46} repelRadius={145} fontSize="clamp(4.1rem, 13.7vw, 11.7rem)" fontWeight={900} fontFamily="var(--font-display)" /></div>
@@ -161,7 +158,7 @@ export default function Landing() {
 
       <section ref={heroRef} className="relative min-h-[136svh] bg-[#e40057]" aria-label="FG Studio 创作入口">
         <div className="sticky top-0 h-[100svh] min-h-[700px] overflow-hidden">
-          <HeroMedia animated className="absolute inset-0 h-full w-full object-cover object-[64%_center]" />
+          <HeroMedia className="absolute inset-0 h-full w-full object-cover object-[64%_center]" />
           <div className="fg-home-hero-veil absolute inset-0" />
           <div className="fg-home-liquid-ether pointer-events-none absolute inset-0"><LiquidEther colors={["#ff9dcb", "#6ee9ff", "#8d43ff"]} resolution={0.34} autoSpeed={0.42} autoIntensity={0.7} /></div>
           <div className="fg-home-grid pointer-events-none absolute inset-0 opacity-50" />
