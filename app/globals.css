@@ -1,4 +1,12 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500;600&family=Caveat:wght@600&family=Inter:wght@400;500;600&family=Space+Mono&family=Geist:wght@300;400;500;600&display=swap");
+@import "../components/react-bits/ParticleText.css";
+@import "../components/react-bits/MaskedHeading.css";
+@import "../components/react-bits/EchoText.css";
+@import "../components/react-bits/DepthText.css";
+@import "../components/react-bits/ElasticMesh.css";
+@import "../components/react-bits/RippleDistortion.css";
+@import "../components/react-bits/DepthCarousel.css";
+@import "../components/react-bits/SpecularButton.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
