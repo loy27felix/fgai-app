@@ -7,6 +7,7 @@
 @import "../components/react-bits/RippleDistortion.css";
 @import "../components/react-bits/DepthCarousel.css";
 @import "../components/react-bits/SpecularButton.css";
+@import "../components/react-bits/LiquidEther.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -924,3 +925,34 @@ body {
 .fg-agent-panel{min-width:0}.fg-agent-message-wrap{position:relative;min-height:0;display:flex;flex:1}.fg-agent-scroll-latest{position:absolute;right:14px;bottom:12px;display:inline-flex;align-items:center;gap:4px;border:1px solid #34d39988;border-radius:999px;background:color-mix(in srgb,var(--background) 88%,#34d399);color:#34d399;padding:5px 9px;font-size:10px;box-shadow:0 8px 20px #0004;cursor:pointer}.fg-agent-reasoning{height:28px;min-width:66px;max-width:82px;border:1px solid color-mix(in srgb,currentColor 13%,transparent);border-radius:8px;background:transparent;color:inherit;padding:0 5px;font-size:10px;outline:none}.fg-agent-reasoning option{color:#111827;background:#fff}.fg-agent-title div{min-width:0}.fg-agent-title strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .prompt-library-dialog .prompt-library-card{min-height:126px}.prompt-library-dialog .prompt-library-card:hover{box-shadow:0 12px 26px #0002}.prompt-library-dialog input,.prompt-library-dialog button,.prompt-library-dialog textarea{font-family:inherit}
 @media(max-width:520px){.fg-agent-header{padding:0 9px}.fg-agent-title small{display:none}.fg-agent-composer-tools{flex-wrap:wrap}.fg-agent-composer-tools>button:not(.fg-agent-send){font-size:0;min-width:28px;justify-content:center;padding:0}.fg-agent-model{flex:1 1 145px}.fg-agent-reasoning{flex:1 1 74px}.fg-agent-composer-tools .fg-agent-send{margin-left:auto}.fg-agent-message{max-width:96%}}
+
+/* FG Studio landing: a single neon-cinematic art direction, isolated from the
+   product-wide dark mode overrides. The character/video is always a hero
+   layer, never a floating card competing with the page content. */
+.fg-home--magenta { --fg-pink:#e40057; --fg-cyan:#65e9ff; background:var(--fg-pink); color:#fff; isolation:isolate; }
+.fg-home--magenta .fg-home-grid { background-image:linear-gradient(rgba(255,255,255,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.13) 1px,transparent 1px),radial-gradient(rgba(255,255,255,.4) 1px,transparent 1px); background-position:center; background-size:72px 72px,72px 72px,18px 18px; mask-image:linear-gradient(to bottom,rgba(0,0,0,.84),rgba(0,0,0,.32)); }
+.fg-home--magenta .fg-home-orbit { position:absolute; border:clamp(19px,2.2vw,45px) solid rgba(255,173,206,.25); border-radius:999px; filter:drop-shadow(0 0 40px rgba(255,134,194,.22)); transform:rotate(-18deg); }
+.fg-home--magenta .fg-home-orbit--one { width:min(88vw,1360px); height:min(43vw,680px); left:-19vw; top:17%; }
+.fg-home--magenta .fg-home-orbit--two { width:min(92vw,1420px); height:min(48vw,730px); right:-38vw; bottom:-24%; opacity:.64; transform:rotate(-21deg); }
+.fg-home--magenta .fg-home-bloom,.fg-home--magenta .fg-home-method-glow,.fg-home--magenta .fg-home-card-glow { position:absolute; pointer-events:none; border-radius:999px; filter:blur(40px); }
+.fg-home--magenta .fg-home-bloom--intro-a { width:47vw; height:47vw; right:-12vw; top:-10vw; background:rgba(134,225,255,.34); }
+.fg-home--magenta .fg-home-bloom--intro-b { width:34vw; height:34vw; left:21vw; bottom:-22vw; background:rgba(117,0,201,.26); }
+.fg-home--magenta .fg-home-bloom--hero { width:44vw; height:44vw; right:-9vw; top:14%; background:rgba(89,220,255,.22); mix-blend-mode:screen; }
+.fg-home--magenta .fg-home-liquid-ether { opacity:.58; mix-blend-mode:screen; filter:saturate(1.14); }
+.fg-home--magenta .fg-home-bloom--tools-a { width:54vw; height:54vw; top:-36vw; right:-14vw; background:rgba(67,225,255,.22); }
+.fg-home--magenta .fg-home-bloom--tools-b { width:42vw; height:42vw; left:-22vw; bottom:-27vw; background:rgba(137,0,195,.34); }
+.fg-home--magenta .fg-home-cat { filter:drop-shadow(0 34px 34px rgba(58,0,35,.35)); animation:fg-home-cat-float 6.5s ease-in-out infinite; }
+.fg-home--magenta .fg-home-cat-shadow { animation:fg-home-shadow-breathe 6.5s ease-in-out infinite; }
+.fg-home--magenta .fg-home-hero-veil { background:linear-gradient(90deg,rgba(201,0,73,.96) 0%,rgba(223,0,84,.8) 36%,rgba(224,0,87,.24) 64%,rgba(224,0,87,.05) 100%),linear-gradient(180deg,rgba(66,0,41,.12),transparent 35%,rgba(66,0,41,.22)); }
+.fg-home--magenta .fg-home-card-glow { inset:-18%; background:radial-gradient(circle at 74% 34%,rgba(100,233,255,.42),transparent 29%),radial-gradient(circle at 27% 67%,rgba(255,177,218,.24),transparent 33%); z-index:1; mix-blend-mode:screen; }
+.fg-home--magenta .fg-home-method-glow--a { width:48vw; height:48vw; left:-22vw; top:-17vw; background:rgba(226,0,87,.38); }
+.fg-home--magenta .fg-home-method-glow--b { width:42vw; height:42vw; right:-19vw; bottom:-20vw; background:rgba(53,178,255,.23); }
+.fg-home--magenta .fg-home-enter,.dark .fg-home--magenta .fg-home-enter { background:#fff !important; color:#20101b !important; box-shadow:0 9px 26px rgba(82,0,35,.28); }
+.fg-home--magenta .fg-home-theme button,.dark .fg-home--magenta .fg-home-theme button { color:#fff !important; border-color:rgba(255,255,255,.32) !important; background:rgba(100,0,46,.26) !important; backdrop-filter:blur(12px); }
+.dark .fg-home--magenta .bg-white,.dark .fg-home--magenta .bg-white\/\[\.08\],.dark .fg-home--magenta .bg-white\/10 { background-color:rgba(255,255,255,.1) !important; }
+.dark .fg-home--magenta .fg-home-enter { background:#fff !important; }
+.dark .fg-home--magenta .fg-home-enter > span { background:var(--fg-pink) !important; color:#fff !important; }
+@keyframes fg-home-cat-float { 0%,100%{transform:translate3d(0,0,0) rotate(-.5deg)}50%{transform:translate3d(-5px,-14px,0) rotate(.6deg)} }
+@keyframes fg-home-shadow-breathe { 0%,100%{transform:scaleX(.92);opacity:.55}50%{transform:scaleX(1.08);opacity:.82} }
+@media(max-width:1023px){.fg-home--magenta .fg-home-orbit--one{width:125vw;height:62vw;left:-56vw;top:12%}.fg-home--magenta .fg-home-hero-veil{background:linear-gradient(90deg,rgba(201,0,73,.92),rgba(223,0,84,.56) 58%,rgba(224,0,87,.24))}}
+@media(prefers-reduced-motion:reduce){.fg-home--magenta .fg-home-cat,.fg-home--magenta .fg-home-cat-shadow{animation:none !important}}
