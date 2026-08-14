@@ -126,13 +126,8 @@ export default function Landing() {
     <main className="fg-home fg-home--magenta min-h-screen overflow-x-clip text-white">
       <section className="relative h-[158svh] overflow-clip bg-[#e40057]">
         <div className="sticky top-0 flex h-[100svh] min-h-[680px] flex-col overflow-hidden px-5 pb-7 pt-5 sm:px-9 sm:pb-9 sm:pt-7 lg:px-12">
-          <HeroMedia animated className="absolute inset-0 h-full w-full object-cover object-[63%_center]" />
+          <HeroMedia animated className="fg-home-intro-video absolute inset-0 h-full w-full object-cover object-[63%_center]" />
           <div className="fg-home-intro-veil pointer-events-none absolute inset-0" />
-          <div className="fg-home-grid pointer-events-none absolute inset-0" />
-          <div className="fg-home-orbit fg-home-orbit--one pointer-events-none" />
-          <div className="fg-home-orbit fg-home-orbit--two pointer-events-none" />
-          <div className="fg-home-bloom fg-home-bloom--intro-a pointer-events-none" />
-          <div className="fg-home-bloom fg-home-bloom--intro-b pointer-events-none" />
 
           <nav className="relative z-30 flex items-center justify-between gap-4">
             <Link href="/" className="inline-flex items-center gap-2.5 text-[13px] font-medium tracking-tight" aria-label="FG Studio 首页">

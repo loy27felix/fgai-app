@@ -937,7 +937,8 @@ body {
 .fg-home--magenta .fg-home-bloom,.fg-home--magenta .fg-home-method-glow,.fg-home--magenta .fg-home-card-glow { position:absolute; pointer-events:none; border-radius:999px; filter:blur(40px); }
 .fg-home--magenta .fg-home-bloom--intro-a { width:47vw; height:47vw; right:-12vw; top:-10vw; background:rgba(134,225,255,.34); }
 .fg-home--magenta .fg-home-bloom--intro-b { width:34vw; height:34vw; left:21vw; bottom:-22vw; background:rgba(117,0,201,.26); }
-.fg-home--magenta .fg-home-intro-veil { background:linear-gradient(90deg,rgba(190,0,68,.86) 0%,rgba(218,0,83,.58) 38%,rgba(225,0,87,.18) 69%,rgba(154,0,74,.12) 100%),linear-gradient(180deg,rgba(56,0,38,.18),transparent 34%,rgba(45,0,33,.18)); }
+.fg-home--magenta .fg-home-intro-video { filter:saturate(1.08) contrast(1.055); }
+.fg-home--magenta .fg-home-intro-veil { background:linear-gradient(90deg,rgba(183,0,65,.72) 0%,rgba(208,0,79,.4) 31%,rgba(225,0,87,.09) 57%,rgba(120,0,76,.02) 100%),linear-gradient(180deg,rgba(56,0,38,.1),transparent 36%,rgba(45,0,33,.1)); }
 .fg-home--magenta .fg-home-bloom--hero { width:44vw; height:44vw; right:-9vw; top:14%; background:rgba(89,220,255,.22); mix-blend-mode:screen; }
 .fg-home--magenta .fg-home-liquid-ether { opacity:.58; mix-blend-mode:screen; filter:saturate(1.14); }
 .fg-home--magenta .fg-home-bloom--tools-a { width:54vw; height:54vw; top:-36vw; right:-14vw; background:rgba(67,225,255,.22); }
@@ -955,5 +956,5 @@ body {
 .dark .fg-home--magenta .fg-home-enter > span { background:var(--fg-pink) !important; color:#fff !important; }
 @keyframes fg-home-cat-float { 0%,100%{transform:translate3d(0,0,0) rotate(-.5deg)}50%{transform:translate3d(-5px,-14px,0) rotate(.6deg)} }
 @keyframes fg-home-shadow-breathe { 0%,100%{transform:scaleX(.92);opacity:.55}50%{transform:scaleX(1.08);opacity:.82} }
-@media(max-width:1023px){.fg-home--magenta .fg-home-orbit--one{width:125vw;height:62vw;left:-56vw;top:12%}.fg-home--magenta .fg-home-intro-veil{background:linear-gradient(90deg,rgba(190,0,68,.8),rgba(218,0,83,.48) 59%,rgba(225,0,87,.16))}.fg-home--magenta .fg-home-hero-veil{background:linear-gradient(90deg,rgba(201,0,73,.92),rgba(223,0,84,.56) 58%,rgba(224,0,87,.24))}}
+@media(max-width:1023px){.fg-home--magenta .fg-home-orbit--one{width:125vw;height:62vw;left:-56vw;top:12%}.fg-home--magenta .fg-home-intro-veil{background:linear-gradient(90deg,rgba(183,0,65,.7),rgba(208,0,79,.35) 56%,rgba(225,0,87,.08))}.fg-home--magenta .fg-home-hero-veil{background:linear-gradient(90deg,rgba(201,0,73,.92),rgba(223,0,84,.56) 58%,rgba(224,0,87,.24))}}
 @media(prefers-reduced-motion:reduce){.fg-home--magenta .fg-home-cat,.fg-home--magenta .fg-home-cat-shadow{animation:none !important}}
