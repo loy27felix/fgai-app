@@ -8,6 +8,7 @@
 @import "../components/react-bits/DepthCarousel.css";
 @import "../components/react-bits/SpecularButton.css";
 @import "../components/react-bits/LiquidEther.css";
+@import "../components/react-bits/ScrollExpand.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -979,3 +980,43 @@ body {
 @media(max-width:1023px){.fg-home--magenta .fg-home-studio-veil{background:linear-gradient(90deg,rgba(191,0,73,.93),rgba(211,0,79,.7) 54%,rgba(210,0,80,.2))}.fg-home--magenta .fg-home-archive-veil{background:linear-gradient(90deg,#08090d 0%,rgba(8,9,13,.93) 56%,rgba(8,9,13,.4) 100%)}}
 @media(max-width:640px){.fg-home--magenta .fg-home-workspace-card{min-height:72px;padding:12px 13px}.fg-home--magenta .fg-home-workspace-card small{font-size:11px}.fg-home--magenta .fg-home-archive-step{grid-template-columns:36px minmax(0,1fr) auto;gap:.75rem;padding:19px 0}.fg-home--magenta .fg-home-archive-step b{font-size:17px}.fg-home--magenta .fg-home-archive-step p{font-size:12px}.fg-home--magenta .fg-home-archive-step:hover{padding-left:4px}}
 @media(prefers-reduced-motion:reduce){.fg-home--magenta .fg-home-workspace-card,.fg-home--magenta .fg-home-workspace-arrow,.fg-home--magenta .fg-home-archive-step,.fg-home--magenta .fg-home-archive-step i,.fg-home--magenta .fg-home-outline-link,.fg-home--magenta .fg-home-dark-secondary{transition:none !important}}
+
+/* Landing v3: media is now a clear cinematic stage. Content is given its own
+   contrast layer instead of lowering the copy opacity over an effect. */
+.fg-home--magenta .fg-home-intro-video { filter:saturate(1.02) contrast(1.04) brightness(.98); }
+.fg-home--magenta .fg-home-hero-worlds { display:flex; min-height:clamp(90px,15.8vw,205px); align-items:center; color:#fff; font-family:"Space Grotesk","Noto Sans SC",sans-serif; font-size:clamp(4.1rem,13.7vw,11.7rem); font-weight:900; line-height:.8; letter-spacing:-.095em; text-shadow:0 6px 36px rgba(81,0,37,.22); }
+.fg-home--magenta .fg-home-intro-veil { background:linear-gradient(90deg,rgba(132,0,53,.78) 0%,rgba(194,0,74,.58) 35%,rgba(223,0,87,.16) 60%,rgba(109,0,65,.02) 100%),linear-gradient(180deg,rgba(45,0,34,.08),transparent 36%,rgba(41,0,31,.18)); }
+.fg-home--magenta .fg-home-studio-expand { background:#e20057; }
+.fg-home--magenta .fg-home-studio-expand .scroll-expand__scrim { background:linear-gradient(90deg,rgba(51,0,25,.83) 0%,rgba(100,0,43,.58) 37%,rgba(121,0,50,.18) 62%,rgba(76,0,37,.08) 100%),linear-gradient(180deg,rgba(42,0,29,.08),rgba(42,0,29,.35)); }
+.fg-home--magenta .fg-home-studio-expand .scroll-expand__title { color:#fff; text-shadow:0 4px 42px rgba(70,0,35,.46); }
+.fg-home--magenta .fg-home-studio-content-shell { position:relative; z-index:1; display:flex; min-height:100%; flex-direction:column; padding:1.25rem 1.25rem 1.75rem; color:#fff; }
+.fg-home--magenta .fg-home-studio-copy { padding:clamp(18px,2.6vw,38px); border:1px solid rgba(255,255,255,.16); border-radius:28px; background:linear-gradient(105deg,rgba(64,0,28,.79),rgba(93,0,40,.48) 72%,rgba(95,0,43,.08)); box-shadow:0 24px 60px rgba(84,0,37,.19),inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter:blur(10px); }
+.fg-home--magenta .fg-home-studio-copy h1 { color:#fff; text-shadow:0 2px 24px rgba(74,0,31,.18); }
+.fg-home--magenta .fg-home-studio-copy h1 span { color:#ffd7e7; }
+.fg-home--magenta .fg-home-workspace-card { border-color:rgba(255,255,255,.85); background:rgba(255,248,252,.94); color:#350018; box-shadow:0 16px 32px rgba(65,0,28,.22); backdrop-filter:blur(12px); }
+.fg-home--magenta .fg-home-workspace-card b { color:#270014; font-weight:750; }
+.fg-home--magenta .fg-home-workspace-card small { color:rgba(53,0,24,.72); font-weight:500; }
+.fg-home--magenta .fg-home-workspace-number { color:#b5004b; font-weight:700; }
+.fg-home--magenta .fg-home-workspace-arrow { border-color:rgba(105,0,48,.22); background:rgba(224,0,87,.1); color:#bb0050; }
+.fg-home--magenta .fg-home-workspace-card:hover { border-color:#fff; background:#fff; box-shadow:0 26px 46px rgba(64,0,31,.3); }
+.fg-home--magenta .fg-home-workspace-card:hover .fg-home-workspace-arrow { background:#e40057; color:#fff; }
+.fg-home--magenta .fg-home-archive-image { opacity:1; filter:saturate(.96) contrast(1.08) brightness(.82); }
+.fg-home--magenta .fg-home-archive-veil { background:linear-gradient(90deg,rgba(4,8,12,.98) 0%,rgba(4,8,12,.95) 31%,rgba(4,8,12,.77) 51%,rgba(4,8,12,.24) 76%,rgba(4,8,12,.32) 100%),linear-gradient(180deg,rgba(2,4,7,.2),rgba(2,4,7,.76) 100%); }
+.fg-home--magenta .fg-home-archive-heading { min-height:0; color:#fff; font-family:"Space Grotesk","Noto Sans SC",sans-serif; font-size:clamp(48px,6.2vw,96px); font-weight:760; letter-spacing:-.07em; line-height:.87; text-shadow:0 4px 38px rgba(0,0,0,.38); }
+.fg-home--magenta .fg-home-archive-list { background:rgba(4,8,12,.58); border-color:rgba(255,255,255,.24); box-shadow:0 24px 66px rgba(0,0,0,.16); }
+.fg-home--magenta .fg-home-archive-step p { color:rgba(255,255,255,.76); }
+.fg-home--magenta .fg-home-capabilities { position:relative; overflow:hidden; background:radial-gradient(800px 520px at 84% 14%,rgba(15,108,137,.23),transparent 65%),radial-gradient(780px 560px at 15% 110%,rgba(205,0,78,.17),transparent 64%),#090b12; }
+.fg-home--magenta .fg-home-capability-list { margin-top:2rem; }
+.fg-home--magenta .fg-home-capability-row { display:grid; grid-template-columns:60px minmax(180px,.8fr) minmax(0,1.25fr) 38px; gap:1.5rem; align-items:center; border-bottom:1px solid rgba(255,255,255,.14); padding:1.55rem 0; transition:padding .25s ease,background .25s ease; }
+.fg-home--magenta .fg-home-capability-row:first-child { border-top:1px solid rgba(255,255,255,.14); }
+.fg-home--magenta .fg-home-capability-row>span { color:#7effd4; font:600 10px/1 "JetBrains Mono",monospace; letter-spacing:.1em; }
+.fg-home--magenta .fg-home-capability-row h3 { color:#fff; font-size:clamp(18px,1.8vw,25px); font-weight:650; letter-spacing:-.035em; }
+.fg-home--magenta .fg-home-capability-row p { color:rgba(255,255,255,.7); font-size:14px; line-height:1.65; }
+.fg-home--magenta .fg-home-capability-row i { display:grid; width:34px; height:34px; place-items:center; border:1px solid rgba(126,255,212,.32); border-radius:50%; color:#7effd4; font-style:normal; transition:transform .25s ease,background .25s ease; }
+.fg-home--magenta .fg-home-capability-row:hover { padding-left:12px; background:linear-gradient(90deg,rgba(126,255,212,.075),transparent 70%); }
+.fg-home--magenta .fg-home-capability-row:hover i { transform:translateX(5px); background:rgba(126,255,212,.12); }
+.fg-home--magenta .fg-home-capability-cta { display:inline-flex; align-items:center; gap:.65rem; border-radius:999px; background:#7effd4; padding:.78rem 1.1rem; color:#07130f; font-size:13px; font-weight:700; box-shadow:0 8px 25px rgba(126,255,212,.15); transition:transform .2s ease,box-shadow .2s ease; }
+.fg-home--magenta .fg-home-capability-cta:hover { transform:translateY(-2px); box-shadow:0 14px 35px rgba(126,255,212,.28); }
+@media(min-width:640px){.fg-home--magenta .fg-home-studio-content-shell{padding:1.75rem 2.25rem 2.25rem}}
+@media(min-width:1024px){.fg-home--magenta .fg-home-studio-content-shell{padding:1.75rem 3rem 2.25rem}.fg-home--magenta .fg-home-studio-copy{margin-left:-1.2rem}}
+@media(max-width:700px){.fg-home--magenta .fg-home-studio-expand .scroll-expand__scrim{background:linear-gradient(180deg,rgba(51,0,25,.28),rgba(71,0,31,.72) 54%,rgba(51,0,25,.92))}.fg-home--magenta .fg-home-studio-content-shell{padding:1rem 1rem 1.25rem}.fg-home--magenta .fg-home-studio-copy{border-radius:21px;padding:18px}.fg-home--magenta .fg-home-capability-row{grid-template-columns:38px minmax(0,1fr) 30px;gap:.9rem;padding:1.25rem 0}.fg-home--magenta .fg-home-capability-row p{grid-column:2/4;margin-top:-.45rem;font-size:13px}.fg-home--magenta .fg-home-capability-row i{width:30px;height:30px}.fg-home--magenta .fg-home-capability-row:hover{padding-left:4px}}

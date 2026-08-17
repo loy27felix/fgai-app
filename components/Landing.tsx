@@ -2,23 +2,21 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import FGLogo from "@/components/FGLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { companyEmailFromUsername, normalizeCompanyUsername } from "@/lib/auth/company-email";
 import { createClient } from "@/lib/supabase/client";
 
-const ParticleText: any = dynamic(() => import("@/components/react-bits/ParticleText"), { ssr: false });
 const EchoText: any = dynamic(() => import("@/components/react-bits/EchoText"), { ssr: false });
 const DepthText: any = dynamic(() => import("@/components/react-bits/DepthText"), { ssr: false });
-const MaskedHeading: any = dynamic(() => import("@/components/react-bits/MaskedHeading"), { ssr: false });
 const SpecularButton: any = dynamic(() => import("@/components/react-bits/SpecularButton"), { ssr: false });
-const LiquidEther: any = dynamic(() => import("@/components/react-bits/LiquidEther"), { ssr: false });
+const ScrollExpand: any = dynamic(() => import("@/components/react-bits/ScrollExpand"), { ssr: false });
 
-const HERO_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_HERO_VIDEO_SRC?.trim() || "/fg-cat-director-loop.mp4";
-const STUDIO_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_STUDIO_VIDEO_SRC?.trim() || "/fg-landing-studio-loop.mp4";
-const ARCHIVE_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_ARCHIVE_VIDEO_SRC?.trim() || "/fg-landing-archive-loop.mp4";
+const HERO_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_HERO_VIDEO_SRC?.trim() || "/landing-media/fg-hero-4k.mp4";
+const STUDIO_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_STUDIO_VIDEO_SRC?.trim() || "/landing-media/fg-studio-4k.mp4";
+const ARCHIVE_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_ARCHIVE_VIDEO_SRC?.trim() || "/landing-media/fg-archive-4k.mp4";
 
 const WORKSPACES = [
   { no: "01", title: "无限画布", desc: "把参考、文字、图片和视频接成一条可继续生长的线。", href: "/creator#/canvas" },
@@ -32,6 +30,15 @@ const ARCHIVE_STEPS = [
   ["03", "协作与预算可见", "团队成员、模型用量和每月额度在项目进度中同步查看。"],
 ];
 
+const PLATFORM_CAPABILITIES = [
+  ["01", "从剧本到镜头", "在导演项目里沉淀人物、场景、剧情结构与逐镜头设计，让创意决定能被团队接着用。"],
+  ["02", "无限画布创作", "把参考图、文本、图片、视频和生成关系连在同一张画布上，清楚看见每个结果从哪里来。"],
+  ["03", "多模型制作台", "在同一入口完成对话、图像和视频生成；模型、规格、参考素材与预估价格始终可见。"],
+  ["04", "技能与提示词", "把稳定好用的导演方法、视觉风格和提示词模板变成可选择的工作技能，而不是散落的聊天记录。"],
+  ["05", "资产持续可用", "生成内容可以保存到项目与资产库，下一次延续角色、镜头和风格时不必从零开始。"],
+  ["06", "团队预算有数", "按用户、项目和模型查看使用量与花费，并以月度额度为边界，让协作不失控。"],
+];
+
 function Arrow() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
 }
@@ -43,9 +50,9 @@ function Spark() {
 function HeroMedia({ className = "" }: { className?: string }) {
   const [videoFailed, setVideoFailed] = useState(false);
   if (HERO_VIDEO_SRC && !videoFailed) {
-    return <video className={className} autoPlay muted loop playsInline disablePictureInPicture poster="/fg-cat-director.png" preload="metadata" onError={() => setVideoFailed(true)}><source src={HERO_VIDEO_SRC} type="video/mp4" /></video>;
+    return <video className={className} autoPlay muted loop playsInline disablePictureInPicture poster="/landing-media/fg-hero-poster.jpg" preload="metadata" onError={() => setVideoFailed(true)}><source src={HERO_VIDEO_SRC} type="video/mp4" /></video>;
   }
-  return <img src="/fg-cat-director.png" alt="FG Studio 的 3D 猫导演角色" className={className} />;
+  return <img src="/landing-media/fg-hero-poster.jpg" alt="FG Studio 的 3D 猫导演角色" className={className} />;
 }
 
 function LoopBackdrop({ videoSrc, fallbackSrc, alt, className = "" }: { videoSrc: string; fallbackSrc: string; alt: string; className?: string }) {
@@ -59,7 +66,6 @@ function LoopBackdrop({ videoSrc, fallbackSrc, alt, className = "" }: { videoSrc
 export default function Landing() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-  const studioRef = useRef<HTMLElement>(null);
   const [authed, setAuthed] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -69,7 +75,6 @@ export default function Landing() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [introProgress, setIntroProgress] = useState(0);
-  const [studioProgress, setStudioProgress] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuthed(Boolean(data.session)));
@@ -82,8 +87,6 @@ export default function Landing() {
       const viewport = window.innerHeight || 1;
       const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
       setIntroProgress(Math.max(0, Math.min(1, scrollTop / (viewport * 0.76))));
-      const top = studioRef.current?.getBoundingClientRect().top ?? viewport;
-      setStudioProgress(Math.max(0, Math.min(1, (viewport * 0.94 - top) / (viewport * 0.72))));
     };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(update); };
     update();
@@ -134,7 +137,6 @@ export default function Landing() {
   }
 
   const introStyle = { opacity: 1 - introProgress * 0.9, transform: `translate3d(0, ${introProgress * 52}px, 0) scale(${1 - introProgress * 0.055})` };
-  const studioStyle = { opacity: Math.min(1, studioProgress * 1.45 + 0.12), transform: `translate3d(0, ${(1 - studioProgress) * 44}px, 0)` };
 
   return (
     <main className="fg-home fg-home--magenta min-h-screen overflow-x-clip text-white">
@@ -155,7 +157,7 @@ export default function Landing() {
           <div className="relative z-10 mx-auto flex w-full max-w-[1320px] flex-1 items-center">
             <div className="relative w-full max-w-[920px] pb-6 sm:pb-0" style={introStyle}>
               <p className="mb-3 font-mono text-[10px] uppercase tracking-[.21em] text-white/75 sm:mb-5">FableGlitch / AI film production workspace</p>
-              <div className="h-[clamp(90px,15.8vw,205px)] max-w-[890px]"><ParticleText text="WORLDS" particleSize={2.15} density={4.15} color="#ffffff" highlightColor="#7effd4" scatter={185} gatherDuration={1500} stagger={430} pointerRepel={46} repelRadius={145} fontSize="clamp(4.1rem, 13.7vw, 11.7rem)" fontWeight={900} fontFamily="var(--font-display)" /></div>
+              <div className="fg-home-hero-worlds max-w-[890px]">WORLDS</div>
               <div className="ml-[clamp(4px,5vw,76px)] mt-[-.08em] max-w-[840px]"><EchoText text="MOVIE." echoes={10} lag={0.2} offset={27} direction="diagonal" fade={0.72} blur={2.2} tint="#ff92bd" fontSize="clamp(4.1rem, 14.4vw, 12.1rem)" fontWeight={900} color="#ffffff" /></div>
               <div className="mt-[-.12em]"><DepthText text="IN MOTION." layers={20} depth={2.5} faceColor="#ffffff" depthColor="#970037" tilt={4} autoOrbit orbitSpeed={0.22} fontSize="clamp(1.6rem, 4.6vw, 4rem)" fontWeight={850} /></div>
               <div className="mt-7 flex max-w-[610px] flex-wrap items-center gap-x-5 gap-y-3 text-[12px] leading-relaxed text-white/85 sm:mt-8 sm:text-[14px]"><p className="max-w-[46ch]">从故事、角色到最终镜头，把灵感、制作和可复用的资产放进同一个会持续生长的工作流。</p><span className="hidden h-7 w-px bg-white/30 sm:block" /><span className="font-mono text-[10px] uppercase tracking-[.16em] text-white/70">scroll to enter ↓</span></div>
@@ -165,37 +167,63 @@ export default function Landing() {
         </div>
       </section>
 
-      <section ref={studioRef} id="tools" className="relative min-h-[146svh] bg-[#e20057]" aria-label="FG Studio 创作入口">
-        <div className="sticky top-0 h-[100svh] min-h-[700px] overflow-hidden">
-          <LoopBackdrop videoSrc={STUDIO_VIDEO_SRC} fallbackSrc="/fg-landing-studio.png" alt="猫导演在红色创作现场指向三个工作入口" className="fg-home-studio-image absolute inset-0 h-full w-full object-cover object-[65%_center]" />
-          <div className="fg-home-studio-veil pointer-events-none absolute inset-0" />
-          <div className="fg-home-stage-ether pointer-events-none absolute inset-0"><LiquidEther colors={["#ff9cc8", "#7ef4ff", "#ff4a9a"]} resolution={0.25} autoSpeed={0.34} autoIntensity={0.46} /></div>
-          <div className="relative z-10 flex h-full flex-col px-5 pb-7 pt-5 sm:px-9 sm:pb-9 sm:pt-7 lg:px-12">
+      <section id="tools" className="relative bg-[#e20057]" aria-label="FG Studio 创作入口">
+        <ScrollExpand
+          src={STUDIO_VIDEO_SRC}
+          fallbackSrc="/landing-media/fg-studio-poster.jpg"
+          poster="/landing-media/fg-studio-poster.jpg"
+          alt="猫导演在红色创作现场指向三个工作入口"
+          mediaType="video"
+          title="把创作，接成一条线。"
+          scrollHint="scroll to open the studio"
+          startWidth={84}
+          startHeight={72}
+          startRadius={32}
+          mediaZoom={1.1}
+          scrollDistance={1.02}
+          holdDistance={0.42}
+          smoothing={0.09}
+          overlayScrim={0.52}
+          useWindowScroll
+          className="fg-home-studio-expand"
+        >
+          <div className="fg-home-studio-content-shell">
             <div className="flex justify-end"><a href="#method" className="fg-home-outline-link">进入创作档案 <span aria-hidden="true">↓</span></a></div>
-            <div className="mx-auto flex w-full max-w-[1320px] flex-1 items-center" style={studioStyle}>
-              <div className="max-w-[610px]">
-                <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.16em] text-white/90 backdrop-blur-md"><span className="h-1.5 w-1.5 rounded-full bg-[#7effd4] shadow-[0_0_12px_#7effd4]" /> the director points to what matters</p>
-                <h1 className="font-disp text-[clamp(48px,8vw,126px)] font-semibold leading-[.78] tracking-[-.075em]">把创作，<br /><span className="text-white/52">接成一条线。</span></h1>
-                <p className="mt-7 max-w-[43ch] text-[14px] leading-relaxed text-white/90 sm:text-[16px]">不必再让剧本、参考图、镜头、提示词和生成结果散落在不同窗口。选择一个入口开始，所有成果都会沿着同一条制作线留下来。</p>
+            <div className="mx-auto flex w-full max-w-[1320px] flex-1 items-center">
+              <div className="fg-home-studio-copy max-w-[640px]">
+                <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.16em] text-white/95 backdrop-blur-md"><span className="h-1.5 w-1.5 rounded-full bg-[#7effd4] shadow-[0_0_12px_#7effd4]" /> the director points to what matters</p>
+                <h1 className="font-disp text-[clamp(48px,8vw,126px)] font-semibold leading-[.78] tracking-[-.075em]">把创作，<br /><span>接成一条线。</span></h1>
+                <p className="mt-7 max-w-[43ch] text-[14px] font-medium leading-relaxed text-white sm:text-[16px]">不必再让剧本、参考图、镜头、提示词和生成结果散落在不同窗口。选择一个入口开始，所有成果都会沿着同一条制作线留下来。</p>
                 <div className="mt-8 grid gap-2.5">{WORKSPACES.map(({ no, title, desc, href }) => <Link key={no} href={href} className="fg-home-workspace-card group"><span className="fg-home-workspace-number">{no}</span><span className="min-w-0 flex-1"><b>{title}</b><small>{desc}</small></span><span className="fg-home-workspace-arrow"><Arrow /></span></Link>)}</div>
               </div>
             </div>
-            <div className="flex items-end justify-between border-t border-white/25 pt-4 text-[10px] font-mono uppercase tracking-[.14em] text-white/75"><span>02 — Connect, direct, render.</span><span className="hidden sm:block">A SMALL DIRECTOR FOR A BIG WORKFLOW</span></div>
+            <div className="flex items-end justify-between border-t border-white/25 pt-4 text-[10px] font-mono uppercase tracking-[.14em] text-white/85"><span>02 — Connect, direct, render.</span><span className="hidden sm:block">A SMALL DIRECTOR FOR A BIG WORKFLOW</span></div>
           </div>
-        </div>
+        </ScrollExpand>
       </section>
 
       <section id="method" className="relative overflow-hidden bg-[#08090d] px-5 py-24 sm:px-9 sm:py-32 lg:px-12">
-        <LoopBackdrop videoSrc={ARCHIVE_VIDEO_SRC} fallbackSrc="/fg-landing-archive.png" alt="猫导演在暗色剪辑室整理分镜和创作资产" className="fg-home-archive-image pointer-events-none absolute inset-0 h-full w-full object-cover object-[69%_center]" />
+        <LoopBackdrop videoSrc={ARCHIVE_VIDEO_SRC} fallbackSrc="/landing-media/fg-archive-poster.jpg" alt="猫导演在暗色剪辑室整理分镜和创作资产" className="fg-home-archive-image pointer-events-none absolute inset-0 h-full w-full object-cover object-[69%_center]" />
         <div className="fg-home-archive-veil pointer-events-none absolute inset-0" />
         <div className="relative mx-auto grid max-w-[1320px] gap-16 lg:grid-cols-[minmax(0,.9fr)_minmax(430px,1.1fr)] lg:items-center">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[.18em] text-[#72eaff]">A production system with a memory.</p>
-            <div className="mt-5 max-w-[640px]"><MaskedHeading text="留住 每一次" tag="h2" src="/fg-landing-archive.png" mediaType="image" fillScale={1.35} parallax={22} drift={10} saturation={1.1} reveal="rise" duration={1.1} stagger={0.12} align="left" weight={850} tracking={-0.07} lineHeight={0.86} textScale={0.13} className="fg-home-archive-heading" /></div>
-            <p className="mt-7 max-w-[43ch] text-[15px] leading-relaxed text-white/76 sm:text-[16px]">FG Studio 把可复用的创作过程当作资产：角色、场景、分镜、模型选择、提示词和生成结果都能回到项目里。下一次制作，不需要从空白聊天框重新开始。</p>
-            <div className="mt-9 flex flex-wrap gap-3"><SpecularButton onClick={enterWorkspace} size="sm" radius={999} tint="#071011" tintOpacity={0.96} lineColor="#8ff5ff" baseColor="#65e9ff" textColor="#07151b" intensity={1.15} autoAnimate className="!px-5 !py-3 !text-[13px]"><span className="inline-flex items-center gap-3">进入你的工作区 <Arrow /></span></SpecularButton><Link href="/creator#/canvas" className="fg-home-dark-secondary"><Spark /> 从一张画布开始</Link></div>
+            <h2 className="fg-home-archive-heading mt-5">留住每一次<br />生效的创作决定。</h2>
+            <p className="mt-7 max-w-[43ch] text-[15px] font-medium leading-relaxed text-white/85 sm:text-[16px]">FG Studio 把可复用的创作过程当作资产：角色、场景、分镜、模型选择、提示词和生成结果都能回到项目里。下一次制作，不需要从空白聊天框重新开始。</p>
+            <div className="mt-9 flex flex-wrap gap-3"><SpecularButton onClick={enterWorkspace} size="sm" radius={999} tint="#0a3540" tintOpacity={0.98} lineColor="#8ff5ff" baseColor="#65e9ff" textColor="#efffff" intensity={1.15} autoAnimate className="!px-5 !py-3 !text-[13px]"><span className="inline-flex items-center gap-3">进入你的工作区 <Arrow /></span></SpecularButton><Link href="/creator#/canvas" className="fg-home-dark-secondary"><Spark /> 从一张画布开始</Link></div>
           </div>
           <div className="fg-home-archive-list">{ARCHIVE_STEPS.map(([no, title, desc]) => <div key={no} className="fg-home-archive-step group"><span>{no}</span><div><b>{title}</b><p>{desc}</p></div><i><Arrow /></i></div>)}</div>
+        </div>
+      </section>
+
+      <section className="fg-home-capabilities bg-[#090b12] px-5 py-24 sm:px-9 sm:py-32 lg:px-12" aria-label="FG Studio 平台能力">
+        <div className="mx-auto max-w-[1320px]">
+          <div className="grid gap-8 border-b border-white/15 pb-12 lg:grid-cols-[minmax(0,.72fr)_minmax(0,1.28fr)] lg:items-end">
+            <div><p className="font-mono text-[11px] uppercase tracking-[.18em] text-[#7effd4]">One production line. Many ways to make.</p><h2 className="mt-5 max-w-[10ch] font-disp text-[clamp(40px,5.3vw,80px)] font-semibold leading-[.88] tracking-[-.065em] text-white">从灵感，到能继续制作的世界。</h2></div>
+            <p className="max-w-[51ch] text-[15px] leading-relaxed text-white/72 sm:text-[17px]">它既是面向个人的创作入口，也是团队共用的制作系统。你可以只从一张图或一句话开始，也可以把完整的剧本、分镜、资产和预算放进同一条工作流。</p>
+          </div>
+          <div className="fg-home-capability-list">{PLATFORM_CAPABILITIES.map(([no, title, desc]) => <article key={no} className="fg-home-capability-row"><span>{no}</span><h3>{title}</h3><p>{desc}</p><i><Arrow /></i></article>)}</div>
+          <div className="mt-14 border-t border-white/15 pt-7"><p className="font-mono text-[10px] uppercase tracking-[.16em] text-white/52">write · direct · connect · generate · remember · collaborate</p><div className="mt-5 flex flex-wrap gap-3"><Link href="/presets" className="fg-home-dark-secondary">查看预设与提示词 <Arrow /></Link><button onClick={enterWorkspace} className="fg-home-capability-cta">开始一个项目 <Arrow /></button></div></div>
         </div>
       </section>
 
