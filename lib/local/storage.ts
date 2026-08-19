@@ -72,6 +72,14 @@ export class LocalStorageBucket {
   async createSignedUrl(name: string, expiresIn: number) {
     const expiresAt = Math.floor(Date.now() / 1000) + Math.max(1, Math.floor(expiresIn));
     const token = signedToken(this.bucket, name, expiresAt);
+    return { data: { signedUrl: `${urlFor(this.bucket, name, publicBase(), expiresAt)}&token=${token}` }, error: null };
+  }
+
+  async createProviderSignedUrl(name: string, expiresIn: number) {
+    // Provider URLs must be publicly reachable; browser-facing stored assets stay on the LAN URL.
+    // Provider 地址必须可被公网访问；页面展示的已存储资源继续使用局域网地址。
+    const expiresAt = Math.floor(Date.now() / 1000) + Math.max(1, Math.floor(expiresIn));
+    const token = signedToken(this.bucket, name, expiresAt);
     return { data: { signedUrl: `${urlFor(this.bucket, name, providerBase(), expiresAt)}&token=${token}` }, error: null };
   }
 }

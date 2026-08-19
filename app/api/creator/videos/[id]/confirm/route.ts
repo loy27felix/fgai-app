@@ -202,7 +202,7 @@ async function buildProviderReferences(
   const bucket = context.localClient.storage.from('creator-assets');
   const references: VideoReference[] = [];
   for (let index = 0; index < paths.length; index += 1) {
-    const signed = await bucket.createSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
+    const signed = await bucket.createProviderSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
     if (signed.error || !signed.data?.signedUrl) throw new Error(ERRORS.REFERENCES_NOT_READY);
     const manifest = validated.references[index];
     if (manifest.kind === 'image') {
