@@ -27,6 +27,7 @@ type RouteContext = { params: { id: string } };
 
 const ERRORS = {
   REFERENCES_NOT_READY: '参考素材尚未上传完成',
+  REFERENCES_NOT_REACHABLE: '参考素材当前使用局域网地址，外部视频服务无法访问。请配置可访问的媒体地址，或移除参考素材后重试',
   INVALID_DRAFT: '视频草稿参数无效，已停止确认',
   USAGE_RECORD_FAILED: '视频用量记录写入失败，请稍后重试',
   SUBMIT_FAILED: '视频任务提交失败；状态可能需要对账，请先查看任务历史',
@@ -85,6 +86,26 @@ function safeErrorMessage(error: unknown, fallback: string) {
 
 function providerFailureStatus(error: unknown): 'failed' | 'unknown' {
   return error instanceof WetokenVideoError && !error.retryable ? 'failed' : 'unknown';
+}
+
+function isPrivateHost(hostname: string) {
+  const host = hostname.toLowerCase();
+  if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return true;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
+  const private172 = host.match(/^172\.(\d{1,3})\./);
+  return Boolean(private172 && Number(private172[1]) >= 16 && Number(private172[1]) <= 31);
+}
+
+function assertProviderReferencesReachable(references: VideoReference[]) {
+  const unreachable = references.some((reference) => {
+    try {
+      const url = new URL(reference.url);
+      return !['http:', 'https:'].includes(url.protocol) || isPrivateHost(url.hostname);
+    } catch {
+      return true;
+    }
+  });
+  if (unreachable) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
 }
 
 async function updateOwnedTask(
@@ -192,12 +213,16 @@ async function buildProviderReferences(
       references.push({ type: 'audio', url: signed.data.signedUrl, role: 'reference_audio' });
     }
   }
+  // External providers cannot download LAN URLs or authenticated local API URLs.
+  // 外部 provider 无法访问局域网地址或依赖登录态的本地媒体接口，必须在计费前阻断。
+  assertProviderReferencesReachable(references);
   return references;
 }
 
 function publicError(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (message === ERRORS.REFERENCES_NOT_READY) return { message, code: 'REFERENCES_NOT_READY', status: 409 };
+  if (message === ERRORS.REFERENCES_NOT_REACHABLE) return { message, code: 'REFERENCES_NOT_REACHABLE', status: 409 };
   if (message === ERRORS.INVALID_DRAFT) return { message, code: 'INVALID_DRAFT', status: 409 };
   if (message === ERRORS.USAGE_RECORD_FAILED) return { message, code: 'USAGE_RECORD_FAILED', status: 409 };
   if (error instanceof WetokenVideoError) {
@@ -364,9 +389,12 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
       return NextResponse.json({ task: await viewTask(context, updated) });
     }
   } catch (error: unknown) {
-    if (context && claimed && error instanceof Error && error.message === ERRORS.SUBMIT_FAILED) {
+    if (context && claimed) {
       const current = await ownedTask(context, claimed.id).catch(() => null);
-      if (current) return NextResponse.json({ error: ERRORS.SUBMIT_FAILED, code: 'VIDEO_CONFIRM_UNKNOWN', task: await viewTask(context, current) }, { status: 503 });
+      if (current && (current.status === 'unknown' || current.status === 'submitting')) {
+        const currentError = typeof current.error === 'string' && current.error !== ERRORS.SUBMIT_FAILED ? current.error : ERRORS.SUBMIT_FAILED;
+        return NextResponse.json({ error: currentError, code: 'VIDEO_CONFIRM_UNKNOWN', task: await viewTask(context, current) }, { status: 503 });
+      }
     }
     const normalized = publicError(error);
     return response(normalized.message, normalized.code, normalized.status);

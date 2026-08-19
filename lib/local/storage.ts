@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { mkdir, open, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = () => path.resolve(process.env.NAS_MEDIA_PATH || "/data/media");
 const publicBase = () => process.env.LOCAL_MEDIA_URL || "/api/local/storage/content";
+const providerBase = () => process.env.PROVIDER_MEDIA_URL || publicBase();
 
 function safePath(bucket: string, name: string) {
   const normalized = path.posix.normalize(`/${bucket}/${name}`).replace(/^\/+/, "");
@@ -11,10 +12,22 @@ function safePath(bucket: string, name: string) {
   return path.join(root(), normalized);
 }
 
-function urlFor(bucket: string, name: string, expires?: number) {
+function urlFor(bucket: string, name: string, base: string, expiresAt?: number) {
   const params = new URLSearchParams({ bucket, path: name });
-  if (expires) params.set("expires", String(Math.floor(Date.now() / 1000) + expires));
-  return `${publicBase()}?${params.toString()}`;
+  if (expiresAt) params.set("expires", String(expiresAt));
+  return `${base}?${params.toString()}`;
+}
+
+function signedToken(bucket: string, name: string, expiresAt: number) {
+  return createHash("sha256").update(`${bucket}:${name}:${expiresAt}:${process.env.SESSION_SECRET || "local"}`).digest("hex");
+}
+
+export function verifyLocalSignedUrl(bucket: string, name: string, expiresValue: string | null, token: string | null) {
+  const expiresAt = Number(expiresValue);
+  if (!token || !Number.isSafeInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false;
+  const expected = Buffer.from(signedToken(bucket, name, expiresAt));
+  const received = Buffer.from(token);
+  return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
 export class LocalStorageBucket {
@@ -55,10 +68,11 @@ export class LocalStorageBucket {
     } catch (error) { return { data: [], error: { message: error instanceof Error ? error.message : String(error) } }; }
   }
 
-  getPublicUrl(name: string) { return { data: { publicUrl: urlFor(this.bucket, name) } }; }
+  getPublicUrl(name: string) { return { data: { publicUrl: urlFor(this.bucket, name, publicBase()) } }; }
   async createSignedUrl(name: string, expiresIn: number) {
-    const token = createHash("sha256").update(`${this.bucket}:${name}:${process.env.SESSION_SECRET || "local"}`).digest("hex");
-    return { data: { signedUrl: `${urlFor(this.bucket, name, expiresIn)}&token=${token}` }, error: null };
+    const expiresAt = Math.floor(Date.now() / 1000) + Math.max(1, Math.floor(expiresIn));
+    const token = signedToken(this.bucket, name, expiresAt);
+    return { data: { signedUrl: `${urlFor(this.bucket, name, providerBase(), expiresAt)}&token=${token}` }, error: null };
   }
 }
 

@@ -60,7 +60,7 @@ USAGE_USD_TO_CNY_RATE=6.77
 2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD` 和 `NAS_MEDIA_PATH`。`NAS_MEDIA_PATH` 填 Docker 主机上的绝对路径，例如 `/Users/server/storage/mnt_nas_fg-studio-media`；Compose 会把它挂载到容器内的 `/data/media`，不要把容器路径写入该变量。
 3. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，媒体通过应用的 `/api/local/storage/content` 接口按登录态读取。
 
-媒体访问经过应用鉴权，不能直接公开 NAS 目录。正式使用前应通过反向代理提供 HTTPS。
+媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，还需要把 `PROVIDER_MEDIA_URL` 配置为外部 provider 可访问的 HTTPS 地址；`192.168.x.x`、localhost 和需要登录的局域网地址无法被 Wetoken 下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不受此限制。正式使用前应通过反向代理提供 HTTPS。
 
 ## 目录速览
 

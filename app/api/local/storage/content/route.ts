@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/local/auth";
-import { localFileSize, readLocalFile, readLocalRange } from "@/lib/local/storage";
+import { localFileSize, readLocalFile, readLocalRange, verifyLocalSignedUrl } from "@/lib/local/storage";
 import { canAccessStoragePath } from "@/lib/local/storage-auth";
 
 const allowedBuckets = new Set(["project-assets", "creator-assets"]);
@@ -12,12 +12,13 @@ function contentType(name: string) {
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
-  if (!user) return new NextResponse("未登录", { status: 401 });
   const url = new URL(request.url);
   const bucket = url.searchParams.get("bucket") || "";
   const name = url.searchParams.get("path") || "";
   if (!allowedBuckets.has(bucket) || !name) return new NextResponse("媒体路径无效", { status: 400 });
-  if (!await canAccessStoragePath(user.id, bucket, name)) return new NextResponse("无权访问该媒体路径", { status: 403 });
+  const signedAccess = verifyLocalSignedUrl(bucket, name, url.searchParams.get("expires"), url.searchParams.get("token"));
+  if (!user && !signedAccess) return new NextResponse("未登录", { status: 401 });
+  if (user && !signedAccess && !await canAccessStoragePath(user.id, bucket, name)) return new NextResponse("无权访问该媒体路径", { status: 403 });
   try {
     const size = await localFileSize(bucket, name);
     const range = request.headers.get("range");
