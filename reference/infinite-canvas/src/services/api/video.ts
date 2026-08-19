@@ -11,7 +11,7 @@ import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
 import { createClient } from "@/lib/local/client";
-import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
+import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, creatorVideoContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 import { assertPlayableVideoUrl } from "@/lib/creator/video-recovery";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
@@ -148,7 +148,8 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     } catch (error) {
         throw new Error(`视频任务提交失败：${error instanceof Error ? error.message : "网络请求失败"}`);
     }
-    if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal })), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined, externalTaskId: typeof immediate.task?.external_task_id === "string" ? immediate.task.external_task_id : undefined };
+    const fallbackUrl = creatorVideoContentUrl(draft.task.id);
+    if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal }, fallbackUrl)), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined, externalTaskId: typeof immediate.task?.external_task_id === "string" ? immediate.task.external_task_id : undefined };
     for (let attempt = 0; attempt < 60; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let task: Awaited<ReturnType<typeof getVideoTask>>["task"];
@@ -157,7 +158,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
         } catch (error) {
             throw new Error(`视频任务状态读取失败：${error instanceof Error ? error.message : "网络请求失败"}`);
         }
-        if (task.videoUrl) return { ...(await videoResultFromUrl(task.videoUrl, { signal })), storagePath: typeof task.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined, assetId: typeof task.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined, externalTaskId: typeof task.external_task_id === "string" ? task.external_task_id : undefined };
+        if (task.videoUrl) return { ...(await videoResultFromUrl(task.videoUrl, { signal }, fallbackUrl)), storagePath: typeof task.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined, assetId: typeof task.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined, externalTaskId: typeof task.external_task_id === "string" ? task.external_task_id : undefined };
         if (task.status === "failed" || task.status === "expired") throw new Error(task.error || "视频生成失败，请查看历史任务");
         await new Promise((resolve) => setTimeout(resolve, 4000));
     }
@@ -298,7 +299,21 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
     }) : null;
     try {
         if (result.blob) return await store(result.blob);
-        if (result.url) return await store(result.url);
+        const candidates = Array.from(new Set([
+            result.fallbackUrl,
+            result.storagePath ? creatorCanvasAssetContentUrl(result.storagePath) : "",
+            result.url,
+        ].filter((value): value is string => Boolean(value))));
+        let lastError: unknown = null;
+        for (const candidate of candidates) {
+            try {
+                return await store(candidate);
+            } catch (error) {
+                lastError = error;
+            }
+        }
+        const detail = lastError instanceof Error ? `：${lastError.message}` : "";
+        throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
     } catch (error) {
         if (remoteFallback) {
             await assertPlayableVideoUrl(remoteFallback.url);
@@ -307,11 +322,6 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         const detail = error instanceof Error ? `：${error.message}` : "";
         throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
     }
-    if (remoteFallback) {
-        await assertPlayableVideoUrl(remoteFallback.url);
-        return remoteFallback;
-    }
-    throw new Error("视频接口没有返回可播放的视频");
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -463,15 +473,18 @@ async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
     return blobToDataUrl(blob);
 }
 
-async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
-    try {
-        const response = await axios.get<Blob>(url, { responseType: "blob", signal: options?.signal });
-        await assertVideoBlob(response.data);
-        return { blob: response.data, url, mimeType: response.data.type || "video/mp4" };
-    } catch (error) {
-        if (axios.isCancel(error) || options?.signal?.aborted) throw error;
-        return { url, mimeType: "video/mp4" };
+async function videoResultFromUrl(url: string, options?: RequestOptions, fallbackUrl?: string): Promise<VideoGenerationResult> {
+    const candidates = Array.from(new Set([fallbackUrl, url].filter((value): value is string => Boolean(value))));
+    for (const candidate of candidates) {
+        try {
+            const response = await axios.get<Blob>(candidate, { responseType: "blob", signal: options?.signal });
+            await assertVideoBlob(response.data);
+            return { blob: response.data, url, mimeType: response.data.type || "video/mp4", ...(fallbackUrl ? { fallbackUrl } : {}) };
+        } catch (error) {
+            if (axios.isCancel(error) || options?.signal?.aborted) throw error;
+        }
     }
+    return { url, fallbackUrl, mimeType: "video/mp4" };
 }
 
 function assertVideoConfig(config: AiConfig, model: string) {
