@@ -14,6 +14,24 @@ export type ImageGenerationResult = {
   usage?: unknown;
 };
 
+/**
+ * A client-safe provider rejection. The confirm route is allowed to expose
+ * this message so creators can distinguish a rejected model request from a
+ * persistence or network failure, without ever returning an API key.
+ */
+export class WetokenImageRequestError extends Error {
+  readonly status: number;
+  readonly publicMessage: string;
+
+  constructor(status: number, message: string) {
+    const publicMessage = `图片模型请求失败（HTTP ${status}）：${sanitizeProviderMessage(message)}`;
+    super(publicMessage);
+    this.name = 'WetokenImageRequestError';
+    this.status = status;
+    this.publicMessage = publicMessage;
+  }
+}
+
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 const ASPECT_RATIOS: Record<string, string> = {
@@ -40,7 +58,14 @@ export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' 
     }],
     generationConfig: {
       responseModalities: ['IMAGE'],
-      imageConfig: { aspectRatio: sizeToAspectRatio(input.size), imageSize: '1K' },
+      imageConfig: {
+        aspectRatio: sizeToAspectRatio(input.size),
+        imageSize: '1K',
+        // Wetoken's Gemini image route currently accepts JPEG only. Omitting
+        // this makes the three Gemini image models reject otherwise valid
+        // generateContent requests, while GPT Image uses a separate API.
+        outputMIMEType: 'image/jpeg',
+      },
     },
   };
 }
@@ -51,9 +76,18 @@ function extensionFor(mimeType: string) {
   return 'png';
 }
 
+function sanitizeProviderMessage(value: unknown) {
+  return String(value || '请求被模型服务拒绝')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [已隐藏]')
+    .replace(/sk-[A-Za-z0-9_-]{8,}/gi, '[已隐藏]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300) || '请求被模型服务拒绝';
+}
+
 function providerError(status: number, statusText: string, data: any) {
-  const message = String(data?.error?.message || data?.message || statusText || 'request failed').slice(0, 300);
-  return new Error(`Wetoken 图片生成失败 (${status}): ${message}`);
+  const message = data?.error?.message || data?.message || statusText || 'request failed';
+  return new WetokenImageRequestError(status, message);
 }
 
 async function parseGptResult(data: any, fetcher: Fetcher): Promise<ImageGenerationResult> {

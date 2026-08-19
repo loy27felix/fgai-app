@@ -6,6 +6,7 @@ import { createImageItemHandlers } from '../../lib/creator/image-item-route';
 import { createImageConfirmHandlers } from '../../lib/creator/image-confirm-route';
 import { ImageStorageError } from '../../lib/creator/imageStorage';
 import { CreatorImageConfirmError } from '../../lib/creator/image-service';
+import { WetokenImageRequestError } from '../../lib/ai/image';
 import {
   assertOwnedResultPath,
   normalizeImageIdempotencyKey,
@@ -400,6 +401,18 @@ test('confirm factory maps timeout to 504 without leaking provider details', asy
   assert.equal(result.status, 504);
   assert.equal(payload.code, 'GENERATION_TIMEOUT');
   assert.doesNotMatch(JSON.stringify(payload), /secret provider detail/);
+});
+
+test('confirm factory exposes the sanitized Wetoken rejection for retry guidance', async () => {
+  const { handlers } = confirmFixture(async () => {
+    throw new WetokenImageRequestError(400, 'imageConfig.outputMIMEType is required; Bearer sk-secret-value');
+  });
+  const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
+  const payload = await result.json();
+  assert.equal(result.status, 400);
+  assert.equal(payload.code, 'WETOKEN_IMAGE_REQUEST_FAILED');
+  assert.match(payload.error, /outputMIMEType/);
+  assert.doesNotMatch(JSON.stringify(payload), /sk-secret-value/);
 });
 
 test('confirm factory rejects unauthenticated requests before invoking the service', async () => {

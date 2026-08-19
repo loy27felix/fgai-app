@@ -38,7 +38,7 @@ export function AppTopNav() {
                         <div className="flex min-w-0 items-center">
                             <a href="/workspace" className="flex h-full shrink-0 items-center gap-2 text-sm font-semibold leading-none tracking-tight text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300" title="返回工作区">
                                 <img src="/fg-logo.svg" className="size-7 shrink-0 object-contain" alt="FG Studio" />
-                                <span className="text-base font-medium">无限画布</span>
+                                <span className="text-base font-medium">超级画布</span>
                             </a>
 
                             <button

@@ -4,6 +4,7 @@ import {
   buildGeminiImageBody,
   generateWetokenImage,
   sizeToAspectRatio,
+  WetokenImageRequestError,
 } from '../../lib/ai/image';
 
 const originalKey = process.env.WETOKEN_API_KEY;
@@ -29,7 +30,7 @@ test('Gemini request maps prompt, references and aspect ratio', () => {
     ] }],
     generationConfig: {
       responseModalities: ['IMAGE'],
-      imageConfig: { aspectRatio: '9:16', imageSize: '1K' },
+      imageConfig: { aspectRatio: '9:16', imageSize: '1K', outputMIMEType: 'image/jpeg' },
     },
   });
 });
@@ -107,6 +108,23 @@ test('Gemini generation calls generateContent and parses inlineData', async () =
   assert.equal(url, 'https://wetoken.example/v1/content/models/gemini-3-pro-image-preview:generateContent');
   assert.deepEqual([...result.bytes], [97, 98, 99]);
   assert.equal(result.mimeType, 'image/jpeg');
+});
+
+test('Gemini provider errors retain a bounded client-safe reason', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const fetcher = async () => new Response(JSON.stringify({
+    error: { message: 'imageConfig.outputMIMEType is required; Bearer sk-secret-value' },
+  }), { status: 400, statusText: 'Bad Request' });
+
+  await assert.rejects(
+    () => generateWetokenImage({
+      model: 'gemini-3-pro-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+    }, { fetcher }),
+    (error: unknown) => error instanceof WetokenImageRequestError
+      && error.status === 400
+      && error.publicMessage.includes('outputMIMEType')
+      && !error.publicMessage.includes('sk-secret-value'),
+  );
 });
 
 test('image client rejects unknown models and missing key before fetching', async () => {

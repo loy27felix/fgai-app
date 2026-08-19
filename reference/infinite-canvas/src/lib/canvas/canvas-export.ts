@@ -7,7 +7,7 @@ import type { CanvasExportAsset, CanvasExportFile } from "@/reference/infinite-c
 import type { CanvasProject } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/reference/infinite-canvas/src/types/canvas";
 
-export async function exportCanvasProjects(projects: CanvasProject[], fileName = "无限画布") {
+export async function exportCanvasProjects(projects: CanvasProject[], fileName = "超级画布") {
     const zipFiles: { name: string; data: BlobPart }[] = [];
     const exportedProjects = await Promise.all(
         projects.map(async (project) => {

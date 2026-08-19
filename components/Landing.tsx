@@ -19,7 +19,7 @@ const STUDIO_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_STUDIO_VIDEO_SRC?.trim() || 
 const ARCHIVE_VIDEO_SRC = process.env.NEXT_PUBLIC_FG_ARCHIVE_VIDEO_SRC?.trim() || "/landing-media/fg-archive-4k.mp4";
 
 const WORKSPACES = [
-  { no: "01", title: "无限画布", desc: "把参考、文字、图片和视频接成一条可继续生长的线。", href: "/creator#/canvas" },
+  { no: "01", title: "超级画布", desc: "把参考、文字、图片和视频接成一条可继续生长的线。", href: "/creator#/canvas" },
   { no: "02", title: "导演项目", desc: "从剧本、人物到逐镜设计，让叙事和镜头留在同一个项目里。", href: "/workspace" },
   { no: "03", title: "模型工作台", desc: "对话、生图、生视频与预算记录，都在一处完成。", href: "/creator" },
 ];
@@ -32,7 +32,7 @@ const ARCHIVE_STEPS = [
 
 const PLATFORM_CAPABILITIES = [
   ["01", "从剧本到镜头", "在导演项目里沉淀人物、场景、剧情结构与逐镜头设计，让创意决定能被团队接着用。"],
-  ["02", "无限画布创作", "把参考图、文本、图片、视频和生成关系连在同一张画布上，清楚看见每个结果从哪里来。"],
+  ["02", "超级画布创作", "把参考图、文本、图片、视频和生成关系连在同一张画布上，清楚看见每个结果从哪里来。"],
   ["03", "多模型制作台", "在同一入口完成对话、图像和视频生成；模型、规格、参考素材与预估价格始终可见。"],
   ["04", "技能与提示词", "把稳定好用的导演方法、视觉风格和提示词模板变成可选择的工作技能，而不是散落的聊天记录。"],
   ["05", "资产持续可用", "生成内容可以保存到项目与资产库，下一次延续角色、镜头和风格时不必从零开始。"],

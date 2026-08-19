@@ -860,7 +860,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       <div className="image-backdrop" />
       <header className="image-workspace-header">
         <a href="/workspace" title="返回工作区"><FGLogo size={36} /></a>
-        <div><div className="image-title">无限画布</div><div className="fg-mono image-subtitle">STANDALONE IMAGE · PRIVATE</div></div>
+        <div><div className="image-title">超级画布</div><div className="fg-mono image-subtitle">STANDALONE IMAGE · PRIVATE</div></div>
         <div className="image-header-divider" />
         <span className="image-header-context">独立生图</span>
         <div style={{ flex: 1 }} />

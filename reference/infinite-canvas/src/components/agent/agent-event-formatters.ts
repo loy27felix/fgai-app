@@ -216,7 +216,7 @@ export function isCurrentThreadEvent(event: { threadId?: string; thread_id?: str
 
 export function formatLogText(logs: AgentEventLog[], context: AgentLogContext) {
     const head = [
-        "Infinite Canvas Agent 诊断",
+        "超级画布 Agent 诊断",
         `地址：${context.endpoint}`,
         `连接：${context.connected ? "在线" : context.enabled ? "连接中" : "未启用"} · 状态：${context.activity}`,
         `消息：${context.messages} · 工具：${context.pendingTool ? toolName(context.pendingTool) : "无"}`,

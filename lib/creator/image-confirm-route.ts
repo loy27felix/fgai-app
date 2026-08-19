@@ -20,7 +20,11 @@ import {
   type ConfirmImageResult,
   type ConfirmImageTask,
 } from '@/lib/creator/image-service';
-import { generateWetokenImage, type ImageGenerationResult } from '@/lib/ai/image';
+import {
+  generateWetokenImage,
+  WetokenImageRequestError,
+  type ImageGenerationResult,
+} from '@/lib/ai/image';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import {
@@ -117,6 +121,10 @@ function serviceError(
   }
   if (error instanceof ImageStorageError) {
     return response(IMAGE_CONFIRM_PUBLIC_ERRORS.INVALID_DRAFT, 'INVALID_DRAFT', 409);
+  }
+  if (error instanceof WetokenImageRequestError) {
+    const status = error.status >= 400 && error.status <= 599 ? error.status : 502;
+    return response(error.publicMessage, 'WETOKEN_IMAGE_REQUEST_FAILED', status);
   }
   return response(fallbackMessage, fallbackCode, 500);
 }

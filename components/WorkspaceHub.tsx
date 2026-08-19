@@ -15,7 +15,7 @@ const WORKSPACES = [
     icon: ["M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"],
   },
   {
-    href: "/creator", number: "02", title: "无限画布", en: "INFINITE CANVAS",
+    href: "/creator", number: "02", title: "超级画布", en: "SUPER CANVAS",
     description: "用图片、视频、文字和 Agent 在同一张画布里持续生成与组织创意。",
     note: "生图 · 生视频 · Agent",
     accent: "#52dfef", glow: "rgba(53,185,238,.30)",
@@ -69,7 +69,7 @@ export default function WorkspaceHub({ email, isAdmin, projectCount }: Workspace
           <div>
             <div className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 8, color: "#51e7c7", fontSize: 11, letterSpacing: "1.8px" }}><span style={{ width: 7, height: 7, display: "inline-block", borderRadius: "50%", background: "currentColor", boxShadow: "0 0 16px currentColor" }} />FG STUDIO / {new Date().toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })}</div>
             <h1 style={{ maxWidth: 780, margin: "14px 0 0", fontSize: "clamp(36px,5vw,66px)", lineHeight: .98, letterSpacing: "-3px", fontWeight: 700 }}>今天，从哪一张<br /><span style={{ color: "#66e7d7" }}>工作台</span>开始？</h1>
-            <p style={{ maxWidth: 570, margin: "20px 0 0", color: "var(--text-2)", fontSize: 15, lineHeight: 1.75 }}>欢迎回来，{name}。选择你当前要进入的创作空间；项目制作与无限画布彼此独立，又可以共享你的生成资产。</p>
+            <p style={{ maxWidth: 570, margin: "20px 0 0", color: "var(--text-2)", fontSize: 15, lineHeight: 1.75 }}>欢迎回来，{name}。选择你当前要进入的创作空间；项目制作与超级画布彼此独立，又可以共享你的生成资产。</p>
           </div>
           <div style={{ minWidth: 174, padding: "15px 17px", borderRadius: 17, border: "1px solid var(--stroke)", background: "var(--panel)", boxShadow: "var(--inset)" }}>
             <div className="fg-mono" style={{ color: "var(--text-3)", fontSize: 9.5, letterSpacing: "1px" }}>ACTIVE PROJECTS</div>
