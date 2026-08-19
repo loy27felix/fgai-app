@@ -15,6 +15,13 @@ export type ImageGenerationResult = {
 };
 
 /**
+ * Keep the provider connection below the route's five-minute ceiling. The
+ * reserve is needed to upload the received bytes, update the task and settle
+ * the ledger before Vercel terminates the function.
+ */
+export const IMAGE_PROVIDER_TIMEOUT_MS = 270_000;
+
+/**
  * A client-safe provider rejection. The confirm route is allowed to expose
  * this message so creators can distinguish a rejected model request from a
  * persistence or network failure, without ever returning an API key.
@@ -33,6 +40,11 @@ export class WetokenImageRequestError extends Error {
 }
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type TimeoutSignal = (timeoutMs: number) => AbortSignal;
+type ImageGenerationDependencies = {
+  fetcher?: Fetcher;
+  timeoutSignal?: TimeoutSignal;
+};
 
 const ASPECT_RATIOS: Record<string, string> = {
   '1024x1024': '1:1', '1536x864': '16:9', '1344x768': '16:9',
@@ -117,7 +129,7 @@ function parseGeminiResult(data: any): ImageGenerationResult {
 
 export async function generateWetokenImage(
   input: ImageGenerationInput,
-  dependencies: { fetcher?: Fetcher } = {},
+  dependencies: ImageGenerationDependencies = {},
 ): Promise<ImageGenerationResult> {
   const key = process.env.WETOKEN_API_KEY;
   if (!key) throw new Error('缺少 WETOKEN_API_KEY 环境变量');
@@ -128,6 +140,7 @@ export async function generateWetokenImage(
 
   const base = (process.env.WETOKEN_BASE_URL || 'https://wetoken.ai/v1').replace(/\/$/, '');
   const fetcher = dependencies.fetcher ?? fetch;
+  const timeoutSignal = dependencies.timeoutSignal ?? AbortSignal.timeout;
   let response: Response;
 
   if (spec.provider === 'gemini') {
@@ -135,7 +148,7 @@ export async function generateWetokenImage(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(buildGeminiImageBody(input)),
-      signal: AbortSignal.timeout(110_000),
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
     });
   } else if (input.references.length) {
     const form = new FormData();
@@ -150,7 +163,7 @@ export async function generateWetokenImage(
     });
     response = await fetcher(`${base}/images/edits`, {
       method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
-      signal: AbortSignal.timeout(110_000),
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
     });
   } else {
     response = await fetcher(`${base}/images/generations`, {
@@ -159,7 +172,7 @@ export async function generateWetokenImage(
       body: JSON.stringify({
         model: input.model, prompt: input.prompt, n: 1, size: input.size, response_format: 'b64_json',
       }),
-      signal: AbortSignal.timeout(110_000),
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
     });
   }
 

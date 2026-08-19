@@ -47,6 +47,13 @@ test('standalone image workspace keeps the confirm call behind the confirmation 
   assert.match(ui, /if \(confirmTarget\)|confirmTarget &&/);
 });
 
+test('a timed-out image confirmation is reconciled as unknown instead of remaining in progress', () => {
+  assert.match(ui, /confirmError\.code === "GENERATION_TIMEOUT"/);
+  assert.match(ui, /setPhase\("unknown"\)/);
+  assert.match(ui, /await refreshHistory\(target\.id\)/);
+  assert.match(ui, /这次不会自动重试/);
+});
+
 
 test('history deep links and the mobile controls drawer stay read-only', () => {
   assert.match(ui, /taskIdFromLocation/);

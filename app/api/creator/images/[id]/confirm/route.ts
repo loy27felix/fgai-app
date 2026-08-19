@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { confirmCreatorImage } from '@/lib/creator/image-service';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const defaultImageConfirmHandlers = createImageConfirmHandlers({
   createClient,

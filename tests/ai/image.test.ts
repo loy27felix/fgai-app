@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import {
   buildGeminiImageBody,
+  IMAGE_PROVIDER_TIMEOUT_MS,
   generateWetokenImage,
   sizeToAspectRatio,
   WetokenImageRequestError,
@@ -33,6 +34,26 @@ test('Gemini request maps prompt, references and aspect ratio', () => {
       imageConfig: { aspectRatio: '9:16', imageSize: '1K', outputMIMEType: 'image/jpeg' },
     },
   });
+});
+
+test('slow image providers get a five-minute route window while reserving time to persist the result', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  let requestedTimeoutMs: number | undefined;
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-lite-image', prompt: 'cinematic fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inlineData: { data: 'YWJj', mimeType: 'image/jpeg' } }] } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    timeoutSignal: (timeoutMs: number) => {
+      requestedTimeoutMs = timeoutMs;
+      return new AbortController().signal;
+    },
+  });
+
+  assert.deepEqual([...result.bytes], [97, 98, 99]);
+  assert.equal(IMAGE_PROVIDER_TIMEOUT_MS, 270_000);
+  assert.equal(requestedTimeoutMs, IMAGE_PROVIDER_TIMEOUT_MS);
 });
 
 test('GPT image generation sends JSON and normalizes base64 output', async () => {

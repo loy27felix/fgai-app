@@ -8,7 +8,7 @@ import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing'
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const SHOT_FIELDS = ['frame_path', 'keyframe_path', 'storyboard_path'] as const;
 type ShotField = typeof SHOT_FIELDS[number];
