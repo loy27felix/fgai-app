@@ -68,6 +68,7 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
   assert.match(node, /onResizeStart\?\./);
   assert.match(node, /onResizeEnd\?\./);
   assert.match(project, /imageBatchExpanded: undefined/);
+  assert.match(node, /data\.type === CanvasNodeType\.Image && hasImageContent/);
   assert.match(node, /onViewImage\?\.\(data\)/);
   assert.match(promptPanel, /放大编辑提示词/);
   assert.match(promptPanel, /isPromptEditorOpen/);

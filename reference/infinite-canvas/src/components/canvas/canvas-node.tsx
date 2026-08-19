@@ -393,7 +393,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
                 onMouseDown={(event) => onMouseDown(event, data.id)}
                 onDoubleClick={(event) => {
-                    if (isBatchRoot && data.type === CanvasNodeType.Image && hasImageContent) {
+                    if (data.type === CanvasNodeType.Image && hasImageContent) {
                         event.stopPropagation();
                         onViewImage?.(data);
                         return;
