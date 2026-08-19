@@ -58,7 +58,7 @@ USAGE_USD_TO_CNY_RATE=6.77
 
 1. 在 Docker 主机挂载 NAS 目录到 `/Users/zhangyu/work/beva/mnt_nas_fg-studio-media`，并确保 Docker daemon 有读写权限。
 2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD` 和 `NAS_MEDIA_PATH`。
-3. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.1.100:3000`，媒体通过应用的 `/api/local/storage/content` 接口按登录态读取。
+3. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，媒体通过应用的 `/api/local/storage/content` 接口按登录态读取。
 
 媒体访问经过应用鉴权，不能直接公开 NAS 目录。正式使用前应通过反向代理提供 HTTPS。
 
