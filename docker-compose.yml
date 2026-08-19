@@ -25,7 +25,9 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    # Force HTTP/2 when outbound UDP/7844 is unavailable on the server network.
+    # 服务器网络无法稳定使用 UDP/7844 时固定走 HTTP/2，避免自动切回 QUIC。
+    command: tunnel --no-autoupdate --protocol http2 run
     environment:
       # The token is injected from the ignored host env file and never committed.
       # Token 只从未提交的宿主机环境文件注入，禁止写入仓库。

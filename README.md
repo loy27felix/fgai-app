@@ -62,6 +62,8 @@ USAGE_USD_TO_CNY_RATE=6.77
 4. 把 Tunnel 的公网 HTTPS 地址写入 `PROVIDER_MEDIA_URL`，例如 `https://media.example.com/api/local/storage/content`。`LOCAL_MEDIA_URL` 继续使用 `http://192.168.0.99:3000/api/local/storage/content`，分别服务局域网浏览器和 Wetoken。
 5. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，Cloudflare Tunnel 负责把带签名的媒体 URL 转发给 App。
 
+服务器网络如果封锁 UDP/7844，Compose 会强制 `cloudflared` 使用 HTTP/2，避免 Tunnel 自动切换到不可用的 QUIC。修改 Tunnel 配置后执行 `docker compose --env-file .env.docker up -d cloudflared` 使连接重新建立。
+
 媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，必须使用 Cloudflare Tunnel 提供的公网 HTTPS 地址；`192.168.x.x`、localhost 和需要登录的局域网地址无法被 Wetoken 下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不受此限制。不要把 Cloudflare Tunnel 的 token 提交到 Git。
 
 ## 目录速览
