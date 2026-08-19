@@ -17,8 +17,8 @@ FG Studio 是一个面向个人创作与小团队协作的 AI 视觉工作台：
 需要 Node.js 18+：
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 打开 <http://localhost:3000>，登录后进入 `/creator` 使用创作台；项目导演功能位于 `/projects`。

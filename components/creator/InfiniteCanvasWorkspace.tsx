@@ -23,6 +23,7 @@ import { createImageDraft, confirmImageTask, finalizeImageUploads, listImageTask
 import { createVideoDraft, confirmVideoTask, finalizeVideoUploads, getVideoTask } from "@/lib/creator/video-client";
 import type { ImageReferenceManifest } from "@/lib/creator/image";
 import type { VideoReferenceManifest } from "@/lib/creator/video";
+import { randomId } from "@/lib/utils";
 
 registerBuiltinNodes();
 const STORE_KEY = "fg-studio:infinite-canvas:v1";
@@ -266,14 +267,14 @@ export default function InfiniteCanvasWorkspace({ userEmail, initialKind = "imag
       for (let index = 0; index < inputs.length; index += 1) { const file = await nodeFile(inputs[index], index); if (file) files.push(file); }
       if (output.type === CanvasNodeType.Image) {
         const references: ImageReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size }));
-        const draft = await createImageDraft({ canvasId: null, nodeId: output.id, prompt: text, model, ratio, references, skill: null, idempotencyKey: crypto.randomUUID() });
+        const draft = await createImageDraft({ canvasId: null, nodeId: output.id, prompt: text, model, ratio, references, skill: null, idempotencyKey: randomId() });
         for (let index = 0; index < files.length; index += 1) { const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }
         await finalizeImageUploads(draft.task.id, draft.uploadPaths);
         setPending({ kind: "image", nodeId: output.id, taskId: draft.task.id, prompt: text, model, references: files.length });
       } else {
         const references: VideoReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size, kind: file.type.startsWith("video/") ? "video" : "image", role: file.type.startsWith("video/") ? "reference_video" : "reference_image" } as VideoReferenceManifest));
         const spec = getVideoModel(model);
-        const draft = await createVideoDraft({ canvasId: null, nodeId: output.id, prompt: text, model, references, duration: Math.max(4, Math.min(15, Number.isFinite(duration) ? duration : 5)), ratio, resolution: spec?.resolutions?.[0] || "720p", watermark: false, generateAudio: false, skill: null, idempotencyKey: crypto.randomUUID() });
+        const draft = await createVideoDraft({ canvasId: null, nodeId: output.id, prompt: text, model, references, duration: Math.max(4, Math.min(15, Number.isFinite(duration) ? duration : 5)), ratio, resolution: spec?.resolutions?.[0] || "720p", watermark: false, generateAudio: false, skill: null, idempotencyKey: randomId() });
         for (let index = 0; index < files.length; index += 1) { const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }
         await finalizeVideoUploads(draft.task.id, draft.uploadPaths);
         setPending({ kind: "video", nodeId: output.id, taskId: draft.task.id, prompt: text, model, references: files.length });

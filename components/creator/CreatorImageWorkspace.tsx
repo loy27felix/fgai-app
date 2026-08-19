@@ -35,6 +35,7 @@ import {
 } from "@/lib/creator/image-client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { createCreatorCanvas, deleteCreatorCanvas, listCreatorCanvases, updateCreatorCanvas } from "@/lib/creator/canvas-client";
+import { randomId } from "@/lib/utils";
 
 type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown" | "submitting";
@@ -137,8 +138,7 @@ function publicError(error: unknown, fallback: string) {
 }
 
 function createIdempotencyKey() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return `creator-image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return randomId();
 }
 
 function isConfirmableDraft(task: CreatorImageTask | CreatorImageTaskView) {

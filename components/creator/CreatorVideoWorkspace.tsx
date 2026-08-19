@@ -11,6 +11,7 @@ import { createCreatorCanvas, deleteCreatorCanvas, listCreatorCanvases, updateCr
 import { confirmVideoTask, createVideoDraft, deleteVideoTask, finalizeVideoUploads, getVideoTask, listVideoTasks, CreatorImageClientError } from "@/lib/creator/video-client";
 import { validateVideoDraftInput, type CreatorVideoSkill, type VideoReferenceKind, type VideoReferenceManifest, type VideoReferenceRole } from "@/lib/creator/video";
 import { VIDEO_MODELS, getVideoModel } from "@/lib/ai/video-models";
+import { randomId } from "@/lib/utils";
 
 type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown";
@@ -78,7 +79,7 @@ function saveGraph(graph: CreatorVideoCanvasGraph): CreatorVideoCanvasGraph {
   return { nodes: graph.nodes.map((node) => ({ ...node, url: node.kind === "ref" ? null : node.url || null, busy: false })), edges: graph.edges.map((edge) => ({ from: edge.from, to: edge.to })), viewport: graph.viewport, background: graph.background };
 }
 function errorText(error: unknown, fallback: string) { return error instanceof CreatorImageClientError ? error.message : fallback; }
-function newKey() { return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "creator-video-" + Date.now(); }
+function newKey() { return randomId(); }
 
 export default function CreatorVideoWorkspace({ userEmail }: Props) {
   const { theme, toggle } = useFgTheme();

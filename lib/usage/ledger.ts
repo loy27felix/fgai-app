@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { createAdminClient } from '@/lib/local/admin';
+import { randomId } from '@/lib/utils';
 import type { MediaPrice } from './pricing';
 
 type TextUsage = {
@@ -142,7 +142,7 @@ export function buildTextLedgerEntry(input: {
     ? deepseekEstimate(input.model, inputTokens, outputTokens)
     : null;
   return {
-    request_id: input.requestId || randomUUID(),
+    request_id: input.requestId || randomId(),
     user_id: input.userId,
     workspace_id: input.workspaceId ?? null,
     project_id: input.projectId ?? null,
@@ -175,7 +175,7 @@ export function buildImageLedgerEntry(input: {
   durationMs?: number;
 }): ImageLedgerEntry {
   return {
-    request_id: input.requestId || randomUUID(),
+    request_id: input.requestId || randomId(),
     user_id: input.userId,
     workspace_id: input.workspaceId ?? null,
     project_id: input.projectId ?? null,

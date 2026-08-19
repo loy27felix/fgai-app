@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
+import { randomId } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
     const nodeId = String(form.get('nodeId') || '').slice(0, 128);
     const name = safeName(String(form.get('name') || file.name || 'asset'));
     const extension = extensionFor(file.type, name);
-    const storagePath = context.user.id + '/canvas-assets/' + crypto.randomUUID() + '-' + name.replace(/\.[a-z0-9]{1,8}$/i, '') + '.' + extension;
+    const storagePath = context.user.id + '/canvas-assets/' + randomId() + '-' + name.replace(/\.[a-z0-9]{1,8}$/i, '') + '.' + extension;
     const body = new Uint8Array(await file.arrayBuffer());
     let upload = await context.localClient.storage.from('creator-assets').upload(storagePath, body, { upsert: false, contentType: file.type || 'application/octet-stream' });
     if (upload.error) {

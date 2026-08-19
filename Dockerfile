@@ -1,15 +1,16 @@
-FROM node:20-alpine AS deps
+FROM node:20-alpine AS base
 WORKDIR /app
-COPY package*.json ./
-COPY .npmrc ./
-RUN npm ci --registry=https://registry.npmmirror.com
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
-FROM node:20-alpine AS builder
-WORKDIR /app
+FROM base AS deps
+COPY package.json pnpm-lock.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile
+
+FROM base AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app

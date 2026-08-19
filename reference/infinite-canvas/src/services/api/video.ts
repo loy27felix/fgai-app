@@ -14,6 +14,7 @@ import { createClient } from "@/lib/local/client";
 import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 import { assertPlayableVideoUrl } from "@/lib/creator/video-recovery";
+import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -123,7 +124,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     });
     let draft: Awaited<ReturnType<typeof createVideoDraft>>;
     try {
-        draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: crypto.randomUUID() });
+        draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: randomId() });
     } catch (error) {
         throw new Error(`视频草稿创建失败：${error instanceof Error ? error.message : "网络请求失败"}`);
     }
