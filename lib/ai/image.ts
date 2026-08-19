@@ -156,7 +156,6 @@ export async function generateWetokenImage(
     form.append('prompt', input.prompt);
     form.append('size', input.size);
     form.append('n', '1');
-    form.append('response_format', 'b64_json');
     input.references.forEach((reference, index) => {
       const ext = extensionFor(reference.mimeType);
       form.append('image[]', new Blob([Buffer.from(reference.data, 'base64')], { type: reference.mimeType }), `reference-${index + 1}.${ext}`);
@@ -170,7 +169,7 @@ export async function generateWetokenImage(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model: input.model, prompt: input.prompt, n: 1, size: input.size, response_format: 'b64_json',
+        model: input.model, prompt: input.prompt, n: 1, size: input.size,
       }),
       signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
     });

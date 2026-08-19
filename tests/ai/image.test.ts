@@ -79,7 +79,7 @@ test('GPT image generation sends JSON and normalizes base64 output', async () =>
   assert.deepEqual(observed, {
     url: 'https://wetoken.example/v1/images/generations',
     authorization: 'Bearer test-key',
-    body: { model: 'gpt-image-2', prompt: 'fox', n: 1, size: '1024x1024', response_format: 'b64_json' },
+    body: { model: 'gpt-image-2', prompt: 'fox', n: 1, size: '1024x1024' },
   });
   assert.deepEqual([...result.bytes], [97, 98, 99]);
   assert.equal(result.mimeType, 'image/png');
@@ -106,7 +106,7 @@ test('GPT image edit sends repeated image fields for multiple references', async
 
   assert.deepEqual(entries, [
     ['model', 'gpt-image-2'], ['prompt', 'combine'], ['size', '1024x1024'], ['n', '1'],
-    ['response_format', 'b64_json'], ['image[]', 'reference-1.png'], ['image[]', 'reference-2.jpg'],
+    ['image[]', 'reference-1.png'], ['image[]', 'reference-2.jpg'],
   ]);
 });
 
