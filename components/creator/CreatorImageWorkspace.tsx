@@ -641,9 +641,11 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         setPhase("submitting");
         setNotice("任务已被其他请求提交；刷新只读取任务列表，不会重复确认。");
         await refreshHistory(target.id);
-      } else if (confirmError instanceof CreatorImageClientError && confirmError.status === 0) {
+      } else if (confirmError instanceof CreatorImageClientError && (confirmError.status === 0 || confirmError.code === "GENERATION_TIMEOUT")) {
         setPhase("unknown");
-        setNotice("确认请求可能未返回；这次不会自动重试，请刷新任务历史后再决定。");
+        setNotice(confirmError.code === "GENERATION_TIMEOUT"
+          ? "图片等待已超过当前安全时限；状态待确认，这次不会自动重试，避免重复扣费。请刷新任务历史后再决定。"
+          : "确认请求可能未返回；这次不会自动重试，请刷新任务历史后再决定。");
         await refreshHistory(target.id);
       } else {
         setPhase("error");

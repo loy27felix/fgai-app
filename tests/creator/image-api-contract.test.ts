@@ -17,12 +17,14 @@ import {
 const collectionPath = path.join(process.cwd(), 'app/api/creator/images/route.ts');
 const itemPath = path.join(process.cwd(), 'app/api/creator/images/[id]/route.ts');
 const confirmRoutePath = path.join(process.cwd(), 'app/api/creator/images/[id]/confirm/route.ts');
+const legacyImageRoutePath = path.join(process.cwd(), 'app/api/ai/image/route.ts');
 const storagePath = path.join(process.cwd(), 'lib/creator/imageStorage.ts');
 const itemHandlerPath = path.join(process.cwd(), 'lib/creator/image-item-route.ts');
 const confirmHandlerPath = path.join(process.cwd(), 'lib/creator/image-confirm-route.ts');
 const collection = fs.readFileSync(collectionPath, 'utf8');
 const item = fs.readFileSync(itemPath, 'utf8') + fs.readFileSync(itemHandlerPath, 'utf8');
 const confirmRoute = fs.readFileSync(confirmRoutePath, 'utf8') + fs.readFileSync(confirmHandlerPath, 'utf8');
+const legacyImageRoute = fs.readFileSync(legacyImageRoutePath, 'utf8');
 const storageService = fs.readFileSync(storagePath, 'utf8');
 
 test('all creator image operations authenticate and bootstrap the private workspace', () => {
@@ -401,6 +403,11 @@ test('confirm factory maps timeout to 504 without leaking provider details', asy
   assert.equal(result.status, 504);
   assert.equal(payload.code, 'GENERATION_TIMEOUT');
   assert.doesNotMatch(JSON.stringify(payload), /secret provider detail/);
+});
+
+test('image confirmation routes keep a five-minute window for slow provider responses', () => {
+  assert.match(confirmRoute, /export const maxDuration = 300/);
+  assert.match(legacyImageRoute, /export const maxDuration = 300/);
 });
 
 test('confirm factory exposes the sanitized Wetoken rejection for retry guidance', async () => {
