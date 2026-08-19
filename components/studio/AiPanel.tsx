@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { upsertSession, listSessions, loadSession, deleteSession, type ChatSession } from "@/lib/chatStore";
 import { TEXT_MODELS } from "@/lib/models";
 import { WORKFLOW_SKILLS, PROMPT_GROUPS } from "@/lib/skillData";

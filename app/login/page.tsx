@@ -2,12 +2,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { companyEmailFromUsername, normalizeCompanyUsername } from "@/lib/auth/company-email";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const localClient = createClient();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [signupUsername, setSignupUsername] = useState("");
@@ -23,13 +23,13 @@ export default function LoginPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email: e, password: pw });
+        const { error } = await localClient.auth.signUp({ email: e, password: pw });
         if (error) throw error;
-        const { data } = await supabase.auth.getSession();
+        const { data } = await localClient.auth.getSession();
         if (data.session) { router.replace("/workspace"); router.refresh(); }
         else setMsg("注册成功，请到邮箱点确认链接后再登录。");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: e, password: pw });
+        const { error } = await localClient.auth.signInWithPassword({ email: e, password: pw });
         if (error) throw error;
         router.replace("/workspace"); router.refresh();
       }

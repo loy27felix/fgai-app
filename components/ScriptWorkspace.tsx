@@ -5,7 +5,7 @@ import type { BibleFields, Episode, Scene } from "@/lib/types";
 import { addEpisode, addScene, saveScript, rollbackScript, updateScene } from "@/app/projects/[id]/script/actions";
 import { updateShot, addShot } from "@/app/projects/[id]/board/actions";
 import { updateOverview } from "@/app/projects/[id]/script/overview-actions";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov, EditInput, EditArea } from "@/components/studio/ui";

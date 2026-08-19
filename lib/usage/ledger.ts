@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient } from '@/lib/local/admin';
 import type { MediaPrice } from './pricing';
 
 type TextUsage = {

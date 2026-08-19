@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import {
   createWetokenVideoTask,
   type SeedanceInput,
@@ -25,25 +25,25 @@ type CreateBody = {
   generateAudio?: boolean;
 };
 
-async function shotBelongsToProject(supabase: ReturnType<typeof createClient>, shotId: string, projectId: string) {
-  const { data: shot } = await supabase.from('shots').select('id,scene_id').eq('id', shotId).maybeSingle();
+async function shotBelongsToProject(localClient: ReturnType<typeof createClient>, shotId: string, projectId: string) {
+  const { data: shot } = await localClient.from('shots').select('id,scene_id').eq('id', shotId).maybeSingle();
   if (!shot) return false;
-  const { data: scene } = await supabase.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle();
+  const { data: scene } = await localClient.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle();
   if (!scene) return false;
-  const { data: episode } = await supabase.from('episodes').select('id,project_id').eq('id', scene.episode_id).maybeSingle();
+  const { data: episode } = await localClient.from('episodes').select('id,project_id').eq('id', scene.episode_id).maybeSingle();
   return episode?.project_id === projectId;
 }
 
 export async function GET(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
   const projectId = new URL(req.url).searchParams.get('projectId') || '';
   if (!projectId) return NextResponse.json({ error: '缺少 projectId' }, { status: 400 });
-  const { data: membership } = await supabase.from('project_members')
+  const { data: membership } = await localClient.from('project_members')
     .select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle();
   if (!membership) return NextResponse.json({ error: '无权访问该项目' }, { status: 403 });
-  const { data, error } = await supabase.from('generation_tasks')
+  const { data, error } = await localClient.from('generation_tasks')
     .select('id,project_id,shot_id,user_id,kind,provider,model,status,request,output,error,created_at,updated_at,completed_at')
     .eq('project_id', projectId).eq('kind', 'video').order('created_at', { ascending: false }).limit(50);
   if (error) return NextResponse.json({ error: `读取视频任务失败：${error.message}` }, { status: 500 });
@@ -51,21 +51,21 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   let body: CreateBody;
   try { body = await req.json(); } catch { return NextResponse.json({ error: '请求体格式错误' }, { status: 400 }); }
   const projectId = body.projectId || '';
   if (!projectId) return NextResponse.json({ error: '缺少 projectId' }, { status: 400 });
-  const { data: membership } = await supabase.from('project_members')
+  const { data: membership } = await localClient.from('project_members')
     .select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle();
   if (!membership) return NextResponse.json({ error: '无权访问该项目' }, { status: 403 });
   if (!['owner', 'editor'].includes(membership.role)) {
     return NextResponse.json({ error: '当前角色没有视频生成权限' }, { status: 403 });
   }
-  if (body.shotId && !(await shotBelongsToProject(supabase, body.shotId, projectId))) {
+  if (body.shotId && !(await shotBelongsToProject(localClient, body.shotId, projectId))) {
     return NextResponse.json({ error: '镜头不属于当前项目' }, { status: 403 });
   }
 
@@ -110,7 +110,7 @@ try {
       watermark: input.watermark,
       generateAudio: input.generateAudio,
     };
-    const { data: task, error } = await supabase.from('generation_tasks').insert({
+    const { data: task, error } = await localClient.from('generation_tasks').insert({
       project_id: projectId,
       shot_id: body.shotId || null,
       user_id: user.id,
@@ -127,7 +127,7 @@ try {
         externalTaskId: created.externalTaskId,
       }, { status: 500 });
     }
-    await supabase.from('generations').insert({
+    await localClient.from('generations').insert({
       project_id: projectId, user_id: user.id, kind: 'video', model: input.model, key_owner: 'company',
     }).then(() => undefined, () => undefined);
     return NextResponse.json({ ok: true, task }, { status: 202 });

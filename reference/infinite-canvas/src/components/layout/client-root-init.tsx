@@ -41,7 +41,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                         coverUrl: typeof asset.signedUrl === "string" ? asset.signedUrl : "",
                         tags: ["云端"],
                         source: "FG Studio",
-                        note: "Supabase 云端资产",
+                        note: "NAS 本地资产",
                         createdAt: typeof asset.createdAt === "string" ? asset.createdAt : new Date().toISOString(),
                         updatedAt: typeof asset.updatedAt === "string" ? asset.updatedAt : new Date().toISOString(),
                         metadata,

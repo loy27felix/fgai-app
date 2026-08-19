@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { listSessions, loadSession, deleteSession, type ChatSession } from "@/lib/chatStore";
 
 export default function ChatHistoryBar({ projectId, scope, sessionId, onLoad, onNew }: {

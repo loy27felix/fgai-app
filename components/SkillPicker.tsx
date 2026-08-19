@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { WORKFLOW_SKILLS } from "@/lib/skillData";
 
 type LocalSkill = { id: string; title: string; body: string; updatedAt: string };

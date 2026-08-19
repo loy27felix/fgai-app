@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, localMediaUrl } from "@/lib/local/client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { generateImage } from '@/lib/ai/image-client';
 import { createVideoTask, getVideoTask, isActiveVideoTask } from '@/lib/ai/video-client';
@@ -15,7 +15,6 @@ type Node = CanvasNode;
 type Edge = CanvasEdge;
 type Graph = { nodes: Node[]; edges: Edge[] };
 
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const KIND_ICON: Record<Kind, string[]> = {
   ref: ["M3 4h18v16H3z", "M9 9a2 2 0 1 0 0-.01", "m3 17 5-4 4 3 3-2 6 5"],
@@ -130,7 +129,7 @@ export default function GenCanvas({
     const path = `${projectId}/canvas/ref-${Date.now()}-${uid()}.${(f.name.split(".").pop() || "png").toLowerCase()}`;
     const { error } = await sb.storage.from("project-assets").upload(path, f, { upsert: false });
     if (error) { alert('上传参考图失败：' + error.message); return; }
-    const url = `${SB_URL}/storage/v1/object/public/project-assets/${path}`;
+    const url = localMediaUrl("project-assets", path);
     addNode("ref", { url });
   }
 

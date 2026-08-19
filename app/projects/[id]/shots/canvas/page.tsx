@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import GenCanvas from '@/components/studio/GenCanvas';
 
 export const dynamic = 'force-dynamic';
@@ -11,31 +11,31 @@ export default async function ShotCanvasPage({
   params: { id: string };
   searchParams: { shot?: string };
 }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) redirect('/');
   const projectId = params.id;
   const shotId = searchParams.shot || '';
   const [{ data: project }, { data: member }] = await Promise.all([
-    supabase.from('projects').select('id,name').eq('id', projectId).single(),
-    supabase.from('project_members').select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle(),
+    localClient.from('projects').select('id,name').eq('id', projectId).single(),
+    localClient.from('project_members').select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle(),
   ]);
   if (!project) redirect('/projects');
   if (!member || !shotId) redirect(`/projects/${projectId}/shots`);
 
-  const { data: shot } = await supabase.from('shots')
+  const { data: shot } = await localClient.from('shots')
     .select('id,scene_id,no,duration_s,keyframe_path,frame_path,keyframe_prompt,video_prompt')
     .eq('id', shotId).maybeSingle();
   if (!shot) redirect(`/projects/${projectId}/shots`);
-  const { data: scene } = await supabase.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle();
+  const { data: scene } = await localClient.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle();
   const { data: episode } = scene
-    ? await supabase.from('episodes').select('id,project_id').eq('id', scene.episode_id).maybeSingle()
+    ? await localClient.from('episodes').select('id,project_id').eq('id', scene.episode_id).maybeSingle()
     : { data: null };
   if (episode?.project_id !== projectId) redirect(`/projects/${projectId}/shots`);
 
   const storagePath = shot.keyframe_path || shot.frame_path;
   const initialImageUrl = storagePath
-    ? supabase.storage.from('project-assets').getPublicUrl(storagePath).data.publicUrl
+    ? localClient.storage.from('project-assets').getPublicUrl(storagePath).data.publicUrl
     : null;
   return (
     <GenCanvas

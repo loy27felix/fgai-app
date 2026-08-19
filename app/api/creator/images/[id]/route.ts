@@ -1,7 +1,7 @@
 import { confirmImageReferenceUploads, deleteOwnedImageTask } from '@/lib/creator/imageStorage';
 import { createImageItemHandlers } from '@/lib/creator/image-item-route';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 export const runtime = 'nodejs';
 

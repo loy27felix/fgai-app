@@ -35,7 +35,7 @@ test('legacy canvas config receives the complete FG model catalog', () => {
 
 test('creator usage API scopes ledger rows to the authenticated user', () => {
   const route = source('app/api/creator/usage/route.ts');
-  assert.match(route, /supabase\.auth\.getUser\(\)/);
+  assert.match(route, /localClient\.auth\.getUser\(\)/);
   assert.match(route, /\.from\('ai_usage_ledger'\)/);
   assert.match(route, /\.eq\('user_id', user\.id\)/);
   assert.match(route, /reported_cost_usd/);

@@ -1,6 +1,6 @@
 # FG Studio
 
-FG Studio 是一个面向个人创作与小团队协作的 AI 视觉工作台：对话、图片、视频、提示词、素材和超级画布在同一个项目中完成。项目使用 Next.js、Supabase 和服务端 AI 路由，模型密钥不会暴露到浏览器。
+FG Studio 是一个面向个人创作与小团队协作的 AI 视觉工作台：对话、图片、视频、提示词、素材和无限画布在同一个项目中完成。项目使用 Next.js、PostgreSQL、NAS 和服务端 AI 路由，模型密钥不会暴露到浏览器。
 
 ## 功能
 
@@ -28,9 +28,9 @@ npm run dev
 复制 `.env.example` 为 `.env.local`，至少配置：
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
+DATABASE_URL=postgres://fg_studio:密码@localhost:5432/fg_studio
+NAS_MEDIA_PATH=/Users/zhangyu/work/beva/mnt_nas_fg-studio-media
+SESSION_SECRET=...
 DEEPSEEK_API_KEY=...
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 WETOKEN_API_KEY=...
@@ -38,7 +38,7 @@ WETOKEN_BASE_URL=https://wetoken.ai/v1
 USAGE_USD_TO_CNY_RATE=6.77
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY`、`DEEPSEEK_API_KEY` 和 `WETOKEN_API_KEY` 只能放在服务端环境变量中。`USAGE_USD_TO_CNY_RATE` 仅用于费用展示，可按实际结算汇率调整。
+`DATABASE_URL`、`SESSION_SECRET`、`DEEPSEEK_API_KEY` 和 `WETOKEN_API_KEY` 只能放在服务端环境变量中。`USAGE_USD_TO_CNY_RATE` 仅用于费用展示，可按实际结算汇率调整。
 
 ## 费用预估
 
@@ -50,16 +50,27 @@ USAGE_USD_TO_CNY_RATE=6.77
 
 ## 部署
 
-将仓库导入 Vercel，在 Production、Preview、Development 三个环境配置上面的变量，然后重新部署。Supabase 的 Site URL 和 Redirect URLs 需要包含 Vercel 域名。
+生产部署使用 Docker Compose。
+
+### 局域网 Docker + NAS 部署
+
+局域网部署使用纯本地 Docker 服务，应用和 PostgreSQL 由仓库根目录的 `docker-compose.yml` 管理，媒体文件直接写入 NAS 挂载目录。数据库使用独立 Docker volume，不要把数据库目录放在普通 SMB 共享上。
+
+1. 在 Docker 主机挂载 NAS 目录到 `/Users/zhangyu/work/beva/mnt_nas_fg-studio-media`，并确保 Docker daemon 有读写权限。
+2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD` 和 `NAS_MEDIA_PATH`。
+3. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.1.100:3000`，媒体通过应用的 `/api/local/storage/content` 接口按登录态读取。
+
+媒体访问经过应用鉴权，不能直接公开 NAS 目录。正式使用前应通过反向代理提供 HTTPS。
 
 ## 目录速览
 
 ```text
 app/                         Next.js 页面和服务端 API
 components/                  FG Studio 与创作台组件
-lib/                         Supabase、AI 适配器、用量账本
+lib/                         本地数据库、认证、媒体、AI 适配器、用量账本
 reference/infinite-canvas/   超级画布运行时及其适配层
-supabase/migrations/         数据库结构与 RLS
+docker/initdb/001-local.sql  PostgreSQL 初始化结构
+docker/initdb/002-local-upgrade.sql  已有本地 volume 的幂等升级
 tests/                       类型、账本、API 和价格测试
 ```
 

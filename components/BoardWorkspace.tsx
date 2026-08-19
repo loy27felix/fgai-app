@@ -8,14 +8,14 @@ import { generateImage } from '@/lib/ai/image-client';
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov } from "@/components/studio/ui";
+import { localMediaUrl } from "@/lib/local/client";
 
 type ShotRow = {
   id: string; scene_id: string; no: string; title?: string | null;
   time_start?: string | null; time_end?: string | null; duration_s?: number | null;
   script_beat?: Record<string, string> | null; frame_path?: string | null; roles?: string[] | null;
 };
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const fu = (p?: string | null) => (p ? `${SB_URL}/storage/v1/object/public/project-assets/${p}` : null);
+const fu = (p?: string | null) => (p ? localMediaUrl("project-assets", p) : null);
 const pad = (n: number) => "EP" + String(n).padStart(2, "0");
 function framePrompt(sh: ShotRow) {
   const b = sh.script_beat || {};

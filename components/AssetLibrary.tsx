@@ -4,15 +4,14 @@ import { useRouter } from "next/navigation";
 import type { Asset, BibleFields } from "@/lib/types";
 import { slugType } from "@/lib/types";
 import { createAsset, deleteAsset, updateAsset, setLockRef } from "@/app/projects/[id]/assets/actions";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, localMediaUrl } from "@/lib/local/client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { generateImage } from '@/lib/ai/image-client';
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov, EditArea } from "@/components/studio/ui";
 
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const publicUrl = (p?: string | null) => (p ? `${SB_URL}/storage/v1/object/public/project-assets/${p}` : null);
+const publicUrl = (p?: string | null) => (p ? localMediaUrl("project-assets", p) : null);
 const thumbUrl = (a: Asset) => a.external_url || publicUrl(a.storage_path) || publicUrl(a.poster_path);
 const TABS = ["人物", "场景", "道具", "其他"] as const;
 const TAB_ICON: Record<string, string[]> = {
@@ -38,7 +37,7 @@ export default function AssetLibrary({
   projectId: string; projectName: string; canEdit: boolean; bible: BibleFields; assets: Asset[]; scriptText: string;
 }) {
   const router = useRouter();
-  const supabase = createClient();
+  const localClient = createClient();
   const [tab, setTab] = useState<string>("人物");
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState<"chat" | "gen">("chat");
@@ -74,7 +73,7 @@ export default function AssetLibrary({
     try {
       for (const f of Array.from(files)) {
         const path = `${projectId}/${slugType(tab)}/up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${(f.name.split(".").pop() || "png").toLowerCase()}`;
-        const { error } = await supabase.storage.from("project-assets").upload(path, f, { upsert: false });
+        const { error } = await localClient.storage.from("project-assets").upload(path, f, { upsert: false });
         if (!error) await createAsset(projectId, { name: f.name.replace(/\.[^.]+$/, ""), type: tab, source: "upload", storage_path: path });
       }
       router.refresh();
@@ -125,10 +124,10 @@ export default function AssetLibrary({
         for (const file of refFiles) {
           const ext = (file.name.split('.').pop() || 'png').toLowerCase();
           const path = `${projectId}/gen-refs/ref-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-          const { error } = await supabase.storage.from('project-assets').upload(path, file, { upsert: false });
+          const { error } = await localClient.storage.from('project-assets').upload(path, file, { upsert: false });
           if (error) throw new Error('上传参考图失败：' + error.message);
           tempPaths.push(path);
-          urls.push(supabase.storage.from('project-assets').getPublicUrl(path).data.publicUrl);
+          urls.push(localClient.storage.from('project-assets').getPublicUrl(path).data.publicUrl);
         }
         payload.refUrls = urls;
       }
@@ -136,7 +135,7 @@ export default function AssetLibrary({
       setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, text: "已生成并存入「" + tab + "」资产", imgs: [d.url] } : x));
       router.refresh();
     } catch (e: any) { setGMsgs((m) => m.map((x) => x.id === gid ? { ...x, pending: false, error: true, text: e?.message || "网络错误" } : x)); } finally {
-      if (tempPaths.length) await supabase.storage.from('project-assets').remove(tempPaths);
+      if (tempPaths.length) await localClient.storage.from('project-assets').remove(tempPaths);
       setGBusy(false);
     }
   }

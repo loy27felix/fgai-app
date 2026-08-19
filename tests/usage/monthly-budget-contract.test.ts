@@ -7,13 +7,12 @@ import { monthStartDate, monthStartKey, nextMonthStart } from '../../lib/usage/b
 const root = path.resolve(process.cwd());
 
 test('monthly budget migration creates a per-user monthly USD limit and timing column', async () => {
-  const sql = await readFile(path.join(root, 'supabase/migrations/0008_usage_budgets.sql'), 'utf8');
-  assert.match(sql, /add column if not exists duration_ms bigint not null default 0/i);
-  assert.match(sql, /create table if not exists public\.ai_usage_budgets/i);
+  const sql = await readFile(path.join(root, 'docker/initdb/001-local.sql'), 'utf8');
+  assert.match(sql, /duration_ms bigint not null default 0/i);
+  assert.match(sql, /create table if not exists ai_usage_budgets/i);
   assert.match(sql, /unique \(user_id, month_start\)/i);
-  assert.match(sql, /limit_usd numeric\(20,10\) not null check \(limit_usd >= 0\)/i);
-  assert.match(sql, /for select to authenticated/i);
-  assert.match(sql, /for all to authenticated/i);
+  assert.match(sql, /limit_usd numeric\(20,10\) not null default 0 check \(limit_usd >= 0\)/i);
+  assert.match(sql, /create index if not exists usage_ledger_user_idx/i);
 });
 
 test('monthly budget boundaries follow the Asia/Shanghai calendar', () => {

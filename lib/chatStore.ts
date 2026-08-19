@@ -1,4 +1,5 @@
-// 对话历史存取（用浏览器端 supabase 客户端，RLS 限制为本人）
+// Chat history persistence via the local browser client
+// 对话历史通过本地浏览器客户端存取，服务端按 user_id 限制为本人
 export type ChatSession = { id: string; title: string | null; updated_at: string };
 
 export async function listSessions(sb: any, projectId: string, scope: string): Promise<ChatSession[]> {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import type { CreatorCanvasGraph } from '@/lib/creator/types';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 export const runtime = 'nodejs';
 const MAX_GRAPH_BYTES = 900_000;
@@ -37,21 +37,21 @@ function normalizeGraph(value: unknown): CreatorCanvasGraph {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const context = await creatorContext();
     if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_canvases')
       .select('*')
       .eq('id', params.id)
@@ -75,7 +75,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       try { changes.graph = normalizeGraph(body.graph); } catch { return NextResponse.json({ error: '画布数据无效' }, { status: 400 }); }
     }
     if (!Object.keys(changes).length) return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 });
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_canvases')
       .update(changes)
       .eq('id', params.id)
@@ -94,7 +94,7 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   try {
     const context = await creatorContext();
     if (!context) return errorResponse('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_canvases')
       .delete()
       .eq('id', params.id)

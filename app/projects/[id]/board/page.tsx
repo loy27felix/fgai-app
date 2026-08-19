@@ -1,20 +1,20 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/local/server";
 import BoardWorkspace from "@/components/BoardWorkspace";
 import type { BibleFields, Episode, Role, Scene } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function BoardPage({ params }: { params: { id: string } }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) redirect("/");
   const projectId = params.id;
 
   const [{ data: project }, { data: member }] = await Promise.all([
-    supabase.from("projects").select("id,name,story_bible").eq("id", projectId).single(),
-    supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
+    localClient.from("projects").select("id,name,story_bible").eq("id", projectId).single(),
+    localClient.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
   ]);
   if (!project) redirect("/projects");
   if (!member) {
@@ -29,22 +29,22 @@ export default async function BoardPage({ params }: { params: { id: string } }) 
   const canEdit = role === "owner" || role === "editor";
   const bible = (project.story_bible || {}) as BibleFields;
 
-  const { data: episodes } = await supabase.from("episodes").select("id, project_id, idx, title").eq("project_id", projectId).order("idx");
-  const epIds = (episodes || []).map((e) => e.id);
+  const { data: episodes } = await localClient.from("episodes").select("id, project_id, idx, title").eq("project_id", projectId).order("idx");
+  const epIds = (episodes || []).map((e: any) => e.id);
   const { data: scenes } = epIds.length
-    ? await supabase.from("scenes").select("id, episode_id, idx, title, setting").in("episode_id", epIds).order("idx")
+    ? await localClient.from("scenes").select("id, episode_id, idx, title, setting").in("episode_id", epIds).order("idx")
     : { data: [] as Scene[] };
   const allScenes = (scenes || []) as Scene[];
   const sceneIds = allScenes.map((s) => s.id);
 
   const [{ data: shots }, { data: scripts }] = sceneIds.length
     ? await Promise.all([
-        supabase.from("shots").select("id, scene_id, no, title, time_start, time_end, duration_s, script_beat, frame_path, roles").in("scene_id", sceneIds).order("no"),
-        supabase.from("scripts").select("scene_id, body").in("scene_id", sceneIds),
+        localClient.from("shots").select("id, scene_id, no, title, time_start, time_end, duration_s, script_beat, frame_path, roles").in("scene_id", sceneIds).order("no"),
+        localClient.from("scripts").select("scene_id, body").in("scene_id", sceneIds),
       ])
     : [{ data: [] as any[] }, { data: [] as any[] }];
   const scriptText = allScenes.map((s) => {
-    const ep = (episodes || []).find((e) => e.id === s.episode_id);
+    const ep = (episodes || []).find((e: any) => e.id === s.episode_id);
     const body = (scripts || []).find((x: any) => x.scene_id === s.id)?.body || "";
     return body ? `【第${ep?.idx || "?"}集·第${s.idx}场 ${s.title || ""}】\n${body}` : "";
   }).filter(Boolean).join("\n\n").slice(0, 9000);

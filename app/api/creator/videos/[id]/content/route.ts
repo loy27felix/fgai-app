@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GET as getVideoTask } from '../route';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient } from '@/lib/local/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

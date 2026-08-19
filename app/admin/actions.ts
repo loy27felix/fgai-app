@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/local/server";
+import { createAdminClient } from "@/lib/local/admin";
 import { isMonthStartKey } from "@/lib/usage/budget";
 import { getUsdToCnyRate } from "@/lib/usage/fx";
 

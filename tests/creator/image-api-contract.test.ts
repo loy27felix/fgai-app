@@ -132,7 +132,7 @@ class FakeItemLookup {
   async maybeSingle() { return this.result; }
 }
 
-class FakeItemSupabase {
+class FakeItemLocalClient {
   readonly queries: FakeItemLookup[] = [];
   readonly auth = { getUser: async () => ({ data: { user: { id: 'u1' } } }) };
   readonly storage = { from: (_bucket: string) => ({ bucket: 'creator-assets' }) };
@@ -158,10 +158,10 @@ function itemRequest(body: string) {
 }
 
 function itemFixture(options: { lookup?: LookupResult; confirmError?: unknown; deleteError?: unknown } = {}) {
-  const supabase = new FakeItemSupabase(options.lookup || { data: routeTask, error: null });
+  const localClient = new FakeItemLocalClient(options.lookup || { data: routeTask, error: null });
   const calls = { confirm: 0, delete: 0 };
   const handlers = createImageItemHandlers({
-    createClient: () => supabase,
+    createClient: () => localClient,
     ensureCreatorWorkspace: async () => ({ id: 'w1' }),
     confirmImageReferenceUploads: async () => {
       calls.confirm += 1;
@@ -174,7 +174,7 @@ function itemFixture(options: { lookup?: LookupResult; confirmError?: unknown; d
       return { id: 't1' };
     },
   });
-  return { handlers, supabase, calls };
+  return { handlers, localClient, calls };
 }
 
 function assertItemLookup(query: FakeItemLookup) {
@@ -184,11 +184,11 @@ function assertItemLookup(query: FakeItemLookup) {
 }
 
 test('PATCH factory handler scopes owned lookup and confirms once on success', async () => {
-  const { handlers, supabase, calls } = itemFixture();
+  const { handlers, localClient, calls } = itemFixture();
   const response = await handlers.PATCH(itemRequest('{"referencePaths":[]}'), { params: { id: 't1' } });
   assert.equal(response.status, 200);
   assert.equal(calls.confirm, 1);
-  assertItemLookup(supabase.queries[0]);
+  assertItemLookup(localClient.queries[0]);
 });
 
 test('PATCH factory handler returns 404 without confirming an absent task', async () => {
@@ -221,7 +221,7 @@ test('PATCH factory handler returns stable 4xx for confirm failure', async () =>
 });
 
 test('PATCH factory handler returns stable 500 for owned lookup error', async () => {
-  const { handlers, supabase, calls } = itemFixture({
+  const { handlers, localClient, calls } = itemFixture({
     lookup: { data: null, error: new Error('secret database detail') },
   });
   const response = await handlers.PATCH(itemRequest('{"referencePaths":[]}'), { params: { id: 't1' } });
@@ -230,16 +230,16 @@ test('PATCH factory handler returns stable 500 for owned lookup error', async ()
   assert.equal(payload.code, 'UPLOAD_CONFIRM_FAILED');
   assert.doesNotMatch(JSON.stringify(payload), /secret database detail/);
   assert.equal(calls.confirm, 0);
-  assertItemLookup(supabase.queries[0]);
+  assertItemLookup(localClient.queries[0]);
 });
 
 test('DELETE factory handler scopes owned lookup and deletes once on success', async () => {
-  const { handlers, supabase, calls } = itemFixture();
+  const { handlers, localClient, calls } = itemFixture();
   const response = await handlers.DELETE(new Request('http://local', { method: 'DELETE' }), { params: { id: 't1' } });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, id: 't1' });
   assert.equal(calls.delete, 1);
-  assertItemLookup(supabase.queries[0]);
+  assertItemLookup(localClient.queries[0]);
 });
 
 test('DELETE factory handler returns 404 without deleting an absent task', async () => {
@@ -286,7 +286,7 @@ class FakeConfirmQuery {
   async maybeSingle() { return this.result; }
 }
 
-class FakeConfirmSupabase {
+class FakeConfirmLocalClient {
   readonly auth = { getUser: async () => ({ data: { user: { id: 'u1' } } }) };
   readonly storage = { from: (_bucket: string) => ({}) };
   readonly queries: FakeConfirmQuery[] = [];
@@ -303,13 +303,13 @@ function confirmFixture(
   confirm: (input: unknown, deps: unknown) => Promise<unknown>,
   current: { data: unknown; error: unknown | null } = { data: { id: 't1', status: 'submitting' }, error: null },
 ) {
-  const supabase = new FakeConfirmSupabase(current);
+  const localClient = new FakeConfirmLocalClient(current);
   const handlers = createImageConfirmHandlers({
-    createClient: () => supabase,
+    createClient: () => localClient,
     ensureCreatorWorkspace: async () => ({ id: 'w1' }),
     confirmCreatorImage: confirm as never,
   });
-  return { handlers, supabase };
+  return { handlers, localClient };
 }
 
 function assertConfirmClaimFilters(query: FakeConfirmQuery) {
@@ -347,30 +347,30 @@ test('confirm factory returns a real Response on success', async () => {
 });
 
 test('confirm factory replays the current task for duplicate confirmation', async () => {
-  const { handlers, supabase } = confirmFixture(async () => ({ duplicate: true }));
+  const { handlers, localClient } = confirmFixture(async () => ({ duplicate: true }));
   const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), {
     duplicate: true,
     task: { id: 't1', status: 'submitting' },
   });
-  assertConfirmLookupFilters(supabase.queries[0]);
+  assertConfirmLookupFilters(localClient.queries[0]);
 });
 
 test('confirm factory claim uses an atomic owner-scoped draft filter', async () => {
-  const { handlers, supabase } = confirmFixture(async (_input, dependencies) => {
+  const { handlers, localClient } = confirmFixture(async (_input, dependencies) => {
     await (dependencies as { claimDraft: (input: { taskId: string; userId: string; workspaceId: string }) => Promise<unknown> })
       .claimDraft({ taskId: 't1', userId: 'u1', workspaceId: 'w1' });
     return { duplicate: true };
   });
   const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
   assert.equal(result.status, 200);
-  assertConfirmClaimFilters(supabase.queries[0]);
-  assertConfirmLookupFilters(supabase.queries[1]);
+  assertConfirmClaimFilters(localClient.queries[0]);
+  assertConfirmLookupFilters(localClient.queries[1]);
 });
 
 test('confirm factory duplicate reconciliation state never replays as a normal duplicate', async () => {
-  const { handlers, supabase } = confirmFixture(
+  const { handlers, localClient } = confirmFixture(
     async () => ({ duplicate: true }),
     { data: { id: 't1', status: 'succeeded', output: { requires_reconciliation: true } }, error: null },
   );
@@ -379,7 +379,7 @@ test('confirm factory duplicate reconciliation state never replays as a normal d
   assert.equal(result.status, 503);
   assert.equal(payload.code, 'LEDGER_RECONCILIATION_REQUIRED');
   assert.equal(payload.requiresReconciliation, true);
-  assertConfirmLookupFilters(supabase.queries[0]);
+  assertConfirmLookupFilters(localClient.queries[0]);
 });
 
 test('confirm factory maps result reconciliation to a stable 503', async () => {
@@ -417,10 +417,10 @@ test('confirm factory exposes the sanitized Wetoken rejection for retry guidance
 
 test('confirm factory rejects unauthenticated requests before invoking the service', async () => {
   let calls = 0;
-  const supabase = new FakeConfirmSupabase({ data: null, error: null });
-  (supabase.auth.getUser as () => Promise<unknown>) = async () => ({ data: { user: null } });
+  const localClient = new FakeConfirmLocalClient({ data: null, error: null });
+  (localClient.auth.getUser as () => Promise<unknown>) = async () => ({ data: { user: null } });
   const handlers = createImageConfirmHandlers({
-    createClient: () => supabase,
+    createClient: () => localClient,
     ensureCreatorWorkspace: async () => ({ id: 'w1' }),
     confirmCreatorImage: async () => { calls += 1; return {}; },
   });

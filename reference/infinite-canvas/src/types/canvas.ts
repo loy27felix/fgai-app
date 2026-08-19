@@ -66,7 +66,7 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     groupId?: string;
     interactive?: boolean; // 插件节点「交互 ⇄ 移动」开关状态(见 CanvasNodeDefinition.interactionToggle)
-    cloudStoragePath?: string; // Supabase creator-assets 中的持久化副本
+    cloudStoragePath?: string; // Local creator-assets 中的持久化副本
     cloudAssetId?: string;
     externalTaskId?: string; // Wetoken reference ID，用于视频任务恢复
 };

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { chatWithTextModel } from '@/lib/ai/text';
 import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import type { ChatMessage, ChatMode } from '@/lib/deepseek';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from '@/lib/usage/budget';
 
@@ -21,8 +21,8 @@ type ChatRequestBody = {
 };
 
 export async function POST(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   let body: ChatRequestBody;
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 
     try {
       const usage = result.usage;
-      await supabase.from('ai_usage').insert({
+      await localClient.from('ai_usage').insert({
         user_id: user.id,
         project_id: body.projectId ?? null,
         model: spec.id,

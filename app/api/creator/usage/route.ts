@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { fxSnapshot, getUsdToCnyRate } from '@/lib/usage/fx';
 import { getMonthlyUsageSummary } from '@/lib/usage/budget';
 import { summarizeUsageRows, withEligibleCatalogEstimate } from '@/lib/usage/reporting';
@@ -101,13 +101,13 @@ function normalizeRecord(value: Record<string, unknown>): UsageRecord {
 }
 
 export async function GET(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '请先登录', code: 'UNAUTHENTICATED' }, { status: 401 });
 
   const rawLimit = Number(new URL(req.url).searchParams.get('limit') || 100);
   const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, Math.floor(rawLimit))) : 100;
-  const result = await supabase
+  const result = await localClient
     .from('ai_usage_ledger')
     .select(USAGE_FIELDS, { count: 'exact' })
     .eq('user_id', user.id)

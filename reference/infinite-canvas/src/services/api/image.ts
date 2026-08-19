@@ -7,7 +7,7 @@ import { dataUrlToFile } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { buildImageReferencePromptText } from "@/reference/infinite-canvas/src/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-storage";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
 import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
 
@@ -728,10 +728,10 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     const files = await Promise.all(references.slice(0, 8).map((image, index) => fgReferenceFile(image, index)));
     const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     const ratio = config.size.includes(":") ? config.size : "1:1";
-    const supabase = createClient();
+    const localClient = createClient();
     const draft = await createImageDraft({ canvasId: null, nodeId: null, prompt, model, ratio, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: crypto.randomUUID() });
     for (let index = 0; index < files.length; index += 1) {
-        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
+        const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
         if (upload.error) throw upload.error;
     }
     await finalizeImageUploads(draft.task.id, draft.uploadPaths);

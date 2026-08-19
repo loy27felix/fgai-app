@@ -12,6 +12,7 @@ import {
 import { getVideoModel, VIDEO_MODELS } from '@/lib/ai/video-models';
 import StudioShell from '@/components/studio/StudioShell';
 import { Icon } from '@/components/studio/ui';
+import { localMediaUrl } from '@/lib/local/client';
 
 type ShotRow = {
   id: string;
@@ -26,8 +27,7 @@ type ShotRow = {
   roles?: string[] | null;
 };
 
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const fu = (path?: string | null) => path ? `${SB_URL}/storage/v1/object/public/project-assets/${path}` : null;
+const fu = (path?: string | null) => path ? localMediaUrl('project-assets', path) : null;
 const pad = (n: number) => `EP${String(n).padStart(2, '0')}`;
 const STATUS: Record<string, { label: string; color: string }> = {
   queued: { label: '排队中', color: '#d0a85c' },

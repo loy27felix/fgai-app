@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/local/server';
+import { createAdminClient } from '@/lib/local/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,13 +12,13 @@ function errorResponse(message: string, code: string, status: number) {
 
 /** Proxy a private canvas asset on the app origin for reliable media playback. */
 export async function GET(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
   const path = new URL(req.url).searchParams.get('path') || '';
   if (!path || path.includes('..') || path.split('/')[0] !== user.id) return errorResponse('素材路径无效', 'INVALID_PATH', 400);
   let signedUrl = '';
-  const userSigned = await supabase.storage.from('creator-assets').createSignedUrl(path, 300);
+  const userSigned = await localClient.storage.from('creator-assets').createSignedUrl(path, 300);
   if (!userSigned.error && userSigned.data?.signedUrl) signedUrl = userSigned.data.signedUrl;
   if (!signedUrl) {
     try {

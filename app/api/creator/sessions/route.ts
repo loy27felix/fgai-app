@@ -1,18 +1,18 @@
 import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 export const runtime = 'nodejs';
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 
 export async function GET(req: Request) {
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     const context = await creatorContext();
     if (!context) return NextResponse.json({ error: '未登录' }, { status: 401 });
     const sessionId = new URL(req.url).searchParams.get('sessionId');
-    const { data: sessions, error } = await context.supabase
+    const { data: sessions, error } = await context.localClient
       .from('creator_sessions')
       .select('*')
       .eq('workspace_id', context.workspace.id)
@@ -30,9 +30,9 @@ export async function GET(req: Request) {
 
     let messages: unknown[] = [];
     if (sessionId) {
-      const owned = (sessions || []).some((session) => session.id === sessionId);
+      const owned = (sessions || []).some((session: any) => session.id === sessionId);
       if (!owned) return NextResponse.json({ error: '会话不存在' }, { status: 404 });
-      const result = await context.supabase
+      const result = await context.localClient
         .from('creator_messages')
         .select('*')
         .eq('session_id', sessionId)
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     if (!context) return NextResponse.json({ error: '未登录' }, { status: 401 });
     const body = await req.json().catch(() => ({}));
     const kind = ['chat', 'image', 'video'].includes(body.kind) ? body.kind : 'chat';
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_sessions')
       .insert({
         workspace_id: context.workspace.id,
@@ -79,7 +79,7 @@ export async function PATCH(req: Request) {
     if (typeof body.title === 'string' && body.title.trim()) changes.title = body.title.trim().slice(0, 80);
     if (typeof body.model === 'string') changes.default_model = body.model;
     if (body.archived === true) changes.archived_at = new Date().toISOString();
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_sessions')
       .update(changes)
       .eq('id', body.id)
@@ -99,7 +99,7 @@ export async function DELETE(req: Request) {
     if (!context) return NextResponse.json({ error: '未登录' }, { status: 401 });
     const sessionId = new URL(req.url).searchParams.get('sessionId');
     if (!sessionId) return NextResponse.json({ error: '缺少会话 ID' }, { status: 400 });
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_sessions')
       .delete()
       .eq('id', sessionId)

@@ -7,8 +7,8 @@ import {
 } from '@/lib/creator/video';
 import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/local/admin';
+import { createClient } from '@/lib/local/server';
 import {
   buildVideoLedgerEntry,
   recordUsageRequired,
@@ -63,14 +63,14 @@ function normalizeReferences(value: unknown): VideoReferenceManifest[] {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 type CreatorVideoContext = NonNullable<Awaited<ReturnType<typeof creatorContext>>>;
 
@@ -107,7 +107,7 @@ async function updateOwnedTask(
 
   let sessionResult: { data?: unknown; error?: unknown } = {};
   try {
-    sessionResult = await apply(context.supabase);
+    sessionResult = await apply(context.localClient);
     if (!sessionResult.error && sessionResult.data) return sessionResult.data as CreatorVideoTask;
   } catch (error) {
     sessionResult = { error };
@@ -137,7 +137,7 @@ async function updateOwnedTask(
 }
 
 async function ownedTask(context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>, taskId: string) {
-  const result = await context.supabase
+  const result = await context.localClient
     .from('creator_generation_tasks')
     .select('*')
     .eq('id', taskId)
@@ -151,7 +151,7 @@ async function ownedTask(context: NonNullable<Awaited<ReturnType<typeof creatorC
 
 async function viewTask(context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>, task: CreatorVideoTask): Promise<CreatorVideoTaskView> {
   const request = asRecord(task.request);
-  const bucket = context.supabase.storage.from('creator-assets');
+  const bucket = context.localClient.storage.from('creator-assets');
   let paths: string[] = [];
   try {
     const manifest = normalizeReferences(request.reference_manifest);
@@ -178,7 +178,7 @@ async function buildProviderReferences(
   const request = asRecord(task.request);
   if (request.uploads_complete !== true) throw new Error(ERRORS.REFERENCES_NOT_READY);
   const paths = validateCompletedReferencePaths(request.reference_paths, validated.references, task.user_id, task.id);
-  const bucket = context.supabase.storage.from('creator-assets');
+  const bucket = context.localClient.storage.from('creator-assets');
   const references: VideoReference[] = [];
   for (let index = 0; index < paths.length; index += 1) {
     const signed = await bucket.createSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
@@ -220,7 +220,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
     const task = await ownedTask(context, params.id);
     if (!task) return response(ERRORS.NOT_FOUND, 'VIDEO_TASK_NOT_FOUND', 404);
 
-    const claim = await context.supabase
+    const claim = await context.localClient
       .from('creator_generation_tasks')
       .update({ status: 'submitting', confirmed_at: new Date().toISOString(), error: null })
       .eq('id', task.id)
@@ -244,7 +244,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
       if (asRecord(claimed.request).uploads_complete !== true) throw new Error(ERRORS.REFERENCES_NOT_READY);
     } catch (error) {
       const normalized = new Error(ERRORS.INVALID_DRAFT);
-      await context.supabase.from('creator_generation_tasks').update({ status: 'draft', confirmed_at: null, error: normalized.message }).eq('id', claimed.id).eq('status', 'submitting');
+      await context.localClient.from('creator_generation_tasks').update({ status: 'draft', confirmed_at: null, error: normalized.message }).eq('id', claimed.id).eq('status', 'submitting');
       throw normalized;
     }
 
@@ -256,7 +256,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
       // entry for a provider call that never happened.
       references = await buildProviderReferences(context, claimed, validated);
     } catch (error) {
-      await context.supabase.from('creator_generation_tasks').update({
+      await context.localClient.from('creator_generation_tasks').update({
         status: 'draft',
         confirmed_at: null,
         error: ERRORS.REFERENCES_NOT_READY,
@@ -270,7 +270,7 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
       estimatedCostUsd: pricing?.estimatedCostUsd,
     });
     if (!budget.allowed) {
-      await context.supabase.from('creator_generation_tasks').update({
+      await context.localClient.from('creator_generation_tasks').update({
         status: 'draft',
         confirmed_at: null,
         error: budget.message,
@@ -294,7 +294,7 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
       }));
     } catch (error) {
       console.error('[creator video ledger]', error);
-      await context.supabase.from('creator_generation_tasks').update({ status: 'draft', confirmed_at: null, error: ERRORS.USAGE_RECORD_FAILED }).eq('id', claimed.id).eq('status', 'submitting');
+      await context.localClient.from('creator_generation_tasks').update({ status: 'draft', confirmed_at: null, error: ERRORS.USAGE_RECORD_FAILED }).eq('id', claimed.id).eq('status', 'submitting');
       throw new Error(ERRORS.USAGE_RECORD_FAILED);
     }
 

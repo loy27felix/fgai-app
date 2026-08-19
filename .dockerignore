@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.codex
+.env*
+!.env.docker.example
+coverage
+tsconfig.tsbuildinfo

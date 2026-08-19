@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import FGLogo from "@/components/FGLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { companyEmailFromUsername, normalizeCompanyUsername } from "@/lib/auth/company-email";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 
 const EchoText: any = dynamic(() => import("@/components/react-bits/EchoText"), { ssr: false });
 const DepthText: any = dynamic(() => import("@/components/react-bits/DepthText"), { ssr: false });
@@ -65,7 +65,7 @@ function LoopBackdrop({ videoSrc, fallbackSrc, alt, className = "" }: { videoSrc
 
 export default function Landing() {
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
+  const localClient = useMemo(() => createClient(), []);
   const [authed, setAuthed] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -77,8 +77,8 @@ export default function Landing() {
   const [introProgress, setIntroProgress] = useState(0);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setAuthed(Boolean(data.session)));
-  }, [supabase]);
+    localClient.auth.getSession().then(({ data }) => setAuthed(Boolean(data.session)));
+  }, [localClient]);
 
   useEffect(() => {
     let frame = 0;
@@ -119,13 +119,13 @@ export default function Landing() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email: companyEmail, password });
+        const { error } = await localClient.auth.signUp({ email: companyEmail, password });
         if (error) throw error;
-        const { data } = await supabase.auth.getSession();
+        const { data } = await localClient.auth.getSession();
         if (data.session) router.replace("/workspace");
         else setMessage("注册成功，请到公司邮箱完成验证后再登录。");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: companyEmail, password });
+        const { error } = await localClient.auth.signInWithPassword({ email: companyEmail, password });
         if (error) throw error;
         router.replace("/workspace");
       }

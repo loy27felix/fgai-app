@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import {
   assertOwnedResultPath,
@@ -91,8 +91,8 @@ function validateGeneratedImage(generated: ImageGenerationResult) {
   }
 }
 
-function storageAdapter(supabase: ReturnType<typeof createClient>): CreatorImageStorage {
-  const bucket = supabase.storage.from('creator-assets');
+function storageAdapter(localClient: ReturnType<typeof createClient>): CreatorImageStorage {
+  const bucket = localClient.storage.from('creator-assets');
   return {
     download: (path) => bucket.download(path),
     list: (prefix, options) => bucket.list(prefix, options),
@@ -142,7 +142,7 @@ function taskNeedsLedgerReconciliation(value: unknown) {
 }
 
 export async function persistGeneratedImage(
-  supabase: ReturnType<typeof createClient>,
+  localClient: ReturnType<typeof createClient>,
   input: {
     task: ConfirmImageTask;
     requestId: string;
@@ -152,7 +152,7 @@ export async function persistGeneratedImage(
   },
   options: { updateUsageStatus?: typeof updateImageUsageStatus } = {},
 ): Promise<ConfirmImageResult> {
-  const bucket = supabase.storage.from('creator-assets');
+  const bucket = localClient.storage.from('creator-assets');
   const updateLedgerStatus = options.updateUsageStatus ?? updateImageUsageStatus;
   const resultPath = `${input.userId}/image-tasks/${input.task.id}/result.${extensionFor(input.generated.mimeType)}`;
   assertOwnedResultPath(resultPath, input.userId, input.task.id);
@@ -171,7 +171,7 @@ export async function persistGeneratedImage(
     }
     if (asset && !taskUpdated) {
       try {
-        await supabase
+        await localClient
           .from('creator_assets')
           .delete()
           .eq('id', asset.id)
@@ -194,7 +194,7 @@ export async function persistGeneratedImage(
     });
     if (uploaded.error) throw new CreatorImageConfirmError('RESULT_PERSIST_FAILED', uploaded.error);
 
-    const inserted = await supabase
+    const inserted = await localClient
       .from('creator_assets')
       .insert({
         workspace_id: input.workspaceId,
@@ -236,7 +236,7 @@ export async function persistGeneratedImage(
     const output = { ...asRecord(input.task.output), asset_id: asset.id };
     let updated: { data: unknown; error: unknown | null };
     try {
-      updated = await supabase
+      updated = await localClient
         .from('creator_generation_tasks')
         .update({ output, status: 'succeeded', completed_at: completedAt, error: null })
         .eq('id', input.task.id)
@@ -277,7 +277,7 @@ export async function persistGeneratedImage(
     if (ledgerStatus === 'unknown') {
       try {
         const currentOutput = asRecord(asRecord(persistedTask).output);
-        const marked = await supabase
+        const marked = await localClient
           .from('creator_generation_tasks')
           .update({
             output: {
@@ -334,14 +334,14 @@ export async function persistGeneratedImage(
 }
 
 function productionDependencies(
-  supabase: ReturnType<typeof createClient>,
+  localClient: ReturnType<typeof createClient>,
   userId: string,
   workspaceId: string,
 ): ConfirmImageDependencies {
-  const storage = storageAdapter(supabase);
+  const storage = storageAdapter(localClient);
   return {
     claimDraft: async (input) => {
-      const claimed = await supabase
+      const claimed = await localClient
         .from('creator_generation_tasks')
         .update({ status: 'submitting', confirmed_at: new Date().toISOString(), error: null })
         .eq('id', input.taskId)
@@ -409,7 +409,7 @@ recordAttempt: async ({ requestId, task }) => {
     validateGenerated: validateGeneratedImage,
     persistSuccess: async ({ task, requestId, generated }) => {
       const result = await persistGeneratedImage(
-        supabase,
+        localClient,
         { task, requestId, generated, userId, workspaceId },
       );
       const reportedCostUsd = extractReportedCostUsd(generated.usage);
@@ -426,7 +426,7 @@ recordAttempt: async ({ requestId, task }) => {
         completed_at: null,
       };
       if (status === 'draft') failureUpdate.confirmed_at = null;
-      const updated = await supabase
+      const updated = await localClient
         .from('creator_generation_tasks')
         .update(failureUpdate)
         .eq('id', task.id)
@@ -453,21 +453,21 @@ recordAttempt: async ({ requestId, task }) => {
 
 export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
   async function creatorContext() {
-    const supabase = deps.createClient() as ReturnType<typeof createClient>;
-    const { data: { user } } = await supabase.auth.getUser();
+    const localClient = deps.createClient() as ReturnType<typeof createClient>;
+    const { data: { user } } = await localClient.auth.getUser();
     if (!user) return null;
     const workspace = await deps.ensureCreatorWorkspace({
-      rpc: async () => supabase.rpc('ensure_creator_workspace'),
-      load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+      rpc: async () => localClient.rpc('ensure_creator_workspace'),
+      load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
     }, user.id);
-    return { supabase, user, workspace };
+    return { localClient, user, workspace };
   }
 
   async function findOwnedTask(
     context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
     taskId: string,
   ) {
-    return context.supabase
+    return context.localClient
       .from('creator_generation_tasks')
       .select('*')
       .eq('id', taskId)
@@ -488,7 +488,7 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
       };
       const result = await deps.confirmCreatorImage(
         input,
-        productionDependencies(context.supabase, context.user.id, context.workspace.id),
+        productionDependencies(context.localClient, context.user.id, context.workspace.id),
       );
       if (result.duplicate) {
         const currentTask = result.task;

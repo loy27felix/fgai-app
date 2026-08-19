@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/local/server";
 
 export const runtime = "nodejs";
 
@@ -8,8 +8,8 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const PRIVATE_HOSTNAME = /(^|\.)(localhost|local|internal)$/i;
 
 export async function GET(request: NextRequest) {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const localClient = createClient();
+    const { data: { user } } = await localClient.auth.getUser();
     if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
     const rawUrl = request.nextUrl.searchParams.get("url")?.trim() || "";

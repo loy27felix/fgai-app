@@ -8,7 +8,7 @@ import {
 } from '@/lib/creator/imageStorage';
 import type { CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 type RouteContext = { params: { id: string } };
 
@@ -50,21 +50,21 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
   async function creatorContext() {
-    const supabase = deps.createClient() as ReturnType<typeof createClient>;
-    const { data: { user } } = await supabase.auth.getUser();
+    const localClient = deps.createClient() as ReturnType<typeof createClient>;
+    const { data: { user } } = await localClient.auth.getUser();
     if (!user) return null;
     const workspace = await deps.ensureCreatorWorkspace({
-      rpc: async () => supabase.rpc('ensure_creator_workspace'),
-      load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+      rpc: async () => localClient.rpc('ensure_creator_workspace'),
+      load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
     }, user.id);
-    return { supabase, user, workspace };
+    return { localClient, user, workspace };
   }
 
   async function findOwnedTask(
     context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
     id: string,
   ) {
-    return context.supabase
+    return context.localClient
       .from('creator_generation_tasks')
       .select('*')
       .eq('id', id)
@@ -101,7 +101,7 @@ export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
 
       const store: CreatorImagePatchStore = {
         updateTask: async (id, workspaceId, userId, request) => {
-          const updated = await context.supabase
+          const updated = await context.localClient
             .from('creator_generation_tasks')
             .update({ request })
             .eq('id', id)
@@ -114,7 +114,7 @@ export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
         },
       };
       const updated = await deps.confirmImageReferenceUploads(
-        context.supabase.storage.from('creator-assets'),
+        context.localClient.storage.from('creator-assets'),
         store,
         {
           id: task.id,
@@ -152,7 +152,7 @@ export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
 
       const store: CreatorImageDeletionStore = {
         loadAsset: async (id, workspaceId) => {
-          const found = await context.supabase
+          const found = await context.localClient
             .from('creator_assets')
             .select('id,storage_path')
             .eq('id', id)
@@ -166,7 +166,7 @@ export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
           };
         },
         deleteAsset: async (id, workspaceId) => {
-          const deleted = await context.supabase
+          const deleted = await context.localClient
             .from('creator_assets')
             .delete()
             .eq('id', id)
@@ -178,7 +178,7 @@ export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
           return { deleted: !!deleted.data, error: deleted.error };
         },
         deleteTask: async (id, workspaceId, userId) => {
-          const deleted = await context.supabase
+          const deleted = await context.localClient
             .from('creator_generation_tasks')
             .delete()
             .eq('id', id)
@@ -192,7 +192,7 @@ export function createImageItemHandlers(deps: ImageItemHandlerDeps) {
       };
 
       const deleted = await deps.deleteOwnedImageTask(
-        context.supabase.storage.from('creator-assets'),
+        context.localClient.storage.from('creator-assets'),
         store,
         {
           id: task.id,

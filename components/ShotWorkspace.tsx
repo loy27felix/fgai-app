@@ -8,6 +8,7 @@ import { generateImage } from '@/lib/ai/image-client';
 import StudioShell from "@/components/studio/StudioShell";
 import AiPanel from "@/components/studio/AiPanel";
 import { Icon, Hov, EditArea } from "@/components/studio/ui";
+import { localMediaUrl } from "@/lib/local/client";
 
 type ShotRow = {
   id: string; scene_id: string; no: string; title?: string | null; time_start?: string | null; time_end?: string | null; duration_s?: number | null;
@@ -15,8 +16,7 @@ type ShotRow = {
   frame_path?: string | null; keyframe_path?: string | null; storyboard_path?: string | null;
   keyframe_prompt?: string | null; storyboard_prompt?: string | null; video_prompt?: any; outputs?: any;
 };
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const fu = (p?: string | null) => (p ? `${SB_URL}/storage/v1/object/public/project-assets/${p}` : null);
+const fu = (p?: string | null) => (p ? localMediaUrl("project-assets", p) : null);
 const pad = (n: number) => "EP" + String(n).padStart(2, "0");
 const FORMATS = ["通用 I2V", "TapNow 格式", "LiblibAI 格式", "情绪导演 · Seedance"];
 const COMBOS = [

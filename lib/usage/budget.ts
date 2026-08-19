@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient } from '@/lib/local/admin';
 import { summarizeUsageRows } from './reporting';
 
 export const MONTHLY_BUDGET_EXCEEDED = 'MONTHLY_BUDGET_EXCEEDED';

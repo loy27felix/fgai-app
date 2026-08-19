@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { generateWetokenImage } from '@/lib/ai/image';
 import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
 import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
+import { readLocalFile } from '@/lib/local/storage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -32,28 +33,19 @@ function extensionFor(mimeType: string) {
 }
 
 async function referenceFromStorageUrl(value: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!supabaseUrl) throw new Error('缺少 NEXT_PUBLIC_SUPABASE_URL 环境变量');
-  const url = new URL(value);
-  const allowed = new URL(supabaseUrl);
-  if (url.origin !== allowed.origin || !url.pathname.startsWith('/storage/v1/object/public/project-assets/')) {
-    throw new Error('参考图 URL 不属于当前 Supabase Storage');
-  }
-  const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!response.ok) throw new Error(`读取参考图失败 (${response.status})`);
-  const contentLength = Number(response.headers.get('content-length') || 0);
-  if (contentLength > 10_000_000) throw new Error('单张参考图不能超过 10MB');
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const url = new URL(value, 'http://local');
+  if (url.pathname !== '/api/local/storage/content' || url.searchParams.get('bucket') !== 'project-assets') throw new Error('参考图 URL 不属于本地媒体服务');
+  const bytes = new Uint8Array(await readLocalFile('project-assets', url.searchParams.get('path') || ''));
   if (bytes.byteLength > 10_000_000) throw new Error('单张参考图不能超过 10MB');
   return {
     data: Buffer.from(bytes).toString('base64'),
-    mimeType: response.headers.get('content-type')?.split(';')[0] || 'image/png',
+    mimeType: url.searchParams.get('path')?.endsWith('.jpg') || url.searchParams.get('path')?.endsWith('.jpeg') ? 'image/jpeg' : 'image/png',
   };
 }
 
 export async function POST(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   let body: RequestBody;
@@ -66,7 +58,7 @@ export async function POST(req: Request) {
   if (!prompt) return NextResponse.json({ error: 'prompt 为空' }, { status: 400 });
   if (!getImageModel(model)) return NextResponse.json({ error: `不支持的图片模型：${model}` }, { status: 400 });
 
-  const { data: membership } = await supabase.from('project_members')
+  const { data: membership } = await localClient.from('project_members')
     .select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle();
   if (!membership) return NextResponse.json({ error: '无权访问该项目' }, { status: 403 });
   if (!['owner', 'editor'].includes(membership.role)) {
@@ -95,12 +87,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '镜头目标参数无效' }, { status: 400 });
   }
   if (toShot) {
-    const { data: shot } = await supabase.from('shots').select('id,scene_id').eq('id', body.shotId as string).maybeSingle();
+    const { data: shot } = await localClient.from('shots').select('id,scene_id').eq('id', body.shotId as string).maybeSingle();
     const { data: scene } = shot
-      ? await supabase.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle()
+      ? await localClient.from('scenes').select('id,episode_id').eq('id', shot.scene_id).maybeSingle()
       : { data: null };
     const { data: episode } = scene
-      ? await supabase.from('episodes').select('id,project_id').eq('id', scene.episode_id).maybeSingle()
+      ? await localClient.from('episodes').select('id,project_id').eq('id', scene.episode_id).maybeSingle()
       : { data: null };
     if (!episode || episode.project_id !== projectId) {
       return NextResponse.json({ error: '镜头不属于当前项目' }, { status: 403 });
@@ -135,20 +127,20 @@ try {
     const folder = toShot ? 'board' : slugType(body.type || '人物');
     const basename = toShot ? `${body.shotId}-${body.shotField}` : 'gen';
     const path = `${projectId}/${folder}/${basename}-${Date.now()}.${ext}`;
-    const upload = await supabase.storage.from('project-assets').upload(path, generated.bytes, {
+    const upload = await localClient.storage.from('project-assets').upload(path, generated.bytes, {
       contentType: generated.mimeType,
       upsert: false,
     });
     if (upload.error) return NextResponse.json({ error: `存储失败：${upload.error.message}` }, { status: 500 });
 
-    const publicUrl = supabase.storage.from('project-assets').getPublicUrl(path).data.publicUrl;
+    const publicUrl = localClient.storage.from('project-assets').getPublicUrl(path).data.publicUrl;
     if (toShot) {
       const shotField = body.shotField as ShotField;
-      const { error } = await supabase.from('shots').update({ [shotField]: path })
+      const { error } = await localClient.from('shots').update({ [shotField]: path })
         .eq('id', body.shotId as string);
       if (error) return NextResponse.json({ error: `写回镜头失败：${error.message}` }, { status: 500 });
     } else {
-      const { error } = await supabase.from('assets').insert({
+      const { error } = await localClient.from('assets').insert({
         project_id: projectId,
         name: prompt.slice(0, 40),
         type: body.type || '人物',
@@ -163,7 +155,7 @@ try {
       : body.shotField === 'storyboard_path' ? 'storyboard'
         : body.shotField === 'frame_path' ? 'board'
           : references.length ? 'image-edit' : 'image';
-    await supabase.from('generations').insert({
+    await localClient.from('generations').insert({
       project_id: projectId, user_id: user.id, kind, model, key_owner: 'company',
     }).then(() => undefined, () => undefined);
 

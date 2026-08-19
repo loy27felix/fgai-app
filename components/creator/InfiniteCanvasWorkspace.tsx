@@ -16,7 +16,7 @@ import { getNodeSpec } from "@/constant/canvas";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type ConnectionHandle, type ContextMenuState, type Position, type ViewportTransform } from "@/types/canvas";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { VIDEO_MODELS, getVideoModel } from "@/lib/ai/video-models";
 import { createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
@@ -115,7 +115,7 @@ export default function InfiniteCanvasWorkspace({ userEmail, initialKind = "imag
   const loaded = useRef(false);
   const { theme, setTheme } = useThemeStore();
   const colors = canvasThemes[theme];
-  const supabase = useMemo(() => createClient(), []);
+  const localClient = useMemo(() => createClient(), []);
   const nodes = snapshot.nodes;
   const edges = snapshot.connections;
   const selected = nodes.find((node) => node.id === selectedIds[0]) || null;
@@ -267,20 +267,20 @@ export default function InfiniteCanvasWorkspace({ userEmail, initialKind = "imag
       if (output.type === CanvasNodeType.Image) {
         const references: ImageReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size }));
         const draft = await createImageDraft({ canvasId: null, nodeId: output.id, prompt: text, model, ratio, references, skill: null, idempotencyKey: crypto.randomUUID() });
-        for (let index = 0; index < files.length; index += 1) { const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }
+        for (let index = 0; index < files.length; index += 1) { const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }
         await finalizeImageUploads(draft.task.id, draft.uploadPaths);
         setPending({ kind: "image", nodeId: output.id, taskId: draft.task.id, prompt: text, model, references: files.length });
       } else {
         const references: VideoReferenceManifest[] = files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size, kind: file.type.startsWith("video/") ? "video" : "image", role: file.type.startsWith("video/") ? "reference_video" : "reference_image" } as VideoReferenceManifest));
         const spec = getVideoModel(model);
         const draft = await createVideoDraft({ canvasId: null, nodeId: output.id, prompt: text, model, references, duration: Math.max(4, Math.min(15, Number.isFinite(duration) ? duration : 5)), ratio, resolution: spec?.resolutions?.[0] || "720p", watermark: false, generateAudio: false, skill: null, idempotencyKey: crypto.randomUUID() });
-        for (let index = 0; index < files.length; index += 1) { const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }
+        for (let index = 0; index < files.length; index += 1) { const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type }); if (upload.error) throw upload.error; }
         await finalizeVideoUploads(draft.task.id, draft.uploadPaths);
         setPending({ kind: "video", nodeId: output.id, taskId: draft.task.id, prompt: text, model, references: files.length });
       }
       setNotice("草稿已准备好。确认弹窗中的按钮才会正式调用模型。");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "草稿准备失败。"); } finally { setBusy(false); }
-  }, [duration, inputs, kind, model, nodes, output, prompt, ratio, supabase]);
+  }, [duration, inputs, kind, model, nodes, output, prompt, ratio, localClient]);
 
   const confirm = useCallback(async () => {
     if (!pending) return;

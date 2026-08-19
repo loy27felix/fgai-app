@@ -152,7 +152,7 @@ function persistenceTask(): ConfirmImageTask {
   };
 }
 
-function fakePersistenceSupabase(options: {
+function fakePersistenceLocalClient(options: {
   assetResult: { data: unknown; error: unknown | null };
   taskResult: { data: unknown; error: unknown | null };
 }) {
@@ -231,7 +231,7 @@ const persistedAsset = {
 };
 
 test('asset insert failure removes the exact uploaded result and never updates the task', async () => {
-  const fake = fakePersistenceSupabase({
+  const fake = fakePersistenceLocalClient({
     assetResult: { data: null, error: new Error('asset insert failed') },
     taskResult: { data: null, error: null },
   });
@@ -243,7 +243,7 @@ test('asset insert failure removes the exact uploaded result and never updates t
 });
 
 test('task update error preserves the result and owner-scoped asset for reconciliation', async () => {
-  const fake = fakePersistenceSupabase({
+  const fake = fakePersistenceLocalClient({
     assetResult: { data: persistedAsset, error: null },
     taskResult: { data: null, error: new Error('task update outcome unknown') },
   });
@@ -267,7 +267,7 @@ test('task update error preserves the result and owner-scoped asset for reconcil
 });
 
 test('empty task update result preserves the result and asset for reconciliation', async () => {
-  const fake = fakePersistenceSupabase({
+  const fake = fakePersistenceLocalClient({
     assetResult: { data: persistedAsset, error: null },
     taskResult: { data: null, error: null },
   });
@@ -292,7 +292,7 @@ test('empty task update result preserves the result and asset for reconciliation
 
 
 test('ledger success write failure preserves the succeeded task and requires reconciliation', async () => {
-  const fake = fakePersistenceSupabase({
+  const fake = fakePersistenceLocalClient({
     assetResult: { data: persistedAsset, error: null },
     taskResult: { data: { id: 't1', status: 'succeeded' }, error: null },
   });
@@ -330,7 +330,7 @@ test('ledger success write failure preserves the succeeded task and requires rec
 });
 
 test('ledger status updater exceptions preserve the succeeded task and require reconciliation', async () => {
-  const fake = fakePersistenceSupabase({
+  const fake = fakePersistenceLocalClient({
     assetResult: { data: persistedAsset, error: null },
     taskResult: { data: { id: 't1', status: 'succeeded' }, error: null },
   });

@@ -11,7 +11,7 @@ import {
 } from '@/lib/creator/image';
 import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 export const runtime = 'nodejs';
 
@@ -81,14 +81,14 @@ function taskReferences(task: CreatorImageTask) {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 
 export async function GET() {
@@ -96,7 +96,7 @@ export async function GET() {
     const context = await creatorContext();
     if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
 
-    const { data, error } = await context.supabase
+    const { data, error } = await context.localClient
       .from('creator_generation_tasks')
       .select('*')
       .eq('workspace_id', context.workspace.id)
@@ -113,7 +113,7 @@ export async function GET() {
     })));
     let assets: CreatorImageAsset[] = [];
     if (assetIds.length) {
-      const result = await context.supabase
+      const result = await context.localClient
         .from('creator_assets')
         .select('*')
         .eq('workspace_id', context.workspace.id)
@@ -124,7 +124,7 @@ export async function GET() {
       assets = (result.data || []) as CreatorImageAsset[];
     }
     const assetsById = new Map(assets.map((asset) => [asset.id, asset]));
-    const bucket = context.supabase.storage.from('creator-assets');
+    const bucket = context.localClient.storage.from('creator-assets');
 
     const views = await Promise.all(tasks.map(async (task) => {
       const assetId = asRecord(task.output).asset_id;
@@ -192,7 +192,7 @@ export async function POST(req: Request) {
     }
 
     if (canvasId) {
-      const ownedCanvas = await context.supabase
+      const ownedCanvas = await context.localClient
         .from('creator_canvases')
         .select('id')
         .eq('id', canvasId)
@@ -202,7 +202,7 @@ export async function POST(req: Request) {
       if (ownedCanvas.error) throw ownedCanvas.error;
       if (!ownedCanvas.data) return response('\u753b\u5e03\u4e0d\u5b58\u5728', 'INVALID_CANVAS', 400);
     }
-    const inserted = await context.supabase
+    const inserted = await context.localClient
       .from('creator_generation_tasks')
       .upsert({
         workspace_id: context.workspace.id,
@@ -233,7 +233,7 @@ export async function POST(req: Request) {
     let replayed = false;
     if (!task) {
       replayed = true;
-      const existing = await context.supabase
+      const existing = await context.localClient
         .from('creator_generation_tasks')
         .select('*')
         .eq('idempotency_key', idempotencyKey)

@@ -5,7 +5,7 @@ import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 import { Hov, Icon, useFgTheme } from "@/components/studio/ui";
 import CreatorVideoNodeCanvas, { creatorVideoReferenceKey, type CreatorVideoCanvasGenerateInput, type CreatorVideoCanvasGraph, type VideoPreview } from "@/components/creator/CreatorVideoNodeCanvas";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import type { CreatorCanvas, CreatorVideoTask, CreatorVideoTaskView } from "@/lib/creator/types";
 import { createCreatorCanvas, deleteCreatorCanvas, listCreatorCanvases, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { confirmVideoTask, createVideoDraft, deleteVideoTask, finalizeVideoUploads, getVideoTask, listVideoTasks, CreatorImageClientError } from "@/lib/creator/video-client";
@@ -82,9 +82,9 @@ function newKey() { return typeof crypto !== "undefined" && crypto.randomUUID ? 
 
 export default function CreatorVideoWorkspace({ userEmail }: Props) {
   const { theme, toggle } = useFgTheme();
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
-  if (!supabaseRef.current) supabaseRef.current = createClient();
-  const supabase = supabaseRef.current;
+  const localClientRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!localClientRef.current) localClientRef.current = createClient();
+  const localClient = localClientRef.current;
   const [model, setModel] = useState(VIDEO_MODELS[0].id);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [ratio, setRatio] = useState("16:9");
@@ -202,7 +202,7 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
       const draft = await createVideoDraft({ canvasId: selectedCanvasId, nodeId: input?.nodeId || null, prompt: draftPrompt, model, references: manifests, duration, ratio, resolution, watermark, generateAudio, skill, idempotencyKey: newKey() });
       if (draft.uploadPaths.length !== chosen.length) throw new Error("upload plan mismatch");
       for (let index = 0; index < chosen.length; index += 1) {
-        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], chosen[index].file, { upsert: false, contentType: chosen[index].file.type });
+        const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], chosen[index].file, { upsert: false, contentType: chosen[index].file.type });
         if (upload.error) throw upload.error;
       }
       const ready = await finalizeVideoUploads(draft.task.id, draft.uploadPaths);

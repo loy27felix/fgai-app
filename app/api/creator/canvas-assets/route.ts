@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/local/server';
+import { createAdminClient } from '@/lib/local/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,14 +21,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 
 function safeName(value: string) {
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
     const path = new URL(req.url).searchParams.get('path') || '';
     if (!path || path.includes('..') || path.split('/')[0] !== context.user.id) return response('素材路径无效', 'INVALID_PATH', 400);
-    const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+    const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
     if (signed.error || !signed.data?.signedUrl) return response('素材不存在或已删除', 'ASSET_NOT_FOUND', 404);
     return NextResponse.json({ signedUrl: signed.data.signedUrl, path });
   } catch (error) {
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     const extension = extensionFor(file.type, name);
     const storagePath = context.user.id + '/canvas-assets/' + crypto.randomUUID() + '-' + name.replace(/\.[a-z0-9]{1,8}$/i, '') + '.' + extension;
     const body = new Uint8Array(await file.arrayBuffer());
-    let upload = await context.supabase.storage.from('creator-assets').upload(storagePath, body, { upsert: false, contentType: file.type || 'application/octet-stream' });
+    let upload = await context.localClient.storage.from('creator-assets').upload(storagePath, body, { upsert: false, contentType: file.type || 'application/octet-stream' });
     if (upload.error) {
       try {
         upload = await createAdminClient().storage.from('creator-assets').upload(storagePath, body, { upsert: false, contentType: file.type || 'application/octet-stream' });
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     }
     if (upload.error) return response('素材上传失败，请稍后重试', 'ASSET_UPLOAD_FAILED', 502);
 
-    const inserted = await context.supabase
+    const inserted = await context.localClient
       .from('creator_assets')
       .insert({
         workspace_id: context.workspace.id,
@@ -106,10 +106,10 @@ export async function POST(req: Request) {
       .select('id, storage_path')
       .single();
     if (inserted.error || !inserted.data) {
-      await context.supabase.storage.from('creator-assets').remove([storagePath]);
+      await context.localClient.storage.from('creator-assets').remove([storagePath]);
       return response('素材记录保存失败，请稍后重试', 'ASSET_RECORD_FAILED', 500);
     }
-    const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
+    const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
     return NextResponse.json({
       assetId: inserted.data.id,
       storagePath: inserted.data.storage_path,

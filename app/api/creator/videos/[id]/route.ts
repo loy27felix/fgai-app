@@ -9,8 +9,8 @@ import {
 } from '@/lib/creator/video';
 import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/local/server';
+import { createAdminClient } from '@/lib/local/admin';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { extractReportedCostUsd } from '@/lib/usage/pricing';
 import { ensureVideoOutputStored, persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
@@ -60,14 +60,14 @@ function normalizeReferences(value: unknown): VideoReferenceManifest[] {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 
 async function loadOwnedTask(
@@ -75,7 +75,7 @@ async function loadOwnedTask(
   id: string,
   allowExternalTaskId = false,
 ) {
-  const baseQuery = () => context.supabase
+  const baseQuery = () => context.localClient
     .from('creator_generation_tasks')
     .select('*')
     .eq('workspace_id', context.workspace.id)
@@ -292,7 +292,7 @@ async function recoverLegacyTask(
 
   const creatorTask = legacyAsCreatorTask(context, { ...task, error, completed_at: completedAt }, output, status);
   if (status === 'succeeded') output = await persistVideoOutput(context, creatorTask, output);
-  let updated = await context.supabase
+  let updated = await context.localClient
     .from('generation_tasks')
     .update({ status, output, error, completed_at: completedAt })
     .eq('id', task.id)
@@ -341,7 +341,7 @@ async function taskView(context: NonNullable<Awaited<ReturnType<typeof creatorCo
   let paths: string[] = [];
   try { paths = referencePathsFor(task); } catch { paths = []; }
   const referenceUrls = (await Promise.all(paths.map(async (path) => {
-    const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+    const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
     return signed.error ? null : signed.data.signedUrl;
   }))).filter((url): url is string => typeof url === 'string');
   const output = asRecord(task.output);
@@ -358,7 +358,7 @@ async function assertUploadedObjects(
   manifest: VideoReferenceManifest[],
 ) {
   if (paths.length === 0) return;
-  const bucket = context.supabase.storage.from('creator-assets');
+  const bucket = context.localClient.storage.from('creator-assets');
   const prefix = paths[0].split('/').slice(0, 4).join('/');
   const listed = await bucket.list(prefix, { limit: 1000 });
   if (listed.error) throw listed.error;
@@ -401,7 +401,7 @@ async function pollTask(
   const completedAt = ['succeeded', 'failed', 'expired'].includes(polled.status) ? new Date().toISOString() : null;
   let output: Record<string, unknown> = { ...asRecord(task.output), ...(polled.videoUrl ? { video_url: polled.videoUrl } : {}) };
   if (polled.status === 'succeeded') output = await persistVideoOutput(context, task, output);
-  const update = await context.supabase
+  const update = await context.localClient
     .from('creator_generation_tasks')
     .update({
       status: polled.status,
@@ -445,7 +445,7 @@ export async function POST(req: Request, { params }: RouteContext) {
     const expected = manifest[index];
     if (file.type !== expected.mimeType || file.size !== expected.size) return response('参考素材文件与草稿不匹配', 'INVALID_UPLOAD_FILE', 400);
     const body = new Blob([await file.arrayBuffer()], { type: file.type });
-    let upload = await context.supabase.storage.from('creator-assets').upload(path, body, { upsert: false, contentType: file.type });
+    let upload = await context.localClient.storage.from('creator-assets').upload(path, body, { upsert: false, contentType: file.type });
     if (upload.error) {
       try {
         upload = await createAdminClient().storage.from('creator-assets').upload(path, body, { upsert: false, contentType: file.type });
@@ -501,7 +501,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       reference_paths: paths,
       uploads_complete: true,
     };
-    const updated = await context.supabase
+    const updated = await context.localClient
       .from('creator_generation_tasks')
       .update({ request })
       .eq('id', task.id)
@@ -527,7 +527,7 @@ async function removeTaskFiles(context: NonNullable<Awaited<ReturnType<typeof cr
     return path;
   }).filter((path): path is string => typeof path === 'string');
   if (paths.length) {
-    const removed = await context.supabase.storage.from('creator-assets').remove(paths);
+    const removed = await context.localClient.storage.from('creator-assets').remove(paths);
     if (removed.error) throw removed.error;
   }
 }
@@ -539,7 +539,7 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
     const task = await loadOwnedTask(context, params.id);
     if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
     try { await removeTaskFiles(context, task); } catch (error) { console.error('[creator video file cleanup]', error); }
-    const deleted = await context.supabase
+    const deleted = await context.localClient
       .from('creator_generation_tasks')
       .delete()
       .eq('id', task.id)

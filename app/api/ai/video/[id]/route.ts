@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { getWetokenVideoTask } from '@/lib/ai/video';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { extractReportedCostUsd } from '@/lib/usage/pricing';
@@ -8,10 +8,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 45;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
-  const { data: task, error } = await supabase.from('generation_tasks')
+  const { data: task, error } = await localClient.from('generation_tasks')
     .select('id,project_id,shot_id,user_id,model,external_task_id,status,request,output,error,created_at,updated_at,completed_at')
     .eq('id', params.id).maybeSingle();
   if (error) return NextResponse.json({ error: `读取任务失败：${error.message}` }, { status: 500 });
@@ -28,7 +28,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       error: result.error || null,
       completed_at: terminal ? (task.completed_at || new Date().toISOString()) : null,
     };
-    const { error: updateError } = await supabase.from('generation_tasks').update(patch).eq('id', task.id);
+    const { error: updateError } = await localClient.from('generation_tasks').update(patch).eq('id', task.id);
     await updateVideoUsageBestEffort({
       requestId: `wetoken-video:${task.external_task_id}`,
       providerStatus: result.status,
@@ -37,7 +37,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
     if (updateError) return NextResponse.json({ error: `同步任务状态失败：${updateError.message}` }, { status: 500 });
     if (result.status === 'succeeded' && result.videoUrl && task.shot_id) {
-      const { error: shotError } = await supabase.from('shots').update({ video_url: result.videoUrl }).eq('id', task.shot_id);
+      const { error: shotError } = await localClient.from('shots').update({ video_url: result.videoUrl }).eq('id', task.shot_id);
       if (shotError) return NextResponse.json({ error: `视频已生成，但写回镜头失败：${shotError.message}` }, { status: 500 });
     }
     return NextResponse.json({

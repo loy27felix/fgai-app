@@ -3,18 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-const migrationPath = path.join(
-  process.cwd(),
-  'supabase/migrations/0005_creator_security_hardening.sql',
-);
+const routePath = path.join(process.cwd(), 'app/api/local/db/route.ts');
 
-test('creator security hardening scopes policies and function execution', () => {
-  assert.equal(fs.existsSync(migrationPath), true);
-  const sql = fs.readFileSync(migrationPath, 'utf8');
-  assert.match(sql, /revoke execute on function public\.ensure_creator_workspace\(\) from public, anon/);
-  assert.match(sql, /revoke execute on function public\.owns_creator_workspace\(uuid\) from public, anon/);
-  assert.match(sql, /grant execute on function public\.ensure_creator_workspace\(\) to authenticated/);
-  assert.match(sql, /for all to authenticated/);
-  assert.match(sql, /grant select, insert, update, delete on public\.creator_workspaces to authenticated/);
-  assert.match(sql, /grant select on public\.ai_usage_ledger to authenticated/);
+test('local database gateway uses an allowlist and user ownership scope', () => {
+  assert.equal(fs.existsSync(routePath), true);
+  const source = fs.readFileSync(routePath, 'utf8');
+  assert.match(source, /const allowedTables = new Set/);
+  assert.match(source, /const userScopedTables = new Set\(\["custom_presets", "chat_sessions", "canvases"\]\)/);
+  assert.match(source, /operation\.eq\("user_id", user\.id\)/);
+  assert.match(source, /if \(!user\)/);
 });

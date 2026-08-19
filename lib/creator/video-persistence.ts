@@ -1,11 +1,11 @@
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/local/admin';
+import { createClient } from '@/lib/local/server';
 import type { CreatorVideoTask } from '@/lib/creator/types';
 
 const MAX_VIDEO_BYTES = 320 * 1024 * 1024;
 
 type VideoStorageContext = {
-  supabase: ReturnType<typeof createClient>;
+  localClient: ReturnType<typeof createClient>;
   user: { id: string };
   workspace: { id: string };
 };
@@ -31,17 +31,17 @@ export async function persistVideoOutput(
     const body = await response.arrayBuffer();
     if (body.byteLength > MAX_VIDEO_BYTES) throw new Error('provider video exceeds durable storage limit');
     const storagePath = context.user.id + '/video-tasks/' + task.id + '/result.mp4';
-    let upload = await context.supabase.storage.from('creator-assets').upload(storagePath, body, { upsert: true, contentType: mimeType });
+    let upload = await context.localClient.storage.from('creator-assets').upload(storagePath, Buffer.from(body), { upsert: true, contentType: mimeType });
     if (upload.error) {
       try {
-        upload = await createAdminClient().storage.from('creator-assets').upload(storagePath, body, { upsert: true, contentType: mimeType });
+        upload = await createAdminClient().storage.from('creator-assets').upload(storagePath, Buffer.from(body), { upsert: true, contentType: mimeType });
       } catch (error) {
         console.error('[creator video durable upload]', error);
       }
     }
     if (upload.error) throw upload.error;
 
-    const existing = await context.supabase
+    const existing = await context.localClient
       .from('creator_assets')
       .select('id')
       .eq('workspace_id', context.workspace.id)
@@ -59,7 +59,7 @@ export async function persistVideoOutput(
         mime_type: mimeType,
         metadata: { task_id: task.id, node_id: task.node_id, model: task.model, duration: asRecord(task.request).duration, source_url: output.video_url },
       };
-      let inserted = await context.supabase.from('creator_assets').insert(row).select('id').maybeSingle();
+      let inserted = await context.localClient.from('creator_assets').insert(row).select('id').maybeSingle();
       if (inserted.error) {
         try { inserted = await createAdminClient().from('creator_assets').insert(row).select('id').maybeSingle(); } catch (error) { console.error('[creator video durable asset row]', error); }
       }
@@ -79,7 +79,7 @@ export async function ensureVideoOutputStored(context: VideoStorageContext, task
   const nextOutput = await persistVideoOutput(context, task, asRecord(task.output));
   if (nextOutput === task.output || JSON.stringify(nextOutput) === JSON.stringify(task.output)) return task;
   const values = { output: nextOutput };
-  let update = await context.supabase
+  let update = await context.localClient
     .from('creator_generation_tasks')
     .update(values)
     .eq('id', task.id)
@@ -100,7 +100,7 @@ export async function ensureVideoOutputStored(context: VideoStorageContext, task
 
 export async function signedVideoOutputUrl(context: VideoStorageContext, output: Record<string, unknown>, ttlSeconds = 300) {
   if (typeof output.video_storage_path === 'string') {
-    const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(output.video_storage_path, ttlSeconds);
+    const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(output.video_storage_path, ttlSeconds);
     if (!signed.error && signed.data?.signedUrl) return signed.data.signedUrl;
   }
   return typeof output.video_url === 'string' ? output.video_url : null;

@@ -10,7 +10,7 @@ import { getVideoModel } from "@/lib/ai/video-models";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 import { assertPlayableVideoUrl } from "@/lib/creator/video-recovery";
@@ -129,7 +129,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     }
     for (let index = 0; index < files.length; index += 1) {
         try {
-            const upload = await supabaseUploadVideoReference(draft.task.id, draft.uploadPaths[index], files[index]);
+            const upload = await localUploadVideoReference(draft.task.id, draft.uploadPaths[index], files[index]);
             if (upload.error) throw upload.error;
         } catch (error) {
             const detail = error instanceof Error ? error.message : "网络请求失败";
@@ -163,14 +163,14 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     throw new Error("视频生成超时，请稍后重试");
 }
 
-async function supabaseUploadVideoReference(taskId: string, path: string, file: File) {
-    const supabase = createClient();
+async function localUploadVideoReference(taskId: string, path: string, file: File) {
+    const localClient = createClient();
     try {
-        const direct = await supabase.storage.from("creator-assets").upload(path, file, { upsert: false, contentType: file.type });
+        const direct = await localClient.storage.from("creator-assets").upload(path, file, { upsert: false, contentType: file.type });
         if (!direct.error) return direct;
     } catch {
         // Fall through to the same-origin server upload. This covers browsers or
-        // deployments where the Supabase Storage CORS preflight is unavailable.
+        // deployments where the local media API CORS preflight is unavailable.
     }
     await uploadVideoReference(taskId, path, file);
     return { data: { path }, error: null };

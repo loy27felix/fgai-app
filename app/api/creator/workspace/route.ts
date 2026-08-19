@@ -1,20 +1,20 @@
 import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 export const runtime = 'nodejs';
 
 async function handle() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: '未登录' }, { status: 401 });
   }
 
   try {
     const workspace = await ensureCreatorWorkspace({
-      rpc: async () => supabase.rpc('ensure_creator_workspace'),
-      load: async (id) => supabase
+      rpc: async () => localClient.rpc('ensure_creator_workspace'),
+      load: async (id) => localClient
         .from('creator_workspaces')
         .select('*')
         .eq('id', id)

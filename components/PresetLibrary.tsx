@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import { WORKFLOW_SKILLS, PROMPT_GROUPS } from "@/lib/skillData";
 import PageShell from "@/components/studio/PageShell";
 import { Icon, Hov } from "@/components/studio/ui";

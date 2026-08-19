@@ -15,7 +15,7 @@ import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
 import FGLogo from "@/components/FGLogo";
 import CreatorImageNodeCanvas, { creatorImageReferenceKey, type CreatorImageCanvasGenerateInput, type CreatorImageCanvasGraph } from "@/components/creator/CreatorImageNodeCanvas";
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "@/lib/local/client";
 import {
   MAX_CREATOR_IMAGE_FILE_BYTES,
   MAX_CREATOR_IMAGE_REFERENCES,
@@ -195,9 +195,9 @@ function persistableCanvasGraph(graph: CreatorImageCanvasGraph): CreatorImageCan
 }
 export default function CreatorImageWorkspace({ userEmail }: Props) {
   const { theme, toggle } = useFgTheme();
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
-  if (!supabaseRef.current) supabaseRef.current = createClient();
-  const supabase = supabaseRef.current;
+  const localClientRef = useRef<ReturnType<typeof createClient> | null>(null);
+  if (!localClientRef.current) localClientRef.current = createClient();
+  const localClient = localClientRef.current;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
@@ -583,7 +583,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       });
       if (draft.uploadPaths.length !== draftFiles.length) throw new Error("upload plan mismatch");
       for (let index = 0; index < draftFiles.length; index += 1) {
-        const upload = await supabase.storage.from("creator-assets").upload(draft.uploadPaths[index], draftFiles[index], {
+        const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], draftFiles[index], {
           upsert: false,
           contentType: draftFiles[index].type,
         });

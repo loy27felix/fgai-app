@@ -12,7 +12,7 @@ import {
 } from '@/lib/creator/video';
 import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
@@ -76,14 +76,14 @@ function taskReferencePaths(task: CreatorVideoTask) {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, user, workspace };
+  return { localClient, user, workspace };
 }
 
 async function taskViews(
@@ -104,7 +104,7 @@ async function taskViews(
   return Promise.all(tasks.map(async (task): Promise<CreatorVideoTaskView> => {
     const durableTask = repaired.get(task.id) || task;
     const referenceUrls = (await Promise.all(taskReferencePaths(durableTask).map(async (path) => {
-      const signed = await context.supabase.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+      const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
       return signed.error ? null : signed.data.signedUrl;
     }))).filter((url): url is string => typeof url === 'string');
     const output = asRecord(durableTask.output);
@@ -135,7 +135,7 @@ export async function GET() {
   try {
     const context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
-    const result = await context.supabase
+    const result = await context.localClient
       .from('creator_generation_tasks')
       .select('*')
       .eq('workspace_id', context.workspace.id)
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
     const nodeId = typeof body.nodeId === 'string' && body.nodeId.trim() ? body.nodeId.trim().slice(0, 128) : null;
     const canvasId = typeof body.canvasId === 'string' && body.canvasId.trim() ? body.canvasId.trim() : null;
     if (canvasId) {
-      const ownedCanvas = await context.supabase
+      const ownedCanvas = await context.localClient
         .from('creator_canvases')
         .select('id')
         .eq('id', canvasId)
@@ -195,7 +195,7 @@ export async function POST(req: Request) {
     }
 
     const model = getVideoModel(input.model);
-    const inserted = await context.supabase
+    const inserted = await context.localClient
       .from('creator_generation_tasks')
       .upsert({
         workspace_id: context.workspace.id,
@@ -230,7 +230,7 @@ export async function POST(req: Request) {
     let replayed = false;
     if (!task) {
       replayed = true;
-      const existing = await context.supabase
+      const existing = await context.localClient
         .from('creator_generation_tasks')
         .select('*')
         .eq('idempotency_key', idempotencyKey)

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/local/server";
 import MeView from "@/components/MeView";
 
 export const dynamic = "force-dynamic";
@@ -17,14 +17,14 @@ async function dsBalance(): Promise<string | null> {
 }
 
 export default async function MePage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) redirect("/");
 
   const [{ data: profile }, { data: usage }, { data: gens }] = await Promise.all([
-    supabase.from("profiles").select("email,platform_role,created_at").eq("id", user.id).maybeSingle(),
-    supabase.from("ai_usage").select("model,total_tokens,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
-    supabase.from("generations").select("model,kind,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
+    localClient.from("profiles").select("email,platform_role,created_at").eq("id", user.id).maybeSingle(),
+    localClient.from("ai_usage").select("model,total_tokens,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
+    localClient.from("generations").select("model,kind,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
   ]);
   const balance = await dsBalance();
 

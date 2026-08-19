@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,21 +18,21 @@ function serverError(error: unknown) {
 }
 
 async function creatorContext() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return null;
   const workspace = await ensureCreatorWorkspace({
-    rpc: async () => supabase.rpc('ensure_creator_workspace'),
-    load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+    rpc: async () => localClient.rpc('ensure_creator_workspace'),
+    load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
   }, user.id);
-  return { supabase, workspace };
+  return { localClient, workspace };
 }
 
 export async function GET() {
   try {
     const context = await creatorContext();
     if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
-    const result = await context.supabase
+    const result = await context.localClient
       .from('creator_assets')
       .select('*')
       .eq('workspace_id', context.workspace.id)
@@ -40,8 +40,8 @@ export async function GET() {
       .order('created_at', { ascending: false })
       .limit(500);
     if (result.error) throw result.error;
-    const bucket = context.supabase.storage.from('creator-assets');
-    const assets = await Promise.all((result.data || []).map(async (asset) => {
+    const bucket = context.localClient.storage.from('creator-assets');
+    const assets = await Promise.all((result.data || []).map(async (asset: any) => {
       const signed = await bucket.createSignedUrl(asset.storage_path, SIGNED_URL_TTL_SECONDS);
       return {
         id: asset.id,

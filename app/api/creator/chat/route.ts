@@ -4,7 +4,7 @@ import { chatWithTextModel } from '@/lib/ai/text';
 import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/local/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from '@/lib/usage/budget';
 
@@ -31,8 +31,8 @@ function normalizeSkill(input: unknown) {
 }
 
 export async function POST(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
 
   let body: CreatorChatBody;
@@ -58,10 +58,10 @@ export async function POST(req: Request) {
   let session: { id: string; workspace_id: string; title: string } | null = null;
   try {
     const workspace = await ensureCreatorWorkspace({
-      rpc: async () => supabase.rpc('ensure_creator_workspace'),
-      load: async (id) => supabase.from('creator_workspaces').select('*').eq('id', id).single(),
+      rpc: async () => localClient.rpc('ensure_creator_workspace'),
+      load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
     }, user.id);
-    const owned = await supabase
+    const owned = await localClient
       .from('creator_sessions')
       .select('id,workspace_id,title')
       .eq('id', body.sessionId)
@@ -70,18 +70,18 @@ export async function POST(req: Request) {
     if (owned.error || !owned.data) return NextResponse.json({ error: '会话不存在' }, { status: 404 });
     session = owned.data;
 
-    const insertedUser = await supabase.from('creator_messages').insert({
-      session_id: session.id,
+    const insertedUser = await localClient.from('creator_messages').insert({
+      session_id: session!.id,
       role: 'user',
       content: { text: message, image_count: images.length },
       status: 'complete',
     });
     if (insertedUser.error) throw insertedUser.error;
 
-    const history = await supabase
+    const history = await localClient
       .from('creator_messages')
       .select('role,content,status,created_at')
-      .eq('session_id', session.id)
+      .eq('session_id', session!.id)
       .order('created_at', { ascending: false })
       .limit(80);
     if (history.error) throw history.error;
@@ -109,8 +109,8 @@ export async function POST(req: Request) {
       maxTokens: 4000,
     });
 
-    const insertedAssistant = await supabase.from('creator_messages').insert({
-      session_id: session.id,
+    const insertedAssistant = await localClient.from('creator_messages').insert({
+      session_id: session!.id,
       role: 'assistant',
       content: { text: result.content, usage: result.usage || {} },
       status: 'complete',
@@ -118,8 +118,8 @@ export async function POST(req: Request) {
     if (insertedAssistant.error) throw insertedAssistant.error;
 
     const update: Record<string, unknown> = { default_model: spec.id, updated_at: new Date().toISOString() };
-    if (session.title === '未命名对话') update.title = titleFromPrompt(message);
-    await supabase.from('creator_sessions').update(update).eq('id', session.id).eq('workspace_id', workspace.id);
+    if (session!.title === '未命名对话') update.title = titleFromPrompt(message);
+    await localClient.from('creator_sessions').update(update).eq('id', session!.id).eq('workspace_id', workspace.id);
 
     await recordUsageBestEffort(buildTextLedgerEntry({
       userId: user.id,
@@ -132,14 +132,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       message: insertedAssistant.data,
-      title: update.title || session.title,
+      title: update.title || session!.title,
       model: spec.id,
       usage: result.usage,
     });
   } catch (error: unknown) {
     if (session) {
-      await supabase.from('creator_messages').insert({
-        session_id: session.id,
+      await localClient.from('creator_messages').insert({
+        session_id: session!.id,
         role: 'assistant',
         content: { text: '本次回复失败，请检查模型或稍后重试。' },
         status: 'failed',

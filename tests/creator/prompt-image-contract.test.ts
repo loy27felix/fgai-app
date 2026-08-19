@@ -25,7 +25,7 @@ test("github blob links normalize to raw content before proxying", () => {
 
 test("prompt image proxy is authenticated and blocks non-public targets", () => {
   const route = fs.readFileSync(path.join(process.cwd(), "app/api/creator/prompt-image/route.ts"), "utf8");
-  assert.match(route, /supabase\.auth\.getUser/);
+  assert.match(route, /localClient\.auth\.getUser/);
   assert.match(route, /url\.protocol !== "http:"/);
   assert.match(route, /MAX_IMAGE_BYTES/);
 });

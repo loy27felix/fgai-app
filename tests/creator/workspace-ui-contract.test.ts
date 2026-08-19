@@ -13,7 +13,7 @@ test('AI creator is an additive project-independent workspace', () => {
     'utf8',
   );
 
-  assert.match(ui, /AI 创作台/);
+  assert.match(ui, /今天想创作什么？/);
   assert.match(ui, /新对话/);
   assert.match(ui, /独立生图/);
   assert.match(ui, /视频画布/);

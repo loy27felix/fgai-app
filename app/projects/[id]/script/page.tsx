@@ -1,21 +1,21 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/local/server";
 import ScriptWorkspace from "@/components/ScriptWorkspace";
 import type { BibleFields, Episode, Role, Scene } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function ScriptPage({ params }: { params: { id: string } }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) redirect("/");
 
   const projectId = params.id;
 
   const [{ data: project }, { data: member }] = await Promise.all([
-    supabase.from("projects").select("*").eq("id", projectId).single(),
-    supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
+    localClient.from("projects").select("*").eq("id", projectId).single(),
+    localClient.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
   ]);
 
   if (!project) redirect("/projects");
@@ -38,11 +38,11 @@ export default async function ScriptPage({ params }: { params: { id: string } })
   const overview = project.overview || {};
 
   // 集 → 场 树
-  const { data: episodes } = await supabase
+  const { data: episodes } = await localClient
     .from("episodes").select("id, project_id, idx, title").eq("project_id", projectId).order("idx");
-  const epIds = (episodes || []).map((e) => e.id);
+  const epIds = (episodes || []).map((e: any) => e.id);
   const { data: scenes } = epIds.length
-    ? await supabase.from("scenes").select("id, episode_id, idx, title, setting").in("episode_id", epIds).order("idx")
+    ? await localClient.from("scenes").select("id, episode_id, idx, title, setting").in("episode_id", epIds).order("idx")
     : { data: [] as Scene[] };
 
   const allScenes = (scenes || []) as Scene[];
@@ -51,8 +51,8 @@ export default async function ScriptPage({ params }: { params: { id: string } })
   // 全项目剧本正文（按场） + 分镜头
   const [{ data: scripts }, { data: shots }] = sceneIds.length
     ? await Promise.all([
-        supabase.from("scripts").select("scene_id, body, current_version").in("scene_id", sceneIds),
-        supabase.from("shots").select("id, scene_id, no, title, time_start, time_end, duration_s, script_beat, roles").in("scene_id", sceneIds).order("no"),
+        localClient.from("scripts").select("scene_id, body, current_version").in("scene_id", sceneIds),
+        localClient.from("shots").select("id, scene_id, no, title, time_start, time_end, duration_s, script_beat, roles").in("scene_id", sceneIds).order("no"),
       ])
     : [{ data: [] as any[] }, { data: [] as any[] }];
 

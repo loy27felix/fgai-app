@@ -5,10 +5,10 @@ import test from 'node:test';
 
 test('usage ledger migration stores exact money and price snapshots', () => {
   const sql = fs.readFileSync(
-    path.join(process.cwd(), 'supabase/migrations/0004_ai_usage_ledger.sql'),
+    path.join(process.cwd(), 'docker/initdb/001-local.sql'),
     'utf8',
   );
-  assert.match(sql, /create table if not exists public\.ai_usage_ledger/);
+  assert.match(sql, /create table if not exists ai_usage_ledger/);
   assert.match(sql, /reported_cost_usd numeric\(20,10\)/);
   assert.match(sql, /estimated_cost_usd numeric\(20,10\)/);
   assert.match(sql, /price_snapshot jsonb not null/);

@@ -1,20 +1,20 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/local/server";
 import BibleWorkspace from "@/components/BibleWorkspace";
 import type { BibleFields, Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function BiblePage({ params }: { params: { id: string } }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const localClient = createClient();
+  const { data: { user } } = await localClient.auth.getUser();
   if (!user) redirect("/");
   const projectId = params.id;
 
   const [{ data: project }, { data: member }] = await Promise.all([
-    supabase.from("projects").select("*").eq("id", projectId).single(),
-    supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
+    localClient.from("projects").select("*").eq("id", projectId).single(),
+    localClient.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
   ]);
   if (!project) redirect("/projects");
   if (!member) {
