@@ -6,6 +6,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env.docker
+    environment:
+      # The host path is used only by the bind mount; the app always reads the container path.
+      # 宿主机路径只用于 bind mount，应用容器内统一从 /data/media 读写。
+      NAS_MEDIA_PATH: /data/media
     depends_on:
       postgres:
         condition: service_healthy

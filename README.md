@@ -56,8 +56,8 @@ USAGE_USD_TO_CNY_RATE=6.77
 
 局域网部署使用纯本地 Docker 服务，应用和 PostgreSQL 由仓库根目录的 `docker-compose.yml` 管理，媒体文件直接写入 NAS 挂载目录。数据库使用独立 Docker volume，不要把数据库目录放在普通 SMB 共享上。
 
-1. 在 Docker 主机挂载 NAS 目录到 `/Users/zhangyu/work/beva/mnt_nas_fg-studio-media`，并确保 Docker daemon 有读写权限。
-2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD` 和 `NAS_MEDIA_PATH`。
+1. 在 Docker 主机挂载 NAS 目录，并确保 Docker daemon 有读写权限。
+2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD` 和 `NAS_MEDIA_PATH`。`NAS_MEDIA_PATH` 填 Docker 主机上的绝对路径，例如 `/Users/server/storage/mnt_nas_fg-studio-media`；Compose 会把它挂载到容器内的 `/data/media`，不要把容器路径写入该变量。
 3. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，媒体通过应用的 `/api/local/storage/content` 接口按登录态读取。
 
 媒体访问经过应用鉴权，不能直接公开 NAS 目录。正式使用前应通过反向代理提供 HTTPS。
