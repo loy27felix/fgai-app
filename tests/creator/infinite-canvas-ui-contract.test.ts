@@ -48,6 +48,32 @@ test('canvas Agent is wired to the creator chat API with skills and reasoning', 
   assert.match(api, /recordUsageBestEffort/);
 });
 
+test('canvas adopts stable tool, text-count, resize, and batch-preview interactions', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+  const toolbar = read('reference/infinite-canvas/src/components/canvas/canvas-toolbar.tsx');
+  const textSettings = read('reference/infinite-canvas/src/components/canvas/canvas-text-settings-popover.tsx');
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+
+  assert.match(project, /useState<"select" \| "pan">\("pan"\)/);
+  assert.match(project, /tool=\{canvasTool\}/);
+  assert.match(canvas, /tool\?: "select" \| "pan"/);
+  assert.match(canvas, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(toolbar, /移动模式（Ctrl\/空格框选）/);
+  assert.match(project, /metadata\?\.textCount \|\| 1/);
+  assert.match(project, /if \(childIds\.length\)/);
+  assert.match(textSettings, /文本生成次数/);
+  assert.match(project, /showPanel=\{!isNodeResizing/);
+  assert.match(node, /onResizeStart\?\./);
+  assert.match(node, /onResizeEnd\?\./);
+  assert.match(project, /imageBatchExpanded: undefined/);
+  assert.match(node, /onViewImage\?\.\(data\)/);
+  assert.match(promptPanel, /放大编辑提示词/);
+  assert.match(promptPanel, /isPromptEditorOpen/);
+  assert.match(promptPanel, /composerContent/);
+});
+
 
 test('canvas cloud sync adopts legacy local projects and deletes remote rows', () => {
   const index = read('reference/infinite-canvas/src/pages/canvas/index.tsx');

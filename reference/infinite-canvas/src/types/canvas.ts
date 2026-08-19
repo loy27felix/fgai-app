@@ -41,6 +41,9 @@ export type CanvasNodeMetadata = {
     quality?: string;
     background?: string;
     count?: number;
+    // Text generation uses its own count so a multi-image setting never creates
+    // duplicate text responses by accident.
+    textCount?: number;
     seconds?: string;
     vquality?: string;
     generateAudio?: string;

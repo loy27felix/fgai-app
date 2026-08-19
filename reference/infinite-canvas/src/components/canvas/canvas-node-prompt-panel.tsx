@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Square } from "lucide-react";
-import { Button } from "antd";
+import { ArrowUp, LoaderCircle, Maximize2, Square } from "lucide-react";
+import { Button, Modal, Tooltip } from "antd";
 
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -39,17 +39,19 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
+    const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
+    const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
     useEffect(() => {
-        setPrompt(node.metadata?.prompt || "");
+        setPrompt(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [node.id]);
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        if (isEditingExistingContent) onConfigChange(node.id, { composerContent: value });
+        else onPromptChange(node.id, value);
     };
 
     const submit = () => {
@@ -80,6 +82,16 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
             <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <Tooltip title="放大编辑提示词">
+                        <Button
+                            type="text"
+                            className="!h-8 !w-8 !min-w-8 shrink-0 !rounded-full !bg-transparent !p-0"
+                            style={{ color: theme.node.text }}
+                            icon={<Maximize2 className="size-3.5" />}
+                            onClick={() => setIsPromptEditorOpen(true)}
+                            aria-label="放大编辑提示词"
+                        />
+                    </Tooltip>
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     {mode === "image" ? (
                         <>
@@ -106,7 +118,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     ) : (
                         <>
                             <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="text" onMissingConfig={() => openConfigDialog(true)} className="canvas-model-picker-node" />
-                            <CanvasTextSettingsPopover config={config} onConfigChange={(_, value) => onConfigChange(node.id, { reasoningEffort: value })} />
+                            <CanvasTextSettingsPopover
+                                config={config}
+                                count={node.metadata?.textCount || 1}
+                                onConfigChange={(_, value) => onConfigChange(node.id, { reasoningEffort: value })}
+                                onCountChange={(textCount) => onConfigChange(node.id, { textCount })}
+                            />
                         </>
                     )}
                 </div>
@@ -132,6 +149,19 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     </span>
                 </Button>
             </div>
+            <Modal title="编辑提示词" open={isPromptEditorOpen} centered width={760} footer={null} onCancel={() => setIsPromptEditorOpen(false)} destroyOnHidden>
+                <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
+                    <CanvasPromptChipInput
+                        value={prompt}
+                        references={mentionReferences}
+                        onChange={updatePrompt}
+                        onSubmit={submit}
+                        className="thin-scrollbar h-[52dvh] min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
+                        style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text }}
+                        placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
+                    />
+                </div>
+            </Modal>
         </div>
     );
 }

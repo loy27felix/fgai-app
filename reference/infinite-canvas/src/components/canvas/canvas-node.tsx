@@ -44,7 +44,9 @@ type CanvasNodeProps = {
     onHoverStart: (nodeId: string) => void;
     onHoverEnd: (nodeId: string) => void;
     onConnectStart: (event: React.MouseEvent, nodeId: string, handleType: "source" | "target") => void;
+    onResizeStart?: (nodeId: string) => void;
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
+    onResizeEnd?: (nodeId: string) => void;
     onContentChange: (nodeId: string, content: string) => void;
     onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
@@ -105,7 +107,9 @@ export const CanvasNode = React.memo(function CanvasNode({
     onHoverStart,
     onHoverEnd,
     onConnectStart,
+    onResizeStart,
     onResize,
+    onResizeEnd,
     onContentChange,
     onTitleChange,
     onToggleBatch,
@@ -284,13 +288,15 @@ export const CanvasNode = React.memo(function CanvasNode({
     const handleResizeUp = useCallback(() => {
         flushResize();
         resizeRef.current.isResizing = false;
+        onResizeEnd?.(data.id);
         window.removeEventListener("mousemove", handleResizeMove);
         window.removeEventListener("mouseup", handleResizeUp);
-    }, [flushResize, handleResizeMove]);
+    }, [data.id, flushResize, handleResizeMove, onResizeEnd]);
 
     const handleResizeMouseDown = (event: React.MouseEvent, corner: ResizeCorner) => {
         event.stopPropagation();
         event.preventDefault();
+        onResizeStart?.(data.id);
         resizeRef.current = {
             isResizing: true,
             corner,
@@ -387,9 +393,9 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
                 onMouseDown={(event) => onMouseDown(event, data.id)}
                 onDoubleClick={(event) => {
-                    if (isBatchRoot) {
+                    if (isBatchRoot && data.type === CanvasNodeType.Image && hasImageContent) {
                         event.stopPropagation();
-                        onToggleBatch?.(data.id);
+                        onViewImage?.(data);
                         return;
                     }
                     if (definition?.onDoubleClick && pluginContext) {
@@ -608,7 +614,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
                 <EmptyImageContent {...props} isBatchRoot={false} />
             );
         return (
-            <BatchFrame batchCount={props.batchCount} batchExpanded={props.batchExpanded} batchOpening={props.batchOpening} batchRecovering={props.batchRecovering} onToggleBatch={props.onToggleBatch}>
+            <BatchFrame batchCount={props.batchCount} batchExpanded={props.batchExpanded} batchOpening={props.batchOpening} batchRecovering={props.batchRecovering}>
                 {content}
             </BatchFrame>
         );
@@ -629,7 +635,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
     );
 }
 
-function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batchOpening, batchRecovering, onToggleBatch }: NodeContentRendererProps) {
+function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batchOpening, batchRecovering }: NodeContentRendererProps) {
     const content = (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
             <div className="flex size-14 items-center justify-center rounded-2xl" style={{ background: theme.toolbar.activeBg }}>
@@ -640,7 +646,7 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     );
     if (isBatchRoot)
         return (
-            <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
+            <BatchFrame batchCount={batchCount} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering}>
                 {content}
             </BatchFrame>
         );
@@ -700,7 +706,7 @@ function ImageContent({
     const isBatchChild = Boolean(node.metadata?.batchRootId);
 
     return (
-        <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
+        <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering}>
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 <img
                     src={node.metadata!.content!}
@@ -761,21 +767,11 @@ function ImageInfoBar({ node }: { node: CanvasNodeData }) {
     );
 }
 
-function BatchFrame({ batchCount, batchExpanded, batchOpening, batchRecovering, onToggleBatch, children }: { batchCount: number; batchExpanded: boolean; batchOpening: boolean; batchRecovering: boolean; onToggleBatch?: () => void; children: ReactNode }) {
+function BatchFrame({ batchCount, batchExpanded, batchOpening, batchRecovering, children }: { batchCount: number; batchExpanded: boolean; batchOpening: boolean; batchRecovering: boolean; children: ReactNode }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchRoot = batchCount > 1;
     return (
-        <div
-            className="group/batch relative h-full w-full overflow-visible"
-            onDoubleClick={
-                isBatchRoot
-                    ? (event) => {
-                          event.stopPropagation();
-                          onToggleBatch?.();
-                      }
-                    : undefined
-            }
-        >
+        <div className="group/batch relative h-full w-full overflow-visible">
             {isBatchRoot ? (
                 <div className="pointer-events-none absolute inset-0 overflow-visible">
                     {Array.from({ length: Math.min(batchCount - 1, 5) }).map((_, index) => (

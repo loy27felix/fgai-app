@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, Moon, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, MousePointer2, Moon, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/reference/infinite-canvas/src/lib/canvas/node-registry";
@@ -13,6 +13,7 @@ export function CanvasToolbar({
     canUndo,
     canRedo,
     backgroundMode,
+    canvasTool,
     showImageInfo,
     onAddImage,
     onAddVideo,
@@ -27,6 +28,7 @@ export function CanvasToolbar({
     onDelete,
     onClear,
     onDeselect,
+    onCanvasToolChange,
     onBackgroundModeChange,
     onShowImageInfoChange,
 }: {
@@ -34,6 +36,7 @@ export function CanvasToolbar({
     canUndo: boolean;
     canRedo: boolean;
     backgroundMode: CanvasBackgroundMode;
+    canvasTool: "select" | "pan";
     showImageInfo: boolean;
     onAddImage: () => void;
     onAddVideo: () => void;
@@ -48,6 +51,7 @@ export function CanvasToolbar({
     onDelete: () => void;
     onClear: () => void;
     onDeselect: () => void;
+    onCanvasToolChange: (tool: "select" | "pan") => void;
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
 }) {
@@ -87,8 +91,22 @@ export function CanvasToolbar({
         <div ref={rootRef} className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }}>
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
             <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex h-14 max-w-full items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
-                <ToolbarButton id="tool-hand" label="移动/选择" active={!selectedCount} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDeselect}>
-                    <Hand className="size-4.5" />
+                <ToolbarButton
+                    id={`tool-${canvasTool}`}
+                    label={canvasTool === "pan" ? "移动模式（Ctrl/空格框选）" : "框选模式（Ctrl/空格移动）"}
+                    active={!selectedCount}
+                    hovered={hovered}
+                    activeStyle={activeStyle}
+                    hoverStyle={hoverStyle}
+                    wrapRef={wrapRef}
+                    onTipX={setTipX}
+                    onHover={setHovered}
+                    onClick={() => {
+                        onDeselect();
+                        onCanvasToolChange(canvasTool === "pan" ? "select" : "pan");
+                    }}
+                >
+                    {canvasTool === "pan" ? <Hand className="size-4.5" /> : <MousePointer2 className="size-4.5" />}
                 </ToolbarButton>
                 <ToolbarButton id="tool-undo" label="撤销" disabled={!canUndo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUndo}>
                     <Undo2 className="size-4.5" />
