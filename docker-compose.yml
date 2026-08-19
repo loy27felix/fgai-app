@@ -22,6 +22,19 @@ services:
     networks:
       - fg
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # The token is injected from the ignored host env file and never committed.
+      # Token 只从未提交的宿主机环境文件注入，禁止写入仓库。
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env.docker}
+    depends_on:
+      - app
+    networks:
+      - fg
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped

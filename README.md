@@ -57,10 +57,12 @@ USAGE_USD_TO_CNY_RATE=6.77
 局域网部署使用纯本地 Docker 服务，应用和 PostgreSQL 由仓库根目录的 `docker-compose.yml` 管理，媒体文件直接写入 NAS 挂载目录。数据库使用独立 Docker volume，不要把数据库目录放在普通 SMB 共享上。
 
 1. 在 Docker 主机挂载 NAS 目录，并确保 Docker daemon 有读写权限。
-2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD` 和 `NAS_MEDIA_PATH`。`NAS_MEDIA_PATH` 填 Docker 主机上的绝对路径，例如 `/Users/server/storage/mnt_nas_fg-studio-media`；Compose 会把它挂载到容器内的 `/data/media`，不要把容器路径写入该变量。
-3. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，媒体通过应用的 `/api/local/storage/content` 接口按登录态读取。
+2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD`、`NAS_MEDIA_PATH` 和 `CLOUDFLARE_TUNNEL_TOKEN`。`NAS_MEDIA_PATH` 填 Docker 主机上的绝对路径，例如 `/Users/server/storage/mnt_nas_fg-studio-media`；Compose 会把它挂载到容器内的 `/data/media`，不要把容器路径写入该变量。
+3. 在 Cloudflare Tunnel 的 Published application 中，把 Service URL 配置为 `http://app:3000`。`cloudflared` 与 App 在同一个 Docker network 中，不能填写宿主机的 `localhost`。
+4. 把 Tunnel 的公网 HTTPS 地址写入 `PROVIDER_MEDIA_URL`，例如 `https://media.example.com/api/local/storage/content`。`LOCAL_MEDIA_URL` 继续使用 `http://192.168.0.99:3000/api/local/storage/content`，分别服务局域网浏览器和 Wetoken。
+5. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，Cloudflare Tunnel 负责把带签名的媒体 URL 转发给 App。
 
-媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，还需要把 `PROVIDER_MEDIA_URL` 配置为外部 provider 可访问的 HTTPS 地址；`192.168.x.x`、localhost 和需要登录的局域网地址无法被 Wetoken 下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不受此限制。正式使用前应通过反向代理提供 HTTPS。
+媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，必须使用 Cloudflare Tunnel 提供的公网 HTTPS 地址；`192.168.x.x`、localhost 和需要登录的局域网地址无法被 Wetoken 下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不受此限制。不要把 Cloudflare Tunnel 的 token 提交到 Git。
 
 ## 目录速览
 
