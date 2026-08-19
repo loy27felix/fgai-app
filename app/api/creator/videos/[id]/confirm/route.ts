@@ -239,6 +239,7 @@ function publicError(error: unknown) {
 export async function POST(_req: Request, { params }: RouteContext) {
   let context: Awaited<ReturnType<typeof creatorContext>> = null;
   let claimed: CreatorVideoTask | null = null;
+  console.info("[creator video confirm]", { taskId: params.id, stage: "received" });
   try {
     context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
@@ -280,6 +281,11 @@ export async function POST(_req: Request, { params }: RouteContext) {
       // must return the draft to the user instead of creating a billed ledger
       // entry for a provider call that never happened.
       references = await buildProviderReferences(context, claimed, validated);
+      console.info("[creator video confirm]", {
+        taskId: claimed.id,
+        stage: "references_ready",
+        references: references.map((reference) => ({ type: reference.type, role: reference.role })),
+      });
     } catch (error) {
       await context.localClient.from('creator_generation_tasks').update({
         status: 'draft',
@@ -326,6 +332,13 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
     {
       let providerTask: Awaited<ReturnType<typeof createWetokenVideoTask>>;
       try {
+        console.info("[creator video provider]", {
+          taskId: claimed.id,
+          provider: "wetoken",
+          model: claimed.model,
+          referenceCount: references.length,
+          stage: "submitting",
+        });
         providerTask = await createWetokenVideoTask({
           model: claimed.model,
           prompt: validated.effectivePrompt,
@@ -337,6 +350,14 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
           generateAudio: validated.generateAudio,
         });
       } catch (error) {
+        console.error("[creator video provider failure]", {
+          taskId: claimed.id,
+          provider: "wetoken",
+          status: error instanceof WetokenVideoError ? error.status : undefined,
+          providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
+          retryable: error instanceof WetokenVideoError ? error.retryable : undefined,
+          message: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+        });
         const providerStatus = providerFailureStatus(error);
         const completedAt = providerStatus === 'failed' ? new Date().toISOString() : null;
         try {
@@ -389,6 +410,11 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
       return NextResponse.json({ task: await viewTask(context, updated) });
     }
   } catch (error: unknown) {
+    console.error("[creator video confirm failure]", {
+      taskId: params.id,
+      claimed: Boolean(claimed),
+      message: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+    });
     if (context && claimed) {
       const current = await ownedTask(context, claimed.id).catch(() => null);
       if (current && (current.status === 'unknown' || current.status === 'submitting')) {
