@@ -48,6 +48,13 @@ test('canvas Agent is wired to the creator chat API with skills and reasoning', 
   assert.match(api, /recordUsageBestEffort/);
 });
 
+test('canvas prompt sources include the upstream GPT Image 2 collection', () => {
+  const sources = read('reference/infinite-canvas/src/services/api/prompt-source-presets.ts');
+
+  assert.match(sources, /freestylefly-gpt-image-2/);
+  assert.match(sources, /Freestylefly GPT Image 2/);
+});
+
 test('canvas adopts stable tool, text-count, resize, and batch-preview interactions', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
