@@ -184,6 +184,16 @@ if [[ -n "$APP_CONTAINER" ]] && [[ "$(docker inspect --format '{{.State.Running}
     exit 0
   fi
   stop_app
+  set_state "app-unhealthy" "NAS supervisor: running app lost NAS access; recovering"
+fi
+
+CURRENT_STATE=""
+[[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
+if [[ "$CURRENT_STATE" == "ready" ]]; then
+  # Give Docker Compose one supervisor interval to replace the app during a deployment.
+  # 部署期间给 Docker Compose 一个守护周期完成 App 替换，避免并发 force-recreate 删除新容器。
+  set_state "app-transitioning" "NAS supervisor: app is transitioning; waiting before recovery"
+  exit 0
 fi
 
 APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER" 2>/dev/null || true)"
