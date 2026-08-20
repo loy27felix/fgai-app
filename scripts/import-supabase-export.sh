@@ -193,7 +193,19 @@ esac
 
 FILE_COUNT="$(find "$STORAGE_SOURCE" -type f ! -name '.DS_Store' | wc -l | tr -d ' ')"
 [[ "$FILE_COUNT" -gt 0 ]] || fail "Storage 导出中没有媒体文件"
-RSYNC_ARGS=(-a --delete --delete-excluded --checksum --omit-dir-times --exclude .DS_Store)
+# SMB does not preserve POSIX permissions; runtime probes must survive a content mirror.
+# SMB 不保留 POSIX 权限；内容镜像必须保留运行时探针文件。
+RSYNC_ARGS=(
+  -a
+  --no-perms
+  --delete
+  --checksum
+  --omit-dir-times
+  --exclude .DS_Store
+  --exclude .fg-studio-nas-ready
+  --exclude .fg-studio-container-probe
+  --exclude '.smbdelete*'
+)
 
 printf '预检 / Preflight: files=%s, NAS=%s (%s)\n' "$FILE_COUNT" "$NAS_MEDIA_PATH" "$FILESYSTEM_TYPE"
 if [[ "$MODE" == "check" ]]; then

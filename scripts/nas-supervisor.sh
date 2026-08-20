@@ -94,8 +94,10 @@ probe_running_container() {
   local container="$1"
   local marker_path="$APP_CONTAINER_PATH/$MARKER_NAME"
   local probe_path="$APP_CONTAINER_PATH/.fg-studio-container-probe"
+  # Keep one stable probe because deleting an open SMB file creates persistent .smbdelete files.
+  # 保留单个稳定探针，避免删除 SMB 占用文件后持续产生 .smbdelete 文件。
   run_with_timeout 5 docker exec "$container" sh -c \
-    'grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2" && rm -f "$2"' \
+    'grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2"' \
     sh "$marker_path" "$probe_path" >/dev/null 2>&1
 }
 
@@ -109,7 +111,7 @@ probe_new_mount() {
   run_with_timeout 5 docker run --rm --name "$probe_container" \
     --mount "type=bind,source=$NAS_PATH,target=$APP_CONTAINER_PATH" \
     --entrypoint sh "$image" -c \
-    'if [ ! -f "$1" ]; then printf "%s\n" "fg-studio-media:v1" > "$1"; fi; grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2" && rm -f "$2"' \
+    'if [ ! -f "$1" ]; then printf "%s\n" "fg-studio-media:v1" > "$1"; fi; grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2"' \
     sh "$marker_path" "$probe_path" >/dev/null 2>&1 || probe_exit=$?
   run_with_timeout 5 docker rm -f "$probe_container" >/dev/null 2>&1 || true
   return "$probe_exit"
