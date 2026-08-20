@@ -15,7 +15,9 @@ const apply = args.includes('--apply');
 if (!sourceDir || (!apply && !args.includes('--check'))) {
   throw new Error('用法 / Usage: import-supabase-data.mjs --source <目录> --check|--apply');
 }
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL 未配置');
+if (!process.env.DATABASE_URL && !process.env.PGHOST) {
+  throw new Error('DATABASE_URL 或 PGHOST 未配置');
+}
 if (apply && (!process.env.IMPORT_PASSWORD || process.env.IMPORT_PASSWORD.length < 8)) {
   throw new Error('--apply 需要至少 8 个字符的 IMPORT_PASSWORD');
 }
@@ -99,7 +101,21 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const password = apply ? process.env.IMPORT_PASSWORD : 'check-only-password';
 const salt = randomBytes(16).toString('hex');
 const passwordHash = `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
-const client = new Client({ connectionString: process.env.DATABASE_URL });
+const client = process.env.DATABASE_URL
+  ? new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10_000 })
+  : new Client({ connectionTimeoutMillis: 10_000 });
+
+function databaseTarget() {
+  if (!process.env.DATABASE_URL) {
+    return `${process.env.PGHOST}:${process.env.PGPORT || '5432'}/${process.env.PGDATABASE || ''}`;
+  }
+  try {
+    const url = new URL(process.env.DATABASE_URL);
+    return `${url.hostname}:${url.port || '5432'}${url.pathname}`;
+  } catch {
+    return 'DATABASE_URL';
+  }
+}
 
 function rowsForTable(table) {
   const rows = exportData.tables[table] || [];
@@ -158,7 +174,15 @@ async function insertRows(table, rows, columnsByTable) {
   }
 }
 
-await client.connect();
+try {
+  process.stdout.write(`PostgreSQL target: ${databaseTarget()}\n`);
+  await client.connect();
+} catch (error) {
+  throw new Error(
+    `无法连接 PostgreSQL (${databaseTarget()})：${error instanceof Error ? error.message : String(error)}`,
+    { cause: error },
+  );
+}
 try {
   const columnResult = await client.query(`
     select table_name, column_name, data_type, column_default

@@ -77,13 +77,97 @@ STORAGE_SOURCE="$EXPORT_DIR/storage"
 command -v node >/dev/null 2>&1 || fail "缺少 node 命令"
 command -v rsync >/dev/null 2>&1 || fail "缺少 rsync 命令"
 
-DATABASE_URL="${DATABASE_URL:-$(read_env_value DATABASE_URL)}"
-[[ -n "$DATABASE_URL" ]] || fail "DATABASE_URL 未配置"
-export DATABASE_URL
+run_database_import_on_host() {
+  local mode="$1"
+  DATABASE_URL="${DATABASE_URL_OVERRIDE:-$(read_env_value DATABASE_URL)}"
+  [[ -n "$DATABASE_URL" ]] || fail "DATABASE_URL 未配置"
+  export DATABASE_URL
+  printf '%s\n' "数据库连接模式 / Database mode: host"
+  node "$PROJECT_ROOT/scripts/import-supabase-data.mjs" --source "$EXPORT_DIR" "--$mode"
+}
+
+container_env_value() {
+  local container="$1"
+  local key="$2"
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+    | sed -n "s/^${key}=//p" \
+    | tail -n 1
+}
+
+run_database_import_in_docker() {
+  local mode="$1"
+  local compose_project="${COMPOSE_PROJECT_NAME:-fgai-app}"
+  local postgres_container="${POSTGRES_CONTAINER:-}"
+  local app_image="${APP_IMAGE:-}"
+  local database_network
+  local database_status
+
+  if [[ -z "$postgres_container" ]]; then
+    postgres_container="$(docker ps \
+      --filter "label=com.docker.compose.project=$compose_project" \
+      --filter 'label=com.docker.compose.service=postgres' \
+      --format '{{.Names}}' | head -n 1)"
+  fi
+  [[ -n "$postgres_container" ]] || return 1
+
+  database_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$postgres_container")"
+  [[ "$database_status" == "healthy" || "$database_status" == "running" ]] \
+    || fail "PostgreSQL 容器状态为 $database_status，请先检查 docker logs $postgres_container"
+
+  if [[ -z "$app_image" ]]; then
+    app_image="$(docker ps -a \
+      --filter "label=com.docker.compose.project=$compose_project" \
+      --filter 'label=com.docker.compose.service=app' \
+      --format '{{.Image}}' | head -n 1)"
+  fi
+  [[ -n "$app_image" ]] || fail "未找到 fgai-app App image，请先完成 docker compose build app"
+
+  database_network="$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$postgres_container" | head -n 1)"
+  [[ -n "$database_network" ]] || fail "PostgreSQL 容器没有可用 Docker network"
+
+  PGHOST="$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{range .Aliases}}{{println .}}{{end}}{{end}}' "$postgres_container" \
+    | grep -Fx 'postgres' \
+    | head -n 1 || true)"
+  PGHOST="${PGHOST:-$postgres_container}"
+  PGPORT=5432
+  PGDATABASE="$(container_env_value "$postgres_container" POSTGRES_DB)"
+  PGUSER="$(container_env_value "$postgres_container" POSTGRES_USER)"
+  PGPASSWORD="$(container_env_value "$postgres_container" POSTGRES_PASSWORD)"
+  [[ -n "$PGDATABASE" && -n "$PGUSER" && -n "$PGPASSWORD" ]] \
+    || fail "无法读取 PostgreSQL 容器连接配置"
+  export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
+
+  printf '数据库连接模式 / Database mode: docker (%s, %s)\n' "$postgres_container" "$database_network"
+  local docker_args=(
+    --rm
+    --network "$database_network"
+    -e PGHOST -e PGPORT -e PGDATABASE -e PGUSER -e PGPASSWORD
+    -v "$PROJECT_ROOT/scripts/import-supabase-data.mjs:/app/import-supabase-data.mjs:ro"
+    -v "$EXPORT_DIR:/migration:ro"
+  )
+  if [[ "$mode" == "apply" ]]; then
+    docker_args+=(-e IMPORT_PASSWORD)
+  fi
+  docker run "${docker_args[@]}" "$app_image" \
+    node /app/import-supabase-data.mjs --source /migration "--$mode" \
+    || fail "Docker 内数据库迁移演练失败，请检查 docker logs $postgres_container"
+}
+
+run_database_import() {
+  local mode="$1"
+  local execution_mode="${DATABASE_EXECUTION_MODE:-auto}"
+  if [[ "$execution_mode" != "host" ]] && command -v docker >/dev/null 2>&1; then
+    if run_database_import_in_docker "$mode"; then
+      return
+    fi
+    [[ "$execution_mode" == "auto" ]] || fail "Docker 数据库连接模式不可用"
+  fi
+  run_database_import_on_host "$mode"
+}
 
 # Rehearse field conversion and every foreign key before touching the NAS.
 # 在写入 NAS 前演练字段转换和全部外键关系。
-node "$PROJECT_ROOT/scripts/import-supabase-data.mjs" --source "$EXPORT_DIR" --check
+run_database_import check
 
 NAS_MEDIA_PATH="${NAS_MEDIA_PATH:-$(read_env_value NAS_MEDIA_PATH)}"
 [[ -n "$NAS_MEDIA_PATH" ]] || fail "NAS_MEDIA_PATH 未配置"
@@ -126,7 +210,7 @@ printf '%s\n' "开始镜像覆盖 NAS / Mirroring export onto NAS..."
 rsync "${RSYNC_ARGS[@]}" "$STORAGE_SOURCE/" "$NAS_MEDIA_PATH/"
 
 printf '%s\n' "开始重建数据库 / Rebuilding database..."
-node "$PROJECT_ROOT/scripts/import-supabase-data.mjs" --source "$EXPORT_DIR" --apply
+run_database_import apply
 
 VERIFY_OUTPUT="$(rsync -ni "${RSYNC_ARGS[@]}" "$STORAGE_SOURCE/" "$NAS_MEDIA_PATH/")"
 [[ -z "$VERIFY_OUTPUT" ]] || fail "NAS 校验失败，重新执行同一条 --apply 命令即可恢复"
