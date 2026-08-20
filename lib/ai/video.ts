@@ -22,6 +22,13 @@ export type SeedanceInput = {
 
 export type VideoTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired';
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+// Seedance 2.5 can take longer than earlier models to acknowledge a task,
+// especially when reference media is included. Keep the request alive long
+// enough for Wetoken to return the external task ID; result polling is handled
+// separately by the creator workflow.
+export const WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS = 5 * 60 * 1000;
+
 export class WetokenVideoError extends Error {
   readonly status: number;
   readonly providerCode: string | null;
@@ -198,7 +205,7 @@ export async function createWetokenVideoTask(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify(buildSeedanceRequest(input)),
-    signal: AbortSignal.timeout(55_000),
+    signal: AbortSignal.timeout(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS),
   });
   const data = await providerJson(response);
   const payload = taskPayload(data);

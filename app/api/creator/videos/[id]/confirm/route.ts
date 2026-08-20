@@ -19,7 +19,7 @@ import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const SIGNED_URL_TTL_SECONDS = 3600;
 

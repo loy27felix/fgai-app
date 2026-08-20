@@ -82,6 +82,15 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
   assert.match(promptPanel, /composerContent/);
 });
 
+test('canvas pastes externally copied images using the native clipboard event', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(project, /const handlePaste = useCallback\(\s*\(event: ClipboardEvent\)/);
+  assert.match(project, /event\.clipboardData/);
+  assert.match(project, /window\.addEventListener\("paste", handlePaste\)/);
+  assert.doesNotMatch(project, /navigator\.clipboard\.read/);
+});
+
 
 test('canvas cloud sync adopts legacy local projects and deletes remote rows', () => {
   const index = read('reference/infinite-canvas/src/pages/canvas/index.tsx');

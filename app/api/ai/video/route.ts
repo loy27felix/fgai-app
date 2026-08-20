@@ -10,7 +10,7 @@ import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing'
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 type CreateBody = {
   projectId?: string;

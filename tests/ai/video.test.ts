@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import {
   VIDEO_MODELS,
+  WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS,
   buildSeedanceRequest,
   createWetokenVideoTask,
   getWetokenVideoTask,
@@ -32,6 +33,10 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
   assert.deepEqual(VIDEO_MODELS.map((model) => model.filterOff), [
     false, true, false, true, false, true, false, true,
   ]);
+});
+
+test('video submission allows five minutes for provider task creation', () => {
+  assert.equal(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS, 5 * 60 * 1000);
 });
 
 test('video reference mode assigns ordinary and first/last-frame roles', () => {
