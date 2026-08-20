@@ -19,7 +19,7 @@ import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+export const maxDuration = 1800;
 
 const SIGNED_URL_TTL_SECONDS = 3600;
 
@@ -236,6 +236,104 @@ function publicError(error: unknown) {
   return { message: ERRORS.SUBMIT_FAILED, code: 'VIDEO_CONFIRM_FAILED', status: 502 };
 }
 
+/**
+ * The local deployment keeps this job in the Node process after the HTTP
+ * response is returned.  Seedance 2.5 can take a long time just to hand back
+ * an external task ID, so keeping the browser request open makes a live task
+ * look like a failed one whenever the client/proxy gives up first.
+ */
+async function completeProviderSubmission(input: {
+  context: CreatorVideoContext;
+  task: CreatorVideoTask;
+  validated: ReturnType<typeof validateStoredVideoDraftRequest>;
+  references: VideoReference[];
+  requestId: string;
+}) {
+  const { context, task, validated, references, requestId } = input;
+  let providerTask: Awaited<ReturnType<typeof createWetokenVideoTask>>;
+  try {
+    console.info('[creator video provider]', {
+      taskId: task.id,
+      provider: 'wetoken',
+      model: task.model,
+      referenceCount: references.length,
+      stage: 'submitting',
+    });
+    providerTask = await createWetokenVideoTask({
+      model: task.model,
+      prompt: validated.effectivePrompt,
+      references,
+      duration: validated.duration,
+      ratio: validated.ratio,
+      resolution: validated.resolution,
+      watermark: validated.watermark,
+      generateAudio: validated.generateAudio,
+    });
+  } catch (error) {
+    console.error('[creator video provider failure]', {
+      taskId: task.id,
+      provider: 'wetoken',
+      status: error instanceof WetokenVideoError ? error.status : undefined,
+      providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
+      retryable: error instanceof WetokenVideoError ? error.retryable : undefined,
+      message: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+    });
+    const providerStatus = providerFailureStatus(error);
+    const completedAt = providerStatus === 'failed' ? new Date().toISOString() : null;
+    try {
+      await updateOwnedTask(context, task.id, {
+        status: providerStatus,
+        error: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+        completed_at: completedAt,
+      }, 'submitting');
+    } catch (persistError) {
+      console.error('[creator video provider failure persistence]', persistError);
+    }
+    await updateVideoUsageBestEffort({ requestId, providerStatus, completedAt });
+    return;
+  }
+
+  const raw = asRecord(providerTask.raw);
+  const providerReportedCostUsd = extractReportedCostUsd(providerTask.raw);
+  const providerData = asRecord(raw.data);
+  const providerNestedTask = asRecord(providerData.task);
+  const providerContent = asRecord(raw.content || providerData.content || providerNestedTask.content);
+  let output: Record<string, unknown> = {
+    provider_task_id: providerTask.externalTaskId,
+    ...(typeof providerContent.video_url === 'string' ? { video_url: providerContent.video_url } : {}),
+  };
+  if (providerTask.status === 'succeeded') output = await persistVideoOutput(context, task, output);
+
+  try {
+    await updateOwnedTask(context, task.id, {
+      external_task_id: providerTask.externalTaskId,
+      status: providerTask.status,
+      output,
+      error: null,
+    }, 'submitting');
+  } catch (error) {
+    console.error('[creator video provider submit]', error);
+    try {
+      await updateOwnedTask(context, task.id, {
+        external_task_id: providerTask.externalTaskId,
+        output,
+        status: 'unknown',
+        error: ERRORS.SUBMIT_FAILED,
+      }, 'submitting');
+    } catch (persistError) {
+      console.error('[creator video unknown persistence]', persistError);
+    }
+    await updateVideoUsageBestEffort({ requestId, providerStatus: 'unknown' });
+    return;
+  }
+
+  await updateVideoUsageBestEffort({
+    requestId,
+    providerStatus: providerTask.status,
+    reportedCostUsd: providerReportedCostUsd,
+  });
+}
+
 export async function POST(_req: Request, { params }: RouteContext) {
   let context: Awaited<ReturnType<typeof creatorContext>> = null;
   let claimed: CreatorVideoTask | null = null;
@@ -329,86 +427,13 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
       throw new Error(ERRORS.USAGE_RECORD_FAILED);
     }
 
-    {
-      let providerTask: Awaited<ReturnType<typeof createWetokenVideoTask>>;
-      try {
-        console.info("[creator video provider]", {
-          taskId: claimed.id,
-          provider: "wetoken",
-          model: claimed.model,
-          referenceCount: references.length,
-          stage: "submitting",
-        });
-        providerTask = await createWetokenVideoTask({
-          model: claimed.model,
-          prompt: validated.effectivePrompt,
-          references,
-          duration: validated.duration,
-          ratio: validated.ratio,
-          resolution: validated.resolution,
-          watermark: validated.watermark,
-          generateAudio: validated.generateAudio,
-        });
-      } catch (error) {
-        console.error("[creator video provider failure]", {
-          taskId: claimed.id,
-          provider: "wetoken",
-          status: error instanceof WetokenVideoError ? error.status : undefined,
-          providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
-          retryable: error instanceof WetokenVideoError ? error.retryable : undefined,
-          message: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
-        });
-        const providerStatus = providerFailureStatus(error);
-        const completedAt = providerStatus === 'failed' ? new Date().toISOString() : null;
-        try {
-          await updateOwnedTask(context, claimed.id, {
-            status: providerStatus,
-            error: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
-            completed_at: completedAt,
-          }, 'submitting');
-        } catch (persistError) {
-          console.error('[creator video provider failure persistence]', persistError);
-        }
-        await updateVideoUsageBestEffort({ requestId, providerStatus, completedAt });
-        throw error;
-      }
-
-      const raw = asRecord(providerTask.raw);
-      const providerReportedCostUsd = extractReportedCostUsd(providerTask.raw);
-      const providerData = asRecord(raw.data);
-      const providerNestedTask = asRecord(providerData.task);
-      const providerContent = asRecord(raw.content || providerData.content || providerNestedTask.content);
-      let output: Record<string, unknown> = {
-        provider_task_id: providerTask.externalTaskId,
-        ...(typeof providerContent.video_url === 'string' ? { video_url: providerContent.video_url } : {}),
-      };
-      if (providerTask.status === 'succeeded') output = await persistVideoOutput(context, claimed, output);
-      let updated: CreatorVideoTask;
-      try {
-        updated = await updateOwnedTask(context, claimed.id, {
-          external_task_id: providerTask.externalTaskId,
-          status: providerTask.status,
-          output,
-          error: null,
-        }, 'submitting');
-      } catch (error) {
-        console.error('[creator video provider submit]', error);
-        try {
-          await updateOwnedTask(context, claimed.id, {
-            external_task_id: providerTask.externalTaskId,
-            output,
-            status: 'unknown',
-            error: ERRORS.SUBMIT_FAILED,
-          }, 'submitting');
-        } catch (persistError) {
-          console.error('[creator video unknown persistence]', persistError);
-        }
-        await updateVideoUsageBestEffort({ requestId, providerStatus: 'unknown' });
-        throw error;
-      }
-      await updateVideoUsageBestEffort({ requestId, providerStatus: providerTask.status, reportedCostUsd: providerReportedCostUsd });
-      return NextResponse.json({ task: await viewTask(context, updated) });
-    }
+    // Do not keep the user's browser request open while Wetoken is still
+    // accepting a long Seedance 2.5 submission. The task is already claimed,
+    // validated, budget-checked, and ledgered; the local Node process now
+    // waits for the provider in the background and records its task ID.
+    void completeProviderSubmission({ context, task: claimed, validated, references, requestId })
+      .catch((error) => console.error('[creator video background submission]', error));
+    return NextResponse.json({ task: await viewTask(context, claimed) }, { status: 202 });
   } catch (error: unknown) {
     console.error("[creator video confirm failure]", {
       taskId: params.id,

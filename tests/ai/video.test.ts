@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test, { afterEach } from 'node:test';
 import {
   VIDEO_MODELS,
@@ -35,8 +37,25 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
   ]);
 });
 
-test('video submission allows five minutes for provider task creation', () => {
-  assert.equal(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS, 5 * 60 * 1000);
+test('video submission allows thirty minutes for slow provider task creation', () => {
+  assert.equal(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS, 30 * 60 * 1000);
+});
+
+test('canvas result polling does not impose a second short timeout after submission', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'reference/infinite-canvas/src/services/api/video.ts'), 'utf8');
+
+  assert.match(source, /for \(;;\) \{/);
+  assert.doesNotMatch(source, /attempt < 60/);
+  assert.match(source, /task\.status === "failed"/);
+  assert.match(source, /task\.status === "expired"/);
+  assert.match(source, /task\.status === "unknown" && !task\.external_task_id/);
+});
+
+test('canvas confirmation schedules slow provider submission instead of holding the browser request open', () => {
+  const route = fs.readFileSync(path.join(process.cwd(), 'app/api/creator/videos/[id]/confirm/route.ts'), 'utf8');
+
+  assert.match(route, /void completeProviderSubmission\(/);
+  assert.match(route, /status: 202/);
 });
 
 test('video reference mode assigns ordinary and first/last-frame roles', () => {

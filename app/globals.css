@@ -61,7 +61,9 @@ body {
   min-width: 0;
   min-height: 100dvh;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
   scrollbar-gutter: stable;
 }
 

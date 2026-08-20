@@ -6,12 +6,16 @@ import type { CanvasPlugin } from "@/reference/infinite-canvas/src/types/canvas-
 const cleanups = new Map<string, () => void>();
 
 // 远程插件默认导出可以是 CanvasPlugin,或接收 runtime 返回 CanvasPlugin 的工厂
-// (工厂形式用 runtime.React,无需 bundle 自带 React)
+// (工厂形式用 runtime.React,无需 bundle 自带 React)。不要直接写 Vite 的
+// `@vite-ignore`：Next/Webpack 会尝试把 blob: URL 当作构建时模块解析，局域网
+// 部署会报 Cannot find module 'blob:...'. 这里显式交给浏览器原生动态导入。
+type PluginModule = { default?: unknown; plugin?: unknown };
+
 async function evaluatePluginSource(source: string): Promise<CanvasPlugin> {
     const blob = new Blob([source], { type: "text/javascript" });
     const url = URL.createObjectURL(blob);
     try {
-        const mod = (await import(/* @vite-ignore */ url)) as { default?: unknown; plugin?: unknown };
+        const mod = (await import(/* webpackIgnore: true */ url)) as PluginModule;
         const exported = mod.default ?? mod.plugin;
         const plugin = typeof exported === "function" ? (exported as (runtime: unknown) => unknown)(getPluginRuntime()) : exported;
         assertPlugin(plugin);

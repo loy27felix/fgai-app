@@ -38,7 +38,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="auth-shell relative grid place-items-center overflow-y-auto bg-[#08080c] p-6 text-white overscroll-none">
+    <main className="auth-shell relative grid min-h-[100dvh] w-full touch-pan-y place-items-center overflow-y-auto bg-[#08080c] p-6 text-white overscroll-y-contain">
       <div className="pointer-events-none absolute inset-0">
         <div className="orb absolute left-1/2 top-[-10%] h-[620px] w-[620px] -translate-x-1/2 opacity-55" />
         <div className="grain" />

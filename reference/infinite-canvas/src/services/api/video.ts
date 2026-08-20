@@ -150,7 +150,11 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     }
     const fallbackUrl = creatorVideoContentUrl(draft.task.id);
     if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal }, fallbackUrl)), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined, externalTaskId: typeof immediate.task?.external_task_id === "string" ? immediate.task.external_task_id : undefined };
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    // A submitted Seedance task can remain queued much longer than the former
+    // four-minute client loop.  Keep polling until Wetoken reports a terminal
+    // state (or the user explicitly aborts) instead of turning a live task into
+    // a false timeout.
+    for (;;) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let task: Awaited<ReturnType<typeof getVideoTask>>["task"];
         try {
@@ -159,10 +163,13 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
             throw new Error(`视频任务状态读取失败：${error instanceof Error ? error.message : "网络请求失败"}`);
         }
         if (task.videoUrl) return { ...(await videoResultFromUrl(task.videoUrl, { signal }, fallbackUrl)), storagePath: typeof task.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined, assetId: typeof task.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined, externalTaskId: typeof task.external_task_id === "string" ? task.external_task_id : undefined };
-        if (task.status === "failed" || task.status === "expired") throw new Error(task.error || "视频生成失败，请查看历史任务");
+        if (
+            task.status === "failed"
+            || task.status === "expired"
+            || (task.status === "unknown" && !task.external_task_id)
+        ) throw new Error(task.error || "视频任务提交状态不明确，请在生成记录中确认后再重试");
         await new Promise((resolve) => setTimeout(resolve, 4000));
     }
-    throw new Error("视频生成超时，请稍后重试");
 }
 
 async function localUploadVideoReference(taskId: string, path: string, file: File) {

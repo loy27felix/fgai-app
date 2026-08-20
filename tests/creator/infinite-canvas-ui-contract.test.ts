@@ -105,38 +105,48 @@ test('canvas cloud sync adopts legacy local projects and deletes remote rows', (
   assert.match(project, /cloudCreateInFlightRef/);
 });
 
-test('creator browser history bridge and reference-id recovery are wired', () => {
+test('creator browser history bridge is wired without a provider-id recovery route', () => {
   const host = read('components/creator/InfiniteCanvasReferenceHost.tsx');
   const route = read('app/api/creator/videos/[id]/route.ts');
 
   assert.match(host, /BrowserHistoryBridge/);
   assert.match(host, /pushState/);
   assert.match(host, /initialCreatorRoute/);
-  assert.match(route, /allowExternalTaskId/);
-  assert.match(route, /external_task_id/);
-  assert.match(route, /fresh URL can be copied/);
+  assert.match(route, /if \(!isUuid\(id\)\) return null/);
+  assert.doesNotMatch(route, /allowExternalTaskId/);
+  assert.doesNotMatch(route, /loadOwnedTask\(context, params\.id, true\)/);
 });
 
-test('legacy canvas deep links and video recovery routes remain available', () => {
+test('legacy canvas deep links remain available while old-video recovery UI is removed', () => {
   const root = read('app/canvas/page.tsx');
   const project = read('app/canvas/[...slug]/page.tsx');
-  const route = read('app/api/creator/videos/[id]/route.ts');
   const video = read('reference/infinite-canvas/src/pages/video/index.tsx');
+  const canvasProject = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const toolbar = read('reference/infinite-canvas/src/components/canvas/canvas-node-hover-toolbar.tsx');
 
   assert.match(root, /\/creator#\/canvas/);
   assert.match(project, /\/creator#\/canvas/);
-  assert.match(route, /loadOwnedLegacyTask/);
-  assert.match(route, /recoverLegacyTask/);
-  assert.match(video, /getVideoTaskByReferenceId/);
-  assert.match(video, /查询并找回/);
+  assert.doesNotMatch(video, /找回旧视频/);
+  assert.doesNotMatch(video, /getVideoTaskByReferenceId/);
+  assert.doesNotMatch(canvasProject, /handleRecoverVideoNode/);
+  assert.doesNotMatch(toolbar, /recoverVideo/);
 });
 
-test('reference-id recovery skips UUID-only task predicates', () => {
-  const route = read('app/api/creator/videos/[id]/route.ts');
+test('remote canvas plugins use the browser native importer, not a bundler blob import', () => {
+  const loader = read('reference/infinite-canvas/src/lib/canvas/plugin-loader.ts');
 
-  assert.match(route, /function isUuid\(value: string\)/);
-  assert.match(route, /if \(isUuid\(id\)\) \{[\s\S]*?\.eq\('id', id\)/);
-  assert.match(route, /if \(!task && allowExternalTaskId\) \{[\s\S]*?\.eq\('external_task_id', id\)/);
+  assert.match(loader, /webpackIgnore: true/);
+  assert.match(loader, /await import\(\/\* webpackIgnore: true \*\/ url\)/);
+  assert.doesNotMatch(loader, /import\(\/\* @vite-ignore \*\/ url\)/);
+});
+
+test('login disables horizontal gesture scrolling while preserving vertical form scrolling', () => {
+  const login = read('app/login/page.tsx');
+  const styles = read('app/globals.css');
+
+  assert.match(login, /touch-pan-y/);
+  assert.match(styles, /overflow-x: clip/);
+  assert.match(styles, /overscroll-behavior-x: none/);
 });
 
 test('video persistence keeps a cloud URL when browser media storage is unavailable', () => {
@@ -147,5 +157,5 @@ test('video persistence keeps a cloud URL when browser media storage is unavaila
   assert.match(video, /const fallbackUrl = result\.fallbackUrl/);
   assert.match(video, /storageKey: ""/);
   assert.match(video, /return remoteFallback;/);
-  assert.match(project, /storeGeneratedVideo\(\{[\s\S]*?url: task\.videoUrl/);
+  assert.match(project, /cloudStoragePath/);
 });

@@ -25,9 +25,10 @@ type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Re
 
 // Seedance 2.5 can take longer than earlier models to acknowledge a task,
 // especially when reference media is included. Keep the request alive long
-// enough for Wetoken to return the external task ID; result polling is handled
-// separately by the creator workflow.
-export const WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS = 5 * 60 * 1000;
+// Seedance 2.5 can spend several minutes accepting a request before it returns
+// an external task ID.  The local deployment has no serverless execution cap,
+// so keep this generous and let result polling continue separately afterwards.
+export const WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS = 30 * 60 * 1000;
 
 export class WetokenVideoError extends Error {
   readonly status: number;
