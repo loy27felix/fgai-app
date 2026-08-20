@@ -3,13 +3,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    restart: unless-stopped
+    # The NAS supervisor owns app lifecycle so Docker cannot start it against an unmounted host directory.
+    # App 生命周期由 NAS 守护进程管理，禁止 Docker 在宿主机目录未挂载时抢先启动。
+    restart: "no"
     env_file:
       - .env.docker
     environment:
       # The host path is used only by the bind mount; the app always reads the container path.
       # 宿主机路径只用于 bind mount，应用容器内统一从 /data/media 读写。
       NAS_MEDIA_PATH: /data/media
+      NAS_READY_FILE: /data/media/.fg-studio-nas-ready
+    command:
+      - sh
+      - -c
+      - |
+        test -f "$${NAS_READY_FILE}" || { echo "NAS media storage is unavailable" >&2; exit 78; }
+        exec node server.js
     depends_on:
       postgres:
         condition: service_healthy
@@ -17,8 +26,16 @@ services:
       - type: bind
         source: ${NAS_MEDIA_PATH:?Set NAS_MEDIA_PATH in .env.docker}
         target: /data/media
+        bind:
+          create_host_path: false
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f \"$${NAS_READY_FILE}\""]
+      interval: 10s
+      timeout: 3s
+      retries: 2
+      start_period: 10s
     networks:
       - fg
 

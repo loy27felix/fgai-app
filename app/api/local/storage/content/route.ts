@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/local/auth";
-import { localFileSize, readLocalFile, readLocalRange, verifyLocalSignedUrl } from "@/lib/local/storage";
+import { isNasUnavailableError, localFileSize, readLocalFile, readLocalRange, verifyLocalSignedUrl } from "@/lib/local/storage";
 import { canAccessStoragePath } from "@/lib/local/storage-auth";
 
 const allowedBuckets = new Set(["project-assets", "creator-assets"]);
@@ -64,6 +64,6 @@ export async function GET(request: Request) {
       message: error instanceof Error ? error.message : String(error),
       cfRay: cfRay || undefined,
     });
-    return new NextResponse("媒体文件不存在", { status: 404 });
+    return new NextResponse(isNasUnavailableError(error) ? "NAS 媒体存储当前不可用" : "媒体文件不存在", { status: isNasUnavailableError(error) ? 503 : 404 });
   }
 }
