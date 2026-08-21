@@ -69,7 +69,7 @@ chmod +x scripts/nas-supervisor.sh scripts/install-nas-supervisor.sh
 scripts/install-nas-supervisor.sh
 ```
 
-守护进程每 10 秒校验一次真实 SMB/NFS 文件系统、NAS 主机、读写探针和容器内标记。NAS 断开时只停止 `app`，并通过 `NAS_MOUNT_URL` 请求 Finder 使用 Keychain 凭据重新挂载；NAS 恢复后使用 `--force-recreate` 重建 `app`，避免复用失效的 bind mount。PostgreSQL 始终保持运行。日志位于 `~/Library/Logs/fg-studio-nas-supervisor.log`。应用自身也会在 NAS 标记缺失时拒绝媒体读写并返回 `503`，因此不能通过本机空目录继续写入。
+安装脚本会在终端要求输入一次 NAS 密码，并仅保存到当前运行账号的 macOS Keychain。守护进程每 10 秒校验一次真实 SMB/NFS 文件系统、NAS 主机、读写探针和容器内标记。NAS 断开时只停止 `app`，从专用 Keychain 条目读取凭据后以无界面方式重新挂载，不会弹出 Finder 登录窗口；NAS 恢复后使用 `--force-recreate` 重建 `app`，避免复用失效的 bind mount。PostgreSQL 始终保持运行。日志位于 `~/Library/Logs/fg-studio-nas-supervisor.log`。应用自身也会在 NAS 标记缺失时拒绝媒体读写并返回 `503`，因此不能通过本机空目录继续写入。
 
 服务器网络如果封锁 UDP/7844，Compose 会强制 `cloudflared` 使用 HTTP/2，避免 Tunnel 自动切换到不可用的 QUIC。修改 Tunnel 配置后执行 `docker compose --env-file .env.docker up -d cloudflared` 使连接重新建立。
 

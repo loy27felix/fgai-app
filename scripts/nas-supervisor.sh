@@ -15,6 +15,7 @@ STATE_ROOT="${TMPDIR:-/tmp}/fg-studio-nas-supervisor-$(id -u)"
 STATE_FILE="$STATE_ROOT/state"
 LOCK_DIR="$STATE_ROOT/lock"
 MOUNT_RETRY_FILE="$STATE_ROOT/last-mount-attempt"
+KEYCHAIN_SERVICE="com.fgstudio.nas-supervisor.smb"
 
 mkdir -p "$STATE_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -129,15 +130,38 @@ stop_app() {
 
 request_mount() {
   local mount_url="$1"
+  local smb_user="$2"
   local now
   local last_attempt=0
+  local mount_exit=0
   now="$(date +%s)"
   [[ -f "$MOUNT_RETRY_FILE" ]] && last_attempt="$(<"$MOUNT_RETRY_FILE")"
   if ((now - last_attempt < 30)); then
     return
   fi
   printf '%s' "$now" > "$MOUNT_RETRY_FILE"
-  /usr/bin/open -gj "$mount_url" >/dev/null 2>&1 || true
+
+  # Read and encode the secret inside JXA so it never appears in shell arguments, environment, or logs.
+  # 在 JXA 内部读取并编码凭据，避免密码出现在 Shell 参数、环境变量或日志中。
+  export FG_NAS_MOUNT_URL="$mount_url"
+  export FG_NAS_MOUNT_USER="$smb_user"
+  export FG_NAS_KEYCHAIN_SERVICE="$KEYCHAIN_SERVICE"
+  run_with_timeout 20 /usr/bin/osascript -l JavaScript \
+    -e 'ObjC.import("stdlib");' \
+    -e 'const app = Application.currentApplication();' \
+    -e 'app.includeStandardAdditions = true;' \
+    -e 'const env = name => ObjC.unwrap($.getenv(name));' \
+    -e 'const shellQuote = value => `\u0027${value.replace(/\u0027/g, `\u0027\\\u0027\u0027`)}\u0027`;' \
+    -e 'const mountUrl = env("FG_NAS_MOUNT_URL");' \
+    -e 'const mountUser = env("FG_NAS_MOUNT_USER");' \
+    -e 'const keychainService = env("FG_NAS_KEYCHAIN_SERVICE");' \
+    -e 'const password = app.doShellScript(`/usr/bin/security find-generic-password -a ${shellQuote(mountUser)} -s ${shellQuote(keychainService)} -w`);' \
+    -e 'const shareUrl = mountUrl.replace(/^smb:\/\/[^@]*@/, "smb://");' \
+    -e 'const credentialUrl = `smb://${encodeURIComponent(mountUser)}:${encodeURIComponent(password)}@${shareUrl.slice(6)}`;' \
+    -e 'app.mountVolume(credentialUrl);' \
+    >/dev/null 2>&1 || mount_exit=$?
+  unset FG_NAS_MOUNT_URL FG_NAS_MOUNT_USER FG_NAS_KEYCHAIN_SERVICE
+  return "$mount_exit"
 }
 
 [[ -f "$ENV_FILE" ]] || { set_state "config-missing" "NAS supervisor: environment file is missing"; exit 1; }
@@ -147,8 +171,10 @@ EXPECTED_SHARE="$(read_env_value NAS_EXPECTED_SHARE)"
 MARKER_NAME="$(read_env_value NAS_READY_MARKER)"
 MOUNT_URL="$(read_env_value NAS_MOUNT_URL)"
 MARKER_NAME="${MARKER_NAME:-$DEFAULT_MARKER_NAME}"
+SMB_USER="${MOUNT_URL#smb://}"
+SMB_USER="${SMB_USER%%@*}"
 
-if [[ -z "$NAS_PATH" || "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://* ]]; then
+if [[ -z "$NAS_PATH" || "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
   stop_app
   set_state "config-invalid" "NAS supervisor: NAS path, expected source, or mount URL is invalid; app stopped"
   exit 1
@@ -156,7 +182,6 @@ fi
 
 if ! run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
   stop_app
-  request_mount "$MOUNT_URL"
   set_state "nas-offline" "NAS supervisor: SMB server is unreachable; app stopped"
   exit 0
 fi
@@ -167,8 +192,11 @@ MOUNT_LINE="$(/sbin/mount | awk -v host="$EXPECTED_HOST" -v share="/$EXPECTED_SH
 MOUNT_POINT="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$MOUNT_LINE")"
 if [[ -z "$MOUNT_LINE" || -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
   stop_app
-  request_mount "$MOUNT_URL"
-  set_state "nas-offline" "NAS supervisor: expected SMB share is not mounted; app stopped"
+  if request_mount "$MOUNT_URL" "$SMB_USER"; then
+    set_state "mount-requested" "NAS supervisor: non-interactive SMB mount requested; app stopped until ready"
+  else
+    set_state "mount-failed" "NAS supervisor: non-interactive SMB mount failed; check the dedicated Keychain credential"
+  fi
   exit 0
 fi
 
