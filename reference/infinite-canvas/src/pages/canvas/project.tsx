@@ -97,6 +97,12 @@ type CanvasClipboard = {
     connections: CanvasConnection[];
 };
 
+// Keep canvas-internal copy/paste separate from the operating-system clipboard.
+// In particular, an image copied from another application must never be replaced
+// by a stale in-memory node copy.
+const CANVAS_CLIPBOARD_MIME = "application/x-fg-studio-canvas";
+const CANVAS_CLIPBOARD_SENTINEL = "FG_STUDIO_CANVAS_INTERNAL_COPY";
+
 type ConnectionDropTarget = {
     nodeId: string | null;
     isNearNode: boolean;
@@ -1558,11 +1564,33 @@ function InfiniteCanvasPage() {
         [getCanvasCenter],
     );
 
+    const handleCopy = useCallback((event: ClipboardEvent) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
+        if (window.getSelection()?.toString() || !selectedNodeIdsRef.current.size) return;
+
+        copySelectedNodes();
+        event.clipboardData?.setData(CANVAS_CLIPBOARD_MIME, "1");
+        // Some browsers do not retain arbitrary clipboard MIME types between
+        // keyboard copy and paste, so keep a harmless fallback marker as well.
+        event.clipboardData?.setData("text/plain", CANVAS_CLIPBOARD_SENTINEL);
+        event.preventDefault();
+    }, [copySelectedNodes]);
+
     const handlePaste = useCallback((event: ClipboardEvent) => {
         const target = event.target instanceof Element ? event.target : null;
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
 
-        const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
+        const clipboardData = event.clipboardData;
+        // Screenshots copied from browser, chat, and desktop apps may expose
+        // their image only through DataTransferItemList instead of `files`.
+        const filesFromItems = Array.from(clipboardData?.items || [])
+            .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+            .map((item) => item.getAsFile())
+            .filter((file): file is File => Boolean(file));
+        const files = filesFromItems.length
+            ? filesFromItems
+            : Array.from(clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
         if (files.length) {
             event.preventDefault();
             const center = getCanvasCenter();
@@ -1577,12 +1605,18 @@ function InfiniteCanvasPage() {
             return;
         }
 
-        const text = event.clipboardData?.getData("text/plain") || "";
+        const text = clipboardData?.getData("text/plain") || "";
+        const isCanvasClipboard = clipboardData?.types.includes(CANVAS_CLIPBOARD_MIME) || text === CANVAS_CLIPBOARD_SENTINEL;
+        if (isCanvasClipboard && pasteCopiedNodes()) {
+            event.preventDefault();
+            return;
+        }
+
         if (createTextNodeFromClipboard(text)) {
             event.preventDefault();
             message.success("已从剪切板添加文本");
         }
-    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message]);
+    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, pasteCopiedNodes]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -1616,16 +1650,11 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            if (isModifierShortcut && !event.altKey && key === "c") {
-                event.preventDefault();
-                copySelectedNodes();
-                return;
-            }
-
-            if (isModifierShortcut && !event.altKey && key === "v") {
-                if (pasteCopiedNodes()) event.preventDefault();
-                return;
-            }
+            // Native copy/paste events decide whether this is an external
+            // image, plain text, or an explicitly marked canvas node copy.
+            // Do not consume Ctrl/Cmd+V here: doing so prevents pasted images
+            // from reaching the browser's ClipboardEvent.
+            if (isModifierShortcut && !event.altKey && (key === "c" || key === "v")) return;
 
             if (event.key === "Delete" || event.key === "Backspace") {
                 if (selectedNodeIdsRef.current.size) {
@@ -1654,12 +1683,14 @@ function InfiniteCanvasPage() {
         };
 
         window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("copy", handleCopy);
         window.addEventListener("paste", handlePaste);
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("copy", handleCopy);
             window.removeEventListener("paste", handlePaste);
         };
-    }, [copySelectedNodes, deleteConnection, deleteNodes, handlePaste, pasteCopiedNodes, redoCanvas, selectedConnectionId, setConnecting, undoCanvas]);
+    }, [deleteConnection, deleteNodes, handleCopy, handlePaste, redoCanvas, selectedConnectionId, setConnecting, undoCanvas]);
 
     const handleConnectStart = useCallback(
         (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target") => {
