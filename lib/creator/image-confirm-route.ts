@@ -423,12 +423,18 @@ recordAttempt: async ({ requestId, task }) => {
       await updateImageUsageStatus({ requestId, status: 'succeeded', completedAt: new Date().toISOString(), reportedCostUsd });
       return result;
     },
-    settleFailure: async ({ task, requestId, status, error }) => {
+    settleFailure: async ({ task, requestId, status, error, details }) => {
       const failureUpdate: Record<string, unknown> = {
         status,
         error,
         completed_at: null,
       };
+      if (details) {
+        failureUpdate.output = {
+          ...asRecord(task.output),
+          failure_diagnostic: details,
+        };
+      }
       if (status === 'draft') failureUpdate.confirmed_at = null;
       const updated = await localClient
         .from('creator_generation_tasks')

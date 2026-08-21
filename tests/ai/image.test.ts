@@ -6,6 +6,7 @@ import {
   generateWetokenImage,
   sizeToAspectRatio,
   WetokenImageRequestError,
+  WetokenImageResultError,
 } from '../../lib/ai/image';
 
 const originalKey = process.env.WETOKEN_API_KEY;
@@ -20,6 +21,11 @@ afterEach(() => {
 
 test('Gemini request maps prompt, references and aspect ratio', () => {
   assert.equal(sizeToAspectRatio('1536x864'), '16:9');
+  // The image workspace also permits arbitrary dimensions. Gemini only
+  // accepts named aspect ratios, so map those dimensions to the nearest one
+  // instead of silently falling back to 1:1.
+  assert.equal(sizeToAspectRatio('1824x1024'), '16:9');
+  assert.equal(sizeToAspectRatio('1024x1824'), '9:16');
   assert.deepEqual(buildGeminiImageBody({
     prompt: 'cinematic fox',
     size: '768x1344',
@@ -167,6 +173,56 @@ test('Gemini accepts Wetoken OpenAI-compatible URL results without another provi
   assert.equal(result.mimeType, 'image/png');
   assert.equal(result.sourceUrl, 'https://cdn.example/generated.png');
   assert.equal(urls.length, 2);
+});
+
+test('Gemini accepts nested gateway envelopes and SSE result events', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response([
+      'data: {"response":{"candidates":[{"content":{"parts":[{"inline_data":{"mime_type":"image/jpeg","data":"YWJj"}}]}}]}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+  });
+
+  assert.deepEqual([...result.bytes], [97, 98, 99]);
+  assert.equal(result.mimeType, 'image/jpeg');
+});
+
+test('Gemini accepts an image data URI embedded in a gateway text part', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+qbaI1QAAAABJRU5ErkJggg==';
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({
+      response: { output: { content: [{ type: 'text', text: `![generated](data:image/png;base64,${png})` }] } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+
+  assert.equal(result.mimeType, 'image/png');
+  assert.deepEqual([...result.bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+});
+
+test('Gemini missing results expose only diagnostic shape and never provider content', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  await assert.rejects(
+    () => generateWetokenImage({
+      model: 'gemini-3-pro-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+    }, {
+      fetcher: async () => new Response(JSON.stringify({
+        output: { trace: 'must-not-be-persisted', candidates: [{ content: { parts: [{ text: 'not an image' }] } }] },
+      }), { status: 200, headers: { 'Content-Type': 'application/json', 'x-request-id': 'req-test' } }),
+    }),
+    (error: unknown) => error instanceof WetokenImageResultError
+      && error.diagnostic?.status === 200
+      && error.diagnostic.requestId === 'req-test'
+      && error.diagnostic.payloadShape.includes('output')
+      && !JSON.stringify(error.diagnostic).includes('must-not-be-persisted'),
+  );
 });
 
 test('Gemini accepts direct image responses from the gateway', async () => {

@@ -8,7 +8,7 @@ import { buildImageReferencePromptText } from "@/reference/infinite-canvas/src/l
 import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-storage";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import { createClient } from "@/lib/local/client";
-import { createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
+import { CreatorImageClientError, createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
 import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 
@@ -736,12 +736,24 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
         if (upload.error) throw upload.error;
     }
     await finalizeImageUploads(draft.task.id, draft.uploadPaths);
-    const immediate = await confirmImageTask(draft.task.id);
-    if (immediate.resultUrl) return [{ id: nanoid(), dataUrl: immediate.resultUrl }];
+    // The provider can return 2xx and still omit its image payload. The server
+    // records that as an unknown paid result; keep polling so the UI can show a
+    // clear recovery action instead of treating it like a normal retryable
+    // generation failure.
+    let immediate: Awaited<ReturnType<typeof confirmImageTask>> | undefined;
+    try {
+        immediate = await confirmImageTask(draft.task.id);
+    } catch (error) {
+        if (!(error instanceof CreatorImageClientError) || error.code !== "WETOKEN_IMAGE_RESULT_INVALID") throw error;
+    }
+    if (immediate?.resultUrl) return [{ id: nanoid(), dataUrl: immediate.resultUrl }];
     for (let attempt = 0; attempt < 40; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const task = (await listImageTasks()).tasks.find((item) => item.id === draft.task.id);
         if (task?.resultUrl) return [{ id: nanoid(), dataUrl: task.resultUrl }];
+        if (task?.status === "unknown") {
+            throw new Error(task.error || "图片模型已返回结果，但本地未收到可保存的图片数据。请从 Wetoken 下载后，在该次生成记录中点击“导入已下载图”。");
+        }
         if (task?.status === "failed" || task?.status === "expired") throw new Error("图片生成失败，请查看历史任务");
         await new Promise((resolve) => setTimeout(resolve, 2500));
     }

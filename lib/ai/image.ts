@@ -47,13 +47,28 @@ export class WetokenImageRequestError extends Error {
  */
 export class WetokenImageResultError extends Error {
   readonly publicMessage: string;
+  /**
+   * Metadata only: this is persisted on the task to make gateway format
+   * changes diagnosable. It deliberately contains no response values, image
+   * bytes, signed URLs or credentials.
+   */
+  readonly diagnostic?: WetokenImageResultDiagnostic;
 
-  constructor(message: string) {
+  constructor(message: string, diagnostic?: WetokenImageResultDiagnostic) {
     super(message);
     this.name = 'WetokenImageResultError';
     this.publicMessage = message;
+    this.diagnostic = diagnostic;
   }
 }
+
+export type WetokenImageResultDiagnostic = {
+  status: number;
+  contentType: string | null;
+  responseBytes: number;
+  requestId?: string;
+  payloadShape: string[];
+};
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type TimeoutSignal = (timeoutMs: number) => AbortSignal;
@@ -69,8 +84,27 @@ const ASPECT_RATIOS: Record<string, string> = {
   '1248x832': '3:2', '1216x832': '3:2', '832x1248': '2:3', '832x1216': '2:3',
 };
 
+const GEMINI_ASPECT_RATIOS = [
+  '1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9',
+  '1:4', '4:1', '1:8', '8:1',
+];
+
 export function sizeToAspectRatio(size: string) {
-  return ASPECT_RATIOS[size] || '1:1';
+  if (ASPECT_RATIOS[size]) return ASPECT_RATIOS[size];
+  const match = /^(\d+)x(\d+)$/i.exec(size.trim());
+  if (!match) return '1:1';
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return '1:1';
+  const target = width / height;
+  return GEMINI_ASPECT_RATIOS.reduce((best, candidate) => {
+    const [candidateWidth, candidateHeight] = candidate.split(':').map(Number);
+    const [bestWidth, bestHeight] = best.split(':').map(Number);
+    return Math.abs(Math.log(candidateWidth / candidateHeight / target))
+      < Math.abs(Math.log(bestWidth / bestHeight / target))
+      ? candidate
+      : best;
+  });
 }
 
 export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' | 'size' | 'references'>) {
@@ -193,41 +227,191 @@ async function parseGptResult(data: any, fetcher: Fetcher): Promise<ImageGenerat
   throw new WetokenImageResultError('图片模型返回成功，但未包含可保存的图片数据');
 }
 
-async function parseGeminiResult(data: any, fetcher: Fetcher): Promise<ImageGenerationResult> {
-  // Wetoken normally forwards the native Gemini response. Some models/gateway
-  // versions instead return the OpenAI-compatible data array, so accept both
-  // without issuing another paid generation request.
-  if (data?.data?.[0]?.b64_json || data?.data?.[0]?.url) return parseGptResult(data, fetcher);
+function asRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null;
+}
 
-  const payload = data?.response || data?.result || data;
-  const parts = payload?.candidates?.flatMap((candidate: any) => candidate?.content?.parts || []) || [];
-  const image = parts.find((part: any) => part?.inlineData?.data || part?.inline_data?.data);
-  const inline = image?.inlineData || image?.inline_data;
-  if (inline?.data) {
-    if (typeof inline.data === 'string' && /^https:\/\//i.test(inline.data)) {
-      return downloadGeneratedImage(inline.data, inline.mimeType || inline.mime_type, fetcher);
+function payloadRoots(data: unknown) {
+  const roots: Record<string, any>[] = [];
+  const visited = new Set<Record<string, any>>();
+  const visit = (value: unknown, depth = 0) => {
+    if (depth > 3) return;
+    if (Array.isArray(value)) {
+      value.slice(0, 12).forEach((item) => visit(item, depth + 1));
+      return;
     }
-    return decodeInlineImage(inline.data, inline.mimeType || inline.mime_type);
-  }
+    const record = asRecord(value);
+    if (!record || visited.has(record)) return;
+    visited.add(record);
+    roots.push(record);
+    ['response', 'result', 'output', 'payload', 'body', 'data', 'events'].forEach((key) => visit(record[key], depth + 1));
+  };
+  visit(data);
+  return roots;
+}
 
-  const file = parts.find((part: any) => part?.fileData?.fileUri || part?.file_data?.file_uri);
-  const fileData = file?.fileData || file?.file_data;
-  if (fileData?.fileUri || fileData?.file_uri) {
-    return downloadGeneratedImage(fileData.fileUri || fileData.file_uri, fileData.mimeType || fileData.mime_type, fetcher);
+function partsFromPayload(payload: Record<string, any>) {
+  const parts: Record<string, any>[] = [];
+  const append = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach((item) => {
+      const record = asRecord(item);
+      if (record) parts.push(record);
+    });
+    else {
+      const record = asRecord(value);
+      if (record) parts.push(record);
+    }
+  };
+  for (const candidate of Array.isArray(payload.candidates) ? payload.candidates : []) append(candidate?.content?.parts);
+  for (const choice of Array.isArray(payload.choices) ? payload.choices : []) append(choice?.message?.content || choice?.content);
+  append(asRecord(payload.content)?.parts || payload.content);
+  append(asRecord(payload.output)?.parts || payload.output);
+  append(payload.parts);
+  append(payload.images);
+  append(payload.results);
+  append(payload.predictions);
+  append(payload.data);
+  return parts;
+}
+
+function nestedImageParts(payload: Record<string, any>) {
+  const parts = partsFromPayload(payload);
+  const visited = new Set<Record<string, any>>(parts);
+  const visit = (value: unknown, depth = 0) => {
+    if (depth > 4 || parts.length >= 80) return;
+    if (Array.isArray(value)) {
+      value.slice(0, 16).forEach((item) => visit(item, depth + 1));
+      return;
+    }
+    const record = asRecord(value);
+    if (!record || visited.has(record)) return;
+    visited.add(record);
+    const looksLikeImage = [
+      'inlineData', 'inline_data', 'fileData', 'file_data',
+      'image', 'image_url', 'imageUrl', 'b64_json', 'b64Json', 'base64',
+    ].some((key) => key in record);
+    if (looksLikeImage) parts.push(record);
+    Object.values(record).forEach((child) => visit(child, depth + 1));
+  };
+  visit(payload);
+  return parts;
+}
+
+function imageValueFromText(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const dataUri = value.match(/data:image\/[a-z0-9.+-]+(?:;[^,\s]*)*;base64,[a-z0-9+/=\s]+/i)?.[0];
+  if (dataUri) return { data: dataUri };
+  const markdownUrl = value.match(/!\[[^\]]*\]\((https:\/\/[^)\s]+)\)/i)?.[1];
+  return markdownUrl ? { url: markdownUrl } : null;
+}
+
+async function parseImagePart(part: Record<string, any>, fetcher: Fetcher): Promise<ImageGenerationResult | null> {
+  const inline = asRecord(part.inlineData) || asRecord(part.inline_data);
+  if (inline?.data) {
+    const mimeType = inline.mimeType || inline.mime_type || part.mimeType || part.mime_type;
+    return typeof inline.data === 'string' && /^https:\/\//i.test(inline.data)
+      ? downloadGeneratedImage(inline.data, mimeType, fetcher)
+      : decodeInlineImage(inline.data, mimeType);
   }
-  throw new WetokenImageResultError('Gemini 返回成功，但响应中未找到可保存的图片数据');
+  const file = asRecord(part.fileData) || asRecord(part.file_data);
+  if (file?.fileUri || file?.file_uri || file?.url) {
+    return downloadGeneratedImage(file.fileUri || file.file_uri || file.url, file.mimeType || file.mime_type, fetcher);
+  }
+  const imageUrl = asRecord(part.image_url) || asRecord(part.imageUrl);
+  if (imageUrl?.url) return downloadGeneratedImage(imageUrl.url, imageUrl.mime_type || imageUrl.mimeType, fetcher);
+  const image = asRecord(part.image);
+  if (image?.data || image?.b64_json || image?.base64) {
+    return decodeInlineImage(image.data || image.b64_json || image.base64, image.mime_type || image.mimeType);
+  }
+  if (image?.url) return downloadGeneratedImage(image.url, image.mime_type || image.mimeType, fetcher);
+  if (part.b64_json || part.b64Json || part.base64) {
+    return decodeInlineImage(part.b64_json || part.b64Json || part.base64, part.mime_type || part.mimeType);
+  }
+  if (part.url) {
+    return downloadGeneratedImage(part.url, part.mime_type || part.mimeType, fetcher);
+  }
+  const textImage = imageValueFromText(part.text || part.content);
+  if (textImage?.data) return decodeInlineImage(textImage.data, part.mime_type || part.mimeType);
+  if (textImage?.url) return downloadGeneratedImage(textImage.url, part.mime_type || part.mimeType, fetcher);
+  return null;
+}
+
+async function parseGeminiResult(
+  data: any,
+  fetcher: Fetcher,
+  diagnostic: WetokenImageResultDiagnostic,
+): Promise<ImageGenerationResult> {
+  // Wetoken normally forwards the native Gemini response. Gateway revisions
+  // have also returned OpenAI-compatible, nested envelope, and SSE payloads.
+  // Inspect only well-known image fields and never make another generation
+  // request when reconciling one of those successful responses.
+  for (const payload of payloadRoots(data)) {
+    if (Array.isArray(payload.data) && (payload.data[0]?.b64_json || payload.data[0]?.url)) {
+      return parseGptResult(payload, fetcher);
+    }
+    for (const part of nestedImageParts(payload)) {
+      const image = await parseImagePart(part, fetcher);
+      if (image) return image;
+    }
+  }
+  throw new WetokenImageResultError('Gemini 返回成功，但响应中未找到可保存的图片数据', diagnostic);
+}
+
+function describePayloadShape(value: unknown) {
+  const paths = new Set<string>();
+  const visit = (current: unknown, path: string, depth: number) => {
+    if (depth > 3 || paths.size >= 40) return;
+    if (Array.isArray(current)) {
+      if (path) paths.add(`${path}[]`);
+      current.slice(0, 3).forEach((item) => visit(item, path ? `${path}[]` : '[]', depth + 1));
+      return;
+    }
+    const record = asRecord(current);
+    if (!record) return;
+    Object.keys(record).slice(0, 20).forEach((key) => {
+      const next = path ? `${path}.${key}` : key;
+      paths.add(next);
+      visit(record[key], next, depth + 1);
+    });
+  };
+  visit(value, '', 0);
+  return [...paths].sort().slice(0, 40);
+}
+
+function parseResponsePayload(bytes: Uint8Array) {
+  const text = new TextDecoder().decode(bytes);
+  try {
+    return JSON.parse(text);
+  } catch {
+    const events = text
+      .split(/\r?\n\r?\n/)
+      .map((block) => block.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n'))
+      .filter((value) => value && value !== '[DONE]')
+      .flatMap((value) => {
+        try { return [JSON.parse(value)]; } catch { return []; }
+      });
+    return events.length ? { events } : {};
+  }
 }
 
 async function readProviderPayload(response: Response) {
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const contentType = normaliseImageMimeType(response.headers.get('content-type'), '');
-  if (contentType) return { data: {}, directImage: normaliseGeneratedImage({ bytes, mimeType: contentType }) };
-  if (!bytes.byteLength) return { data: {}, directImage: null };
-  try {
-    return { data: JSON.parse(new TextDecoder().decode(bytes)), directImage: null };
-  } catch {
-    return { data: {}, directImage: null };
-  }
+  const rawContentType = response.headers.get('content-type');
+  const contentType = normaliseImageMimeType(rawContentType, '');
+  const data = contentType || !bytes.byteLength ? {} : parseResponsePayload(bytes);
+  const requestId = response.headers.get('x-request-id') || response.headers.get('request-id') || response.headers.get('x-wetoken-request-id') || undefined;
+  const diagnostic: WetokenImageResultDiagnostic = {
+    status: response.status,
+    contentType: rawContentType,
+    responseBytes: bytes.byteLength,
+    ...(requestId ? { requestId: requestId.slice(0, 160) } : {}),
+    payloadShape: describePayloadShape(data),
+  };
+  return {
+    data,
+    directImage: contentType ? normaliseGeneratedImage({ bytes, mimeType: contentType }) : null,
+    diagnostic,
+  };
 }
 
 export async function generateWetokenImage(
@@ -278,10 +462,10 @@ export async function generateWetokenImage(
     });
   }
 
-  const { data, directImage } = await readProviderPayload(response);
+  const { data, directImage, diagnostic } = await readProviderPayload(response);
   if (!response.ok) throw providerError(response.status, response.statusText, data);
   const parsed = directImage || (spec.provider === 'gemini'
-    ? await parseGeminiResult(data, fetcher)
+    ? await parseGeminiResult(data, fetcher, diagnostic)
     : await parseGptResult(data, fetcher));
   return { ...parsed, usage: data?.usage };
 }

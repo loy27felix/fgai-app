@@ -82,6 +82,8 @@ export type SettleImageFailureInput = {
   requestId?: string;
   status: 'draft' | 'failed' | 'unknown';
   error: string;
+  /** Safe, value-free provider metadata for an unknown paid result. */
+  details?: Record<string, unknown>;
 };
 
 export type ConfirmImageDependencies = {
@@ -258,13 +260,18 @@ export async function confirmCreatorImage(
       throw error;
     }
     const timeout = isTimeoutError(error);
-    const status = timeout ? 'unknown' : 'failed';
+    // A 2xx gateway response without a serialised image is not proof that the
+    // model failed. Treat it like a timeout so it stays recoverable instead
+    // of encouraging another paid retry from the same task.
+    const providerResultMissing = error instanceof WetokenImageResultError;
+    const status = timeout || providerResultMissing ? 'unknown' : 'failed';
     const code: ImageConfirmErrorCode = timeout ? 'GENERATION_TIMEOUT' : 'GENERATION_FAILED';
     await bestEffortSettle(deps, {
       task,
       requestId,
       status,
       error: publicErrorFor(error, code),
+      ...(providerResultMissing && error.diagnostic ? { details: { provider_result: error.diagnostic } } : {}),
     });
     throw error;
   }

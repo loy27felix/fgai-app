@@ -70,6 +70,8 @@ const logStore = localforage.createInstance({ name: "infinite-canvas", storeName
 export default function ImagePage() {
     const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const recoveryImageInputRef = useRef<HTMLInputElement>(null);
+    const recoveryIndexRef = useRef<number | null>(null);
     const dragDepthRef = useRef(0);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
@@ -305,7 +307,71 @@ export default function ImagePage() {
         if (log.config.quality) updateConfig("quality", log.config.quality);
         if (log.config.size) updateConfig("size", log.config.size);
         if (log.config.count) updateConfig("count", log.config.count);
-        setResults(log.images.map((image) => ({ id: image.id, status: "success", image })));
+        const recovered = log.images.map((image) => ({ id: image.id, status: "success" as const, image }));
+        // Older logs only retained the accounting outcome. Surface a recovery
+        // card for every missing result instead of leaving an empty panel with
+        // no way to put a downloaded paid-for image back into the workspace.
+        const failedCount = Math.max(log.failCount || 0, !log.images.length && log.status === "失败" ? 1 : 0);
+        const missing = Array.from({ length: failedCount }, () => ({
+            id: nanoid(),
+            status: "failed" as const,
+            error: "该次生成没有保存到本地媒体库。若 Wetoken 后台显示成功，请先下载图片，再在这里导入。",
+        }));
+        setResults([...recovered, ...missing]);
+    };
+
+    const openRecoveredImageImport = (index: number) => {
+        recoveryIndexRef.current = index;
+        recoveryImageInputRef.current?.click();
+    };
+
+    const importRecoveredImage = async (files?: FileList | null) => {
+        const index = recoveryIndexRef.current;
+        recoveryIndexRef.current = null;
+        const file = Array.from(files || []).find((item) => item.type.startsWith("image/"));
+        if (index === null || !file) return;
+        try {
+            const stored = await uploadImage(file);
+            const recovered: GeneratedImage = {
+                id: nanoid(),
+                dataUrl: stored.url,
+                storageKey: stored.storageKey,
+                durationMs: 0,
+                width: stored.width,
+                height: stored.height,
+                bytes: stored.bytes,
+                mimeType: stored.mimeType,
+            };
+            setResults((value) => updateResultAt(value, index, { status: "success", image: recovered, error: undefined }));
+
+            if (previewLog) {
+                const nextLog: GenerationLog = {
+                    ...previewLog,
+                    images: [...previewLog.images, recovered],
+                    successCount: previewLog.successCount + 1,
+                    failCount: Math.max(0, previewLog.failCount - 1),
+                    status: Math.max(0, previewLog.failCount - 1) ? previewLog.status : "成功",
+                    thumbnails: [...previewLog.thumbnails, recovered.dataUrl],
+                };
+                setPreviewLog(nextLog);
+                saveLog(nextLog);
+            } else {
+                saveLog(buildLog({
+                    prompt: prompt.trim() || "导入已生成图片",
+                    model,
+                    config: { ...effectiveConfig, model, count: "1" },
+                    references,
+                    durationMs: 0,
+                    successCount: 1,
+                    failCount: 0,
+                    status: "成功",
+                    images: [recovered],
+                }));
+            }
+            message.success("已导入生成结果，并保存到本地媒体库");
+        } catch {
+            message.error("导入图片失败，请确认文件仍可读取");
+        }
     };
 
     const buildRequestSnapshot = () => {
@@ -511,7 +577,7 @@ export default function ImagePage() {
                                     result.status === "success" && result.image ? (
                                         <ResultImageCard key={result.id} image={result.image} index={index} onEdit={addResultToReferences} onDownload={downloadImage} onSaveAsset={saveResultToAssets} />
                                     ) : result.status === "failed" ? (
-                                        <FailedImageCard key={result.id} error={result.error || "生成失败"} onRetry={() => retryResult(index)} />
+                                        <FailedImageCard key={result.id} error={result.error || "生成失败"} onRetry={() => retryResult(index)} onImport={() => openRecoveredImageImport(index)} />
                                     ) : (
                                         <PendingImageCard key={result.id} />
                                     ),
@@ -534,6 +600,16 @@ export default function ImagePage() {
                 className="hidden"
                 onChange={(event) => {
                     void addReferences(event.target.files);
+                    event.target.value = "";
+                }}
+            />
+            <input
+                ref={recoveryImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                    void importRecoveredImage(event.target.files);
                     event.target.value = "";
                 }}
             />
@@ -642,7 +718,7 @@ function PendingImageCard() {
     );
 }
 
-function FailedImageCard({ error, onRetry }: { error: string; onRetry: () => void }) {
+function FailedImageCard({ error, onRetry, onImport }: { error: string; onRetry: () => void; onImport: () => void }) {
     return (
         <div className="overflow-hidden rounded-lg border border-red-200 bg-red-50 dark:border-red-950 dark:bg-red-950/20">
             <div className="flex aspect-square flex-col items-center justify-center gap-3 p-5 text-center">
@@ -651,7 +727,10 @@ function FailedImageCard({ error, onRetry }: { error: string; onRetry: () => voi
                     {error}
                 </Typography.Paragraph>
             </div>
-            <div className="flex justify-end border-t border-red-200 p-3 dark:border-red-950">
+            <div className="flex justify-end gap-2 border-t border-red-200 p-3 dark:border-red-950">
+                <Button size="small" icon={<Upload className="size-3.5" />} onClick={onImport}>
+                    导入已下载图
+                </Button>
                 <Button size="small" danger onClick={onRetry}>
                     重试
                 </Button>

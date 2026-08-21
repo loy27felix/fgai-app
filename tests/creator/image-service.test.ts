@@ -28,14 +28,16 @@ const generated = { bytes: new Uint8Array([1]), mimeType: 'image/png' };
 
 function deps(overrides: Partial<ConfirmImageDependencies> = {}) {
   const events: string[] = [];
-  const settlements: Array<{ status: string; error: string }> = [];
+  const settlements: Array<{ status: string; error: string; details?: Record<string, unknown> }> = [];
   const value: ConfirmImageDependencies = {
     claimDraft: async () => task,
     loadReferences: async () => [],
     recordAttempt: async () => { events.push('ledger'); },
     generate: async () => { events.push('provider'); return generated; },
     persistSuccess: async () => ({ assetId: 'a1', resultUrl: 'signed' }),
-    settleFailure: async ({ status, error }) => { settlements.push({ status, error }); },
+    settleFailure: async ({ status, error, details }) => {
+      settlements.push({ status, error, ...(details ? { details } : {}) });
+    },
     ...overrides,
   };
   return { value, events, settlements };
@@ -126,15 +128,27 @@ test('provider failure settles failed and preserves the original error', async (
   }]);
 });
 
-test('a successful provider response with no usable image preserves a safe task error', async () => {
-  const providerError = new WetokenImageResultError('Gemini 返回成功，但响应中未找到可保存的图片数据');
+test('a successful provider response with no usable image stays recoverable with a safe diagnostic', async () => {
+  const providerError = new WetokenImageResultError(
+    'Gemini 返回成功，但响应中未找到可保存的图片数据',
+    { status: 200, contentType: 'application/json', responseBytes: 44, requestId: 'req-1', payloadShape: ['output', 'output.candidates[]'] },
+  );
   const { value, settlements } = deps({
     generate: async () => { throw providerError; },
   });
   await assert.rejects(() => confirmCreatorImage(input, value), (error: unknown) => error === providerError);
   assert.deepEqual(settlements, [{
-    status: 'failed',
+    status: 'unknown',
     error: 'Gemini 返回成功，但响应中未找到可保存的图片数据',
+    details: {
+      provider_result: {
+        status: 200,
+        contentType: 'application/json',
+        responseBytes: 44,
+        requestId: 'req-1',
+        payloadShape: ['output', 'output.candidates[]'],
+      },
+    },
   }]);
 });
 
