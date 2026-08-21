@@ -39,6 +39,22 @@ export class WetokenImageRequestError extends Error {
   }
 }
 
+/**
+ * A successful provider HTTP response that does not contain a usable image.
+ * This is intentionally separate from a rejected request: Wetoken can settle
+ * a request before its gateway serialises the generated image into one of the
+ * supported response shapes.
+ */
+export class WetokenImageResultError extends Error {
+  readonly publicMessage: string;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'WetokenImageResultError';
+    this.publicMessage = message;
+  }
+}
+
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type TimeoutSignal = (timeoutMs: number) => AbortSignal;
 type ImageGenerationDependencies = {
@@ -102,29 +118,116 @@ function providerError(status: number, statusText: string, data: any) {
   return new WetokenImageRequestError(status, message);
 }
 
+const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+function normaliseImageMimeType(value: unknown, fallback = 'image/png') {
+  const raw = typeof value === 'string' ? value.toLowerCase().split(';', 1)[0].trim() : '';
+  const mimeType = raw === 'image/jpg' ? 'image/jpeg' : raw;
+  return IMAGE_MIME_TYPES.has(mimeType) ? mimeType : fallback;
+}
+
+function imageMimeTypeFromBytes(bytes: Uint8Array) {
+  const startsWith = (signature: number[], offset = 0) => signature.every((value, index) => bytes[offset + index] === value);
+  if (startsWith([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+  if (startsWith([0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (startsWith([0x52, 0x49, 0x46, 0x46]) && startsWith([0x57, 0x45, 0x42, 0x50], 8)) return 'image/webp';
+  return null;
+}
+
+function normaliseGeneratedImage(result: ImageGenerationResult): ImageGenerationResult {
+  return {
+    ...result,
+    // The image header is authoritative. Some gateway responses label a PNG
+    // as JPEG, which used to make the post-generation validation discard an
+    // otherwise valid paid-for result.
+    mimeType: imageMimeTypeFromBytes(result.bytes) || normaliseImageMimeType(result.mimeType),
+  };
+}
+
+function decodeInlineImage(value: unknown, declaredMimeType: unknown): ImageGenerationResult {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new WetokenImageResultError('图片模型返回成功，但未包含可保存的图片数据');
+  }
+  const dataUri = /^data:([^;,]+)(?:;[^,]*)*;base64,([\s\S]+)$/i.exec(value.trim());
+  const bytes = Buffer.from((dataUri ? dataUri[2] : value).replace(/\s/g, ''), 'base64');
+  if (!bytes.byteLength) {
+    throw new WetokenImageResultError('图片模型返回成功，但图片数据为空');
+  }
+  return normaliseGeneratedImage({
+    bytes,
+    mimeType: normaliseImageMimeType(dataUri?.[1] || declaredMimeType),
+  });
+}
+
+async function downloadGeneratedImage(rawUrl: unknown, declaredMimeType: unknown, fetcher: Fetcher): Promise<ImageGenerationResult> {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+    throw new WetokenImageResultError('图片模型返回成功，但未包含可下载的图片地址');
+  }
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new WetokenImageResultError('图片模型返回了无效的图片地址');
+  }
+  if (url.protocol !== 'https:') {
+    throw new WetokenImageResultError('图片模型返回了不安全的图片地址');
+  }
+  const response = await fetcher(url, { signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new WetokenImageResultError(`读取生成图片失败（HTTP ${response.status}）`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return normaliseGeneratedImage({
+    bytes,
+    mimeType: normaliseImageMimeType(response.headers.get('content-type') || declaredMimeType),
+    sourceUrl: url.toString(),
+  });
+}
+
 async function parseGptResult(data: any, fetcher: Fetcher): Promise<ImageGenerationResult> {
   const item = data?.data?.[0];
   if (item?.b64_json) {
-    return { bytes: Buffer.from(item.b64_json, 'base64'), mimeType: item.mime_type || 'image/png' };
+    return decodeInlineImage(item.b64_json, item.mime_type);
   }
   if (item?.url) {
-    const response = await fetcher(item.url, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`读取生成图片失败 (${response.status})`);
-    return {
-      bytes: new Uint8Array(await response.arrayBuffer()),
-      mimeType: response.headers.get('content-type')?.split(';')[0] || 'image/png',
-      sourceUrl: item.url,
-    };
+    return downloadGeneratedImage(item.url, item.mime_type, fetcher);
   }
-  throw new Error('Wetoken 图片返回为空');
+  throw new WetokenImageResultError('图片模型返回成功，但未包含可保存的图片数据');
 }
 
-function parseGeminiResult(data: any): ImageGenerationResult {
-  const parts = data?.candidates?.flatMap((candidate: any) => candidate?.content?.parts || []) || [];
+async function parseGeminiResult(data: any, fetcher: Fetcher): Promise<ImageGenerationResult> {
+  // Wetoken normally forwards the native Gemini response. Some models/gateway
+  // versions instead return the OpenAI-compatible data array, so accept both
+  // without issuing another paid generation request.
+  if (data?.data?.[0]?.b64_json || data?.data?.[0]?.url) return parseGptResult(data, fetcher);
+
+  const payload = data?.response || data?.result || data;
+  const parts = payload?.candidates?.flatMap((candidate: any) => candidate?.content?.parts || []) || [];
   const image = parts.find((part: any) => part?.inlineData?.data || part?.inline_data?.data);
   const inline = image?.inlineData || image?.inline_data;
-  if (!inline?.data) throw new Error('Wetoken Gemini 图片返回为空');
-  return { bytes: Buffer.from(inline.data, 'base64'), mimeType: inline.mimeType || inline.mime_type || 'image/png' };
+  if (inline?.data) {
+    if (typeof inline.data === 'string' && /^https:\/\//i.test(inline.data)) {
+      return downloadGeneratedImage(inline.data, inline.mimeType || inline.mime_type, fetcher);
+    }
+    return decodeInlineImage(inline.data, inline.mimeType || inline.mime_type);
+  }
+
+  const file = parts.find((part: any) => part?.fileData?.fileUri || part?.file_data?.file_uri);
+  const fileData = file?.fileData || file?.file_data;
+  if (fileData?.fileUri || fileData?.file_uri) {
+    return downloadGeneratedImage(fileData.fileUri || fileData.file_uri, fileData.mimeType || fileData.mime_type, fetcher);
+  }
+  throw new WetokenImageResultError('Gemini 返回成功，但响应中未找到可保存的图片数据');
+}
+
+async function readProviderPayload(response: Response) {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const contentType = normaliseImageMimeType(response.headers.get('content-type'), '');
+  if (contentType) return { data: {}, directImage: normaliseGeneratedImage({ bytes, mimeType: contentType }) };
+  if (!bytes.byteLength) return { data: {}, directImage: null };
+  try {
+    return { data: JSON.parse(new TextDecoder().decode(bytes)), directImage: null };
+  } catch {
+    return { data: {}, directImage: null };
+  }
 }
 
 export async function generateWetokenImage(
@@ -175,8 +278,10 @@ export async function generateWetokenImage(
     });
   }
 
-  const data = await response.json().catch(() => ({})) as any;
+  const { data, directImage } = await readProviderPayload(response);
   if (!response.ok) throw providerError(response.status, response.statusText, data);
-  const parsed = spec.provider === 'gemini' ? parseGeminiResult(data) : await parseGptResult(data, fetcher);
+  const parsed = directImage || (spec.provider === 'gemini'
+    ? await parseGeminiResult(data, fetcher)
+    : await parseGptResult(data, fetcher));
   return { ...parsed, usage: data?.usage };
 }

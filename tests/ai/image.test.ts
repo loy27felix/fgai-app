@@ -131,6 +131,56 @@ test('Gemini generation calls generateContent and parses inlineData', async () =
   assert.equal(result.mimeType, 'image/jpeg');
 });
 
+test('Gemini accepts a data URI and uses the real image header over a mismatched MIME label', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+qbaI1QAAAABJRU5ErkJggg==';
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [
+      { inlineData: { mimeType: 'image/jpeg', data: `data:image/png;base64,${png}` } },
+    ] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+
+  assert.equal(result.mimeType, 'image/png');
+  assert.deepEqual([...result.bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+});
+
+test('Gemini accepts Wetoken OpenAI-compatible URL results without another provider call', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  const urls: string[] = [];
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-lite-image', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async (input) => {
+      urls.push(String(input));
+      if (String(input).startsWith('https://cdn.example/')) {
+        return new Response(png, { status: 200, headers: { 'Content-Type': 'image/png' } });
+      }
+      return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/generated.png' }] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(result.mimeType, 'image/png');
+  assert.equal(result.sourceUrl, 'https://cdn.example/generated.png');
+  assert.equal(urls.length, 2);
+});
+
+test('Gemini accepts direct image responses from the gateway', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  const result = await generateWetokenImage({
+    model: 'gemini-3-pro-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(png, { status: 200, headers: { 'Content-Type': 'image/png' } }),
+  });
+  assert.equal(result.mimeType, 'image/png');
+  assert.deepEqual([...result.bytes], [...png]);
+});
+
 test('Gemini provider errors retain a bounded client-safe reason', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   const fetcher = async () => new Response(JSON.stringify({

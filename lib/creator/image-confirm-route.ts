@@ -23,6 +23,7 @@ import {
 import {
   generateWetokenImage,
   WetokenImageRequestError,
+  WetokenImageResultError,
   type ImageGenerationResult,
 } from '@/lib/ai/image';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
@@ -125,6 +126,9 @@ function serviceError(
   if (error instanceof WetokenImageRequestError) {
     const status = error.status >= 400 && error.status <= 599 ? error.status : 502;
     return response(error.publicMessage, 'WETOKEN_IMAGE_REQUEST_FAILED', status);
+  }
+  if (error instanceof WetokenImageResultError) {
+    return response(error.publicMessage, 'WETOKEN_IMAGE_RESULT_INVALID', 502);
   }
   return response(fallbackMessage, fallbackCode, 500);
 }

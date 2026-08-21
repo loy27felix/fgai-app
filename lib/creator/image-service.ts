@@ -1,4 +1,4 @@
-import type { ImageGenerationResult, ImageReference } from '@/lib/ai/image';
+import { WetokenImageResultError, type ImageGenerationResult, type ImageReference } from '@/lib/ai/image';
 import {
   validateCompletedReferencePaths,
   validateStoredImageDraftRequest,
@@ -127,6 +127,7 @@ function isTimeoutError(error: unknown) {
 
 function publicErrorFor(error: unknown, fallback: ImageConfirmErrorCode) {
   if (error instanceof CreatorImageConfirmError) return error.publicMessage;
+  if (error instanceof WetokenImageResultError) return error.publicMessage;
   return IMAGE_CONFIRM_PUBLIC_ERRORS[fallback];
 }
 

@@ -6,6 +6,7 @@ import {
   type ConfirmImageDependencies,
   type ConfirmImageTask,
 } from '../../lib/creator/image-service';
+import { WetokenImageResultError } from '../../lib/ai/image';
 import { persistGeneratedImage } from '../../lib/creator/image-confirm-route';
 
 const input = { taskId: 't1', userId: 'u1', workspaceId: 'w1' };
@@ -122,6 +123,18 @@ test('provider failure settles failed and preserves the original error', async (
   assert.deepEqual(settlements, [{
     status: 'failed',
     error: '\u56fe\u7247\u751f\u6210\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
+  }]);
+});
+
+test('a successful provider response with no usable image preserves a safe task error', async () => {
+  const providerError = new WetokenImageResultError('Gemini 返回成功，但响应中未找到可保存的图片数据');
+  const { value, settlements } = deps({
+    generate: async () => { throw providerError; },
+  });
+  await assert.rejects(() => confirmCreatorImage(input, value), (error: unknown) => error === providerError);
+  assert.deepEqual(settlements, [{
+    status: 'failed',
+    error: 'Gemini 返回成功，但响应中未找到可保存的图片数据',
   }]);
 });
 
