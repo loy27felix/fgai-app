@@ -87,7 +87,10 @@ test('canvas pastes externally copied images using the native clipboard event', 
 
   assert.match(project, /const handlePaste = useCallback\(\s*\(event: ClipboardEvent\)/);
   assert.match(project, /event\.clipboardData/);
+  assert.match(project, /clipboardData\?\.items/);
+  assert.match(project, /CANVAS_CLIPBOARD_MIME/);
   assert.match(project, /window\.addEventListener\("paste", handlePaste\)/);
+  assert.match(project, /window\.addEventListener\("copy", handleCopy\)/);
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
 });
 
