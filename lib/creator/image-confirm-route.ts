@@ -22,6 +22,7 @@ import {
 } from '@/lib/creator/image-service';
 import {
   generateWetokenImage,
+  providerRequestIdFromImageDiagnostic,
   WetokenImageRequestError,
   WetokenImageResultError,
   type ImageGenerationResult,
@@ -33,6 +34,7 @@ import {
   recordUsageRequired,
   updateImageUsageStatus,
 } from '@/lib/usage/ledger';
+import { logCreatorImageEvent, logCreatorImageFailure } from './image-logging';
 import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
 
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -105,8 +107,14 @@ function serviceError(
   error: unknown,
   fallbackCode: string,
   fallbackMessage: string,
+  context: { taskId?: string } = {},
 ) {
-  console.error('[creator image confirm]', error);
+  logCreatorImageFailure('http_failed', error, {
+    ...context,
+    ...(error instanceof WetokenImageResultError && error.diagnostic
+      ? { providerDiagnostic: error.diagnostic }
+      : {}),
+  });
   if (error instanceof CreatorImageConfirmError) {
     const status = error.code === 'GENERATION_TIMEOUT' ? 504
       : error.code === 'RESULT_RECONCILIATION_REQUIRED' ? 503
@@ -160,17 +168,28 @@ export async function persistGeneratedImage(
   const updateLedgerStatus = options.updateUsageStatus ?? updateImageUsageStatus;
   const resultPath = `${input.userId}/image-tasks/${input.task.id}/result.${extensionFor(input.generated.mimeType)}`;
   assertOwnedResultPath(resultPath, input.userId, input.task.id);
+  const providerRequestId = providerRequestIdFromImageDiagnostic(input.generated.providerDiagnostic);
+  const persistenceContext = {
+    taskId: input.task.id,
+    requestId: input.requestId,
+    providerRequestId,
+    model: input.task.model,
+    mimeType: input.generated.mimeType,
+    bytes: input.generated.bytes.byteLength,
+  };
 
   let uploadStarted = false;
   let asset: CreatorImageAsset | null = null;
   let taskUpdated = false;
   let persistenceOutcomeUnknown = false;
+  let persistencePhase = 'upload';
+  logCreatorImageEvent('result_persistence_started', persistenceContext);
   const cleanup = async () => {
     if (uploadStarted) {
       try {
         await bucket.remove([resultPath]);
       } catch (error) {
-        console.error('[creator image result cleanup]', error);
+        logCreatorImageFailure('result_cleanup_failed', error, persistenceContext);
       }
     }
     if (asset && !taskUpdated) {
@@ -185,7 +204,10 @@ export async function persistGeneratedImage(
           .select('id')
           .maybeSingle();
       } catch (error) {
-        console.error('[creator image asset cleanup]', error);
+        logCreatorImageFailure('asset_cleanup_failed', error, {
+          ...persistenceContext,
+          assetId: asset.id,
+        });
       }
     }
   };
@@ -197,7 +219,9 @@ export async function persistGeneratedImage(
       upsert: false,
     });
     if (uploaded.error) throw new CreatorImageConfirmError('RESULT_PERSIST_FAILED', uploaded.error);
+    logCreatorImageEvent('result_uploaded', persistenceContext);
 
+    persistencePhase = 'asset_insert';
     const inserted = await localClient
       .from('creator_assets')
       .insert({
@@ -226,6 +250,10 @@ export async function persistGeneratedImage(
     }
     const candidate = inserted.data as CreatorImageAsset;
     asset = candidate;
+    logCreatorImageEvent('asset_inserted', {
+      ...persistenceContext,
+      assetId: candidate.id,
+    });
     if (
       typeof candidate.id !== 'string'
       || candidate.workspace_id !== input.workspaceId
@@ -236,8 +264,15 @@ export async function persistGeneratedImage(
       throw new CreatorImageConfirmError('RESULT_PERSIST_FAILED');
     }
 
+    persistencePhase = 'task_update';
     const completedAt = new Date().toISOString();
-    const output = { ...asRecord(input.task.output), asset_id: asset.id };
+    const output = {
+      ...asRecord(input.task.output),
+      asset_id: asset.id,
+      ...(input.generated.providerDiagnostic
+        ? { provider_diagnostic: input.generated.providerDiagnostic }
+        : {}),
+    };
     let updated: { data: unknown; error: unknown | null };
     try {
       updated = await localClient
@@ -260,22 +295,41 @@ export async function persistGeneratedImage(
     }
     taskUpdated = true;
     let persistedTask: unknown = updated.data;
+    logCreatorImageEvent('task_succeeded', persistenceContext);
 
+    persistencePhase = 'ledger_update';
     let ledgerStatusUpdated = false;
     let ledgerStatus: 'succeeded' | 'unknown' = 'succeeded';
     try {
       ledgerStatusUpdated = await updateLedgerStatus({
         requestId: input.requestId,
+        providerRequestId,
         status: 'succeeded',
         completedAt,
+        reportedCostUsd: extractReportedCostUsd(input.generated.usage),
       });
       if (!ledgerStatusUpdated) {
         ledgerStatus = 'unknown';
-        console.error('[creator image ledger success update]', input.requestId);
+        logCreatorImageEvent('ledger_settlement_unknown', {
+          ...persistenceContext,
+          status: 'succeeded',
+          possiblyCharged: true,
+        }, 'warn');
       }
     } catch (error) {
       ledgerStatus = 'unknown';
-      console.error('[creator image ledger success update]', error);
+      logCreatorImageFailure('ledger_settlement_failed', error, {
+        ...persistenceContext,
+        status: 'succeeded',
+        possiblyCharged: true,
+      });
+    }
+    if (ledgerStatusUpdated) {
+      logCreatorImageEvent('ledger_settled', {
+        ...persistenceContext,
+        status: 'succeeded',
+        possiblyCharged: true,
+      });
     }
 
     if (ledgerStatus === 'unknown') {
@@ -298,22 +352,30 @@ export async function persistGeneratedImage(
           .select('*')
           .maybeSingle();
         if (marked.error || !marked.data) {
-          console.error('[creator image ledger marker]', input.requestId, marked.error);
+          logCreatorImageFailure('ledger_reconciliation_marker_failed', marked.error, persistenceContext);
         } else {
           persistedTask = marked.data;
+          logCreatorImageEvent('ledger_reconciliation_marked', persistenceContext, 'warn');
         }
       } catch (error) {
-        console.error('[creator image ledger marker]', input.requestId, error);
+        logCreatorImageFailure('ledger_reconciliation_marker_failed', error, persistenceContext);
       }
     }
 
+    persistencePhase = 'signed_url';
     let resultUrl: string | null = null;
     try {
       const signed = await bucket.createSignedUrl(resultPath, SIGNED_URL_TTL_SECONDS);
       if (!signed.error) resultUrl = signed.data?.signedUrl || null;
     } catch (error) {
-      console.error('[creator image result signed url]', error);
+      logCreatorImageFailure('result_signed_url_failed', error, persistenceContext);
     }
+    logCreatorImageEvent('result_persistence_completed', {
+      ...persistenceContext,
+      resultUrlPresent: Boolean(resultUrl),
+      ledgerStatus,
+      requiresReconciliation: ledgerStatus === 'unknown',
+    });
     return {
       task: persistedTask,
       asset,
@@ -324,12 +386,19 @@ export async function persistGeneratedImage(
       requiresReconciliation: ledgerStatus === 'unknown',
     };
   } catch (error) {
+    logCreatorImageFailure('result_persistence_failed', error, {
+      ...persistenceContext,
+      phase: persistencePhase,
+      assetId: asset?.id,
+      outcomeUnknown: persistenceOutcomeUnknown,
+    });
     if (persistenceOutcomeUnknown) {
-      console.error('[creator image result reconciliation]', {
+      logCreatorImageEvent('result_reconciliation_required', {
         taskId: input.task.id,
+        requestId: input.requestId,
         assetId: asset?.id,
-        resultPath,
-      });
+        phase: persistencePhase,
+      }, 'warn');
     } else {
       await cleanup();
     }
@@ -411,18 +480,12 @@ recordAttempt: async ({ requestId, task }) => {
     },
     generate: generateWetokenImage,
     validateGenerated: validateGeneratedImage,
-    persistSuccess: async ({ task, requestId, generated }) => {
-      const result = await persistGeneratedImage(
+    persistSuccess: ({ task, requestId, generated }) => (
+      persistGeneratedImage(
         localClient,
         { task, requestId, generated, userId, workspaceId },
-      );
-      const reportedCostUsd = extractReportedCostUsd(generated.usage);
-      // A successful image must settle its ledger row even when Wetoken does
-      // not return a granular cost. The stored catalog estimate then becomes
-      // the current-price cost shown to the user; failures remain zero.
-      await updateImageUsageStatus({ requestId, status: 'succeeded', completedAt: new Date().toISOString(), reportedCostUsd });
-      return result;
-    },
+      )
+    ),
     settleFailure: async ({ task, requestId, status, error, details }) => {
       const failureUpdate: Record<string, unknown> = {
         status,
@@ -450,11 +513,34 @@ recordAttempt: async ({ requestId, task }) => {
         throw updated.error || new Error('creator image task failure state was not written');
       }
       if (requestId && status !== 'draft') {
+        const providerRequestId = providerRequestIdFromImageDiagnostic(asRecord(details).provider_result);
         try {
-          const ledgerUpdated = await updateImageUsageStatus({ requestId, status });
-          if (!ledgerUpdated) console.error('[creator image ledger failure update]', requestId);
+          const ledgerUpdated = await updateImageUsageStatus({ requestId, providerRequestId, status });
+          if (!ledgerUpdated) {
+            logCreatorImageEvent('ledger_failure_settlement_unknown', {
+              taskId: task.id,
+              requestId,
+              providerRequestId,
+              status,
+              possiblyCharged: status === 'unknown',
+            }, 'warn');
+          } else {
+            logCreatorImageEvent('ledger_failure_settled', {
+              taskId: task.id,
+              requestId,
+              providerRequestId,
+              status,
+              possiblyCharged: status === 'unknown',
+            });
+          }
         } catch (ledgerError) {
-          console.error('[creator image ledger failure update]', ledgerError);
+          logCreatorImageFailure('ledger_failure_settlement_failed', ledgerError, {
+            taskId: task.id,
+            requestId,
+            providerRequestId,
+            status,
+            possiblyCharged: status === 'unknown',
+          });
         }
       }
     },
@@ -488,9 +574,17 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
   }
 
   async function POST(_req: Request, { params }: RouteContext) {
+    logCreatorImageEvent('http_received', { taskId: params.id });
     try {
       const context = await creatorContext();
-      if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
+      if (!context) {
+        logCreatorImageEvent('http_rejected', {
+          taskId: params.id,
+          status: 401,
+          code: 'UNAUTHENTICATED',
+        }, 'warn');
+        return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
+      }
       const input: ConfirmImageInput = {
         taskId: params.id,
         userId: context.user.id,
@@ -501,6 +595,7 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         productionDependencies(context.localClient, context.user.id, context.workspace.id),
       );
       if (result.duplicate) {
+        logCreatorImageEvent('http_duplicate', { taskId: params.id }, 'warn');
         const currentTask = result.task;
         if (currentTask && taskNeedsLedgerReconciliation(currentTask)) {
           return NextResponse.json({
@@ -527,6 +622,10 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         return NextResponse.json({ duplicate: true, task: current.data });
       }
       if (result.requiresReconciliation) {
+        logCreatorImageEvent('http_reconciliation_required', {
+          taskId: params.id,
+          ledgerStatus: result.ledgerStatus,
+        }, 'warn');
         return NextResponse.json({
           error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
           code: 'LEDGER_RECONCILIATION_REQUIRED',
@@ -537,6 +636,11 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
           requiresReconciliation: true,
         }, { status: 503 });
       }
+      logCreatorImageEvent('http_completed', {
+        taskId: params.id,
+        status: 200,
+        assetId: typeof result.assetId === 'string' ? result.assetId : undefined,
+      });
       return NextResponse.json({
         task: result.task,
         asset: result.asset,
@@ -547,6 +651,7 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         error,
         'IMAGE_CONFIRM_FAILED',
         '\u56fe\u7247\u786e\u8ba4\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
+        { taskId: params.id },
       );
     }
   }

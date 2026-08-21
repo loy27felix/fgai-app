@@ -30,6 +30,7 @@ export type TextLedgerEntry = {
 
 export type ImageLedgerEntry = {
   request_id: string;
+  provider_request_id?: string;
   user_id: string;
   workspace_id: string | null;
   project_id: string | null;
@@ -164,6 +165,7 @@ export function buildTextLedgerEntry(input: {
 
 export function buildImageLedgerEntry(input: {
   requestId?: string;
+  providerRequestId?: string;
   userId: string;
   workspaceId?: string | null;
   projectId?: string | null;
@@ -176,6 +178,7 @@ export function buildImageLedgerEntry(input: {
 }): ImageLedgerEntry {
   return {
     request_id: input.requestId || randomId(),
+    ...(input.providerRequestId ? { provider_request_id: input.providerRequestId } : {}),
     user_id: input.userId,
     workspace_id: input.workspaceId ?? null,
     project_id: input.projectId ?? null,
@@ -194,6 +197,7 @@ export function buildImageLedgerEntry(input: {
 
 export function buildCreatorImageLedgerEntry(input: {
   requestId: string;
+  providerRequestId?: string;
   userId: string;
   workspaceId: string;
   creatorTaskId: string;
@@ -205,6 +209,7 @@ export function buildCreatorImageLedgerEntry(input: {
 }): ImageLedgerEntry {
   return {
     request_id: input.requestId,
+    ...(input.providerRequestId ? { provider_request_id: input.providerRequestId } : {}),
     user_id: input.userId,
     workspace_id: input.workspaceId,
     project_id: null,
@@ -331,6 +336,7 @@ export async function recordUsageRequired(
 
 export async function updateImageUsageStatus(input: {
   requestId: string;
+  providerRequestId?: string;
   status: UsageLedgerStatus;
   completedAt?: string | null;
   reportedCostUsd?: number;
@@ -340,6 +346,7 @@ export async function updateImageUsageStatus(input: {
     status: input.status,
     completed_at: input.completedAt ?? null,
   };
+  if (input.providerRequestId) values.provider_request_id = input.providerRequestId;
   if (typeof input.reportedCostUsd === 'number' && Number.isFinite(input.reportedCostUsd)) {
     values.reported_cost_usd = Math.abs(input.reportedCostUsd);
     values.cost_source = 'reported';

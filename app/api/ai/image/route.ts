@@ -1,12 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
-import { generateWetokenImage } from '@/lib/ai/image';
+import {
+  generateWetokenImage,
+  providerRequestIdFromImageDiagnostic,
+  WetokenImageResultError,
+} from '@/lib/ai/image';
 import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
 import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { readLocalFile } from '@/lib/local/storage';
+import { logCreatorImageEvent, logCreatorImageFailure } from '@/lib/creator/image-logging';
+import { randomId } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -99,20 +105,34 @@ export async function POST(req: Request) {
     }
   }
 
-try {
+  const requestId = `image-api:${randomId()}`;
+  let providerRequestId: string | undefined;
+  try {
     const pricing = estimateImagePrice(model, body.size || '1024x1024');
     const budget = await assertMonthlyBudgetAvailable({ userId: user.id, estimatedCostUsd: pricing?.estimatedCostUsd });
     if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });
     const startedAt = Date.now();
     const urlReferences = await Promise.all(refUrls.map(referenceFromStorageUrl));
     const references = [...inlineReferences, ...urlReferences];
+    logCreatorImageEvent('legacy_request_started', {
+      requestId,
+      projectId,
+      model,
+      size: body.size || '1024x1024',
+      promptChars: prompt.length,
+      referenceCount: references.length,
+    });
     const generated = await generateWetokenImage({
       model,
       prompt,
       size: body.size || '1024x1024',
       references,
+      trace: { requestId },
     });
-    await recordUsageBestEffort(buildImageLedgerEntry({
+    providerRequestId = providerRequestIdFromImageDiagnostic(generated.providerDiagnostic);
+    const ledgerRecorded = await recordUsageBestEffort(buildImageLedgerEntry({
+      requestId,
+      providerRequestId,
       userId: user.id,
       projectId,
       provider: 'wetoken',
@@ -122,6 +142,29 @@ try {
       durationMs: Date.now() - startedAt,
       reportedCostUsd: extractReportedCostUsd(generated.usage),
     }));
+    logCreatorImageEvent(
+      ledgerRecorded ? 'legacy_ledger_recorded' : 'legacy_ledger_record_failed',
+      {
+        requestId,
+        providerRequestId,
+        projectId,
+        model,
+        durationMs: Date.now() - startedAt,
+      },
+      ledgerRecorded ? 'info' : 'warn',
+    );
+
+    const persistenceFailure = (phase: string, error: unknown, message: string) => {
+      logCreatorImageFailure('legacy_request_failed', error, {
+        requestId,
+        providerRequestId,
+        projectId,
+        model,
+        phase,
+        possiblyCharged: true,
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
+    };
 
     const ext = extensionFor(generated.mimeType);
     const folder = toShot ? 'board' : slugType(body.type || '人物');
@@ -131,14 +174,14 @@ try {
       contentType: generated.mimeType,
       upsert: false,
     });
-    if (upload.error) return NextResponse.json({ error: `存储失败：${upload.error.message}` }, { status: 500 });
+    if (upload.error) return persistenceFailure('result_upload', upload.error, `存储失败：${upload.error.message}`);
 
     const publicUrl = localClient.storage.from('project-assets').getPublicUrl(path).data.publicUrl;
     if (toShot) {
       const shotField = body.shotField as ShotField;
       const { error } = await localClient.from('shots').update({ [shotField]: path })
         .eq('id', body.shotId as string);
-      if (error) return NextResponse.json({ error: `写回镜头失败：${error.message}` }, { status: 500 });
+      if (error) return persistenceFailure('shot_update', error, `写回镜头失败：${error.message}`);
     } else {
       const { error } = await localClient.from('assets').insert({
         project_id: projectId,
@@ -148,21 +191,51 @@ try {
         storage_path: path,
         params: { model, prompt, size: body.size || '1024x1024', refs: references.length },
       });
-      if (error) return NextResponse.json({ error: `入库失败：${error.message}` }, { status: 500 });
+      if (error) return persistenceFailure('asset_insert', error, `入库失败：${error.message}`);
     }
 
     const kind = body.shotField === 'keyframe_path' ? 'keyframe'
       : body.shotField === 'storyboard_path' ? 'storyboard'
         : body.shotField === 'frame_path' ? 'board'
           : references.length ? 'image-edit' : 'image';
-    await localClient.from('generations').insert({
-      project_id: projectId, user_id: user.id, kind, model, key_owner: 'company',
-    }).then(() => undefined, () => undefined);
+    try {
+      const generationRecord = await localClient.from('generations').insert({
+        project_id: projectId, user_id: user.id, kind, model, key_owner: 'company',
+      });
+      if (generationRecord.error) throw generationRecord.error;
+    } catch (error) {
+      logCreatorImageFailure('legacy_generation_record_failed', error, {
+        requestId,
+        providerRequestId,
+        projectId,
+        model,
+        possiblyCharged: true,
+      });
+    }
 
+    logCreatorImageEvent('legacy_request_completed', {
+      requestId,
+      providerRequestId,
+      projectId,
+      model,
+      durationMs: Date.now() - startedAt,
+      bytes: generated.bytes.byteLength,
+      mimeType: generated.mimeType,
+    });
     return NextResponse.json({ ok: true, path, url: publicUrl, mimeType: generated.mimeType });
   } catch (error: any) {
     const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
     const message = isTimeout ? '图片生成超时，请稍后重试或换用 Flash 模型' : error?.message || '图片生成异常';
+    logCreatorImageFailure('legacy_request_failed', error, {
+      requestId,
+      providerRequestId,
+      projectId,
+      model,
+      timeout: isTimeout,
+      ...(error instanceof WetokenImageResultError && error.diagnostic
+        ? { providerDiagnostic: error.diagnostic }
+        : {}),
+    });
     return NextResponse.json({ error: message }, { status: isTimeout ? 504 : 502 });
   }
 }

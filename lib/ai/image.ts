@@ -1,17 +1,29 @@
 import { getImageModel } from '../imageModels';
+import {
+  logCreatorImageEvent,
+  logCreatorImageFailure,
+  redactCreatorImageLogText,
+} from '../creator/image-logging';
+import { randomId } from '../utils';
 
 export type ImageReference = { data: string; mimeType: string };
+export type ImageGenerationTrace = {
+  taskId?: string;
+  requestId?: string;
+};
 export type ImageGenerationInput = {
   model: string;
   prompt: string;
   size: string;
   references: ImageReference[];
+  trace?: ImageGenerationTrace;
 };
 export type ImageGenerationResult = {
   bytes: Uint8Array;
   mimeType: string;
   sourceUrl?: string;
   usage?: unknown;
+  providerDiagnostic?: WetokenImageResultDiagnostic;
 };
 
 /**
@@ -63,10 +75,20 @@ export class WetokenImageResultError extends Error {
 }
 
 export type WetokenImageResultDiagnostic = {
+  providerCallId?: string;
   status: number;
   contentType: string | null;
   responseBytes: number;
   requestId?: string;
+  providerRequestId?: string;
+  providerResponseId?: string;
+  baseResponse?: { statusCode?: string | number; statusMessage?: string };
+  candidates?: Array<{ finishReason?: string; finishMessage?: string }>;
+  usage?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
   payloadShape: string[];
 };
 
@@ -231,6 +253,27 @@ function asRecord(value: unknown): Record<string, any> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null;
 }
 
+export function providerRequestIdFromImageDiagnostic(diagnostic: unknown) {
+  const value = asRecord(diagnostic);
+  if (!value) return undefined;
+  return ['providerRequestId', 'providerResponseId', 'requestId']
+    .map((key) => value[key])
+    .find((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+function diagnosticText(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  return redactCreatorImageLogText(value).slice(0, 300);
+}
+
+function diagnosticNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function firstValue(record: Record<string, any>, keys: string[]) {
+  return keys.map((key) => record[key]).find((value) => value !== undefined && value !== null);
+}
+
 function payloadRoots(data: unknown) {
   const roots: Record<string, any>[] = [];
   const visited = new Set<Record<string, any>>();
@@ -258,6 +301,63 @@ function payloadRoots(data: unknown) {
   };
   visit(data);
   return roots;
+}
+
+function providerResponseMetadata(data: unknown) {
+  let providerRequestId: string | undefined;
+  let providerResponseId: string | undefined;
+  const baseResponse: { statusCode?: string | number; statusMessage?: string } = {};
+  const candidateSummary: Array<{ finishReason?: string; finishMessage?: string }> = [];
+  const usageSummary: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  } = {};
+
+  for (const payload of payloadRoots(data)) {
+    const base = asRecord(payload.base_resp) || asRecord(payload.baseResp);
+    const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+    const usage = asRecord(payload.usageMetadata) || asRecord(payload.usage_metadata);
+    providerRequestId ||= diagnosticText(firstValue(payload, ['requestId', 'request_id']));
+    providerResponseId ||= diagnosticText(firstValue(payload, ['responseId', 'response_id']));
+    const statusCode = firstValue(base || {}, ['status_code', 'statusCode', 'code']);
+    const statusMessage = diagnosticText(firstValue(base || {}, ['status_msg', 'statusMessage', 'message']));
+    if (baseResponse.statusCode === undefined && typeof statusCode === 'number') {
+      baseResponse.statusCode = statusCode;
+    } else if (baseResponse.statusCode === undefined && typeof statusCode === 'string') {
+      baseResponse.statusCode = diagnosticText(statusCode);
+    }
+    baseResponse.statusMessage ||= statusMessage;
+    const remainingCandidates = Math.max(0, 5 - candidateSummary.length);
+    candidateSummary.push(...candidates.slice(0, remainingCandidates).map((candidate) => {
+      const value = asRecord(candidate) || {};
+      const finishReason = diagnosticText(firstValue(value, ['finishReason', 'finish_reason']));
+      const finishMessage = diagnosticText(firstValue(value, ['finishMessage', 'finish_message']));
+      return finishReason || finishMessage ? {
+        ...(finishReason ? { finishReason } : {}),
+        ...(finishMessage ? { finishMessage } : {}),
+      } : null;
+    }).filter((value): value is { finishReason?: string; finishMessage?: string } => value !== null));
+    const promptTokenCount = diagnosticNumber(firstValue(usage || {}, ['promptTokenCount', 'prompt_token_count']));
+    const candidatesTokenCount = diagnosticNumber(firstValue(usage || {}, ['candidatesTokenCount', 'candidates_token_count']));
+    const totalTokenCount = diagnosticNumber(firstValue(usage || {}, ['totalTokenCount', 'total_token_count']));
+    if (usageSummary.promptTokenCount === undefined && promptTokenCount !== undefined) {
+      usageSummary.promptTokenCount = promptTokenCount;
+    }
+    if (usageSummary.candidatesTokenCount === undefined && candidatesTokenCount !== undefined) {
+      usageSummary.candidatesTokenCount = candidatesTokenCount;
+    }
+    if (usageSummary.totalTokenCount === undefined && totalTokenCount !== undefined) {
+      usageSummary.totalTokenCount = totalTokenCount;
+    }
+  }
+  return {
+    ...(providerRequestId ? { providerRequestId } : {}),
+    ...(providerResponseId ? { providerResponseId } : {}),
+    ...(baseResponse.statusCode !== undefined || baseResponse.statusMessage ? { baseResponse } : {}),
+    ...(candidateSummary.length ? { candidates: candidateSummary } : {}),
+    ...(Object.keys(usageSummary).length ? { usage: usageSummary } : {}),
+  };
 }
 
 function partsFromPayload(payload: Record<string, any>) {
@@ -435,17 +535,23 @@ function parseResponsePayload(bytes: Uint8Array) {
   }
 }
 
-async function readProviderPayload(response: Response) {
+async function readProviderPayload(response: Response, providerCallId: string) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   const rawContentType = response.headers.get('content-type');
   const contentType = normaliseImageMimeType(rawContentType, '');
   const data = contentType || !bytes.byteLength ? {} : parseResponsePayload(bytes);
-  const requestId = response.headers.get('x-request-id') || response.headers.get('request-id') || response.headers.get('x-wetoken-request-id') || undefined;
+  const requestId = diagnosticText(
+    response.headers.get('x-request-id')
+      || response.headers.get('request-id')
+      || response.headers.get('x-wetoken-request-id'),
+  );
   const diagnostic: WetokenImageResultDiagnostic = {
+    providerCallId,
     status: response.status,
     contentType: rawContentType,
     responseBytes: bytes.byteLength,
     ...(requestId ? { requestId: requestId.slice(0, 160) } : {}),
+    ...providerResponseMetadata(data),
     payloadShape: describePayloadShape(data),
   };
   return {
@@ -469,44 +575,130 @@ export async function generateWetokenImage(
   const base = (process.env.WETOKEN_BASE_URL || 'https://wetoken.ai/v1').replace(/\/$/, '');
   const fetcher = dependencies.fetcher ?? fetch;
   const timeoutSignal = dependencies.timeoutSignal ?? AbortSignal.timeout;
+  const startedAt = Date.now();
+  const providerCallId = randomId();
+  const requestContext = {
+    provider: 'wetoken',
+    providerCallId,
+    ...(input.trace?.taskId ? { taskId: input.trace.taskId } : {}),
+    ...(input.trace?.requestId ? { requestId: input.trace.requestId } : {}),
+    model: input.model,
+    size: input.size,
+    promptChars: input.prompt.length,
+    referenceCount: input.references.length,
+    referenceBytes: input.references.reduce(
+      (total, reference) => total + Buffer.byteLength(reference.data, 'base64'),
+      0,
+    ),
+    referenceMimeTypes: [...new Set(input.references.map((reference) => reference.mimeType))],
+  };
+  const providerOperation = spec.provider === 'gemini'
+    ? 'generateContent'
+    : input.references.length ? 'images.edits' : 'images.generations';
+  logCreatorImageEvent('provider_request_started', {
+    ...requestContext,
+    operation: providerOperation,
+  });
   let response: Response;
 
-  if (spec.provider === 'gemini') {
-    response = await fetcher(`${base}/content/models/${encodeURIComponent(input.model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify(buildGeminiImageBody(input)),
-      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+  try {
+    if (spec.provider === 'gemini') {
+      response = await fetcher(`${base}/content/models/${encodeURIComponent(input.model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify(buildGeminiImageBody(input)),
+        signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+      });
+    } else if (input.references.length) {
+      const form = new FormData();
+      form.append('model', input.model);
+      form.append('prompt', input.prompt);
+      form.append('size', input.size);
+      form.append('n', '1');
+      input.references.forEach((reference, index) => {
+        const ext = extensionFor(reference.mimeType);
+        form.append('image[]', new Blob([Buffer.from(reference.data, 'base64')], { type: reference.mimeType }), `reference-${index + 1}.${ext}`);
+      });
+      response = await fetcher(`${base}/images/edits`, {
+        method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
+        signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+      });
+    } else {
+      response = await fetcher(`${base}/images/generations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: input.model, prompt: input.prompt, n: 1, size: input.size,
+        }),
+        signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+      });
+    }
+  } catch (error) {
+    logCreatorImageFailure('provider_request_failed', error, {
+      ...requestContext,
+      operation: providerOperation,
+      durationMs: Date.now() - startedAt,
     });
-  } else if (input.references.length) {
-    const form = new FormData();
-    form.append('model', input.model);
-    form.append('prompt', input.prompt);
-    form.append('size', input.size);
-    form.append('n', '1');
-    input.references.forEach((reference, index) => {
-      const ext = extensionFor(reference.mimeType);
-      form.append('image[]', new Blob([Buffer.from(reference.data, 'base64')], { type: reference.mimeType }), `reference-${index + 1}.${ext}`);
-    });
-    response = await fetcher(`${base}/images/edits`, {
-      method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
-      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
-    });
-  } else {
-    response = await fetcher(`${base}/images/generations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: input.model, prompt: input.prompt, n: 1, size: input.size,
-      }),
-      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
-    });
+    throw error;
   }
 
-  const { data, directImage, diagnostic } = await readProviderPayload(response);
-  if (!response.ok) throw providerError(response.status, response.statusText, data);
-  const parsed = directImage || (spec.provider === 'gemini'
-    ? await parseGeminiResult(data, fetcher, diagnostic)
-    : await parseGptResult(data, fetcher));
-  return { ...parsed, usage: data?.usage };
+  let data: any;
+  let directImage: ImageGenerationResult | null;
+  let diagnostic: WetokenImageResultDiagnostic;
+  try {
+    ({ data, directImage, diagnostic } = await readProviderPayload(response, providerCallId));
+  } catch (error) {
+    logCreatorImageFailure('provider_response_read_failed', error, {
+      ...requestContext,
+      httpStatus: response.status,
+      contentType: response.headers.get('content-type'),
+      durationMs: Date.now() - startedAt,
+    });
+    throw error;
+  }
+
+  const responseFields = {
+    ...requestContext,
+    operation: providerOperation,
+    httpStatus: response.status,
+    httpStatusText: response.statusText || undefined,
+    httpOk: response.ok,
+    durationMs: Date.now() - startedAt,
+    diagnostic,
+  };
+  logCreatorImageEvent('provider_response_received', responseFields, response.ok ? 'info' : 'warn');
+  if (!response.ok) {
+    const error = providerError(response.status, response.statusText, data);
+    logCreatorImageFailure('provider_rejected', error, responseFields);
+    throw error;
+  }
+
+  try {
+    const parsed = directImage || (spec.provider === 'gemini'
+      ? await parseGeminiResult(data, fetcher, diagnostic)
+      : await parseGptResult(data, fetcher));
+    logCreatorImageEvent('provider_result_parsed', {
+      ...requestContext,
+      operation: providerOperation,
+      durationMs: Date.now() - startedAt,
+      mimeType: parsed.mimeType,
+      bytes: parsed.bytes.byteLength,
+      sourceUrlPresent: Boolean(parsed.sourceUrl),
+    });
+    return { ...parsed, usage: data?.usage, providerDiagnostic: diagnostic };
+  } catch (error) {
+    const normalized = error instanceof WetokenImageResultError && !error.diagnostic
+      ? new WetokenImageResultError(error.publicMessage, diagnostic)
+      : error;
+    const providerDiagnostic = normalized instanceof WetokenImageResultError
+      ? normalized.diagnostic || diagnostic
+      : diagnostic;
+    logCreatorImageFailure('provider_result_parse_failed', normalized, {
+      ...requestContext,
+      operation: providerOperation,
+      durationMs: Date.now() - startedAt,
+      diagnostic: providerDiagnostic,
+    });
+    throw normalized;
+  }
 }
