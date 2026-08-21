@@ -207,6 +207,37 @@ test('Gemini accepts an image data URI embedded in a gateway text part', async (
   assert.deepEqual([...result.bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 });
 
+test('Gemini unwraps a JSON-serialised gateway response before reading inline image data', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({
+      response: JSON.stringify({
+        candidates: [{ content: { parts: [{ inline_data: { mime_type: 'image/jpeg', data: 'YWJj' } }] } }],
+      }),
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+
+  assert.deepEqual([...result.bytes], [97, 98, 99]);
+  assert.equal(result.mimeType, 'image/jpeg');
+});
+
+test('Gemini accepts gateway image_url strings without requiring a manual download', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+qbaI1QAAAABJRU5ErkJggg==';
+  const result = await generateWetokenImage({
+    model: 'gemini-3.1-flash-image-preview', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({
+      response: { output: { content: [{ type: 'image_url', image_url: `data:image/png;base64,${png}` }] } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  });
+
+  assert.equal(result.mimeType, 'image/png');
+  assert.deepEqual([...result.bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+});
+
 test('Gemini missing results expose only diagnostic shape and never provider content', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   await assert.rejects(

@@ -236,6 +236,16 @@ function payloadRoots(data: unknown) {
   const visited = new Set<Record<string, any>>();
   const visit = (value: unknown, depth = 0) => {
     if (depth > 3) return;
+    // Some Wetoken gateway revisions put the provider JSON into an envelope
+    // string (for example `response: "{...}"`).  Treat that as the original
+    // provider payload, not as a successful request with no image.
+    if (typeof value === 'string') {
+      const source = value.trim();
+      if (source.length && source.length <= 12 * 1024 * 1024 && (source.startsWith('{') || source.startsWith('['))) {
+        try { visit(JSON.parse(source), depth + 1); } catch { /* not JSON */ }
+      }
+      return;
+    }
     if (Array.isArray(value)) {
       value.slice(0, 12).forEach((item) => visit(item, depth + 1));
       return;
@@ -288,7 +298,9 @@ function nestedImageParts(payload: Record<string, any>) {
     visited.add(record);
     const looksLikeImage = [
       'inlineData', 'inline_data', 'fileData', 'file_data',
-      'image', 'image_url', 'imageUrl', 'b64_json', 'b64Json', 'base64',
+      'image', 'image_url', 'imageUrl', 'image_data', 'imageData',
+      'image_base64', 'imageBase64', 'output_url', 'outputUrl',
+      'file_uri', 'fileUri', 'b64_json', 'b64Json', 'base64',
     ].some((key) => key in record);
     if (looksLikeImage) parts.push(record);
     Object.values(record).forEach((child) => visit(child, depth + 1));
@@ -302,7 +314,23 @@ function imageValueFromText(value: unknown) {
   const dataUri = value.match(/data:image\/[a-z0-9.+-]+(?:;[^,\s]*)*;base64,[a-z0-9+/=\s]+/i)?.[0];
   if (dataUri) return { data: dataUri };
   const markdownUrl = value.match(/!\[[^\]]*\]\((https:\/\/[^)\s]+)\)/i)?.[1];
-  return markdownUrl ? { url: markdownUrl } : null;
+  if (markdownUrl) return { url: markdownUrl };
+  const url = value.trim();
+  return /^https:\/\//i.test(url) ? { url } : null;
+}
+
+async function parseImageValue(
+  value: unknown,
+  declaredMimeType: unknown,
+  fetcher: Fetcher,
+  allowRawBase64 = false,
+): Promise<ImageGenerationResult | null> {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const textImage = imageValueFromText(value);
+  if (textImage?.data) return decodeInlineImage(textImage.data, declaredMimeType);
+  if (textImage?.url) return downloadGeneratedImage(textImage.url, declaredMimeType, fetcher);
+  if (allowRawBase64) return decodeInlineImage(value, declaredMimeType);
+  return null;
 }
 
 async function parseImagePart(part: Record<string, any>, fetcher: Fetcher): Promise<ImageGenerationResult | null> {
@@ -317,6 +345,16 @@ async function parseImagePart(part: Record<string, any>, fetcher: Fetcher): Prom
   if (file?.fileUri || file?.file_uri || file?.url) {
     return downloadGeneratedImage(file.fileUri || file.file_uri || file.url, file.mimeType || file.mime_type, fetcher);
   }
+  const declaredMimeType = part.mime_type || part.mimeType || part.output_mime_type || part.outputMimeType;
+  const directImage = await parseImageValue(
+    part.image_url || part.imageUrl || part.image_data || part.imageData
+      || part.image_base64 || part.imageBase64 || part.output_url || part.outputUrl
+      || part.file_uri || part.fileUri,
+    declaredMimeType,
+    fetcher,
+    Boolean(part.image_data || part.imageData || part.image_base64 || part.imageBase64),
+  );
+  if (directImage) return directImage;
   const imageUrl = asRecord(part.image_url) || asRecord(part.imageUrl);
   if (imageUrl?.url) return downloadGeneratedImage(imageUrl.url, imageUrl.mime_type || imageUrl.mimeType, fetcher);
   const image = asRecord(part.image);
@@ -330,9 +368,12 @@ async function parseImagePart(part: Record<string, any>, fetcher: Fetcher): Prom
   if (part.url) {
     return downloadGeneratedImage(part.url, part.mime_type || part.mimeType, fetcher);
   }
-  const textImage = imageValueFromText(part.text || part.content);
-  if (textImage?.data) return decodeInlineImage(textImage.data, part.mime_type || part.mimeType);
-  if (textImage?.url) return downloadGeneratedImage(textImage.url, part.mime_type || part.mimeType, fetcher);
+  const typedImageData = typeof part.type === 'string' && /image/i.test(part.type)
+    ? await parseImageValue(part.data, declaredMimeType, fetcher, true)
+    : null;
+  if (typedImageData) return typedImageData;
+  const textImage = await parseImageValue(part.text || part.content, declaredMimeType, fetcher);
+  if (textImage) return textImage;
   return null;
 }
 
