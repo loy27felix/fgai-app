@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getWetokenVideoTask } from '@/lib/ai/video';
+import {
+  WetokenVideoError,
+  WetokenVideoTransportError,
+  getWetokenVideoTask,
+} from '@/lib/ai/video';
 import {
   assertOwnedReferencePath,
   referencePathFor,
@@ -13,7 +17,9 @@ import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { extractReportedCostUsd } from '@/lib/usage/pricing';
-import { ensureVideoOutputStored, persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
+import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
+import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
+import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -137,6 +143,7 @@ async function assertUploadedObjects(
 }
 
 function providerErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message.slice(0, 500);
   const value = asRecord(error);
   return typeof value.message === 'string' ? value.message.slice(0, 500) : '视频状态读取失败';
 }
@@ -145,21 +152,45 @@ async function pollTask(
   context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
   task: CreatorVideoTask,
 ) {
-  if (!task.external_task_id || ['failed', 'expired'].includes(task.status)) return task;
+  const currentTask = await markStaleVideoSubmission(task);
+  if (!currentTask.external_task_id || ['failed', 'expired'].includes(currentTask.status)) return currentTask;
   // A succeeded task may still only contain a temporary provider URL. Poll
   // Wetoken once more on an explicit task read so a fresh URL can be copied
   // into durable storage after the old URL has expired.
-  if (task.status === 'succeeded' && typeof asRecord(task.output).video_storage_path === 'string') return task;
+  if (currentTask.status === 'succeeded' && typeof asRecord(currentTask.output).video_storage_path === 'string') return currentTask;
   let polled;
+  const pollStartedAt = Date.now();
   try {
-    polled = await getWetokenVideoTask(task.external_task_id);
+    polled = await getWetokenVideoTask(currentTask.external_task_id);
   } catch (error) {
-    console.error('[creator video poll]', error);
-    return task;
+    const checkedAt = new Date().toISOString();
+    console.error('[creator video poll]', {
+      taskId: currentTask.id,
+      externalTaskId: currentTask.external_task_id,
+      httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
+      providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
+      operation: error instanceof WetokenVideoTransportError ? error.operation : 'poll',
+      durationMs: error instanceof WetokenVideoTransportError ? error.durationMs : Date.now() - pollStartedAt,
+      causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
+      causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+      message: providerErrorMessage(error),
+    });
+    await context.localClient.from('creator_generation_tasks').update({
+      last_provider_checked_at: checkedAt,
+    }).eq('id', currentTask.id).eq('workspace_id', context.workspace.id).eq('user_id', context.user.id).eq('kind', 'video');
+    await recordVideoTaskEvent(currentTask.id, 'provider_poll_failed', currentTask.status, {
+      externalTaskId: currentTask.external_task_id,
+      httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
+      providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
+      durationMs: error instanceof WetokenVideoTransportError ? error.durationMs : undefined,
+      causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
+      causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+    });
+    return currentTask;
   }
   const completedAt = ['succeeded', 'failed', 'expired'].includes(polled.status) ? new Date().toISOString() : null;
-  let output: Record<string, unknown> = { ...asRecord(task.output), ...(polled.videoUrl ? { video_url: polled.videoUrl } : {}) };
-  if (polled.status === 'succeeded') output = await persistVideoOutput(context, task, output);
+  const checkedAt = new Date().toISOString();
+  const output: Record<string, unknown> = { ...asRecord(currentTask.output), ...(polled.videoUrl ? { video_url: polled.videoUrl } : {}) };
   const update = await context.localClient
     .from('creator_generation_tasks')
     .update({
@@ -167,22 +198,41 @@ async function pollTask(
       output,
       error: polled.error || null,
       completed_at: completedAt,
+      last_provider_checked_at: checkedAt,
+      reconciliation_required_at: null,
     })
-    .eq('id', task.id)
+    .eq('id', currentTask.id)
     .eq('workspace_id', context.workspace.id)
     .eq('user_id', context.user.id)
     .eq('kind', 'video')
     .select('*')
     .maybeSingle();
-  if (update.error || !update.data) return task;
-  const requestId = 'creator-video:' + task.id;
-  await updateVideoUsageBestEffort({
+  if (update.error || !update.data) return currentTask;
+  if (polled.status !== currentTask.status || completedAt) {
+    await recordVideoTaskEvent(currentTask.id, 'provider_status_changed', polled.status, {
+      externalTaskId: polled.externalTaskId,
+      previousStatus: currentTask.status,
+      durationMs: Date.now() - pollStartedAt,
+    });
+  }
+  const requestId = 'creator-video:' + currentTask.id;
+  const ledgerSettled = await updateVideoUsageBestEffort({
     requestId,
+    providerRequestId: polled.externalTaskId,
     providerStatus: polled.status,
     completedAt,
     reportedCostUsd: extractReportedCostUsd(polled.usage),
   });
-  return update.data as CreatorVideoTask;
+  if (!ledgerSettled) {
+    await recordVideoTaskEvent(currentTask.id, 'usage_settlement_failed', polled.status, {
+      requestId,
+      externalTaskId: polled.externalTaskId,
+    });
+  }
+  const providerUpdatedTask = update.data as CreatorVideoTask;
+  return polled.status === 'succeeded'
+    ? ensureVideoOutputStored(context, providerUpdatedTask)
+    : providerUpdatedTask;
 }
 
 export async function POST(req: Request, { params }: RouteContext) {

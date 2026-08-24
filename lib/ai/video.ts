@@ -44,6 +44,24 @@ export class WetokenVideoError extends Error {
   }
 }
 
+export class WetokenVideoTransportError extends Error {
+  readonly operation: 'submit' | 'poll';
+  readonly durationMs: number;
+  readonly causeName: string;
+  readonly causeCode: string | null;
+  readonly retryable = true;
+
+  constructor(operation: 'submit' | 'poll', durationMs: number, cause: unknown) {
+    const value = cause instanceof Error ? cause.message : 'network request failed';
+    super(`Wetoken video ${operation} transport failed after ${durationMs}ms: ${value.slice(0, 300)}`);
+    this.name = 'WetokenVideoTransportError';
+    this.operation = operation;
+    this.durationMs = durationMs;
+    this.causeName = cause instanceof Error ? cause.name : typeof cause;
+    this.causeCode = typeof asRecord(cause).code === 'string' ? String(asRecord(cause).code) : null;
+  }
+}
+
 const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']);
 
 function isInlineImageDataUrl(value: string) {
@@ -204,18 +222,32 @@ async function providerJson(response: Response) {
   return data;
 }
 
+async function providerFetch(
+  fetcher: Fetcher,
+  input: string,
+  init: RequestInit,
+  operation: 'submit' | 'poll',
+) {
+  const startedAt = Date.now();
+  try {
+    return await fetcher(input, init);
+  } catch (error) {
+    throw new WetokenVideoTransportError(operation, Date.now() - startedAt, error);
+  }
+}
+
 export async function createWetokenVideoTask(
   input: SeedanceInput,
   dependencies: { fetcher?: Fetcher } = {},
 ) {
   const key = requireKey();
   const fetcher = dependencies.fetcher ?? fetch;
-  const response = await fetcher(`${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
+  const response = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify(buildSeedanceRequest(input)),
     signal: AbortSignal.timeout(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS),
-  });
+  }, 'submit');
   const data = await providerJson(response);
   const payload = taskPayload(data);
   const externalTaskId = payload.id || payload.task_id;
@@ -229,12 +261,14 @@ export async function getWetokenVideoTask(
 ) {
   const key = requireKey();
   const fetcher = dependencies.fetcher ?? fetch;
-  const response = await fetcher(
+  const response = await providerFetch(
+    fetcher,
     `${wetokenOrigin()}/api/v3/contents/generations/tasks/${encodeURIComponent(externalTaskId)}`,
     {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(30_000),
     },
+    'poll',
   );
   const data = await providerJson(response);
   const payload = taskPayload(data);

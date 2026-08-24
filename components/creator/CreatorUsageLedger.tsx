@@ -84,7 +84,7 @@ function kindLabel(kind: UsageRecord['kind']) {
 }
 
 function statusLabel(status: UsageRecord['status']) {
-  return status === 'submitted' ? '生成中' : status === 'succeeded' ? '成功' : status === 'failed' ? '失败' : '处理中';
+  return status === 'submitted' ? '生成中' : status === 'succeeded' ? '成功' : status === 'failed' ? '失败' : '待对账';
 }
 
 function statusColor(status: UsageRecord['status']) {

@@ -57,6 +57,18 @@ compose() {
     "$@"
 }
 
+apply_database_upgrade() {
+  local upgrade_file="$PROJECT_ROOT/docker/initdb/002-local-upgrade.sql"
+
+  [[ -f "$upgrade_file" ]] || {
+    log "Auto deploy: missing database upgrade file $upgrade_file"
+    return 1
+  }
+  # Apply additive schema changes before the new app starts serving traffic.
+  # 新应用接流量前先执行可重复的增量 schema，避免代码与数据库结构错位。
+  compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$upgrade_file" >/dev/null
+}
+
 nas_is_ready() {
   local nas_path
   local expected_host
@@ -197,7 +209,7 @@ if ! git -C "$PROJECT_ROOT" merge --ff-only "$REMOTE/$BRANCH" >/dev/null; then
   exit 1
 fi
 
-if ! compose build app >/dev/null || ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
+if ! compose build app >/dev/null || ! apply_database_upgrade || ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
   printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
   rollback "$current_sha" || true
   exit 1

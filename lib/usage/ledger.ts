@@ -272,6 +272,7 @@ export function normalizeVideoLedgerStatus(status: string): UsageLedgerStatus {
 
 export async function updateVideoUsageBestEffort(input: {
   requestId: string;
+  providerRequestId?: string;
   providerStatus: string;
   completedAt?: string | null;
   reportedCostUsd?: number;
@@ -282,6 +283,7 @@ export async function updateVideoUsageBestEffort(input: {
       status: normalizeVideoLedgerStatus(input.providerStatus),
       completed_at: input.completedAt ?? null,
     };
+    if (input.providerRequestId) values.provider_request_id = input.providerRequestId;
     if (typeof input.reportedCostUsd === 'number' && Number.isFinite(input.reportedCostUsd)) {
       values.reported_cost_usd = Math.abs(input.reportedCostUsd);
       values.cost_source = 'reported';
@@ -290,8 +292,10 @@ export async function updateVideoUsageBestEffort(input: {
     const result = await createAdminClient()
       .from('ai_usage_ledger')
       .update(values)
-      .eq('request_id', input.requestId);
-    return !result.error;
+      .eq('request_id', input.requestId)
+      .select('request_id')
+      .maybeSingle();
+    return !result.error && result.data?.request_id === input.requestId;
   } catch {
     return false;
   }

@@ -80,7 +80,7 @@ chmod +x scripts/auto-deploy.sh scripts/install-auto-deploy.sh
 scripts/install-auto-deploy.sh
 ```
 
-服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会构建 `app`，仅重建 `app` 容器，并等待容器 health 与 `http://127.0.0.1:3000` 返回成功。构建或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
+服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会构建 `app`，在重启前执行 `docker/initdb/002-local-upgrade.sql` 的幂等数据库升级，仅重建 `app` 容器，并等待容器 health 与 `http://127.0.0.1:3000` 返回成功。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
 
 日志位于 `~/Library/Logs/fg-studio-auto-deploy.log` 和 `~/Library/Logs/fg-studio-auto-deploy.error.log`。部署主机必须能够访问 Git remote；私有仓库的 Git 凭据应配置在该主机的 Git credential helper 或 SSH agent 中，不要写入仓库或 `.env.docker`。
 

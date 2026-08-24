@@ -14,6 +14,7 @@ import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
+import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
 
 export const runtime = 'nodejs';
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -144,7 +145,7 @@ export async function GET() {
       .order('created_at', { ascending: false })
       .limit(100);
     if (result.error) throw result.error;
-    const tasks = (result.data || []) as CreatorVideoTask[];
+    const tasks = await Promise.all(((result.data || []) as CreatorVideoTask[]).map(markStaleVideoSubmission));
     return NextResponse.json({ workspace: context.workspace, tasks: await taskViews(context, tasks) });
   } catch (error: unknown) {
     return serverError(error, 'VIDEO_TASK_LIST_FAILED', '视频任务加载失败，请稍后重试');

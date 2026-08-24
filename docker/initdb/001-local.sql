@@ -326,10 +326,40 @@ create table if not exists creator_generation_tasks (
   output jsonb not null default '{}'::jsonb,
   error text,
   confirmed_at timestamptz,
+  submission_started_at timestamptz,
+  reconciliation_required_at timestamptz,
+  last_provider_checked_at timestamptz,
+  submission_attempts integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   completed_at timestamptz
 );
+
+create table if not exists creator_generation_task_events (
+  id bigserial primary key,
+  task_id uuid not null references creator_generation_tasks(id) on delete cascade,
+  event text not null,
+  status text,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- Keep the business timestamp reliable for every task transition.
+-- 每次任务状态变化都由数据库维护业务时间，避免应用漏写 updated_at。
+create or replace function touch_creator_generation_task_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists creator_generation_tasks_touch_updated_at on creator_generation_tasks;
+create trigger creator_generation_tasks_touch_updated_at
+before update on creator_generation_tasks
+for each row execute function touch_creator_generation_task_updated_at();
 
 create table if not exists generation_tasks (
   id uuid primary key default gen_random_uuid(),
@@ -396,4 +426,5 @@ create index if not exists sessions_user_idx on sessions(user_id, expires_at);
 create index if not exists projects_created_by_idx on projects(created_by, created_at desc);
 create index if not exists creator_assets_workspace_idx on creator_assets(workspace_id, created_at desc);
 create index if not exists creator_tasks_workspace_idx on creator_generation_tasks(workspace_id, status, created_at desc);
+create index if not exists creator_task_events_task_idx on creator_generation_task_events(task_id, created_at desc);
 create index if not exists usage_ledger_user_idx on ai_usage_ledger(user_id, created_at desc);

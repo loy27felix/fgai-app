@@ -22,6 +22,9 @@ const PANEL_DEFAULT = 430;
 const DURATION_MIN = 4;
 const DURATION_MAX = 15;
 const DEFAULT_DURATION = 5;
+const AUTO_POLL_STATUSES = new Set<CreatorVideoTask['status']>(['submitting', 'queued', 'running', 'unknown']);
+const REFRESHABLE_STATUSES = new Set<CreatorVideoTask['status']>([...AUTO_POLL_STATUSES, 'awaiting_reconciliation']);
+const MAX_AUTO_POLL_ATTEMPTS = 120;
 const RATIOS = ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
 const I = {
   chat: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
@@ -44,7 +47,7 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 function statusLabel(status: CreatorVideoTask["status"]) {
-  return ({ draft: "草稿", submitting: "提交中", queued: "排队中", running: "生成中", succeeded: "已完成", failed: "失败", expired: "已过期", unknown: "状态未知" } as Record<string, string>)[status] || status;
+  return ({ draft: "草稿", submitting: "提交中", queued: "排队中", running: "生成中", succeeded: "已完成", failed: "失败", expired: "已过期", awaiting_reconciliation: "等待对账", unknown: "状态未知" } as Record<string, string>)[status] || status;
 }
 function dateLabel(value: string) {
   try { return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); } catch { return ""; }
@@ -219,7 +222,7 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
     catch (value) { setConfirmTarget(null); if (value instanceof CreatorImageClientError && (value.status === 503 || value.status === 0)) { setPhase("unknown"); setNotice("提交结果可能未知；这次不会自动重试，请刷新状态"); await loadHistory(target.id); } else { setPhase("error"); setError(errorText(value, "视频确认失败")); } }
   }
   async function pollTask() {
-    if (!selectedTask || !["submitting", "queued", "running", "unknown"].includes(selectedTask.status)) return;
+    if (!selectedTask || !REFRESHABLE_STATUSES.has(selectedTask.status)) return;
     try { const result = await getVideoTask(selectedTask.id); setTasks((current) => current.map((item) => item.id === result.task.id ? result.task : item)); if (["succeeded", "failed", "expired"].includes(result.task.status)) setPhase("idle"); }
     catch (value) { setNotice(errorText(value, "视频状态暂时读取失败")); }
   }
@@ -244,7 +247,31 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
 
   useEffect(() => { const next = files.map((entry) => ({ file: entry.file, url: URL.createObjectURL(entry.file), kind: entry.kind, role: entry.role })); setPreviews(next); return () => next.forEach((item) => URL.revokeObjectURL(item.url)); }, [files]);
   useEffect(() => { const width = Number(window.localStorage.getItem("fg-creator-video-panel-width")); if (Number.isFinite(width) && width > 0) setPanelWidth(Math.min(PANEL_MAX, Math.max(PANEL_MIN, width))); void (async () => { await loadCanvases(); await loadHistory(); })(); }, []);
-  useEffect(() => { if (!selectedTask || !["submitting", "queued", "running", "unknown"].includes(selectedTask.status)) return; const timer = window.setInterval(() => void pollTask(), 5000); return () => window.clearInterval(timer); }, [selectedTask?.id, selectedTask?.status]);
+  useEffect(() => {
+    if (!selectedTask || !AUTO_POLL_STATUSES.has(selectedTask.status)) return;
+    let cancelled = false;
+    let attempt = 0;
+    const taskId = selectedTask.id;
+    const run = async () => {
+      while (!cancelled && attempt < MAX_AUTO_POLL_ATTEMPTS) {
+        const delay = Math.min(30_000, 5_000 * (2 ** Math.min(attempt, 3)));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+        if (cancelled) return;
+        attempt += 1;
+        try {
+          const result = await getVideoTask(taskId);
+          if (cancelled) return;
+          setTasks((current) => current.map((item) => item.id === result.task.id ? result.task : item));
+          if (!AUTO_POLL_STATUSES.has(result.task.status)) return;
+        } catch (value) {
+          if (!cancelled) setNotice(errorText(value, "视频状态暂时读取失败"));
+        }
+      }
+      if (!cancelled) setNotice("自动刷新已停止，可手动刷新状态；系统不会重复提交任务");
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [selectedTask?.id, selectedTask?.status]);
   useEffect(() => { if (!previewOpen) return; const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") setPreviewOpen(false); }; document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey); }, [previewOpen]);
 
   const canvasesView = canvases.map((canvas) => <div className={"video-canvas-row" + (canvas.id === selectedCanvasId ? " active" : "")} key={canvas.id}><button type="button" onClick={() => selectCanvas(canvas)}><Icon d={I.video} size={14} /><span>{canvas.title}</span><small>{dateLabel(canvas.updated_at)}</small></button><button type="button" className="delete-small" onClick={(event) => { event.stopPropagation(); setCanvasDeleteTarget(canvas); }}><Icon d={I.trash} size={13} /></button></div>);
@@ -257,7 +284,10 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
     }
     if (historyLoading || phase === "preparing" || phase === "confirming") return <div className="state card"><div className="spinner" /><h1>{phase === "preparing" ? "准备视频草稿…" : phase === "confirming" ? "确认提交中…" : "加载视频历史…"}</h1><p>只会在明确操作后继续下一步。</p></div>;
     if (phase === "error" && error) return <div className="state card error"><div className="mark">!</div><h1>这次没有生成</h1><p>{error}</p><button type="button" onClick={() => { setPhase("idle"); setError(""); }}>返回编辑</button></div>;
-    if (selectedTask && ["submitting", "queued", "running", "unknown"].includes(selectedTask.status)) return <div className="state card"><div className="mark"><Icon d={I.refresh} size={22} /></div><h1>{selectedTask.status === "unknown" ? "任务状态未知" : "视频正在生成"}</h1><p>{notice || "状态会自动刷新，不会重复确认。"}</p><button type="button" onClick={() => void pollTask()}><Icon d={I.refresh} size={14} />刷新状态</button></div>;
+    if (selectedTask && REFRESHABLE_STATUSES.has(selectedTask.status)) {
+      const awaiting = selectedTask.status === "awaiting_reconciliation" || selectedTask.status === "unknown";
+      return <div className="state card"><div className="mark"><Icon d={I.refresh} size={22} /></div><h1>{awaiting ? "任务等待对账" : "视频正在生成"}</h1><p>{notice || (awaiting ? "Provider 提交结果未确认，系统已停止自动重试，避免重复扣费。" : "状态会有限退避刷新，不会重复确认。")}</p><button type="button" onClick={() => void pollTask()}><Icon d={I.refresh} size={14} />刷新状态</button></div>;
+    }
     if (selectedTask && (selectedTask.status === "failed" || selectedTask.status === "expired")) return <div className="state card error"><div className="mark">!</div><h1>视频生成未完成</h1><p>{selectedTask.error || "任务失败或已过期；不会自动重试。"}</p><button type="button" onClick={() => { setSelectedTaskId(null); setPhase("idle"); }}>开始新草稿</button></div>;
     if (selectedTask?.status === "succeeded" && selectedTask.videoUrl) return <section className="result card"><div className="result-head"><div><div className="kicker">PRIVATE RESULT</div><h1>视频结果</h1></div><span className="status-chip"><Icon d={I.check} size={13} />已完成</span></div><button type="button" className="result-frame" onClick={() => setPreviewOpen(true)}><video src={selectedTask.videoUrl} controls playsInline /></button><div className="result-meta"><span>{getVideoModel(selectedTask.model)?.label || selectedTask.model}</span><span>{String(record(selectedTask.request).resolution || "")}</span><span>{record(selectedTask.request).duration === -1 ? "自适应" : String(record(selectedTask.request).duration || "") + "s"}</span></div><div className="result-actions"><a href={selectedTask.videoUrl} target="_blank" rel="noreferrer" download><Icon d={I.download} size={15} />打开 / 下载</a><button type="button" onClick={copyPrompt}><Icon d={I.copy} size={15} />复制提示词</button><button type="button" onClick={reuse}><Icon d={I.refresh} size={15} />复用参数</button><button type="button" className="danger" onClick={() => setDeleteTarget(selectedTask)}><Icon d={I.trash} size={15} />删除结果</button></div></section>;
     return <CreatorVideoNodeCanvas key={selectedCanvasId || "video-local"} initialGraph={graph} onGraphChange={onGraphChange} prompt={prompt} previews={previews} onPromptChange={setPrompt} onAddFiles={addFiles} onGenerate={(input) => void prepareDraft(input)} canGenerate={!confirmTarget} generating={false} />;

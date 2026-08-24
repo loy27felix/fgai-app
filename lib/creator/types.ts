@@ -10,6 +10,7 @@ export const CREATOR_TASK_STATUSES = [
 ] as const;
 
 export type CreatorTaskStatus = (typeof CREATOR_TASK_STATUSES)[number];
+export type CreatorVideoTaskStatus = CreatorTaskStatus | 'awaiting_reconciliation';
 
 export type CreatorImageTask = {
   id: string;
@@ -42,12 +43,16 @@ export type CreatorVideoTask = {
   model: string;
   filter_off?: boolean;
   external_task_id?: string | null;
-  status: CreatorTaskStatus;
+  status: CreatorVideoTaskStatus;
   idempotency_key: string;
   request: Record<string, unknown>;
   output: Record<string, unknown>;
   error: string | null;
   confirmed_at: string | null;
+  submission_started_at?: string | null;
+  reconciliation_required_at?: string | null;
+  last_provider_checked_at?: string | null;
+  submission_attempts?: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
