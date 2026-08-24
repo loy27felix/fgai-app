@@ -1,7 +1,7 @@
 import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { motion } from "motion/react";
 
-import { LocalAgentPanel } from "./local-agent-panel";
+import { CanvasAgentSwitchboard } from "./canvas-agent-switchboard";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { CANVAS_AGENT_PANEL_MOTION_MS, useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
@@ -25,15 +25,15 @@ export function AgentPanel() {
         return () => window.removeEventListener("resize", update);
     }, []);
 
-    const effectiveWidth = viewportWidth > 0 ? Math.min(width, Math.max(320, viewportWidth - 24)) : width;
+    const effectiveWidth = viewportWidth > 0 ? Math.min(width, Math.max(360, viewportWidth - 24)) : width;
     const startResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         const startX = event.clientX;
         const startWidth = effectiveWidth;
         let nextWidth = startWidth;
-        const maxWidth = viewportWidth > 0 ? Math.min(760, Math.max(320, viewportWidth - 24)) : 760;
+        const maxWidth = viewportWidth > 0 ? Math.min(820, Math.max(360, viewportWidth - 24)) : 820;
         const onMove = (moveEvent: PointerEvent) => {
-            nextWidth = Math.min(maxWidth, Math.max(320, startWidth + startX - moveEvent.clientX));
+            nextWidth = Math.min(maxWidth, Math.max(360, startWidth + startX - moveEvent.clientX));
             setAgentState({ width: nextWidth });
         };
         const onUp = () => {
@@ -52,7 +52,7 @@ export function AgentPanel() {
         <motion.div className="relative z-[70] flex h-full shrink-0" initial={{ width: 0, opacity: 0 }} animate={{ width: panelOpen ? effectiveWidth + 1 : 0, opacity: panelOpen ? 1 : 0 }} transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }} style={{ overflow: "clip", pointerEvents: panelClosing ? "none" : undefined }}>
             <motion.aside className="relative flex h-full min-w-0 shrink-0 flex-col border-l" data-canvas-shortcuts-ignore initial={{ x: 48 }} animate={{ x: panelClosing ? 28 : 0 }} transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }} style={{ width: effectiveWidth, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}>
                 <button type="button" className="absolute inset-y-0 left-0 z-40 w-4 -translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label="调整右侧面板宽度" />
-                <LocalAgentPanel embedded />
+                <CanvasAgentSwitchboard embedded />
             </motion.aside>
         </motion.div>
     );

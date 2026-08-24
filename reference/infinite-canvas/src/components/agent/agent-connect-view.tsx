@@ -6,8 +6,8 @@ import { Copy, KeyRound, Link2, PlugZap } from "lucide-react";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 
 const AGENT_CONNECT_STEPS = [
-    { title: "方式一：在 Codex 中使用插件", text: "在 Codex app 安装超级画布插件后，通过插件启动画布，插件会自动启动本地 Agent 并带上连接信息。" },
-    { title: "方式二：直接运行 Agent", text: "不使用 Codex 插件时，在终端运行下面命令，再回到网页里连接或手动填入 Local URL 和 Connect token。", command: "npx -y @basketikun/canvas-agent" },
+    { title: "步骤一：将超级画布加入 Codex", text: "在本机终端执行一次。这样 Codex 才能读取和操作当前画布；未安装 Codex 的同事可跳过，继续使用“公司模型”。", command: "codex mcp add infinite-canvas -- npx -y @basketikun/canvas-agent mcp" },
+    { title: "步骤二：启动本机 Agent", text: "在同一台员工电脑上运行。网页只会连接本机 127.0.0.1，不会把 Codex 权限或文件访问权交给公司服务器。", command: "npx -y @basketikun/canvas-agent" },
 ];
 const AGENT_PLUGIN_REMOVE_COMMAND = "codex plugin remove infinite-canvas";
 const AGENT_MCP_REMOVE_COMMAND = "codex mcp remove infinite-canvas";
