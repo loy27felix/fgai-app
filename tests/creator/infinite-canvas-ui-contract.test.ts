@@ -82,16 +82,24 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
   assert.match(promptPanel, /composerContent/);
 });
 
-test('canvas pastes externally copied images using the native clipboard event', () => {
+test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
 
   assert.match(project, /const handlePaste = useCallback\(\s*\(event: ClipboardEvent\)/);
   assert.match(project, /event\.clipboardData/);
   assert.match(project, /clipboardData\?\.items/);
   assert.match(project, /CANVAS_CLIPBOARD_MIME/);
-  assert.match(project, /window\.addEventListener\("paste", handlePaste\)/);
+  assert.match(project, /window\.addEventListener\("paste", handlePaste, true\)/);
   assert.match(project, /window\.addEventListener\("copy", handleCopy\)/);
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
+});
+
+test('canvas error details wrap and scroll inside narrow portrait nodes', () => {
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+
+  assert.match(node, /break-all/);
+  assert.match(node, /overflow-y-auto/);
+  assert.match(node, /title=\{detail\}/);
 });
 
 

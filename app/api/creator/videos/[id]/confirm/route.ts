@@ -9,6 +9,7 @@ import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createAdminClient } from '@/lib/local/admin';
 import { createClient } from '@/lib/local/server';
+import { readLocalFile } from '@/lib/local/storage';
 import {
   buildVideoLedgerEntry,
   recordUsageRequired,
@@ -98,6 +99,9 @@ function isPrivateHost(hostname: string) {
 
 function assertProviderReferencesReachable(references: VideoReference[]) {
   const unreachable = references.some((reference) => {
+    // Image data URLs are intentionally sent inline. This is the LAN-safe
+    // path for images because Wetoken cannot fetch the company's NAS address.
+    if (reference.type === 'image' && /^data:image\/(?:jpeg|png|webp);base64,/i.test(reference.url)) return false;
     try {
       const url = new URL(reference.url);
       return !['http:', 'https:'].includes(url.protocol) || isPrivateHost(url.hostname);
@@ -106,6 +110,14 @@ function assertProviderReferencesReachable(references: VideoReference[]) {
     }
   });
   if (unreachable) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
+}
+
+function imageDataUrl(mimeType: string, bytes: Buffer) {
+  const normalizedMimeType = mimeType.toLowerCase();
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(normalizedMimeType)) {
+    throw new Error(ERRORS.REFERENCES_NOT_READY);
+  }
+  return `data:${normalizedMimeType};base64,${bytes.toString('base64')}`;
 }
 
 async function updateOwnedTask(
@@ -202,14 +214,24 @@ async function buildProviderReferences(
   const bucket = context.localClient.storage.from('creator-assets');
   const references: VideoReference[] = [];
   for (let index = 0; index < paths.length; index += 1) {
-    const signed = await bucket.createProviderSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
-    if (signed.error || !signed.data?.signedUrl) throw new Error(ERRORS.REFERENCES_NOT_READY);
     const manifest = validated.references[index];
     if (manifest.kind === 'image') {
-      references.push({ type: 'image', url: signed.data.signedUrl, role: manifest.role as 'first_frame' | 'last_frame' | 'reference_image' });
+      // Do not expose a local NAS URL to Wetoken: it is unreachable from the
+      // public provider and produces "resource download failed" after billing.
+      // Reference images are capped at 7 MB, so a data URL is a safe transport.
+      const bytes = await readLocalFile('creator-assets', paths[index]);
+      references.push({
+        type: 'image',
+        url: imageDataUrl(manifest.mimeType, bytes),
+        role: manifest.role as 'first_frame' | 'last_frame' | 'reference_image',
+      });
     } else if (manifest.kind === 'video') {
+      const signed = await bucket.createProviderSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
+      if (signed.error || !signed.data?.signedUrl) throw new Error(ERRORS.REFERENCES_NOT_READY);
       references.push({ type: 'video', url: signed.data.signedUrl, role: 'reference_video' });
     } else {
+      const signed = await bucket.createProviderSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
+      if (signed.error || !signed.data?.signedUrl) throw new Error(ERRORS.REFERENCES_NOT_READY);
       references.push({ type: 'audio', url: signed.data.signedUrl, role: 'reference_audio' });
     }
   }

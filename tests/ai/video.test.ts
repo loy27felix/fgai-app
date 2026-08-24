@@ -113,6 +113,29 @@ test('Seedance request maps first and last frame roles', () => {
     { type: 'image_url', image_url: { url: 'https://example.com/last.jpg' }, role: 'last_frame' },
   ]);
 });
+
+test('Seedance request accepts LAN-safe inline image references but not inline video or audio', () => {
+  const base = {
+    model: 'dreamina-seedance-2-5', prompt: 'cinematic move', duration: 5, ratio: '16:9',
+    resolution: '720p', watermark: false, generateAudio: true,
+  };
+  assert.doesNotThrow(() => buildSeedanceRequest({
+    ...base,
+    references: [{ type: 'image', url: 'data:image/png;base64,AA==', role: 'reference_image' }],
+  }));
+  assert.throws(() => buildSeedanceRequest({
+    ...base,
+    references: [{ type: 'video', url: 'data:video/mp4;base64,AA==', role: 'reference_video' }],
+  }), /参考素材 URL 无效|参考素材只支持 HTTP\(S\) URL/);
+});
+
+test('creator video confirmation inlines NAS image references before calling Wetoken', () => {
+  const route = fs.readFileSync(path.join(process.cwd(), 'app/api/creator/videos/[id]/confirm/route.ts'), 'utf8');
+
+  assert.match(route, /readLocalFile\('creator-assets', paths\[index\]\)/);
+  assert.match(route, /data:\$\{normalizedMimeType\};base64/);
+  assert.match(route, /reference\.type === 'image'.*data:image/s);
+});
 test('Seedance validation rejects invalid combinations and model capabilities', () => {
   const base = {
     prompt: 'x', references: [], duration: 5, ratio: '16:9',

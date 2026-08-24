@@ -521,12 +521,18 @@ function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
 }
 
 function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
+    const detail = node.metadata?.errorDetails || "生成失败";
     return (
-        <div className="flex max-w-[260px] flex-col items-center gap-3 px-5 text-center">
-            <div className="text-xs leading-5 text-red-300">{node.metadata?.errorDetails || "生成失败"}</div>
+        <div className="flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-center gap-3 overflow-hidden px-3 py-3 text-center">
+            <div
+                className="max-h-[calc(100%-3rem)] w-full min-w-0 overflow-y-auto break-all pr-1 text-[11px] leading-4 text-red-300"
+                title={detail}
+            >
+                {detail}
+            </div>
             <button
                 type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
                 style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 onClick={(event) => {
                     event.stopPropagation();

@@ -46,7 +46,15 @@ export class WetokenVideoError extends Error {
 
 const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']);
 
-function assertUrl(value: string) {
+function isInlineImageDataUrl(value: string) {
+  return /^data:image\/(?:jpeg|png|webp);base64,/i.test(value);
+}
+
+function assertUrl(value: string, type: VideoReference['type']) {
+  // Local deployments keep creator assets on a LAN-only NAS. A remote video
+  // provider cannot download a 192.168.* URL, but it can receive small image
+  // references inline. Video and audio still require provider-reachable URLs.
+  if (type === 'image' && isInlineImageDataUrl(value)) return;
   let url: URL;
   try { url = new URL(value); } catch { throw new Error('参考素材 URL 无效'); }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('参考素材只支持 HTTP(S) URL');
@@ -87,7 +95,7 @@ export function buildSeedanceRequest(input: SeedanceInput) {
   const content: any[] = [];
   if (input.prompt.trim()) content.push({ type: 'text', text: input.prompt.trim() });
   for (const reference of input.references) {
-    assertUrl(reference.url);
+    assertUrl(reference.url, reference.type);
     if (reference.type === 'image') {
       content.push({ type: 'image_url', image_url: { url: reference.url }, role: reference.role });
     } else if (reference.type === 'video') {

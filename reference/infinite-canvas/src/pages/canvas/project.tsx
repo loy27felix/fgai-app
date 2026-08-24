@@ -1584,13 +1584,16 @@ function InfiniteCanvasPage() {
         const clipboardData = event.clipboardData;
         // Screenshots copied from browser, chat, and desktop apps may expose
         // their image only through DataTransferItemList instead of `files`.
+        const isImageFile = (file: File) => file.type.startsWith("image/") || /\.(?:avif|gif|jpe?g|png|webp)$/i.test(file.name);
         const filesFromItems = Array.from(clipboardData?.items || [])
-            .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+            // Some Windows/macOS applications leave DataTransferItem.type
+            // empty on HTTP origins. Read the File before deciding its type.
+            .filter((item) => item.kind === "file")
             .map((item) => item.getAsFile())
-            .filter((file): file is File => Boolean(file));
+            .filter((file): file is File => file !== null && isImageFile(file));
         const files = filesFromItems.length
             ? filesFromItems
-            : Array.from(clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
+            : Array.from(clipboardData?.files || []).filter(isImageFile);
         if (files.length) {
             event.preventDefault();
             const center = getCanvasCenter();
@@ -1684,11 +1687,14 @@ function InfiniteCanvasPage() {
 
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("copy", handleCopy);
-        window.addEventListener("paste", handlePaste);
+        // Capture phase is deliberate: on LAN HTTP deployments the native
+        // ClipboardEvent is the only browser-supported image clipboard API.
+        // It must be seen before a nested canvas widget stops propagation.
+        window.addEventListener("paste", handlePaste, true);
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("copy", handleCopy);
-            window.removeEventListener("paste", handlePaste);
+            window.removeEventListener("paste", handlePaste, true);
         };
     }, [deleteConnection, deleteNodes, handleCopy, handlePaste, redoCanvas, selectedConnectionId, setConnecting, undoCanvas]);
 
