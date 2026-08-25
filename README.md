@@ -62,6 +62,28 @@ USAGE_USD_TO_CNY_RATE=6.77
 4. 把 Tunnel 的公网 HTTPS 地址写入 `PROVIDER_MEDIA_URL`，例如 `https://media.example.com/api/local/storage/content`。`LOCAL_MEDIA_URL` 继续使用 `http://192.168.0.99:3000/api/local/storage/content`，分别服务局域网浏览器和 Wetoken。
 5. 执行 `docker compose --env-file .env.docker up -d --build`，应用访问 `http://192.168.0.99:3000`，Cloudflare Tunnel 负责把带签名的媒体 URL 转发给 App。
 
+常用 Docker 命令已集成到 `package.json`，均应在实际 Docker 主机的项目目录执行：
+
+```bash
+pnpm docker:config        # 校验 Docker Compose 配置
+pnpm docker:ps            # 查看 App、PostgreSQL 和 Tunnel 状态
+pnpm docker:up            # 构建并启动全部服务
+pnpm logs:docker          # 持续查看全部容器最近 200 行日志
+pnpm logs:app             # 只看 Next.js App 与服务端业务日志
+pnpm logs:postgres        # 只看 PostgreSQL 日志
+pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志
+```
+
+日志命令会持续跟随新输出，按 `Ctrl+C` 退出，不会停止容器。排查 App 内的具体链路时，可继续按现有日志标识过滤：
+
+```bash
+pnpm logs:app | grep '"event":"creator_image"'  # 图片生成与供应商请求
+pnpm logs:app | grep '\[creator video'             # 视频生成、提交与轮询
+pnpm logs:app | grep '\[local media'               # NAS 媒体鉴权、读取与失败
+```
+
+本地执行 `pnpm dev` 时，App 日志直接输出在当前终端，不经过 Docker；浏览器端日志仍在浏览器 DevTools Console 中查看。
+
 实际运行 Docker 的 macOS 宿主机必须安装 NAS 守护进程；不要在开发机或仅用于编辑代码的机器上执行：
 
 ```bash
@@ -69,7 +91,7 @@ chmod +x scripts/nas-supervisor.sh scripts/install-nas-supervisor.sh
 scripts/install-nas-supervisor.sh
 ```
 
-安装脚本会在终端要求输入一次 NAS 密码，并仅保存到当前运行账号的 macOS Keychain。守护进程每 10 秒校验一次真实 SMB/NFS 文件系统、NAS 主机、读写探针和容器内标记。NAS 断开时只停止 `app`，从专用 Keychain 条目读取凭据后以无界面方式重新挂载，不会弹出 Finder 登录窗口；NAS 恢复后使用 `--force-recreate` 重建 `app`，避免复用失效的 bind mount。PostgreSQL 始终保持运行。日志位于 `~/Library/Logs/fg-studio-nas-supervisor.log`。应用自身也会在 NAS 标记缺失时拒绝媒体读写并返回 `503`，因此不能通过本机空目录继续写入。
+安装脚本会在终端要求输入一次 NAS 密码，并仅保存到当前运行账号的 macOS Keychain。守护进程每 10 秒校验一次真实 SMB/NFS 文件系统、NAS 主机、读写探针和容器内标记。NAS 断开时只停止 `app`，从专用 Keychain 条目读取凭据后以无界面方式重新挂载，不会弹出 Finder 登录窗口；NAS 恢复后使用 `--force-recreate` 重建 `app`，避免复用失效的 bind mount。PostgreSQL 始终保持运行。执行 `pnpm logs:nas` 可同时跟随标准与错误日志。应用自身也会在 NAS 标记缺失时拒绝媒体读写并返回 `503`，因此不能通过本机空目录继续写入。
 
 ### main 分支自动重部署
 
@@ -82,7 +104,7 @@ scripts/install-auto-deploy.sh
 
 服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会构建 `app`，在重启前执行 `docker/initdb/002-local-upgrade.sql` 的幂等数据库升级，仅重建 `app` 容器，并等待容器 health 与 `http://127.0.0.1:3000` 返回成功。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
 
-日志位于 `~/Library/Logs/fg-studio-auto-deploy.log` 和 `~/Library/Logs/fg-studio-auto-deploy.error.log`。部署主机必须能够访问 Git remote；私有仓库的 Git 凭据应配置在该主机的 Git credential helper 或 SSH agent 中，不要写入仓库或 `.env.docker`。
+执行 `pnpm logs:deploy` 可同时跟随自动部署的标准与错误日志。部署主机必须能够访问 Git remote；私有仓库的 Git 凭据应配置在该主机的 Git credential helper 或 SSH agent 中，不要写入仓库或 `.env.docker`。
 
 服务器网络如果封锁 UDP/7844，Compose 会强制 `cloudflared` 使用 HTTP/2，避免 Tunnel 自动切换到不可用的 QUIC。修改 Tunnel 配置后执行 `docker compose --env-file .env.docker up -d cloudflared` 使连接重新建立。
 
