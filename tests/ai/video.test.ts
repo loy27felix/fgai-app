@@ -10,6 +10,8 @@ import {
   getWetokenVideoTask,
 } from '../../lib/ai/video';
 import { validateVideoDraftInput, videoImageRoles } from '../../lib/creator/video';
+import { CanvasNodeType, type CanvasNodeData } from '../../reference/infinite-canvas/src/types/canvas';
+import { resetInterruptedGeneration } from '../../reference/infinite-canvas/src/lib/canvas/canvas-generation-helpers';
 
 const originalKey = process.env.WETOKEN_API_KEY;
 const originalBase = process.env.WETOKEN_BASE_URL;
@@ -37,8 +39,8 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
   ]);
 });
 
-test('video submission allows thirty minutes for slow provider task creation', () => {
-  assert.equal(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS, 30 * 60 * 1000);
+test('video submission keeps the provider connection alive for three hours by default', () => {
+  assert.equal(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS, 3 * 60 * 60 * 1000);
 });
 
 test('canvas result polling does not impose a second short timeout after submission', () => {
@@ -49,6 +51,30 @@ test('canvas result polling does not impose a second short timeout after submiss
   assert.match(source, /task\.status === "failed"/);
   assert.match(source, /task\.status === "expired"/);
   assert.match(source, /task\.status === "unknown" && !task\.external_task_id/);
+});
+
+test('canvas keeps an already-submitted creator video loading after a refresh', () => {
+  const nodes: CanvasNodeData[] = [{
+    id: 'video-1',
+    type: CanvasNodeType.Video,
+    title: 'Long Seedance render',
+    position: { x: 0, y: 0 },
+    width: 320,
+    height: 180,
+    metadata: { status: 'loading', creatorTaskId: 'creator-video-1' },
+  }];
+
+  const restored = resetInterruptedGeneration(nodes);
+  assert.equal(restored[0].metadata?.status, 'loading');
+  assert.equal(restored[0].metadata?.creatorTaskId, 'creator-video-1');
+});
+
+test('canvas records the local creator task ID before waiting for a long provider response', () => {
+  const videoSource = fs.readFileSync(path.join(process.cwd(), 'reference/infinite-canvas/src/services/api/video.ts'), 'utf8');
+  const canvasSource = fs.readFileSync(path.join(process.cwd(), 'reference/infinite-canvas/src/pages/canvas/project.tsx'), 'utf8');
+
+  assert.match(videoSource, /onCreatorTaskCreated/);
+  assert.match(canvasSource, /creatorTaskId/);
 });
 
 test('canvas confirmation schedules slow provider submission instead of holding the browser request open', () => {

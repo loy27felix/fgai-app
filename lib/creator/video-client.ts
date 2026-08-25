@@ -39,6 +39,11 @@ export type ListVideoTasksResponse = {
   tasks: CreatorVideoTaskView[];
 };
 export type VideoTaskResponse = { task: CreatorVideoTaskView };
+export type ReconcileVideoTaskResponse = {
+  task: CreatorVideoTaskView;
+  durable: boolean;
+  warning: string | null;
+};
 export type DeleteVideoTaskResponse = { ok: boolean; id: string };
 
 export async function uploadVideoReference(taskId: string, path: string, file: File) {
@@ -88,6 +93,18 @@ export function listVideoTasks() {
 
 export function getVideoTask(taskId: string) {
   return requestJson<VideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId), { method: 'GET' });
+}
+
+/**
+ * Bind a known Wetoken cgt task to an already-owned local video task.
+ * This only reads the provider task and archives its completed output; it
+ * never creates a new generation request.
+ */
+export function reconcileVideoTask(taskId: string, externalTaskId: string) {
+  return requestJson<ReconcileVideoTaskResponse>('/api/creator/videos/' + encodeURIComponent(taskId), {
+    method: 'PUT',
+    body: JSON.stringify({ externalTaskId }),
+  });
 }
 
 /** Stable same-origin playback URL for a creator video task. */

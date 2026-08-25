@@ -17,9 +17,10 @@ import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { extractReportedCostUsd } from '@/lib/usage/pricing';
-import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
+import { ensureVideoOutputStored, persistVideoOutput, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
 import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
+import { KnownVideoTaskRecoveryError, reconcileKnownWetokenVideoTask } from '@/lib/creator/video-recovery';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -80,8 +81,8 @@ async function loadOwnedTask(
   context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
   id: string,
 ) {
-  // Creator task routes now accept only the internally-issued UUID.  Provider
-  // Reference IDs intentionally have no lookup/recovery path.
+  // Provider task IDs are never a route identifier. Reconciliation must first
+  // prove ownership through this internally-issued UUID.
   if (!isUuid(id)) return null;
   const result = await context.localClient
     .from('creator_generation_tasks')
@@ -278,6 +279,87 @@ export async function GET(_req: Request, { params }: RouteContext) {
     return NextResponse.json({ task: await taskView(context, current) });
   } catch (error: unknown) {
     return serverError(error, 'VIDEO_TASK_READ_FAILED', '视频任务读取失败，请稍后重试');
+  }
+}
+
+/**
+ * Attach a known Wetoken task to its original local task after an app restart
+ * interrupted the background submit/persist flow. This is deliberately scoped
+ * to an owned internal UUID: provider task IDs alone cannot expose any media.
+ */
+export async function PUT(req: Request, { params }: RouteContext) {
+  try {
+    const context = await creatorContext();
+    if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
+    const task = await loadOwnedTask(context, params.id);
+    if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
+    if (task.status === 'draft') return response('草稿任务尚未提交，不能同步外部视频', 'VIDEO_TASK_NOT_SUBMITTED', 409);
+    const body = asRecord(await req.json().catch(() => ({})));
+    const externalTaskId = typeof body.externalTaskId === 'string' ? body.externalTaskId : '';
+    if (task.external_task_id && task.external_task_id !== externalTaskId.trim()) {
+      return response('该本地任务已绑定另一条外部视频任务', 'EXTERNAL_TASK_CONFLICT', 409);
+    }
+
+    const recovered = await reconcileKnownWetokenVideoTask({
+      task,
+      externalTaskId,
+      loadProviderTask: getWetokenVideoTask,
+      persistOutput: (output) => persistVideoOutput(context, task, output),
+      saveTask: async (update) => {
+        const saved = await context.localClient
+          .from('creator_generation_tasks')
+          .update({
+            external_task_id: update.externalTaskId,
+            status: update.status,
+            output: update.output,
+            error: null,
+            completed_at: update.completedAt,
+            last_provider_checked_at: update.completedAt,
+            reconciliation_required_at: null,
+          })
+          .eq('id', task.id)
+          .eq('workspace_id', context.workspace.id)
+          .eq('user_id', context.user.id)
+          .eq('kind', 'video')
+          .select('*')
+          .maybeSingle();
+        if (saved.error) throw saved.error;
+        return saved.data ? update : null;
+      },
+    });
+    const savedTask = await loadOwnedTask(context, task.id);
+    if (!savedTask) return response('本地视频任务更新失败', 'TASK_UPDATE_FAILED', 500);
+    const completedAt = savedTask.completed_at || new Date().toISOString();
+    await updateVideoUsageBestEffort({
+      requestId: 'creator-video:' + savedTask.id,
+      providerRequestId: recovered.provider.externalTaskId,
+      providerStatus: 'succeeded',
+      completedAt,
+      reportedCostUsd: extractReportedCostUsd(recovered.provider.usage),
+    });
+    const output = asRecord(savedTask.output);
+    const durable = typeof output.video_storage_path === 'string';
+    await recordVideoTaskEvent(savedTask.id, 'known_provider_task_reconciled', 'succeeded', {
+      externalTaskId: recovered.provider.externalTaskId,
+      durable,
+    });
+    return NextResponse.json({
+      task: await taskView(context, savedTask),
+      durable,
+      warning: durable ? null : '已同步到 Wetoken 临时视频地址，但 NAS 归档失败；请在 NAS 恢复后重新同步该任务。',
+    });
+  } catch (error: unknown) {
+    if (error instanceof KnownVideoTaskRecoveryError) {
+      const status = error.code === 'INVALID_EXTERNAL_TASK_ID'
+        ? 400
+        : error.code === 'PROVIDER_TASK_NOT_SUCCEEDED'
+          ? 409
+          : error.code === 'PROVIDER_VIDEO_URL_MISSING'
+            ? 502
+            : 500;
+      return response(error.message, error.code, status);
+    }
+    return serverError(error, 'VIDEO_TASK_RECONCILIATION_FAILED', '视频同步失败，请稍后重试');
   }
 }
 

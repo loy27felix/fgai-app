@@ -28,7 +28,11 @@ type SeedanceTask = {
     video_url?: string;
 };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = {
+    signal?: AbortSignal;
+    /** Called after the local task is confirmed, before a long Wetoken render finishes. */
+    onCreatorTaskCreated?: (taskId: string) => void;
+};
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; fallbackUrl?: string; mimeType?: string; storagePath?: string; assetId?: string; externalTaskId?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
@@ -83,7 +87,8 @@ function assertVideoReferenceMode(mode: VideoReferenceMode, imageCount: number, 
     return videoImageRoles(mode, imageCount);
 }
 
-async function fgGenerateVideo(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[] = [], signal?: AbortSignal): Promise<VideoGenerationResult> {
+async function fgGenerateVideo(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
+    const signal = options?.signal;
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const mode = normalizedVideoReferenceMode(config);
     const model = (config.model || config.videoModel || "doubao-seedance-2-0").replace(/^.*::/, "");
@@ -148,6 +153,14 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     } catch (error) {
         throw new Error(`视频任务提交失败：${error instanceof Error ? error.message : "网络请求失败"}`);
     }
+    // The provider can take an hour before exposing its external ID. Persist our
+    // own task ID immediately so a canvas refresh can resume polling instead of
+    // treating a still-running generation as a failed request.
+    try {
+        options?.onCreatorTaskCreated?.(draft.task.id);
+    } catch (error) {
+        console.warn("[creator video] unable to persist canvas task ID", error);
+    }
     const fallbackUrl = creatorVideoContentUrl(draft.task.id);
     if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal }, fallbackUrl)), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined, externalTaskId: typeof immediate.task?.external_task_id === "string" ? immediate.task.external_task_id : undefined };
     // A submitted Seedance task can remain queued much longer than the former
@@ -197,7 +210,7 @@ function isFgCreatorVideoModel(value: string) {
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
-    return fgGenerateVideo(config, prompt, references, videoReferences, audioReferences, options?.signal);
+    return fgGenerateVideo(config, prompt, references, videoReferences, audioReferences, options);
 }
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
@@ -231,7 +244,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 
 async function createCreatorVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const id = nanoid();
-    const work = fgGenerateVideo(config, prompt, references, videoReferences, audioReferences, options?.signal)
+    const work = fgGenerateVideo(config, prompt, references, videoReferences, audioReferences, options)
         .then((result) => {
             pluginVideoResults.set(id, result);
         })

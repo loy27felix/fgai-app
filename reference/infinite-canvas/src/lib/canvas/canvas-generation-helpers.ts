@@ -111,7 +111,12 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
-    return nodes.map((node) => (node.metadata?.status === "loading" ? { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } } : node));
+    return nodes.map((node) => {
+        // FG 视频已在本机任务表中持久化。刷新画布并不等于终止 Wetoken
+        // 的长任务；保留 loading 状态，让项目页重新查询并在完成后回填 NAS 文件。
+        if (node.type === CanvasNodeType.Video && node.metadata?.status === "loading" && node.metadata.creatorTaskId) return node;
+        return node.metadata?.status === "loading" ? { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } } : node;
+    });
 }
 
 export function isGenerationCanceled(error: unknown) {

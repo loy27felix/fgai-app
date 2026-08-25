@@ -10,7 +10,7 @@ import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinit
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
-import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
+import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTask } from "@/lib/creator/video-client";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
@@ -163,6 +163,49 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
         nodes.map(async (node) => {
             let recoveryError: string | undefined;
             let staleCloudUrl: string | undefined;
+
+            // A long Wetoken render can still be running when this page is
+            // reopened. Our local task ID is enough to query the task route;
+            // that route persists a completed result to NAS before it returns.
+            const creatorTaskId = node.type === CanvasNodeType.Video ? node.metadata?.creatorTaskId : undefined;
+            if (creatorTaskId && !node.metadata?.content) {
+                try {
+                    const task = (await getVideoTask(creatorTaskId)).task;
+                    if (task.videoUrl) {
+                        const stored = await storeGeneratedVideo({
+                            url: task.videoUrl,
+                            fallbackUrl: creatorVideoContentUrl(task.id),
+                            mimeType: "video/mp4",
+                            externalTaskId: task.external_task_id || undefined,
+                        });
+                        return {
+                            ...node,
+                            metadata: {
+                                ...node.metadata,
+                                ...videoMetadata(stored),
+                                creatorTaskId,
+                                status: NODE_STATUS_SUCCESS,
+                                errorDetails: undefined,
+                            },
+                        };
+                    }
+                    if (task.status === "failed" || task.status === "expired") {
+                        return {
+                            ...node,
+                            metadata: {
+                                ...node.metadata,
+                                creatorTaskId,
+                                status: NODE_STATUS_ERROR,
+                                errorDetails: task.error || "视频任务失败",
+                            },
+                        };
+                    }
+                } catch (error) {
+                    // Keep the node pending if the LAN service is temporarily
+                    // unreachable. A later poll can still recover the result.
+                    console.warn("[creator video recovery]", error);
+                }
+            }
 
             if (node.metadata?.storageKey) {
                 const localUrl = node.type === CanvasNodeType.Image
@@ -344,6 +387,7 @@ function InfiniteCanvasPage() {
     const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const cloudCreateInFlightRef = useRef(false);
     const cloudProjectIdRef = useRef<string | null>(null);
+    const creatorVideoRecoveryInFlightRef = useRef(new Set<string>());
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -450,6 +494,63 @@ function InfiniteCanvasPage() {
         if (!projectLoaded) return;
         setAgentState({ activeThreadId: "", messages: [], tokenUsage: null, pendingTool: null });
     }, [projectId, projectLoaded, setAgentState]);
+
+    useEffect(() => {
+        if (!projectLoaded) return;
+        let disposed = false;
+
+        const resumePendingCreatorVideos = async () => {
+            const pending = nodesRef.current.filter(
+                (node) => node.type === CanvasNodeType.Video && node.metadata?.status === NODE_STATUS_LOADING && node.metadata.creatorTaskId && !node.metadata.content,
+            );
+            await Promise.all(
+                pending.map(async (node) => {
+                    const taskId = node.metadata?.creatorTaskId;
+                    if (!taskId || creatorVideoRecoveryInFlightRef.current.has(node.id)) return;
+                    creatorVideoRecoveryInFlightRef.current.add(node.id);
+                    try {
+                        const task = (await getVideoTask(taskId)).task;
+                        if (task.videoUrl) {
+                            const stored = await storeGeneratedVideo({
+                                url: task.videoUrl,
+                                fallbackUrl: creatorVideoContentUrl(task.id),
+                                mimeType: "video/mp4",
+                                externalTaskId: task.external_task_id || undefined,
+                            });
+                            if (disposed) return;
+                            setNodes((prev) =>
+                                prev.map((item) =>
+                                    item.id === node.id
+                                        ? { ...item, metadata: { ...item.metadata, ...videoMetadata(stored), creatorTaskId: taskId, status: NODE_STATUS_SUCCESS, errorDetails: undefined } }
+                                        : item,
+                                ),
+                            );
+                        } else if (task.status === "failed" || task.status === "expired") {
+                            if (disposed) return;
+                            setNodes((prev) =>
+                                prev.map((item) =>
+                                    item.id === node.id
+                                        ? { ...item, metadata: { ...item.metadata, creatorTaskId: taskId, status: NODE_STATUS_ERROR, errorDetails: task.error || "视频任务失败" } }
+                                        : item,
+                                ),
+                            );
+                        }
+                    } catch (error) {
+                        console.warn("[creator video resume]", error);
+                    } finally {
+                        creatorVideoRecoveryInFlightRef.current.delete(node.id);
+                    }
+                }),
+            );
+        };
+
+        void resumePendingCreatorVideos();
+        const interval = window.setInterval(() => void resumePendingCreatorVideos(), 10_000);
+        return () => {
+            disposed = true;
+            window.clearInterval(interval);
+        };
+    }, [projectLoaded]);
 
     useEffect(() => {
         if (!projectLoaded || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
@@ -2558,7 +2659,12 @@ function InfiniteCanvasPage() {
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
                         const video = await storeGeneratedVideo(
-                            await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal }),
+                            await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
+                                signal: controller.signal,
+                                onCreatorTaskCreated: (creatorTaskId) => {
+                                    setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+                                },
+                            }),
                         );
                         const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
@@ -2765,7 +2871,12 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Video) {
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], { signal: controller.signal }));
+                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
+                        signal: controller.signal,
+                        onCreatorTaskCreated: (creatorTaskId) => {
+                            setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
+                        },
+                    }));
                     const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>

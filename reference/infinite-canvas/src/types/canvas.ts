@@ -72,6 +72,7 @@ export type CanvasNodeMetadata = {
     cloudStoragePath?: string; // Local creator-assets 中的持久化副本
     cloudAssetId?: string;
     externalTaskId?: string; // Wetoken reference ID，用于视频任务恢复
+    creatorTaskId?: string; // 本机 creator_generation_tasks ID，用于长视频任务续查
 };
 
 export type CanvasNodeData = {

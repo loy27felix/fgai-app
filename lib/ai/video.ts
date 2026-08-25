@@ -23,12 +23,13 @@ export type SeedanceInput = {
 export type VideoTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired';
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-// Seedance 2.5 can take longer than earlier models to acknowledge a task,
-// especially when reference media is included. Keep the request alive long
-// Seedance 2.5 can spend several minutes accepting a request before it returns
-// an external task ID.  The local deployment has no serverless execution cap,
-// so keep this generous and let result polling continue separately afterwards.
-export const WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS = 30 * 60 * 1000;
+// Some Wetoken video routes do not acknowledge the request until the provider
+// has finished rendering. Seedance 2.5 can therefore take an hour or more
+// before returning an external task ID. This is a server-side wait only: the
+// browser receives 202 immediately and keeps polling the local task record.
+// The LAN deployment has no serverless cap, so allow a conservative three-hour
+// window before declaring a still-running provider request unknown.
+export const WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
 export class WetokenVideoError extends Error {
   readonly status: number;
