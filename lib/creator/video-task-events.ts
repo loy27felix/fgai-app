@@ -1,4 +1,5 @@
 import { query } from '@/lib/local/db';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 type VideoTaskEventDetails = Record<string, string | number | boolean | null | undefined>;
 
@@ -21,10 +22,11 @@ export async function recordVideoTaskEvent(
   } catch (error) {
     // Event diagnostics must never interrupt the generation state machine.
     // 诊断事件写入失败不能反向中断生成任务的主状态机。
-    console.error('[creator video event persistence]', {
+    logServerFailure('creator_video_task_event', error, {
+      feature: 'creator_video',
+      stage: 'event_persistence_failed',
       taskId,
       event,
-      message: error instanceof Error ? error.message.slice(0, 300) : 'event persistence failed',
     });
   }
 }

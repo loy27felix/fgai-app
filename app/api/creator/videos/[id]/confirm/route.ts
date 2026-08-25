@@ -24,6 +24,7 @@ import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing'
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
+import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 1800;
@@ -38,6 +39,7 @@ const ERRORS = {
   INVALID_DRAFT: '视频草稿参数无效，已停止确认',
   USAGE_RECORD_FAILED: '视频用量记录写入失败，请稍后重试',
   SUBMIT_FAILED: '视频任务提交失败；状态可能需要对账，请先查看任务历史',
+  SUBMIT_STATUS_UNKNOWN: '提交请求网络中断，供应商未返回任务编号；系统已停止等待。请先在 Wetoken 后台核对是否存在该任务，再手动重试。',
   NOT_FOUND: '视频任务不存在',
 } as const;
 
@@ -97,6 +99,11 @@ function providerFailureStatus(error: unknown): 'failed' | 'awaiting_reconciliat
   return error instanceof WetokenVideoError && !error.retryable ? 'failed' : 'awaiting_reconciliation';
 }
 
+function providerFailureMessage(error: unknown) {
+  if (error instanceof WetokenVideoTransportError) return ERRORS.SUBMIT_STATUS_UNKNOWN;
+  return safeErrorMessage(error, ERRORS.SUBMIT_FAILED);
+}
+
 function isPrivateHost(hostname: string) {
   const host = hostname.toLowerCase();
   if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return true;
@@ -133,21 +140,21 @@ async function assertProviderReferencesReachable(references: VideoReference[]) {
       await result.body?.cancel();
       if ([401, 403, 404].includes(status)) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
       if (!result.ok) {
-        console.warn('[creator video reference preflight]', {
+        logServerEvent('creator_video', {
+          feature: 'creator_video',
+          stage: 'reference_preflight_advisory_http_failure',
           type: reference.type,
           role: reference.role,
-          outcome: 'advisory_http_failure',
           status,
-        });
+        }, 'warn');
       }
     } catch (error) {
       if (error instanceof Error && error.message === ERRORS.REFERENCES_NOT_REACHABLE) throw error;
-      console.warn('[creator video reference preflight]', {
+      logServerFailure('creator_video', error, {
+        feature: 'creator_video',
+        stage: 'reference_preflight_advisory_transport_failure',
         type: reference.type,
         role: reference.role,
-        outcome: 'advisory_transport_failure',
-        errorName: error instanceof Error ? error.name : typeof error,
-        message: error instanceof Error ? error.message.slice(0, 300) : 'transport failure',
       });
     }
   }));
@@ -186,25 +193,30 @@ async function updateOwnedTask(
   } catch (error) {
     sessionResult = { error };
   }
-  console.error('[creator video task persistence]', {
+  logServerEvent('creator_video', {
+    feature: 'creator_video',
+    stage: 'task_persistence_session_failed',
     taskId,
     path: 'session',
     error: safeErrorMessage(sessionResult.error, 'no row returned'),
-  });
+  }, 'error');
 
   try {
     const adminResult = await apply(createAdminClient());
     if (!adminResult.error && adminResult.data) return adminResult.data as CreatorVideoTask;
-    console.error('[creator video task persistence]', {
+    logServerEvent('creator_video', {
+      feature: 'creator_video',
+      stage: 'task_persistence_service_role_failed',
       taskId,
       path: 'service-role',
       error: safeErrorMessage(adminResult.error, 'no row returned'),
-    });
+    }, 'error');
   } catch (error) {
-    console.error('[creator video task persistence]', {
+    logServerFailure('creator_video', error, {
+      feature: 'creator_video',
+      stage: 'task_persistence_service_role_transport_failed',
       taskId,
       path: 'service-role',
-      error: safeErrorMessage(error, 'service role unavailable'),
     });
   }
   throw new Error(ERRORS.SUBMIT_FAILED);
@@ -326,12 +338,13 @@ async function completeProviderSubmission(input: {
       model: task.model,
       referenceCount: references.length,
     });
-    console.info('[creator video provider]', {
+    logServerEvent('creator_video', {
+      feature: 'creator_video',
+      stage: 'provider_submit_started',
       taskId: task.id,
       provider: 'wetoken',
       model: task.model,
       referenceCount: references.length,
-      stage: 'submitting',
     });
     providerTask = await createWetokenVideoTask({
       model: task.model,
@@ -344,42 +357,66 @@ async function completeProviderSubmission(input: {
       generateAudio: validated.generateAudio,
     });
   } catch (error) {
-    console.error('[creator video provider failure]', {
+    const providerStatus = providerFailureStatus(error);
+    const providerError = providerFailureMessage(error);
+    const operation = error instanceof WetokenVideoTransportError ? error.operation : 'submit';
+    const durationMs = error instanceof WetokenVideoTransportError ? error.durationMs : Date.now() - providerRequestStartedAt;
+    logServerFailure('creator_video', error, {
+      feature: 'creator_video',
+      stage: 'provider_submit_failed',
       taskId: task.id,
       provider: 'wetoken',
       status: error instanceof WetokenVideoError ? error.status : undefined,
       providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
       retryable: error instanceof WetokenVideoError ? error.retryable : undefined,
-      operation: error instanceof WetokenVideoTransportError ? error.operation : undefined,
-      durationMs: error instanceof WetokenVideoTransportError ? error.durationMs : Date.now() - providerRequestStartedAt,
+      operation,
+      durationMs,
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
-      message: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+      nextStatus: providerStatus,
     });
-    const providerStatus = providerFailureStatus(error);
     const reconciliationRequiredAt = providerStatus === 'awaiting_reconciliation' ? new Date().toISOString() : null;
     const completedAt = providerStatus === 'failed' ? new Date().toISOString() : null;
-    await recordVideoTaskEvent(task.id, 'provider_request_failed', providerStatus, {
+    await recordVideoTaskEvent(
+      task.id,
+      error instanceof WetokenVideoTransportError ? 'provider_submit_transport_failed' : 'provider_request_failed',
+      providerStatus,
+      {
       provider: 'wetoken',
       httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
       providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
       retryable: error instanceof WetokenVideoError || error instanceof WetokenVideoTransportError
         ? error.retryable
         : true,
-      operation: error instanceof WetokenVideoTransportError ? error.operation : 'submit',
-      durationMs: error instanceof WetokenVideoTransportError ? error.durationMs : Date.now() - providerRequestStartedAt,
+      operation,
+      durationMs,
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
-    });
+      },
+    );
+    if (providerStatus === 'awaiting_reconciliation') {
+      await recordVideoTaskEvent(task.id, 'manual_reconciliation_required', providerStatus, {
+        provider: 'wetoken',
+        reason: error instanceof WetokenVideoTransportError ? 'provider_submit_transport_failed' : 'provider_submit_unknown',
+        operation,
+        durationMs,
+      });
+    }
     try {
       await updateOwnedTask(context, task.id, {
         status: providerStatus,
-        error: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
+        error: providerError,
         reconciliation_required_at: reconciliationRequiredAt,
         completed_at: completedAt,
       }, 'submitting');
     } catch (persistError) {
-      console.error('[creator video provider failure persistence]', persistError);
+      logServerFailure('creator_video', persistError, {
+        feature: 'creator_video',
+        stage: 'provider_failure_state_persist_failed',
+        taskId: task.id,
+        provider: 'wetoken',
+        nextStatus: providerStatus,
+      });
     }
     const ledgerSettled = await updateVideoUsageBestEffort({ requestId, providerStatus, completedAt });
     await recordVideoTaskEvent(task.id, ledgerSettled ? 'usage_settled' : 'usage_settlement_failed', providerStatus, {
@@ -405,6 +442,15 @@ async function completeProviderSubmission(input: {
     externalTaskId: providerTask.externalTaskId,
     durationMs: Date.now() - providerRequestStartedAt,
   });
+  logServerEvent('creator_video', {
+    feature: 'creator_video',
+    stage: 'provider_task_acknowledged',
+    taskId: task.id,
+    provider: 'wetoken',
+    externalTaskId: providerTask.externalTaskId,
+    providerStatus: providerTask.status,
+    durationMs: Date.now() - providerRequestStartedAt,
+  });
 
   let persistedTask: CreatorVideoTask;
   try {
@@ -418,7 +464,13 @@ async function completeProviderSubmission(input: {
       completed_at: completedAt,
     }, 'submitting');
   } catch (error) {
-    console.error('[creator video provider submit]', error);
+    logServerFailure('creator_video', error, {
+      feature: 'creator_video',
+      stage: 'provider_acknowledgement_persist_failed',
+      taskId: task.id,
+      provider: 'wetoken',
+      externalTaskId: providerTask.externalTaskId,
+    });
     try {
       await updateOwnedTask(context, task.id, {
         external_task_id: providerTask.externalTaskId,
@@ -428,7 +480,13 @@ async function completeProviderSubmission(input: {
         reconciliation_required_at: new Date().toISOString(),
       }, 'submitting');
     } catch (persistError) {
-      console.error('[creator video unknown persistence]', persistError);
+      logServerFailure('creator_video', persistError, {
+        feature: 'creator_video',
+        stage: 'provider_acknowledgement_unknown_state_persist_failed',
+        taskId: task.id,
+        provider: 'wetoken',
+        externalTaskId: providerTask.externalTaskId,
+      });
     }
     await updateVideoUsageBestEffort({ requestId, providerStatus: 'unknown' });
     return;
@@ -453,7 +511,11 @@ async function completeProviderSubmission(input: {
 export async function POST(_req: Request, { params }: RouteContext) {
   let context: Awaited<ReturnType<typeof creatorContext>> = null;
   let claimed: CreatorVideoTask | null = null;
-  console.info("[creator video confirm]", { taskId: params.id, stage: "received" });
+  logServerEvent('creator_video', {
+    feature: 'creator_video',
+    stage: 'confirm_received',
+    taskId: params.id,
+  });
   try {
     context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
@@ -510,9 +572,10 @@ export async function POST(_req: Request, { params }: RouteContext) {
       await recordVideoTaskEvent(claimed.id, 'references_validated', 'submitting', {
         referenceCount: references.length,
       });
-      console.info("[creator video confirm]", {
+      logServerEvent('creator_video', {
+        feature: 'creator_video',
+        stage: 'references_ready',
         taskId: claimed.id,
-        stage: "references_ready",
         references: references.map((reference) => ({ type: reference.type, role: reference.role })),
       });
     } catch (error) {
@@ -562,7 +625,12 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
         possiblyCharged: true,
       });
     } catch (error) {
-      console.error('[creator video ledger]', error);
+      logServerFailure('creator_video', error, {
+        feature: 'creator_video',
+        stage: 'usage_reservation_failed',
+        taskId: claimed.id,
+        requestId,
+      });
       await context.localClient.from('creator_generation_tasks').update({ status: 'draft', confirmed_at: null, error: ERRORS.USAGE_RECORD_FAILED }).eq('id', claimed.id).eq('status', 'submitting');
       throw new Error(ERRORS.USAGE_RECORD_FAILED);
     }
@@ -570,13 +638,19 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
     // Return after durable claim and ledger reservation while Node waits for Wetoken.
     // 持久化任务认领与账本预留后立即返回，由 Node 后台等待 Wetoken 回传任务 ID。
     void completeProviderSubmission({ context, task: claimed, validated, references, requestId })
-      .catch((error) => console.error('[creator video background submission]', error));
+      .catch((error) => logServerFailure('creator_video', error, {
+        feature: 'creator_video',
+        stage: 'background_submission_unhandled_failure',
+        taskId: claimed?.id,
+        requestId,
+      }));
     return NextResponse.json({ task: await viewTask(context, claimed) }, { status: 202 });
   } catch (error: unknown) {
-    console.error("[creator video confirm failure]", {
+    logServerFailure('creator_video', error, {
+      feature: 'creator_video',
+      stage: 'confirm_failed',
       taskId: params.id,
       claimed: Boolean(claimed),
-      message: safeErrorMessage(error, ERRORS.SUBMIT_FAILED),
     });
     if (context && claimed) {
       const current = await ownedTask(context, claimed.id).catch(() => null);

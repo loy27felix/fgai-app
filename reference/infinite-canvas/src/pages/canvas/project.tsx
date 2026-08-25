@@ -189,14 +189,21 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                             },
                         };
                     }
-                    if (task.status === "failed" || task.status === "expired") {
+                    if (
+                        task.status === "failed"
+                        || task.status === "expired"
+                        || task.status === "awaiting_reconciliation"
+                        || (task.status === "unknown" && !task.external_task_id)
+                    ) {
                         return {
                             ...node,
                             metadata: {
                                 ...node.metadata,
                                 creatorTaskId,
                                 status: NODE_STATUS_ERROR,
-                                errorDetails: task.error || "视频任务失败",
+                                errorDetails: task.error || (task.status === "awaiting_reconciliation"
+                                    ? "视频提交状态未知，已停止自动等待；请核对供应商任务后再手动重试"
+                                    : "视频任务失败"),
                             },
                         };
                     }
@@ -525,12 +532,27 @@ function InfiniteCanvasPage() {
                                         : item,
                                 ),
                             );
-                        } else if (task.status === "failed" || task.status === "expired") {
+                        } else if (
+                            task.status === "failed"
+                            || task.status === "expired"
+                            || task.status === "awaiting_reconciliation"
+                            || (task.status === "unknown" && !task.external_task_id)
+                        ) {
                             if (disposed) return;
                             setNodes((prev) =>
                                 prev.map((item) =>
                                     item.id === node.id
-                                        ? { ...item, metadata: { ...item.metadata, creatorTaskId: taskId, status: NODE_STATUS_ERROR, errorDetails: task.error || "视频任务失败" } }
+                                        ? {
+                                            ...item,
+                                            metadata: {
+                                                ...item.metadata,
+                                                creatorTaskId: taskId,
+                                                status: NODE_STATUS_ERROR,
+                                                errorDetails: task.error || (task.status === "awaiting_reconciliation"
+                                                    ? "视频提交状态未知，已停止自动等待；请核对供应商任务后再手动重试"
+                                                    : "视频任务失败"),
+                                            },
+                                        }
                                         : item,
                                 ),
                             );

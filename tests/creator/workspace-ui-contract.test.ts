@@ -66,3 +66,48 @@ test('reference canvas mounts the full source navigation and owns Seedance video
   assert.doesNotMatch(video, /index === 0 \? "first_frame" : "reference_image"/);
   assert.match(video, /FG_VIDEO_MODELS/);
 });
+
+test('transport-interrupted video submissions stop canvas polling and surface reconciliation', () => {
+  const confirmRoute = fs.readFileSync(
+    path.join(process.cwd(), 'app/api/creator/videos/[id]/confirm/route.ts'),
+    'utf8',
+  );
+  const project = fs.readFileSync(
+    path.join(process.cwd(), 'reference/infinite-canvas/src/pages/canvas/project.tsx'),
+    'utf8',
+  );
+  const videoApi = fs.readFileSync(
+    path.join(process.cwd(), 'reference/infinite-canvas/src/services/api/video.ts'),
+    'utf8',
+  );
+  const standaloneCanvas = fs.readFileSync(
+    path.join(process.cwd(), 'components/creator/InfiniteCanvasWorkspace.tsx'),
+    'utf8',
+  );
+
+  assert.match(confirmRoute, /SUBMIT_STATUS_UNKNOWN/);
+  assert.match(confirmRoute, /provider_submit_transport_failed/);
+  assert.match(confirmRoute, /manual_reconciliation_required/);
+  assert.match(project, /task\.status === "awaiting_reconciliation"/);
+  assert.match(project, /已停止自动等待/);
+  assert.match(videoApi, /task\.status === "awaiting_reconciliation"/);
+  assert.match(standaloneCanvas, /task\.status === "awaiting_reconciliation"/);
+  assert.match(standaloneCanvas, /for \(;;\)/);
+});
+
+test('new creative workflow skills are available to the in-product selector', () => {
+  const skillData = fs.readFileSync(path.join(process.cwd(), 'lib/skillData.ts'), 'utf8');
+  const expected = [
+    ['odyssey-photo-diptych', 'odyssey-photo-diptych.md'],
+    ['starryear-abstract-quartet', 'starryear-abstract-quartet.md'],
+    ['starryear-threefold-memory', 'starryear-threefold-memory.md'],
+    ['xiaotang-aigc-tvc-sop', 'xiaotang-aigc-tvc-sop.md'],
+    ['xiaotang-ai-prompt-architect', 'xiaotang-ai-prompt-architect.md'],
+  ];
+
+  for (const [id, file] of expected) {
+    assert.match(skillData, new RegExp(id));
+    const source = fs.readFileSync(path.join(process.cwd(), 'public/skills', file), 'utf8');
+    assert.ok(source.length > 300, `${file} should include a usable workflow prompt`);
+  }
+});

@@ -290,11 +290,29 @@ export default function InfiniteCanvasWorkspace({ userEmail, initialKind = "imag
       if (current.kind === "image") {
         const result = await confirmImageTask(current.taskId);
         if (result.resultUrl) updateMeta(current.nodeId, { content: result.resultUrl, mimeType: "image/png", status: "success" });
-        else for (let attempt = 0; attempt < 40; attempt += 1) { const list = await listImageTasks(); const task = list.tasks.find((item) => item.id === current.taskId); if (task?.resultUrl) { updateMeta(current.nodeId, { content: task.resultUrl, mimeType: "image/png", status: "success" }); break; } if (task?.status === "failed" || task?.status === "expired") throw new Error("图片生成失败，请查看历史任务。"); await new Promise((resolve) => setTimeout(resolve, 3000)); }
+        else for (;;) {
+          const list = await listImageTasks();
+          const task = list.tasks.find((item) => item.id === current.taskId);
+          if (task?.resultUrl) { updateMeta(current.nodeId, { content: task.resultUrl, mimeType: "image/png", status: "success" }); break; }
+          if (task?.status === "failed" || task?.status === "expired") throw new Error(task.error || "图片生成失败，请查看历史任务。");
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+        }
       } else {
         const result = await confirmVideoTask(current.taskId);
         if (result.videoUrl) updateMeta(current.nodeId, { content: result.videoUrl, mimeType: "video/mp4", status: "success" });
-        else for (let attempt = 0; attempt < 40; attempt += 1) { const task = (await getVideoTask(current.taskId)).task; if (task.videoUrl) { updateMeta(current.nodeId, { content: task.videoUrl, mimeType: "video/mp4", status: "success" }); break; } if (task.status === "failed" || task.status === "expired") throw new Error("视频生成失败，请查看历史任务。"); await new Promise((resolve) => setTimeout(resolve, 3000)); }
+        else for (;;) {
+          const task = (await getVideoTask(current.taskId)).task;
+          if (task.videoUrl) { updateMeta(current.nodeId, { content: task.videoUrl, mimeType: "video/mp4", status: "success" }); break; }
+          if (
+            task.status === "failed"
+            || task.status === "expired"
+            || task.status === "awaiting_reconciliation"
+            || (task.status === "unknown" && !task.external_task_id)
+          ) throw new Error(task.error || (task.status === "awaiting_reconciliation"
+            ? "视频提交状态未知，已停止自动等待；请先核对供应商任务后再手动重试。"
+            : "视频生成失败，请查看历史任务。"));
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+        }
       }
       setNotice("生成结果已回写到画布。");
     } catch (cause) { updateMeta(current.nodeId, { status: "error", errorDetails: cause instanceof Error ? cause.message : "生成失败" }); setError(cause instanceof Error ? cause.message : "生成失败。"); } finally { setBusy(false); }

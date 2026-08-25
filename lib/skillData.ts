@@ -9,6 +9,11 @@ export const WORKFLOW_SKILLS = [
   { id: "seedance-combat", title: "Seedance 二次元打戏", desc: "15 秒打戏 · 攻防/运镜/节奏", file: "seedance-combat-prompt.md" },
   { id: "cinematic-realism", title: "造梦师 · 电影真实感", desc: "真实电影感 · 机位/光线/胶片", file: "zy-cinematic-realism.md" },
   { id: "screenwriter", title: "编剧·三大方法论", desc: "麦基/坎贝尔/亚里士多德", file: "screenwriter.md" },
+  { id: "odyssey-photo-diptych", title: "奥德赛抽象双联画", desc: "照片实景 + 《奥德赛》抽象叙事双联画", file: "odyssey-photo-diptych.md" },
+  { id: "starryear-abstract-quartet", title: "星年四象重构", desc: "照片四象重构艺术图", file: "starryear-abstract-quartet.md" },
+  { id: "starryear-threefold-memory", title: "星年三重记忆", desc: "照片三重记忆艺术图", file: "starryear-threefold-memory.md" },
+  { id: "xiaotang-aigc-tvc-sop", title: "小糖 AIGC TVC SOP", desc: "商业广告整体结构与质检", file: "xiaotang-aigc-tvc-sop.md" },
+  { id: "xiaotang-ai-prompt-architect", title: "小糖电影提示词架构师", desc: "创意转电影化提示词与导演注", file: "xiaotang-ai-prompt-architect.md" },
 ];
 
 export const PROMPT_GROUPS: { name: string; items: { title: string; prompt: string }[] }[] = [

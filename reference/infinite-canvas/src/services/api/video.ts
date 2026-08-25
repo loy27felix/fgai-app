@@ -179,8 +179,11 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
         if (
             task.status === "failed"
             || task.status === "expired"
+            || task.status === "awaiting_reconciliation"
             || (task.status === "unknown" && !task.external_task_id)
-        ) throw new Error(task.error || "视频任务提交状态不明确，请在生成记录中确认后再重试");
+        ) throw new Error(task.error || (task.status === "awaiting_reconciliation"
+            ? "视频提交状态未知，已停止自动等待；请先核对供应商任务后再手动重试"
+            : "视频任务提交状态不明确，请在生成记录中确认后再重试"));
         await new Promise((resolve) => setTimeout(resolve, 4000));
     }
 }
