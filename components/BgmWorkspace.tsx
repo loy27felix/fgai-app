@@ -80,7 +80,7 @@ export default function BgmWorkspace({ projectId, projectName, canEdit, bible, e
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId,
-          model: 'deepseek-flash',
+          model: 'deepseek-v4-pro',
           messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
         }),
       });

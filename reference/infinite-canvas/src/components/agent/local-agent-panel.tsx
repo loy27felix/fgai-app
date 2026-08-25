@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type UIEvent } from "react";
 import { ArrowDown, Bot, ChevronDown, MessageSquarePlus, Paperclip, Send, Sparkles, Trash2, X } from "lucide-react";
-import { TEXT_MODELS } from "@/lib/ai/catalog";
+import { DEFAULT_TEXT_MODEL_ID, isTextModelId, TEXT_MODELS } from "@/lib/ai/catalog";
 import { REASONING_EFFORT_OPTIONS, type ReasoningEffort } from "@/lib/ai/reasoning";
 import { isConversationNearBottom } from "@/lib/creator/history";
 import type { CreatorMessage, CreatorSession } from "@/lib/creator/types";
@@ -30,7 +30,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
   const [sessions, setSessions] = useState<CreatorSession[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<CreatorMessage[]>([]);
-  const [model, setModel] = useState("gpt-5.6-luna");
+  const [model, setModel] = useState(DEFAULT_TEXT_MODEL_ID);
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [skill, setSkill] = useState<ActiveSkill | null>(null);
@@ -57,7 +57,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
   async function loadSessions(preferred?: string | null) {
     setLoading(true);
     try {
-      const response = await fetch("/api/creator/sessions");
+      const response = await fetch("/api/creator/sessions?kind=chat");
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "读取 Agent 会话失败");
       const next = (data.sessions || []).filter((item: CreatorSession) => item.kind === "chat") as CreatorSession[];
@@ -70,7 +70,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
 
   async function openSession(id: string, knownSessions = sessions) {
     try {
-      const response = await fetch(`/api/creator/sessions?sessionId=${encodeURIComponent(id)}`);
+      const response = await fetch(`/api/creator/sessions?kind=chat&sessionId=${encodeURIComponent(id)}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "读取会话失败");
       setSessions((data.sessions || knownSessions) as CreatorSession[]);
@@ -79,7 +79,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
       followMessagesRef.current = true;
       setShowScrollToLatest(false);
       const active = (data.sessions || knownSessions).find((item: CreatorSession) => item.id === id);
-      if (active?.default_model) setModel(active.default_model);
+      if (isTextModelId(active?.default_model)) setModel(active.default_model);
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "读取会话失败"); }
   }

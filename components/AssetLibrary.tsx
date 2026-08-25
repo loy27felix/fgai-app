@@ -85,7 +85,7 @@ export default function AssetLibrary({
     setBusy(true);
     try {
       const sys = `从下面的剧本中提取所有「人物、场景、道具」。只返回 JSON：{"assets":[{"name":"名称","type":"人物|场景|道具","role":"一句话设定/作用","prompt":"用于AI出图的中文提示词，含外形/材质/光影/风格"}]}。不要多余文字。`;
-      const res = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, model: "deepseek-flash", jsonOutput: true, messages: [{ role: "system", content: sys }, { role: "user", content: scriptText.slice(0, 8000) }] }) });
+      const res = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, model: "deepseek-v4-pro", jsonOutput: true, messages: [{ role: "system", content: sys }, { role: "user", content: scriptText.slice(0, 8000) }] }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "AI 失败");
       let parsed: any = {}; try { parsed = JSON.parse(data.content || "{}"); } catch { parsed = {}; }

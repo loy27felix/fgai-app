@@ -8,28 +8,35 @@ type WorkspaceHubProps = { email: string; isAdmin: boolean; projectCount: number
 
 const WORKSPACES = [
   {
-    href: "/projects", number: "01", title: "项目工作区", en: "STORY PRODUCTION",
+    href: "/chat", number: "01", title: "AI 对话", en: "MULTI-MODEL CHAT",
+    description: "像 ChatGPT 或 Claude 一样直接开始对话，在会话里切换 GPT、Claude、DeepSeek 与创作 Skills。",
+    note: "多模型 · 会话历史 · Skills",
+    accent: "#75d7ff", glow: "rgba(76,178,255,.30)",
+    icon: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
+  },
+  {
+    href: "/projects", number: "02", title: "项目工作区", en: "STORY PRODUCTION",
     description: "从故事圣经、剧本到镜头表，继续推进正在制作的漫剧项目。",
     note: "项目协作 · 制作流程",
     accent: "#7bf1a1", glow: "rgba(73,219,154,.28)",
     icon: ["M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"],
   },
   {
-    href: "/creator", number: "02", title: "超级画布", en: "SUPER CANVAS",
+    href: "/creator", number: "03", title: "超级画布", en: "SUPER CANVAS",
     description: "用图片、视频、文字和 Agent 在同一张画布里持续生成与组织创意。",
     note: "生图 · 生视频 · Agent",
     accent: "#52dfef", glow: "rgba(53,185,238,.30)",
     icon: ["M4 5h16v14H4z", "M8 9h8M8 13h5", "m15 5-3-3-3 3"],
   },
   {
-    href: "/presets", number: "03", title: "预设库", en: "PROMPT & SKILLS",
+    href: "/presets", number: "04", title: "预设库", en: "PROMPT & SKILLS",
     description: "调用团队沉淀的提示词、风格设定和制作模板，把成熟方法带回创作。",
     note: "提示词 · Skills · 模板",
     accent: "#b4a5ff", glow: "rgba(157,132,255,.30)",
     icon: ["M5 4h14v16H5z", "M8 8h8M8 12h8M8 16h5"],
   },
   {
-    href: "/admin", number: "04", title: "管理后台", en: "USAGE & BUDGET",
+    href: "/admin", number: "05", title: "管理后台", en: "USAGE & BUDGET",
     description: "查看团队模型消耗、月度额度、制作时长和实际生成记录。",
     note: "用量统计 · 预算控制",
     accent: "#ffb673", glow: "rgba(255,156,95,.27)",

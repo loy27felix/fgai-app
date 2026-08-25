@@ -7,61 +7,48 @@ const messages = [
   { role: 'user' as const, content: 'hello' },
 ];
 
-test('Wetoken selection calls only the exact selected Wetoken model', async () => {
+test('Wetoken selection calls the exact selected T1A model', async () => {
   let wetokenModel = '';
-  let deepseekCalls = 0;
   const { spec, result } = await chatWithTextModel(
-    { modelId: 'gpt-5.6-terra', messages },
+    { modelId: 'gpt-5.6-terra-t1a', messages },
     {
       wetoken: async (options) => {
         wetokenModel = options.model;
         return { content: 'terra' };
       },
-      deepseek: async () => {
-        deepseekCalls += 1;
-        return { content: 'unexpected' };
-      },
     },
   );
 
-  assert.equal(spec.id, 'gpt-5.6-terra');
+  assert.equal(spec.id, 'gpt-5.6-terra-t1a');
   assert.equal(result.content, 'terra');
-  assert.equal(wetokenModel, 'gpt-5.6-terra');
-  assert.equal(deepseekCalls, 0);
+  assert.equal(wetokenModel, 'gpt-5.6-terra-t1a');
 });
 
-test('DeepSeek Pro selection forwards mode and thinking only to DeepSeek', async () => {
+test('DeepSeek V4 Pro selection is also routed through Wetoken', async () => {
   let received: unknown;
-  let wetokenCalls = 0;
   await chatWithTextModel(
-    { modelId: 'deepseek-pro', messages, thinking: true, jsonOutput: true },
+    { modelId: 'deepseek-v4-pro', messages, thinking: true, jsonOutput: true },
     {
-      deepseek: async (options) => {
+      wetoken: async (options) => {
         received = options;
         return { content: 'pro' };
-      },
-      wetoken: async () => {
-        wetokenCalls += 1;
-        return { content: 'unexpected' };
       },
     },
   );
 
   assert.deepEqual(received, {
+    model: 'deepseek-v4-pro',
     messages,
-    mode: 'pro',
-    thinking: true,
     jsonOutput: true,
     maxTokens: undefined,
   });
-  assert.equal(wetokenCalls, 0);
 });
 
 test('Wetoken multimodal input attaches images to only the final user message', async () => {
   let receivedMessages: unknown;
   await chatWithTextModel(
     {
-      modelId: 'claude-opus-4-8',
+      modelId: 'claude-opus-5',
       messages: [
         { role: 'system', content: 'system' },
         { role: 'assistant', content: 'ready' },
@@ -91,17 +78,16 @@ test('Wetoken multimodal input attaches images to only the final user message', 
   ]);
 });
 
-test('DeepSeek with images rejects instead of silently substituting a model', async () => {
+test('DeepSeek V4 Pro with images rejects instead of silently substituting a model', async () => {
   let calls = 0;
   await assert.rejects(
     () => chatWithTextModel(
-      { modelId: 'deepseek-flash', messages, images: ['data:image/png;base64,one'] },
+      { modelId: 'deepseek-v4-pro', messages, images: ['data:image/png;base64,one'] },
       {
-        deepseek: async () => { calls += 1; return { content: '' }; },
         wetoken: async () => { calls += 1; return { content: '' }; },
       },
     ),
-    /DeepSeek 当前不支持图片输入，请选择 GPT-5.6 或 Claude Opus 4.8/,
+    /当前模型不支持图片输入/,
   );
   assert.equal(calls, 0);
 });

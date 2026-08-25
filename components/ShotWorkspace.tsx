@@ -73,7 +73,7 @@ export default function ShotWorkspace({
       const fmt = fmtOf(sh); const b = sh.script_beat || {};
       const sys = `你是图生视频(I2V)的视频提示词专家。按「${fmt}」的风格输出一段可直接粘贴使用的中文视频 Prompt:包含运镜、主体动作、节奏/时长、镜头语言、光影、情绪;物理化、可执行,不要文学修辞,不要 markdown 代码块。\n画风/基调：${bible.style || ""}`;
       const usr = `镜号${sh.no} ${sh.title || ""}\n景别：${b["景别"] || ""}\n画面：${b["画面"] || ""}\n运镜：${b["运镜"] || ""}\n动作：${b["动作"] || ""}\n声音：${b["声音"] || ""}\n对白：${b["对白"] || ""}\n时长：${sh.duration_s || 4}秒`;
-      const res = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, model: "deepseek-flash", messages: [{ role: "system", content: sys }, { role: "user", content: usr }] }) });
+      const res = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, model: "deepseek-v4-pro", messages: [{ role: "system", content: sys }, { role: "user", content: usr }] }) });
       const data = await res.json(); if (!res.ok) throw new Error(data?.error || "AI 失败");
       await updateShot(projectId, sh.id, { video_prompt: { text: data.content || "", format: fmt } }); router.refresh();
     } catch (e: any) { alert("生成失败：" + (e?.message || "")); } finally { setVpBusy(false); }

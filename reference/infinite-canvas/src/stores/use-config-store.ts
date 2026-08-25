@@ -81,10 +81,11 @@ const FG_BUILTIN_MODELS: ChannelModel[] = [
     { name: "dreamina-seedance-2-0-mini-filter-off", capability: "video" },
     { name: "dreamina-seedance-2-5", capability: "video" },
     { name: "dreamina-seedance-2-5-filter-off", capability: "video" },
-    { name: "gpt-5.6-luna", capability: "text" },
-    { name: "gpt-5.6-terra", capability: "text" },
-    { name: "gpt-5.6-sol", capability: "text" },
-    { name: "claude-opus-4-8", capability: "text" },
+    { name: "gpt-5.6-luna-t1a", capability: "text" },
+    { name: "gpt-5.6-terra-t1a", capability: "text" },
+    { name: "claude-sonnet-5", capability: "text" },
+    { name: "claude-opus-5", capability: "text" },
+    { name: "deepseek-v4-pro", capability: "text" },
 ];
 
 export const defaultConfig: AiConfig = {
@@ -106,8 +107,8 @@ export const defaultConfig: AiConfig = {
     model: "gpt-image-2",
     imageModel: "gpt-image-2",
     videoModel: "doubao-seedance-2-0",
-    textModel: "gpt-5.6-luna",
-    audioModel: "gpt-5.6-luna",
+    textModel: "gpt-5.6-luna-t1a",
+    audioModel: "gpt-5.6-luna-t1a",
     audioVoice: "alloy",
     audioFormat: "mp3",
     audioSpeed: "1",

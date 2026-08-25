@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/local/client";
 import { upsertSession, listSessions, loadSession, deleteSession, type ChatSession } from "@/lib/chatStore";
-import { TEXT_MODELS } from "@/lib/models";
+import { DEFAULT_TEXT_MODEL_ID, TEXT_MODELS } from "@/lib/models";
 import { WORKFLOW_SKILLS, PROMPT_GROUPS } from "@/lib/skillData";
 import CommandPalette, { PaletteItem } from "./CommandPalette";
 import { Icon, Hov } from "./ui";
@@ -41,7 +41,7 @@ export default function AiPanel({
   const [messages, setMessages] = useState<AiMsg[]>(seed || []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [model, setModel] = useState("deepseek-flash");
+  const [model, setModel] = useState(DEFAULT_TEXT_MODEL_ID);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [activeSkills, setActiveSkills] = useState<{ name: string; content: string }[]>([]);
   const [imgs, setImgs] = useState<string[]>([]);

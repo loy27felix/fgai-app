@@ -1,4 +1,4 @@
-export type TextModelProvider = 'deepseek' | 'wetoken';
+export type TextModelProvider = 'wetoken';
 
 export interface TextModel {
   id: string;
@@ -10,13 +10,18 @@ export interface TextModel {
 }
 
 export const TEXT_MODELS: TextModel[] = [
-  { id: 'deepseek-flash', label: 'DeepSeek v4-flash · 快', provider: 'deepseek', apiModel: 'deepseek-v4-flash', supportsImages: false, thinkable: true },
-  { id: 'deepseek-pro', label: 'DeepSeek v4-pro · 强', provider: 'deepseek', apiModel: 'deepseek-v4-pro', supportsImages: false, thinkable: true },
-  { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna · 快速', provider: 'wetoken', apiModel: 'gpt-5.6-luna', supportsImages: true },
-  { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra · 均衡', provider: 'wetoken', apiModel: 'gpt-5.6-terra', supportsImages: true },
-  { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol · 高级推理', provider: 'wetoken', apiModel: 'gpt-5.6-sol', supportsImages: true },
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', provider: 'wetoken', apiModel: 'claude-opus-4-8', supportsImages: true },
+  { id: 'gpt-5.6-luna-t1a', label: 'GPT-5.6 Luna T1A · 快速', provider: 'wetoken', apiModel: 'gpt-5.6-luna-t1a', supportsImages: true, thinkable: true },
+  { id: 'gpt-5.6-terra-t1a', label: 'GPT-5.6 Terra T1A · 深度', provider: 'wetoken', apiModel: 'gpt-5.6-terra-t1a', supportsImages: true, thinkable: true },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 · 均衡', provider: 'wetoken', apiModel: 'claude-sonnet-5', supportsImages: true, thinkable: true },
+  { id: 'claude-opus-5', label: 'Claude Opus 5 · 高级', provider: 'wetoken', apiModel: 'claude-opus-5', supportsImages: true, thinkable: true },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro · 中文', provider: 'wetoken', apiModel: 'deepseek-v4-pro', supportsImages: false, thinkable: true },
 ];
+
+export const DEFAULT_TEXT_MODEL_ID = 'gpt-5.6-luna-t1a';
+
+export function isTextModelId(id: unknown): id is string {
+  return typeof id === 'string' && TEXT_MODELS.some((model) => model.id === id);
+}
 
 export function resolveTextModel(id?: string): TextModel {
   return TEXT_MODELS.find((model) => model.id === id) ?? TEXT_MODELS[0];

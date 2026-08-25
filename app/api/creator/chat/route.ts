@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { TEXT_MODELS } from '@/lib/ai/catalog';
+import { DEFAULT_TEXT_MODEL_ID, isTextModelId } from '@/lib/ai/catalog';
 import { chatWithTextModel } from '@/lib/ai/text';
 import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat';
@@ -7,6 +7,12 @@ import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
 import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from '@/lib/usage/budget';
+import {
+  attachTraceId,
+  logServerEvent,
+  logServerFailure,
+  requestTraceId,
+} from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -31,29 +37,53 @@ function normalizeSkill(input: unknown) {
 }
 
 export async function POST(req: Request) {
+  const traceId = requestTraceId(req);
+  const respond = (body: unknown, init?: ResponseInit) => attachTraceId(NextResponse.json(body, init), traceId);
   const localClient = createClient();
   const { data: { user } } = await localClient.auth.getUser();
-  if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
+  if (!user) {
+    logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'rejected', reason: 'unauthenticated' }, 'warn');
+    return respond({ error: '未登录' }, { status: 401 });
+  }
 
   let body: CreatorChatBody;
   try {
     body = await req.json();
-  } catch {
-    return NextResponse.json({ error: '请求体格式错误' }, { status: 400 });
+  } catch (error) {
+    logServerFailure('creator_chat', error, { traceId, feature: 'creator_chat', stage: 'rejected', actorId: user.id, reason: 'invalid_json' });
+    return respond({ error: '请求体格式错误' }, { status: 400 });
   }
 
   const message = body.message?.trim() || '';
-  const model = body.model || 'gpt-5.6-luna';
+  const model = body.model || DEFAULT_TEXT_MODEL_ID;
   const skill = normalizeSkill(body.skill);
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
-  if (!body.sessionId || !message) return NextResponse.json({ error: '缺少会话或消息' }, { status: 400 });
-  if (!TEXT_MODELS.some((item) => item.id === model)) return NextResponse.json({ error: '不支持的模型' }, { status: 400 });
+  if (!body.sessionId || !message) {
+    logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'rejected', actorId: user.id, reason: 'missing_session_or_message' }, 'warn');
+    return respond({ error: '缺少会话或消息' }, { status: 400 });
+  }
+  if (!isTextModelId(model)) {
+    logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'rejected', actorId: user.id, sessionId: body.sessionId, reason: 'unsupported_model' }, 'warn');
+    return respond({ error: '不支持的模型' }, { status: 400 });
+  }
   let imageBytes = 0;
   const images = (body.images || []).filter((item) => {
     if (typeof item !== 'string' || item.length > 2_000_000 || imageBytes + item.length > 4_000_000) return false;
     imageBytes += item.length;
     return true;
   }).slice(0, 4);
+  logServerEvent('creator_chat', {
+    traceId,
+    feature: 'creator_chat',
+    stage: 'received',
+    actorId: user.id,
+    sessionId: body.sessionId,
+    model,
+    messageCharacters: message.length,
+    imageCount: images.length,
+    skillEnabled: Boolean(skill),
+    reasoningEffort,
+  });
 
   let session: { id: string; workspace_id: string; title: string } | null = null;
   try {
@@ -67,11 +97,15 @@ export async function POST(req: Request) {
       .eq('id', body.sessionId)
       .eq('workspace_id', workspace.id)
       .single();
-    if (owned.error || !owned.data) return NextResponse.json({ error: '会话不存在' }, { status: 404 });
-    session = owned.data;
+    if (owned.error || !owned.data) {
+      logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'rejected', actorId: user.id, workspaceId: workspace.id, sessionId: body.sessionId, reason: 'session_not_found' }, 'warn');
+      return respond({ error: '会话不存在' }, { status: 404 });
+    }
+    const activeSession = owned.data;
+    session = activeSession;
 
     const insertedUser = await localClient.from('creator_messages').insert({
-      session_id: session!.id,
+      session_id: activeSession.id,
       role: 'user',
       content: { text: message, image_count: images.length },
       status: 'complete',
@@ -81,7 +115,7 @@ export async function POST(req: Request) {
     const history = await localClient
       .from('creator_messages')
       .select('role,content,status,created_at')
-      .eq('session_id', session!.id)
+      .eq('session_id', activeSession.id)
       .order('created_at', { ascending: false })
       .limit(80);
     if (history.error) throw history.error;
@@ -98,8 +132,12 @@ export async function POST(req: Request) {
         maxOutputTokens: 4000,
       }),
     });
-    if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });
+    if (!budget.allowed) {
+      logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'rejected', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, model, reason: budget.code || 'monthly_budget' }, 'warn');
+      return respond({ error: budget.message, code: budget.code }, { status: 402 });
+    }
     const startedAt = Date.now();
+    logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'provider_started', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, model });
     const { spec, result } = await chatWithTextModel({
       modelId: model,
       messages,
@@ -110,7 +148,7 @@ export async function POST(req: Request) {
     });
 
     const insertedAssistant = await localClient.from('creator_messages').insert({
-      session_id: session!.id,
+      session_id: activeSession.id,
       role: 'assistant',
       content: { text: result.content, usage: result.usage || {} },
       status: 'complete',
@@ -118,10 +156,10 @@ export async function POST(req: Request) {
     if (insertedAssistant.error) throw insertedAssistant.error;
 
     const update: Record<string, unknown> = { default_model: spec.id, updated_at: new Date().toISOString() };
-    if (session!.title === '未命名对话') update.title = titleFromPrompt(message);
-    await localClient.from('creator_sessions').update(update).eq('id', session!.id).eq('workspace_id', workspace.id);
+    if (activeSession.title === '未命名对话') update.title = titleFromPrompt(message);
+    await localClient.from('creator_sessions').update(update).eq('id', activeSession.id).eq('workspace_id', workspace.id);
 
-    await recordUsageBestEffort(buildTextLedgerEntry({
+    const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
       userId: user.id,
       workspaceId: workspace.id,
       provider: spec.provider,
@@ -130,9 +168,21 @@ export async function POST(req: Request) {
       durationMs: Date.now() - startedAt,
     }));
 
-    return NextResponse.json({
+    logServerEvent('creator_chat', {
+      traceId,
+      feature: 'creator_chat',
+      stage: 'completed',
+      actorId: user.id,
+      workspaceId: workspace.id,
+      sessionId: activeSession.id,
+      model: spec.id,
+      durationMs: Date.now() - startedAt,
+      usagePresent: Boolean(result.usage),
+      ledgerRecorded,
+    });
+    return respond({
       message: insertedAssistant.data,
-      title: update.title || session!.title,
+      title: update.title || activeSession.title,
       model: spec.id,
       usage: result.usage,
     });
@@ -146,6 +196,7 @@ export async function POST(req: Request) {
       });
     }
     const detail = error instanceof Error ? error.message : 'AI 请求失败';
-    return NextResponse.json({ error: detail }, { status: 500 });
+    logServerFailure('creator_chat', error, { traceId, feature: 'creator_chat', stage: 'failed', actorId: user.id, sessionId: body.sessionId, model });
+    return respond({ error: detail }, { status: 500 });
   }
 }

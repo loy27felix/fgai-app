@@ -22,10 +22,11 @@ test('legacy canvas config receives the complete FG model catalog', () => {
     'dreamina-seedance-2-0-mini-filter-off',
     'dreamina-seedance-2-5',
     'dreamina-seedance-2-5-filter-off',
-    'gpt-5.6-luna',
-    'gpt-5.6-terra',
-    'gpt-5.6-sol',
-    'claude-opus-4-8',
+    'gpt-5.6-luna-t1a',
+    'gpt-5.6-terra-t1a',
+    'claude-sonnet-5',
+    'claude-opus-5',
+    'deepseek-v4-pro',
   ]) {
     assert.match(store, new RegExp(`name: "${model}"`));
   }

@@ -25,7 +25,7 @@ export default function BibleWorkspace({
     setBusy(true);
     try {
       const sys = `你是 AI 漫剧策划。基于用户灵感,产出一部竖屏短剧的「故事圣经」。只返回 JSON:{"logline":"一句话梗概","genre":"题材/时长(如:科幻悬疑 · 4集×5分钟)","style":"画风/主色调","worldRules":"世界观底层规则","characters":"主要人物(姓名+性格,每人一行)","taboos":"禁忌/全局负向词"}。中文,不要多余文字、不要markdown。`;
-      const res = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, model: "deepseek-flash", jsonOutput: true, messages: [{ role: "system", content: sys }, { role: "user", content: `项目《${projectName}》。灵感：${idea}` }] }) });
+      const res = await fetch("/api/ai/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, model: "deepseek-v4-pro", jsonOutput: true, messages: [{ role: "system", content: sys }, { role: "user", content: `项目《${projectName}》。灵感：${idea}` }] }) });
       const data = await res.json(); if (!res.ok) throw new Error(data?.error || "AI 失败");
       let p: any = {}; try { p = JSON.parse(data.content || "{}"); } catch { p = {}; }
       const nb: BibleFields = { ...bRef.current };

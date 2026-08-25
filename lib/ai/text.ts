@@ -1,4 +1,4 @@
-import { deepseekChat, type ChatMessage, type ChatResult } from "../deepseek";
+import type { ChatMessage, ChatResult } from "../deepseek";
 import { resolveTextModel, type TextModel } from "./catalog";
 import { wetokenChat, type OpenAIMessage } from "./wetoken-client";
 import type { ReasoningEffort } from "./reasoning";
@@ -13,23 +13,12 @@ export interface TextChatOptions {
   maxTokens?: number;
 }
 
-type TextDependencies = { deepseek?: typeof deepseekChat; wetoken?: typeof wetokenChat };
+type TextDependencies = { wetoken?: typeof wetokenChat };
 
 export async function chatWithTextModel(options: TextChatOptions, dependencies: TextDependencies = {}): Promise<{ spec: TextModel; result: ChatResult }> {
   const spec = resolveTextModel(options.modelId);
   const images = (options.images ?? []).filter(Boolean);
-  if (spec.provider === "deepseek") {
-    if (images.length > 0) throw new Error("DeepSeek 当前不支持图片输入，请选择 GPT-5.6 或 Claude Opus 4.8");
-    const result = await (dependencies.deepseek ?? deepseekChat)({
-      messages: options.messages,
-      mode: spec.id === "deepseek-pro" ? "pro" : "flash",
-      thinking: options.thinking,
-      ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
-      jsonOutput: options.jsonOutput,
-      maxTokens: options.maxTokens,
-    });
-    return { spec, result };
-  }
+  if (images.length > 0 && !spec.supportsImages) throw new Error("当前模型不支持图片输入，请选择支持视觉输入的 Claude 或 GPT 模型");
 
   const messages: OpenAIMessage[] = options.messages.map((message) => ({ ...message }));
   if (images.length > 0) {

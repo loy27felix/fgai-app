@@ -29,7 +29,7 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
   };
 
   const result = await wetokenChat({
-    model: 'gpt-5.6-luna',
+    model: 'gpt-5.6-luna-t1a',
     messages: [{ role: 'user', content: 'hello' }],
     jsonOutput: true,
     maxTokens: 321,
@@ -39,7 +39,7 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
     url: 'https://wetoken.example/v1/chat/completions',
     authorization: 'Bearer test-wetoken-key',
     body: {
-      model: 'gpt-5.6-luna',
+      model: 'gpt-5.6-luna-t1a',
       messages: [{ role: 'user', content: 'hello' }],
       stream: false,
       max_tokens: 321,
@@ -55,7 +55,7 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
 test('Wetoken client rejects a missing server key before fetching', async () => {
   delete process.env.WETOKEN_API_KEY;
   await assert.rejects(
-    () => wetokenChat({ model: 'gpt-5.6-luna', messages: [] }),
+    () => wetokenChat({ model: 'gpt-5.6-luna-t1a', messages: [] }),
     /缺少 WETOKEN_API_KEY/,
   );
 });
@@ -68,7 +68,7 @@ test('Wetoken client exposes a bounded provider error without leaking the key', 
   );
 
   await assert.rejects(
-    () => wetokenChat({ model: 'gpt-5.6-luna', messages: [] }, { fetcher }),
+    () => wetokenChat({ model: 'gpt-5.6-luna-t1a', messages: [] }, { fetcher }),
     (error: unknown) => {
       assert.match(String(error), /Wetoken 429: rate limited/);
       assert.doesNotMatch(String(error), /test-wetoken-key/);
