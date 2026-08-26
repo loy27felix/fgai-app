@@ -49,13 +49,31 @@ type Props = {
   initialSessions: CreatorSession[];
   initialMessages: CreatorMessage[];
   initialSessionId: string | null;
+  initialLoadError?: string | null;
 };
+
+type ErrorPayload = { error?: string; traceId?: string };
+
+async function readCreatorResponse<T>(response: Response, fallback: string): Promise<T> {
+  let data: (T & ErrorPayload) | null = null;
+  try {
+    data = await response.json() as T & ErrorPayload;
+  } catch {
+    // Keep the transport status and trace identifier useful even if a proxy returns a non-JSON body.
+  }
+  if (!response.ok) {
+    const traceId = response.headers.get("x-fg-trace-id") || data?.traceId;
+    const message = data?.error || fallback;
+    throw new Error(traceId ? `${message}（追踪编号：${traceId.slice(0, 8)}）` : message);
+  }
+  return (data || {}) as T;
+}
 
 function textOf(message: CreatorMessage) {
   return typeof message.content?.text === "string" ? message.content.text : "";
 }
 
-export default function CreatorWorkspace({ userEmail, initialSessions, initialMessages, initialSessionId }: Props) {
+export default function CreatorWorkspace({ userEmail, initialSessions, initialMessages, initialSessionId, initialLoadError = null }: Props) {
   const { theme, toggle } = useFgTheme();
   const [sessions, setSessions] = useState(initialSessions);
   const [sessionId, setSessionId] = useState(initialSessionId);
@@ -68,7 +86,8 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   const [thinking, setThinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialLoadError || "");
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CreatorSession | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -112,8 +131,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: "chat", model }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "创建会话失败");
+    const data = await readCreatorResponse<{ session: CreatorSession }>(response, "创建会话失败");
     setSessions((current) => [data.session, ...current]);
     setSessionId(data.session.id);
     setMessages([]);
@@ -133,15 +151,14 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   }
 
   async function openSession(id: string) {
-    if (id === sessionId || busy) return;
+    if (busy) return;
     setMenuSessionId(null);
     stickToBottomRef.current = true;
     setShowJumpToLatest(false);
     setLoading(true); setError("");
     try {
-      const response = await fetch(`/api/creator/sessions?kind=chat&sessionId=${encodeURIComponent(id)}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "读取会话失败");
+      const response = await fetch(`/api/creator/sessions?kind=chat&sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const data = await readCreatorResponse<{ sessions: CreatorSession[]; messages: CreatorMessage[] }>(response, "读取会话失败");
       setSessions(data.sessions);
       setMessages(data.messages);
       setSessionId(id);
@@ -152,6 +169,31 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
       history.replaceState(null, "", `/chat?session=${id}`);
     } catch (e) { setError(e instanceof Error ? e.message : "读取会话失败"); }
     finally { setLoading(false); }
+  }
+
+  async function reloadHistory(preferredSessionId = sessionId) {
+    if (busy || historyLoading) return;
+    setHistoryLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/creator/sessions?kind=chat", { cache: "no-store" });
+      const data = await readCreatorResponse<{ sessions: CreatorSession[] }>(response, "读取会话列表失败");
+      const next = data.sessions || [];
+      setSessions(next);
+      const target = preferredSessionId && next.some((item) => item.id === preferredSessionId)
+        ? preferredSessionId
+        : next[0]?.id || null;
+      if (target) {
+        await openSession(target);
+      } else {
+        setSessionId(null);
+        setMessages([]);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "读取会话失败");
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   async function send() {
@@ -177,8 +219,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: activeId, message: text || "请分析这些参考图。", model, thinking, images, skill: activeSkill }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "回复失败");
+      const data = await readCreatorResponse<{ message: CreatorMessage; title: string; model: string }>(response, "回复失败");
       setMessages((current) => [...current, data.message]);
       setSessions((current) => current.map((item) => item.id === activeId ? { ...item, title: data.title, default_model: data.model, updated_at: new Date().toISOString() } : item));
     } catch (e) { setError(e instanceof Error ? e.message : "回复失败"); }
@@ -193,8 +234,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
       const response = await fetch(`/api/creator/sessions?sessionId=${encodeURIComponent(deleteTarget.id)}`, {
         method: "DELETE",
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "删除会话失败");
+      await readCreatorResponse<ErrorPayload>(response, "删除会话失败");
 
       const remaining = sessions.filter((item) => item.id !== deleteTarget.id);
       const deletedActiveSession = deleteTarget.id === sessionId;
@@ -303,7 +343,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
 
           <div className="creator-chat-composer-wrap" style={{ flex: "none", padding: "0 20px 18px" }}>
             <div style={{ width: "min(800px,100%)", margin: "0 auto" }}>
-              {error && <div style={{ marginBottom: 8, color: "#ff9b85", fontSize: 12.5 }}>{error}</div>}
+              {error && <div role="alert" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "8px 10px", border: "1px solid color-mix(in srgb,#ef4444 45%,transparent)", borderRadius: 10, background: "color-mix(in srgb,#ef4444 10%,transparent)", color: "var(--text)", fontSize: 12.5 }}><span style={{ minWidth: 0, flex: 1, lineHeight: 1.45 }}>{error}</span><button type="button" onClick={() => void reloadHistory(sessionId)} disabled={historyLoading || loading} style={{ height: 28, flex: "none", padding: "0 9px", border: "1px solid color-mix(in srgb,#ef4444 48%,transparent)", borderRadius: 7, background: "transparent", color: "inherit", cursor: historyLoading || loading ? "wait" : "pointer", fontSize: 11.5 }}>{historyLoading ? "读取中…" : "重新读取"}</button><button type="button" aria-label="关闭错误提示" onClick={() => setError("")} style={{ width: 24, height: 24, flex: "none", border: 0, borderRadius: 6, background: "transparent", color: "inherit", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button></div>}
               {images.length > 0 && <div className="creator-chat-attachments" style={{ display: "flex", gap: 7, marginBottom: 8 }}>{images.map((src, index) => <div key={index} style={{ position: "relative" }}><img src={src} alt="参考图" style={{ width: 54, height: 54, objectFit: "cover", borderRadius: 10, border: "1px solid var(--stroke-2)" }} /><button aria-label={`移除第 ${index + 1} 张参考图`} onClick={() => setImages((current) => current.filter((_, i) => i !== index))} style={{ position: "absolute", right: -5, top: -5, width: 18, height: 18, borderRadius: "50%", border: "1px solid var(--stroke)", background: "var(--panel-solid)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>×</button></div>)}</div>}
               <div className="creator-chat-composer" style={{ borderRadius: 18, border: "1px solid var(--stroke-2)", background: "var(--panel-2)", boxShadow: "var(--inset),0 26px 70px -42px rgba(0,0,0,.8)", overflow: "hidden" }}>
                 <textarea className="creator-chat-textarea" value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={keyDown} placeholder="给 FG Studio 发消息…" rows={2} style={{ width: "100%", minHeight: 64, maxHeight: 180, resize: "none", padding: "14px 16px 8px", border: 0, outline: 0, background: "transparent", color: "var(--text)", font: "inherit", fontSize: 14, lineHeight: 1.6 }} />

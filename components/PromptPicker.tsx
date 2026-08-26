@@ -66,7 +66,7 @@ export default function PromptPicker({ onInsert }: { onInsert: (text: string) =>
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-white/12 px-2.5 py-1 text-[11.5px] text-white/70 transition hover:bg-white/8"><span aria-hidden>＋</span>插入 Prompt</button>
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--stroke)] bg-[var(--panel)] px-2.5 py-1 text-[11.5px] text-[var(--text-2)] transition hover:bg-[var(--panel-2)]"><span aria-hidden>＋</span>插入 Prompt</button>
       {open && (
         <div className="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4 backdrop-blur-md" onClick={() => setOpen(false)}>
           <div className="prompt-library-dialog lglass flex max-h-[82vh] w-[900px] max-w-full flex-col overflow-hidden rounded-[22px] text-ink" onClick={(event) => event.stopPropagation()}>

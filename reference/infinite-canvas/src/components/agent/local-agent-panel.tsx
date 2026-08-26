@@ -11,6 +11,22 @@ import PromptPicker from "@/components/PromptPicker";
 
 type Props = { embedded?: boolean };
 type ActiveSkill = { name: string; content: string };
+type ErrorPayload = { error?: string; traceId?: string };
+
+async function readAgentResponse<T>(response: Response, fallback: string): Promise<T> {
+  let data: (T & ErrorPayload) | null = null;
+  try {
+    data = await response.json() as T & ErrorPayload;
+  } catch {
+    // The local reverse proxy can return a non-JSON error page; preserve its HTTP trace below.
+  }
+  if (!response.ok) {
+    const traceId = response.headers.get("x-fg-trace-id") || data?.traceId;
+    const message = data?.error || fallback;
+    throw new Error(traceId ? `${message}（追踪编号：${traceId.slice(0, 8)}）` : message);
+  }
+  return (data || {}) as T;
+}
 
 function textOf(message: CreatorMessage) {
   return typeof message.content?.text === "string" ? message.content.text : "";
@@ -56,10 +72,10 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
 
   async function loadSessions(preferred?: string | null) {
     setLoading(true);
+    setError("");
     try {
-      const response = await fetch("/api/creator/sessions?kind=chat");
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "读取 Agent 会话失败");
+      const response = await fetch("/api/creator/sessions?kind=chat", { cache: "no-store" });
+      const data = await readAgentResponse<{ sessions: CreatorSession[] }>(response, "读取 Agent 会话失败");
       const next = (data.sessions || []).filter((item: CreatorSession) => item.kind === "chat") as CreatorSession[];
       setSessions(next);
       const id = preferred || sessionId || next[0]?.id || null;
@@ -70,9 +86,8 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
 
   async function openSession(id: string, knownSessions = sessions) {
     try {
-      const response = await fetch(`/api/creator/sessions?kind=chat&sessionId=${encodeURIComponent(id)}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "读取会话失败");
+      const response = await fetch(`/api/creator/sessions?kind=chat&sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const data = await readAgentResponse<{ sessions: CreatorSession[]; messages: CreatorMessage[] }>(response, "读取会话失败");
       setSessions((data.sessions || knownSessions) as CreatorSession[]);
       setSessionId(id);
       setMessages(dedupeMessages((data.messages || []) as CreatorMessage[]));
@@ -86,8 +101,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
 
   async function createSession() {
     const response = await fetch("/api/creator/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "chat", model }) });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "创建会话失败");
+    const data = await readAgentResponse<{ session: CreatorSession }>(response, "创建会话失败");
     setSessions((current) => [data.session, ...current]);
     setSessionId(data.session.id);
     setMessages([]);
@@ -106,8 +120,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
       const optimistic: CreatorMessage = { id: `local-${Date.now()}`, session_id: activeId, role: "user", content: { text, images }, status: "complete", created_at: new Date().toISOString() };
       setMessages((current) => dedupeMessages([...current, optimistic])); setPrompt(""); setImages([]);
       const response = await fetch("/api/creator/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: activeId, message: text || "请分析这些参考图。", model, thinking: thinking || reasoningEffort !== "auto", reasoningEffort, images, skill }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Agent 回复失败");
+      const data = await readAgentResponse<{ message: CreatorMessage; title: string; model: string }>(response, "Agent 回复失败");
       setMessages((current) => dedupeMessages([...current, data.message as CreatorMessage]));
       setSessions((current) => current.map((item) => item.id === activeId ? { ...item, title: data.title, default_model: data.model, updated_at: new Date().toISOString() } : item));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Agent 回复失败"); }
@@ -117,7 +130,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
   async function deleteSession(id: string) {
     try {
       const response = await fetch(`/api/creator/sessions?sessionId=${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("删除会话失败");
+      await readAgentResponse<ErrorPayload>(response, "删除会话失败");
       const remaining = sessions.filter((item) => item.id !== id); setSessions(remaining);
       if (id === sessionId) { setSessionId(null); setMessages([]); if (remaining[0]) await openSession(remaining[0].id, remaining); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "删除会话失败"); }
@@ -145,7 +158,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
 
   return (
     <section className="fg-agent-panel" aria-label="FG Agent 对话">
-      <header className="fg-agent-header"><div className="fg-agent-title"><span className="fg-agent-icon"><Bot size={16} /></span><div><strong>画布 Agent</strong><small>TEXT MODELS · CANVAS COPILOT</small></div></div><button type="button" onClick={() => void createSession()} title="新对话"><MessageSquarePlus size={16} /></button><button type="button" onClick={() => setHistoryOpen((value) => !value)} title="历史会话"><ChevronDown size={16} className={historyOpen ? "rotate-180" : ""} /></button></header>
+      <header className="fg-agent-header"><div className="fg-agent-title"><span className="fg-agent-icon"><Bot size={16} /></span><div><strong>画布 Agent</strong><small>TEXT MODELS · CANVAS COPILOT</small></div></div><span className={`fg-agent-connection${error ? " fault" : ""}`} title={error ? "会话读取需要重试" : "本地会话已连接"}><i />{loading ? "同步中" : error ? "需重试" : "本地会话"}</span><button type="button" onClick={() => void createSession()} title="新对话"><MessageSquarePlus size={16} /></button><button type="button" onClick={() => setHistoryOpen((value) => !value)} title="历史会话"><ChevronDown size={historyOpen ? "rotate-180" : ""} /></button></header>
       {historyOpen ? <div className="fg-agent-history">{sessions.length ? sessions.slice(0, 20).map((item) => <div className={item.id === sessionId ? "fg-agent-history-row active" : "fg-agent-history-row"} key={item.id}><button type="button" onClick={() => void openSession(item.id)}><span>{item.title}</span><small>{new Date(item.updated_at).toLocaleDateString("zh-CN")}</small></button><button type="button" onClick={() => void deleteSession(item.id)} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div>) : <p>暂无历史对话</p>}</div> : null}
       <div className="fg-agent-message-wrap">
         <div ref={scrollRef} className="fg-agent-messages" onScroll={handleMessagesScroll}>
@@ -154,7 +167,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
         </div>
         {showScrollToLatest ? <button type="button" className="fg-agent-scroll-latest" onClick={scrollToLatest}><ArrowDown size={13} /> 回到最新</button> : null}
       </div>
-      {error ? <div className="fg-agent-error">{error}<button type="button" onClick={() => setError("")}><X size={13} /></button></div> : null}
+      {error ? <div className="fg-agent-error"><span>{error}</span><button type="button" className="fg-agent-retry" onClick={() => void loadSessions(sessionId)} disabled={loading}>重新读取</button><button type="button" className="fg-agent-dismiss" onClick={() => setError("")} aria-label="关闭错误提示"><X size={13} /></button></div> : null}
       <div className="fg-agent-composer">
         {images.length ? <div className="fg-agent-attachments">{images.map((image, index) => <div key={`${image.slice(0, 16)}-${index}`}><img src={image} alt={`参考图 ${index + 1}`} /><button type="button" onClick={() => setImages((current) => current.filter((_, item) => item !== index))}><X size={11} /></button></div>)}</div> : null}
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onKeyDown} placeholder="让 Agent 帮你写、想、分析或规划…" />

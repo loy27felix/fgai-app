@@ -23,13 +23,18 @@ async function creatorContext() {
 }
 
 export async function GET(req: Request) {
+  const traceId = requestTraceId(req);
+  const respond = (body: unknown, init?: ResponseInit) => attachTraceId(NextResponse.json(body, init), traceId);
+  const searchParams = new URL(req.url).searchParams;
+  const sessionId = searchParams.get('sessionId');
+  const requestedKind = searchParams.get('kind');
+  const kind = requestedKind === 'chat' || requestedKind === 'image' || requestedKind === 'video' ? requestedKind : null;
   try {
     const context = await creatorContext();
-    if (!context) return NextResponse.json({ error: '未登录' }, { status: 401 });
-    const searchParams = new URL(req.url).searchParams;
-    const sessionId = searchParams.get('sessionId');
-    const requestedKind = searchParams.get('kind');
-    const kind = requestedKind === 'chat' || requestedKind === 'image' || requestedKind === 'video' ? requestedKind : null;
+    if (!context) {
+      logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'rejected', action: 'read', reason: 'unauthenticated', kind: kind || undefined }, 'warn');
+      return respond({ error: '未登录' }, { status: 401 });
+    }
     let query = context.localClient
       .from('creator_sessions')
       .select('*')
@@ -42,7 +47,10 @@ export async function GET(req: Request) {
     let messages: unknown[] = [];
     if (sessionId) {
       const owned = (sessions || []).some((session: any) => session.id === sessionId);
-      if (!owned) return NextResponse.json({ error: '会话不存在' }, { status: 404 });
+      if (!owned) {
+        logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'rejected', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, sessionId, kind: kind || undefined, reason: 'session_not_found' }, 'warn');
+        return respond({ error: '会话不存在' }, { status: 404 });
+      }
       const result = await context.localClient
         .from('creator_messages')
         .select('*')
@@ -51,9 +59,22 @@ export async function GET(req: Request) {
       if (result.error) throw result.error;
       messages = result.data || [];
     }
-    return NextResponse.json({ workspace: context.workspace, sessions: sessions || [], messages });
+    logServerEvent('creator_session', {
+      traceId,
+      feature: 'creator_session',
+      stage: 'completed',
+      action: 'read',
+      actorId: context.user.id,
+      workspaceId: context.workspace.id,
+      sessionId: sessionId || undefined,
+      kind: kind || undefined,
+      sessionCount: (sessions || []).length,
+      messageCount: messages.length,
+    });
+    return respond({ workspace: context.workspace, sessions: sessions || [], messages });
   } catch (error: unknown) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : '读取会话失败' }, { status: 500 });
+    logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'read', sessionId: sessionId || undefined, kind: kind || undefined });
+    return respond({ error: '读取会话失败，请重新读取。' }, { status: 500 });
   }
 }
 

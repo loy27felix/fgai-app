@@ -929,6 +929,15 @@ body {
 .prompt-library-dialog .prompt-library-card{min-height:126px}.prompt-library-dialog .prompt-library-card:hover{box-shadow:0 12px 26px #0002}.prompt-library-dialog input,.prompt-library-dialog button,.prompt-library-dialog textarea{font-family:inherit}
 @media(max-width:520px){.fg-agent-header{padding:0 9px}.fg-agent-title small{display:none}.fg-agent-composer-tools{flex-wrap:wrap}.fg-agent-composer-tools>button:not(.fg-agent-send){font-size:0;min-width:28px;justify-content:center;padding:0}.fg-agent-model{flex:1 1 145px}.fg-agent-reasoning{flex:1 1 74px}.fg-agent-composer-tools .fg-agent-send{margin-left:auto}.fg-agent-message{max-width:96%}}
 
+/* Agent session recovery: a compact status strip that makes failed history
+   reads visible without turning a transient failure into an empty conversation. */
+.fg-agent-panel{background:radial-gradient(560px 200px at 6% -10%,color-mix(in srgb,#34d399 12%,transparent),transparent 70%),color-mix(in srgb,var(--background) 95%,#0b1020)}
+.fg-agent-header{height:64px;background:linear-gradient(110deg,color-mix(in srgb,#34d399 8%,transparent),transparent 58%)}
+.fg-agent-connection{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:5px 7px;border:1px solid color-mix(in srgb,currentColor 12%,transparent);border-radius:999px;font-size:9px;white-space:nowrap;opacity:.75}.fg-agent-connection i{width:5px;height:5px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px #34d39922}.fg-agent-connection.fault{color:#fca5a5;border-color:#ef444455}.fg-agent-connection.fault i{background:#fb7185;box-shadow:0 0 0 3px #fb718522}
+.fg-agent-error>span{min-width:0;flex:1;line-height:1.45}.fg-agent-error button{margin-left:0}.fg-agent-error .fg-agent-retry{height:25px;padding:0 8px;border:1px solid #fca5a555;border-radius:7px;background:#7f1d1d1f;font-size:10px;white-space:nowrap}.fg-agent-error .fg-agent-dismiss{width:24px;height:24px;display:grid;place-items:center;border-radius:6px}.fg-agent-error .fg-agent-dismiss:hover{background:#ef444422}
+.fg-agent-model select,.fg-agent-reasoning{background:color-mix(in srgb,var(--background) 84%,currentColor 4%)}
+@media(max-width:520px){.fg-agent-connection{display:none}.fg-agent-header{height:58px}}
+
 /* FG Studio landing: a single neon-cinematic art direction, isolated from the
    product-wide dark mode overrides. The character/video is always a hero
    layer, never a floating card competing with the page content. */

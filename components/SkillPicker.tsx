@@ -72,7 +72,7 @@ export default function SkillPicker({ active, draftText = "", onApply, onClear }
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] transition ${active ? "border-[#34d399]/40 bg-[#34d399]/12 text-[#5fe3c0]" : "border-white/12 text-white/70 hover:bg-white/8"}`}>
+      <button type="button" onClick={() => setOpen(true)} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] transition ${active ? "border-[#34d399]/45 bg-[#34d399]/12 text-[var(--text)]" : "border-[var(--stroke)] bg-[var(--panel)] text-[var(--text-2)] hover:bg-[var(--panel-2)]"}`}>
         <span aria-hidden>✣</span>{active ? `技能：${active}` : "启用技能"}
       </button>
       {open && (

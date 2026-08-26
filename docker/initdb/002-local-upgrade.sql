@@ -1,5 +1,35 @@
 begin;
 
+-- Existing PostgreSQL volumes do not replay 001-local.sql after their first
+-- start. Keep Creator chat durable when an older local deployment is upgraded.
+create table if not exists creator_sessions (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references creator_workspaces(id) on delete cascade,
+  folder_id uuid references creator_folders(id) on delete set null,
+  kind text not null default 'chat',
+  title text not null default '未命名对话',
+  default_model text,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists creator_messages (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references creator_sessions(id) on delete cascade,
+  role text not null,
+  content jsonb not null default '{}'::jsonb,
+  status text not null default 'complete',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists creator_sessions_workspace_kind_updated_idx
+  on creator_sessions(workspace_id, kind, updated_at desc)
+  where archived_at is null;
+
+create index if not exists creator_messages_session_created_idx
+  on creator_messages(session_id, created_at);
+
 alter table if exists chat_sessions
   add column if not exists project_id uuid references projects(id) on delete cascade;
 
