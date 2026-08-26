@@ -35,14 +35,26 @@ export async function GET(req: Request) {
       logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'rejected', action: 'read', reason: 'unauthenticated', kind: kind || undefined }, 'warn');
       return respond({ error: '未登录' }, { status: 401 });
     }
+    logServerEvent('creator_session', {
+      traceId,
+      feature: 'creator_session',
+      stage: 'context_ready',
+      action: 'read',
+      actorId: context.user.id,
+      workspaceId: context.workspace.id,
+      sessionId: sessionId || undefined,
+      kind: kind || undefined,
+    });
     let query = context.localClient
       .from('creator_sessions')
       .select('*')
       .eq('workspace_id', context.workspace.id)
       .is('archived_at', null);
     if (kind) query = query.eq('kind', kind);
+    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'sessions_query_started', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, kind: kind || undefined });
     const { data: sessions, error } = await query.order('updated_at', { ascending: false });
     if (error) throw error;
+    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'sessions_query_completed', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, kind: kind || undefined, sessionCount: (sessions || []).length });
 
     let messages: unknown[] = [];
     if (sessionId) {
@@ -51,6 +63,7 @@ export async function GET(req: Request) {
         logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'rejected', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, sessionId, kind: kind || undefined, reason: 'session_not_found' }, 'warn');
         return respond({ error: '会话不存在' }, { status: 404 });
       }
+      logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'messages_query_started', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, sessionId });
       const result = await context.localClient
         .from('creator_messages')
         .select('*')
@@ -58,6 +71,7 @@ export async function GET(req: Request) {
         .order('created_at', { ascending: true });
       if (result.error) throw result.error;
       messages = result.data || [];
+      logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'messages_query_completed', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, sessionId, messageCount: messages.length });
     }
     logServerEvent('creator_session', {
       traceId,

@@ -5,7 +5,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgres://fg_studio:fg_studio@postgres:5432/fg_studio",
 });
 
-type Filter = { column: string; operator: "eq" | "neq" | "in" | "is" | "gte" | "lte" | "lt"; value: unknown };
+export type LocalFilter = { column: string; operator: "eq" | "neq" | "in" | "is" | "gte" | "lte" | "lt"; value: unknown };
 type Order = { column: string; ascending: boolean };
 
 const identifier = (value: string) => {
@@ -45,7 +45,12 @@ function toLocalDatabaseError(error: unknown): LocalDatabaseError {
   return { message: String(error) };
 }
 
-function whereClause(filters: Filter[], params: unknown[]) {
+/**
+ * Builds the local Postgres filter clause without leaking a value for SQL
+ * predicates such as `IS NULL`.  Session-history reads use this exact shape
+ * for `archived_at`, so keeping the parameter list aligned is essential.
+ */
+export function buildWhereClause(filters: LocalFilter[], params: unknown[]) {
   if (!filters.length) return "";
   const parts = filters.map((filter) => {
     const column = identifier(filter.column);
@@ -75,7 +80,7 @@ export class LocalQuery<T = any> implements PromiseLike<LocalResult<T[] | T | nu
   private action: "select" | "insert" | "update" | "delete" | "upsert" = "select";
   private selection = "*";
   private payload: Record<string, unknown> | Record<string, unknown>[] | null = null;
-  private filters: Filter[] = [];
+  private filters: LocalFilter[] = [];
   private orders: Order[] = [];
   private maxRows: number | null = null;
   private one: "single" | "maybeSingle" | null = null;
@@ -135,7 +140,7 @@ export class LocalQuery<T = any> implements PromiseLike<LocalResult<T[] | T | nu
     try {
       const params: unknown[] = [];
       const table = identifier(this.table);
-      const where = whereClause(this.filters, params);
+      const where = buildWhereClause(this.filters, params);
       const order = this.orders.length ? ` ORDER BY ${this.orders.map((item) => `${identifier(item.column)} ${item.ascending ? "ASC" : "DESC"}`).join(", ")}` : "";
       const limit = this.maxRows === null ? "" : ` LIMIT ${Math.max(0, Math.floor(this.maxRows))}`;
       let result;
@@ -159,7 +164,7 @@ export class LocalQuery<T = any> implements PromiseLike<LocalResult<T[] | T | nu
           result = await pool.query(`INSERT INTO ${table} (${keys.map(identifier).join(", ")}) VALUES ${tuples}${conflict} RETURNING ${columns(this.selection)}`, values);
         } else {
           const updateParams = values.slice(0, keys.length);
-          const updateWhere = whereClause(this.filters, updateParams);
+          const updateWhere = buildWhereClause(this.filters, updateParams);
           const assignments = keys.map((key, index) => `${identifier(key)} = $${index + 1}`).join(", ");
           result = await pool.query(`UPDATE ${table} SET ${assignments}${updateWhere} RETURNING ${columns(this.selection)}`, updateParams);
         }

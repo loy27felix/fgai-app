@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { buildWhereClause } from '../../lib/local/db';
 
 const source = (...parts: string[]) => fs.readFileSync(path.join(process.cwd(), ...parts), 'utf8');
 
@@ -37,13 +38,36 @@ test('local upgrades include durable creator session schema', () => {
   assert.match(migration, /creator_sessions_workspace_kind_updated_idx/);
 });
 
+test('existing local PostgreSQL volumes apply the creator-session upgrade before the app starts', () => {
+  const compose = source('docker-compose.yml');
+  const dockerfile = source('Dockerfile');
+  const runner = source('scripts', 'local-db-migrate.mjs');
+
+  assert.match(compose, /node scripts\/local-db-migrate\.mjs/);
+  assert.match(dockerfile, /\/app\/scripts\/local-db-migrate\.mjs/);
+  assert.match(dockerfile, /\/app\/docker\/initdb\/002-local-upgrade\.sql/);
+  assert.match(dockerfile, /COPY --from=deps --chown=nextjs:nextjs \/app\/node_modules \.\/node_modules/);
+  assert.match(runner, /fg_schema_migrations/);
+  assert.match(runner, /002-local-upgrade\.sql/);
+  assert.match(runner, /\[fg-db-migrate\]/);
+});
+
 test('local database query errors retain PostgreSQL diagnostics for trace logs', () => {
   const localDb = source('lib', 'local', 'db.ts');
   const localTypes = source('lib', 'local', 'types.ts');
 
   assert.match(localDb, /function toLocalDatabaseError/);
+  assert.match(localDb, /export function buildWhereClause/);
   assert.match(localDb, /code: optionalText\("code"\)/);
   assert.match(localDb, /return \{ data: null, error: toLocalDatabaseError\(error\) \}/);
   assert.match(localTypes, /export type LocalDatabaseError/);
   assert.match(localTypes, /detail\?: string/);
+});
+
+test('IS NULL filters do not add a phantom PostgreSQL bind parameter', () => {
+  const params: unknown[] = [];
+  const clause = buildWhereClause([{ column: 'archived_at', operator: 'is', value: null }], params);
+
+  assert.equal(clause, ' WHERE "archived_at" IS NULL');
+  assert.deepEqual(params, []);
 });

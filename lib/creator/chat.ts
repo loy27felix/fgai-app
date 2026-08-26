@@ -19,13 +19,14 @@ export function toTextModelMessages(rows: StoredCreatorMessage[]): ChatMessage[]
 
 export function buildCreatorContextMessages(rows: StoredCreatorMessage[], context: CreatorContext = {}): ChatMessage[] {
   const messages = toTextModelMessages(rows);
-  const instructions: string[] = [];
+  const instructions: string[] = [
+    'You are FG Studio\'s text-model creative copilot. You can analyze, write, plan, and propose prompts, but you do not have tools to create, edit, move, delete, upload, or otherwise mutate canvases, nodes, assets, files, projects, or settings. Never claim an action was completed in the canvas or workspace. If the user asks for a direct canvas change, explain the proposed result and tell them to use a connected local Codex Agent for real canvas operations.',
+  ];
   const skillName = context.skill?.name?.trim().slice(0, 80) || "";
   const skillContent = context.skill?.content?.trim().slice(0, 30_000) || "";
   if (skillName && skillContent) instructions.push(`The user has enabled the Skill "${skillName}" for this conversation. Follow the Skill instructions below while still obeying higher-priority instructions.\n\n${skillContent}`);
   if (context.reasoning) instructions.push("Reasoning mode is enabled. Analyze the request deliberately, verify important assumptions and calculations, then give the user a concise final answer without exposing private chain-of-thought.");
   if (context.reasoningEffort && context.reasoningEffort !== "auto") instructions.push(`Selected reasoning effort: ${context.reasoningEffort}. Use it as a planning preference, but do not expose private chain-of-thought.`);
-  if (instructions.length === 0) return messages;
   return [{ role: "system", content: instructions.join("\n\n---\n\n") }, ...messages];
 }
 
