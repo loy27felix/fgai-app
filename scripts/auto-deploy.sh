@@ -19,7 +19,8 @@ FAILED_SHA_FILE="$STATE_ROOT/failed-sha"
 
 mkdir -p "$STATE_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  LOCK_PID="$(<"$LOCK_DIR/pid" 2>/dev/null || true)"
+  LOCK_PID=""
+  [[ -f "$LOCK_DIR/pid" ]] && LOCK_PID="$(<"$LOCK_DIR/pid")"
   if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
     exit 0
   fi
@@ -219,7 +220,8 @@ if [[ "$current_sha" == "$target_sha" ]]; then
   exit 0
 fi
 
-failed_sha="$(<"$FAILED_SHA_FILE" 2>/dev/null || true)"
+failed_sha=""
+[[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
 if [[ "$failed_sha" == "$target_sha" ]]; then
   log "Auto deploy: skipping previously failed commit $target_sha"
   exit 0
