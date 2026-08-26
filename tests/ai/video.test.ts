@@ -140,27 +140,27 @@ test('Seedance request maps first and last frame roles', () => {
   ]);
 });
 
-test('Seedance request accepts LAN-safe inline image references but not inline video or audio', () => {
+test('Seedance request accepts Wetoken assets but rejects inline reference data', () => {
   const base = {
     model: 'dreamina-seedance-2-5', prompt: 'cinematic move', duration: 5, ratio: '16:9',
     resolution: '720p', watermark: false, generateAudio: true,
   };
   assert.doesNotThrow(() => buildSeedanceRequest({
     ...base,
-    references: [{ type: 'image', url: 'data:image/png;base64,AA==', role: 'reference_image' }],
+    references: [{ type: 'image', url: 'asset://asset-ready', role: 'reference_image' }],
   }));
   assert.throws(() => buildSeedanceRequest({
     ...base,
-    references: [{ type: 'video', url: 'data:video/mp4;base64,AA==', role: 'reference_video' }],
-  }), /参考素材 URL 无效|参考素材只支持 HTTP\(S\) URL/);
+    references: [{ type: 'image', url: 'data:image/png;base64,AA==', role: 'reference_image' }],
+  }), /参考素材只支持公网 HTTPS URL 或 asset:\/\//);
 });
 
-test('creator video confirmation inlines NAS image references before calling Wetoken', () => {
+test('creator video confirmation signs every reference before Wetoken asset upload', () => {
   const route = fs.readFileSync(path.join(process.cwd(), 'app/api/creator/videos/[id]/confirm/route.ts'), 'utf8');
 
-  assert.match(route, /readLocalFile\('creator-assets', paths\[index\]\)/);
-  assert.match(route, /data:\$\{normalizedMimeType\};base64/);
-  assert.match(route, /reference\.type === 'image'.*data:image/s);
+  assert.match(route, /createProviderSignedUrl\(paths\[index\], SIGNED_URL_TTL_SECONDS\)/);
+  assert.match(route, /prepareWetokenAssetReferences\(claimed\.model, references\)/);
+  assert.doesNotMatch(route, /readLocalFile\('creator-assets', paths\[index\]\)/);
 });
 test('Seedance validation rejects invalid combinations and model capabilities', () => {
   const base = {

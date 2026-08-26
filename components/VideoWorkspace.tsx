@@ -30,8 +30,10 @@ type ShotRow = {
 const fu = (path?: string | null) => path ? localMediaUrl('project-assets', path) : null;
 const pad = (n: number) => `EP${String(n).padStart(2, '0')}`;
 const STATUS: Record<string, { label: string; color: string }> = {
+  submitting: { label: '提交中', color: '#d0a85c' },
   queued: { label: '排队中', color: '#d0a85c' },
   running: { label: '生成中', color: '#79a8ff' },
+  unknown: { label: '等待对账', color: '#e39a62' },
   succeeded: { label: '已完成', color: '#62c98d' },
   failed: { label: '失败', color: '#ff7676' },
   expired: { label: '已过期', color: '#a5a5ad' },
@@ -269,6 +271,7 @@ export default function VideoWorkspace({ projectId, projectName, canEdit, episod
           const videoUrl = videoUrls[shot.id] || task?.output?.videoUrl;
           const submitting = busyShot === shot.id;
           const active = task ? isActiveVideoTask(task) : false;
+          const submissionUnknown = task?.status === 'unknown' || task?.status === 'submitting';
           const targetDuration = Math.max(4, Math.min(15, Math.round(shot.duration_s || 5)));
           return (
             <div key={shot.id} style={{ display: 'flex', gap: 16, padding: 16, borderRadius: 16, background: 'var(--panel)', border: '1px solid var(--stroke)', boxShadow: 'var(--inset)', flexWrap: 'wrap' }}>
@@ -299,9 +302,9 @@ export default function VideoWorkspace({ projectId, projectName, canEdit, episod
                 {task?.error && <div style={{ fontSize: 11.5, color: '#ff7676' }}>任务失败：{task.error}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', flexWrap: 'wrap' }}>
                   {canEdit && (
-                    <button onClick={() => generate(shot)} disabled={submitting || active} style={{ height: 38, padding: '0 16px', borderRadius: 10, border: 'none', cursor: submitting || active ? 'wait' : 'pointer', color: 'var(--accent-ink)', background: 'var(--accent)', fontSize: 12.5, fontWeight: 650, opacity: submitting || active ? .58 : 1, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <button onClick={() => generate(shot)} disabled={submitting || active || submissionUnknown} style={{ height: 38, padding: '0 16px', borderRadius: 10, border: 'none', cursor: submitting || active || submissionUnknown ? 'wait' : 'pointer', color: 'var(--accent-ink)', background: 'var(--accent)', fontSize: 12.5, fontWeight: 650, opacity: submitting || active || submissionUnknown ? .58 : 1, display: 'flex', alignItems: 'center', gap: 7 }}>
                       <Icon d={['M12 19l7-7a2.8 2.8 0 0 0-4-4l-7 7-1 5 5-1Z']} size={15} sw={1.8} />
-                      {submitting ? '提交中…' : active ? taskState?.label : videoUrl ? '重新生成' : '生成视频'}
+                      {submitting ? '提交中…' : submissionUnknown ? taskState?.label : active ? taskState?.label : videoUrl ? '重新生成' : '生成视频'}
                     </button>
                   )}
                   {videoUrl && <a href={videoUrl} target='_blank' rel='noreferrer' style={{ height: 38, padding: '0 13px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent)', background: 'var(--user-bubble)', border: '1px solid var(--user-stroke)', fontSize: 12 }}>打开原视频 ↗</a>}

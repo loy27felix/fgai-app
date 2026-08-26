@@ -1,10 +1,19 @@
 import { NextResponse } from 'next/server';
 import {
+  isDefinitiveWetokenVideoRejection,
   WetokenVideoError,
   WetokenVideoTransportError,
   createWetokenVideoTask,
   type VideoReference,
 } from '@/lib/ai/video';
+import {
+  cleanupWetokenAssets,
+  isProviderReachableAssetSourceUrl,
+  isWetokenAssetUrl,
+  prepareWetokenAssetReferences,
+  WetokenAssetError,
+  type WetokenCreatedAsset,
+} from '@/lib/ai/wetoken-assets';
 import {
   validateCompletedReferencePaths,
   validateStoredVideoDraftRequest,
@@ -14,7 +23,6 @@ import type { CreatorVideoTask, CreatorVideoTaskView } from '@/lib/creator/types
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createAdminClient } from '@/lib/local/admin';
 import { createClient } from '@/lib/local/server';
-import { readLocalFile } from '@/lib/local/storage';
 import {
   buildVideoLedgerEntry,
   recordUsageRequired,
@@ -36,6 +44,7 @@ type RouteContext = { params: { id: string } };
 const ERRORS = {
   REFERENCES_NOT_READY: '参考素材尚未上传完成',
   REFERENCES_NOT_REACHABLE: '参考素材当前使用局域网地址，外部视频服务无法访问。请配置可访问的媒体地址，或移除参考素材后重试',
+  REFERENCES_UPLOAD_FAILED: '参考素材上传到 Wetoken 素材库失败，请稍后重试',
   INVALID_DRAFT: '视频草稿参数无效，已停止确认',
   USAGE_RECORD_FAILED: '视频用量记录写入失败，请稍后重试',
   SUBMIT_FAILED: '视频任务提交失败；状态可能需要对账，请先查看任务历史',
@@ -96,38 +105,23 @@ function safeErrorMessage(error: unknown, fallback: string) {
 }
 
 function providerFailureStatus(error: unknown): 'failed' | 'awaiting_reconciliation' {
-  return error instanceof WetokenVideoError && !error.retryable ? 'failed' : 'awaiting_reconciliation';
+  // Transport failures, HTTP 408/5xx and malformed success responses may hide an accepted provider task.
+  // 传输失败、HTTP 408/5xx 或异常成功响应都可能掩盖已受理任务，必须进入对账。
+  if (error instanceof WetokenAssetError || isDefinitiveWetokenVideoRejection(error)) return 'failed';
+  return 'awaiting_reconciliation';
 }
 
 function providerFailureMessage(error: unknown) {
   if (error instanceof WetokenVideoTransportError) return ERRORS.SUBMIT_STATUS_UNKNOWN;
+  if (error instanceof WetokenAssetError) return ERRORS.REFERENCES_UPLOAD_FAILED;
   return safeErrorMessage(error, ERRORS.SUBMIT_FAILED);
 }
 
-function isPrivateHost(hostname: string) {
-  const host = hostname.toLowerCase();
-  if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return true;
-  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
-  const private172 = host.match(/^172\.(\d{1,3})\./);
-  return Boolean(private172 && Number(private172[1]) >= 16 && Number(private172[1]) <= 31);
-}
-
 async function assertProviderReferencesReachable(references: VideoReference[]) {
-  const unreachable = references.some((reference) => {
-    // Image data URLs are intentionally sent inline. This is the LAN-safe
-    // path for images because Wetoken cannot fetch the company's NAS address.
-    if (reference.type === 'image' && /^data:image\/(?:jpeg|png|webp);base64,/i.test(reference.url)) return false;
-    try {
-      const url = new URL(reference.url);
-      return !['http:', 'https:'].includes(url.protocol) || isPrivateHost(url.hostname);
-    } catch {
-      return true;
-    }
-  });
+  const unreachable = references.some((reference) => !isProviderReachableAssetSourceUrl(reference.url));
   if (unreachable) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
 
-  const remoteReferences = references.filter((reference) => reference.type !== 'image');
-  await Promise.all(remoteReferences.map(async (reference) => {
+  await Promise.all(references.map(async (reference) => {
     try {
       // Block only definitive access failures; transient network failures remain advisory.
       // 只阻断明确的鉴权或资源不存在错误，临时网络故障仅告警，避免误伤可用的 Provider 链路。
@@ -158,14 +152,6 @@ async function assertProviderReferencesReachable(references: VideoReference[]) {
       });
     }
   }));
-}
-
-function imageDataUrl(mimeType: string, bytes: Buffer) {
-  const normalizedMimeType = mimeType.toLowerCase();
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(normalizedMimeType)) {
-    throw new Error(ERRORS.REFERENCES_NOT_READY);
-  }
-  return `data:${normalizedMimeType};base64,${bytes.toString('base64')}`;
 }
 
 async function updateOwnedTask(
@@ -269,15 +255,9 @@ async function buildProviderReferences(
   for (let index = 0; index < paths.length; index += 1) {
     const manifest = validated.references[index];
     if (manifest.kind === 'image') {
-      // Do not expose a local NAS URL to Wetoken: it is unreachable from the
-      // public provider and produces "resource download failed" after billing.
-      // Reference images are capped at 7 MB, so a data URL is a safe transport.
-      const bytes = await readLocalFile('creator-assets', paths[index]);
-      references.push({
-        type: 'image',
-        url: imageDataUrl(manifest.mimeType, bytes),
-        role: manifest.role as 'first_frame' | 'last_frame' | 'reference_image',
-      });
+      const signed = await bucket.createProviderSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
+      if (signed.error || !signed.data?.signedUrl) throw new Error(ERRORS.REFERENCES_NOT_READY);
+      references.push({ type: 'image', url: signed.data.signedUrl, role: manifest.role as 'first_frame' | 'last_frame' | 'reference_image' });
     } else if (manifest.kind === 'video') {
       const signed = await bucket.createProviderSignedUrl(paths[index], SIGNED_URL_TTL_SECONDS);
       if (signed.error || !signed.data?.signedUrl) throw new Error(ERRORS.REFERENCES_NOT_READY);
@@ -322,10 +302,12 @@ async function completeProviderSubmission(input: {
   task: CreatorVideoTask;
   validated: ReturnType<typeof validateStoredVideoDraftRequest>;
   references: VideoReference[];
+  createdAssets: WetokenCreatedAsset[];
   requestId: string;
 }) {
-  const { context, task, validated, references, requestId } = input;
+  const { context, task, validated, references, createdAssets, requestId } = input;
   let providerTask: Awaited<ReturnType<typeof createWetokenVideoTask>>;
+  let providerRequestAttempted = false;
   const submissionStartedAt = new Date().toISOString();
   const providerRequestStartedAt = Date.now();
   try {
@@ -346,6 +328,10 @@ async function completeProviderSubmission(input: {
       model: task.model,
       referenceCount: references.length,
     });
+    if (references.some((reference) => !isWetokenAssetUrl(reference.url))) {
+      throw new WetokenAssetError('素材预处理结果不完整', 500, 'asset_preparation_incomplete');
+    }
+    providerRequestAttempted = true;
     providerTask = await createWetokenVideoTask({
       model: task.model,
       prompt: validated.effectivePrompt,
@@ -355,9 +341,9 @@ async function completeProviderSubmission(input: {
       resolution: validated.resolution,
       watermark: validated.watermark,
       generateAudio: validated.generateAudio,
-    });
+    }, { assetsPrepared: true });
   } catch (error) {
-    const providerStatus = providerFailureStatus(error);
+    const providerStatus = providerRequestAttempted ? providerFailureStatus(error) : 'failed';
     const providerError = providerFailureMessage(error);
     const operation = error instanceof WetokenVideoTransportError ? error.operation : 'submit';
     const durationMs = error instanceof WetokenVideoTransportError ? error.durationMs : Date.now() - providerRequestStartedAt;
@@ -383,17 +369,17 @@ async function completeProviderSubmission(input: {
       error instanceof WetokenVideoTransportError ? 'provider_submit_transport_failed' : 'provider_request_failed',
       providerStatus,
       {
-      provider: 'wetoken',
-      httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
-      providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
-      retryable: error instanceof WetokenVideoError || error instanceof WetokenVideoTransportError
-        ? error.retryable
-        : true,
-      operation,
-      durationMs,
-      causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
-      causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
-      causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
+        provider: 'wetoken',
+        httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
+        providerCode: error instanceof WetokenVideoError ? error.providerCode : undefined,
+        retryable: error instanceof WetokenVideoError || error instanceof WetokenVideoTransportError
+          ? error.retryable
+          : true,
+        operation,
+        durationMs,
+        causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
+        causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+        causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
       },
     );
     if (providerStatus === 'awaiting_reconciliation') {
@@ -425,6 +411,12 @@ async function completeProviderSubmission(input: {
       requestId,
       ledgerStatus: providerStatus === 'failed' ? 'failed' : 'unknown',
     });
+    if ((!providerRequestAttempted || error instanceof WetokenAssetError || isDefinitiveWetokenVideoRejection(error)) && createdAssets.length) {
+      const cleaned = await cleanupWetokenAssets(createdAssets);
+      await recordVideoTaskEvent(task.id, cleaned ? 'provider_assets_cleaned' : 'provider_assets_cleanup_failed', providerStatus, {
+        assetIds: createdAssets.map((asset) => asset.id).join(','),
+      }).catch(() => undefined);
+    }
     return;
   }
 
@@ -566,6 +558,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
 
     const requestId = 'creator-video:' + claimed.id;
     let references: VideoReference[];
+    let createdAssets: WetokenCreatedAsset[] = [];
     try {
       // Resolve and sign every reference before writing usage. A missing object
       // must return the draft to the user instead of creating a billed ledger
@@ -594,7 +587,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
       throw error;
     }
 
-const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.duration, resolution: validated.resolution });
+    const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.duration, resolution: validated.resolution });
     const budget = await assertMonthlyBudgetAvailable({
       userId: context.user.id,
       estimatedCostUsd: pricing?.estimatedCostUsd,
@@ -606,6 +599,39 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
         error: budget.message,
       }).eq('id', claimed.id).eq('status', 'submitting');
       return response(budget.message, budget.code, 402);
+    }
+
+    // Asset registration must precede usage reservation and provider submission.
+    // 素材上传必须早于用量扣除和生成提交，失败时任务回到 draft。
+    try {
+      const prepared = await prepareWetokenAssetReferences(claimed.model, references);
+      references = prepared.references;
+      createdAssets = prepared.createdAssets;
+      await recordVideoTaskEvent(claimed.id, 'provider_assets_ready', 'submitting', {
+        referenceCount: references.length,
+        assetIds: createdAssets.map((asset) => asset.id).join(','),
+        model: claimed.model,
+      });
+    } catch (error) {
+      await cleanupWetokenAssets(createdAssets);
+      logServerFailure('creator_video', error, {
+        feature: 'creator_video',
+        stage: 'provider_asset_upload_failed',
+        taskId: claimed.id,
+        provider: 'wetoken',
+        referenceCount: references.length,
+      });
+      await context.localClient.from('creator_generation_tasks').update({
+        status: 'draft',
+        confirmed_at: null,
+        submission_started_at: null,
+        error: ERRORS.REFERENCES_UPLOAD_FAILED,
+      }).eq('id', claimed.id).eq('status', 'submitting');
+      await recordVideoTaskEvent(claimed.id, 'provider_asset_upload_failed', 'draft', {
+        provider: 'wetoken',
+        referenceCount: references.length,
+      });
+      return response(ERRORS.REFERENCES_UPLOAD_FAILED, 'REFERENCES_UPLOAD_FAILED', 502);
     }
 
     try {
@@ -627,6 +653,7 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
         possiblyCharged: true,
       });
     } catch (error) {
+      await cleanupWetokenAssets(createdAssets);
       logServerFailure('creator_video', error, {
         feature: 'creator_video',
         stage: 'usage_reservation_failed',
@@ -639,7 +666,7 @@ const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.d
 
     // Return after durable claim and ledger reservation while Node waits for Wetoken.
     // 持久化任务认领与账本预留后立即返回，由 Node 后台等待 Wetoken 回传任务 ID。
-    void completeProviderSubmission({ context, task: claimed, validated, references, requestId })
+    void completeProviderSubmission({ context, task: claimed, validated, references, createdAssets, requestId })
       .catch((error) => logServerFailure('creator_video', error, {
         feature: 'creator_video',
         stage: 'background_submission_unhandled_failure',

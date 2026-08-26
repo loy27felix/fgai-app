@@ -1,4 +1,12 @@
 import { getVideoModel } from './video-models';
+import {
+  cleanupWetokenAssets,
+  isProviderReachableAssetSourceUrl,
+  isWetokenAssetUrl,
+  prepareWetokenAssetReferences,
+  WetokenAssetError,
+  type WetokenAssetReference,
+} from './wetoken-assets';
 
 export { VIDEO_MODELS, getVideoModel } from './video-models';
 export type { VideoModelSpec } from './video-models';
@@ -74,20 +82,21 @@ export class WetokenVideoTransportError extends Error {
   }
 }
 
-const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']);
-
-function isInlineImageDataUrl(value: string) {
-  return /^data:image\/(?:jpeg|png|webp);base64,/i.test(value);
+export function isDefinitiveWetokenVideoRejection(error: unknown): error is WetokenVideoError {
+  return error instanceof WetokenVideoError
+    && error.status >= 400
+    && error.status < 500
+    && error.status !== 408
+    && error.status !== 499;
 }
 
-function assertUrl(value: string, type: VideoReference['type']) {
-  // Local deployments keep creator assets on a LAN-only NAS. A remote video
-  // provider cannot download a 192.168.* URL, but it can receive small image
-  // references inline. Video and audio still require provider-reachable URLs.
-  if (type === 'image' && isInlineImageDataUrl(value)) return;
-  let url: URL;
-  try { url = new URL(value); } catch { throw new Error('参考素材 URL 无效'); }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('参考素材只支持 HTTP(S) URL');
+const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']);
+
+function assertUrl(value: string, _type: VideoReference['type']) {
+  if (isWetokenAssetUrl(value)) return;
+  if (!isProviderReachableAssetSourceUrl(value)) {
+    throw new Error('参考素材只支持公网 HTTPS URL 或 asset:// 素材地址');
+  }
 }
 
 export function buildSeedanceRequest(input: SeedanceInput) {
@@ -250,27 +259,52 @@ async function providerFetch(
 
 export async function createWetokenVideoTask(
   input: SeedanceInput,
-  dependencies: { fetcher?: Fetcher } = {},
+  dependencies: { fetcher?: Fetcher; assetsPrepared?: boolean } = {},
 ) {
   const key = requireKey();
   const fetcher = dependencies.fetcher ?? fetch;
-  const response = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
-      // Avoid reusing a stale proxy socket for this long-running paid POST.
-      // 付费提交可能长时间等待响应，强制新连接可避免复用已被代理关闭的 keep-alive socket。
-      Connection: 'close',
-    },
-    body: JSON.stringify(buildSeedanceRequest(input)),
-    signal: AbortSignal.timeout(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS),
-  }, 'submit');
-  const data = await providerJson(response);
-  const payload = taskPayload(data);
-  const externalTaskId = payload.id || payload.task_id;
-  if (!externalTaskId) throw new Error('Wetoken video task ID missing');
-  return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || data?.status || 'queued'), raw: data };
+  // Validate generation capabilities before creating provider-side assets.
+  // 先校验生成参数，避免无效请求先在素材库留下资产。
+  buildSeedanceRequest(input);
+  if (dependencies.assetsPrepared && input.references.some((reference) => !isWetokenAssetUrl(reference.url))) {
+    throw new WetokenAssetError('预处理后的参考素材必须全部使用 asset:// 地址', 500, 'asset_preparation_incomplete');
+  }
+  const prepared = dependencies.assetsPrepared
+    ? { references: input.references as WetokenAssetReference[], createdAssets: [] }
+    : await prepareWetokenAssetReferences(
+      input.model,
+      input.references as WetokenAssetReference[],
+      { fetcher },
+    );
+  try {
+    const response = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+        // Avoid reusing a stale proxy socket for this long-running paid POST.
+        // 付费提交可能长时间等待响应，强制新连接可避免复用已被代理关闭的 keep-alive socket。
+        Connection: 'close',
+      },
+      body: JSON.stringify(buildSeedanceRequest({
+        ...input,
+        references: prepared.references as VideoReference[],
+      })),
+      signal: AbortSignal.timeout(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS),
+    }, 'submit');
+    const data = await providerJson(response);
+    const payload = taskPayload(data);
+    const externalTaskId = payload.id || payload.task_id;
+    if (!externalTaskId) throw new Error('Wetoken video task ID missing');
+    return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || data?.status || 'queued'), raw: data };
+  } catch (error) {
+    // Only definitive 4xx rejection is safe to clean up; 408/5xx may hide an accepted upstream task.
+    // 仅确定性 4xx 拒绝可清理素材；408/5xx 可能发生在上游已受理之后，必须保留用于对账。
+    if (isDefinitiveWetokenVideoRejection(error)) {
+      await cleanupWetokenAssets(prepared.createdAssets, { fetcher });
+    }
+    throw error;
+  }
 }
 
 export async function getWetokenVideoTask(

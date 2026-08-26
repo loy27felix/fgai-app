@@ -1,6 +1,8 @@
 import { query } from "@/lib/local/db";
+import { isSafeStoragePath } from "@/lib/local/storage";
 
 export async function canAccessStoragePath(userId: string, bucket: string, name: string) {
+  if (!isSafeStoragePath(name)) return false;
   const owner = name.split("/", 1)[0];
   if (!owner) return false;
   if (bucket === "creator-assets") return owner === userId;

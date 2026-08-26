@@ -5,7 +5,7 @@ export type VideoGenerationTask = {
   project_id?: string;
   shot_id?: string | null;
   model?: string;
-  status: VideoTaskStatus;
+  status: VideoTaskStatus | 'submitting' | 'unknown';
   request?: Record<string, unknown> | null;
   output?: { videoUrl?: string; usage?: unknown } | null;
   error?: string | null;

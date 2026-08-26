@@ -216,7 +216,7 @@ export default function GenCanvas({
         generateAudio,
       });
       setNodes((current) => {
-        const next = current.map((item) => item.id === id ? { ...item, busy: true, taskId: task.id, status: task.status, error: null } : item);
+        const next = current.map((item) => item.id === id ? { ...item, busy: isActiveVideoTask(task), taskId: task.id, status: task.status, error: task.error || null } : item);
         persist(next, edges);
         return next;
       });
@@ -284,7 +284,7 @@ export default function GenCanvas({
               <button onClick={() => setGenerateAudio((value) => !value)} style={{ height: 34, borderRadius: 9, color: generateAudio ? 'var(--accent)' : 'var(--text-3)', background: 'var(--panel-solid)', border: '1px solid var(--stroke)', cursor: 'pointer' }}>{generateAudio ? '✓ 同步生成音频' : '不生成音频'}</button>
               {selectedVideoModel.filterOff && <div style={{ fontSize: 10.5, lineHeight: 1.5, color: '#d6ad62' }}>FILTER OFF 版本关闭模型过滤；仍需遵守平台规则与适用法律。</div>}
               {selNode.error && <div style={{ fontSize: 11.5, color: '#ff7676' }}>{selNode.error}</div>}
-              <button onClick={() => runVideo(selNode.id)} disabled={selNode.busy || selNode.status === 'queued' || selNode.status === 'running'} style={{ width: '100%', height: 46, borderRadius: 13, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: 'var(--accent-ink)', background: 'var(--accent)', border: 'none', opacity: selNode.status === 'queued' || selNode.status === 'running' ? .6 : 1 }}>{selNode.status === 'queued' ? '排队中…' : selNode.status === 'running' ? '生成中…' : selNode.result ? '重新生成视频' : '运行视频生成'}</button>
+              <button onClick={() => runVideo(selNode.id)} disabled={selNode.busy || selNode.status === 'queued' || selNode.status === 'running' || selNode.status === 'submitting' || selNode.status === 'unknown'} style={{ width: '100%', height: 46, borderRadius: 13, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: 'var(--accent-ink)', background: 'var(--accent)', border: 'none', opacity: selNode.status === 'queued' || selNode.status === 'running' || selNode.status === 'submitting' || selNode.status === 'unknown' ? .6 : 1 }}>{selNode.status === 'queued' ? '排队中…' : selNode.status === 'running' ? '生成中…' : selNode.status === 'submitting' ? '提交中…' : selNode.status === 'unknown' ? '等待对账' : selNode.result ? '重新生成视频' : '运行视频生成'}</button>
             </>}
             {selNode.kind === "prompt" && <>
               <EditArea value={selNode.text || ""} minH={150} placeholder="在这里写出图提示词，连到「生成节点」即可作为其输入。" onSave={(v) => setText(selNode.id, v)} style={{ fontSize: 13, lineHeight: 1.65 }} />
@@ -340,7 +340,7 @@ export default function GenCanvas({
                 {n.kind === "ref" && <div style={{ aspectRatio: "1/1", borderRadius: 9, overflow: "hidden", background: "var(--bg-2)" }}>{n.url && <img src={n.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>}
                 {n.kind === "prompt" && <div style={{ fontSize: 11.5, color: "var(--text-2)", lineHeight: 1.5, maxHeight: 66, overflow: "hidden" }}>{n.text || "（空，点开右侧检查器编辑）"}</div>}
                 {n.kind === "gen" && <div style={{ aspectRatio: "1/1", borderRadius: 9, overflow: "hidden", background: "var(--bg-2)", display: "grid", placeItems: "center", color: "var(--text-3)", fontSize: 11 }}>{n.busy ? "生成中…" : n.result ? <img src={n.result} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "未生成"}</div>}
-                {n.kind === 'video' && <div style={{ aspectRatio: '16/9', borderRadius: 9, overflow: 'hidden', background: 'var(--bg-2)', display: 'grid', placeItems: 'center', color: 'var(--text-3)', fontSize: 10 }}>{n.result ? <video src={n.result} muted preload='metadata' style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : n.status === 'queued' ? '排队中…' : n.status === 'running' ? '生成中…' : n.status === 'failed' ? '生成失败' : '未生成'}</div>}
+                {n.kind === 'video' && <div style={{ aspectRatio: '16/9', borderRadius: 9, overflow: 'hidden', background: 'var(--bg-2)', display: 'grid', placeItems: 'center', color: 'var(--text-3)', fontSize: 10 }}>{n.result ? <video src={n.result} muted preload='metadata' style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : n.status === 'queued' ? '排队中…' : n.status === 'running' ? '生成中…' : n.status === 'submitting' ? '提交中…' : n.status === 'unknown' ? '等待对账' : n.status === 'failed' ? '生成失败' : '未生成'}</div>}
               </div>
             </div>
           );

@@ -35,6 +35,7 @@ DEEPSEEK_API_KEY=...
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 WETOKEN_API_KEY=...
 WETOKEN_BASE_URL=https://wetoken.ai/v1
+WETOKEN_ASSET_BASE_URL=https://asset.wetoken.ai  # 可选，Seedance 素材库地址
 USAGE_USD_TO_CNY_RATE=6.77
 ```
 
@@ -111,7 +112,7 @@ scripts/install-auto-deploy.sh
 
 服务器网络如果封锁 UDP/7844，Compose 会强制 `cloudflared` 使用 HTTP/2，避免 Tunnel 自动切换到不可用的 QUIC。修改 Tunnel 配置后执行 `docker compose --env-file .env.docker up -d cloudflared` 使连接重新建立。
 
-媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，必须使用 Cloudflare Tunnel 提供的公网 HTTPS 地址；`192.168.x.x`、localhost 和需要登录的局域网地址无法被 Wetoken 下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不受此限制。不要把 Cloudflare Tunnel 的 token 提交到 Git。
+媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，应用会先用 Cloudflare Tunnel 的公网 HTTPS 签名 URL 和生成任务的精确 `model` 创建 WeToken 素材，等待 `GetAsset` 返回 `Active`，再把 `asset://asset-...` 交给 Seedance；上传或确定性提交失败时会尽力清理本次新建素材。`192.168.x.x`、localhost 和需要登录的局域网地址无法被素材库下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不需要素材库上传。该素材库契约仅适用于 Seedance 视频参考素材，Wetoken 文本视觉输入和图片编辑继续使用各自原生协议。不要把 Cloudflare Tunnel 的 token 提交到 Git。
 
 ## 目录速览
 

@@ -16,6 +16,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .eq('id', params.id).maybeSingle();
   if (error) return NextResponse.json({ error: `读取任务失败：${error.message}` }, { status: 500 });
   if (!task) return NextResponse.json({ error: '任务不存在或无权访问' }, { status: 404 });
+  const { data: membership } = await localClient.from('project_members')
+    .select('role').eq('project_id', task.project_id).eq('user_id', user.id).maybeSingle();
+  if (!membership) return NextResponse.json({ error: '任务不存在或无权访问' }, { status: 404 });
+  if (task.external_task_id.startsWith('pending-')) {
+    return NextResponse.json({ ok: true, task });
+  }
 
   try {
     const result = await getWetokenVideoTask(task.external_task_id);
@@ -29,12 +35,24 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       completed_at: terminal ? (task.completed_at || new Date().toISOString()) : null,
     };
     const { error: updateError } = await localClient.from('generation_tasks').update(patch).eq('id', task.id);
-    await updateVideoUsageBestEffort({
-      requestId: `wetoken-video:${task.external_task_id}`,
+    const ledgerUpdated = await updateVideoUsageBestEffort({
+      requestId: `wetoken-video:${task.id}`,
+      providerRequestId: result.externalTaskId,
       providerStatus: result.status,
       completedAt: patch.completed_at,
       reportedCostUsd,
     });
+    if (!ledgerUpdated) {
+      // Fall back to the historical request key for tasks created before local task IDs became authoritative.
+      // 兼容旧任务的外部请求键；新任务统一使用本地 task ID 保证提交前即可写入账本。
+      await updateVideoUsageBestEffort({
+        requestId: `wetoken-video:${task.external_task_id}`,
+        providerRequestId: result.externalTaskId,
+        providerStatus: result.status,
+        completedAt: patch.completed_at,
+        reportedCostUsd,
+      });
+    }
     if (updateError) return NextResponse.json({ error: `同步任务状态失败：${updateError.message}` }, { status: 500 });
     if (result.status === 'succeeded' && result.videoUrl && task.shot_id) {
       const { error: shotError } = await localClient.from('shots').update({ video_url: result.videoUrl }).eq('id', task.shot_id);

@@ -38,10 +38,19 @@ export function isNasUnavailableError(error: unknown) {
     || (typeof error === "object" && error !== null && "code" in error && error.code === NAS_UNAVAILABLE_CODE);
 }
 
+function isSafeStorageSegment(segment: string) {
+  return Boolean(segment) && segment !== "." && segment !== ".." && !segment.includes("\\") && !segment.includes("\0");
+}
+
+export function isSafeStoragePath(name: string) {
+  return Boolean(name) && !name.startsWith("/") && name.split("/").every(isSafeStorageSegment);
+}
+
 function safePath(bucket: string, name: string) {
-  const normalized = path.posix.normalize(`/${bucket}/${name}`).replace(/^\/+/, "");
-  if (normalized.startsWith("..") || normalized.includes("/../")) throw new Error("非法媒体路径");
-  return path.join(root(), normalized);
+  // Reject traversal before path normalization; normalization would otherwise hide `..` segments.
+  // 必须在路径规范化前拒绝穿越片段，否则 `..` 会被消解并绕过权限边界。
+  if (!isSafeStorageSegment(bucket) || (name !== "." && !isSafeStoragePath(name))) throw new Error("非法媒体路径");
+  return name === "." ? path.join(root(), bucket) : path.join(root(), bucket, ...name.split("/"));
 }
 
 function urlFor(bucket: string, name: string, base: string, expiresAt?: number) {
@@ -56,6 +65,7 @@ function signedToken(bucket: string, name: string, expiresAt: number) {
 
 export function verifyLocalSignedUrl(bucket: string, name: string, expiresValue: string | null, token: string | null) {
   const expiresAt = Number(expiresValue);
+  if (!isSafeStorageSegment(bucket) || !isSafeStoragePath(name)) return false;
   if (!token || !Number.isSafeInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false;
   const expected = Buffer.from(signedToken(bucket, name, expiresAt));
   const received = Buffer.from(token);

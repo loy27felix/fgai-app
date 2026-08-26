@@ -25,6 +25,7 @@ import { KnownVideoTaskRecoveryError, reconcileKnownWetokenVideoTask } from '@/l
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 const SIGNED_URL_TTL_SECONDS = 300;
+const DELETABLE_TASK_STATUSES = ['draft', 'succeeded', 'failed', 'expired'] as const;
 
 type RouteContext = { params: { id: string } };
 
@@ -425,7 +426,9 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
     const task = await loadOwnedTask(context, params.id);
     if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
-    try { await removeTaskFiles(context, task); } catch (error) { console.error('[creator video file cleanup]', error); }
+    if (!DELETABLE_TASK_STATUSES.includes(task.status as typeof DELETABLE_TASK_STATUSES[number])) {
+      return response('任务仍在提交、生成或等待对账，当前不能删除', 'VIDEO_TASK_DELETE_BLOCKED', 409);
+    }
     const deleted = await context.localClient
       .from('creator_generation_tasks')
       .delete()
@@ -433,10 +436,14 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
       .eq('workspace_id', context.workspace.id)
       .eq('user_id', context.user.id)
       .eq('kind', 'video')
+      .in('status', [...DELETABLE_TASK_STATUSES])
       .select('id')
       .maybeSingle();
     if (deleted.error) throw deleted.error;
     if (!deleted.data) return response('视频任务未被删除，请刷新后重试', 'VIDEO_TASK_DELETE_MISSING', 409);
+    // Delete the database row atomically before best-effort file cleanup to close confirm/delete races.
+    // 先按状态原子删除任务，再尽力清理文件，避免草稿确认与删除并发时删掉正在提交的任务。
+    try { await removeTaskFiles(context, task); } catch (error) { console.error('[creator video file cleanup]', error); }
     return NextResponse.json({ ok: true, id: deleted.data.id });
   } catch (error: unknown) {
     return serverError(error, 'VIDEO_TASK_DELETE_FAILED', '视频任务删除失败，请稍后重试');
