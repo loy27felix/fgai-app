@@ -174,6 +174,7 @@ async function pollTask(
       durationMs: error instanceof WetokenVideoTransportError ? error.durationMs : Date.now() - pollStartedAt,
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+      causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
       message: providerErrorMessage(error),
     });
     await context.localClient.from('creator_generation_tasks').update({
@@ -186,6 +187,7 @@ async function pollTask(
       durationMs: error instanceof WetokenVideoTransportError ? error.durationMs : undefined,
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+      causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
     });
     return currentTask;
   }

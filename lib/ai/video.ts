@@ -50,16 +50,27 @@ export class WetokenVideoTransportError extends Error {
   readonly durationMs: number;
   readonly causeName: string;
   readonly causeCode: string | null;
+  readonly causeMessage: string;
   readonly retryable = true;
 
   constructor(operation: 'submit' | 'poll', durationMs: number, cause: unknown) {
-    const value = cause instanceof Error ? cause.message : 'network request failed';
-    super(`Wetoken video ${operation} transport failed after ${durationMs}ms: ${value.slice(0, 300)}`);
+    const outer = asRecord(cause);
+    const nested = asRecord(outer.cause);
+    const detail = Object.keys(nested).length ? nested : outer;
+    const outerMessage = cause instanceof Error ? cause.message : 'network request failed';
+    const detailMessage = typeof detail.message === 'string' ? detail.message : outerMessage;
+    const detailName = typeof detail.name === 'string'
+      ? detail.name
+      : cause instanceof Error ? cause.name : typeof cause;
+    const detailCode = typeof detail.code === 'string' ? detail.code : null;
+    const diagnostic = detailCode ? `${outerMessage} (${detailCode}: ${detailMessage})` : `${outerMessage}: ${detailMessage}`;
+    super(`Wetoken video ${operation} transport failed after ${durationMs}ms: ${diagnostic.slice(0, 300)}`);
     this.name = 'WetokenVideoTransportError';
     this.operation = operation;
     this.durationMs = durationMs;
-    this.causeName = cause instanceof Error ? cause.name : typeof cause;
-    this.causeCode = typeof asRecord(cause).code === 'string' ? String(asRecord(cause).code) : null;
+    this.causeName = detailName;
+    this.causeCode = detailCode;
+    this.causeMessage = detailMessage.slice(0, 300);
   }
 }
 
@@ -245,7 +256,13 @@ export async function createWetokenVideoTask(
   const fetcher = dependencies.fetcher ?? fetch;
   const response = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+      // Avoid reusing a stale proxy socket for this long-running paid POST.
+      // 付费提交可能长时间等待响应，强制新连接可避免复用已被代理关闭的 keep-alive socket。
+      Connection: 'close',
+    },
     body: JSON.stringify(buildSeedanceRequest(input)),
     signal: AbortSignal.timeout(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS),
   }, 'submit');

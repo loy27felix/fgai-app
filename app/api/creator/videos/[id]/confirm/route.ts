@@ -373,6 +373,7 @@ async function completeProviderSubmission(input: {
       durationMs,
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+      causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
       nextStatus: providerStatus,
     });
     const reconciliationRequiredAt = providerStatus === 'awaiting_reconciliation' ? new Date().toISOString() : null;
@@ -392,6 +393,7 @@ async function completeProviderSubmission(input: {
       durationMs,
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
+      causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
       },
     );
     if (providerStatus === 'awaiting_reconciliation') {
