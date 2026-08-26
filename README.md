@@ -68,13 +68,14 @@ USAGE_USD_TO_CNY_RATE=6.77
 pnpm docker:config        # 校验 Docker Compose 配置
 pnpm docker:ps            # 查看 App、PostgreSQL 和 Tunnel 状态
 pnpm docker:up            # 构建并启动全部服务
-pnpm logs:docker          # 持续查看全部容器最近 200 行日志
-pnpm logs:app             # 只看 Next.js App 与服务端业务日志
-pnpm logs:postgres        # 只看 PostgreSQL 日志
-pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志
+pnpm logs:docker          # 持续查看全部容器最近 200 行日志（含时间戳）
+pnpm logs:app             # 只看 Next.js App 与服务端业务日志（含时间戳）
+pnpm logs:app:history     # 列出自动部署归档的 App 历史日志
+pnpm logs:postgres        # 只看 PostgreSQL 日志（含时间戳）
+pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志（含时间戳）
 ```
 
-日志命令会持续跟随新输出，按 `Ctrl+C` 退出，不会停止容器。排查 App 内的具体链路时，可继续按现有日志标识过滤：
+日志命令会持续跟随新输出并显示 Docker 时间戳，按 `Ctrl+C` 退出，不会停止容器。排查 App 内的具体链路时，可继续按现有日志标识过滤：
 
 ```bash
 pnpm logs:app | grep '"event":"creator_image"'  # 图片生成与供应商请求
@@ -103,6 +104,8 @@ scripts/install-auto-deploy.sh
 ```
 
 服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会构建 `app`，在重启前执行 `docker/initdb/002-local-upgrade.sql` 的幂等数据库升级，仅重建 `app` 容器，并等待容器 health 与 `http://127.0.0.1:3000` 返回成功。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
+
+每次自动重建 `app` 前，脚本会先将当前容器的完整 stdout/stderr 归档到宿主机 `$HOME/Library/Logs/fg-studio-app/`，文件名包含 UTC 时间、容器 ID 和提交 SHA；新容器启动失败时也会先归档失败容器日志，再执行回滚。该目录不随容器删除，使用 `pnpm logs:app:history` 查看历史归档文件。
 
 执行 `pnpm logs:deploy` 可同时跟随自动部署的标准与错误日志。部署主机必须能够访问 Git remote；私有仓库的 Git 凭据应配置在该主机的 Git credential helper 或 SSH agent 中，不要写入仓库或 `.env.docker`。
 

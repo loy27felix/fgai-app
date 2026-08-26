@@ -13,6 +13,7 @@ REMOTE="${FG_AUTO_DEPLOY_REMOTE:-origin}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-fgai-app}"
 HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-http://127.0.0.1:3000}"
 STATE_ROOT="${FG_AUTO_DEPLOY_STATE_DIR:-$HOME/Library/Application Support/fg-studio-auto-deploy}"
+APP_LOG_ROOT="${FG_APP_LOG_DIR:-$HOME/Library/Logs/fg-studio-app}"
 LOCK_DIR="$STATE_ROOT/lock"
 FAILED_SHA_FILE="$STATE_ROOT/failed-sha"
 
@@ -55,6 +56,27 @@ compose() {
     --project-name "$COMPOSE_PROJECT_NAME" \
     --env-file "$ENV_FILE" \
     "$@"
+}
+
+archive_app_logs() {
+  local reason="$1"
+  local container
+  local timestamp
+  local output_file
+
+  container="$(compose ps -q app 2>/dev/null || true)"
+  [[ -n "$container" ]] || return 0
+  timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+  mkdir -p "$APP_LOG_ROOT"
+  output_file="$APP_LOG_ROOT/app-${timestamp}-${container:0:12}-${reason}.log"
+
+  {
+    printf '# container=%s\n' "$container"
+    printf '# archived_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf '# reason=%s\n' "$reason"
+    docker logs --timestamps "$container"
+  } > "$output_file"
+  log "Auto deploy: archived app logs to $output_file"
 }
 
 apply_database_upgrade() {
@@ -209,7 +231,15 @@ if ! git -C "$PROJECT_ROOT" merge --ff-only "$REMOTE/$BRANCH" >/dev/null; then
   exit 1
 fi
 
-if ! compose build app >/dev/null || ! apply_database_upgrade || ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
+if ! compose build app >/dev/null || ! apply_database_upgrade; then
+  printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
+  rollback "$current_sha" || true
+  exit 1
+fi
+
+archive_app_logs "before-${target_sha:0:12}"
+if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
+  archive_app_logs "failed-${target_sha:0:12}"
   printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
   rollback "$current_sha" || true
   exit 1
