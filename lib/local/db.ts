@@ -55,9 +55,13 @@ function whereClause(filters: Filter[], params: unknown[]) {
       params.push(values.map(normalizeValue));
       return `${column} = ANY($${params.length})`;
     }
+    if (filter.operator === "is") {
+      // IS NULL/IS NOT NULL does not bind a PostgreSQL parameter.
+      // 这类谓词没有占位符，不能把 null 追加到参数数组，否则会造成参数数量错位。
+      return filter.value === null ? `${column} IS NULL` : `${column} IS NOT NULL`;
+    }
     params.push(normalizeValue(filter.value));
     const placeholder = `$${params.length}`;
-    if (filter.operator === "is") return filter.value === null ? `${column} IS NULL` : `${column} IS NOT NULL`;
     if (filter.operator === "neq") return `${column} <> ${placeholder}`;
     if (filter.operator === "gte") return `${column} >= ${placeholder}`;
     if (filter.operator === "lte") return `${column} <= ${placeholder}`;
