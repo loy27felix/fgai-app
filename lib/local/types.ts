@@ -5,8 +5,18 @@ export type LocalUser = {
   created_at?: string;
 };
 
+export type LocalDatabaseError = {
+  message: string;
+  code?: string;
+  detail?: string;
+  hint?: string;
+  table?: string;
+  column?: string;
+  constraint?: string;
+};
+
 export type LocalResult<T = any> = {
   data: T;
-  error: { message: string; code?: string } | null;
+  error: LocalDatabaseError | null;
   count?: number | null;
 };

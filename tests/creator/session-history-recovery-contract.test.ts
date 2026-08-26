@@ -26,5 +26,24 @@ test('local upgrades include durable creator session schema', () => {
 
   assert.match(migration, /create table if not exists creator_sessions/i);
   assert.match(migration, /create table if not exists creator_messages/i);
+  // `CREATE TABLE IF NOT EXISTS` is a no-op when an existing local volume
+  // contains an earlier table shape. The live read path filters and orders on
+  // these fields, so the upgrade must add them to pre-existing tables too.
+  assert.match(migration, /alter table if exists creator_sessions[\s\S]*add column if not exists kind/i);
+  assert.match(migration, /alter table if exists creator_sessions[\s\S]*add column if not exists archived_at/i);
+  assert.match(migration, /alter table if exists creator_sessions[\s\S]*add column if not exists updated_at/i);
+  assert.match(migration, /alter table if exists creator_messages[\s\S]*add column if not exists content/i);
+  assert.match(migration, /update creator_sessions[\s\S]*set\s+kind = coalesce/i);
   assert.match(migration, /creator_sessions_workspace_kind_updated_idx/);
+});
+
+test('local database query errors retain PostgreSQL diagnostics for trace logs', () => {
+  const localDb = source('lib', 'local', 'db.ts');
+  const localTypes = source('lib', 'local', 'types.ts');
+
+  assert.match(localDb, /function toLocalDatabaseError/);
+  assert.match(localDb, /code: optionalText\("code"\)/);
+  assert.match(localDb, /return \{ data: null, error: toLocalDatabaseError\(error\) \}/);
+  assert.match(localTypes, /export type LocalDatabaseError/);
+  assert.match(localTypes, /detail\?: string/);
 });

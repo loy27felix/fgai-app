@@ -23,6 +23,66 @@ create table if not exists creator_messages (
   created_at timestamptz not null default now()
 );
 
+-- `CREATE TABLE IF NOT EXISTS` does not alter an older persisted volume. The
+-- local deployment predates the durable Creator-session fields, so add each
+-- read/write field explicitly before querying or indexing the existing table.
+alter table if exists creator_sessions
+  add column if not exists workspace_id uuid,
+  add column if not exists folder_id uuid,
+  add column if not exists kind text,
+  add column if not exists title text,
+  add column if not exists default_model text,
+  add column if not exists archived_at timestamptz,
+  add column if not exists created_at timestamptz,
+  add column if not exists updated_at timestamptz;
+
+alter table if exists creator_messages
+  add column if not exists session_id uuid,
+  add column if not exists role text,
+  add column if not exists content jsonb,
+  add column if not exists status text,
+  add column if not exists created_at timestamptz;
+
+-- Keep legacy rows readable. We intentionally do not make legacy columns
+-- NOT NULL here: an old orphaned row must not abort the whole automatic
+-- deployment; newly-created rows already use the stricter 001 schema.
+update creator_sessions
+set
+  kind = coalesce(nullif(btrim(kind), ''), 'chat'),
+  title = coalesce(nullif(btrim(title), ''), '未命名对话'),
+  created_at = coalesce(created_at, now()),
+  updated_at = coalesce(updated_at, created_at, now())
+where kind is null
+  or btrim(kind) = ''
+  or title is null
+  or btrim(title) = ''
+  or created_at is null
+  or updated_at is null;
+
+update creator_messages
+set
+  role = coalesce(nullif(btrim(role), ''), 'user'),
+  content = coalesce(content, '{}'::jsonb),
+  status = coalesce(nullif(btrim(status), ''), 'complete'),
+  created_at = coalesce(created_at, now())
+where role is null
+  or btrim(role) = ''
+  or content is null
+  or status is null
+  or btrim(status) = ''
+  or created_at is null;
+
+alter table if exists creator_sessions
+  alter column kind set default 'chat',
+  alter column title set default '未命名对话',
+  alter column created_at set default now(),
+  alter column updated_at set default now();
+
+alter table if exists creator_messages
+  alter column content set default '{}'::jsonb,
+  alter column status set default 'complete',
+  alter column created_at set default now();
+
 create index if not exists creator_sessions_workspace_kind_updated_idx
   on creator_sessions(workspace_id, kind, updated_at desc)
   where archived_at is null;

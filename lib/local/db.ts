@@ -1,5 +1,5 @@
 import { Pool, type QueryResultRow } from "pg";
-import type { LocalResult } from "@/lib/local/types";
+import type { LocalDatabaseError, LocalResult } from "@/lib/local/types";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgres://fg_studio:fg_studio@postgres:5432/fg_studio",
@@ -24,6 +24,25 @@ const columns = (value?: string) => {
 function normalizeValue(value: unknown) {
   if (value !== null && typeof value === "object") return JSON.stringify(value);
   return value;
+}
+
+function toLocalDatabaseError(error: unknown): LocalDatabaseError {
+  if (error instanceof Error) {
+    const postgresError = error as Error & Record<string, unknown>;
+    const optionalText = (key: "code" | "detail" | "hint" | "table" | "column" | "constraint") =>
+      typeof postgresError[key] === "string" ? postgresError[key] : undefined;
+
+    return {
+      message: error.message,
+      code: optionalText("code"),
+      detail: optionalText("detail"),
+      hint: optionalText("hint"),
+      table: optionalText("table"),
+      column: optionalText("column"),
+      constraint: optionalText("constraint"),
+    };
+  }
+  return { message: String(error) };
 }
 
 function whereClause(filters: Filter[], params: unknown[]) {
@@ -153,7 +172,10 @@ export class LocalQuery<T = any> implements PromiseLike<LocalResult<T[] | T | nu
       }
       return { data: rows, error: null };
     } catch (error) {
-      return { data: null, error: { message: error instanceof Error ? error.message : String(error) } };
+      // Preserve PostgreSQL diagnostics (for example 42703 missing_column) so
+      // trace-aware API logs can identify a legacy schema instead of only
+      // reporting a generic "读取会话失败" to the browser.
+      return { data: null, error: toLocalDatabaseError(error) };
     }
   }
 }
