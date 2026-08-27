@@ -109,7 +109,7 @@ chmod +x scripts/auto-deploy.sh scripts/install-auto-deploy.sh
 scripts/install-auto-deploy.sh
 ```
 
-服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会构建 `app`，在重启前执行 `docker/initdb/002-local-upgrade.sql` 的幂等数据库升级，仅重建 `app` 容器，并等待容器 health 与 `http://127.0.0.1:3000` 返回成功。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
+服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会构建 `app`，先执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行 `002-local-upgrade.sql` 和后续迁移（当前包括 `003-local-observability.sql`），仅重建 `app` 容器，并等待容器 health 与 `http://127.0.0.1:3000` 返回成功。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
 
 每次自动重建 `app` 前，脚本会先将当前容器的完整 stdout/stderr 归档到宿主机 `$HOME/Library/Logs/fg-studio-app/`，文件名包含 UTC 时间、容器 ID 和提交 SHA；新容器启动失败时也会先归档失败容器日志，再执行回滚。该目录不随容器删除，使用 `pnpm logs:app:history` 查看历史归档文件。
 
