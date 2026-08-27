@@ -38,12 +38,15 @@ export const runtime = 'nodejs';
 export const maxDuration = 1800;
 
 const SIGNED_URL_TTL_SECONDS = 3600;
+const REFERENCE_PREFLIGHT_ATTEMPTS = 3;
+const REFERENCE_PREFLIGHT_RETRY_DELAYS_MS = [500, 1500];
 
 type RouteContext = { params: { id: string } };
 
 const ERRORS = {
   REFERENCES_NOT_READY: '参考素材尚未上传完成',
   REFERENCES_NOT_REACHABLE: '参考素材当前使用局域网地址，外部视频服务无法访问。请配置可访问的媒体地址，或移除参考素材后重试',
+  REFERENCES_TEMPORARILY_UNAVAILABLE: '参考素材公网访问暂时不可用，请稍后重试',
   REFERENCES_UPLOAD_FAILED: '参考素材上传到 Wetoken 素材库失败，请稍后重试',
   INVALID_DRAFT: '视频草稿参数无效，已停止确认',
   USAGE_RECORD_FAILED: '视频用量记录写入失败，请稍后重试',
@@ -52,8 +55,8 @@ const ERRORS = {
   NOT_FOUND: '视频任务不存在',
 } as const;
 
-function response(error: string, code: string, status: number) {
-  return NextResponse.json({ error, code }, { status });
+function response(error: string, code: string, status: number, headers?: HeadersInit) {
+  return NextResponse.json({ error, code }, { status, headers });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -122,34 +125,52 @@ async function assertProviderReferencesReachable(references: VideoReference[]) {
   if (unreachable) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
 
   await Promise.all(references.map(async (reference) => {
-    try {
-      // Block only definitive access failures; transient network failures remain advisory.
-      // 只阻断明确的鉴权或资源不存在错误，临时网络故障仅告警，避免误伤可用的 Provider 链路。
-      const result = await fetch(reference.url, {
-        headers: { Range: 'bytes=0-0' },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(10_000),
-      });
-      const status = result.status;
-      await result.body?.cancel();
-      if ([401, 403, 404].includes(status)) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
-      if (!result.ok) {
-        logServerEvent('creator_video', {
-          feature: 'creator_video',
-          stage: 'reference_preflight_advisory_http_failure',
-          type: reference.type,
-          role: reference.role,
-          status,
-        }, 'warn');
+    for (let attempt = 1; attempt <= REFERENCE_PREFLIGHT_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await fetch(reference.url, {
+          headers: { Range: 'bytes=0-0' },
+          cache: 'no-store',
+          signal: AbortSignal.timeout(10_000),
+        });
+        const status = result.status;
+        await result.body?.cancel();
+        if ([401, 403, 404].includes(status)) throw new Error(ERRORS.REFERENCES_NOT_REACHABLE);
+        if (result.ok) return;
+        if (attempt === REFERENCE_PREFLIGHT_ATTEMPTS) {
+          logServerEvent('creator_video', {
+            feature: 'creator_video',
+            stage: 'reference_preflight_failed',
+            type: reference.type,
+            role: reference.role,
+            status,
+            attempts: attempt,
+          }, 'warn');
+          throw new Error(ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE);
+        }
+      } catch (error) {
+        if (error instanceof Error && (
+          error.message === ERRORS.REFERENCES_NOT_REACHABLE
+          || error.message === ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE
+        )) throw error;
+        if (attempt === REFERENCE_PREFLIGHT_ATTEMPTS) {
+          logServerFailure('creator_video', error, {
+            feature: 'creator_video',
+            stage: 'reference_preflight_failed',
+            type: reference.type,
+            role: reference.role,
+            attempts: attempt,
+          });
+          throw new Error(ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE);
+        }
       }
-    } catch (error) {
-      if (error instanceof Error && error.message === ERRORS.REFERENCES_NOT_REACHABLE) throw error;
-      logServerFailure('creator_video', error, {
+      logServerEvent('creator_video', {
         feature: 'creator_video',
-        stage: 'reference_preflight_advisory_transport_failure',
+        stage: 'reference_preflight_retry',
         type: reference.type,
         role: reference.role,
-      });
+        attempt,
+      }, 'warn');
+      await new Promise((resolve) => setTimeout(resolve, REFERENCE_PREFLIGHT_RETRY_DELAYS_MS[attempt - 1] || 1500));
     }
   }));
 }
@@ -278,6 +299,7 @@ function publicError(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (message === ERRORS.REFERENCES_NOT_READY) return { message, code: 'REFERENCES_NOT_READY', status: 409 };
   if (message === ERRORS.REFERENCES_NOT_REACHABLE) return { message, code: 'REFERENCES_NOT_REACHABLE', status: 409 };
+  if (message === ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE) return { message, code: 'REFERENCES_TEMPORARILY_UNAVAILABLE', status: 503 };
   if (message === ERRORS.INVALID_DRAFT) return { message, code: 'INVALID_DRAFT', status: 409 };
   if (message === ERRORS.USAGE_RECORD_FAILED) return { message, code: 'USAGE_RECORD_FAILED', status: 409 };
   if (error instanceof WetokenVideoError) {
@@ -577,6 +599,7 @@ export async function POST(_req: Request, { params }: RouteContext) {
       const errorMessage = error instanceof Error ? error.message : '';
       const referenceError = errorMessage === ERRORS.REFERENCES_NOT_READY
         || errorMessage === ERRORS.REFERENCES_NOT_REACHABLE
+        || errorMessage === ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE
         ? errorMessage
         : ERRORS.REFERENCES_NOT_READY;
       await context.localClient.from('creator_generation_tasks').update({
@@ -689,6 +712,11 @@ export async function POST(_req: Request, { params }: RouteContext) {
       }
     }
     const normalized = publicError(error);
-    return response(normalized.message, normalized.code, normalized.status);
+    return response(
+      normalized.message,
+      normalized.code,
+      normalized.status,
+      normalized.status === 503 ? { 'Retry-After': '15' } : undefined,
+    );
   }
 }
