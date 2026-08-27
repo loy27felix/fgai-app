@@ -12,6 +12,11 @@ services:
     # The NAS supervisor owns app lifecycle so Docker cannot start it against an unmounted host directory.
     # App 生命周期由 NAS 守护进程管理，禁止 Docker 在宿主机目录未挂载时抢先启动。
     restart: "no"
+    # Use resolvers that resolve wetoken.ai when the LAN resolver returns SERVFAIL.
+    # 局域网 DNS 对 wetoken.ai 返回 SERVFAIL 时，改用公网 DNS，避免 Provider 主域名无法解析。
+    dns:
+      - 223.5.5.5
+      - 1.1.1.1
     env_file:
       - .env.docker
     environment:
