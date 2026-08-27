@@ -93,13 +93,16 @@ find_app_container() {
 
 probe_running_container() {
   local container="$1"
+  local health
   local marker_path="$APP_CONTAINER_PATH/$MARKER_NAME"
   local probe_path="$APP_CONTAINER_PATH/.fg-studio-container-probe"
   # Keep one stable probe because deleting an open SMB file creates persistent .smbdelete files.
   # 保留单个稳定探针，避免删除 SMB 占用文件后持续产生 .smbdelete 文件。
   run_with_timeout 5 docker exec "$container" sh -c \
     'grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2"' \
-    sh "$marker_path" "$probe_path" >/dev/null 2>&1
+    sh "$marker_path" "$probe_path" >/dev/null 2>&1 || return 1
+  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
+  [[ "$health" == "healthy" ]]
 }
 
 probe_new_mount() {
