@@ -23,26 +23,26 @@ export function redactServerLogText(value: unknown) {
     .slice(0, 500);
 }
 
-function serialiseValue(value: unknown, depth = 0, seen = new WeakSet<object>()): SafeLogValue {
+export function serialiseLogValue(value: unknown, depth = 0, seen = new WeakSet<object>()): SafeLogValue {
   if (typeof value === 'string') return redactServerLogText(value);
   if (typeof value === 'bigint') return value.toString();
   if (value === null || typeof value === 'number' || typeof value === 'boolean' || value === undefined) return value;
-  if (value instanceof Error) return serialiseError(value, depth, seen);
+  if (value instanceof Error) return serialiseLogError(value, depth, seen);
   if (depth >= 5) return '[truncated]';
-  if (Array.isArray(value)) return value.slice(0, 30).map((item) => serialiseValue(item, depth + 1, seen));
+  if (Array.isArray(value)) return value.slice(0, 30).map((item) => serialiseLogValue(item, depth + 1, seen));
   if (typeof value === 'object') {
     if (seen.has(value)) return '[circular]';
     seen.add(value);
     const serialised: Record<string, SafeLogValue> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 40)) {
-      serialised[key] = SENSITIVE_KEY.test(key) ? '[redacted]' : serialiseValue(item, depth + 1, seen);
+      serialised[key] = SENSITIVE_KEY.test(key) ? '[redacted]' : serialiseLogValue(item, depth + 1, seen);
     }
     return serialised;
   }
   return redactServerLogText(value);
 }
 
-function serialiseError(error: unknown, depth = 0, seen = new WeakSet<object>()): SafeLogValue {
+export function serialiseLogError(error: unknown, depth = 0, seen = new WeakSet<object>()): SafeLogValue {
   if (error instanceof Error) {
     const value = error as Error & { code?: unknown; status?: unknown; cause?: unknown };
     return {
@@ -50,10 +50,10 @@ function serialiseError(error: unknown, depth = 0, seen = new WeakSet<object>())
       message: redactServerLogText(value.message) || 'unknown error',
       ...(typeof value.code === 'string' || typeof value.code === 'number' ? { code: value.code } : {}),
       ...(typeof value.status === 'number' ? { status: value.status } : {}),
-      ...(depth === 0 && value.cause !== undefined ? { cause: serialiseError(value.cause, depth + 1, seen) } : {}),
+      ...(depth === 0 && value.cause !== undefined ? { cause: serialiseLogError(value.cause, depth + 1, seen) } : {}),
     };
   }
-  return serialiseValue(error, depth, seen);
+  return serialiseLogValue(error, depth, seen);
 }
 
 export function requestTraceId(request: Request) {
@@ -72,7 +72,7 @@ export function logServerEvent(
   level: ServerLogLevel = 'info',
 ) {
   try {
-    const line = JSON.stringify(serialiseValue({
+    const line = JSON.stringify(serialiseLogValue({
       event,
       timestamp: new Date().toISOString(),
       ...fields,
@@ -87,5 +87,5 @@ export function logServerEvent(
 }
 
 export function logServerFailure(event: string, error: unknown, fields: ServerLogFields = {}) {
-  logServerEvent(event, { ...fields, error: serialiseError(error) }, 'error');
+  logServerEvent(event, { ...fields, error: serialiseLogError(error) }, 'error');
 }

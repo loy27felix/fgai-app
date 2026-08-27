@@ -75,6 +75,8 @@ pnpm logs:app:history     # 列出自动部署归档的 App 历史日志
 pnpm logs:postgres        # 只看 PostgreSQL 日志（含时间戳）
 pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志（含时间戳）
 pnpm logs:monitor         # 查看统一服务状态与新增业务错误告警
+pnpm logs:audit           # 查询最近 168 小时的持久化业务审计事件
+scripts/audit-events.sh all  # 查询 audit_events 全部历史
 ```
 
 日志命令会持续跟随新输出并显示 Docker 时间戳，按 `Ctrl+C` 退出，不会停止容器。排查 App 内的具体链路时，可继续按现有日志标识过滤：
@@ -86,6 +88,8 @@ pnpm logs:app | grep '\[local media'               # NAS 媒体鉴权、读取�
 ```
 
 本地执行 `pnpm dev` 时，App 日志直接输出在当前终端，不经过 Docker；浏览器端日志仍在浏览器 DevTools Console 中查看。
+
+业务审计事件保存在 PostgreSQL 的 `audit_events` 表中。每条记录包含 `event_id`、`trace_id`、操作者、workspace、feature/action、资源、阶段、前后状态、结果、耗时、脱敏后的参数/数据和错误摘要；视频任务同时保留在 `creator_generation_task_events`。应用会在 stdout 输出同一个事件 ID，便于把实时日志与数据库历史关联。Prompt、完整 URL、signed URL、token、密码、API key、图片/视频二进制不会写入审计事件。
 
 实际运行 Docker 的 macOS 宿主机必须安装 NAS 守护进程；不要在开发机或仅用于编辑代码的机器上执行：
 

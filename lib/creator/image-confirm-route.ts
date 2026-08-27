@@ -35,6 +35,7 @@ import {
   updateImageUsageStatus,
 } from '@/lib/usage/ledger';
 import { logCreatorImageEvent, logCreatorImageFailure } from './image-logging';
+import { requestTraceId } from '@/lib/observability/server-log';
 import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
 
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -573,8 +574,9 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
       .maybeSingle();
   }
 
-  async function POST(_req: Request, { params }: RouteContext) {
-    logCreatorImageEvent('http_received', { taskId: params.id });
+  async function POST(req: Request, { params }: RouteContext) {
+    const traceId = requestTraceId(req);
+    logCreatorImageEvent('http_received', { taskId: params.id, traceId });
     try {
       const context = await creatorContext();
       if (!context) {
@@ -589,6 +591,7 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         taskId: params.id,
         userId: context.user.id,
         workspaceId: context.workspace.id,
+        traceId,
       };
       const result = await deps.confirmCreatorImage(
         input,

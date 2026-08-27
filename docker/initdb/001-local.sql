@@ -344,6 +344,38 @@ create table if not exists creator_generation_task_events (
   created_at timestamptz not null default now()
 );
 
+-- Searchable business audit trail. Payloads are sanitized by the application
+-- before insertion; binary data, signed URLs, prompts and credentials stay out.
+-- 可检索业务审计流由应用脱敏后写入，禁止保存二进制、签名 URL、Prompt 和凭据。
+create table if not exists audit_events (
+  id bigserial primary key,
+  event_id uuid not null unique default gen_random_uuid(),
+  occurred_at timestamptz not null default now(),
+  trace_id text,
+  actor_id uuid,
+  workspace_id uuid,
+  feature text not null,
+  action text not null,
+  resource_type text,
+  resource_id text,
+  stage text not null,
+  outcome text not null,
+  status_before text,
+  status_after text,
+  duration_ms integer,
+  parameters jsonb not null default '{}'::jsonb,
+  data jsonb not null default '{}'::jsonb,
+  error jsonb,
+  metadata jsonb not null default '{}'::jsonb
+);
+
+create index if not exists audit_events_occurred_idx on audit_events(occurred_at desc);
+create index if not exists audit_events_trace_idx on audit_events(trace_id, occurred_at desc);
+create index if not exists audit_events_actor_idx on audit_events(actor_id, occurred_at desc);
+create index if not exists audit_events_workspace_idx on audit_events(workspace_id, occurred_at desc);
+create index if not exists audit_events_resource_idx on audit_events(resource_type, resource_id, occurred_at desc);
+create index if not exists audit_events_feature_action_idx on audit_events(feature, action, occurred_at desc);
+
 -- Keep the business timestamp reliable for every task transition.
 -- 每次任务状态变化都由数据库维护业务时间，避免应用漏写 updated_at。
 create or replace function touch_creator_generation_task_updated_at()

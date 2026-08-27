@@ -1,8 +1,17 @@
 import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/local/middleware";
+import { logServerEvent, requestTraceId } from "@/lib/observability/server-log";
 
 export async function middleware(request: NextRequest) {
-  return await updateSession(request);
+  const traceId = requestTraceId(request);
+  logServerEvent("http_request_received", {
+    traceId,
+    method: request.method,
+    path: request.nextUrl.pathname,
+    userAgent: request.headers.get("user-agent") || undefined,
+    cfRay: request.headers.get("cf-ray") || undefined,
+  });
+  return await updateSession(request, traceId);
 }
 
 export const config = {

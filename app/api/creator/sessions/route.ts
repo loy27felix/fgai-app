@@ -8,6 +8,7 @@ import {
   logServerFailure,
   requestTraceId,
 } from '@/lib/observability/server-log';
+import { recordAuditEvent } from '@/lib/observability/audit-event';
 
 export const runtime = 'nodejs';
 
@@ -85,9 +86,23 @@ export async function GET(req: Request) {
       sessionCount: (sessions || []).length,
       messageCount: messages.length,
     });
+    await recordAuditEvent({
+      traceId,
+      actorId: context.user.id,
+      workspaceId: context.workspace.id,
+      feature: 'creator_session',
+      action: 'read',
+      resourceType: 'creator_session',
+      resourceId: sessionId,
+      stage: 'completed',
+      outcome: 'succeeded',
+      parameters: { kind, sessionIdPresent: Boolean(sessionId) },
+      data: { sessionCount: (sessions || []).length, messageCount: messages.length },
+    });
     return respond({ workspace: context.workspace, sessions: sessions || [], messages });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'read', sessionId: sessionId || undefined, kind: kind || undefined });
+    await recordAuditEvent({ traceId, feature: 'creator_session', action: 'read', resourceType: 'creator_session', resourceId: sessionId, stage: 'failed', outcome: 'failed', parameters: { kind }, error, level: 'error' });
     return respond({ error: '读取会话失败，请重新读取。' }, { status: 500 });
   }
 }
@@ -117,9 +132,22 @@ export async function POST(req: Request) {
       .single();
     if (error) throw error;
     logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'create', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: data.id, kind, model: data.default_model || undefined });
+    await recordAuditEvent({
+      traceId,
+      actorId: context.user.id,
+      workspaceId: context.workspace.id,
+      feature: 'creator_session',
+      action: 'create',
+      resourceType: 'creator_session',
+      resourceId: data.id,
+      stage: 'completed',
+      outcome: 'succeeded',
+      parameters: { kind, model: data.default_model },
+    });
     return respond({ session: data }, { status: 201 });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'create' });
+    await recordAuditEvent({ traceId, feature: 'creator_session', action: 'create', resourceType: 'creator_session', stage: 'failed', outcome: 'failed', error, level: 'error' });
     return respond({ error: error instanceof Error ? error.message : '创建会话失败' }, { status: 500 });
   }
 }
@@ -157,9 +185,22 @@ export async function PATCH(req: Request) {
       .single();
     if (error) throw error;
     logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'update', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: data.id, changedFields: Object.keys(changes) });
+    await recordAuditEvent({
+      traceId,
+      actorId: context.user.id,
+      workspaceId: context.workspace.id,
+      feature: 'creator_session',
+      action: 'update',
+      resourceType: 'creator_session',
+      resourceId: data.id,
+      stage: 'completed',
+      outcome: 'succeeded',
+      parameters: { changedFields: Object.keys(changes) },
+    });
     return respond({ session: data });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'update' });
+    await recordAuditEvent({ traceId, feature: 'creator_session', action: 'update', resourceType: 'creator_session', stage: 'failed', outcome: 'failed', error, level: 'error' });
     return respond({ error: error instanceof Error ? error.message : '更新会话失败' }, { status: 500 });
   }
 }
@@ -191,9 +232,21 @@ export async function DELETE(req: Request) {
       return respond({ error: '会话不存在' }, { status: 404 });
     }
     logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'delete', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: data.id });
+    await recordAuditEvent({
+      traceId,
+      actorId: context.user.id,
+      workspaceId: context.workspace.id,
+      feature: 'creator_session',
+      action: 'delete',
+      resourceType: 'creator_session',
+      resourceId: data.id,
+      stage: 'completed',
+      outcome: 'succeeded',
+    });
     return respond({ ok: true, id: data.id });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'delete' });
+    await recordAuditEvent({ traceId, feature: 'creator_session', action: 'delete', resourceType: 'creator_session', stage: 'failed', outcome: 'failed', error, level: 'error' });
     return respond({ error: error instanceof Error ? error.message : '删除会话失败' }, { status: 500 });
   }
 }

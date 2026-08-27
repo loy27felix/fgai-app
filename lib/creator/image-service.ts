@@ -9,6 +9,7 @@ import {
   validateStoredImageDraftRequest,
 } from './image';
 import { logCreatorImageEvent, logCreatorImageFailure } from './image-logging';
+import { recordAuditEvent } from '@/lib/observability/audit-event';
 
 export const IMAGE_CONFIRM_PUBLIC_ERRORS = {
   REFERENCES_NOT_READY: '\u53c2\u8003\u56fe\u5c1a\u672a\u4e0a\u4f20\u5b8c\u6210',
@@ -43,6 +44,7 @@ export type ConfirmImageInput = {
   taskId: string;
   userId: string;
   workspaceId: string;
+  traceId?: string;
 };
 
 export type ConfirmImageTask = {
@@ -153,6 +155,31 @@ function imageTaskLogContext(task: ConfirmImageTask, requestId?: string) {
   };
 }
 
+async function auditImage(
+  input: ConfirmImageInput,
+  stage: string,
+  outcome: Parameters<typeof recordAuditEvent>[0]['outcome'],
+  task?: ConfirmImageTask,
+  data: Record<string, unknown> = {},
+  error?: unknown,
+) {
+  await recordAuditEvent({
+    traceId: input.traceId,
+    actorId: input.userId,
+    workspaceId: input.workspaceId,
+    feature: 'creator_image',
+    action: 'generation',
+    resourceType: 'creator_generation_task',
+    resourceId: task?.id || input.taskId,
+    stage,
+    outcome,
+    statusAfter: task?.status,
+    data,
+    ...(error === undefined ? {} : { error }),
+    level: outcome === 'failed' ? 'error' : outcome === 'unknown' ? 'warn' : 'info',
+  });
+}
+
 function generatedLogContext(generated: ImageGenerationResult) {
   return {
     mimeType: generated.mimeType,
@@ -221,21 +248,25 @@ export async function confirmCreatorImage(
   logCreatorImageEvent('task_claim_started', {
     taskId: input.taskId,
   });
+  await auditImage(input, 'task_claim_started', 'started');
   const task = await deps.claimDraft(input);
   if (!task) {
     logCreatorImageEvent('task_claim_duplicate', {
       taskId: input.taskId,
       outcome: 'duplicate',
     }, 'warn');
+    await auditImage(input, 'task_claim_duplicate', 'duplicate');
     return { duplicate: true };
   }
 
   const requestId = `creator-image:${task.id}`;
   const taskContext = imageTaskLogContext(task, requestId);
   logCreatorImageEvent('task_claimed', taskContext);
+  await auditImage(input, 'task_claimed', 'started', task, { model: task.model });
   if (task.request.uploads_complete !== true) {
     const error = new CreatorImageConfirmError('REFERENCES_NOT_READY');
     logCreatorImageFailure('preflight_rejected', error, taskContext);
+    await auditImage(input, 'preflight_rejected', 'rejected', task, {}, error);
     await bestEffortSettle(deps, {
       task,
       status: 'draft',
@@ -265,11 +296,18 @@ export async function confirmCreatorImage(
       promptChars: effectivePrompt.length,
       referenceCount: references.length,
     });
+    await auditImage(input, 'preflight_completed', 'succeeded', task, {
+      model: task.model,
+      size,
+      promptChars: effectivePrompt.length,
+      referenceCount: references.length,
+    });
   } catch (error: unknown) {
     const normalized = error instanceof CreatorImageConfirmError
       ? error
       : new CreatorImageConfirmError('INVALID_DRAFT', error);
     logCreatorImageFailure('preflight_failed', normalized, taskContext);
+    await auditImage(input, 'preflight_failed', 'failed', task, {}, normalized);
     await bestEffortSettle(deps, {
       task,
       status: 'draft',
@@ -280,13 +318,16 @@ export async function confirmCreatorImage(
 
   try {
     logCreatorImageEvent('ledger_record_started', taskContext);
+    await auditImage(input, 'ledger_record_started', 'started', task);
     await deps.recordAttempt({ requestId, task });
     logCreatorImageEvent('ledger_recorded', taskContext);
+    await auditImage(input, 'ledger_recorded', 'succeeded', task);
   } catch (error: unknown) {
     const normalized = error instanceof CreatorImageConfirmError
       ? error
       : new CreatorImageConfirmError('USAGE_RECORD_FAILED', error);
     logCreatorImageFailure('ledger_record_failed', normalized, taskContext);
+    await auditImage(input, 'ledger_record_failed', 'failed', task, {}, normalized);
     await bestEffortSettle(deps, {
       task,
       requestId,
@@ -299,6 +340,12 @@ export async function confirmCreatorImage(
   try {
     logCreatorImageEvent('generation_started', {
       ...taskContext,
+      size,
+      promptChars: effectivePrompt.length,
+      referenceCount: references.length,
+    });
+    await auditImage(input, 'generation_started', 'started', task, {
+      model: task.model,
       size,
       promptChars: effectivePrompt.length,
       referenceCount: references.length,
@@ -326,6 +373,11 @@ export async function confirmCreatorImage(
       ledgerStatus: result.ledgerStatus,
       requiresReconciliation: result.requiresReconciliation === true,
     });
+    await auditImage(input, 'generation_completed', 'succeeded', task, {
+      assetId: result.assetId,
+      ledgerStatus: result.ledgerStatus,
+      requiresReconciliation: result.requiresReconciliation === true,
+    });
     return result;
   } catch (error: unknown) {
     if (error instanceof CreatorImageConfirmError && error.code === 'RESULT_RECONCILIATION_REQUIRED') {
@@ -344,6 +396,10 @@ export async function confirmCreatorImage(
       possiblyCharged: status === 'unknown',
       ...(providerResultMissing && error.diagnostic ? { providerDiagnostic: error.diagnostic } : {}),
     });
+    await auditImage(input, 'generation_failed', status === 'unknown' ? 'unknown' : 'failed', task, {
+      settlementStatus: status,
+      possiblyCharged: status === 'unknown',
+    }, error);
     await bestEffortSettle(deps, {
       task,
       requestId,

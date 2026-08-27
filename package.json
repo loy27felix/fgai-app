@@ -19,7 +19,8 @@
     "logs:tunnel": "docker compose --env-file .env.docker logs --timestamps --follow --tail=200 cloudflared",
     "logs:nas": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-nas-supervisor.log\" \"$HOME/Library/Logs/fg-studio-nas-supervisor.error.log\"",
     "logs:deploy": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-auto-deploy.log\" \"$HOME/Library/Logs/fg-studio-auto-deploy.error.log\"",
-    "logs:monitor": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-service-monitor.log\" \"$HOME/Library/Logs/fg-studio-service-monitor.error.log\" \"$HOME/Library/Logs/fg-studio-monitor/app-errors.log\""
+    "logs:monitor": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-service-monitor.log\" \"$HOME/Library/Logs/fg-studio-service-monitor.error.log\" \"$HOME/Library/Logs/fg-studio-monitor/app-errors.log\"",
+    "logs:audit": "scripts/audit-events.sh"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

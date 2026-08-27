@@ -13,6 +13,7 @@ import {
   logServerFailure,
   requestTraceId,
 } from '@/lib/observability/server-log';
+import { recordAuditEvent } from '@/lib/observability/audit-event';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -83,6 +84,17 @@ export async function POST(req: Request) {
     imageCount: images.length,
     skillEnabled: Boolean(skill),
     reasoningEffort,
+  });
+  await recordAuditEvent({
+    traceId,
+    actorId: user.id,
+    feature: 'creator_chat',
+    action: 'message',
+    resourceType: 'creator_session',
+    resourceId: body.sessionId,
+    stage: 'received',
+    outcome: 'started',
+    parameters: { model, messageCharacters: message.length, imageCount: images.length, skillEnabled: Boolean(skill), reasoningEffort },
   });
 
   let session: { id: string; workspace_id: string; title: string } | null = null;
@@ -180,6 +192,20 @@ export async function POST(req: Request) {
       usagePresent: Boolean(result.usage),
       ledgerRecorded,
     });
+    await recordAuditEvent({
+      traceId,
+      actorId: user.id,
+      workspaceId: workspace.id,
+      feature: 'creator_chat',
+      action: 'message',
+      resourceType: 'creator_session',
+      resourceId: activeSession.id,
+      stage: 'completed',
+      outcome: 'succeeded',
+      durationMs: Date.now() - startedAt,
+      parameters: { model: spec.id, messageCharacters: message.length, imageCount: images.length },
+      data: { usagePresent: Boolean(result.usage), ledgerRecorded },
+    });
     return respond({
       message: insertedAssistant.data,
       title: update.title || activeSession.title,
@@ -197,6 +223,20 @@ export async function POST(req: Request) {
     }
     const detail = error instanceof Error ? error.message : 'AI 请求失败';
     logServerFailure('creator_chat', error, { traceId, feature: 'creator_chat', stage: 'failed', actorId: user.id, sessionId: body.sessionId, model });
+    await recordAuditEvent({
+      traceId,
+      actorId: user.id,
+      workspaceId: session?.workspace_id,
+      feature: 'creator_chat',
+      action: 'message',
+      resourceType: 'creator_session',
+      resourceId: session?.id || body.sessionId,
+      stage: 'failed',
+      outcome: 'failed',
+      parameters: { model, messageCharacters: message.length, imageCount: images.length },
+      error,
+      level: 'error',
+    });
     return respond({ error: detail }, { status: 500 });
   }
 }
