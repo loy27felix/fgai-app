@@ -102,7 +102,9 @@ probe_running_container() {
     'grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2"' \
     sh "$marker_path" "$probe_path" >/dev/null 2>&1 || return 1
   health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
-  [[ "$health" == "healthy" ]]
+  # A freshly recreated app remains starting while migrations and Next.js boot complete.
+  # 新容器执行迁移和启动 Next.js 时会暂处 starting，不能被守护进程提前终止。
+  [[ "$health" == "healthy" || "$health" == "starting" ]]
 }
 
 probe_new_mount() {
