@@ -45,7 +45,23 @@ services:
     restart: unless-stopped
     # Force HTTP/2 when outbound UDP/7844 is unavailable on the server network.
     # 服务器网络无法稳定使用 UDP/7844 时固定走 HTTP/2，避免自动切回 QUIC。
-    command: tunnel --no-autoupdate --protocol http2 run
+    command:
+      - sh
+      - -c
+      - |
+        cloudflared tunnel --metrics 0.0.0.0:20241 --no-autoupdate --protocol http2 run &
+        tunnel_pid=$$!
+        # Restart the connector when it stays disconnected; Docker then re-resolves the Edge address.
+        # 连接持续断开时主动退出，让 Docker 重启并重新解析 Cloudflare Edge 地址。
+        while kill -0 "$${tunnel_pid}" 2>/dev/null; do
+          sleep 30
+          cloudflared tunnel ready --metrics 127.0.0.1:20241 >/dev/null 2>&1 || {
+            kill "$${tunnel_pid}" 2>/dev/null || true
+            wait "$${tunnel_pid}" || true
+            exit 1
+          }
+        done
+        wait "$${tunnel_pid}"
     environment:
       # The token is injected from the ignored host env file and never committed.
       # Token 只从未提交的宿主机环境文件注入，禁止写入仓库。
