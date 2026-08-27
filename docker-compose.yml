@@ -28,6 +28,7 @@ services:
       - sh
       - -c
       - |
+        set -e
         test -f "$${NAS_READY_FILE}" || { echo "NAS media storage is unavailable" >&2; exit 78; }
         node scripts/local-db-migrate.mjs
         exec node server.js
