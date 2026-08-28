@@ -23,6 +23,27 @@ export function redactServerLogText(value: unknown) {
     .slice(0, 500);
 }
 
+/** Format the human-facing timestamp in the server's operating timezone.
+ * 服务日志使用中国时区展示，另外保留 UTC 时间供机器检索和跨时区对账。
+ */
+export function formatServerLogTime(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+  }).formatToParts(date).reduce<Record<string, string>>((result, part) => {
+    result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}.${String(date.getMilliseconds()).padStart(3, '0')}`;
+}
+
 export function serialiseLogValue(value: unknown, depth = 0, seen = new WeakSet<object>()): SafeLogValue {
   if (typeof value === 'string') return redactServerLogText(value);
   if (typeof value === 'bigint') return value.toString();
@@ -72,9 +93,11 @@ export function logServerEvent(
   level: ServerLogLevel = 'info',
 ) {
   try {
+    const now = new Date();
     const line = JSON.stringify(serialiseLogValue({
       event,
-      timestamp: new Date().toISOString(),
+      timestamp: formatServerLogTime(now),
+      timestampUtc: now.toISOString(),
       ...fields,
     }));
     if (level === 'error') console.error(line);

@@ -1,3 +1,5 @@
+import { formatServerLogTime } from '@/lib/observability/server-log';
+
 type ImageLogLevel = 'info' | 'warn' | 'error';
 
 export type CreatorImageLogFields = Record<string, unknown>;
@@ -56,9 +58,11 @@ function safeValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unk
 
 function write(level: ImageLogLevel, payload: CreatorImageLogFields) {
   try {
+    const now = new Date();
     const line = JSON.stringify(safeValue({
       event: 'creator_image',
-      timestamp: new Date().toISOString(),
+      timestamp: formatServerLogTime(now),
+      timestampUtc: now.toISOString(),
       ...payload,
     }));
     if (level === 'error') console.error(line);
