@@ -1,4 +1,5 @@
 import { getVideoModel } from './video-models';
+import { Agent, type Dispatcher } from 'undici';
 import {
   cleanupWetokenAssets,
   isProviderReachableAssetSourceUrl,
@@ -29,7 +30,8 @@ export type SeedanceInput = {
 };
 
 export type VideoTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired';
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type FetcherInit = RequestInit & { dispatcher?: Dispatcher };
+type Fetcher = (input: string | URL | Request, init?: FetcherInit) => Promise<Response>;
 
 // Some Wetoken video routes do not acknowledge the request until the provider
 // has finished rendering. Seedance 2.5 can therefore take an hour or more
@@ -38,6 +40,12 @@ type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Re
 // The LAN deployment has no serverless cap, so allow a conservative three-hour
 // window before declaring a still-running provider request unknown.
 export const WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+const WETOKEN_VIDEO_POLL_TIMEOUT_MS = 60_000;
+// Undici defaults to a 10-second connection timeout; provider polling needs more time on the NAS network.
+// Undici 默认连接超时为 10 秒；NAS 网络访问 Provider 时轮询需要更长的连接窗口。
+const wetokenPollDispatcher = new Agent({
+  connect: { timeout: WETOKEN_VIDEO_POLL_TIMEOUT_MS },
+});
 
 export class WetokenVideoError extends Error {
   readonly status: number;
@@ -272,7 +280,7 @@ async function providerJson(response: Response) {
 async function providerFetch(
   fetcher: Fetcher,
   input: string,
-  init: RequestInit,
+  init: FetcherInit,
   operation: 'submit' | 'poll',
 ) {
   const startedAt = Date.now();
@@ -344,7 +352,8 @@ export async function getWetokenVideoTask(
     `${wetokenOrigin()}/api/v3/contents/generations/tasks/${encodeURIComponent(externalTaskId)}`,
     {
       headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(30_000),
+      dispatcher: wetokenPollDispatcher,
+      signal: AbortSignal.timeout(WETOKEN_VIDEO_POLL_TIMEOUT_MS),
     },
     'poll',
   );
