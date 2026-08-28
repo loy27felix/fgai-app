@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Project, Role } from "@/lib/types";
-import { createProject, requestJoin, approveJoin, deleteProject, signOut } from "@/app/projects/actions";
+import { createProject, requestJoin, approveJoin, rejectJoin, deleteProject, signOut } from "@/app/projects/actions";
 import { useFgTheme, Icon, Hov } from "@/components/studio/ui";
 import FGLogo from "@/components/FGLogo";
 
@@ -20,12 +20,12 @@ function ago(iso: string) { const d = (Date.now() - new Date(iso).getTime()) / 1
 const EMOJIS = ["✦", "✺", "❂", "✸", "❖", "✶"];
 
 export default function ProjectBoard({
-  projects, myRole, myApplied, pending, counts, membersByProject, epCount, genCount, userId, userEmail, isAdmin,
+  projects, myRole, myApplied, pending, counts, membersByProject, epCount, genCount, userId, userEmail, isAdmin, isSuperadmin,
 }: {
   projects: Project[]; myRole: Record<string, Role>; myApplied: string[];
   pending: Record<string, Pending[]>; counts: Record<string, number>;
   membersByProject: Record<string, { ini: string; bg: string }[]>; epCount: Record<string, number>;
-  genCount: number; userId: string; userEmail: string; isAdmin: boolean;
+  genCount: number; userId: string; userEmail: string; isAdmin: boolean; isSuperadmin: boolean;
 }) {
   const router = useRouter();
   const { theme, toggle } = useFgTheme();
@@ -67,8 +67,9 @@ export default function ProjectBoard({
     if (r?.error) { alert("创建失败：" + r.error); return; }
     setShowNew(false); setName(""); setSummary(""); router.refresh();
   }
-  async function onJoin(id: string) { await requestJoin(id); router.refresh(); }
-  async function onApprove(p: any) { await approveJoin(p.requestId, p.projectId, p.user_id); router.refresh(); }
+  async function onJoin(id: string) { const r: any = await requestJoin(id); if (r?.error) { alert("申请失败：" + r.error); return; } router.refresh(); }
+  async function onApprove(p: any) { const r: any = await approveJoin(p.requestId, p.projectId, p.user_id); if (r?.error) { alert("批准失败：" + r.error); return; } router.refresh(); }
+  async function onReject(p: any) { const r: any = await rejectJoin(p.requestId, p.projectId, p.user_id); if (r?.error) { alert("拒绝失败：" + r.error); return; } router.refresh(); }
   async function onDelete(id: string, nm: string) { if (!confirm(`删除项目「${nm}」？剧本/分镜/资产将一并永久删除,不可恢复。`)) return; setBusy(true); const r: any = await deleteProject(id); setBusy(false); if (r?.error) { alert("删除失败：" + r.error); return; } router.refresh(); }
 
   const railItem = (label: string, d: string[], active: boolean, href?: string, badge?: string, onClick?: () => void) => (
@@ -172,7 +173,7 @@ export default function ProjectBoard({
           {/* GRID */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(304px,1fr))", gap: 20 }}>
             {filtered.map((p) => {
-              const isMember = !!myRole[p.id]; const isOwner = p.created_by === userId; const st = statusOf(p); const sn = stageNoOf(p);
+              const isMember = !!myRole[p.id]; const isOwner = p.created_by === userId; const canDelete = isOwner || isSuperadmin; const st = statusOf(p); const sn = stageNoOf(p);
               const team = membersByProject[p.id] || []; const total = counts[p.id] || 1;
               const inner = (
                 <>
@@ -182,7 +183,7 @@ export default function ProjectBoard({
                       <span style={{ fontSize: 11, fontWeight: 500, color: "#fff", padding: "3px 9px", borderRadius: 8, background: "rgba(0,0,0,.32)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)" }}>{genre(p)}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 500, color: st === "进行中" ? "#74f08e" : "#ffc06a", padding: "3px 9px", borderRadius: 8, background: "rgba(0,0,0,.32)", border: "1px solid rgba(255,255,255,.18)", backdropFilter: "blur(8px)" }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor" }} />{st}</span>
                     </div>
-                    {isOwner && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(p.id, p.name); }} title="删除项目" style={{ position: "absolute", right: 12, top: 12, width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", cursor: "pointer", color: "#fff", background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)" }}><Icon d={["M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"]} size={14} sw={1.7} /></button>}
+                    {canDelete && <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(p.id, p.name); }} title={isSuperadmin && !isOwner ? "以超级管理员身份删除项目" : "删除项目"} style={{ position: "absolute", right: 12, top: 12, width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", cursor: "pointer", color: "#fff", background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.2)", backdropFilter: "blur(8px)" }}><Icon d={["M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"]} size={14} sw={1.7} /></button>}
                     <div style={{ position: "absolute", left: 16, bottom: 13, color: "#fff" }}>
                       <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: "-.4px", textShadow: "0 2px 12px rgba(0,0,0,.4)" }}>{p.name}</div>
                       <div className="fg-mono" style={{ fontSize: 11, opacity: 0.78, letterSpacing: 1 }}>#{p.id.slice(0, 6).toUpperCase()}</div>
@@ -242,6 +243,7 @@ export default function ProjectBoard({
             {pendList.length === 0 ? <div style={{ color: "var(--text-3)", fontSize: 13 }}>暂无</div> : pendList.map((p) => (
               <div key={p.requestId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--stroke)" }}>
                 <div style={{ flex: 1 }}><div style={{ fontSize: 13.5 }}>{p.email}</div><div style={{ fontSize: 11.5, color: "var(--text-3)" }}>申请加入「{p.projectName}」</div></div>
+                <button onClick={() => onReject(p)} style={{ height: 34, padding: "0 12px", borderRadius: 10, cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "#ff9e9e", background: "rgba(222,72,72,.12)", border: "1px solid rgba(222,72,72,.36)" }}>拒绝</button>
                 <button onClick={() => onApprove(p)} style={{ height: 34, padding: "0 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "var(--accent-ink)", background: "var(--accent)", border: "none" }}>批准</button>
               </div>
             ))}

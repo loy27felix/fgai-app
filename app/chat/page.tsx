@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import CreatorWorkspace from '@/components/creator/CreatorWorkspace';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
+import { normalizeCreatorMessages, normalizeCreatorSessions } from '@/lib/creator/session-read';
 import type { CreatorMessage, CreatorSession } from '@/lib/creator/types';
 import { createClient } from '@/lib/local/server';
 import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
@@ -26,15 +27,14 @@ export default async function ChatPage({ searchParams }: PageProps) {
       rpc: async () => localClient.rpc('ensure_creator_workspace'),
       load: async (id) => localClient.from('creator_workspaces').select('*').eq('id', id).single(),
     }, user.id);
+    // Do not reference optional archive/update columns here: existing LAN
+    // databases can be one migration behind while still containing valid chat.
     const sessionsResult = await localClient
       .from('creator_sessions')
       .select('*')
-      .eq('workspace_id', workspace.id)
-      .eq('kind', 'chat')
-      .is('archived_at', null)
-      .order('updated_at', { ascending: false });
+      .eq('workspace_id', workspace.id);
     if (sessionsResult.error) throw sessionsResult.error;
-    sessions = (sessionsResult.data || []) as CreatorSession[];
+    sessions = normalizeCreatorSessions(sessionsResult.data || [], 'chat');
     initialSessionId = requestedSessionId && sessions.some((session) => session.id === requestedSessionId)
       ? requestedSessionId
       : null;
@@ -42,12 +42,11 @@ export default async function ChatPage({ searchParams }: PageProps) {
       const messagesResult = await localClient
         .from('creator_messages')
         .select('*')
-        .eq('session_id', initialSessionId)
-        .order('created_at', { ascending: true });
+        .eq('session_id', initialSessionId);
       if (messagesResult.error) throw messagesResult.error;
-      messages = (messagesResult.data || []) as CreatorMessage[];
+      messages = normalizeCreatorMessages(messagesResult.data || []);
     }
-    logServerEvent('creator_chat_page', { traceId, feature: 'creator_chat', stage: 'initial_read_completed', actorId: user.id, sessionId: initialSessionId || undefined, sessionCount: sessions.length, messageCount: messages.length });
+    logServerEvent('creator_chat_page', { traceId, feature: 'creator_chat', stage: 'initial_read_completed', actorId: user.id, sessionId: initialSessionId || undefined, rawSessionCount: (sessionsResult.data || []).length, sessionCount: sessions.length, messageCount: messages.length, compatibilityRead: true });
   } catch (error: unknown) {
     logServerFailure('creator_chat_page', error, { traceId, feature: 'creator_chat', stage: 'initial_read_failed', actorId: user.id, sessionId: requestedSessionId || undefined });
     initialLoadError = `对话历史暂时读取失败（追踪编号：${traceId.slice(0, 8)}）`;

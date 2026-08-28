@@ -122,8 +122,11 @@ type CanvasGenerationRequest = {
     controller: AbortController;
 };
 
-const VIDEO_NODE_MAX_WIDTH = 420;
-const VIDEO_NODE_MAX_HEIGHT = 420;
+// Video needs more canvas presence than a still image. Keep portrait outputs
+// legible while preserving aspect ratio instead of squeezing every clip into
+// the old 420px envelope.
+const VIDEO_NODE_MAX_WIDTH = 560;
+const VIDEO_NODE_MAX_HEIGHT = 560;
 // 稳定的空引用数组:避免每次渲染 `... || []` 产生新数组引用而击穿 CanvasNode 的 React.memo
 const EMPTY_REFERENCES: CanvasResourceReference[] = [];
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
@@ -138,6 +141,42 @@ const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用�
 1. 只输出提示词正文，不要解释。
 2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
 3. 尽量写成可直接用于生图模型的完整提示词。`;
+
+async function captureVideoFrameFile(sourceUrl: string, frame: "first" | "current" | "last", currentTime = 0) {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "auto";
+    video.src = sourceUrl;
+
+    await new Promise<void>((resolve, reject) => {
+        // loadeddata guarantees a decodable first frame; metadata alone can
+        // still yield a blank canvas on some browsers.
+        video.addEventListener("loadeddata", () => resolve(), { once: true });
+        video.addEventListener("error", () => reject(new Error("视频无法读取，无法截取画面")), { once: true });
+    });
+
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const targetTime = frame === "last" ? Math.max(0, duration - 0.08) : frame === "current" ? Math.min(Math.max(0, currentTime), Math.max(0, duration - 0.08)) : 0;
+    if (targetTime > 0.001) {
+        await new Promise<void>((resolve, reject) => {
+            video.addEventListener("seeked", () => resolve(), { once: true });
+            video.addEventListener("error", () => reject(new Error("视频定位失败，无法截取画面")), { once: true });
+            video.currentTime = targetTime;
+        });
+    }
+
+    const width = Math.max(1, video.videoWidth || 1280);
+    const height = Math.max(1, video.videoHeight || 720);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("浏览器不支持视频画面截取");
+    context.drawImage(video, 0, 0, width, height);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => (value ? resolve(value) : reject(new Error("视频画面编码失败"))), "image/png"));
+    return new File([blob], `video-${frame}-frame.png`, { type: "image/png" });
+}
 
 function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], viewport: ViewportTransform, background: CanvasBackgroundMode) {
     const safeNodes = nodes.map((node) => {
@@ -172,17 +211,21 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                 try {
                     const task = (await getVideoTask(creatorTaskId)).task;
                     if (task.videoUrl) {
-                        const stored = await storeGeneratedVideo({
-                            url: task.videoUrl,
-                            fallbackUrl: creatorVideoContentUrl(task.id),
+                        const readyVideo = {
+                            url: creatorVideoContentUrl(task.id),
                             mimeType: "video/mp4",
                             externalTaskId: task.external_task_id || undefined,
-                        });
+                        };
+                        // Display the completed provider output immediately. NAS caching is
+                        // deliberately best-effort: a slow archive must not leave this node
+                        // stuck in "generating" after Wetoken has already charged and finished.
+                        void storeGeneratedVideo({ ...readyVideo, fallbackUrl: readyVideo.url })
+                            .catch((error) => console.warn("[creator video] hydration cache failed", { creatorTaskId, error }));
                         return {
                             ...node,
                             metadata: {
                                 ...node.metadata,
-                                ...videoMetadata(stored),
+                                ...videoMetadata(readyVideo),
                                 creatorTaskId,
                                 status: NODE_STATUS_SUCCESS,
                                 errorDetails: undefined,
@@ -378,6 +421,9 @@ function InfiniteCanvasPage() {
     const [isNodeResizing, setIsNodeResizing] = useState(false);
     const [canvasTool, setCanvasTool] = useState<"select" | "pan">("pan");
     const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
+    // The prompt panel can enter a one-shot selection mode so a creator can
+    // connect a resource pack without hunting for tiny connector handles.
+    const [referenceSelectionTargetId, setReferenceSelectionTargetId] = useState<string | null>(null);
 
     const nodesRef = useRef(nodes);
     const connectionsRef = useRef(connections);
@@ -518,20 +564,21 @@ function InfiniteCanvasPage() {
                     try {
                         const task = (await getVideoTask(taskId)).task;
                         if (task.videoUrl) {
-                            const stored = await storeGeneratedVideo({
-                                url: task.videoUrl,
-                                fallbackUrl: creatorVideoContentUrl(task.id),
+                            const readyVideo = {
+                                url: creatorVideoContentUrl(task.id),
                                 mimeType: "video/mp4",
                                 externalTaskId: task.external_task_id || undefined,
-                            });
+                            };
                             if (disposed) return;
                             setNodes((prev) =>
                                 prev.map((item) =>
                                     item.id === node.id
-                                        ? { ...item, metadata: { ...item.metadata, ...videoMetadata(stored), creatorTaskId: taskId, status: NODE_STATUS_SUCCESS, errorDetails: undefined } }
+                                        ? { ...item, metadata: { ...item.metadata, ...videoMetadata(readyVideo), creatorTaskId: taskId, status: NODE_STATUS_SUCCESS, errorDetails: undefined } }
                                         : item,
                                 ),
                             );
+                            void storeGeneratedVideo({ ...readyVideo, fallbackUrl: readyVideo.url })
+                                .catch((error) => console.warn("[creator video] resume cache failed", { creatorTaskId: taskId, error }));
                         } else if (
                             task.status === "failed"
                             || task.status === "expired"
@@ -1392,16 +1439,64 @@ function InfiniteCanvasPage() {
     // 只做选中,不启动拖拽 —— 拖拽仍由 body 的 onMouseDown(冒泡)负责,故编辑器内选词不会拖动节点。
     // capture 必先于同一次事件的 body 冒泡触发,故把算好的选中集暂存,供紧随其后的拖拽入口复用,避免二次选中(shift 反选被抵消)。
     const pendingSelectionRef = useRef<Set<string> | null>(null);
+    const handleReferenceSelectionToggle = useCallback((targetNodeId: string) => {
+        setReferenceSelectionTargetId((current) => (current === targetNodeId ? null : targetNodeId));
+    }, []);
+
+    const handleReferenceRemove = useCallback(
+        (targetNodeId: string, referenceNodeId: string) => {
+            const referenceNode = nodesRef.current.find((node) => node.id === referenceNodeId);
+            const groupId = referenceNode?.metadata?.groupId;
+            // References rendered from a group come from one group edge. Removing
+            // any child deliberately removes that source edge, matching the UI
+            // promise that the pack remains atomic.
+            const sourceNodeId = groupId && connectionsRef.current.some((connection) => connection.fromNodeId === groupId && connection.toNodeId === targetNodeId) ? groupId : referenceNodeId;
+            const hadConnection = connectionsRef.current.some((connection) => connection.fromNodeId === sourceNodeId && connection.toNodeId === targetNodeId);
+            if (!hadConnection) return;
+            setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== sourceNodeId || connection.toNodeId !== targetNodeId));
+            console.info("[canvas reference removed]", { targetNodeId, referenceNodeId, sourceNodeId, grouped: sourceNodeId === groupId });
+            message.success(sourceNodeId === groupId ? "已移除整组参考素材" : "已移除参考素材");
+        },
+        [message],
+    );
+
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
+            const referenceTargetId = referenceSelectionTargetId;
+            if (referenceTargetId && referenceTargetId !== nodeId) {
+                const candidate = nodesRef.current.find((node) => node.id === nodeId);
+                const canUseAsReference = Boolean(
+                    candidate &&
+                        (candidate.type === CanvasNodeType.Group ||
+                            candidate.type === CanvasNodeType.Image ||
+                            candidate.type === CanvasNodeType.Video ||
+                            candidate.type === CanvasNodeType.Audio ||
+                            candidate.type === CanvasNodeType.Text ||
+                            getNodeDefinition(candidate.type)?.resource?.(candidate)),
+                );
+                if (canUseAsReference) {
+                    const exists = connectionsRef.current.some((connection) => connection.fromNodeId === nodeId && connection.toNodeId === referenceTargetId);
+                    if (!exists) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: referenceTargetId }]);
+                    setReferenceSelectionTargetId(null);
+                    console.info("[canvas reference selected]", { targetNodeId: referenceTargetId, referenceNodeId: nodeId, grouped: candidate?.type === CanvasNodeType.Group, duplicate: exists });
+                    message.success(candidate?.type === CanvasNodeType.Group ? "已添加整组参考素材" : exists ? "该素材已在参考列表中" : "已添加参考素材");
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                message.warning("请选择图片、视频、音频、文本或组节点作为参考素材");
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             setContextMenu(null);
             setHoveredNodeId(null);
             setSelectedConnectionId(null);
             const { nextSelected } = selectNodeByEvent(event, nodeId);
             pendingSelectionRef.current = nextSelected;
         },
-        [selectNodeByEvent],
+        [message, referenceSelectionTargetId, selectNodeByEvent],
     );
 
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
@@ -1855,6 +1950,19 @@ function InfiniteCanvasPage() {
 
     const handleNodeContentChange = useCallback((nodeId: string, content: string) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, content } } : node)));
+    }, []);
+
+    const handleTextAlternativeChange = useCallback((nodeId: string, alternativeIndex: number) => {
+        setNodes((prev) =>
+            prev.map((node) => {
+                if (node.id !== nodeId) return node;
+                const alternatives = node.metadata?.textAlternatives || [];
+                const content = alternatives[alternativeIndex];
+                if (!content) return node;
+                console.info("[canvas text alternative selected]", { nodeId, alternativeIndex, alternatives: alternatives.length });
+                return { ...node, metadata: { ...node.metadata, content, activeTextAlternativeIndex: alternativeIndex } };
+            }),
+        );
     }, []);
 
     const handleNodeTitleChange = useCallback((nodeId: string, title: string) => {
@@ -2647,7 +2755,10 @@ function InfiniteCanvasPage() {
                 }
 
                 if (mode === "video") {
-                    const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+                    // Use the same generous envelope for the loading node as
+                    // the completed video. Portrait clips otherwise look like
+                    // tiny status pills until a page refresh.
+                    const spec = nodeSizeFromRatio(generationConfig.size, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
                     const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content;
                     const videoId = isEmptyVideoNode ? nodeId : nanoid();
                     const parent = sourceNode?.position || { x: 0, y: 0 };
@@ -2680,15 +2791,16 @@ function InfiniteCanvasPage() {
                     if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
-                        const video = await storeGeneratedVideo(
-                            await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
-                                signal: controller.signal,
-                                onCreatorTaskCreated: (creatorTaskId) => {
-                                    setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
-                                },
-                            }),
-                        );
-                        const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                        const video = await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
+                            signal: controller.signal,
+                            onCreatorTaskCreated: (creatorTaskId) => {
+                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+                            },
+                        });
+                        const videoUrl = video.url || video.fallbackUrl;
+                        if (!videoUrl) throw new Error("视频任务已完成，但未收到可播放地址");
+                        const readyVideo = { ...video, url: videoUrl, mimeType: video.mimeType || "video/mp4" };
+                        const videoSize = fitNodeSize(readyVideo.width || spec.width, readyVideo.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                         setNodes((prev) =>
                             prev.map((node) =>
                                 node.id === videoId
@@ -2699,7 +2811,7 @@ function InfiniteCanvasPage() {
                                           position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 },
                                           metadata: {
                                               ...node.metadata,
-                                              ...videoMetadata(video),
+                                              ...videoMetadata(readyVideo),
                                               prompt: effectivePrompt,
                                               model: generationConfig.model,
                                               size: generationConfig.size,
@@ -2714,6 +2826,9 @@ function InfiniteCanvasPage() {
                                     : node,
                             ),
                         );
+                        void storeGeneratedVideo(readyVideo)
+                            .then((stored) => setNodes((prev) => prev.map((node) => node.id === videoId ? { ...node, metadata: { ...node.metadata, ...videoMetadata(stored) } } : node)))
+                            .catch((error) => console.warn("[creator video] background cache failed", { nodeId: videoId, error }));
                     } finally {
                         finishGenerationRequest(videoId, controller);
                     }
@@ -2757,16 +2872,19 @@ function InfiniteCanvasPage() {
                 const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : CanvasNodeType.Text];
                 const textConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
                 const parentPosition = sourceNode?.position || { x: 0, y: 0 };
-                const childIds = isConfigNode || editingTextNode || textCount > 1 ? Array.from({ length: textCount }, () => nanoid()) : [];
+                // Text variants belong to one result node. Keeping them together
+                // makes comparison intentional and avoids spraying duplicate
+                // prompt nodes across the canvas.
+                const childIds = isConfigNode || editingTextNode ? [nanoid()] : [];
                 pendingChildIds = childIds;
                 if (childIds.length) {
-                    const childNodes: CanvasNodeData[] = childIds.map((id, index) => ({
+                    const childNodes: CanvasNodeData[] = childIds.map((id) => ({
                         id,
                         type: CanvasNodeType.Text,
                         title: effectivePrompt.slice(0, 32) || "Generated Text",
                         position: {
                             x: parentPosition.x + parentConfig.width + 96,
-                            y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 + (index - (textCount - 1) / 2) * (textConfig.height + 36),
+                            y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2,
                         },
                         width: textConfig.width,
                         height: textConfig.height,
@@ -2777,10 +2895,10 @@ function InfiniteCanvasPage() {
                 }
 
                 const controller = runController;
-                const textTargetIds = childIds.length ? childIds : [nodeId];
-                textTargetIds.forEach((targetNodeId) => startGenerationRequest(targetNodeId, nodeId, nodeId, controller));
+                const textTargetId = childIds[0] || nodeId;
+                startGenerationRequest(textTargetId, nodeId, nodeId, controller);
                 const answers = await Promise.all(
-                    textTargetIds.map((targetNodeId) => {
+                    Array.from({ length: textCount }, (_, variantIndex) => {
                         let localStreamed = "";
                         return requestImageQuestion(
                             generationConfig,
@@ -2788,21 +2906,26 @@ function InfiniteCanvasPage() {
                             (text) => {
                                 localStreamed = text;
                                 streamed = text;
-                                if (isConfigNode) return;
-                                setNodes((prev) => prev.map((node) => (node.id === targetNodeId ? { ...node, type: CanvasNodeType.Text, metadata: { ...node.metadata, content: text, status: NODE_STATUS_LOADING } } : node)));
+                                // Only stream the first variant into the shared
+                                // node. The completed alternatives are persisted
+                                // together once every request has returned.
+                                if (isConfigNode || variantIndex !== 0) return;
+                                setNodes((prev) => prev.map((node) => (node.id === textTargetId ? { ...node, type: CanvasNodeType.Text, metadata: { ...node.metadata, content: text, status: NODE_STATUS_LOADING } } : node)));
                             },
                             { signal: controller.signal },
                         )
-                            .then((answer) => ({ nodeId: targetNodeId, content: answer || localStreamed }))
-                            .finally(() => finishGenerationRequest(targetNodeId, controller));
+                            .then((answer) => answer || localStreamed);
                     }),
                 );
+                finishGenerationRequest(textTargetId, controller);
                 if (controller.signal.aborted) return;
-                const answerByNodeId = new Map(answers.map((item) => [item.nodeId, item.content]));
+                const completedAnswers = answers.filter(Boolean);
+                const primaryAnswer = completedAnswers[0] || streamed;
+                const textAlternatives = completedAnswers.length > 1 ? completedAnswers : undefined;
                 setNodes((prev) =>
                     prev.map((node) =>
                         childIds.includes(node.id)
-                            ? { ...node, metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS } }
+                            ? { ...node, metadata: { ...node.metadata, content: primaryAnswer, textAlternatives, activeTextAlternativeIndex: 0, status: NODE_STATUS_SUCCESS } }
                             : node.id === nodeId && isConfigNode
                               ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } }
                               : node.id === nodeId && !editingTextNode
@@ -2810,7 +2933,7 @@ function InfiniteCanvasPage() {
                                       ...node,
                                       type: CanvasNodeType.Text,
                                       title: prompt.slice(0, 32) || "Generated Text",
-                                      metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS },
+                                      metadata: { ...node.metadata, content: primaryAnswer, textAlternatives, activeTextAlternativeIndex: 0, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS },
                                   }
                                 : node,
                     ),
@@ -2823,6 +2946,7 @@ function InfiniteCanvasPage() {
                     prev.map((node) => (node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } }) : node)),
                 );
             } finally {
+                pendingChildIds.forEach((targetNodeId) => finishGenerationRequest(targetNodeId, runController));
                 finishGenerationRequest(nodeId, runController);
                 setRunningNodeId(null);
             }
@@ -2893,13 +3017,16 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Video) {
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
+                    const video = await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
                         signal: controller.signal,
                         onCreatorTaskCreated: (creatorTaskId) => {
                             setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
                         },
-                    }));
-                    const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                    });
+                    const videoUrl = video.url || video.fallbackUrl;
+                    if (!videoUrl) throw new Error("视频任务已完成，但未收到可播放地址");
+                    const readyVideo = { ...video, url: videoUrl, mimeType: video.mimeType || "video/mp4" };
+                    const videoSize = fitNodeSize(readyVideo.width || node.width, readyVideo.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
                         prev.map((item) =>
                             item.id === node.id
@@ -2910,7 +3037,7 @@ function InfiniteCanvasPage() {
                                       position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 },
                                       metadata: {
                                           ...item.metadata,
-                                          ...videoMetadata(video),
+                                          ...videoMetadata(readyVideo),
                                           prompt,
                                           model: generationConfig.model,
                                           size: generationConfig.size,
@@ -2924,6 +3051,9 @@ function InfiniteCanvasPage() {
                                 : item,
                         ),
                     );
+                    void storeGeneratedVideo(readyVideo)
+                        .then((stored) => setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, ...videoMetadata(stored) } } : item)))
+                        .catch((error) => console.warn("[creator video] retry background cache failed", { nodeId: node.id, error }));
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
@@ -3101,6 +3231,42 @@ function InfiniteCanvasPage() {
         setContextMenu({ type: "node", x: event.clientX, y: event.clientY, nodeId });
     }, []);
 
+    const handleVideoFrameCapture = useCallback(
+        async (nodeId: string, frame: "first" | "current" | "last") => {
+            const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            const sourceUrl = sourceNode?.metadata?.content;
+            if (!sourceNode || sourceNode.type !== CanvasNodeType.Video || !sourceUrl) return;
+            setContextMenu(null);
+            try {
+                const visibleVideo = document.querySelector<HTMLVideoElement>(`video[data-canvas-video-id="${CSS.escape(nodeId)}"]`);
+                const file = await captureVideoFrameFile(sourceUrl, frame, visibleVideo?.currentTime || 0);
+                const image = await uploadImage(file);
+                const imageSize = fitNodeSize(image.width, image.height);
+                const labels = { first: "首帧", current: "当前帧", last: "尾帧" } as const;
+                const imageNode: CanvasNodeData = {
+                    id: nanoid(),
+                    type: CanvasNodeType.Image,
+                    title: `${sourceNode.title || "视频"} · ${labels[frame]}`,
+                    position: { x: sourceNode.position.x + sourceNode.width + 88, y: sourceNode.position.y + sourceNode.height / 2 - imageSize.height / 2 },
+                    width: imageSize.width,
+                    height: imageSize.height,
+                    metadata: { ...imageMetadata(image), prompt: `${sourceNode.title || "视频"}${labels[frame]}` },
+                };
+                setNodes((prev) => [...prev, imageNode]);
+                setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: imageNode.id }]);
+                setSelectedNodeIds(new Set([imageNode.id]));
+                setDialogNodeId(imageNode.id);
+                console.info("[canvas video frame capture]", { sourceNodeId: sourceNode.id, frame, imageNodeId: imageNode.id });
+                message.success(`已将视频${labels[frame]}添加为图片节点`);
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : "无法截取视频画面";
+                console.warn("[canvas video frame capture failed]", { nodeId, frame, error });
+                message.error(`${detail}。若视频来自外部地址，请确认该地址允许浏览器读取。`);
+            }
+        },
+        [message],
+    );
+
     const renderNodePanel = useCallback(
         (panelNode: CanvasNodeData) =>
             getNodeDefinition(panelNode.type)?.Panel ? (
@@ -3117,6 +3283,9 @@ function InfiniteCanvasPage() {
                     node={panelNode}
                     isRunning={runningNodeId === panelNode.id}
                     mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || EMPTY_REFERENCES}
+                    isSelectingReferences={referenceSelectionTargetId === panelNode.id}
+                    onBeginReferenceSelection={handleReferenceSelectionToggle}
+                    onRemoveReference={handleReferenceRemove}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
@@ -3128,7 +3297,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(
@@ -3268,6 +3437,7 @@ function InfiniteCanvasPage() {
                             onResize={handleNodeResize}
                             onResizeEnd={handleNodeResizeEnd}
                             onContentChange={handleNodeContentChange}
+                            onTextAlternativeChange={handleTextAlternativeChange}
                             onTitleChange={handleNodeTitleChange}
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}
@@ -3365,6 +3535,7 @@ function InfiniteCanvasPage() {
                 {contextMenu ? (
                     <CanvasNodeContextMenu
                         menu={contextMenu}
+                        node={contextMenu.type === "node" ? nodes.find((node) => node.id === contextMenu.nodeId) : undefined}
                         onClose={() => setContextMenu(null)}
                         onDuplicate={() => {
                             if (contextMenu.type !== "node") return;
@@ -3378,6 +3549,9 @@ function InfiniteCanvasPage() {
                                 deleteConnection(contextMenu.connectionId);
                             }
                             setContextMenu(null);
+                        }}
+                        onCaptureVideoFrame={(frame) => {
+                            if (contextMenu.type === "node") void handleVideoFrameCapture(contextMenu.nodeId, frame);
                         }}
                     />
                 ) : null}

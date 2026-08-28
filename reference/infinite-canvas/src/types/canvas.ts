@@ -44,6 +44,10 @@ export type CanvasNodeMetadata = {
     // Text generation uses its own count so a multi-image setting never creates
     // duplicate text responses by accident.
     textCount?: number;
+    // A multi-text request is represented by one node. The primary answer stays
+    // in content while the remaining answers are persisted as switchable drafts.
+    textAlternatives?: string[];
+    activeTextAlternativeIndex?: number;
     seconds?: string;
     vquality?: string;
     generateAudio?: string;

@@ -38,10 +38,38 @@ export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData
 }
 
 function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return connections
+    const directInputs = connections
         .filter((connection) => connection.toNodeId === nodeId)
         .map((connection) => nodes.find((node) => node.id === connection.fromNodeId))
-        .filter((node): node is CanvasNodeData => Boolean(node && isResourceNode(node)));
+        .filter((node): node is CanvasNodeData => Boolean(node));
+
+    return expandGroupResourceNodes(directInputs, nodes);
+}
+
+/**
+ * A group is a visual/container node, not a provider resource itself. When it
+ * is connected to a config or generator, use every valid child as input so one
+ * edge represents the whole reference pack. Recursion also keeps nested groups
+ * safe, while the id set prevents a direct child edge from being duplicated.
+ */
+function expandGroupResourceNodes(inputs: CanvasNodeData[], allNodes: CanvasNodeData[]) {
+    const resolved: CanvasNodeData[] = [];
+    const visited = new Set<string>();
+
+    const add = (node: CanvasNodeData) => {
+        if (visited.has(node.id)) return;
+        visited.add(node.id);
+
+        if (node.type === CanvasNodeType.Group) {
+            allNodes.filter((candidate) => candidate.metadata?.groupId === node.id).forEach(add);
+            return;
+        }
+
+        if (isResourceNode(node)) resolved.push(node);
+    };
+
+    inputs.forEach(add);
+    return resolved;
 }
 
 function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {

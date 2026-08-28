@@ -21,6 +21,7 @@ import { ensureVideoOutputStored, persistVideoOutput, signedVideoOutputUrl } fro
 import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
 import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
 import { KnownVideoTaskRecoveryError, reconcileKnownWetokenVideoTask } from '@/lib/creator/video-recovery';
+import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -234,9 +235,34 @@ async function pollTask(
     });
   }
   const providerUpdatedTask = update.data as CreatorVideoTask;
-  return polled.status === 'succeeded'
-    ? ensureVideoOutputStored(context, providerUpdatedTask)
-    : providerUpdatedTask;
+  if (polled.status !== 'succeeded') return providerUpdatedTask;
+
+  // The provider URL is already playable here.  NAS/object-store archival can
+  // take minutes for a large video, so it must never hold the task read open:
+  // otherwise the canvas keeps rendering “生成中” until the browser refreshes.
+  // Keep the durable copy best-effort and observable in the background.
+  logServerEvent('creator_video_output_ready', {
+    taskId: providerUpdatedTask.id,
+    externalTaskId: providerUpdatedTask.external_task_id,
+    hasProviderUrl: typeof output.video_url === 'string',
+    storagePending: typeof output.video_storage_path !== 'string',
+  });
+  void ensureVideoOutputStored(context, providerUpdatedTask)
+    .then((storedTask) => {
+      const storedOutput = asRecord(storedTask.output);
+      logServerEvent('creator_video_archive_completed', {
+        taskId: providerUpdatedTask.id,
+        externalTaskId: providerUpdatedTask.external_task_id,
+        persisted: typeof storedOutput.video_storage_path === 'string',
+      });
+    })
+    .catch((error) => {
+      logServerFailure('creator_video_archive_failed', error, {
+        taskId: providerUpdatedTask.id,
+        externalTaskId: providerUpdatedTask.external_task_id,
+      });
+    });
+  return providerUpdatedTask;
 }
 
 export async function POST(req: Request, { params }: RouteContext) {

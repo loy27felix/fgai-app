@@ -48,6 +48,7 @@ type CanvasNodeProps = {
     onResize: (nodeId: string, width: number, height: number, position?: Position) => void;
     onResizeEnd?: (nodeId: string) => void;
     onContentChange: (nodeId: string, content: string) => void;
+    onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
@@ -70,6 +71,7 @@ type NodeContentRendererProps = {
     renderNodeContent?: (node: CanvasNodeData) => ReactNode;
     pluginContext?: CanvasNodeContext | null;
     onContentChange: (nodeId: string, content: string) => void;
+    onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
@@ -111,6 +113,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onResize,
     onResizeEnd,
     onContentChange,
+    onTextAlternativeChange,
     onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
@@ -440,6 +443,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         pluginContext={pluginContext}
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
+                        onTextAlternativeChange={onTextAlternativeChange}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
                         onGenerateImage={onGenerateImage}
@@ -557,28 +561,21 @@ function MissingPluginContent({ theme, type }: Pick<NodeContentRendererProps, "t
     );
 }
 
-function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onGenerateImage }: NodeContentRendererProps) {
+function TextContent({ node, theme, isEditingContent, textareaRef, mentionReferences, onContentChange, onStopEditing, onTextAlternativeChange }: NodeContentRendererProps) {
     const fontSize = node.metadata?.fontSize || 14;
     const textStyle = { fontSize: `${fontSize}px`, lineHeight: `${Math.round(fontSize * 1.65)}px`, color: theme.node.text, boxSizing: "border-box" } as React.CSSProperties;
+    const alternatives = node.metadata?.textAlternatives || [];
+    const activeAlternativeIndex = Math.min(Math.max(node.metadata?.activeTextAlternativeIndex || 0, 0), Math.max(alternatives.length - 1, 0));
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden pt-8">
-            <button
-                type="button"
-                className="absolute right-3 top-3 z-20 inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium opacity-85 backdrop-blur-md transition hover:scale-[1.02] hover:opacity-100"
-                style={{ background: `${theme.toolbar.panel}dd`, borderColor: theme.node.stroke, color: theme.node.text }}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onGenerateImage?.(node);
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-                title="用文本生图"
-                aria-label="用文本生图"
-            >
-                <ImageIcon className="size-3.5" />
-                生图
-            </button>
+            {alternatives.length > 1 ? (
+                <div className="absolute right-3 top-3 z-20 flex items-center gap-1 rounded-full border px-1 py-1 text-[11px] font-medium backdrop-blur-md" style={{ background: `${theme.toolbar.panel}dd`, borderColor: theme.node.stroke, color: theme.node.text }}>
+                    <button type="button" className="grid size-6 place-items-center rounded-full hover:bg-black/10 disabled:opacity-35" disabled={activeAlternativeIndex === 0} onClick={(event) => { event.stopPropagation(); onTextAlternativeChange?.(node.id, activeAlternativeIndex - 1); }} onMouseDown={(event) => event.stopPropagation()} aria-label="上一版文本">‹</button>
+                    <span className="min-w-9 text-center tabular-nums">{activeAlternativeIndex + 1}/{alternatives.length}</span>
+                    <button type="button" className="grid size-6 place-items-center rounded-full hover:bg-black/10 disabled:opacity-35" disabled={activeAlternativeIndex >= alternatives.length - 1} onClick={(event) => { event.stopPropagation(); onTextAlternativeChange?.(node.id, activeAlternativeIndex + 1); }} onMouseDown={(event) => event.stopPropagation()} aria-label="下一版文本">›</button>
+                </div>
+            ) : null}
             {isEditingContent ? (
                 <CanvasResourceMentionTextarea
                     ref={textareaRef as any}
@@ -618,9 +615,9 @@ function ImageNodeContent(props: NodeContentRendererProps) {
                 <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />
             ) : (
                 <EmptyImageContent {...props} isBatchRoot={false} />
-            );
+        );
         return (
-            <BatchFrame batchCount={props.batchCount} batchExpanded={props.batchExpanded} batchOpening={props.batchOpening} batchRecovering={props.batchRecovering}>
+            <BatchFrame batchCount={props.batchCount} batchExpanded={props.batchExpanded} batchOpening={props.batchOpening} batchRecovering={props.batchRecovering} transparent={props.node.metadata?.mimeType === "image/png"}>
                 {content}
             </BatchFrame>
         );
@@ -667,7 +664,7 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 <span className="text-sm">空视频节点</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom />;
+    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom data-canvas-video-id={node.id} />;
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
@@ -712,7 +709,7 @@ function ImageContent({
     const isBatchChild = Boolean(node.metadata?.batchRootId);
 
     return (
-        <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering}>
+        <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} transparent={node.metadata?.mimeType === "image/png"}>
             <div className="h-full w-full overflow-hidden rounded-3xl">
                 <img
                     src={node.metadata!.content!}
@@ -773,7 +770,7 @@ function ImageInfoBar({ node }: { node: CanvasNodeData }) {
     );
 }
 
-function BatchFrame({ batchCount, batchExpanded, batchOpening, batchRecovering, children }: { batchCount: number; batchExpanded: boolean; batchOpening: boolean; batchRecovering: boolean; children: ReactNode }) {
+function BatchFrame({ batchCount, batchExpanded, batchOpening, batchRecovering, transparent = false, children }: { batchCount: number; batchExpanded: boolean; batchOpening: boolean; batchRecovering: boolean; transparent?: boolean; children: ReactNode }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchRoot = batchCount > 1;
     return (
@@ -786,7 +783,9 @@ function BatchFrame({ batchCount, batchExpanded, batchOpening, batchRecovering, 
                             className="absolute rounded-[inherit] border shadow-[0_14px_34px_rgba(68,64,60,.16)] transition-all duration-300 group-hover/batch:translate-x-2"
                             style={{
                                 inset: 0,
-                                background: `linear-gradient(135deg, ${theme.node.panel}, ${theme.node.fill})`,
+                                // A PNG can be a transparent render. Do not put
+                                // opaque cards behind its expanded alternatives.
+                                background: transparent ? "transparent" : `linear-gradient(135deg, ${theme.node.panel}, ${theme.node.fill})`,
                                 borderColor: theme.node.stroke,
                                 opacity: batchExpanded && !batchOpening ? 0.34 : 1,
                                 transform:

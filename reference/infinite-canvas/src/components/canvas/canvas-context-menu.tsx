@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { CopyPlus, Trash2 } from "lucide-react";
+import { CopyPlus, ImageDown, Trash2 } from "lucide-react";
 
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
-import type { ContextMenuState } from "@/reference/infinite-canvas/src/types/canvas";
+import { CanvasNodeType, type CanvasNodeData, type ContextMenuState } from "@/reference/infinite-canvas/src/types/canvas";
 
-export function CanvasNodeContextMenu({ menu, onClose, onDuplicate, onDelete }: { menu: ContextMenuState; onClose: () => void; onDuplicate: () => void; onDelete: () => void }) {
+export function CanvasNodeContextMenu({ menu, node, onClose, onDuplicate, onDelete, onCaptureVideoFrame }: { menu: ContextMenuState; node?: CanvasNodeData; onClose: () => void; onDuplicate: () => void; onDelete: () => void; onCaptureVideoFrame?: (frame: "first" | "current" | "last") => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
     useEffect(() => {
@@ -26,6 +26,13 @@ export function CanvasNodeContextMenu({ menu, onClose, onDuplicate, onDelete }: 
             onPointerDown={(event) => event.stopPropagation()}
         >
             {menu.type === "node" ? <MenuButton icon={<CopyPlus className="size-4" />} label="创建副本" onClick={onDuplicate} /> : null}
+            {menu.type === "node" && node?.type === CanvasNodeType.Video && node.metadata?.content && onCaptureVideoFrame ? (
+                <>
+                    <MenuButton icon={<ImageDown className="size-4" />} label="截取首帧为图片" onClick={() => onCaptureVideoFrame("first")} />
+                    <MenuButton icon={<ImageDown className="size-4" />} label="截取当前帧为图片" onClick={() => onCaptureVideoFrame("current")} />
+                    <MenuButton icon={<ImageDown className="size-4" />} label="截取尾帧为图片" onClick={() => onCaptureVideoFrame("last")} />
+                </>
+            ) : null}
             <MenuButton icon={<Trash2 className="size-4" />} label="删除" onClick={onDelete} danger />
         </div>
     );

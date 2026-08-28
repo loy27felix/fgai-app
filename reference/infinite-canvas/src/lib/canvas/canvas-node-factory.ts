@@ -28,8 +28,25 @@ export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
     return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
 }
 
-export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
-    return { content: video.url, storageKey: video.storageKey, cloudStoragePath: video.cloudStoragePath, cloudAssetId: video.cloudAssetId, externalTaskId: video.externalTaskId, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
+type VideoMetadataSource = Omit<UploadedFile, "storageKey" | "bytes"> & {
+    storageKey?: string;
+    bytes?: number;
+};
+
+export function videoMetadata(video: VideoMetadataSource): CanvasNodeMetadata {
+    return {
+        content: video.url,
+        ...(video.storageKey ? { storageKey: video.storageKey } : {}),
+        ...(video.cloudStoragePath ? { cloudStoragePath: video.cloudStoragePath } : {}),
+        ...(video.cloudAssetId ? { cloudAssetId: video.cloudAssetId } : {}),
+        ...(video.externalTaskId ? { externalTaskId: video.externalTaskId } : {}),
+        status: "success",
+        naturalWidth: video.width,
+        naturalHeight: video.height,
+        bytes: video.bytes,
+        mimeType: video.mimeType || "video/mp4",
+        durationMs: video.durationMs,
+    };
 }
 
 export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {

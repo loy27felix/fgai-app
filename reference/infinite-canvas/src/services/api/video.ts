@@ -34,7 +34,7 @@ type RequestOptions = {
     onCreatorTaskCreated?: (taskId: string) => void;
 };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; fallbackUrl?: string; mimeType?: string; storagePath?: string; assetId?: string; externalTaskId?: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; fallbackUrl?: string; mimeType?: string; width?: number; height?: number; storagePath?: string; assetId?: string; externalTaskId?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
@@ -52,6 +52,26 @@ const FG_VIDEO_MODELS = new Set([
     "dreamina-seedance-2-5",
     "dreamina-seedance-2-5-filter-off",
 ]);
+
+/**
+ * FG tasks can finish before the NAS archival copy is available.  Return the
+ * stable task-content proxy immediately so the canvas can render the provider
+ * result instead of waiting for a full browser-side blob download.
+ */
+function creatorVideoTaskResult(taskId: string, task?: {
+    output?: { video_storage_path?: unknown; video_asset_id?: unknown } | null;
+    external_task_id?: unknown;
+} | null): VideoGenerationResult {
+    const proxyUrl = creatorVideoContentUrl(taskId);
+    return {
+        url: proxyUrl,
+        fallbackUrl: proxyUrl,
+        mimeType: "video/mp4",
+        storagePath: typeof task?.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined,
+        assetId: typeof task?.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined,
+        externalTaskId: typeof task?.external_task_id === "string" ? task.external_task_id : undefined,
+    };
+}
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildApiUrl(config.baseUrl, path);
@@ -161,21 +181,32 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     } catch (error) {
         console.warn("[creator video] unable to persist canvas task ID", error);
     }
-    const fallbackUrl = creatorVideoContentUrl(draft.task.id);
-    if (immediate.videoUrl) return { ...(await videoResultFromUrl(immediate.videoUrl, { signal }, fallbackUrl)), storagePath: typeof immediate.task?.output?.video_storage_path === "string" ? immediate.task.output.video_storage_path : undefined, assetId: typeof immediate.task?.output?.video_asset_id === "string" ? immediate.task.output.video_asset_id : undefined, externalTaskId: typeof immediate.task?.external_task_id === "string" ? immediate.task.external_task_id : undefined };
+    if (immediate.videoUrl) return creatorVideoTaskResult(draft.task.id, immediate.task);
     // A submitted Seedance task can remain queued much longer than the former
     // four-minute client loop.  Keep polling until Wetoken reports a terminal
     // state (or the user explicitly aborts) instead of turning a live task into
     // a false timeout.
+    let consecutiveStatusReadFailures = 0;
     for (;;) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let task: Awaited<ReturnType<typeof getVideoTask>>["task"];
         try {
             task = (await getVideoTask(draft.task.id)).task;
         } catch (error) {
-            throw new Error(`视频任务状态读取失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+            // A provider render can outlive a LAN tunnel reconnect. The task has
+            // already been submitted, so a transient GET failure must never turn
+            // a chargeable hour-long render into a false canvas failure.
+            consecutiveStatusReadFailures += 1;
+            console.warn("[creator video poll transient failure]", {
+                taskId: draft.task.id,
+                attempt: consecutiveStatusReadFailures,
+                message: error instanceof Error ? error.message : "网络请求失败",
+            });
+            await new Promise((resolve) => setTimeout(resolve, Math.min(15_000, 4_000 + consecutiveStatusReadFailures * 1_000)));
+            continue;
         }
-        if (task.videoUrl) return { ...(await videoResultFromUrl(task.videoUrl, { signal }, fallbackUrl)), storagePath: typeof task.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined, assetId: typeof task.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined, externalTaskId: typeof task.external_task_id === "string" ? task.external_task_id : undefined };
+        consecutiveStatusReadFailures = 0;
+        if (task.videoUrl) return creatorVideoTaskResult(draft.task.id, task);
         if (
             task.status === "failed"
             || task.status === "expired"
