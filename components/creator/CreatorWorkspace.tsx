@@ -49,6 +49,7 @@ type Props = {
   initialSessions: CreatorSession[];
   initialMessages: CreatorMessage[];
   initialSessionId: string | null;
+  initialRequestedSessionId?: string | null;
   initialLoadError?: string | null;
 };
 
@@ -73,7 +74,7 @@ function textOf(message: CreatorMessage) {
   return typeof message.content?.text === "string" ? message.content.text : "";
 }
 
-export default function CreatorWorkspace({ userEmail, initialSessions, initialMessages, initialSessionId, initialLoadError = null }: Props) {
+export default function CreatorWorkspace({ userEmail, initialSessions, initialMessages, initialSessionId, initialRequestedSessionId = null, initialLoadError = null }: Props) {
   const { theme, toggle } = useFgTheme();
   const [sessions, setSessions] = useState(initialSessions);
   const [sessionId, setSessionId] = useState(initialSessionId);
@@ -95,6 +96,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const initialHistoryRecoveryRef = useRef(false);
   const selectedModel = TEXT_MODELS.find((item) => item.id === model) || TEXT_MODELS[0];
   const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
 
@@ -138,6 +140,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     stickToBottomRef.current = true;
     setShowJumpToLatest(false);
     history.replaceState(null, "", `/chat?session=${data.session.id}`);
+    console.info("[creator chat history] session created", { sessionId: data.session.id, model: data.session.default_model || model });
     return data.session.id as string;
   }
 
@@ -189,12 +192,26 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
         setSessionId(null);
         setMessages([]);
       }
+      console.info("[creator chat history] reload completed", { sessionCount: next.length, preferredSessionId: preferredSessionId || undefined, selectedSessionId: target || undefined });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "读取会话失败");
     } finally {
       setHistoryLoading(false);
     }
   }
+
+  // The RSC first-read can fail during a local database restart or while an
+  // older volume is being upgraded. Canvas Agent already retries through this
+  // API; do the same for the standalone chat instead of leaving a blank list.
+  useEffect(() => {
+    if (!initialLoadError || initialHistoryRecoveryRef.current) return;
+    initialHistoryRecoveryRef.current = true;
+    const preferredSessionId = sessionId || initialRequestedSessionId;
+    console.info("[creator chat history] retrying initial history read", { preferredSessionId: preferredSessionId || undefined });
+    void reloadHistory(preferredSessionId);
+    // `reloadHistory` intentionally reads the initial state once only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoadError]);
 
   async function send() {
     const text = prompt.trim();

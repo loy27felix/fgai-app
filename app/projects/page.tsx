@@ -26,12 +26,15 @@ export default async function ProjectsPage() {
   const emailById = new Map<string, string>((profiles || []).map((p: any): [string, string] => [String(p.id), String(p.email || "")]));
   const myProfile = (profiles || []).find((p: any) => p.id === user.id);
   const isAdmin = myProfile?.platform_role === "admin" || myProfile?.platform_role === "superadmin";
+  const isSuperadmin = myProfile?.platform_role === "superadmin";
 
   const myRole: Record<string, Role> = {};
   const counts: Record<string, number> = {};
   const membersByProject: Record<string, { ini: string; bg: string }[]> = {};
   const pending: Record<string, { requestId: string; user_id: string; email: string }[]> = {};
-  const ownedIds = new Set<string>((projects || []).filter((p: any) => p.created_by === user.id).map((p: any) => String(p.id)));
+  const manageableIds = new Set<string>((projects || [])
+    .filter((p: any) => p.created_by === user.id || isSuperadmin)
+    .map((p: any) => String(p.id)));
 
   for (const m of (members || []) as any[]) {
     const projectKey = String(m.project_id);
@@ -46,7 +49,7 @@ export default async function ProjectsPage() {
   const myApplied = new Set<string>((requests || []).filter((r: any) => r.user_id === user.id && r.status === "pending").map((r: any) => String(r.project_id)));
   for (const r of (requests || []) as any[]) {
     const projectKey = String(r.project_id);
-    if (r.status === "pending" && ownedIds.has(projectKey)) {
+    if (r.status === "pending" && manageableIds.has(projectKey)) {
       (pending[projectKey] ||= []).push({ requestId: r.id, user_id: String(r.user_id), email: emailById.get(String(r.user_id)) || "未知用户" });
     }
   }
@@ -56,7 +59,7 @@ export default async function ProjectsPage() {
       projects={(projects || []) as Project[]}
       myRole={myRole} myApplied={Array.from(myApplied)} pending={pending} counts={counts}
       membersByProject={membersByProject} epCount={epCount} genCount={genCount || 0}
-      userId={user.id} userEmail={user.email || ""} isAdmin={isAdmin}
+      userId={user.id} userEmail={user.email || ""} isAdmin={isAdmin} isSuperadmin={isSuperadmin}
     />
   );
 }

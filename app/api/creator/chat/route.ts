@@ -3,6 +3,7 @@ import { DEFAULT_TEXT_MODEL_ID, isTextModelId } from '@/lib/ai/catalog';
 import { chatWithTextModel } from '@/lib/ai/text';
 import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat';
+import { normalizeCreatorMessages } from '@/lib/creator/session-read';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
@@ -123,6 +124,7 @@ export async function POST(req: Request) {
       status: 'complete',
     });
     if (insertedUser.error) throw insertedUser.error;
+    logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'user_message_persisted', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, imageCount: images.length });
 
     const history = await localClient
       .from('creator_messages')
@@ -166,10 +168,18 @@ export async function POST(req: Request) {
       status: 'complete',
     }).select('*').single();
     if (insertedAssistant.error) throw insertedAssistant.error;
+    const assistantMessage = normalizeCreatorMessages([insertedAssistant.data])[0];
+    if (!assistantMessage) throw new Error('助手回复数据无效');
+    logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'assistant_message_persisted', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, timestampNormalized: true });
 
     const update: Record<string, unknown> = { default_model: spec.id, updated_at: new Date().toISOString() };
     if (activeSession.title === '未命名对话') update.title = titleFromPrompt(message);
-    await localClient.from('creator_sessions').update(update).eq('id', activeSession.id).eq('workspace_id', workspace.id);
+    const sessionUpdate = await localClient.from('creator_sessions').update(update).eq('id', activeSession.id).eq('workspace_id', workspace.id);
+    if (sessionUpdate.error) {
+      logServerFailure('creator_chat', new Error(sessionUpdate.error.message), { traceId, feature: 'creator_chat', stage: 'session_touch_failed', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, model: spec.id });
+    } else {
+      logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'session_touched', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, titleUpdated: Boolean(update.title) });
+    }
 
     const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
       userId: user.id,
@@ -207,7 +217,7 @@ export async function POST(req: Request) {
       data: { usagePresent: Boolean(result.usage), ledgerRecorded },
     });
     return respond({
-      message: insertedAssistant.data,
+      message: assistantMessage,
       title: update.title || activeSession.title,
       model: spec.id,
       usage: result.usage,

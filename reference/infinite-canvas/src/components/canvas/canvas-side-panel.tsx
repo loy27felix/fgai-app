@@ -145,6 +145,51 @@ function nodePreviewText(node: CanvasNodeData) {
     return getNodeDefinition(node.type)?.title || node.type;
 }
 
+type CanvasNodeTreeItem = {
+    node: CanvasNodeData;
+    children: CanvasNodeTreeItem[];
+};
+
+/**
+ * Keep group membership in the side panel structural rather than flattening
+ * it into a second, disconnected list. A matching child keeps its ancestor
+ * groups visible so search and type filters never hide its location.
+ */
+function buildCanvasNodeTree(nodes: CanvasNodeData[], matchingNodeIds: Set<string>) {
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const childrenByParentId = new Map<string, CanvasNodeData[]>();
+
+    nodes.forEach((node) => {
+        const parentId = node.metadata?.groupId;
+        if (!parentId || !nodeIds.has(parentId)) return;
+        const children = childrenByParentId.get(parentId) || [];
+        children.push(node);
+        childrenByParentId.set(parentId, children);
+    });
+
+    const buildBranch = (node: CanvasNodeData, ancestors = new Set<string>()): CanvasNodeTreeItem | null => {
+        // Broken or cyclic membership should never prevent the rest of the
+        // panel from rendering. The log makes malformed imports traceable.
+        if (ancestors.has(node.id)) {
+            console.warn("[canvas side panel] skipped cyclic group membership", { nodeId: node.id, groupId: node.metadata?.groupId });
+            return null;
+        }
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(node.id);
+        const children = (childrenByParentId.get(node.id) || []).map((child) => buildBranch(child, nextAncestors)).filter((child): child is CanvasNodeTreeItem => Boolean(child));
+        if (!matchingNodeIds.has(node.id) && !children.length) return null;
+        return { node, children };
+    };
+
+    return nodes
+        .filter((node) => {
+            const parentId = node.metadata?.groupId;
+            return !parentId || !nodeIds.has(parentId);
+        })
+        .map((node) => buildBranch(node))
+        .filter((branch): branch is CanvasNodeTreeItem => Boolean(branch));
+}
+
 function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, theme }: { nodes: CanvasNodeData[]; selectedNodeIds: Set<string>; onFocusNode: (nodeId: string) => void; onPreviewNode: (nodeId: string) => void; theme: CanvasTheme }) {
     const { message } = App.useApp();
     const [keyword, setKeyword] = useState("");
@@ -152,11 +197,13 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
     const [selectMode, setSelectMode] = useState(false);
     const [checked, setChecked] = useState<Set<string>>(new Set());
     const [exporting, setExporting] = useState(false);
+    const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(new Set());
 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return nodes.filter((node) => (typeFilter === "all" || node.type === typeFilter) && (!query || [node.title, node.metadata?.content, node.metadata?.prompt].filter(Boolean).join(" ").toLowerCase().includes(query)));
     }, [nodes, keyword, typeFilter]);
+    const tree = useMemo(() => buildCanvasNodeTree(nodes, new Set(filtered.map((node) => node.id))), [nodes, filtered]);
 
     const exitSelect = () => {
         setSelectMode(false);
@@ -170,6 +217,16 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
         });
     const allChecked = filtered.length > 0 && filtered.every((node) => checked.has(node.id));
     const toggleAll = () => setChecked(allChecked ? new Set() : new Set(filtered.map((node) => node.id)));
+    const toggleGroup = (groupId: string) => {
+        setCollapsedGroupIds((current) => {
+            const next = new Set(current);
+            const willCollapse = !next.has(groupId);
+            if (willCollapse) next.add(groupId);
+            else next.delete(groupId);
+            console.info("[canvas side panel] group tree toggled", { groupId, collapsed: willCollapse });
+            return next;
+        });
+    };
 
     const handleExport = async () => {
         const targets = nodes.filter((node) => checked.has(node.id));
@@ -209,39 +266,26 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                 <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder="搜索节点" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-                {filtered.length ? (
+                {tree.length ? (
                     <div className="space-y-1.5">
-                        {filtered.map((node) => {
-                            const Icon = NODE_TYPE_ICON[node.type] || FileText;
-                            const isImage = node.type === CanvasNodeType.Image && node.metadata?.content;
-                            const isChecked = checked.has(node.id);
-                            const active = selectMode ? isChecked : selectedNodeIds.has(node.id);
-                            return (
-                                <div key={node.id} className={cn("group flex w-full items-center rounded-lg transition", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")} style={active ? { background: theme.toolbar.activeBg } : undefined}>
-                                    <button type="button" onClick={() => (selectMode ? toggleChecked(node.id) : onFocusNode(node.id))} className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2 text-left" title={selectMode ? undefined : "定位到节点"}>
-                                        {selectMode ? <CheckMark checked={isChecked} theme={theme} /> : null}
-                                        <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md">
-                                            {isImage ? <img src={node.metadata!.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-5 opacity-60" />}
-                                        </span>
-                                        <span className="min-w-0 flex-1 space-y-0.5">
-                                            <span className="block truncate text-sm font-medium leading-snug">{node.title || getNodeDefinition(node.type)?.title || "未命名节点"}</span>
-                                            <span className="block truncate text-xs leading-snug opacity-50">{nodePreviewText(node)}</span>
-                                        </span>
-                                        {node.metadata?.status && node.metadata.status !== "idle" ? <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[node.metadata.status] || "transparent" }} /> : null}
-                                    </button>
-                                    {selectMode || !isImage ? null : (
-                                        <div className="flex shrink-0 flex-col items-center gap-0.5 pr-1.5">
-                                            <button type="button" onClick={() => onPreviewNode(node.id)} className="grid size-7 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label="放大预览" title="放大预览">
-                                                <Eye className="size-3.5" />
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
+                        {tree.map((branch) => (
+                            <CanvasNodeTreeBranch
+                                key={branch.node.id}
+                                branch={branch}
+                                collapsedGroupIds={collapsedGroupIds}
+                                selectedNodeIds={selectedNodeIds}
+                                checked={checked}
+                                selectMode={selectMode}
+                                theme={theme}
+                                onToggleGroup={toggleGroup}
+                                onToggleChecked={toggleChecked}
+                                onFocusNode={onFocusNode}
+                                onPreviewNode={onPreviewNode}
+                            />
+                        ))}
                     </div>
                 ) : (
-                    <div className="pt-16 text-center text-sm opacity-40">画布暂无节点</div>
+                    <div className="pt-16 text-center text-sm opacity-40">{nodes.length ? "没有匹配的节点" : "画布暂无节点"}</div>
                 )}
             </div>
             {selectMode ? (
@@ -260,6 +304,84 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                         <Download className="size-3.5" />
                         导出选中
                     </button>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function CanvasNodeTreeBranch({ branch, collapsedGroupIds, selectedNodeIds, checked, selectMode, theme, onToggleGroup, onToggleChecked, onFocusNode, onPreviewNode }: {
+    branch: CanvasNodeTreeItem;
+    collapsedGroupIds: Set<string>;
+    selectedNodeIds: Set<string>;
+    checked: Set<string>;
+    selectMode: boolean;
+    theme: CanvasTheme;
+    onToggleGroup: (groupId: string) => void;
+    onToggleChecked: (nodeId: string) => void;
+    onFocusNode: (nodeId: string) => void;
+    onPreviewNode: (nodeId: string) => void;
+}) {
+    const { node, children } = branch;
+    const isGroup = node.type === CanvasNodeType.Group;
+    const canCollapse = isGroup && children.length > 0;
+    const collapsed = canCollapse && collapsedGroupIds.has(node.id);
+    const Icon = NODE_TYPE_ICON[node.type] || FileText;
+    const isImage = node.type === CanvasNodeType.Image && node.metadata?.content;
+    const isChecked = checked.has(node.id);
+    const active = selectMode ? isChecked : selectedNodeIds.has(node.id);
+
+    return (
+        <div role="treeitem" aria-expanded={canCollapse ? !collapsed : undefined} className="min-w-0">
+            <div className={cn("group flex w-full items-center rounded-lg transition", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")} style={active ? { background: theme.toolbar.activeBg } : undefined}>
+                {isGroup ? (
+                    <button
+                        type="button"
+                        onClick={() => onToggleGroup(node.id)}
+                        className="ml-1 grid size-6 shrink-0 place-items-center rounded-md opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                        aria-label={collapsed ? `展开分组 ${node.title || "未命名分组"}` : `收起分组 ${node.title || "未命名分组"}`}
+                        aria-expanded={canCollapse ? !collapsed : undefined}
+                        disabled={!canCollapse}
+                    >
+                        <ChevronRight className={cn("size-3.5 transition-transform duration-150", collapsed ? "" : "rotate-90")} />
+                    </button>
+                ) : <span className="ml-1 size-6 shrink-0" />}
+                <button type="button" onClick={() => (selectMode ? onToggleChecked(node.id) : onFocusNode(node.id))} className="flex min-w-0 flex-1 items-center gap-2.5 px-1 py-2 text-left" title={selectMode ? undefined : "定位到节点"}>
+                    {selectMode ? <CheckMark checked={isChecked} theme={theme} /> : null}
+                    <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md" style={isGroup ? { background: theme.node.fill } : undefined}>
+                        {isImage ? <img src={node.metadata!.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-4.5 opacity-65" />}
+                    </span>
+                    <span className="min-w-0 flex-1 space-y-0.5">
+                        <span className="block truncate text-sm font-medium leading-snug">{node.title || getNodeDefinition(node.type)?.title || (isGroup ? "未命名分组" : "未命名节点")}</span>
+                        <span className="block truncate text-xs leading-snug opacity-50">{isGroup ? `${children.length} 个节点` : nodePreviewText(node)}</span>
+                    </span>
+                    {node.metadata?.status && node.metadata.status !== "idle" ? <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[node.metadata.status] || "transparent" }} /> : null}
+                </button>
+                {selectMode || !isImage ? null : (
+                    <button type="button" onClick={() => onPreviewNode(node.id)} className="mr-1.5 grid size-7 shrink-0 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label="放大预览" title="放大预览">
+                        <Eye className="size-3.5" />
+                    </button>
+                )}
+            </div>
+            {canCollapse && !collapsed ? (
+                <div role="group" className="ml-4 border-l pl-1.5" style={{ borderColor: theme.toolbar.border }}>
+                    <div className="space-y-1 pt-1">
+                        {children.map((child) => (
+                            <CanvasNodeTreeBranch
+                                key={child.node.id}
+                                branch={child}
+                                collapsedGroupIds={collapsedGroupIds}
+                                selectedNodeIds={selectedNodeIds}
+                                checked={checked}
+                                selectMode={selectMode}
+                                theme={theme}
+                                onToggleGroup={onToggleGroup}
+                                onToggleChecked={onToggleChecked}
+                                onFocusNode={onFocusNode}
+                                onPreviewNode={onPreviewNode}
+                            />
+                        ))}
+                    </div>
                 </div>
             ) : null}
         </div>

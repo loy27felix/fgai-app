@@ -44,6 +44,12 @@ export function useAgentBridge(params: AgentBridgeParams) {
             const safeOps = Array.isArray(ops) ? ops.filter((op) => op?.type) : [];
             const before = { projectId, title: projectTitle, nodes: nodesRef.current, connections: connectionsRef.current, selectedNodeIds: Array.from(selectedNodeIdsRef.current), viewport: viewportRef.current };
             const generationOps = safeOps.filter((op): op is Extract<CanvasAgentOp, { type: "run_generation" }> => op.type === "run_generation" && Boolean(op.nodeId));
+            console.info("[canvas agent ops]", {
+                projectId,
+                operationCount: safeOps.length,
+                generationCount: generationOps.length,
+                operationTypes: safeOps.map((op) => op.type),
+            });
             const next = applyCanvasAgentOps(
                 before,
                 safeOps.filter((op) => op.type !== "run_generation"),
@@ -64,6 +70,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
                     generationOps.forEach((op) => {
                         const target = nodesRef.current.find((node) => node.id === op.nodeId);
                         const prompt = op.prompt?.trim() ? op.prompt : (target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
+                        console.info("[canvas agent generation]", { projectId, nodeId: op.nodeId, mode: op.mode || target?.metadata?.generationMode || "image", reusedExistingNode: Boolean(target), hasPrompt: Boolean(prompt.trim()) });
                         void generateNodeRef.current?.(op.nodeId, op.mode || target?.metadata?.generationMode || "image", prompt);
                     }),
                 );

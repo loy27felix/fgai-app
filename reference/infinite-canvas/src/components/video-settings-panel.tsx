@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/reference/infinite-canvas/src/components/image-settings-panel";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { modelOptionName, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { getVideoModel } from "@/lib/ai/video-models";
@@ -13,12 +13,12 @@ const resolutionOptions = [
 ];
 
 const sizeOptions = [
-    { value: "1280x720", label: "横屏", width: 1280, height: 720 },
-    { value: "720x1280", label: "竖屏", width: 720, height: 1280 },
-    { value: "1024x1024", label: "方形", width: 1024, height: 1024 },
-    { value: "1792x1024", label: "宽屏", width: 1792, height: 1024 },
-    { value: "1024x1792", label: "长图", width: 1024, height: 1792 },
-    { value: "auto", label: "auto", width: 0, height: 0 },
+    { value: "1280x720", label: "16:9", width: 1280, height: 720 },
+    { value: "720x1280", label: "9:16", width: 720, height: 1280 },
+    { value: "1024x1024", label: "1:1", width: 1024, height: 1024 },
+    { value: "1792x1024", label: "16:9", width: 1792, height: 1024 },
+    { value: "1024x1792", label: "9:16", width: 1024, height: 1792 },
+    { value: "auto", label: "自适应", width: 0, height: 0 },
 ];
 
 const secondOptions = [4, 6, 8, 10, 12, 15];
@@ -48,6 +48,10 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
         onConfigChange("size", `${key === "width" ? next : dimensions.width}x${key === "height" ? next : dimensions.height}`);
     };
+    const selectSize = (item: (typeof sizeOptions)[number]) => {
+        console.info("[canvas video settings] ratio selected", { provider: "generic", ratio: item.label, size: item.value });
+        onConfigChange("size", item.value);
+    };
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -63,7 +67,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <ResolutionInput value={resolution} theme={theme} onChange={(value) => onConfigChange("vquality", value)} />
                     </div>
                 </SettingGroup>
-                <SettingGroup title="尺寸" color={theme.node.muted}>
+                <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
                         <DimensionInput prefix="W" value={dimensions.width} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("width", value)} />
                         <span className="text-lg opacity-45">↔</span>
@@ -77,15 +81,11 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                 className="flex h-[78px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
                                 style={{ borderColor: size === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                 onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() => onConfigChange("size", item.value)}
+                                onClick={() => selectSize(item)}
+                                title={item.value === "auto" ? "由模型自动匹配画幅" : `比例 ${item.label}`}
                             >
                                 <SizePreview width={item.width} height={item.height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                {item.value === "auto" ? null : (
-                                    <span className="text-[11px] leading-none opacity-55">
-                                        {item.value}
-                                    </span>
-                                )}
                             </button>
                         ))}
                     </div>
@@ -120,6 +120,10 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     const referenceMode = config.videoReferenceMode === "first_last" ? "first_last" : "reference";
     const requiresAdaptiveFrameRatio = referenceMode === "first_last" && Boolean(modelSpec?.requiresAdaptiveRatioForFrameMode);
     const ratio = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.size);
+    const selectRatio = (value: string) => {
+        console.info("[canvas video settings] ratio selected", { provider: "seedance", model: modelSpec?.id, ratio: value, referenceMode });
+        onConfigChange("size", value);
+    };
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -154,11 +158,10 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                                 className="flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35"
                                 style={{ borderColor: ratio === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                 onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() => onConfigChange("size", item.value)}
+                                onClick={() => selectRatio(item.value)}
                             >
                                 <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value)}</span>
                             </button>
                         ))}
                     </div>
@@ -190,9 +193,9 @@ export function videoResolutionLabel(value: string) {
 }
 
 export function videoSizeLabel(value: string) {
-    const ratio = normalizeSeedanceRatio(value);
     if (value === "adaptive" || value === "auto") return "自适应";
-    if (ratio === value) return seedanceRatioOptions.find((item) => item.value === ratio)?.label || ratio;
+    const ratio = normalizeSeedanceRatio(value);
+    if (ratio !== "adaptive") return ratio;
     const size = normalizeVideoSizeValue(value);
     return sizeOptions.find((item) => item.value === size)?.label || size;
 }

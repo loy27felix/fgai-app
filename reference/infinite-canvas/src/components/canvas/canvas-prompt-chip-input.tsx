@@ -5,7 +5,7 @@ import { Image } from "antd";
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
-import { isImeComposing, isPlainEnterKey } from "@/reference/infinite-canvas/src/lib/keyboard-event";
+import { isImeComposing } from "@/reference/infinite-canvas/src/lib/keyboard-event";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
@@ -13,7 +13,6 @@ type Props = {
     value: string;
     references: CanvasResourceReference[];
     onChange: (value: string) => void;
-    onSubmit?: () => void;
     className?: string;
     style?: CSSProperties;
     placeholder?: string;
@@ -30,7 +29,7 @@ type Token =
 
 // 提示词面板专用的 contentEditable 输入框:@ 引用图片时直接内嵌真实缩略图 chip,而不是「图片1」文字。
 // 序列化时 chip → 引用 label 文本(如「图片1」),保证发给生成的 value 语义与旧 textarea 版一致。
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
+export function CanvasPromptChipInput({ value, references, onChange, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -180,9 +179,10 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
                         requestAnimationFrame(syncFromEditor);
                         return;
                     }
-                    if (isPlainEnterKey(event) && onSubmit) {
+                    if (event.key === "Enter") {
                         event.preventDefault();
-                        onSubmit();
+                        insertLineBreak();
+                        requestAnimationFrame(syncFromEditor);
                         return;
                     }
                     requestAnimationFrame(syncMention);
@@ -195,6 +195,21 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
             {imagePreview ? <Image src={imagePreview} alt="引用图片预览" style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
+}
+
+function insertLineBreak() {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const lineBreak = document.createElement("br");
+    const caret = document.createTextNode("");
+    range.insertNode(lineBreak);
+    lineBreak.after(caret);
+    range.setStart(caret, 0);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
 }
 
 function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect: DOMRect | null; references: CanvasResourceReference[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (reference: CanvasResourceReference) => void }) {
@@ -221,10 +236,12 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
     const showAbove = anchor.bottom + gap + maxMenuHeight > window.innerHeight && anchor.top - gap - maxMenuHeight >= 0;
     const top = showAbove ? anchor.top - gap - maxMenuHeight : anchor.bottom + gap;
 
+    // Ant Design modals render above the regular canvas layer. Keep the @
+    // picker above a prompt-editor modal as well, otherwise it appears hidden.
     return createPortal(
         <div
             data-canvas-resource-mention-menu="true"
-            className="fixed z-[120] max-h-56 w-64 overflow-y-auto rounded-xl border p-1 shadow-2xl backdrop-blur-md"
+            className="fixed z-[1200] max-h-56 w-64 overflow-y-auto rounded-xl border p-1 shadow-2xl backdrop-blur-md"
             style={{ left, top, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onPointerDown={stopCanvasInteraction}
             onMouseDown={stopCanvasInteraction}

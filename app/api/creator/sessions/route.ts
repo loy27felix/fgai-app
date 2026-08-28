@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { DEFAULT_TEXT_MODEL_ID, isTextModelId } from '@/lib/ai/catalog';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
+import { normalizeCreatorMessages, normalizeCreatorSessions } from '@/lib/creator/session-read';
 import { createClient } from '@/lib/local/server';
 import {
   attachTraceId,
@@ -46,20 +47,22 @@ export async function GET(req: Request) {
       sessionId: sessionId || undefined,
       kind: kind || undefined,
     });
-    let query = context.localClient
+    // Keep this query deliberately column-minimal. Older local PostgreSQL
+    // volumes may not yet have optional creator session columns, and selecting
+    // or ordering by them turns a recoverable old schema into a blank history.
+    const query = context.localClient
       .from('creator_sessions')
       .select('*')
-      .eq('workspace_id', context.workspace.id)
-      .is('archived_at', null);
-    if (kind) query = query.eq('kind', kind);
+      .eq('workspace_id', context.workspace.id);
     logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'sessions_query_started', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, kind: kind || undefined });
-    const { data: sessions, error } = await query.order('updated_at', { ascending: false });
+    const { data: rawSessions, error } = await query;
     if (error) throw error;
-    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'sessions_query_completed', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, kind: kind || undefined, sessionCount: (sessions || []).length });
+    const sessions = normalizeCreatorSessions(rawSessions || [], kind);
+    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'sessions_query_completed', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, kind: kind || undefined, rawSessionCount: (rawSessions || []).length, sessionCount: sessions.length, compatibilityRead: true });
 
     let messages: unknown[] = [];
     if (sessionId) {
-      const owned = (sessions || []).some((session: any) => session.id === sessionId);
+      const owned = sessions.some((session) => session.id === sessionId);
       if (!owned) {
         logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'rejected', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, sessionId, kind: kind || undefined, reason: 'session_not_found' }, 'warn');
         return respond({ error: '会话不存在' }, { status: 404 });
@@ -68,10 +71,9 @@ export async function GET(req: Request) {
       const result = await context.localClient
         .from('creator_messages')
         .select('*')
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
+        .eq('session_id', sessionId);
       if (result.error) throw result.error;
-      messages = result.data || [];
+      messages = normalizeCreatorMessages(result.data || []);
       logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'messages_query_completed', action: 'read', actorId: context.user.id, workspaceId: context.workspace.id, sessionId, messageCount: messages.length });
     }
     logServerEvent('creator_session', {
@@ -83,7 +85,7 @@ export async function GET(req: Request) {
       workspaceId: context.workspace.id,
       sessionId: sessionId || undefined,
       kind: kind || undefined,
-      sessionCount: (sessions || []).length,
+      sessionCount: sessions.length,
       messageCount: messages.length,
     });
     await recordAuditEvent({
@@ -97,9 +99,9 @@ export async function GET(req: Request) {
       stage: 'completed',
       outcome: 'succeeded',
       parameters: { kind, sessionIdPresent: Boolean(sessionId) },
-      data: { sessionCount: (sessions || []).length, messageCount: messages.length },
+      data: { sessionCount: sessions.length, messageCount: messages.length },
     });
-    return respond({ workspace: context.workspace, sessions: sessions || [], messages });
+    return respond({ workspace: context.workspace, sessions, messages });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'read', sessionId: sessionId || undefined, kind: kind || undefined });
     await recordAuditEvent({ traceId, feature: 'creator_session', action: 'read', resourceType: 'creator_session', resourceId: sessionId, stage: 'failed', outcome: 'failed', parameters: { kind }, error, level: 'error' });
@@ -131,7 +133,9 @@ export async function POST(req: Request) {
       .select('*')
       .single();
     if (error) throw error;
-    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'create', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: data.id, kind, model: data.default_model || undefined });
+    const session = normalizeCreatorSessions([data])[0];
+    if (!session) throw new Error('创建的会话数据无效');
+    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'create', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: session.id, kind, model: session.default_model || undefined, timestampNormalized: true });
     await recordAuditEvent({
       traceId,
       actorId: context.user.id,
@@ -139,12 +143,12 @@ export async function POST(req: Request) {
       feature: 'creator_session',
       action: 'create',
       resourceType: 'creator_session',
-      resourceId: data.id,
+      resourceId: session.id,
       stage: 'completed',
       outcome: 'succeeded',
-      parameters: { kind, model: data.default_model },
+      parameters: { kind, model: session.default_model },
     });
-    return respond({ session: data }, { status: 201 });
+    return respond({ session }, { status: 201 });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'create' });
     await recordAuditEvent({ traceId, feature: 'creator_session', action: 'create', resourceType: 'creator_session', stage: 'failed', outcome: 'failed', error, level: 'error' });

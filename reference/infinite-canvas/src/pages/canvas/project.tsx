@@ -44,9 +44,11 @@ import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/us
 import { createCreatorCanvas, deleteCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
-import { buildNodeMentionReferences, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
+import { buildNodeMentionReferences, getCanvasResourceKind, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
+import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
+import { appendVideoAlternative, readVideoAlternatives, videoAlternativeMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
@@ -122,8 +124,18 @@ type CanvasGenerationRequest = {
     controller: AbortController;
 };
 
-const VIDEO_NODE_MAX_WIDTH = 420;
-const VIDEO_NODE_MAX_HEIGHT = 420;
+type CanvasReferenceReplacement = {
+    targetNodeId: string;
+    referenceNodeId: string;
+    referenceKind: CanvasResourceReference["kind"];
+    referenceLabel: string;
+};
+
+// Video needs more canvas presence than a still image. Keep portrait outputs
+// legible while preserving aspect ratio instead of squeezing every clip into
+// the old 420px envelope.
+const VIDEO_NODE_MAX_WIDTH = 680;
+const VIDEO_NODE_MAX_HEIGHT = 680;
 // 稳定的空引用数组:避免每次渲染 `... || []` 产生新数组引用而击穿 CanvasNode 的 React.memo
 const EMPTY_REFERENCES: CanvasResourceReference[] = [];
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
@@ -132,12 +144,51 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
+function referenceKindLabel(kind: CanvasResourceReference["kind"]) {
+    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本";
+}
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
 1. 只输出提示词正文，不要解释。
 2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
 3. 尽量写成可直接用于生图模型的完整提示词。`;
+
+async function captureVideoFrameFile(sourceUrl: string, frame: "first" | "current" | "last", currentTime = 0) {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "auto";
+    video.src = sourceUrl;
+
+    await new Promise<void>((resolve, reject) => {
+        // loadeddata guarantees a decodable first frame; metadata alone can
+        // still yield a blank canvas on some browsers.
+        video.addEventListener("loadeddata", () => resolve(), { once: true });
+        video.addEventListener("error", () => reject(new Error("视频无法读取，无法截取画面")), { once: true });
+    });
+
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const targetTime = frame === "last" ? Math.max(0, duration - 0.08) : frame === "current" ? Math.min(Math.max(0, currentTime), Math.max(0, duration - 0.08)) : 0;
+    if (targetTime > 0.001) {
+        await new Promise<void>((resolve, reject) => {
+            video.addEventListener("seeked", () => resolve(), { once: true });
+            video.addEventListener("error", () => reject(new Error("视频定位失败，无法截取画面")), { once: true });
+            video.currentTime = targetTime;
+        });
+    }
+
+    const width = Math.max(1, video.videoWidth || 1280);
+    const height = Math.max(1, video.videoHeight || 720);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("浏览器不支持视频画面截取");
+    context.drawImage(video, 0, 0, width, height);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => (value ? resolve(value) : reject(new Error("视频画面编码失败"))), "image/png"));
+    return new File([blob], `video-${frame}-frame.png`, { type: "image/png" });
+}
 
 function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], viewport: ViewportTransform, background: CanvasBackgroundMode) {
     const safeNodes = nodes.map((node) => {
@@ -172,20 +223,27 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                 try {
                     const task = (await getVideoTask(creatorTaskId)).task;
                     if (task.videoUrl) {
-                        const stored = await storeGeneratedVideo({
-                            url: task.videoUrl,
-                            fallbackUrl: creatorVideoContentUrl(task.id),
+                        const readyVideo = {
+                            url: creatorVideoContentUrl(task.id),
                             mimeType: "video/mp4",
                             externalTaskId: task.external_task_id || undefined,
-                        });
+                        };
+                        // Display the completed provider output immediately. NAS caching is
+                        // deliberately best-effort: a slow archive must not leave this node
+                        // stuck in "generating" after Wetoken has already charged and finished.
+                        void storeGeneratedVideo({ ...readyVideo, fallbackUrl: readyVideo.url })
+                            .catch((error) => console.warn("[creator video] hydration cache failed", { creatorTaskId, error }));
+                        const alternativeState = appendVideoAlternative(node.metadata, { ...videoMetadata(readyVideo), creatorTaskId });
                         return {
                             ...node,
                             metadata: {
                                 ...node.metadata,
-                                ...videoMetadata(stored),
+                                ...videoMetadata(readyVideo),
                                 creatorTaskId,
                                 status: NODE_STATUS_SUCCESS,
                                 errorDetails: undefined,
+                                videoAlternatives: alternativeState.alternatives,
+                                activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex,
                             },
                         };
                     }
@@ -378,6 +436,13 @@ function InfiniteCanvasPage() {
     const [isNodeResizing, setIsNodeResizing] = useState(false);
     const [canvasTool, setCanvasTool] = useState<"select" | "pan">("pan");
     const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
+    // The prompt panel can enter a one-shot selection mode so a creator can
+    // connect a resource pack without hunting for tiny connector handles.
+    const [referenceSelectionTargetId, setReferenceSelectionTargetId] = useState<string | null>(null);
+    // Clicking a reference chip enters a one-shot replacement mode. The
+    // existing connection slot is reused so its prompt label (for example
+    // @图片1) keeps pointing at the newly selected resource.
+    const [referenceReplacement, setReferenceReplacement] = useState<CanvasReferenceReplacement | null>(null);
 
     const nodesRef = useRef(nodes);
     const connectionsRef = useRef(connections);
@@ -390,6 +455,7 @@ function InfiniteCanvasPage() {
     const selectionBoxRef = useRef(selectionBox);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+    const pendingGenerationConfirmationsRef = useRef(new Set<string>());
     const cloudCanvasIdRef = useRef<string | null>(null);
     const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const cloudCreateInFlightRef = useRef(false);
@@ -518,20 +584,33 @@ function InfiniteCanvasPage() {
                     try {
                         const task = (await getVideoTask(taskId)).task;
                         if (task.videoUrl) {
-                            const stored = await storeGeneratedVideo({
-                                url: task.videoUrl,
-                                fallbackUrl: creatorVideoContentUrl(task.id),
+                            const readyVideo = {
+                                url: creatorVideoContentUrl(task.id),
                                 mimeType: "video/mp4",
                                 externalTaskId: task.external_task_id || undefined,
-                            });
+                            };
                             if (disposed) return;
                             setNodes((prev) =>
-                                prev.map((item) =>
-                                    item.id === node.id
-                                        ? { ...item, metadata: { ...item.metadata, ...videoMetadata(stored), creatorTaskId: taskId, status: NODE_STATUS_SUCCESS, errorDetails: undefined } }
-                                        : item,
-                                ),
+                                prev.map((item) => {
+                                    if (item.id !== node.id) return item;
+                                    const alternativeState = appendVideoAlternative(item.metadata, { ...videoMetadata(readyVideo), creatorTaskId: taskId });
+                                    console.info("[canvas video recovered]", { nodeId: item.id, creatorTaskId: taskId, alternatives: alternativeState.alternatives.length });
+                                    return {
+                                        ...item,
+                                        metadata: {
+                                            ...item.metadata,
+                                            ...videoMetadata(readyVideo),
+                                            creatorTaskId: taskId,
+                                            status: NODE_STATUS_SUCCESS,
+                                            errorDetails: undefined,
+                                            videoAlternatives: alternativeState.alternatives,
+                                            activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex,
+                                        },
+                                    };
+                                }),
                             );
+                            void storeGeneratedVideo({ ...readyVideo, fallbackUrl: readyVideo.url })
+                                .catch((error) => console.warn("[creator video] resume cache failed", { creatorTaskId: taskId, error }));
                         } else if (
                             task.status === "failed"
                             || task.status === "expired"
@@ -1052,69 +1131,42 @@ function InfiniteCanvasPage() {
     const duplicateNode = useCallback((nodeId: string) => {
         const sourceNodes = nodesRef.current;
         const sourceConnections = connectionsRef.current;
-        const nodeById = new Map(sourceNodes.map((node) => [node.id, node]));
-        const includedIds = new Set<string>([nodeId]);
+        const source = sourceNodes.find((node) => node.id === nodeId);
+        if (!source) return;
 
-        // A node copy carries its upstream references (including a connected
-        // config node), while downstream results remain independent.
-        let changed = true;
-        while (changed) {
-            changed = false;
-            sourceConnections.forEach((connection) => {
-                if (!includedIds.has(connection.toNodeId) || includedIds.has(connection.fromNodeId)) return;
-                if (!nodeById.has(connection.fromNodeId)) return;
-                includedIds.add(connection.fromNodeId);
-                changed = true;
-            });
-        }
-
-        const selectedSources = sourceNodes.filter((node) => includedIds.has(node.id));
-        if (!selectedSources.length) return;
-
-        const idMap = new Map<string, string>();
-        selectedSources.forEach((node, index) => {
-            idMap.set(node.id, node.type + "-" + Date.now() + "-" + index + "-" + Math.random().toString(36).slice(2, 7));
-        });
-
-        const clones = selectedSources.map((source) => ({
+        const copyId = `${source.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const copy: CanvasNodeData = {
             ...source,
-            id: idMap.get(source.id)!,
-            title: (source.title || "未命名节点") + " 副本",
+            id: copyId,
+            title: `${source.title || "未命名节点"} 副本`,
             position: { x: source.position.x + 48, y: source.position.y + 48 },
             metadata: source.metadata
                 ? {
                       ...source.metadata,
-                      status: source.metadata.status === "loading" ? "idle" : source.metadata.status,
+                      status: source.metadata.status === NODE_STATUS_LOADING ? NODE_STATUS_IDLE : source.metadata.status,
                       errorDetails: undefined,
-                      groupId: source.metadata.groupId ? idMap.get(source.metadata.groupId) : undefined,
+                      // The copied node remains linked to the same sources.
+                      // Only visual batch ownership is local to a node tree.
                       batchRootId: undefined,
                       batchChildIds: undefined,
                       isBatchRoot: undefined,
                       imageBatchExpanded: undefined,
                       primaryImageId: undefined,
+                      videoAlternatives: source.metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
                   }
                 : undefined,
-        }));
+        };
+        const referenceConnections = sourceConnections
+            .filter((connection) => connection.toNodeId === nodeId)
+            .map((connection) => ({ ...connection, id: nanoid(), toNodeId: copyId }));
 
-        const clonedConnections = sourceConnections.flatMap((connection, index) => {
-            const fromNodeId = idMap.get(connection.fromNodeId);
-            const toNodeId = idMap.get(connection.toNodeId);
-            if (!fromNodeId || !toNodeId) return [];
-            return [{
-                ...connection,
-                id: "conn-" + Date.now() + "-" + index + "-" + Math.random().toString(36).slice(2, 7),
-                fromNodeId,
-                toNodeId,
-            }];
-        });
-
-        setNodes((prev) => [...prev, ...clones]);
-        setConnections((prev) => [...prev, ...clonedConnections]);
-        setSelectedNodeIds(new Set(clones.map((node) => node.id)));
+        setNodes((prev) => [...prev, copy]);
+        setConnections((prev) => [...prev, ...referenceConnections]);
+        setSelectedNodeIds(new Set([copyId]));
         setSelectedConnectionId(null);
         setContextMenu(null);
-        const rootCloneId = idMap.get(nodeId) || clones[0]?.id;
-        if (rootCloneId && clones.find((node) => node.id === rootCloneId)?.type !== CanvasNodeType.Group) setDialogNodeId(rootCloneId);
+        console.info("[canvas node duplicate]", { sourceNodeId: nodeId, copyNodeId: copyId, referenceConnectionCount: referenceConnections.length });
+        if (copy.type !== CanvasNodeType.Group) setDialogNodeId(copyId);
     }, []);
 
     const copySelectedNodes = useCallback(() => {
@@ -1392,16 +1444,141 @@ function InfiniteCanvasPage() {
     // 只做选中,不启动拖拽 —— 拖拽仍由 body 的 onMouseDown(冒泡)负责,故编辑器内选词不会拖动节点。
     // capture 必先于同一次事件的 body 冒泡触发,故把算好的选中集暂存,供紧随其后的拖拽入口复用,避免二次选中(shift 反选被抵消)。
     const pendingSelectionRef = useRef<Set<string> | null>(null);
+    const handleReferenceSelectionToggle = useCallback((targetNodeId: string) => {
+        setReferenceReplacement(null);
+        setReferenceSelectionTargetId((current) => (current === targetNodeId ? null : targetNodeId));
+    }, []);
+
+    const handleReferenceReplacementStart = useCallback(
+        (targetNodeId: string, reference: CanvasResourceReference) => {
+            const referenceNode = nodesRef.current.find((node) => node.id === reference.nodeId);
+            const groupId = referenceNode?.metadata?.groupId;
+            const isGroupReference = Boolean(groupId && connectionsRef.current.some((connection) => connection.fromNodeId === groupId && connection.toNodeId === targetNodeId));
+            const hasDirectConnection = connectionsRef.current.some((connection) => connection.fromNodeId === reference.nodeId && connection.toNodeId === targetNodeId);
+
+            if (isGroupReference) {
+                console.warn("[canvas reference replacement] group reference requires group selection", { targetNodeId, referenceNodeId: reference.nodeId, groupId });
+                message.info("这是整组引用中的素材，请在组节点上替换整组参考素材");
+                return;
+            }
+            if (!hasDirectConnection) {
+                console.warn("[canvas reference replacement] missing direct connection", { targetNodeId, referenceNodeId: reference.nodeId });
+                message.warning("该参考素材已变化，请刷新后再试");
+                return;
+            }
+
+            setReferenceSelectionTargetId(null);
+            setReferenceReplacement((current) => {
+                const isSameReference = current?.targetNodeId === targetNodeId && current.referenceNodeId === reference.nodeId;
+                return isSameReference ? null : { targetNodeId, referenceNodeId: reference.nodeId, referenceKind: reference.kind, referenceLabel: reference.label };
+            });
+            console.info("[canvas reference replacement] selection started", { targetNodeId, referenceNodeId: reference.nodeId, referenceKind: reference.kind, referenceLabel: reference.label });
+            message.info(`请在画布中选择新的${reference.label}素材`);
+        },
+        [message],
+    );
+
+    const handleReferenceRemove = useCallback(
+        (targetNodeId: string, referenceNodeId: string) => {
+            const referenceNode = nodesRef.current.find((node) => node.id === referenceNodeId);
+            const groupId = referenceNode?.metadata?.groupId;
+            // References rendered from a group come from one group edge. Removing
+            // any child deliberately removes that source edge, matching the UI
+            // promise that the pack remains atomic.
+            const sourceNodeId = groupId && connectionsRef.current.some((connection) => connection.fromNodeId === groupId && connection.toNodeId === targetNodeId) ? groupId : referenceNodeId;
+            const hadConnection = connectionsRef.current.some((connection) => connection.fromNodeId === sourceNodeId && connection.toNodeId === targetNodeId);
+            if (!hadConnection) return;
+            setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== sourceNodeId || connection.toNodeId !== targetNodeId));
+            setReferenceReplacement((current) => (current?.targetNodeId === targetNodeId && current.referenceNodeId === referenceNodeId ? null : current));
+            console.info("[canvas reference removed]", { targetNodeId, referenceNodeId, sourceNodeId, grouped: sourceNodeId === groupId });
+            message.success(sourceNodeId === groupId ? "已移除整组参考素材" : "已移除参考素材");
+        },
+        [message],
+    );
+
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
+            const replacement = referenceReplacement;
+            if (replacement) {
+                if (replacement.targetNodeId === nodeId) {
+                    console.warn("[canvas reference replacement] target cannot replace itself", { targetNodeId: replacement.targetNodeId, referenceNodeId: replacement.referenceNodeId });
+                    message.warning("请选择画布中的另一张同类型素材");
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                const candidate = nodesRef.current.find((node) => node.id === nodeId);
+                const candidateKind = candidate ? getCanvasResourceKind(candidate) : null;
+                if (!candidateKind || candidateKind !== replacement.referenceKind) {
+                    console.warn("[canvas reference replacement] incompatible candidate", { targetNodeId: replacement.targetNodeId, referenceNodeId: replacement.referenceNodeId, candidateNodeId: nodeId, expectedKind: replacement.referenceKind, actualKind: candidateKind });
+                    message.warning(`请选择${referenceKindLabel(replacement.referenceKind)}节点替换 ${replacement.referenceLabel}`);
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                if (replacement.referenceNodeId === nodeId) {
+                    setReferenceReplacement(null);
+                    message.info("已保留原参考素材");
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+
+                const hasCandidateBinding = connectionsRef.current.some((connection) => connection.fromNodeId === nodeId && connection.toNodeId === replacement.targetNodeId);
+                setConnections((prev) =>
+                    hasCandidateBinding
+                        ? prev.filter((connection) => connection.fromNodeId !== replacement.referenceNodeId || connection.toNodeId !== replacement.targetNodeId)
+                        : prev.map((connection) => (connection.fromNodeId === replacement.referenceNodeId && connection.toNodeId === replacement.targetNodeId ? { ...connection, fromNodeId: nodeId } : connection)),
+                );
+                setReferenceReplacement(null);
+                console.info("[canvas reference replaced]", {
+                    targetNodeId: replacement.targetNodeId,
+                    previousReferenceNodeId: replacement.referenceNodeId,
+                    nextReferenceNodeId: nodeId,
+                    referenceKind: replacement.referenceKind,
+                    promptMention: `@${replacement.referenceLabel}`,
+                    reusedExistingBinding: hasCandidateBinding,
+                });
+                message.success(`已替换 ${replacement.referenceLabel}，提示词中的 @ 引用已同步`);
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            const referenceTargetId = referenceSelectionTargetId;
+            if (referenceTargetId && referenceTargetId !== nodeId) {
+                const candidate = nodesRef.current.find((node) => node.id === nodeId);
+                const canUseAsReference = Boolean(
+                    candidate &&
+                        (candidate.type === CanvasNodeType.Group ||
+                            candidate.type === CanvasNodeType.Image ||
+                            candidate.type === CanvasNodeType.Video ||
+                            candidate.type === CanvasNodeType.Audio ||
+                            candidate.type === CanvasNodeType.Text ||
+                            getNodeDefinition(candidate.type)?.resource?.(candidate)),
+                );
+                if (canUseAsReference) {
+                    const exists = connectionsRef.current.some((connection) => connection.fromNodeId === nodeId && connection.toNodeId === referenceTargetId);
+                    if (!exists) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: referenceTargetId }]);
+                    setReferenceSelectionTargetId(null);
+                    console.info("[canvas reference selected]", { targetNodeId: referenceTargetId, referenceNodeId: nodeId, grouped: candidate?.type === CanvasNodeType.Group, duplicate: exists });
+                    message.success(candidate?.type === CanvasNodeType.Group ? "已添加整组参考素材" : exists ? "该素材已在参考列表中" : "已添加参考素材");
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                message.warning("请选择图片、视频、音频、文本或组节点作为参考素材");
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             setContextMenu(null);
             setHoveredNodeId(null);
             setSelectedConnectionId(null);
             const { nextSelected } = selectNodeByEvent(event, nodeId);
             pendingSelectionRef.current = nextSelected;
         },
-        [selectNodeByEvent],
+        [message, referenceReplacement, referenceSelectionTargetId, selectNodeByEvent],
     );
 
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
@@ -1747,7 +1924,7 @@ function InfiniteCanvasPage() {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             const target = event.target instanceof Element ? event.target : null;
-            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-shortcuts-ignore]")) return;
 
             const key = event.key.toLowerCase();
             const isModifierShortcut = event.metaKey || event.ctrlKey;
@@ -1784,8 +1961,12 @@ function InfiniteCanvasPage() {
 
             if (event.key === "Delete" || event.key === "Backspace") {
                 if (selectedNodeIdsRef.current.size) {
+                    event.preventDefault();
+                    console.info("[canvas keyboard delete]", { nodeIds: Array.from(selectedNodeIdsRef.current) });
                     deleteNodes(new Set(selectedNodeIdsRef.current));
                 } else if (selectedConnectionId) {
+                    event.preventDefault();
+                    console.info("[canvas keyboard delete]", { connectionId: selectedConnectionId });
                     deleteConnection(selectedConnectionId);
                 }
             }
@@ -1794,6 +1975,8 @@ function InfiniteCanvasPage() {
                 setSelectedNodeIds(new Set());
                 setSelectedConnectionId(null);
                 setContextMenu(null);
+                setReferenceSelectionTargetId(null);
+                setReferenceReplacement(null);
                 setNodeCreatePosition(null);
                 setSelectionBox(null);
                 setConnecting(null);
@@ -1855,6 +2038,51 @@ function InfiniteCanvasPage() {
 
     const handleNodeContentChange = useCallback((nodeId: string, content: string) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, content } } : node)));
+    }, []);
+
+    const handleTextAlternativeChange = useCallback((nodeId: string, alternativeIndex: number) => {
+        setNodes((prev) =>
+            prev.map((node) => {
+                if (node.id !== nodeId) return node;
+                const alternatives = node.metadata?.textAlternatives || [];
+                const content = alternatives[alternativeIndex];
+                if (!content) return node;
+                console.info("[canvas text alternative selected]", { nodeId, alternativeIndex, alternatives: alternatives.length });
+                return { ...node, metadata: { ...node.metadata, content, activeTextAlternativeIndex: alternativeIndex } };
+            }),
+        );
+    }, []);
+
+    const handleVideoAlternativeChange = useCallback(async (nodeId: string, alternativeIndex: number) => {
+        const initialNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Video);
+        const initialAlternative = initialNode ? readVideoAlternatives(initialNode.metadata)[alternativeIndex] : undefined;
+        if (!initialAlternative) return;
+        // IndexedDB-backed videos receive a fresh object URL after reload. Do
+        // this at the moment a version is selected so every stored card remains
+        // playable without eagerly loading every large clip on canvas open.
+        const resolvedContent = await resolveMediaUrl(initialAlternative.storageKey, initialAlternative.content);
+        setNodes((prev) =>
+            prev.map((node) => {
+                if (node.id !== nodeId || node.type !== CanvasNodeType.Video) return node;
+                const alternatives = readVideoAlternatives(node.metadata);
+                const selected = alternatives[alternativeIndex];
+                if (!selected) return node;
+                const resolvedAlternative = { ...selected, content: selected.id === initialAlternative.id ? resolvedContent : selected.content };
+                const resolvedAlternatives = alternatives.map((alternative, index) => (index === alternativeIndex ? resolvedAlternative : alternative));
+                console.info("[canvas video alternative selected]", { nodeId, alternativeIndex, alternatives: alternatives.length });
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        ...videoAlternativeMetadata(resolvedAlternative),
+                        videoAlternatives: resolvedAlternatives,
+                        activeVideoAlternativeIndex: alternativeIndex,
+                        status: NODE_STATUS_SUCCESS,
+                        errorDetails: undefined,
+                    },
+                };
+            }),
+        );
     }, []);
 
     const handleNodeTitleChange = useCallback((nodeId: string, title: string) => {
@@ -2411,6 +2639,24 @@ function InfiniteCanvasPage() {
                 return;
             }
 
+            // A behaviour plugin may opt into this event and present its own
+            // confirmation UI. The default remains immediate generation.
+            if (pendingGenerationConfirmationsRef.current.has(nodeId)) return;
+            pendingGenerationConfirmationsRef.current.add(nodeId);
+            try {
+                const approved = await requestCanvasGenerationConfirmation({
+                    nodeId,
+                    nodeTitle: sourceNode?.title || "未命名节点",
+                    mode,
+                    model: generationConfig.model,
+                    prompt: prompt.trim(),
+                });
+                console.info("[canvas generation confirmation]", { nodeId, mode, model: generationConfig.model, approved });
+                if (!approved) return;
+            } finally {
+                pendingGenerationConfirmationsRef.current.delete(nodeId);
+            }
+
             // 插件节点声明了 useBuiltinPanel.writeBackToSelf:复用内置面板生成,但结果写回节点自身。
             // 目前支持 image 模式(全景等展示型节点),前缀由 useBuiltinPanel.promptPrefix 指定。
             const builtinPanel = sourceNode ? getNodeDefinition(sourceNode.type)?.useBuiltinPanel : undefined;
@@ -2647,17 +2893,24 @@ function InfiniteCanvasPage() {
                 }
 
                 if (mode === "video") {
-                    const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
-                    const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content;
-                    const videoId = isEmptyVideoNode ? nodeId : nanoid();
+                    // Use the same generous envelope for the loading node as
+                    // the completed video. Portrait clips otherwise look like
+                    // tiny status pills until a page refresh.
+                    const spec = nodeSizeFromRatio(generationConfig.size, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+                    // A rerun belongs to the selected video node, not a new
+                    // child that would in turn become its own video reference.
+                    const isVideoNode = sourceNode?.type === CanvasNodeType.Video;
+                    const videoId = isVideoNode ? nodeId : nanoid();
+                    const videoAttemptId = nanoid();
+                    let creatorTaskIdForRun: string | undefined;
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoNode: CanvasNodeData = {
                         id: videoId,
                         type: CanvasNodeType.Video,
                         title: effectivePrompt.slice(0, 32) || "Generated Video",
-                        position: isEmptyVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
-                        width: isEmptyVideoNode ? sourceNode.width : spec.width,
-                        height: isEmptyVideoNode ? sourceNode.height : spec.height,
+                        position: isVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
+                        width: isVideoNode ? sourceNode.width : spec.width,
+                        height: isVideoNode ? sourceNode.height : spec.height,
                         metadata: {
                             prompt: effectivePrompt,
                             status: NODE_STATUS_LOADING,
@@ -2671,49 +2924,90 @@ function InfiniteCanvasPage() {
                             references: generationReferenceUrls(generationContext),
                         },
                     };
+                    console.info("[canvas video generation]", {
+                        nodeId,
+                        videoId,
+                        reuseExistingVideoNode: isVideoNode,
+                        referenceImages: generationContext.referenceImages.length,
+                        referenceVideos: generationContext.referenceVideos.length,
+                        referenceAudios: generationContext.referenceAudios.length,
+                    });
                     pendingChildIds = [videoId];
                     setNodes((prev) =>
-                        isEmptyVideoNode
-                            ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node))
+                        isVideoNode
+                            ? prev.map((node) =>
+                                  node.id === nodeId
+                                      ? {
+                                            ...node,
+                                            ...videoNode,
+                                            metadata: { ...node.metadata, ...videoNode.metadata },
+                                        }
+                                      : node,
+                              )
                             : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode],
                     );
-                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
+                    if (!isVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
-                        const video = await storeGeneratedVideo(
-                            await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
-                                signal: controller.signal,
-                                onCreatorTaskCreated: (creatorTaskId) => {
-                                    setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
-                                },
+                        const video = await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
+                            signal: controller.signal,
+                            onCreatorTaskCreated: (creatorTaskId) => {
+                                creatorTaskIdForRun = creatorTaskId;
+                                console.info("[canvas video task created]", { nodeId: videoId, creatorTaskId, reusedVideoNode: isVideoNode });
+                                setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+                            },
+                        });
+                        const videoUrl = video.url || video.fallbackUrl;
+                        if (!videoUrl) throw new Error("视频任务已完成，但未收到可播放地址");
+                        const readyVideo = { ...video, url: videoUrl, mimeType: video.mimeType || "video/mp4" };
+                        const videoSize = fitNodeSize(readyVideo.width || spec.width, readyVideo.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                        setNodes((prev) =>
+                            prev.map((node) => {
+                                if (node.id !== videoId) return node;
+                                const alternativeState = appendVideoAlternative(node.metadata, { ...videoMetadata(readyVideo), creatorTaskId: creatorTaskIdForRun }, videoAttemptId);
+                                console.info("[canvas video alternative stored]", { nodeId: videoId, alternatives: alternativeState.alternatives.length, activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex });
+                                return {
+                                    ...node,
+                                    width: videoSize.width,
+                                    height: videoSize.height,
+                                    position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 },
+                                    metadata: {
+                                        ...node.metadata,
+                                        ...videoMetadata(readyVideo),
+                                        prompt: effectivePrompt,
+                                        model: generationConfig.model,
+                                        size: generationConfig.size,
+                                        seconds: generationConfig.videoSeconds,
+                                        vquality: generationConfig.vquality,
+                                        generateAudio: generationConfig.videoGenerateAudio,
+                                        watermark: generationConfig.videoWatermark,
+                                        videoReferenceMode: generationConfig.videoReferenceMode,
+                                        references: generationReferenceUrls(generationContext),
+                                        videoAlternatives: alternativeState.alternatives,
+                                        activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex,
+                                    },
+                                };
                             }),
                         );
-                        const videoSize = fitNodeSize(video.width || spec.width, video.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                        setNodes((prev) =>
-                            prev.map((node) =>
-                                node.id === videoId
-                                    ? {
-                                          ...node,
-                                          width: videoSize.width,
-                                          height: videoSize.height,
-                                          position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 },
-                                          metadata: {
-                                              ...node.metadata,
-                                              ...videoMetadata(video),
-                                              prompt: effectivePrompt,
-                                              model: generationConfig.model,
-                                              size: generationConfig.size,
-                                              seconds: generationConfig.videoSeconds,
-                                              vquality: generationConfig.vquality,
-                                              generateAudio: generationConfig.videoGenerateAudio,
-                                              watermark: generationConfig.videoWatermark,
-                                              videoReferenceMode: generationConfig.videoReferenceMode,
-                                              references: generationReferenceUrls(generationContext),
-                                          },
-                                      }
-                                    : node,
-                            ),
-                        );
+                        void storeGeneratedVideo(readyVideo)
+                            .then((stored) =>
+                                setNodes((prev) =>
+                                    prev.map((node) => {
+                                        if (node.id !== videoId) return node;
+                                        const alternativeState = appendVideoAlternative(node.metadata, { ...videoMetadata(stored), creatorTaskId: creatorTaskIdForRun }, videoAttemptId);
+                                        return {
+                                            ...node,
+                                            metadata: {
+                                                ...node.metadata,
+                                                ...videoMetadata(stored),
+                                                videoAlternatives: alternativeState.alternatives,
+                                                activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex,
+                                            },
+                                        };
+                                    }),
+                                ),
+                            )
+                            .catch((error) => console.warn("[creator video] background cache failed", { nodeId: videoId, error }));
                     } finally {
                         finishGenerationRequest(videoId, controller);
                     }
@@ -2757,16 +3051,19 @@ function InfiniteCanvasPage() {
                 const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : CanvasNodeType.Text];
                 const textConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
                 const parentPosition = sourceNode?.position || { x: 0, y: 0 };
-                const childIds = isConfigNode || editingTextNode || textCount > 1 ? Array.from({ length: textCount }, () => nanoid()) : [];
+                // Text variants belong to one result node. Keeping them together
+                // makes comparison intentional and avoids spraying duplicate
+                // prompt nodes across the canvas.
+                const childIds = isConfigNode || editingTextNode ? [nanoid()] : [];
                 pendingChildIds = childIds;
                 if (childIds.length) {
-                    const childNodes: CanvasNodeData[] = childIds.map((id, index) => ({
+                    const childNodes: CanvasNodeData[] = childIds.map((id) => ({
                         id,
                         type: CanvasNodeType.Text,
                         title: effectivePrompt.slice(0, 32) || "Generated Text",
                         position: {
                             x: parentPosition.x + parentConfig.width + 96,
-                            y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 + (index - (textCount - 1) / 2) * (textConfig.height + 36),
+                            y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2,
                         },
                         width: textConfig.width,
                         height: textConfig.height,
@@ -2777,10 +3074,10 @@ function InfiniteCanvasPage() {
                 }
 
                 const controller = runController;
-                const textTargetIds = childIds.length ? childIds : [nodeId];
-                textTargetIds.forEach((targetNodeId) => startGenerationRequest(targetNodeId, nodeId, nodeId, controller));
+                const textTargetId = childIds[0] || nodeId;
+                startGenerationRequest(textTargetId, nodeId, nodeId, controller);
                 const answers = await Promise.all(
-                    textTargetIds.map((targetNodeId) => {
+                    Array.from({ length: textCount }, (_, variantIndex) => {
                         let localStreamed = "";
                         return requestImageQuestion(
                             generationConfig,
@@ -2788,21 +3085,26 @@ function InfiniteCanvasPage() {
                             (text) => {
                                 localStreamed = text;
                                 streamed = text;
-                                if (isConfigNode) return;
-                                setNodes((prev) => prev.map((node) => (node.id === targetNodeId ? { ...node, type: CanvasNodeType.Text, metadata: { ...node.metadata, content: text, status: NODE_STATUS_LOADING } } : node)));
+                                // Only stream the first variant into the shared
+                                // node. The completed alternatives are persisted
+                                // together once every request has returned.
+                                if (isConfigNode || variantIndex !== 0) return;
+                                setNodes((prev) => prev.map((node) => (node.id === textTargetId ? { ...node, type: CanvasNodeType.Text, metadata: { ...node.metadata, content: text, status: NODE_STATUS_LOADING } } : node)));
                             },
                             { signal: controller.signal },
                         )
-                            .then((answer) => ({ nodeId: targetNodeId, content: answer || localStreamed }))
-                            .finally(() => finishGenerationRequest(targetNodeId, controller));
+                            .then((answer) => answer || localStreamed);
                     }),
                 );
+                finishGenerationRequest(textTargetId, controller);
                 if (controller.signal.aborted) return;
-                const answerByNodeId = new Map(answers.map((item) => [item.nodeId, item.content]));
+                const completedAnswers = answers.filter(Boolean);
+                const primaryAnswer = completedAnswers[0] || streamed;
+                const textAlternatives = completedAnswers.length > 1 ? completedAnswers : undefined;
                 setNodes((prev) =>
                     prev.map((node) =>
                         childIds.includes(node.id)
-                            ? { ...node, metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, status: NODE_STATUS_SUCCESS } }
+                            ? { ...node, metadata: { ...node.metadata, content: primaryAnswer, textAlternatives, activeTextAlternativeIndex: 0, status: NODE_STATUS_SUCCESS } }
                             : node.id === nodeId && isConfigNode
                               ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } }
                               : node.id === nodeId && !editingTextNode
@@ -2810,7 +3112,7 @@ function InfiniteCanvasPage() {
                                       ...node,
                                       type: CanvasNodeType.Text,
                                       title: prompt.slice(0, 32) || "Generated Text",
-                                      metadata: { ...node.metadata, content: answerByNodeId.get(node.id) || streamed, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS },
+                                      metadata: { ...node.metadata, content: primaryAnswer, textAlternatives, activeTextAlternativeIndex: 0, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort, status: NODE_STATUS_SUCCESS },
                                   }
                                 : node,
                     ),
@@ -2823,6 +3125,7 @@ function InfiniteCanvasPage() {
                     prev.map((node) => (node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } }) : node)),
                 );
             } finally {
+                pendingChildIds.forEach((targetNodeId) => finishGenerationRequest(targetNodeId, runController));
                 finishGenerationRequest(nodeId, runController);
                 setRunningNodeId(null);
             }
@@ -2893,37 +3196,67 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Video) {
-                    const video = await storeGeneratedVideo(await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
+                    console.info("[canvas video retry]", { nodeId: node.id, referenceImages: retryImages.length, referenceVideos: context?.referenceVideos.length || 0, referenceAudios: context?.referenceAudios.length || 0 });
+                    const videoAttemptId = nanoid();
+                    let creatorTaskIdForRun: string | undefined;
+                    const video = await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
                         signal: controller.signal,
                         onCreatorTaskCreated: (creatorTaskId) => {
+                            creatorTaskIdForRun = creatorTaskId;
+                            console.info("[canvas video retry task created]", { nodeId: node.id, creatorTaskId });
                             setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
                         },
-                    }));
-                    const videoSize = fitNodeSize(video.width || node.width, video.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                    });
+                    const videoUrl = video.url || video.fallbackUrl;
+                    if (!videoUrl) throw new Error("视频任务已完成，但未收到可播放地址");
+                    const readyVideo = { ...video, url: videoUrl, mimeType: video.mimeType || "video/mp4" };
+                    const videoSize = fitNodeSize(readyVideo.width || node.width, readyVideo.height || node.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                     setNodes((prev) =>
-                        prev.map((item) =>
-                            item.id === node.id
-                                ? {
-                                      ...item,
-                                      width: videoSize.width,
-                                      height: videoSize.height,
-                                      position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 },
-                                      metadata: {
-                                          ...item.metadata,
-                                          ...videoMetadata(video),
-                                          prompt,
-                                          model: generationConfig.model,
-                                          size: generationConfig.size,
-                                          seconds: generationConfig.videoSeconds,
-                                          vquality: generationConfig.vquality,
-                                          generateAudio: generationConfig.videoGenerateAudio,
-                                          watermark: generationConfig.videoWatermark,
-                            videoReferenceMode: generationConfig.videoReferenceMode,
-                                      },
-                                  }
-                                : item,
-                        ),
+                        prev.map((item) => {
+                            if (item.id !== node.id) return item;
+                            const alternativeState = appendVideoAlternative(item.metadata, { ...videoMetadata(readyVideo), creatorTaskId: creatorTaskIdForRun }, videoAttemptId);
+                            console.info("[canvas video alternative stored]", { nodeId: item.id, alternatives: alternativeState.alternatives.length, activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex, retry: true });
+                            return {
+                                ...item,
+                                width: videoSize.width,
+                                height: videoSize.height,
+                                position: { x: item.position.x + item.width / 2 - videoSize.width / 2, y: item.position.y + item.height / 2 - videoSize.height / 2 },
+                                metadata: {
+                                    ...item.metadata,
+                                    ...videoMetadata(readyVideo),
+                                    prompt,
+                                    model: generationConfig.model,
+                                    size: generationConfig.size,
+                                    seconds: generationConfig.videoSeconds,
+                                    vquality: generationConfig.vquality,
+                                    generateAudio: generationConfig.videoGenerateAudio,
+                                    watermark: generationConfig.videoWatermark,
+                                    videoReferenceMode: generationConfig.videoReferenceMode,
+                                    videoAlternatives: alternativeState.alternatives,
+                                    activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex,
+                                },
+                            };
+                        }),
                     );
+                    void storeGeneratedVideo(readyVideo)
+                        .then((stored) =>
+                            setNodes((prev) =>
+                                prev.map((item) => {
+                                    if (item.id !== node.id) return item;
+                                    const alternativeState = appendVideoAlternative(item.metadata, { ...videoMetadata(stored), creatorTaskId: creatorTaskIdForRun }, videoAttemptId);
+                                    return {
+                                        ...item,
+                                        metadata: {
+                                            ...item.metadata,
+                                            ...videoMetadata(stored),
+                                            videoAlternatives: alternativeState.alternatives,
+                                            activeVideoAlternativeIndex: alternativeState.activeVideoAlternativeIndex,
+                                        },
+                                    };
+                                }),
+                            ),
+                        )
+                        .catch((error) => console.warn("[creator video] retry background cache failed", { nodeId: node.id, error }));
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
@@ -3101,6 +3434,42 @@ function InfiniteCanvasPage() {
         setContextMenu({ type: "node", x: event.clientX, y: event.clientY, nodeId });
     }, []);
 
+    const handleVideoFrameCapture = useCallback(
+        async (nodeId: string, frame: "first" | "current" | "last") => {
+            const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            const sourceUrl = sourceNode?.metadata?.content;
+            if (!sourceNode || sourceNode.type !== CanvasNodeType.Video || !sourceUrl) return;
+            setContextMenu(null);
+            try {
+                const visibleVideo = document.querySelector<HTMLVideoElement>(`video[data-canvas-video-id="${CSS.escape(nodeId)}"]`);
+                const file = await captureVideoFrameFile(sourceUrl, frame, visibleVideo?.currentTime || 0);
+                const image = await uploadImage(file);
+                const imageSize = fitNodeSize(image.width, image.height);
+                const labels = { first: "首帧", current: "当前帧", last: "尾帧" } as const;
+                const imageNode: CanvasNodeData = {
+                    id: nanoid(),
+                    type: CanvasNodeType.Image,
+                    title: `${sourceNode.title || "视频"} · ${labels[frame]}`,
+                    position: { x: sourceNode.position.x + sourceNode.width + 88, y: sourceNode.position.y + sourceNode.height / 2 - imageSize.height / 2 },
+                    width: imageSize.width,
+                    height: imageSize.height,
+                    metadata: { ...imageMetadata(image), prompt: `${sourceNode.title || "视频"}${labels[frame]}` },
+                };
+                setNodes((prev) => [...prev, imageNode]);
+                setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: imageNode.id }]);
+                setSelectedNodeIds(new Set([imageNode.id]));
+                setDialogNodeId(imageNode.id);
+                console.info("[canvas video frame capture]", { sourceNodeId: sourceNode.id, frame, imageNodeId: imageNode.id });
+                message.success(`已将视频${labels[frame]}添加为图片节点`);
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : "无法截取视频画面";
+                console.warn("[canvas video frame capture failed]", { nodeId, frame, error });
+                message.error(`${detail}。若视频来自外部地址，请确认该地址允许浏览器读取。`);
+            }
+        },
+        [message],
+    );
+
     const renderNodePanel = useCallback(
         (panelNode: CanvasNodeData) =>
             getNodeDefinition(panelNode.type)?.Panel ? (
@@ -3117,6 +3486,11 @@ function InfiniteCanvasPage() {
                     node={panelNode}
                     isRunning={runningNodeId === panelNode.id}
                     mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || EMPTY_REFERENCES}
+                    isSelectingReferences={referenceSelectionTargetId === panelNode.id}
+                    replacingReferenceId={referenceReplacement?.targetNodeId === panelNode.id ? referenceReplacement.referenceNodeId : null}
+                    onBeginReferenceSelection={handleReferenceSelectionToggle}
+                    onBeginReferenceReplacement={handleReferenceReplacementStart}
+                    onRemoveReference={handleReferenceRemove}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
@@ -3128,7 +3502,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(
@@ -3268,6 +3642,8 @@ function InfiniteCanvasPage() {
                             onResize={handleNodeResize}
                             onResizeEnd={handleNodeResizeEnd}
                             onContentChange={handleNodeContentChange}
+                            onTextAlternativeChange={handleTextAlternativeChange}
+                            onVideoAlternativeChange={handleVideoAlternativeChange}
                             onTitleChange={handleNodeTitleChange}
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}
@@ -3365,6 +3741,7 @@ function InfiniteCanvasPage() {
                 {contextMenu ? (
                     <CanvasNodeContextMenu
                         menu={contextMenu}
+                        node={contextMenu.type === "node" ? nodes.find((node) => node.id === contextMenu.nodeId) : undefined}
                         onClose={() => setContextMenu(null)}
                         onDuplicate={() => {
                             if (contextMenu.type !== "node") return;
@@ -3378,6 +3755,9 @@ function InfiniteCanvasPage() {
                                 deleteConnection(contextMenu.connectionId);
                             }
                             setContextMenu(null);
+                        }}
+                        onCaptureVideoFrame={(frame) => {
+                            if (contextMenu.type === "node") void handleVideoFrameCapture(contextMenu.nodeId, frame);
                         }}
                     />
                 ) : null}

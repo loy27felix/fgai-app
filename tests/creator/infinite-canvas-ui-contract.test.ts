@@ -102,6 +102,58 @@ test('canvas error details wrap and scroll inside narrow portrait nodes', () => 
   assert.match(node, /title=\{detail\}/);
 });
 
+test('video reruns stay in one node with selectable versions and keyboard deletion remains available for video controls', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+  const menu = read('reference/infinite-canvas/src/components/canvas/canvas-create-menus.tsx');
+
+  assert.match(project, /const isVideoNode = sourceNode\?\.type === CanvasNodeType\.Video/);
+  assert.match(project, /const videoId = isVideoNode \? nodeId : nanoid\(\)/);
+  assert.match(project, /appendVideoAlternative/);
+  assert.match(project, /\[canvas video alternative selected\]/);
+  assert.match(project, /const referenceConnections = sourceConnections/);
+  assert.match(project, /\[canvas keyboard delete\]/);
+  assert.match(project, /target\?\.closest\("\[contenteditable='true'\],\[data-canvas-shortcuts-ignore\]"\)/);
+  assert.match(node, /第 \{index \+ 1\} 个视频版本/);
+  assert.match(node, /onVideoAlternativeChange/);
+  assert.match(menu, /w-\[360px\]/);
+});
+
+test('canvas reference chips support in-place replacement and the expanded prompt editor keeps @ references usable', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
+
+  assert.match(project, /\[canvas reference replacement\] selection started/);
+  assert.match(project, /\[canvas reference replaced\]/);
+  assert.match(project, /getCanvasResourceKind\(candidate\)/);
+  assert.match(project, /提示词中的 @ 引用已同步/);
+  assert.match(promptPanel, /onBeginReferenceReplacement/);
+  assert.match(promptPanel, /点击后在画布中替换/);
+  assert.match(promptPanel, /<ReferenceStrip nodeId=\{node\.id\} references=\{mentionReferences\} theme=\{theme\} \/>/);
+  assert.doesNotMatch(promptPanel, /↵ 换行/);
+  assert.match(promptInput, /z-\[1200\]/);
+});
+
+test('canvas restores the original native grab cursor for panning', () => {
+  const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
+
+  assert.match(canvas, /cursor-grabbing/);
+  assert.match(canvas, /cursor-grab/);
+  assert.match(canvas, /document\.body\.style\.cursor = "grabbing"/);
+  assert.doesNotMatch(canvas, /function canvasCursor/);
+});
+
+test('canvas side panel nests grouped nodes with independently collapsible tree branches', () => {
+  const panel = read('reference/infinite-canvas/src/components/canvas/canvas-side-panel.tsx');
+
+  assert.match(panel, /function buildCanvasNodeTree/);
+  assert.match(panel, /group tree toggled/);
+  assert.match(panel, /role="treeitem"/);
+  assert.match(panel, /aria-expanded/);
+  assert.match(panel, /children\.length} 个节点/);
+});
+
 
 test('canvas cloud sync adopts legacy local projects and deletes remote rows', () => {
   const index = read('reference/infinite-canvas/src/pages/canvas/index.tsx');
