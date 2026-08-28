@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Plus, Square, X } from "lucide-react";
 import { Button, Modal, Tooltip } from "antd";
 
@@ -201,27 +201,29 @@ function ReferenceStrip({
             <span className="shrink-0 text-[11px] font-semibold opacity-70">参考素材</span>
             <div className="flex min-w-0 items-center gap-1.5">
                 {references.map((reference) => (
-                    <div key={reference.id} className="flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }} title={reference.label + " · " + reference.title}>
-                        {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
-                        {reference.previewUrl && reference.kind === "video" ? <video src={reference.previewUrl} className="size-7 rounded-lg bg-black object-cover" muted preload="metadata" /> : null}
-                        {!reference.previewUrl || (reference.kind !== "image" && reference.kind !== "video") ? <span className="grid size-7 place-items-center rounded-lg bg-black/10 text-[10px] font-bold">{reference.kind === "text" ? "TXT" : reference.kind === "audio" ? "AUD" : "REF"}</span> : null}
-                        <span className="max-w-28 truncate text-[11px] font-medium">{reference.label}</span>
-                        {onRemove ? (
-                            <button
-                                type="button"
-                                className="grid size-5 shrink-0 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100"
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    onRemove(nodeId, reference.id);
-                                }}
-                                onMouseDown={(event) => event.stopPropagation()}
-                                aria-label={`移除 ${reference.label}`}
-                                title="移除参考素材"
-                            >
-                                <X className="size-3" />
-                            </button>
-                        ) : null}
-                    </div>
+                    <ReferencePreviewTooltip key={reference.id} reference={reference} theme={theme}>
+                        <div className="flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }} title={reference.label + " · " + reference.title}>
+                            {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
+                            {reference.previewUrl && reference.kind === "video" ? <video src={reference.previewUrl} className="size-7 rounded-lg bg-black object-cover" muted preload="metadata" /> : null}
+                            {!reference.previewUrl || (reference.kind !== "image" && reference.kind !== "video") ? <span className="grid size-7 place-items-center rounded-lg bg-black/10 text-[10px] font-bold">{reference.kind === "text" ? "TXT" : reference.kind === "audio" ? "AUD" : "REF"}</span> : null}
+                            <span className="max-w-28 truncate text-[11px] font-medium">{reference.label}</span>
+                            {onRemove ? (
+                                <button
+                                    type="button"
+                                    className="grid size-5 shrink-0 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onRemove(nodeId, reference.id);
+                                    }}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    aria-label={`移除 ${reference.label}`}
+                                    title="移除参考素材"
+                                >
+                                    <X className="size-3" />
+                                </button>
+                            ) : null}
+                        </div>
+                    </ReferencePreviewTooltip>
                 ))}
                 {onSelect ? (
                     <button
@@ -241,6 +243,26 @@ function ReferenceStrip({
                 ) : null}
             </div>
         </div>
+    );
+}
+
+function ReferencePreviewTooltip({ reference, theme, children }: { reference: CanvasResourceReference; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; children: ReactNode }) {
+    const previewUrl = reference.previewUrl;
+    if (!previewUrl || (reference.kind !== "image" && reference.kind !== "video")) return <>{children}</>;
+    const reportPreviewError = () => console.warn("[canvas reference preview] unavailable", { referenceId: reference.id, kind: reference.kind });
+    return (
+        <Tooltip
+            placement="top"
+            mouseEnterDelay={0.18}
+            title={
+                <div className="w-72 overflow-hidden rounded-xl border p-1.5" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel, color: theme.node.text }}>
+                    {reference.kind === "image" ? <img src={previewUrl} alt={reference.title || reference.label} className="max-h-[420px] w-full rounded-lg object-contain" onError={reportPreviewError} /> : <video src={previewUrl} className="max-h-[420px] w-full rounded-lg bg-black object-contain" autoPlay loop muted playsInline preload="metadata" onError={reportPreviewError} />}
+                    <div className="px-1 pb-0.5 pt-1 text-[11px] font-medium">{reference.label}<span className="ml-1 opacity-60">· {reference.title}</span></div>
+                </div>
+            }
+        >
+            {children}
+        </Tooltip>
     );
 }
 function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {

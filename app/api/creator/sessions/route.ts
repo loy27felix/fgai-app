@@ -133,7 +133,9 @@ export async function POST(req: Request) {
       .select('*')
       .single();
     if (error) throw error;
-    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'create', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: data.id, kind, model: data.default_model || undefined });
+    const session = normalizeCreatorSessions([data])[0];
+    if (!session) throw new Error('创建的会话数据无效');
+    logServerEvent('creator_session', { traceId, feature: 'creator_session', stage: 'completed', action: 'create', actorId: context.user.id, workspaceId: context.workspace.id, sessionId: session.id, kind, model: session.default_model || undefined, timestampNormalized: true });
     await recordAuditEvent({
       traceId,
       actorId: context.user.id,
@@ -141,12 +143,12 @@ export async function POST(req: Request) {
       feature: 'creator_session',
       action: 'create',
       resourceType: 'creator_session',
-      resourceId: data.id,
+      resourceId: session.id,
       stage: 'completed',
       outcome: 'succeeded',
-      parameters: { kind, model: data.default_model },
+      parameters: { kind, model: session.default_model },
     });
-    return respond({ session: data }, { status: 201 });
+    return respond({ session }, { status: 201 });
   } catch (error: unknown) {
     logServerFailure('creator_session', error, { traceId, feature: 'creator_session', stage: 'failed', action: 'create' });
     await recordAuditEvent({ traceId, feature: 'creator_session', action: 'create', resourceType: 'creator_session', stage: 'failed', outcome: 'failed', error, level: 'error' });

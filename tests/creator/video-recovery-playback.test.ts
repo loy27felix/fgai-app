@@ -12,7 +12,10 @@ test('video generation has a durable same-origin playback fallback', () => {
 
   assert.match(video, /fallbackUrl\?: string/);
   assert.match(video, /result\.fallbackUrl/);
-  assert.match(video, /creatorVideoContentUrl\(draft\.task\.id\)/);
+  // The playback proxy is now created in one helper so every completed task
+  // gets the same same-origin URL, whether it finishes immediately or after
+  // polling.
+  assert.match(video, /creatorVideoContentUrl\(taskId\)/);
   assert.match(contentRoute, /Accept-Ranges/);
   assert.match(contentRoute, /video_storage_path/);
   assert.match(contentRoute, /createAdminClient/);

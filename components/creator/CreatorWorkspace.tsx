@@ -140,6 +140,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     stickToBottomRef.current = true;
     setShowJumpToLatest(false);
     history.replaceState(null, "", `/chat?session=${data.session.id}`);
+    console.info("[creator chat history] session created", { sessionId: data.session.id, model: data.session.default_model || model });
     return data.session.id as string;
   }
 
@@ -191,6 +192,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
         setSessionId(null);
         setMessages([]);
       }
+      console.info("[creator chat history] reload completed", { sessionCount: next.length, preferredSessionId: preferredSessionId || undefined, selectedSessionId: target || undefined });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "读取会话失败");
     } finally {

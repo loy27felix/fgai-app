@@ -14,6 +14,17 @@ function string(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
+/**
+ * node-postgres deserializes timestamptz values as Date instances, while
+ * browser/API payloads use ISO strings.  Keeping both forms normalized here
+ * prevents a valid local session from being filtered out as an invalid date
+ * after a page refresh.
+ */
+function dateString(value: unknown, fallback = ''): string {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+  return string(value, fallback);
+}
+
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null;
 }
@@ -34,7 +45,7 @@ export function normalizeCreatorSessions(rows: unknown[], requestedKind?: Creato
       const row = record(value);
       const rawKind = string(row.kind, 'chat');
       const kind = CREATOR_KINDS.includes(rawKind as CreatorKind) ? rawKind as CreatorKind : 'chat';
-      const createdAt = string(row.created_at);
+      const createdAt = dateString(row.created_at);
       return {
         id: string(row.id),
         workspace_id: string(row.workspace_id),
@@ -44,7 +55,7 @@ export function normalizeCreatorSessions(rows: unknown[], requestedKind?: Creato
         default_model: nullableString(row.default_model),
         archived_at: nullableString(row.archived_at),
         created_at: createdAt,
-        updated_at: string(row.updated_at, createdAt),
+        updated_at: dateString(row.updated_at, createdAt),
       } satisfies CreatorSession;
     })
     .filter((session) => Boolean(session.id) && !session.archived_at && (!requestedKind || session.kind === requestedKind))
@@ -63,7 +74,7 @@ export function normalizeCreatorMessages(rows: unknown[]): CreatorMessage[] {
         role: MESSAGE_ROLES.includes(rawRole as CreatorMessage['role']) ? rawRole as CreatorMessage['role'] : 'assistant',
         content: record(row.content),
         status: MESSAGE_STATUSES.includes(rawStatus as CreatorMessage['status']) ? rawStatus as CreatorMessage['status'] : 'complete',
-        created_at: string(row.created_at),
+        created_at: dateString(row.created_at),
       } satisfies CreatorMessage;
     })
     .filter((message) => Boolean(message.id) && Boolean(message.session_id))
