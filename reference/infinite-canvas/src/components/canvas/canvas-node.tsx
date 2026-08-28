@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronDown, ChevronRight, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { formatBytes } from "@/reference/infinite-canvas/src/lib/image-utils";
@@ -9,6 +9,7 @@ import { buildNodeContext } from "@/reference/infinite-canvas/src/lib/canvas/plu
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/reference/infinite-canvas/src/types/canvas";
+import { readVideoAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/reference/infinite-canvas/src/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
@@ -49,6 +50,7 @@ type CanvasNodeProps = {
     onResizeEnd?: (nodeId: string) => void;
     onContentChange: (nodeId: string, content: string) => void;
     onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
+    onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
@@ -72,6 +74,7 @@ type NodeContentRendererProps = {
     pluginContext?: CanvasNodeContext | null;
     onContentChange: (nodeId: string, content: string) => void;
     onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
+    onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
@@ -114,6 +117,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onResizeEnd,
     onContentChange,
     onTextAlternativeChange,
+    onVideoAlternativeChange,
     onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
@@ -131,6 +135,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [titleDraft, setTitleDraft] = useState(data.title || "");
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
+    const hasVideoAlternatives = data.type === CanvasNodeType.Video && readVideoAlternatives(data.metadata).length > 1;
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
     const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
@@ -387,7 +392,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             )}
 
             <div
-                className="relative h-full w-full overflow-visible rounded-3xl border-2"
+                className="relative h-full w-full overflow-visible rounded-3xl border-[3px]"
                 style={{
                     background: isGroup ? `${theme.toolbar.panel}66` : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
                     borderColor: isGroup ? (isGroupDropTarget || isActive ? selectionBlue : theme.node.stroke) : hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : transparentBg ? "transparent" : theme.node.stroke,
@@ -416,7 +421,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
             >
                 <div
-                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot ? "overflow-visible" : "overflow-hidden"}`}
+                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || hasVideoAlternatives ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
                             background: isGroup ? "transparent" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
@@ -444,6 +449,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
                         onTextAlternativeChange={onTextAlternativeChange}
+                        onVideoAlternativeChange={onVideoAlternativeChange}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
                         onGenerateImage={onGenerateImage}
@@ -656,7 +662,12 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
-function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
+function VideoNodeContent({ node, theme, onVideoAlternativeChange }: NodeContentRendererProps) {
+    const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
+    const alternatives = readVideoAlternatives(node.metadata);
+    const activeAlternativeIndex = Math.min(Math.max(node.metadata?.activeVideoAlternativeIndex ?? alternatives.length - 1, 0), Math.max(alternatives.length - 1, 0));
+    const activeContent = alternatives[activeAlternativeIndex]?.content || node.metadata?.content;
+
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
@@ -664,7 +675,70 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
                 <span className="text-sm">空视频节点</span>
             </div>
         );
-    return <video src={node.metadata.content} controls className="h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom data-canvas-video-id={node.id} />;
+    return (
+        <div className="group/video relative isolate h-full w-full overflow-visible">
+            {alternatives.length > 1 ? (
+                <div className="pointer-events-none absolute inset-0 z-0 overflow-visible">
+                    {alternatives.slice(0, -1).slice(-3).map((alternative, index) => (
+                        <div
+                            key={alternative.id}
+                            className="absolute inset-0 rounded-[18px] border shadow-[0_18px_38px_rgba(0,0,0,.28)]"
+                            style={{
+                                background: `linear-gradient(145deg, ${theme.node.panel}, ${theme.node.fill})`,
+                                borderColor: theme.node.stroke,
+                                transform: `translate(${14 + index * 12}px, ${10 + index * 8}px) rotate(${2 + index * 1.6}deg)`,
+                            }}
+                        />
+                    ))}
+                </div>
+            ) : null}
+            <video src={activeContent} controls className="relative z-10 h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom data-canvas-video-id={node.id} />
+            {alternatives.length > 1 ? (
+                <div className="absolute right-2.5 top-2.5 z-30">
+                    <button
+                        type="button"
+                        className="flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold shadow-[0_8px_20px_rgba(0,0,0,.24)] backdrop-blur-md transition hover:scale-[1.02]"
+                        style={{ background: `${theme.toolbar.panel}e8`, borderColor: `${theme.toolbar.border}d9`, color: theme.node.text }}
+                        aria-expanded={isVersionMenuOpen}
+                        aria-label={`视频共有 ${alternatives.length} 个版本，当前显示第 ${activeAlternativeIndex + 1} 个`}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setIsVersionMenuOpen((open) => !open);
+                        }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                    >
+                        <span className="text-[#2f80ff]">{activeAlternativeIndex + 1}/{alternatives.length}</span>
+                        <ChevronDown className={`size-3.5 opacity-70 transition-transform ${isVersionMenuOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {isVersionMenuOpen ? (
+                        <div className="absolute right-0 top-11 min-w-[148px] overflow-hidden rounded-xl border p-1.5 shadow-2xl backdrop-blur-xl" style={{ background: `${theme.toolbar.panel}f7`, borderColor: theme.toolbar.border }}>
+                            {alternatives.map((alternative, index) => (
+                                <button
+                                    key={alternative.id}
+                                    type="button"
+                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition hover:bg-white/10"
+                                    style={{ color: index === activeAlternativeIndex ? selectionBlue : theme.node.text }}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onVideoAlternativeChange?.(node.id, index);
+                                        setIsVersionMenuOpen(false);
+                                    }}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                >
+                                    <span className="grid size-5 shrink-0 place-items-center rounded-md border text-[10px]" style={{ borderColor: index === activeAlternativeIndex ? selectionBlue : theme.node.stroke }}>
+                                        {index + 1}
+                                    </span>
+                                    <span className="truncate">第 {index + 1} 个视频版本</span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
+    );
 }
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
@@ -808,7 +882,7 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
         "bottom-right": "-bottom-[14px] -right-[14px] cursor-nwse-resize",
     }[corner];
 
-    return <div className={`absolute z-50 size-7 ${positionClass}`} onMouseDown={(event) => onMouseDown(event, corner)} />;
+    return <div className={`absolute z-50 size-9 ${positionClass}`} onMouseDown={(event) => onMouseDown(event, corner)} />;
 }
 
 function ConnectionHandleDot({ side, visible, onMouseDown }: { side: "left" | "right"; visible: boolean; onMouseDown: (event: React.MouseEvent) => void }) {
@@ -816,12 +890,12 @@ function ConnectionHandleDot({ side, visible, onMouseDown }: { side: "left" | "r
 
     return (
         <div
-            className={`absolute top-1/2 z-30 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center transition-opacity duration-150 ${
-                side === "left" ? "-left-6" : "-right-6"
+            className={`absolute top-1/2 z-30 flex size-14 -translate-y-1/2 cursor-crosshair items-center justify-center transition-opacity duration-150 ${
+                side === "left" ? "-left-7" : "-right-7"
             } ${visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
             onMouseDown={onMouseDown}
         >
-            <div className="size-3 rounded-full border-2 transition-all hover:scale-125" style={{ background: theme.node.panel, borderColor: theme.node.muted }} />
+            <div className="size-4 rounded-full border-2 transition-all hover:scale-125" style={{ background: theme.node.panel, borderColor: theme.node.muted }} />
         </div>
     );
 }

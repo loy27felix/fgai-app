@@ -1,0 +1,46 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { appendVideoAlternative, readVideoAlternatives, videoAlternativeMetadata } from "../reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
+
+test("video reruns append a selectable version instead of replacing the original result", () => {
+    const initial = {
+        content: "https://media.example/video-one.mp4",
+        creatorTaskId: "creator-one",
+        storageKey: "videos/one.mp4",
+        mimeType: "video/mp4",
+    };
+    const appended = appendVideoAlternative(initial, {
+        content: "https://media.example/video-two.mp4",
+        storageKey: "videos/two.mp4",
+        mimeType: "video/mp4",
+    }, "attempt-two");
+
+    assert.equal(appended.alternatives.length, 2);
+    assert.equal(appended.activeVideoAlternativeIndex, 1);
+    assert.equal(appended.alternatives[0]?.content, initial.content);
+    assert.equal(appended.alternatives[1]?.content, "https://media.example/video-two.mp4");
+    assert.equal(appended.alternatives[1]?.id, "attempt-two");
+    const restored = videoAlternativeMetadata(appended.alternatives[0]!);
+    assert.equal(restored.content, initial.content);
+    assert.equal(restored.creatorTaskId, initial.creatorTaskId);
+    assert.equal(restored.storageKey, initial.storageKey);
+    assert.equal(restored.mimeType, initial.mimeType);
+});
+
+test("video caching updates the current version rather than adding a duplicate card", () => {
+    const current = {
+        content: "https://media.example/video.mp4",
+        creatorTaskId: "creator-one",
+        mimeType: "video/mp4",
+    };
+    const first = appendVideoAlternative(undefined, current);
+    const cached = appendVideoAlternative(
+        { ...current, videoAlternatives: first.alternatives, activeVideoAlternativeIndex: first.activeVideoAlternativeIndex },
+        { ...current, content: "/api/media/videos/one.mp4", storageKey: "videos/one.mp4" },
+    );
+
+    assert.equal(cached.alternatives.length, 1);
+    assert.equal(cached.alternatives[0]?.content, "/api/media/videos/one.mp4");
+    assert.equal(readVideoAlternatives({ videoAlternatives: cached.alternatives })[0]?.storageKey, "videos/one.mp4");
+});

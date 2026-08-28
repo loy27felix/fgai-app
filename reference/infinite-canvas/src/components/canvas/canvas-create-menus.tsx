@@ -52,17 +52,17 @@ export function ConnectionCreateOption({ theme, icon, title, description, onClic
     return (
         <button
             type="button"
-            className="flex h-16 w-full cursor-pointer items-center gap-3 rounded-2xl px-3 text-left transition"
+            className="flex h-[72px] w-full cursor-pointer items-center gap-3.5 rounded-2xl px-3.5 text-left transition"
             style={{ color: theme.node.text }}
             onClick={onClick}
             onMouseEnter={(event) => (event.currentTarget.style.background = theme.node.fill)}
             onMouseLeave={(event) => (event.currentTarget.style.background = "transparent")}
         >
-            <span className="grid size-11 shrink-0 place-items-center rounded-xl" style={{ background: theme.node.fill, color: theme.node.muted }}>
+            <span className="grid size-12 shrink-0 place-items-center rounded-xl" style={{ background: theme.node.fill, color: theme.node.muted }}>
                 {icon}
             </span>
             <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-base font-semibold leading-5">{title}</span>
+                <span className="flex items-center gap-2 text-[17px] font-semibold leading-5">{title}</span>
                 {description ? (
                     <span className="mt-1 block truncate text-sm" style={{ color: theme.node.muted }}>
                         {description}
@@ -89,17 +89,17 @@ export function NodeCreateMenu({ position, onCreate, onClose }: { position: Posi
     return (
         <div
             ref={menuRef}
-            className="absolute z-[120] max-h-[70vh] w-[300px] overflow-y-auto rounded-[18px] border p-3 shadow-2xl backdrop-blur thin-scrollbar"
+            className="absolute z-[120] max-h-[76vh] w-[360px] overflow-y-auto rounded-[22px] border p-4 shadow-2xl backdrop-blur thin-scrollbar"
             data-canvas-no-zoom
             style={{ left: position.x, top: position.y, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
             onPointerDown={(event) => event.stopPropagation()}
         >
-            <div className="mb-2 flex items-center justify-between px-1">
-                <span className="text-sm font-medium" style={{ color: theme.node.muted }}>
+            <div className="mb-3 flex items-center justify-between px-1">
+                <span className="text-base font-semibold" style={{ color: theme.node.muted }}>
                     选择节点
                 </span>
-                <button type="button" className="grid size-7 place-items-center rounded-lg opacity-55 transition hover:opacity-100" onClick={onClose} aria-label="关闭">
-                    <X className="size-4" />
+                <button type="button" className="grid size-8 place-items-center rounded-xl opacity-55 transition hover:bg-white/10 hover:opacity-100" onClick={onClose} aria-label="关闭">
+                    <X className="size-4.5" />
                 </button>
             </div>
             <div className="grid gap-1">

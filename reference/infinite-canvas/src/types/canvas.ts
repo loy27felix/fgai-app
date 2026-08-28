@@ -26,6 +26,23 @@ export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
 
+// 视频节点的每一次成功生成都保留为一个可切换版本。媒体字段保持
+// 平铺，方便本地持久化、云端恢复和现有播放器继续复用同一套契约。
+export type CanvasVideoAlternative = {
+    id: string;
+    content: string;
+    storageKey?: string;
+    mimeType?: string;
+    bytes?: number;
+    naturalWidth?: number;
+    naturalHeight?: number;
+    durationMs?: number;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
+    externalTaskId?: string;
+    creatorTaskId?: string;
+};
+
 export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
@@ -48,6 +65,10 @@ export type CanvasNodeMetadata = {
     // in content while the remaining answers are persisted as switchable drafts.
     textAlternatives?: string[];
     activeTextAlternativeIndex?: number;
+    // Re-running a completed video stays in the same canvas node. The active
+    // choice mirrors the ordinary media fields above for backwards compatibility.
+    videoAlternatives?: CanvasVideoAlternative[];
+    activeVideoAlternativeIndex?: number;
     seconds?: string;
     vquality?: string;
     generateAudio?: string;
