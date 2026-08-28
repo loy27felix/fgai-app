@@ -165,7 +165,16 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             </div>
             <Modal title="编辑提示词" open={isPromptEditorOpen} centered width={760} footer={null} onCancel={() => setIsPromptEditorOpen(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
-                    <ReferenceStrip nodeId={node.id} references={mentionReferences} theme={theme} />
+                    <ReferenceStrip
+                        nodeId={node.id}
+                        references={mentionReferences}
+                        theme={theme}
+                        isSelecting={isSelectingReferences}
+                        replacingReferenceId={replacingReferenceId}
+                        onSelect={onBeginReferenceSelection}
+                        onReplace={onBeginReferenceReplacement}
+                        onRemove={onRemoveReference}
+                    />
                     <CanvasPromptChipInput
                         value={prompt}
                         references={mentionReferences}

@@ -119,7 +119,7 @@ test('video reruns stay in one node with selectable versions and keyboard deleti
   assert.match(menu, /w-\[360px\]/);
 });
 
-test('canvas reference chips support in-place replacement and the expanded prompt editor keeps @ references usable', () => {
+test('canvas reference chips support in-place replacement and the expanded prompt editor keeps every reference action usable', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
   const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
@@ -130,9 +130,22 @@ test('canvas reference chips support in-place replacement and the expanded promp
   assert.match(project, /提示词中的 @ 引用已同步/);
   assert.match(promptPanel, /onBeginReferenceReplacement/);
   assert.match(promptPanel, /点击后在画布中替换/);
-  assert.match(promptPanel, /<ReferenceStrip nodeId=\{node\.id\} references=\{mentionReferences\} theme=\{theme\} \/>/);
+  assert.match(promptPanel, /onRemove=\{onRemoveReference\}/);
+  assert.match(promptPanel, /onSelect=\{onBeginReferenceSelection\}/);
+  assert.match(promptPanel, /onReplace=\{onBeginReferenceReplacement\}/);
   assert.doesNotMatch(promptPanel, /↵ 换行/);
   assert.match(promptInput, /z-\[1200\]/);
+});
+
+test('canvas wheel keeps zoom while modifier gestures pan the viewport', () => {
+  const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
+
+  assert.match(canvas, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(canvas, /"vertical-pan"/);
+  assert.match(canvas, /event\.shiftKey/);
+  assert.match(canvas, /"horizontal-pan"/);
+  assert.match(canvas, /\[canvas wheel navigation\]/);
+  assert.match(canvas, /Math\.pow\(1\.1, delta \/ 100\)/);
 });
 
 test('canvas restores the original native grab cursor for panning', () => {

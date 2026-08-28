@@ -31,6 +31,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     const scaleRef = useRef(viewport.k);
     const frameRef = useRef<number | null>(null);
     const nextViewportRef = useRef<ViewportTransform | null>(null);
+    const lastWheelNavigationLogRef = useRef<{ at: number; mode: "zoom" | "vertical-pan" | "horizontal-pan" | null }>({ at: 0, mode: null });
     const [isSpacePressed, setIsSpacePressed] = useState(false);
     const [isControlPressed, setIsControlPressed] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
@@ -81,6 +82,36 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         const target = event.target instanceof Element ? event.target : null;
         if (target?.closest("[data-canvas-no-zoom],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
 
+        const reportWheelNavigation = (mode: "zoom" | "vertical-pan" | "horizontal-pan", nextViewport: ViewportTransform) => {
+            const now = Date.now();
+            const previous = lastWheelNavigationLogRef.current;
+            // Wheel events are very frequent. Keep enough evidence to trace a
+            // gesture without flooding browser diagnostics.
+            if (previous.mode === mode && now - previous.at < 750) return;
+            lastWheelNavigationLogRef.current = { at: now, mode };
+            console.info("[canvas wheel navigation]", {
+                mode,
+                deltaX: Math.round(event.deltaX),
+                deltaY: Math.round(event.deltaY),
+                viewport: nextViewport,
+            });
+        };
+
+        if (event.ctrlKey || event.metaKey) {
+            const nextViewport = { ...viewport, y: viewport.y - event.deltaY };
+            reportWheelNavigation("vertical-pan", nextViewport);
+            onViewportChange(nextViewport);
+            return;
+        }
+
+        if (event.shiftKey) {
+            const horizontalDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+            const nextViewport = { ...viewport, x: viewport.x - horizontalDelta };
+            reportWheelNavigation("horizontal-pan", nextViewport);
+            onViewportChange(nextViewport);
+            return;
+        }
+
         const delta = -event.deltaY;
         const factor = Math.pow(1.1, delta / 100);
         const newScale = Math.min(Math.max(viewport.k * factor, 0.05), 5);
@@ -92,11 +123,13 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         const worldX = (mouseX - viewport.x) / viewport.k;
         const worldY = (mouseY - viewport.y) / viewport.k;
 
-        onViewportChange({
+        const nextViewport = {
             x: mouseX - worldX * newScale,
             y: mouseY - worldY * newScale,
             k: newScale,
-        });
+        };
+        reportWheelNavigation("zoom", nextViewport);
+        onViewportChange(nextViewport);
     };
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
