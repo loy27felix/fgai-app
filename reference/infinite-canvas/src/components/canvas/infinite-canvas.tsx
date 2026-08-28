@@ -19,8 +19,7 @@ type InfiniteCanvasProps = {
 };
 
 export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines", tool = "pan", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasDoubleClick, onContextMenu, onDrop, children }: InfiniteCanvasProps) {
-    const colorTheme = useThemeStore((state) => state.theme);
-    const theme = canvasThemes[colorTheme];
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const panState = useRef({
         isPanning: false,
         startX: 0,
@@ -36,7 +35,6 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     const [isControlPressed, setIsControlPressed] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
     const activeTool = isSpacePressed || isControlPressed ? (tool === "pan" ? "select" : "pan") : tool;
-    const cursor = canvasCursor(colorTheme, isPanning ? "pan" : activeTool);
 
     useEffect(() => {
         scaleRef.current = viewport.k;
@@ -129,7 +127,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
                 hasMoved: false,
             };
             setIsPanning(true);
-            document.body.style.cursor = canvasCursor(colorTheme, "pan");
+            document.body.style.cursor = "grabbing";
             return;
         }
     };
@@ -181,7 +179,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
             window.removeEventListener("pointerup", handlePointerUp);
             window.removeEventListener("pointercancel", handlePointerUp);
         };
-    }, [colorTheme, onCanvasDeselect, onViewportChange]);
+    }, [onCanvasDeselect, onViewportChange]);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -201,7 +199,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         <div
             ref={containerRef as any}
             className={`relative h-full w-full select-none overflow-hidden ${isPanning ? "cursor-grabbing" : activeTool === "select" ? "cursor-crosshair" : "cursor-grab"}`}
-            style={{ background: theme.canvas.background, cursor }}
+            style={{ background: theme.canvas.background }}
             onPointerDown={handlePointerDown}
             onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
@@ -220,20 +218,6 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
             </div>
         </div>
     );
-}
-
-/**
- * Keep the familiar small hand for panning, but draw it with a contrasting
- * outline so it stays visible on both dark and light canvas backgrounds.
- */
-function canvasCursor(theme: "light" | "dark", mode: "pan" | "select") {
-    const foreground = theme === "dark" ? "#ffffff" : "#111111";
-    const outline = theme === "dark" ? "#111111" : "#ffffff";
-    const svg = mode === "select"
-        ? `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 1v22M1 12h22" stroke="${outline}" stroke-width="4" opacity=".7"/><path d="M12 1v22M1 12h22" stroke="${foreground}" stroke-width="2"/></svg>`
-        : `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="30" viewBox="0 0 28 30"><path d="M10.2 2.8c0-1.7 2.6-1.7 2.6 0v8.1V5.5c0-1.7 2.6-1.7 2.6 0v5.4V7.6c0-1.7 2.6-1.7 2.6 0v3.9V9.8c0-1.6 2.5-1.6 2.5 0v7.3c0 5.6-3.7 10.1-9.2 10.1H9.9c-2.3 0-4.1-1.1-5.3-3L2.3 20c-.9-1.5 1.4-2.9 2.3-1.4l2.1 3.3V11.3c0-1.7 2.6-1.7 2.6 0v-8.5Z" fill="${foreground}" stroke="${outline}" stroke-width="1.7" stroke-linejoin="round"/></svg>`;
-    const hotspot = mode === "select" ? "12 12" : "3 2";
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, auto`;
 }
 
 function CanvasGrid({ viewport, mode }: { viewport: ViewportTransform; mode: CanvasBackgroundMode }) {

@@ -135,12 +135,23 @@ test('canvas reference chips support in-place replacement and the expanded promp
   assert.match(promptInput, /z-\[1200\]/);
 });
 
-test('canvas restores a high-contrast hand cursor for panning', () => {
+test('canvas restores the original native grab cursor for panning', () => {
   const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
 
-  assert.match(canvas, /Keep the familiar small hand/);
-  assert.match(canvas, /M10\.2 2\.8/);
-  assert.match(canvas, /theme === "dark" \? "#ffffff" : "#111111"/);
+  assert.match(canvas, /cursor-grabbing/);
+  assert.match(canvas, /cursor-grab/);
+  assert.match(canvas, /document\.body\.style\.cursor = "grabbing"/);
+  assert.doesNotMatch(canvas, /function canvasCursor/);
+});
+
+test('canvas side panel nests grouped nodes with independently collapsible tree branches', () => {
+  const panel = read('reference/infinite-canvas/src/components/canvas/canvas-side-panel.tsx');
+
+  assert.match(panel, /function buildCanvasNodeTree/);
+  assert.match(panel, /group tree toggled/);
+  assert.match(panel, /role="treeitem"/);
+  assert.match(panel, /aria-expanded/);
+  assert.match(panel, /children\.length} 个节点/);
 });
 
 
