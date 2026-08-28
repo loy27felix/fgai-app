@@ -13,6 +13,8 @@ REMOTE="${FG_AUTO_DEPLOY_REMOTE:-origin}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-fgai-app}"
 HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-http://127.0.0.1:3000}"
 VERSION_URL="${FG_AUTO_DEPLOY_VERSION_URL:-http://127.0.0.1:3000/api/version}"
+DEPLOY_TARGET_SHA="${FG_AUTO_DEPLOY_TARGET_SHA:-}"
+DEPLOY_PREVIOUS_SHA="${FG_AUTO_DEPLOY_PREVIOUS_SHA:-}"
 export APP_DEPLOYMENT_VERSION="${APP_DEPLOYMENT_VERSION:-dev}"
 STATE_ROOT="${FG_AUTO_DEPLOY_STATE_DIR:-$HOME/Library/Application Support/fg-studio-auto-deploy}"
 APP_LOG_ROOT="${FG_APP_LOG_DIR:-$HOME/Library/Logs/fg-studio-app}"
@@ -23,7 +25,7 @@ mkdir -p "$STATE_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   LOCK_PID=""
   [[ -f "$LOCK_DIR/pid" ]] && LOCK_PID="$(<"$LOCK_DIR/pid")"
-  if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+  if [[ "$LOCK_PID" != "$$" ]] && [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
     exit 0
   fi
   rm -f "$LOCK_DIR/pid"
@@ -64,6 +66,12 @@ compose() {
     --project-name "$COMPOSE_PROJECT_NAME" \
     --env-file "$ENV_FILE" \
     "$@"
+}
+
+compose_build_app() {
+  # Pass the deployment version explicitly so Compose interpolation cannot fall back to dev.
+  # 显式传递部署版本，避免 Compose 插值异常时回退为 dev。
+  compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" app
 }
 
 archive_app_logs() {
@@ -191,7 +199,7 @@ rollback() {
   fi
   export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$previous_sha")"
   log "Auto deploy: rollback deployment version is $APP_DEPLOYMENT_VERSION"
-  if ! compose build app >/dev/null; then
+  if ! compose_build_app >/dev/null; then
     log "Auto deploy: rollback image build failed"
     return 1
   fi
@@ -225,12 +233,42 @@ compose config -q >/dev/null || {
   exit 1
 }
 
-fetch_main || exit 1
+if [[ -n "$DEPLOY_TARGET_SHA" ]]; then
+  current_sha="$(git -C "$PROJECT_ROOT" rev-parse "$BRANCH")"
+  target_sha="$DEPLOY_TARGET_SHA"
+  previous_sha="$DEPLOY_PREVIOUS_SHA"
+  if [[ "$current_sha" != "$target_sha" || -z "$previous_sha" ]]; then
+    log "Auto deploy: re-exec target is no longer valid; waiting"
+    exit 1
+  fi
+else
+  fetch_main || exit 1
 
-current_sha="$(git -C "$PROJECT_ROOT" rev-parse "$BRANCH")"
-target_sha="$(git -C "$PROJECT_ROOT" rev-parse "$REMOTE/$BRANCH")"
-if [[ "$current_sha" == "$target_sha" ]]; then
-  exit 0
+  current_sha="$(git -C "$PROJECT_ROOT" rev-parse "$BRANCH")"
+  target_sha="$(git -C "$PROJECT_ROOT" rev-parse "$REMOTE/$BRANCH")"
+  if [[ "$current_sha" == "$target_sha" ]]; then
+    exit 0
+  fi
+
+  failed_sha=""
+  [[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
+  if [[ "$failed_sha" == "$target_sha" ]]; then
+    log "Auto deploy: skipping previously failed commit $target_sha"
+    exit 0
+  fi
+
+  log "Auto deploy: updating $current_sha -> $target_sha"
+  if ! git -C "$PROJECT_ROOT" merge --ff-only "$REMOTE/$BRANCH" >/dev/null; then
+    log "Auto deploy: $BRANCH is not fast-forwardable; refusing to deploy"
+    exit 1
+  fi
+
+  # Re-read the script after fast-forward so this deployment uses the fetched version.
+  # 快进更新后重新读取脚本，确保本次部署执行的是刚拉取的版本。
+  exec env \
+    FG_AUTO_DEPLOY_TARGET_SHA="$target_sha" \
+    FG_AUTO_DEPLOY_PREVIOUS_SHA="$current_sha" \
+    "$BASH" "$0"
 fi
 
 failed_sha=""
@@ -240,17 +278,11 @@ if [[ "$failed_sha" == "$target_sha" ]]; then
   exit 0
 fi
 
-log "Auto deploy: updating $current_sha -> $target_sha"
-if ! git -C "$PROJECT_ROOT" merge --ff-only "$REMOTE/$BRANCH" >/dev/null; then
-  log "Auto deploy: $BRANCH is not fast-forwardable; refusing to deploy"
-  exit 1
-fi
-
 export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$target_sha")"
 log "Auto deploy: building deployment $APP_DEPLOYMENT_VERSION"
-if ! compose build app >/dev/null || ! apply_database_upgrade; then
+if ! compose_build_app >/dev/null || ! apply_database_upgrade; then
   printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
-  rollback "$current_sha" || true
+  rollback "$previous_sha" || true
   exit 1
 fi
 
@@ -258,7 +290,7 @@ archive_app_logs "before-${target_sha:0:12}"
 if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
   archive_app_logs "failed-${target_sha:0:12}"
   printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
-  rollback "$current_sha" || true
+  rollback "$previous_sha" || true
   exit 1
 fi
 
