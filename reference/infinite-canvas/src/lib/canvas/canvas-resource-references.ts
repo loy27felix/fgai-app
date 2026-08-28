@@ -81,7 +81,7 @@ function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[]
 function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
     const counts: Record<CanvasResourceKind, number> = { image: 0, video: 0, audio: 0, text: 0 };
     return nodes.flatMap((node): CanvasResourceReference[] => {
-        const kind = resourceKind(node);
+        const kind = getCanvasResourceKind(node);
         if (!kind) return [];
         const index = counts[kind]++;
         const label = labelForKind(kind, index);
@@ -108,7 +108,7 @@ function labelForKind(kind: CanvasResourceKind, index: number) {
 }
 
 function isResourceNode(node: CanvasNodeData) {
-    return Boolean(resourceKind(node));
+    return Boolean(getCanvasResourceKind(node));
 }
 
 function resourceText(node: CanvasNodeData): string | undefined {
@@ -117,7 +117,8 @@ function resourceText(node: CanvasNodeData): string | undefined {
     return resource?.kind === "text" ? resource.text : undefined;
 }
 
-function resourceKind(node: CanvasNodeData): CanvasResourceKind | null {
+/** Returns the input kind a canvas node can contribute to a prompt. */
+export function getCanvasResourceKind(node: CanvasNodeData): CanvasResourceKind | null {
     if (node.type === CanvasNodeType.Image && node.metadata?.content) return "image";
     if (node.type === CanvasNodeType.Video && node.metadata?.content) return "video";
     if (node.type === CanvasNodeType.Audio && node.metadata?.content) return "audio";

@@ -27,13 +27,15 @@ type CanvasNodePromptPanelProps = {
     onStop: (nodeId: string) => void;
     mentionReferences?: CanvasResourceReference[];
     isSelectingReferences?: boolean;
+    replacingReferenceId?: string | null;
     onBeginReferenceSelection?: (nodeId: string) => void;
+    onBeginReferenceReplacement?: (nodeId: string, reference: CanvasResourceReference) => void;
     onRemoveReference?: (nodeId: string, referenceId: string) => void;
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // 插件节点用 useBuiltinPanel.mode 指定生成类型
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, onBeginReferenceSelection, onRemoveReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceReplacement, onRemoveReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -77,7 +79,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 references={mentionReferences}
                 theme={theme}
                 isSelecting={isSelectingReferences}
+                replacingReferenceId={replacingReferenceId}
                 onSelect={onBeginReferenceSelection}
+                onReplace={onBeginReferenceReplacement}
                 onRemove={onRemoveReference}
             />
             <CanvasPromptChipInput
@@ -101,7 +105,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                             aria-label="放大编辑提示词"
                         />
                     </Tooltip>
-                    <span className="shrink-0 text-[10px] opacity-55" title="回车只会换行，点击右侧箭头开始生成">↵ 换行</span>
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     {mode === "image" ? (
                         <>
@@ -145,7 +148,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     disabled={!isRunning && !prompt.trim()}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={isRunning ? "停止生成" : "开始生成"}
-                    title={isRunning ? "停止生成" : "开始生成（回车只换行）"}
+                    title={isRunning ? "停止生成" : "开始生成"}
                 >
                     <span className="flex items-center gap-1.5">
                         {isRunning ? (
@@ -162,6 +165,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             </div>
             <Modal title="编辑提示词" open={isPromptEditorOpen} centered width={760} footer={null} onCancel={() => setIsPromptEditorOpen(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
+                    <ReferenceStrip nodeId={node.id} references={mentionReferences} theme={theme} />
                     <CanvasPromptChipInput
                         value={prompt}
                         references={mentionReferences}
@@ -180,15 +184,19 @@ function ReferenceStrip({
     nodeId,
     references,
     theme,
-    isSelecting,
+    isSelecting = false,
+    replacingReferenceId,
     onSelect,
+    onReplace,
     onRemove,
 }: {
     nodeId: string;
     references: CanvasResourceReference[];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    isSelecting: boolean;
+    isSelecting?: boolean;
+    replacingReferenceId?: string | null;
     onSelect?: (nodeId: string) => void;
+    onReplace?: (nodeId: string, reference: CanvasResourceReference) => void;
     onRemove?: (nodeId: string, referenceId: string) => void;
 }) {
     if (!references.length && !onSelect) return null;
@@ -202,7 +210,26 @@ function ReferenceStrip({
             <div className="flex min-w-0 items-center gap-1.5">
                 {references.map((reference) => (
                     <ReferencePreviewTooltip key={reference.id} reference={reference} theme={theme}>
-                        <div className="flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }} title={reference.label + " · " + reference.title}>
+                        <div
+                            className="flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5 transition hover:-translate-y-px hover:shadow-sm"
+                            style={{ borderColor: replacingReferenceId === reference.id ? theme.node.activeStroke : theme.toolbar.border, background: replacingReferenceId === reference.id ? `${theme.node.activeStroke}18` : theme.toolbar.panel }}
+                            title={onReplace ? `点击后在画布中替换 ${reference.label}` : reference.label + " · " + reference.title}
+                            role={onReplace ? "button" : undefined}
+                            tabIndex={onReplace ? 0 : undefined}
+                            onClick={(event) => {
+                                if (!onReplace) return;
+                                event.stopPropagation();
+                                onReplace(nodeId, reference);
+                            }}
+                            onKeyDown={(event) => {
+                                if (!onReplace || (event.key !== "Enter" && event.key !== " ")) return;
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onReplace(nodeId, reference);
+                            }}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            aria-label={onReplace ? `替换 ${reference.label}` : undefined}
+                        >
                             {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
                             {reference.previewUrl && reference.kind === "video" ? <video src={reference.previewUrl} className="size-7 rounded-lg bg-black object-cover" muted preload="metadata" /> : null}
                             {!reference.previewUrl || (reference.kind !== "image" && reference.kind !== "video") ? <span className="grid size-7 place-items-center rounded-lg bg-black/10 text-[10px] font-bold">{reference.kind === "text" ? "TXT" : reference.kind === "audio" ? "AUD" : "REF"}</span> : null}
@@ -225,6 +252,7 @@ function ReferenceStrip({
                         </div>
                     </ReferencePreviewTooltip>
                 ))}
+                {replacingReferenceId ? <span className="shrink-0 text-[10px] font-medium" style={{ color: theme.node.activeStroke }}>请在画布中选择同类型素材</span> : null}
                 {onSelect ? (
                     <button
                         type="button"

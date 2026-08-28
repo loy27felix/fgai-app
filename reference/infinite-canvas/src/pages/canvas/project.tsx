@@ -44,7 +44,7 @@ import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/us
 import { createCreatorCanvas, deleteCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
-import { buildNodeMentionReferences, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
+import { buildNodeMentionReferences, getCanvasResourceKind, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
@@ -124,6 +124,13 @@ type CanvasGenerationRequest = {
     controller: AbortController;
 };
 
+type CanvasReferenceReplacement = {
+    targetNodeId: string;
+    referenceNodeId: string;
+    referenceKind: CanvasResourceReference["kind"];
+    referenceLabel: string;
+};
+
 // Video needs more canvas presence than a still image. Keep portrait outputs
 // legible while preserving aspect ratio instead of squeezing every clip into
 // the old 420px envelope.
@@ -137,6 +144,9 @@ const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
+function referenceKindLabel(kind: CanvasResourceReference["kind"]) {
+    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本";
+}
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
@@ -429,6 +439,10 @@ function InfiniteCanvasPage() {
     // The prompt panel can enter a one-shot selection mode so a creator can
     // connect a resource pack without hunting for tiny connector handles.
     const [referenceSelectionTargetId, setReferenceSelectionTargetId] = useState<string | null>(null);
+    // Clicking a reference chip enters a one-shot replacement mode. The
+    // existing connection slot is reused so its prompt label (for example
+    // @图片1) keeps pointing at the newly selected resource.
+    const [referenceReplacement, setReferenceReplacement] = useState<CanvasReferenceReplacement | null>(null);
 
     const nodesRef = useRef(nodes);
     const connectionsRef = useRef(connections);
@@ -1431,8 +1445,38 @@ function InfiniteCanvasPage() {
     // capture 必先于同一次事件的 body 冒泡触发,故把算好的选中集暂存,供紧随其后的拖拽入口复用,避免二次选中(shift 反选被抵消)。
     const pendingSelectionRef = useRef<Set<string> | null>(null);
     const handleReferenceSelectionToggle = useCallback((targetNodeId: string) => {
+        setReferenceReplacement(null);
         setReferenceSelectionTargetId((current) => (current === targetNodeId ? null : targetNodeId));
     }, []);
+
+    const handleReferenceReplacementStart = useCallback(
+        (targetNodeId: string, reference: CanvasResourceReference) => {
+            const referenceNode = nodesRef.current.find((node) => node.id === reference.nodeId);
+            const groupId = referenceNode?.metadata?.groupId;
+            const isGroupReference = Boolean(groupId && connectionsRef.current.some((connection) => connection.fromNodeId === groupId && connection.toNodeId === targetNodeId));
+            const hasDirectConnection = connectionsRef.current.some((connection) => connection.fromNodeId === reference.nodeId && connection.toNodeId === targetNodeId);
+
+            if (isGroupReference) {
+                console.warn("[canvas reference replacement] group reference requires group selection", { targetNodeId, referenceNodeId: reference.nodeId, groupId });
+                message.info("这是整组引用中的素材，请在组节点上替换整组参考素材");
+                return;
+            }
+            if (!hasDirectConnection) {
+                console.warn("[canvas reference replacement] missing direct connection", { targetNodeId, referenceNodeId: reference.nodeId });
+                message.warning("该参考素材已变化，请刷新后再试");
+                return;
+            }
+
+            setReferenceSelectionTargetId(null);
+            setReferenceReplacement((current) => {
+                const isSameReference = current?.targetNodeId === targetNodeId && current.referenceNodeId === reference.nodeId;
+                return isSameReference ? null : { targetNodeId, referenceNodeId: reference.nodeId, referenceKind: reference.kind, referenceLabel: reference.label };
+            });
+            console.info("[canvas reference replacement] selection started", { targetNodeId, referenceNodeId: reference.nodeId, referenceKind: reference.kind, referenceLabel: reference.label });
+            message.info(`请在画布中选择新的${reference.label}素材`);
+        },
+        [message],
+    );
 
     const handleReferenceRemove = useCallback(
         (targetNodeId: string, referenceNodeId: string) => {
@@ -1445,6 +1489,7 @@ function InfiniteCanvasPage() {
             const hadConnection = connectionsRef.current.some((connection) => connection.fromNodeId === sourceNodeId && connection.toNodeId === targetNodeId);
             if (!hadConnection) return;
             setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== sourceNodeId || connection.toNodeId !== targetNodeId));
+            setReferenceReplacement((current) => (current?.targetNodeId === targetNodeId && current.referenceNodeId === referenceNodeId ? null : current));
             console.info("[canvas reference removed]", { targetNodeId, referenceNodeId, sourceNodeId, grouped: sourceNodeId === groupId });
             message.success(sourceNodeId === groupId ? "已移除整组参考素材" : "已移除参考素材");
         },
@@ -1454,6 +1499,52 @@ function InfiniteCanvasPage() {
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
+            const replacement = referenceReplacement;
+            if (replacement) {
+                if (replacement.targetNodeId === nodeId) {
+                    console.warn("[canvas reference replacement] target cannot replace itself", { targetNodeId: replacement.targetNodeId, referenceNodeId: replacement.referenceNodeId });
+                    message.warning("请选择画布中的另一张同类型素材");
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                const candidate = nodesRef.current.find((node) => node.id === nodeId);
+                const candidateKind = candidate ? getCanvasResourceKind(candidate) : null;
+                if (!candidateKind || candidateKind !== replacement.referenceKind) {
+                    console.warn("[canvas reference replacement] incompatible candidate", { targetNodeId: replacement.targetNodeId, referenceNodeId: replacement.referenceNodeId, candidateNodeId: nodeId, expectedKind: replacement.referenceKind, actualKind: candidateKind });
+                    message.warning(`请选择${referenceKindLabel(replacement.referenceKind)}节点替换 ${replacement.referenceLabel}`);
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                if (replacement.referenceNodeId === nodeId) {
+                    setReferenceReplacement(null);
+                    message.info("已保留原参考素材");
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+
+                const hasCandidateBinding = connectionsRef.current.some((connection) => connection.fromNodeId === nodeId && connection.toNodeId === replacement.targetNodeId);
+                setConnections((prev) =>
+                    hasCandidateBinding
+                        ? prev.filter((connection) => connection.fromNodeId !== replacement.referenceNodeId || connection.toNodeId !== replacement.targetNodeId)
+                        : prev.map((connection) => (connection.fromNodeId === replacement.referenceNodeId && connection.toNodeId === replacement.targetNodeId ? { ...connection, fromNodeId: nodeId } : connection)),
+                );
+                setReferenceReplacement(null);
+                console.info("[canvas reference replaced]", {
+                    targetNodeId: replacement.targetNodeId,
+                    previousReferenceNodeId: replacement.referenceNodeId,
+                    nextReferenceNodeId: nodeId,
+                    referenceKind: replacement.referenceKind,
+                    promptMention: `@${replacement.referenceLabel}`,
+                    reusedExistingBinding: hasCandidateBinding,
+                });
+                message.success(`已替换 ${replacement.referenceLabel}，提示词中的 @ 引用已同步`);
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             const referenceTargetId = referenceSelectionTargetId;
             if (referenceTargetId && referenceTargetId !== nodeId) {
                 const candidate = nodesRef.current.find((node) => node.id === nodeId);
@@ -1487,7 +1578,7 @@ function InfiniteCanvasPage() {
             const { nextSelected } = selectNodeByEvent(event, nodeId);
             pendingSelectionRef.current = nextSelected;
         },
-        [message, referenceSelectionTargetId, selectNodeByEvent],
+        [message, referenceReplacement, referenceSelectionTargetId, selectNodeByEvent],
     );
 
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
@@ -1884,6 +1975,8 @@ function InfiniteCanvasPage() {
                 setSelectedNodeIds(new Set());
                 setSelectedConnectionId(null);
                 setContextMenu(null);
+                setReferenceSelectionTargetId(null);
+                setReferenceReplacement(null);
                 setNodeCreatePosition(null);
                 setSelectionBox(null);
                 setConnecting(null);
@@ -3394,7 +3487,9 @@ function InfiniteCanvasPage() {
                     isRunning={runningNodeId === panelNode.id}
                     mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || EMPTY_REFERENCES}
                     isSelectingReferences={referenceSelectionTargetId === panelNode.id}
+                    replacingReferenceId={referenceReplacement?.targetNodeId === panelNode.id ? referenceReplacement.referenceNodeId : null}
                     onBeginReferenceSelection={handleReferenceSelectionToggle}
+                    onBeginReferenceReplacement={handleReferenceReplacementStart}
                     onRemoveReference={handleReferenceRemove}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
@@ -3407,7 +3502,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(

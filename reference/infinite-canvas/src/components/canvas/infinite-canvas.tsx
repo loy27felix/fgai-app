@@ -223,16 +223,15 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
 }
 
 /**
- * System cursors can disappear against a high-contrast dark canvas.  Use a
- * small outlined vector cursor so the canvas pointer remains visible in both
- * theme modes without changing the pointer for inputs and node controls.
+ * Keep the familiar small hand for panning, but draw it with a contrasting
+ * outline so it stays visible on both dark and light canvas backgrounds.
  */
 function canvasCursor(theme: "light" | "dark", mode: "pan" | "select") {
     const foreground = theme === "dark" ? "#ffffff" : "#111111";
     const outline = theme === "dark" ? "#111111" : "#ffffff";
     const svg = mode === "select"
         ? `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 1v22M1 12h22" stroke="${outline}" stroke-width="4" opacity=".7"/><path d="M12 1v22M1 12h22" stroke="${foreground}" stroke-width="2"/></svg>`
-        : `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="30" viewBox="0 0 26 30"><path d="M3 2 4.7 25.4l6.2-6 4.5 8.1 4-2.2-4.5-8.1 8.8-.4L3 2Z" fill="${foreground}" stroke="${outline}" stroke-width="1.7" stroke-linejoin="round"/></svg>`;
+        : `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="30" viewBox="0 0 28 30"><path d="M10.2 2.8c0-1.7 2.6-1.7 2.6 0v8.1V5.5c0-1.7 2.6-1.7 2.6 0v5.4V7.6c0-1.7 2.6-1.7 2.6 0v3.9V9.8c0-1.6 2.5-1.6 2.5 0v7.3c0 5.6-3.7 10.1-9.2 10.1H9.9c-2.3 0-4.1-1.1-5.3-3L2.3 20c-.9-1.5 1.4-2.9 2.3-1.4l2.1 3.3V11.3c0-1.7 2.6-1.7 2.6 0v-8.5Z" fill="${foreground}" stroke="${outline}" stroke-width="1.7" stroke-linejoin="round"/></svg>`;
     const hotspot = mode === "select" ? "12 12" : "3 2";
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, auto`;
 }

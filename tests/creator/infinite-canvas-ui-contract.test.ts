@@ -119,6 +119,30 @@ test('video reruns stay in one node with selectable versions and keyboard deleti
   assert.match(menu, /w-\[360px\]/);
 });
 
+test('canvas reference chips support in-place replacement and the expanded prompt editor keeps @ references usable', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
+
+  assert.match(project, /\[canvas reference replacement\] selection started/);
+  assert.match(project, /\[canvas reference replaced\]/);
+  assert.match(project, /getCanvasResourceKind\(candidate\)/);
+  assert.match(project, /提示词中的 @ 引用已同步/);
+  assert.match(promptPanel, /onBeginReferenceReplacement/);
+  assert.match(promptPanel, /点击后在画布中替换/);
+  assert.match(promptPanel, /<ReferenceStrip nodeId=\{node\.id\} references=\{mentionReferences\} theme=\{theme\} \/>/);
+  assert.doesNotMatch(promptPanel, /↵ 换行/);
+  assert.match(promptInput, /z-\[1200\]/);
+});
+
+test('canvas restores a high-contrast hand cursor for panning', () => {
+  const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
+
+  assert.match(canvas, /Keep the familiar small hand/);
+  assert.match(canvas, /M10\.2 2\.8/);
+  assert.match(canvas, /theme === "dark" \? "#ffffff" : "#111111"/);
+});
+
 
 test('canvas cloud sync adopts legacy local projects and deletes remote rows', () => {
   const index = read('reference/infinite-canvas/src/pages/canvas/index.tsx');
