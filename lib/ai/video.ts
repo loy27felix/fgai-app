@@ -99,7 +99,33 @@ function assertUrl(value: string, _type: VideoReference['type']) {
   }
 }
 
+function isVideoReference(value: unknown): value is VideoReference {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const reference = value as Record<string, unknown>;
+  if (typeof reference.type !== 'string' || typeof reference.url !== 'string' || typeof reference.role !== 'string') return false;
+  if (reference.type === 'image') {
+    return reference.role === 'first_frame' || reference.role === 'last_frame' || reference.role === 'reference_image';
+  }
+  if (reference.type === 'video') return reference.role === 'reference_video';
+  if (reference.type === 'audio') return reference.role === 'reference_audio';
+  return false;
+}
+
+export function assertSeedanceInputTypes(input: SeedanceInput) {
+  if (typeof input.model !== 'string') throw new Error('model 必须是 string');
+  if (typeof input.prompt !== 'string') throw new Error('prompt 必须是 string');
+  if (!Array.isArray(input.references) || !input.references.every(isVideoReference)) {
+    throw new Error('references 字段类型无效');
+  }
+  if (typeof input.duration !== 'number' || !Number.isSafeInteger(input.duration)) throw new Error('duration 必须是 number');
+  if (typeof input.ratio !== 'string') throw new Error('ratio 必须是 string');
+  if (typeof input.resolution !== 'string') throw new Error('resolution 必须是 string');
+  if (typeof input.watermark !== 'boolean') throw new Error('watermark 必须是 boolean');
+  if (typeof input.generateAudio !== 'boolean') throw new Error('generateAudio 必须是 boolean');
+}
+
 export function buildSeedanceRequest(input: SeedanceInput) {
+  assertSeedanceInputTypes(input);
   const spec = getVideoModel(input.model);
   if (!spec) throw new Error(`不支持的视频模型：${input.model}`);
   if ((input.duration === -1 && !spec.supportsAdaptiveDuration) || (input.duration !== -1 && (input.duration < spec.minDuration || input.duration > spec.maxDuration))) {

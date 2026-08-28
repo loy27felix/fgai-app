@@ -78,6 +78,8 @@ function mimeAllowed(kind: VideoReferenceKind, mimeType: string) {
 }
 
 export function validateVideoDraftInput(input: VideoDraftInput) {
+  if (typeof input.watermark !== "boolean") throw new Error("watermark 必须是 boolean");
+  if (typeof input.generateAudio !== "boolean") throw new Error("generateAudio 必须是 boolean");
   const prompt = input.prompt.trim().slice(0, 30_000);
   const skillName = typeof input.skill?.name === "string" ? input.skill.name.trim().slice(0, 80) : "";
   const skillContent = typeof input.skill?.content === "string" ? input.skill.content.trim().slice(0, 30_000) : "";
@@ -140,8 +142,8 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
     duration: input.duration,
     ratio: input.ratio,
     resolution: input.resolution,
-    watermark: Boolean(input.watermark),
-    generateAudio: Boolean(input.generateAudio),
+    watermark: input.watermark,
+    generateAudio: input.generateAudio,
   };
 }
 

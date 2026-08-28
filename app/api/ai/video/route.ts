@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@/lib/local/server';
 import {
   buildSeedanceRequest,
+  assertSeedanceInputTypes,
   createWetokenVideoTask,
   isDefinitiveWetokenVideoRejection,
   WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS,
@@ -26,16 +27,16 @@ export const runtime = 'nodejs';
 export const maxDuration = 1800;
 
 type CreateBody = {
-  projectId?: string;
-  shotId?: string;
-  model?: string;
-  prompt?: string;
-  references?: VideoReference[];
-  duration?: number;
-  ratio?: string;
-  resolution?: string;
-  watermark?: boolean;
-  generateAudio?: boolean;
+  projectId?: unknown;
+  shotId?: unknown;
+  model?: unknown;
+  prompt?: unknown;
+  references?: unknown;
+  duration?: unknown;
+  ratio?: unknown;
+  resolution?: unknown;
+  watermark?: unknown;
+  generateAudio?: unknown;
 };
 
 const PROVIDER_REFERENCE_TTL_SECONDS = 3600;
@@ -45,6 +46,30 @@ class VideoReferenceInputError extends Error {
     super(message);
     this.name = 'VideoReferenceInputError';
   }
+}
+
+function strictString(value: unknown, fallback: string, field: string) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string') throw new Error(`${field} 必须是 string`);
+  return value;
+}
+
+function strictNumber(value: unknown, fallback: number, field: string) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`${field} 必须是 number`);
+  return value;
+}
+
+function strictBoolean(value: unknown, fallback: boolean, field: string) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'boolean') throw new Error(`${field} 必须是 boolean`);
+  return value;
+}
+
+function strictReferences(value: unknown): VideoReference[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('references 必须是 array');
+  return value as VideoReference[];
 }
 
 async function shotBelongsToProject(localClient: ReturnType<typeof createClient>, shotId: string, projectId: string) {
@@ -122,8 +147,13 @@ export async function POST(req: Request) {
 
   let body: CreateBody;
   try { body = await req.json(); } catch { return NextResponse.json({ error: '请求体格式错误' }, { status: 400 }); }
-  const projectId = body.projectId || '';
-  if (!projectId) return NextResponse.json({ error: '缺少 projectId' }, { status: 400 });
+  if (typeof body.projectId !== 'string' || !body.projectId.trim()) {
+    return NextResponse.json({ error: '缺少 projectId' }, { status: 400 });
+  }
+  const projectId = body.projectId;
+  if (body.shotId !== undefined && typeof body.shotId !== 'string') {
+    return NextResponse.json({ error: 'shotId 必须是 string' }, { status: 400 });
+  }
   const { data: membership } = await localClient.from('project_members')
     .select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle();
   if (!membership) return NextResponse.json({ error: '无权访问该项目' }, { status: 403 });
@@ -134,16 +164,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '镜头不属于当前项目' }, { status: 403 });
   }
 
-  const input: SeedanceInput = {
-    model: body.model || 'doubao-seedance-2-0',
-    prompt: body.prompt || '',
-    references: Array.isArray(body.references) ? body.references : [],
-    duration: body.duration ?? 5,
-    ratio: body.ratio || 'adaptive',
-    resolution: body.resolution || '720p',
-    watermark: body.watermark ?? false,
-    generateAudio: body.generateAudio ?? true,
-  };
+  let input: SeedanceInput;
+  try {
+    input = {
+      model: strictString(body.model, 'doubao-seedance-2-0', 'model'),
+      prompt: strictString(body.prompt, '', 'prompt'),
+      references: strictReferences(body.references),
+      duration: strictNumber(body.duration, 5, 'duration'),
+      ratio: strictString(body.ratio, 'adaptive', 'ratio'),
+      resolution: strictString(body.resolution, '720p', 'resolution'),
+      watermark: strictBoolean(body.watermark, false, 'watermark'),
+      generateAudio: strictBoolean(body.generateAudio, true, 'generateAudio'),
+    };
+    assertSeedanceInputTypes(input);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '视频参数无效' }, { status: 400 });
+  }
 
   let pendingTask: Record<string, any> | null = null;
   let pendingLedgerEntry: ReturnType<typeof buildVideoLedgerEntry> | null = null;

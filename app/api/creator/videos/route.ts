@@ -37,6 +37,24 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function strictBoolean(value: unknown, fallback: boolean, field: string) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'boolean') throw new Error(`${field} 必须是 boolean`);
+  return value;
+}
+
+function strictString(value: unknown, fallback: string, field: string) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string') throw new Error(`${field} 必须是 string`);
+  return value;
+}
+
+function strictNumber(value: unknown, fallback: number, field: string) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`${field} 必须是 number`);
+  return value;
+}
+
 function normalizeSkill(value: unknown): CreatorVideoSkill | null {
   const skill = asRecord(value);
   return typeof skill.name === 'string' && typeof skill.content === 'string'
@@ -166,14 +184,14 @@ export async function POST(req: Request) {
         normalizeVideoIdempotencyKey(body.idempotencyKey),
       );
       input = validateVideoDraftInput({
-        prompt: typeof body.prompt === 'string' ? body.prompt : '',
-        model: typeof body.model === 'string' ? body.model : 'doubao-seedance-2-0',
+        prompt: strictString(body.prompt, '', 'prompt'),
+        model: strictString(body.model, 'doubao-seedance-2-0', 'model'),
         references: normalizeReferences(body.references),
-        duration: typeof body.duration === 'number' ? body.duration : 5,
-        ratio: typeof body.ratio === 'string' ? body.ratio : '16:9',
-        resolution: typeof body.resolution === 'string' ? body.resolution : '720p',
-        watermark: body.watermark !== false,
-        generateAudio: body.generateAudio === true,
+        duration: strictNumber(body.duration, 5, 'duration'),
+        ratio: strictString(body.ratio, '16:9', 'ratio'),
+        resolution: strictString(body.resolution, '720p', 'resolution'),
+        watermark: strictBoolean(body.watermark, true, 'watermark'),
+        generateAudio: strictBoolean(body.generateAudio, false, 'generateAudio'),
         skill: normalizeSkill(body.skill),
       });
     } catch (error) {
