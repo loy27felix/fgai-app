@@ -18,8 +18,11 @@ DEPLOY_PREVIOUS_SHA="${FG_AUTO_DEPLOY_PREVIOUS_SHA:-}"
 export APP_DEPLOYMENT_VERSION="${APP_DEPLOYMENT_VERSION:-dev}"
 STATE_ROOT="${FG_AUTO_DEPLOY_STATE_DIR:-$HOME/Library/Application Support/fg-studio-auto-deploy}"
 APP_LOG_ROOT="${FG_APP_LOG_DIR:-$HOME/Library/Logs/fg-studio-app}"
+BUILD_LOG_ROOT="${FG_AUTO_DEPLOY_BUILD_LOG_DIR:-$HOME/Library/Logs/fg-studio-auto-deploy-build}"
 LOCK_DIR="$STATE_ROOT/lock"
 FAILED_SHA_FILE="$STATE_ROOT/failed-sha"
+FAILED_DETAIL_FILE="$STATE_ROOT/failed-detail"
+LAST_BUILD_LOG_FILE=""
 
 mkdir -p "$STATE_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -69,9 +72,39 @@ compose() {
 }
 
 compose_build_app() {
+  local build_log
+  local exit_code
+
   # Pass the deployment version explicitly so Compose interpolation cannot fall back to dev.
   # 显式传递部署版本，避免 Compose 插值异常时回退为 dev。
-  compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" app
+  mkdir -p "$BUILD_LOG_ROOT"
+  build_log="$BUILD_LOG_ROOT/build-${APP_DEPLOYMENT_VERSION}.log"
+  LAST_BUILD_LOG_FILE="$build_log"
+  log "Auto deploy: build output is $build_log"
+  if BUILDKIT_PROGRESS=plain compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" app >"$build_log" 2>&1; then
+    return 0
+  else
+    exit_code=$?
+  fi
+
+  log "Auto deploy: image build failed (exit $exit_code); details: $build_log"
+  while IFS= read -r line; do
+    log "Auto deploy: build | $line"
+  done < <(tail -n 80 "$build_log")
+  return "$exit_code"
+}
+
+record_failed_deployment() {
+  local sha="$1"
+  local phase="$2"
+
+  printf '%s' "$sha" > "$FAILED_SHA_FILE"
+  {
+    printf 'commit=%s\n' "$sha"
+    printf 'phase=%s\n' "$phase"
+    printf 'buildLog=%s\n' "${LAST_BUILD_LOG_FILE:-unavailable}"
+  } > "$FAILED_DETAIL_FILE"
+  log "Auto deploy: failure details saved to $FAILED_DETAIL_FILE"
 }
 
 archive_app_logs() {
@@ -199,7 +232,7 @@ rollback() {
   fi
   export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$previous_sha")"
   log "Auto deploy: rollback deployment version is $APP_DEPLOYMENT_VERSION"
-  if ! compose_build_app >/dev/null; then
+  if ! compose_build_app; then
     log "Auto deploy: rollback image build failed"
     return 1
   fi
@@ -253,7 +286,11 @@ else
   failed_sha=""
   [[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
   if [[ "$failed_sha" == "$target_sha" ]]; then
-    log "Auto deploy: skipping previously failed commit $target_sha"
+    if [[ -f "$FAILED_DETAIL_FILE" ]]; then
+      log "Auto deploy: skipping previously failed commit $target_sha (failure details: $FAILED_DETAIL_FILE)"
+    else
+      log "Auto deploy: skipping previously failed commit $target_sha (failure details unavailable for this older failure)"
+    fi
     exit 0
   fi
 
@@ -274,14 +311,23 @@ fi
 failed_sha=""
 [[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
 if [[ "$failed_sha" == "$target_sha" ]]; then
-  log "Auto deploy: skipping previously failed commit $target_sha"
+  if [[ -f "$FAILED_DETAIL_FILE" ]]; then
+    log "Auto deploy: skipping previously failed commit $target_sha (failure details: $FAILED_DETAIL_FILE)"
+  else
+    log "Auto deploy: skipping previously failed commit $target_sha (failure details unavailable for this older failure)"
+  fi
   exit 0
 fi
 
 export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$target_sha")"
 log "Auto deploy: building deployment $APP_DEPLOYMENT_VERSION"
-if ! compose_build_app >/dev/null || ! apply_database_upgrade; then
-  printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
+if ! compose_build_app; then
+  record_failed_deployment "$target_sha" "image-build"
+  rollback "$previous_sha" || true
+  exit 1
+fi
+if ! apply_database_upgrade; then
+  record_failed_deployment "$target_sha" "database-upgrade"
   rollback "$previous_sha" || true
   exit 1
 fi
@@ -289,10 +335,10 @@ fi
 archive_app_logs "before-${target_sha:0:12}"
 if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
   archive_app_logs "failed-${target_sha:0:12}"
-  printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
+  record_failed_deployment "$target_sha" "container-health"
   rollback "$previous_sha" || true
   exit 1
 fi
 
-rm -f "$FAILED_SHA_FILE"
+rm -f "$FAILED_SHA_FILE" "$FAILED_DETAIL_FILE"
 log "Auto deploy: commit $target_sha is healthy (deployment $APP_DEPLOYMENT_VERSION)"
