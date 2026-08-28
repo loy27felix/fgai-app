@@ -12,6 +12,9 @@ STATE_ROOT="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application Support/fg-studio-
 LOG_ROOT="${FG_MONITOR_LOG_DIR:-$HOME/Library/Logs/fg-studio-monitor}"
 LOCK_DIR="$STATE_ROOT/lock"
 DISK_THRESHOLD="${FG_MONITOR_DISK_THRESHOLD:-90}"
+USER_DOMAIN="gui/$(id -u)"
+AUTO_DEPLOY_LABEL="com.fgstudio.auto-deploy"
+AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
 
 mkdir -p "$STATE_ROOT" "$LOG_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -192,6 +195,27 @@ check_app_errors() {
   update_state app-errors unhealthy "$count new error/fail log events; details saved to $LOG_ROOT/app-errors.log"
 }
 
+check_auto_deploy() {
+  if launchctl print "$USER_DOMAIN/$AUTO_DEPLOY_LABEL" >/dev/null 2>&1; then
+    update_state auto-deploy healthy "LaunchAgent is loaded"
+    return
+  fi
+
+  if [[ ! -f "$AUTO_DEPLOY_PLIST" ]]; then
+    update_state auto-deploy unhealthy "LaunchAgent plist is missing: $AUTO_DEPLOY_PLIST"
+    return
+  fi
+
+  # Reload the missing user agent so deployment monitoring survives an unload.
+  # 服务被卸载后自动重新注册，避免只能依赖人工重新安装部署守护进程。
+  if launchctl bootstrap "$USER_DOMAIN" "$AUTO_DEPLOY_PLIST" >/dev/null 2>&1 \
+    && launchctl kickstart -k "$USER_DOMAIN/$AUTO_DEPLOY_LABEL" >/dev/null 2>&1; then
+    update_state auto-deploy healthy "LaunchAgent was reloaded by service monitor"
+  else
+    update_state auto-deploy unhealthy "LaunchAgent is missing and automatic reload failed"
+  fi
+}
+
 [[ -f "$ENV_FILE" ]] || { log "Monitor: missing environment file $ENV_FILE"; exit 1; }
 if ! docker info >/dev/null 2>&1; then
   update_state docker unhealthy "Docker Desktop is unavailable; requesting application start"
@@ -206,3 +230,4 @@ check_postgres
 check_tunnel
 check_disk
 check_app_errors
+check_auto_deploy
