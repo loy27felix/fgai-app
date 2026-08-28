@@ -12,6 +12,8 @@ BRANCH="${FG_AUTO_DEPLOY_BRANCH:-main}"
 REMOTE="${FG_AUTO_DEPLOY_REMOTE:-origin}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-fgai-app}"
 HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-http://127.0.0.1:3000}"
+VERSION_URL="${FG_AUTO_DEPLOY_VERSION_URL:-http://127.0.0.1:3000/api/version}"
+export APP_DEPLOYMENT_VERSION="${APP_DEPLOYMENT_VERSION:-dev}"
 STATE_ROOT="${FG_AUTO_DEPLOY_STATE_DIR:-$HOME/Library/Application Support/fg-studio-auto-deploy}"
 APP_LOG_ROOT="${FG_APP_LOG_DIR:-$HOME/Library/Logs/fg-studio-app}"
 LOCK_DIR="$STATE_ROOT/lock"
@@ -37,6 +39,11 @@ trap cleanup EXIT
 
 log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+new_deployment_version() {
+  local sha="$1"
+  printf 'deploy-%s-%s' "$(date -u '+%Y%m%dT%H%M%SZ')" "${sha:0:12}"
 }
 
 read_env_value() {
@@ -136,12 +143,16 @@ wait_for_healthy() {
   local attempt
   local container
   local health
+  local version_payload
 
   for attempt in {1..60}; do
     container="$(compose ps -q app 2>/dev/null || true)"
     if [[ -n "$container" ]]; then
       health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
-      if [[ "$health" == "healthy" ]] && /usr/bin/curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+      version_payload="$(/usr/bin/curl -fsS --max-time 5 "$VERSION_URL" 2>/dev/null || true)"
+      if [[ "$health" == "healthy" ]] \
+        && /usr/bin/curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null 2>&1 \
+        && [[ "$version_payload" == *"\"deploymentVersion\":\"$APP_DEPLOYMENT_VERSION\""* ]]; then
         return 0
       fi
     fi
@@ -178,6 +189,8 @@ rollback() {
     log "Auto deploy: rollback checkout failed"
     return 1
   fi
+  export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$previous_sha")"
+  log "Auto deploy: rollback deployment version is $APP_DEPLOYMENT_VERSION"
   if ! compose build app >/dev/null; then
     log "Auto deploy: rollback image build failed"
     return 1
@@ -233,6 +246,8 @@ if ! git -C "$PROJECT_ROOT" merge --ff-only "$REMOTE/$BRANCH" >/dev/null; then
   exit 1
 fi
 
+export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$target_sha")"
+log "Auto deploy: building deployment $APP_DEPLOYMENT_VERSION"
 if ! compose build app >/dev/null || ! apply_database_upgrade; then
   printf '%s' "$target_sha" > "$FAILED_SHA_FILE"
   rollback "$current_sha" || true
@@ -248,4 +263,4 @@ if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healt
 fi
 
 rm -f "$FAILED_SHA_FILE"
-log "Auto deploy: commit $target_sha is healthy"
+log "Auto deploy: commit $target_sha is healthy (deployment $APP_DEPLOYMENT_VERSION)"

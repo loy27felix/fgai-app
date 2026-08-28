@@ -9,6 +9,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_DEPLOYMENT_VERSION: ${APP_DEPLOYMENT_VERSION:-dev}
     # The NAS supervisor owns app lifecycle so Docker cannot start it against an unmounted host directory.
     # App 生命周期由 NAS 守护进程管理，禁止 Docker 在宿主机目录未挂载时抢先启动。
     restart: "no"
@@ -20,6 +22,7 @@ services:
     env_file:
       - .env.docker
     environment:
+      APP_DEPLOYMENT_VERSION: ${APP_DEPLOYMENT_VERSION:-dev}
       # The host path is used only by the bind mount; the app always reads the container path.
       # 宿主机路径只用于 bind mount，应用容器内统一从 /data/media 读写。
       NAS_MEDIA_PATH: /data/media

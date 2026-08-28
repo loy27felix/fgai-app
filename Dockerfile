@@ -7,15 +7,19 @@ COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
+ARG APP_DEPLOYMENT_VERSION=dev
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+ARG APP_DEPLOYMENT_VERSION=dev
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
 RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 # The startup migration script runs outside Next's output-file tracing, so it
