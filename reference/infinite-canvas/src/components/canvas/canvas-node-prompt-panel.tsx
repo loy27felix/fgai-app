@@ -84,7 +84,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 value={prompt}
                 references={mentionReferences}
                 onChange={updatePrompt}
-                onSubmit={submit}
                 className="thin-scrollbar min-h-[120px] h-[min(190px,28vh)] max-h-[260px] w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
                 style={{ background: "transparent", color: theme.node.text }}
                 placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
@@ -102,6 +101,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                             aria-label="放大编辑提示词"
                         />
                     </Tooltip>
+                    <span className="shrink-0 text-[10px] opacity-55" title="回车只会换行，点击右侧箭头开始生成">↵ 换行</span>
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     {mode === "image" ? (
                         <>
@@ -144,7 +144,8 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     danger={isRunning}
                     disabled={!isRunning && !prompt.trim()}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
-                    aria-label={isRunning ? "停止生成" : "生成"}
+                    aria-label={isRunning ? "停止生成" : "开始生成"}
+                    title={isRunning ? "停止生成" : "开始生成（回车只换行）"}
                 >
                     <span className="flex items-center gap-1.5">
                         {isRunning ? (
@@ -165,7 +166,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         value={prompt}
                         references={mentionReferences}
                         onChange={updatePrompt}
-                        onSubmit={submit}
                         className="thin-scrollbar h-[52dvh] min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
                         style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text }}
                         placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}

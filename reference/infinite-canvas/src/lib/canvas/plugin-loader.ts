@@ -28,7 +28,11 @@ async function evaluatePluginSource(source: string): Promise<CanvasPlugin> {
 function assertPlugin(plugin: unknown): asserts plugin is CanvasPlugin {
     const value = plugin as Partial<CanvasPlugin> | null;
     if (!value || typeof value !== "object") throw new Error("插件未导出有效对象");
-    if (!value.id || !Array.isArray(value.nodes) || !value.nodes.length) throw new Error("插件缺少 id 或 nodes");
+    // Behaviour plugins can extend the canvas lifecycle without contributing a
+    // draggable node. They still need an id and either a node list or setup.
+    if (!value.id || !Array.isArray(value.nodes) || (!value.nodes.length && typeof value.setup !== "function")) {
+        throw new Error("插件缺少 id，或未提供节点/行为入口");
+    }
 }
 
 export function activatePlugin(plugin: CanvasPlugin) {

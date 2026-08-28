@@ -52,5 +52,5 @@ export default async function ChatPage({ searchParams }: PageProps) {
     initialLoadError = `对话历史暂时读取失败（追踪编号：${traceId.slice(0, 8)}）`;
   }
 
-  return <CreatorWorkspace userEmail={user.email || '创作者'} initialSessions={sessions} initialMessages={messages} initialSessionId={initialSessionId} initialLoadError={initialLoadError} />;
+  return <CreatorWorkspace userEmail={user.email || '创作者'} initialSessions={sessions} initialMessages={messages} initialSessionId={initialSessionId} initialRequestedSessionId={requestedSessionId} initialLoadError={initialLoadError} />;
 }

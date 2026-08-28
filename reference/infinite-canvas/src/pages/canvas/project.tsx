@@ -45,6 +45,7 @@ import { createCreatorCanvas, deleteCreatorCanvas, updateCreatorCanvas } from "@
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
+import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
@@ -436,6 +437,7 @@ function InfiniteCanvasPage() {
     const selectionBoxRef = useRef(selectionBox);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+    const pendingGenerationConfirmationsRef = useRef(new Set<string>());
     const cloudCanvasIdRef = useRef<string | null>(null);
     const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const cloudCreateInFlightRef = useRef(false);
@@ -2517,6 +2519,24 @@ function InfiniteCanvasPage() {
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
+            }
+
+            // A behaviour plugin may opt into this event and present its own
+            // confirmation UI. The default remains immediate generation.
+            if (pendingGenerationConfirmationsRef.current.has(nodeId)) return;
+            pendingGenerationConfirmationsRef.current.add(nodeId);
+            try {
+                const approved = await requestCanvasGenerationConfirmation({
+                    nodeId,
+                    nodeTitle: sourceNode?.title || "未命名节点",
+                    mode,
+                    model: generationConfig.model,
+                    prompt: prompt.trim(),
+                });
+                console.info("[canvas generation confirmation]", { nodeId, mode, model: generationConfig.model, approved });
+                if (!approved) return;
+            } finally {
+                pendingGenerationConfirmationsRef.current.delete(nodeId);
             }
 
             // 插件节点声明了 useBuiltinPanel.writeBackToSelf:复用内置面板生成,但结果写回节点自身。
