@@ -134,7 +134,16 @@ async function getSourcePrompts(source: PromptSource): Promise<Prompt[]> {
     const cached = await readSourceCache(source.id);
     if (cached) {
         const stale = cached.signature !== sourceSignature(source) || Date.now() - cached.fetchedAt >= cacheTtlMs;
-        if (stale) void getOrStartRefresh(source).catch(() => undefined);
+        if (stale) {
+            const result = await getOrStartRefresh(source);
+            if (!result.success) {
+                console.warn("[prompt source cache refresh failed]", { sourceId: source.id, message: result.lastError });
+                return withSourceMeta(source, cached.items);
+            }
+            const refreshed = await readSourceCache(source.id);
+            console.info("[prompt source cache refreshed]", { sourceId: source.id, count: refreshed?.items.length || 0 });
+            return withSourceMeta(source, refreshed?.items || cached.items);
+        }
         return withSourceMeta(source, cached.items);
     }
     const result = await getOrStartRefresh(source);

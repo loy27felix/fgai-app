@@ -333,3 +333,11 @@ test('prompt source cache invalidates records parsed before preview media suppor
 
   assert.match(prompts, /prompt-cache-v2/);
 });
+
+test('stale prompt source caches wait for refreshed preview data before rendering', () => {
+  const prompts = read('reference/infinite-canvas/src/services/api/prompts.ts');
+  const cachedBranch = prompts.slice(prompts.indexOf('async function getSourcePrompts'), prompts.indexOf('async function getAllPrompts'));
+
+  assert.match(cachedBranch, /await getOrStartRefresh\(source\)/);
+  assert.doesNotMatch(cachedBranch, /void getOrStartRefresh\(source\)/);
+});
