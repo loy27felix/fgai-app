@@ -5,6 +5,7 @@ import { App } from "antd";
 import { createModelChannel, useConfigStore } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { usePromptSourceScheduler } from "@/reference/infinite-canvas/src/hooks/use-prompt-source-scheduler";
 import { useAssetStore, type Asset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
+import { materialFromCreatorAsset, useMaterialLibraryStore } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 import { requestBrowserPersistence } from "@/reference/infinite-canvas/src/services/local-persistence";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
@@ -15,7 +16,11 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const assetsHydrated = useAssetStore((state) => state.hydrated);
     const replaceAssets = useAssetStore((state) => state.replaceAssets);
+    const materialsHydrated = useMaterialLibraryStore((state) => state.hydrated);
+    const replaceRemoteMaterials = useMaterialLibraryStore((state) => state.replaceRemoteItems);
+    const migrateLegacyMaterials = useMaterialLibraryStore((state) => state.migrateLegacyItems);
     const cloudAssetsLoadedRef = useRef(false);
+    const cloudMaterialsLoadedRef = useRef(false);
 
     useEffect(() => {
         void requestBrowserPersistence();
@@ -45,16 +50,17 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                         createdAt: typeof asset.createdAt === "string" ? asset.createdAt : new Date().toISOString(),
                         updatedAt: typeof asset.updatedAt === "string" ? asset.updatedAt : new Date().toISOString(),
                         metadata,
-                        folderId: typeof sourceMetadata.library_folder === "string" ? sourceMetadata.library_folder : "uncategorized",
                     };
                     if (asset.kind === "video") return { ...base, kind: "video", data: { url: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, width: Number(asset.width) || 1280, height: Number(asset.height) || 720, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "video/mp4" } } as Asset;
                     if (asset.kind === "image") return { ...base, kind: "image", data: { dataUrl: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, cloudStoragePath: typeof asset.storagePath === "string" ? asset.storagePath : undefined, cloudAssetId: typeof asset.id === "string" ? asset.id : undefined, width: Number(asset.width) || 1024, height: Number(asset.height) || 1024, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "image/png" } } as Asset;
-                    if (asset.kind === "audio") return { ...base, kind: "audio", data: { url: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "audio/mpeg", durationMs: Number(asset.durationMs) || undefined } } as Asset;
-                    if (asset.kind === "document") return null;
+                    if (asset.kind === "document" || asset.kind === "audio") return null;
                     return { ...base, kind: "text", data: { content: typeof metadata.content === "string" ? metadata.content : "" } } as Asset;
                 }).filter((asset: Asset | null): asset is Asset => Boolean(asset));
                 const remoteIds = new Set(remoteAssets.map((asset: Asset) => asset.metadata?.cloudAssetId));
-                const localAssets = useAssetStore.getState().assets.filter((asset) => !asset.metadata?.cloudAssetId || remoteIds.has(asset.metadata.cloudAssetId));
+                const localAssets = useAssetStore.getState().assets.filter((asset) => {
+                    const legacyMetadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata as Record<string, unknown> : {};
+                    return asset.kind !== "audio" && typeof legacyMetadata.library_folder !== "string" && (!asset.metadata?.cloudAssetId || remoteIds.has(asset.metadata.cloudAssetId));
+                });
                 replaceAssets([...remoteAssets, ...localAssets.filter((asset) => !remoteIds.has(asset.metadata?.cloudAssetId))]);
                 cloudAssetsLoadedRef.current = true;
             })
@@ -62,6 +68,31 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                 // Local-first use remains available when the account is signed out.
             });
     }, [assetsHydrated, replaceAssets]);
+
+    useEffect(() => {
+        if (!assetsHydrated || !materialsHydrated || cloudMaterialsLoadedRef.current) return;
+        const legacySnapshot = useAssetStore.getState().assets;
+        migrateLegacyMaterials(legacySnapshot as unknown as Array<Record<string, unknown>>);
+        const restoredAssets = legacySnapshot.filter((asset) => {
+            const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata as Record<string, unknown> : {};
+            return asset.kind !== "audio" && typeof metadata.library_folder !== "string";
+        });
+        if (restoredAssets.length !== legacySnapshot.length) {
+            replaceAssets(restoredAssets);
+            console.info("[asset library restored from legacy merge]", { removedLegacyMaterials: legacySnapshot.length - restoredAssets.length });
+        }
+        void fetch("/api/creator/assets?scope=material-library", { cache: "no-store" })
+            .then(async (response) => {
+                if (!response.ok) return;
+                const payload = await response.json().catch(() => ({}));
+                if (!Array.isArray(payload.assets)) return;
+                const materials = payload.assets.map((asset: Record<string, unknown>) => materialFromCreatorAsset(asset)).filter((asset: ReturnType<typeof materialFromCreatorAsset>): asset is NonNullable<ReturnType<typeof materialFromCreatorAsset>> => Boolean(asset));
+                replaceRemoteMaterials(materials);
+                cloudMaterialsLoadedRef.current = true;
+                console.info("[material library cloud loaded]", { count: materials.length });
+            })
+            .catch((error) => console.warn("[material library cloud load failed]", { error }));
+    }, [assetsHydrated, materialsHydrated, migrateLegacyMaterials, replaceAssets, replaceRemoteMaterials]);
     usePromptSourceScheduler();
 
     useEffect(() => {

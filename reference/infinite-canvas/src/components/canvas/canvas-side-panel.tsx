@@ -22,11 +22,14 @@ import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-
 import { CanvasNodeType, type CanvasNodeData } from "@/reference/infinite-canvas/src/types/canvas";
 
 import { ASSET_DRAG_MIME, assetToInsertPayload, type InsertAssetPayload } from "./asset-picker-modal";
+import { CanvasAssetsTab } from "./canvas-assets-tab";
+import { CanvasMaterialLibraryTab } from "./canvas-material-library-tab";
+import type { MaterialInsertPayload } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 
 const PANEL_MOTION_SECONDS = CANVAS_SIDE_PANEL_MOTION_MS / 1000;
 const PANEL_EASE = [0.22, 1, 0.36, 1] as const;
 
-type PanelTab = "canvas" | "assets" | "prompts";
+type PanelTab = "canvas" | "assets" | "materials" | "prompts";
 
 type Props = {
     nodes: CanvasNodeData[];
@@ -34,6 +37,7 @@ type Props = {
     onFocusNode: (nodeId: string) => void;
     onPreviewNode: (nodeId: string) => void;
     onInsertAsset: (payload: InsertAssetPayload) => void;
+    onInsertMaterial?: (payload: MaterialInsertPayload) => void;
 };
 
 const NODE_TYPE_ICON: Record<string, typeof Square> = {
@@ -52,7 +56,7 @@ const STATUS_COLOR: Record<string, string> = {
     idle: "transparent",
 };
 
-export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, onInsertAsset }: Props) {
+export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, onInsertAsset, onInsertMaterial }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [tab, setTab] = useState<PanelTab>("canvas");
     const width = useCanvasSidePanelStore((state) => state.width);
@@ -100,9 +104,10 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                 style={{ width, background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 data-canvas-no-zoom
             >
-                <div className="flex items-center gap-5 px-4 pt-3.5">
+                <div className="flex items-center gap-4 px-4 pt-3.5">
                     <TabButton label="画布" active={tab === "canvas"} theme={theme} onClick={() => setTab("canvas")} />
-                    <TabButton label="素材库" active={tab === "assets"} theme={theme} onClick={() => setTab("assets")} />
+                    <TabButton label="资产" active={tab === "assets"} theme={theme} onClick={() => setTab("assets")} />
+                    <TabButton label="素材库" active={tab === "materials"} theme={theme} onClick={() => setTab("materials")} />
                     <TabButton label="提示词库" active={tab === "prompts"} theme={theme} onClick={() => setTab("prompts")} />
                 </div>
                 <div className="mt-2 min-h-0 flex-1 overflow-hidden">
@@ -110,6 +115,10 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                         <CanvasNodesTab nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={onFocusNode} onPreviewNode={onPreviewNode} theme={theme} />
                     ) : tab === "assets" ? (
                         <CanvasAssetsTab onInsert={onInsertAsset} theme={theme} />
+                    ) : tab === "materials" ? (
+                        <CanvasMaterialLibraryTab onInsert={(payload) => {
+                            if (onInsertMaterial) onInsertMaterial(payload);
+                        }} theme={theme} />
                     ) : (
                         <CanvasPromptsTab onInsert={onInsertAsset} theme={theme} />
                     )}
@@ -424,7 +433,7 @@ function materialFolderId(asset: Asset) {
     return asset.folderId || metadataFolder || "uncategorized";
 }
 
-const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
+const LegacyMergedMaterialTab = memo(function LegacyMergedMaterialTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
     const { message } = App.useApp();
     const assets = useAssetStore((state) => state.assets);
     const addAsset = useAssetStore((state) => state.addAsset);

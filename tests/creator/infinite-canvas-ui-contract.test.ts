@@ -270,22 +270,32 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
   assert.doesNotMatch(sources, /awesome-gpt4o-image-prompts/);
 });
 
-test('material library persists audio assets, folder metadata, canvas drops, and reference insertion', () => {
+test('material library remains separate from assets and previews video references as video media', () => {
   const store = read('reference/infinite-canvas/src/stores/use-asset-store.ts');
+  const materialStore = read('reference/infinite-canvas/src/stores/use-material-library-store.ts');
   const sidePanel = read('reference/infinite-canvas/src/components/canvas/canvas-side-panel.tsx');
   const picker = read('reference/infinite-canvas/src/components/canvas/asset-picker-modal.tsx');
+  const materialPicker = read('reference/infinite-canvas/src/components/canvas/material-library-picker-modal.tsx');
+  const contextMenu = read('reference/infinite-canvas/src/components/canvas/canvas-context-menu.tsx');
   const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const uploadRoute = read('app/api/creator/canvas-assets/route.ts');
 
-  assert.match(store, /AssetKind = "text" \| "image" \| "video" \| "audio"/);
+  assert.match(store, /AssetKind = "text" \| "image" \| "video"/);
+  assert.doesNotMatch(store, /library_folder/);
+  assert.match(materialStore, /MaterialKind = "image" \| "video" \| "audio"/);
+  assert.match(materialStore, /MATERIAL_LIBRARY_DRAG_MIME/);
   assert.match(sidePanel, /素材库/);
-  assert.match(sidePanel, /MATERIAL_FOLDERS/);
-  assert.match(sidePanel, /folderId/);
-  assert.match(picker, /ASSET_DRAG_MIME/);
+  assert.match(sidePanel, /TabButton label="资产"/);
+  assert.match(sidePanel, /CanvasMaterialLibraryTab/);
+  assert.match(picker, /<video/);
+  assert.match(materialPicker, /<video/);
   assert.match(promptPanel, /onSelectFromLibrary/);
-  assert.match(project, /handleAssetReferenceInsert/);
-  assert.match(uploadRoute, /library_folder/);
+  assert.match(project, /MaterialLibraryPickerModal/);
+  assert.match(project, /handleMaterialReferenceInsert/);
+  assert.match(project, /saveNodeToMaterialLibrary/);
+  assert.match(contextMenu, /添加到素材库/);
+  assert.match(uploadRoute, /library_scope/);
 });
 
 test('canvas shortcut guides include modifier-wheel panning and generation input behavior', () => {

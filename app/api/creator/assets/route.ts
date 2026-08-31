@@ -28,7 +28,7 @@ async function creatorContext() {
   return { localClient, workspace };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const context = await creatorContext();
     if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
@@ -41,7 +41,16 @@ export async function GET() {
       .limit(500);
     if (result.error) throw result.error;
     const bucket = context.localClient.storage.from('creator-assets');
-    const assets = await Promise.all((result.data || []).map(async (asset: any) => {
+    const materialScope = new URL(request.url).searchParams.get('scope') === 'material-library';
+    const scopedRows = (result.data || []).filter((asset: any) => {
+      const metadata = asset.metadata && typeof asset.metadata === 'object' && !Array.isArray(asset.metadata) ? asset.metadata as Record<string, unknown> : {};
+      // library_folder was used by the short-lived merged implementation.
+      // Treat it as material-library data during migration so it cannot leak
+      // back into the original asset page.
+      const isMaterial = metadata.library_scope === 'material-library' || typeof metadata.library_folder === 'string';
+      return materialScope ? isMaterial : !isMaterial;
+    });
+    const assets = await Promise.all(scopedRows.map(async (asset: any) => {
       const signed = await bucket.createSignedUrl(asset.storage_path, SIGNED_URL_TTL_SECONDS);
       return {
         id: asset.id,
@@ -58,6 +67,7 @@ export async function GET() {
         signedUrl: signed.error ? null : signed.data?.signedUrl || null,
       };
     }));
+    console.info('[creator assets listed]', { scope: materialScope ? 'material-library' : 'assets', count: assets.length });
     return NextResponse.json({ assets });
   } catch (error) {
     return serverError(error);

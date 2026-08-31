@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { CopyPlus, ImageDown, Trash2 } from "lucide-react";
+import { CopyPlus, FolderPlus, ImageDown, Trash2 } from "lucide-react";
 
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type ContextMenuState } from "@/reference/infinite-canvas/src/types/canvas";
 
-export function CanvasNodeContextMenu({ menu, node, onClose, onDuplicate, onDelete, onCaptureVideoFrame }: { menu: ContextMenuState; node?: CanvasNodeData; onClose: () => void; onDuplicate: () => void; onDelete: () => void; onCaptureVideoFrame?: (frame: "first" | "current" | "last") => void }) {
+export function CanvasNodeContextMenu({ menu, node, onClose, onDuplicate, onDelete, onCaptureVideoFrame, onAddToMaterialLibrary }: { menu: ContextMenuState; node?: CanvasNodeData; onClose: () => void; onDuplicate: () => void; onDelete: () => void; onCaptureVideoFrame?: (frame: "first" | "current" | "last") => void; onAddToMaterialLibrary?: () => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
     useEffect(() => {
@@ -26,6 +26,7 @@ export function CanvasNodeContextMenu({ menu, node, onClose, onDuplicate, onDele
             onPointerDown={(event) => event.stopPropagation()}
         >
             {menu.type === "node" ? <MenuButton icon={<CopyPlus className="size-4" />} label="创建副本" onClick={onDuplicate} /> : null}
+            {menu.type === "node" && node && [CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.Audio].includes(node.type as CanvasNodeType) && node.metadata?.content && onAddToMaterialLibrary ? <MenuButton icon={<FolderPlus className="size-4" />} label="添加到素材库" onClick={onAddToMaterialLibrary} /> : null}
             {menu.type === "node" && node?.type === CanvasNodeType.Video && node.metadata?.content && onCaptureVideoFrame ? (
                 <>
                     <MenuButton icon={<ImageDown className="size-4" />} label="截取首帧为图片" onClick={() => onCaptureVideoFrame("first")} />

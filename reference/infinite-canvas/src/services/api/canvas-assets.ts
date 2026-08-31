@@ -13,13 +13,14 @@ export type StoredCanvasAsset = {
  * its temporary object URL.  The returned path is user-private and playback
  * always goes through the same-origin content proxy.
  */
-export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKind; source: "upload" | "generation" | "project_copy"; name?: string; nodeId?: string; folderId?: string }): Promise<StoredCanvasAsset> {
+export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKind; source: "upload" | "generation" | "project_copy"; name?: string; nodeId?: string; libraryScope?: "material-library"; folderId?: string }): Promise<StoredCanvasAsset> {
     const form = new FormData();
     form.set("file", file, file.name || input.name || "canvas-asset");
     form.set("kind", input.kind);
     form.set("source", input.source);
     if (input.name) form.set("name", input.name);
     if (input.nodeId) form.set("nodeId", input.nodeId);
+    if (input.libraryScope) form.set("libraryScope", input.libraryScope);
     if (input.folderId) form.set("folderId", input.folderId);
 
     const response = await fetch("/api/creator/canvas-assets", { method: "POST", body: form });
@@ -30,6 +31,6 @@ export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKi
         throw new Error(`${message}（${code}）`);
     }
     const assetId = typeof payload.assetId === "string" ? payload.assetId : "";
-    console.info("[material library asset persisted]", { kind: input.kind, assetId, nodeId: input.nodeId || null, folderId: input.folderId || "uncategorized", storagePath: payload.storagePath });
+    console.info("[canvas asset persisted]", { kind: input.kind, assetId, nodeId: input.nodeId || null, scope: input.libraryScope || "asset", folderId: input.folderId || null, storagePath: payload.storagePath });
     return { assetId, storagePath: payload.storagePath, contentUrl: creatorCanvasAssetContentUrl(payload.storagePath) };
 }

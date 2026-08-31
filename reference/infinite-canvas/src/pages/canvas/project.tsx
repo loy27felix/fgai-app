@@ -37,7 +37,9 @@ import { Minimap } from "@/reference/infinite-canvas/src/components/canvas/canva
 import { CanvasNode } from "@/reference/infinite-canvas/src/components/canvas/canvas-node";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel";
 import { CanvasToolbar } from "@/reference/infinite-canvas/src/components/canvas/canvas-toolbar";
-import { ASSET_DRAG_MIME, AssetPickerModal, assetToInsertPayload, type InsertAssetPayload } from "@/reference/infinite-canvas/src/components/canvas/asset-picker-modal";
+import type { InsertAssetPayload } from "@/reference/infinite-canvas/src/components/canvas/asset-picker-modal";
+import { MaterialLibraryPickerModal } from "@/reference/infinite-canvas/src/components/canvas/material-library-picker-modal";
+import { MATERIAL_LIBRARY_DRAG_MIME, materialToInsertPayload, useMaterialLibraryStore, type MaterialInsertPayload } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 import { CanvasSidePanel } from "@/reference/infinite-canvas/src/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/reference/infinite-canvas/src/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
@@ -441,8 +443,8 @@ function InfiniteCanvasPage() {
     const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("lines");
     const [showImageInfo, setShowImageInfo] = useState(false);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-    const [assetPickerOpen, setAssetPickerOpen] = useState(false);
-    const [assetReferenceTargetId, setAssetReferenceTargetId] = useState<string | null>(null);
+    const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+    const [materialReferenceTargetId, setMaterialReferenceTargetId] = useState<string | null>(null);
     const [projectLoaded, setProjectLoaded] = useState(false);
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
     const [nodeImageSettingsOpen, setNodeImageSettingsOpen] = useState(false);
@@ -1484,8 +1486,8 @@ function InfiniteCanvasPage() {
     const handleReferenceLibrarySelection = useCallback((targetNodeId: string) => {
         setReferenceSelectionTargetId(null);
         setReferenceReplacement(null);
-        setAssetReferenceTargetId(targetNodeId);
-        setAssetPickerOpen(true);
+        setMaterialReferenceTargetId(targetNodeId);
+        setMaterialPickerOpen(true);
         console.info("[material library reference picker opened]", { targetNodeId });
     }, []);
 
@@ -2742,7 +2744,7 @@ function InfiniteCanvasPage() {
     const handleDrop = useCallback(
         (event: ReactDragEvent<HTMLDivElement>) => {
             event.preventDefault();
-            const materialAssetId = event.dataTransfer.getData(ASSET_DRAG_MIME);
+            const materialAssetId = event.dataTransfer.getData(MATERIAL_LIBRARY_DRAG_MIME);
             if (materialAssetId) {
                 const position = screenToCanvas(event.clientX, event.clientY);
                 materialDropInsertRef.current?.(materialAssetId, position);
@@ -3543,7 +3545,7 @@ function InfiniteCanvasPage() {
     );
 
     const createMaterialAssetNode = useCallback(
-        async (payload: InsertAssetPayload, position?: Position) => {
+        async (payload: InsertAssetPayload | MaterialInsertPayload, position?: Position) => {
             const center = position || screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
             let node: CanvasNodeData;
 
@@ -3603,8 +3605,7 @@ function InfiniteCanvasPage() {
     );
 
     const handleAssetInsert = useCallback(
-        (payload: InsertAssetPayload) => {
-            setAssetPickerOpen(false);
+        (payload: InsertAssetPayload | MaterialInsertPayload) => {
             void createMaterialAssetNode(payload).catch((error) => {
                 console.warn("[material library insert failed]", { kind: payload.kind, error });
                 message.error("素材插入失败，请重试");
@@ -3613,11 +3614,11 @@ function InfiniteCanvasPage() {
         [createMaterialAssetNode, message],
     );
 
-    const handleAssetReferenceInsert = useCallback(
-        async (payload: InsertAssetPayload) => {
-            const targetNodeId = assetReferenceTargetId;
-            setAssetReferenceTargetId(null);
-            setAssetPickerOpen(false);
+    const handleMaterialReferenceInsert = useCallback(
+        async (payload: MaterialInsertPayload) => {
+            const targetNodeId = materialReferenceTargetId;
+            setMaterialReferenceTargetId(null);
+            setMaterialPickerOpen(false);
             if (!targetNodeId || !nodesRef.current.some((node) => node.id === targetNodeId)) return;
             try {
                 const target = nodesRef.current.find((node) => node.id === targetNodeId)!;
@@ -3633,16 +3634,16 @@ function InfiniteCanvasPage() {
                 message.error("参考素材添加失败，请重试");
             }
         },
-        [assetReferenceTargetId, createMaterialAssetNode, message],
+        [materialReferenceTargetId, createMaterialAssetNode, message],
     );
 
     materialDropInsertRef.current = (assetId, position) => {
-        const asset = useAssetStore.getState().assets.find((item) => item.id === assetId);
+        const asset = useMaterialLibraryStore.getState().items.find((item) => item.id === assetId);
         if (!asset) {
             console.warn("[material library drop ignored]", { assetId, reason: "asset-not-found" });
             return;
         }
-        void createMaterialAssetNode(assetToInsertPayload(asset), position).catch((error) => {
+        void createMaterialAssetNode(materialToInsertPayload(asset), position).catch((error) => {
             console.warn("[material library drop failed]", { assetId, kind: asset.kind, error });
             message.error("素材拖入画布失败，请重试");
         });
@@ -3666,6 +3667,29 @@ function InfiniteCanvasPage() {
         event.stopPropagation();
         setContextMenu({ type: "node", x: event.clientX, y: event.clientY, nodeId });
     }, []);
+
+    const saveNodeToMaterialLibrary = useCallback(async (node: CanvasNodeData) => {
+        const kind = node.type === CanvasNodeType.Image ? "image" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : null;
+        const content = node.metadata?.content;
+        if (!kind || !content) return;
+        const extension = kind === "image" ? "png" : kind === "video" ? "mp4" : "mp3";
+        const hide = message.loading("正在添加到素材库…", 0);
+        try {
+            const response = await fetch(content);
+            if (!response.ok) throw new Error(`source-fetch-${response.status}`);
+            const blob = await response.blob();
+            const file = new File([blob], `${node.title || kind}.${extension}`, { type: node.metadata?.mimeType || blob.type || `${kind}/*` });
+            const stored = await uploadCanvasAsset(file, { kind, source: "project_copy", name: file.name, nodeId: node.id, libraryScope: "material-library" });
+            useMaterialLibraryStore.getState().addItem({ kind, title: node.title || "画布素材", url: stored.contentUrl, mimeType: file.type, storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId: null, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight, durationMs: node.metadata?.durationMs });
+            console.info("[material library node saved]", { nodeId: node.id, kind, materialId: stored.assetId });
+            message.success("已添加到素材库");
+        } catch (error) {
+            console.warn("[material library node save failed]", { nodeId: node.id, kind, error });
+            message.error("添加到素材库失败，请重试");
+        } finally {
+            hide();
+        }
+    }, [message]);
 
     const handleVideoFrameCapture = useCallback(
         async (nodeId: string, frame: "first" | "current" | "last") => {
@@ -3762,7 +3786,7 @@ function InfiniteCanvasPage() {
 
     return (
         <main className="flex h-full min-h-0 overflow-hidden" style={{ background: theme.canvas.background, color: theme.node.text }}>
-            <CanvasSidePanel nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={focusNode} onPreviewNode={setPreviewNodeId} onInsertAsset={handleAssetInsert} />
+            <CanvasSidePanel nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={focusNode} onPreviewNode={setPreviewNodeId} onInsertAsset={handleAssetInsert} onInsertMaterial={handleAssetInsert} />
             <section className="relative min-w-0 flex-1 overflow-hidden">
                 <CanvasTopBar
                     title={currentProject?.title || "未命名画布"}
@@ -3995,6 +4019,12 @@ function InfiniteCanvasPage() {
                         onCaptureVideoFrame={(frame) => {
                             if (contextMenu.type === "node") void handleVideoFrameCapture(contextMenu.nodeId, frame);
                         }}
+                        onAddToMaterialLibrary={() => {
+                            if (contextMenu.type !== "node") return;
+                            const node = nodes.find((item) => item.id === contextMenu.nodeId);
+                            setContextMenu(null);
+                            if (node) void saveNodeToMaterialLibrary(node);
+                        }}
                     />
                 ) : null}
 
@@ -4050,13 +4080,13 @@ function InfiniteCanvasPage() {
                     <p className="text-sm opacity-60">这会删除当前画布上的所有节点和连线。</p>
                 </Modal>
 
-                <AssetPickerModal
-                    open={assetPickerOpen}
-                    title={assetReferenceTargetId ? "选择素材作为参考" : "选择素材"}
-                    onInsert={assetReferenceTargetId ? handleAssetReferenceInsert : handleAssetInsert}
+                <MaterialLibraryPickerModal
+                    open={materialPickerOpen}
+                    title="从素材库选择参考素材"
+                    onInsert={handleMaterialReferenceInsert}
                     onClose={() => {
-                        setAssetPickerOpen(false);
-                        setAssetReferenceTargetId(null);
+                        setMaterialPickerOpen(false);
+                        setMaterialReferenceTargetId(null);
                     }}
                 />
             </section>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Empty, Input, Modal, Pagination, Tag } from "antd";
-import { Music2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
 import { useAssetStore, type Asset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
@@ -28,7 +28,7 @@ type Props = {
     onClose: () => void;
 };
 
-export function AssetPickerModal({ open, title = "选择素材", onInsert, onClose }: Props) {
+export function AssetPickerModal({ open, title = "选择资产", onInsert, onClose }: Props) {
     return (
         <Modal title={title} open={open} onCancel={onClose} footer={null} width={860} destroyOnHidden styles={{ body: { padding: "0 24px 24px", minHeight: 480 } }}>
             <MyAssetsTab onInsert={onInsert} />
@@ -43,27 +43,34 @@ const kindOptions = [
     { label: "文本", value: "text" },
     { label: "图片", value: "image" },
     { label: "视频", value: "video" },
-    { label: "音频", value: "audio" },
 ];
 
 function PickerCard({ title, kind, cover, onClick }: { title: string; kind: string; cover: string; onClick: () => void }) {
+    const [video, setVideo] = useState<HTMLVideoElement | null>(null);
     return (
         <button
             type="button"
             className="group relative cursor-pointer overflow-hidden rounded-lg border border-stone-200 bg-white text-left transition hover:border-stone-400 hover:shadow-md dark:border-stone-700 dark:bg-stone-900 dark:hover:border-stone-500"
             onClick={onClick}
+            onPointerEnter={() => {
+                if (kind === "video") void video?.play().catch((error) => console.warn("[asset picker video preview failed]", { title, error }));
+            }}
+            onPointerLeave={() => {
+                video?.pause();
+                if (video) video.currentTime = 0;
+            }}
         >
-            {cover ? (
+            {kind === "video" && cover ? (
+                <video ref={setVideo} src={`${cover}#t=0.1`} muted playsInline loop preload="metadata" className="aspect-[4/3] w-full object-cover" onError={() => console.warn("[asset picker video preview unavailable]", { title })} />
+            ) : cover ? (
                 <img src={cover} alt={title} className="aspect-[4/3] w-full object-cover" />
-            ) : kind === "audio" ? (
-                <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-violet-500/10 p-3 text-center text-xs leading-5 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300"><Music2 className="size-7" />{title}</div>
             ) : (
                 <div className="flex aspect-[4/3] items-center justify-center bg-stone-100 p-3 text-center text-xs leading-5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">{title}</div>
             )}
             <div className="p-2.5">
                 <div className="flex items-center justify-between gap-2">
                     <span className="line-clamp-1 text-xs font-medium text-stone-800 dark:text-stone-200">{title}</span>
-                    <Tag className="m-0 shrink-0 text-[10px]">{kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本"}</Tag>
+                    <Tag className="m-0 shrink-0 text-[10px]">{kind === "image" ? "图片" : kind === "video" ? "视频" : "文本"}</Tag>
                 </div>
             </div>
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-stone-950/0 text-sm font-medium text-white opacity-0 transition group-hover:bg-stone-950/55 group-hover:opacity-100">插入</div>
@@ -80,7 +87,7 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return assets
-            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video" || a.kind === "audio")
+            .filter((a) => a.kind === "text" || a.kind === "image" || a.kind === "video")
             .filter((a) => kindFilter === "all" || a.kind === kindFilter)
             .filter((a) => !query || [a.title, ...(a.tags || [])].join(" ").toLowerCase().includes(query));
     }, [assets, keyword, kindFilter]);
