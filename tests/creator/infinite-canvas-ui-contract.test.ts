@@ -235,3 +235,61 @@ test('video persistence keeps a cloud URL when browser media storage is unavaila
   assert.match(video, /return remoteFallback;/);
   assert.match(project, /cloudStoragePath/);
 });
+
+test('canvas video assets retain a durable playback path and surface a recoverable playback state', () => {
+  const assetClient = read('reference/infinite-canvas/src/services/api/canvas-assets.ts');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const panel = read('reference/infinite-canvas/src/components/canvas/canvas-side-panel.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+
+  assert.match(assetClient, /\/api\/creator\/canvas-assets/);
+  assert.match(project, /uploadCanvasAsset/);
+  assert.match(project, /cloudStoragePath/);
+  assert.match(panel, /onPointerEnter/);
+  assert.match(panel, /video\.play\(\)/);
+  assert.match(node, /视频暂时无法播放/);
+  assert.match(node, /\[canvas video playback failed\]/);
+});
+
+test('canvas release notes and prompt sources are owned by FG Studio', () => {
+  const version = read('reference/infinite-canvas/src/constant/env.ts');
+  const release = read('reference/infinite-canvas/src/lib/fg-release-notes.ts');
+  const versionCheck = read('reference/infinite-canvas/src/hooks/use-version-check.ts');
+  const sources = read('reference/infinite-canvas/src/services/api/prompt-source-presets.ts');
+
+  assert.match(version, /SYSTEM_VERSION/);
+  assert.match(release, /本次修改/);
+  assert.match(release, /生成前确认/);
+  assert.match(release, /AI 对话历史/);
+  assert.doesNotMatch(versionCheck, /basketikun\/infinite-canvas/);
+  assert.match(sources, /youmind-seedance-2-prompts/);
+  assert.match(sources, /awesome-seedance-2-prompts/);
+  assert.doesNotMatch(sources, /davidwu-gpt-image2-prompts/);
+  assert.doesNotMatch(sources, /awesome-gpt4o-image-prompts/);
+});
+
+test('canvas shortcut guides include modifier-wheel panning and generation input behavior', () => {
+  const topBar = read('reference/infinite-canvas/src/components/canvas/canvas-top-bar.tsx');
+  const zoom = read('reference/infinite-canvas/src/components/canvas/canvas-zoom-controls.tsx');
+
+  for (const guide of [topBar, zoom]) {
+    assert.match(guide, /Ctrl \/ Cmd.*滚轮/);
+    assert.match(guide, /Shift.*滚轮/);
+    assert.match(guide, /回车/);
+    assert.match(guide, /开始生成/);
+  }
+});
+
+test('canvas reference strip reorders source connections so image labels follow the dragged order', () => {
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(promptPanel, /draggable=/);
+  assert.match(promptPanel, /onDragStart/);
+  assert.match(promptPanel, /onDrop/);
+  assert.match(promptPanel, /event\.altKey/);
+  assert.match(promptPanel, /ArrowLeft/);
+  assert.match(promptPanel, /onReorderReference/);
+  assert.match(project, /handleReferenceReorder/);
+  assert.match(project, /\[canvas reference reordered\]/);
+});

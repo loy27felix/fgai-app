@@ -51,6 +51,7 @@ type CanvasNodeProps = {
     onContentChange: (nodeId: string, content: string) => void;
     onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
+    onVideoPlaybackError?: (node: CanvasNodeData, failedUrl: string) => void;
     onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
@@ -75,6 +76,7 @@ type NodeContentRendererProps = {
     onContentChange: (nodeId: string, content: string) => void;
     onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
+    onVideoPlaybackError?: (node: CanvasNodeData, failedUrl: string) => void;
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
@@ -118,6 +120,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onContentChange,
     onTextAlternativeChange,
     onVideoAlternativeChange,
+    onVideoPlaybackError,
     onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
@@ -450,6 +453,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onContentChange={onContentChange}
                         onTextAlternativeChange={onTextAlternativeChange}
                         onVideoAlternativeChange={onVideoAlternativeChange}
+                        onVideoPlaybackError={onVideoPlaybackError}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
                         onGenerateImage={onGenerateImage}
@@ -662,17 +666,21 @@ function EmptyImageContent({ theme, isBatchRoot, batchCount, batchExpanded, batc
     return content;
 }
 
-function VideoNodeContent({ node, theme, onVideoAlternativeChange }: NodeContentRendererProps) {
+function VideoNodeContent({ node, theme, onVideoAlternativeChange, onVideoPlaybackError }: NodeContentRendererProps) {
     const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
+    const [playbackError, setPlaybackError] = useState(false);
     const alternatives = readVideoAlternatives(node.metadata);
     const activeAlternativeIndex = Math.min(Math.max(node.metadata?.activeVideoAlternativeIndex ?? alternatives.length - 1, 0), Math.max(alternatives.length - 1, 0));
     const activeContent = alternatives[activeAlternativeIndex]?.content || node.metadata?.content;
+
+    useEffect(() => setPlaybackError(false), [activeContent]);
 
     if (!node.metadata?.content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.placeholder }}>
                 <Video className="size-7 opacity-35" />
-                <span className="text-sm">空视频节点</span>
+                <span className="text-sm">{node.metadata?.errorDetails ? "视频副本不可用" : "空视频节点"}</span>
+                {node.metadata?.errorDetails ? <span className="max-w-[82%] text-center text-xs leading-5 opacity-75">{node.metadata.errorDetails}</span> : null}
             </div>
         );
     return (
@@ -692,7 +700,24 @@ function VideoNodeContent({ node, theme, onVideoAlternativeChange }: NodeContent
                     ))}
                 </div>
             ) : null}
-            <video src={activeContent} controls className="relative z-10 h-full w-full rounded-[18px] bg-black object-contain" data-canvas-no-zoom data-canvas-video-id={node.id} />
+            <video
+                key={activeContent}
+                src={activeContent}
+                controls
+                className="relative z-10 h-full w-full rounded-[18px] bg-black object-contain"
+                data-canvas-no-zoom
+                data-canvas-video-id={node.id}
+                onError={() => {
+                    setPlaybackError(true);
+                    console.warn("[canvas video playback failed]", { nodeId: node.id, activeAlternativeIndex, hasCreatorTask: Boolean(node.metadata?.creatorTaskId), hasCloudBackup: Boolean(node.metadata?.cloudStoragePath), urlKind: activeContent?.startsWith("blob:") ? "blob" : "remote" });
+                    if (activeContent) onVideoPlaybackError?.(node, activeContent);
+                }}
+            />
+            {playbackError ? (
+                <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20 rounded-xl px-3 py-2 text-center text-xs font-medium shadow-lg" style={{ background: `${theme.toolbar.panel}ed`, color: theme.node.text }}>
+                    视频暂时无法播放，正在尝试恢复可用副本
+                </div>
+            ) : null}
             {alternatives.length > 1 ? (
                 <div className="absolute right-2.5 top-2.5 z-30">
                     <button

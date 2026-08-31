@@ -58,7 +58,7 @@ function cacheKey(sourceId: string) {
 }
 
 function sourceSignature(source: PromptSource) {
-    const value = `${source.name}\n${source.url}\n${source.homepage}`;
+    const value = `${source.name}\n${source.url}\n${source.homepage}\n${source.format || "json"}`;
     let hash = 0;
     for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) | 0;
     return `${value.length}:${hash}`;

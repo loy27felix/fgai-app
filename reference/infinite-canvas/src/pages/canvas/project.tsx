@@ -7,6 +7,7 @@ import { saveAs } from "file-saver";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/reference/infinite-canvas/src/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/reference/infinite-canvas/src/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinite-canvas/src/services/api/video";
+import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
@@ -213,21 +214,29 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
             let recoveryError: string | undefined;
-            let staleCloudUrl: string | undefined;
 
             // A long Wetoken render can still be running when this page is
             // reopened. Our local task ID is enough to query the task route;
             // that route persists a completed result to NAS before it returns.
             const creatorTaskId = node.type === CanvasNodeType.Video ? node.metadata?.creatorTaskId : undefined;
-            if (creatorTaskId && !node.metadata?.content) {
+            const existingContent = node.metadata?.content || "";
+            // Provider URLs and object URLs are both temporary. If the node
+            // has a creator task, always prefer the task-owned same-origin
+            // playback endpoint when it has completed; this prevents a saved
+            // graph from reopening with an expired provider URL.
+            if (creatorTaskId) {
                 try {
                     const task = (await getVideoTask(creatorTaskId)).task;
                     if (task.videoUrl) {
+                        const taskOutput = task.output && typeof task.output === "object" ? task.output : {};
                         const readyVideo = {
                             url: creatorVideoContentUrl(task.id),
                             mimeType: "video/mp4",
+                            storagePath: typeof taskOutput.video_storage_path === "string" ? taskOutput.video_storage_path : undefined,
+                            assetId: typeof taskOutput.video_asset_id === "string" ? taskOutput.video_asset_id : undefined,
                             externalTaskId: task.external_task_id || undefined,
                         };
+                        console.info("[canvas video recovered from creator task]", { nodeId: node.id, creatorTaskId, hadTemporarySource: Boolean(existingContent), durable: Boolean(readyVideo.storagePath) });
                         // Display the completed provider output immediately. NAS caching is
                         // deliberately best-effort: a slow archive must not leave this node
                         // stuck in "generating" after Wetoken has already charged and finished.
@@ -280,10 +289,21 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
             }
 
             const path = node.metadata?.cloudStoragePath;
+            if (node.type === CanvasNodeType.Video && path) {
+                const durableUrl = creatorCanvasAssetContentUrl(path);
+                console.info("[canvas video hydrated from durable asset]", { nodeId: node.id, storagePath: path });
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        content: durableUrl,
+                        storageKey: undefined,
+                        status: NODE_STATUS_SUCCESS,
+                        errorDetails: undefined,
+                    },
+                };
+            }
             if (path) {
-                if (node.type === CanvasNodeType.Video) {
-                    staleCloudUrl = creatorCanvasAssetContentUrl(path);
-                }
                 try {
                     const response = await fetch("/api/creator/canvas-assets?path=" + encodeURIComponent(path), { cache: "no-store" });
                     const payload = await response.json().catch(() => ({}));
@@ -311,9 +331,19 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                     ...node,
                     metadata: {
                         ...node.metadata,
-                        ...(staleCloudUrl ? { content: staleCloudUrl } : {}),
                         status: NODE_STATUS_ERROR,
                         errorDetails: recoveryError,
+                    },
+                };
+            }
+            if (node.type === CanvasNodeType.Video && !node.metadata?.content) {
+                console.warn("[canvas video hydration unavailable]", { nodeId: node.id, hasStorageKey: Boolean(node.metadata?.storageKey), hasCreatorTask: Boolean(creatorTaskId), hasCloudBackup: Boolean(path) });
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        status: NODE_STATUS_ERROR,
+                        errorDetails: "视频本地副本已失效，且没有找到云端备份；请从原始文件重新上传",
                     },
                 };
             }
@@ -1496,6 +1526,44 @@ function InfiniteCanvasPage() {
         [message],
     );
 
+    const handleReferenceReorder = useCallback(
+        (targetNodeId: string, draggedReferenceId: string, anchorReferenceId: string, placement: "before" | "after") => {
+            if (draggedReferenceId === anchorReferenceId) return;
+            const configConnection = connectionsRef.current.find((connection) => connection.fromNodeId === targetNodeId && nodesRef.current.find((node) => node.id === connection.toNodeId)?.type === CanvasNodeType.Config);
+            const connectionTargetId = configConnection?.toNodeId || targetNodeId;
+            const referenceSourceNodeId = (referenceNodeId: string) => {
+                const referenceNode = nodesRef.current.find((node) => node.id === referenceNodeId);
+                const groupId = referenceNode?.metadata?.groupId;
+                return groupId && connectionsRef.current.some((connection) => connection.fromNodeId === groupId && connection.toNodeId === connectionTargetId) ? groupId : referenceNodeId;
+            };
+            const sourceNodeId = referenceSourceNodeId(draggedReferenceId);
+            const anchorNodeId = referenceSourceNodeId(anchorReferenceId);
+            if (sourceNodeId === anchorNodeId) {
+                message.info("同一组参考素材保持组内顺序；可拖动整组与其他参考素材排序");
+                return;
+            }
+            const sourceConnection = connectionsRef.current.find((connection) => connection.fromNodeId === sourceNodeId && connection.toNodeId === connectionTargetId);
+            const anchorConnection = connectionsRef.current.find((connection) => connection.fromNodeId === anchorNodeId && connection.toNodeId === connectionTargetId);
+            if (!sourceConnection || !anchorConnection) {
+                console.warn("[canvas reference reorder] missing connection", { targetNodeId, connectionTargetId, draggedReferenceId, anchorReferenceId, sourceNodeId, anchorNodeId });
+                message.warning("参考素材已变化，请刷新后再试");
+                return;
+            }
+            setConnections((previous) => {
+                const movedConnection = previous.find((connection) => connection.id === sourceConnection.id);
+                if (!movedConnection) return previous;
+                const withoutMoved = previous.filter((connection) => connection.id !== sourceConnection.id);
+                const anchorIndex = withoutMoved.findIndex((connection) => connection.id === anchorConnection.id);
+                if (anchorIndex < 0) return previous;
+                const insertionIndex = placement === "after" ? anchorIndex + 1 : anchorIndex;
+                return [...withoutMoved.slice(0, insertionIndex), movedConnection, ...withoutMoved.slice(insertionIndex)];
+            });
+            console.info("[canvas reference reordered]", { targetNodeId, connectionTargetId, draggedReferenceId, anchorReferenceId, sourceNodeId, anchorNodeId, placement });
+            message.success("已更新参考素材顺序，提示词中的图片编号已同步");
+        },
+        [message],
+    );
+
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
@@ -1822,7 +1890,21 @@ function InfiniteCanvasPage() {
         setSelectedNodeIds(new Set([id]));
         setSelectedConnectionId(null);
         setDialogNodeId(id);
-    }, []);
+        try {
+            const durable = await uploadCanvasAsset(file, { kind: "video", source: "upload", name: file.name, nodeId: id });
+            setNodes((prev) => prev.map((node) => node.id === id ? {
+                ...node,
+                metadata: {
+                    ...node.metadata,
+                    ...videoMetadata({ ...video, url: durable.contentUrl, cloudStoragePath: durable.storagePath, cloudAssetId: durable.assetId }),
+                },
+            } : node));
+            console.info("[canvas video durable copy linked]", { nodeId: id, assetId: durable.assetId, storagePath: durable.storagePath });
+        } catch (error) {
+            console.warn("[canvas video durable copy failed]", { nodeId: id, name: file.name, error });
+            message.warning("视频已添加到画布，但云端备份失败；请暂时不要清理当前浏览器缓存");
+        }
+    }, [message]);
 
     const createAudioFileNode = useCallback(async (file: File, position: Position) => {
         const audio = await uploadMediaFile(file, "audio");
@@ -2085,6 +2167,57 @@ function InfiniteCanvasPage() {
         );
     }, []);
 
+    const handleVideoPlaybackError = useCallback(async (node: CanvasNodeData, failedUrl: string) => {
+        const current = nodesRef.current.find((item) => item.id === node.id && item.type === CanvasNodeType.Video);
+        if (!current?.metadata) return;
+        const { creatorTaskId, cloudStoragePath } = current.metadata;
+        let recoveryUrl = "";
+        let recoveryKind: "creator-task" | "canvas-asset" | null = null;
+
+        if (creatorTaskId) {
+            try {
+                const task = (await getVideoTask(creatorTaskId)).task;
+                if (task.videoUrl) {
+                    recoveryUrl = creatorVideoContentUrl(task.id);
+                    recoveryKind = "creator-task";
+                }
+            } catch (error) {
+                console.warn("[canvas video playback recovery task lookup failed]", { nodeId: current.id, creatorTaskId, error });
+            }
+        }
+        if (!recoveryUrl && cloudStoragePath) {
+            recoveryUrl = creatorCanvasAssetContentUrl(cloudStoragePath);
+            recoveryKind = "canvas-asset";
+        }
+
+        if (recoveryUrl && recoveryUrl !== failedUrl) {
+            setNodes((prev) => prev.map((item) => {
+                if (item.id !== current.id || item.type !== CanvasNodeType.Video) return item;
+                const activeIndex = Math.min(Math.max(item.metadata?.activeVideoAlternativeIndex ?? 0, 0), Math.max(readVideoAlternatives(item.metadata).length - 1, 0));
+                const alternatives = readVideoAlternatives(item.metadata).map((alternative, index) => index === activeIndex ? { ...alternative, content: recoveryUrl, storageKey: undefined } : alternative);
+                return {
+                    ...item,
+                    metadata: {
+                        ...item.metadata,
+                        content: recoveryUrl,
+                        storageKey: undefined,
+                        status: NODE_STATUS_SUCCESS,
+                        errorDetails: undefined,
+                        ...(alternatives.length ? { videoAlternatives: alternatives } : {}),
+                    },
+                };
+            }));
+            console.info("[canvas video playback recovery applied]", { nodeId: current.id, recoveryKind, hadCreatorTask: Boolean(creatorTaskId), hasCloudBackup: Boolean(cloudStoragePath) });
+            return;
+        }
+
+        const errorDetails = creatorTaskId || cloudStoragePath
+            ? "视频可用副本暂时无法读取，请稍后重试"
+            : "视频本地副本已失效，且没有找到云端备份；请从原始文件重新上传";
+        setNodes((prev) => prev.map((item) => item.id === current.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item));
+        console.warn("[canvas video playback recovery unavailable]", { nodeId: current.id, hadCreatorTask: Boolean(creatorTaskId), hasCloudBackup: Boolean(cloudStoragePath), failedUrlKind: failedUrl.startsWith("blob:") ? "blob" : "remote" });
+    }, []);
+
     const handleNodeTitleChange = useCallback((nodeId: string, title: string) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, title } : node)));
     }, []);
@@ -2175,15 +2308,23 @@ function InfiniteCanvasPage() {
             }
             if (node.type === CanvasNodeType.Video) {
                 if (!node.metadata?.content) return message.error("没有可保存的视频");
+                const creatorTaskId = node.metadata.creatorTaskId;
+                const cloudStoragePath = node.metadata.cloudStoragePath;
+                const durableUrl = creatorTaskId
+                    ? creatorVideoContentUrl(creatorTaskId)
+                    : cloudStoragePath
+                        ? creatorCanvasAssetContentUrl(cloudStoragePath)
+                        : node.metadata.content;
                 addAsset({
                     kind: "video",
                     title: node.metadata?.prompt?.slice(0, 24) || "画布视频",
                     coverUrl: "",
                     tags: [],
                     source: "Canvas",
-                    data: { url: node.metadata.content, storageKey: node.metadata.storageKey, width: node.width, height: node.height, bytes: node.metadata.bytes || 0, mimeType: node.metadata.mimeType || "video/mp4" },
-                    metadata: { source: "canvas", nodeId: node.id, prompt: node.metadata?.prompt },
+                    data: { url: durableUrl, storageKey: node.metadata.storageKey, cloudStoragePath, cloudAssetId: node.metadata.cloudAssetId, creatorTaskId, width: node.width, height: node.height, bytes: node.metadata.bytes || 0, mimeType: node.metadata.mimeType || "video/mp4" },
+                    metadata: { source: "canvas", nodeId: node.id, prompt: node.metadata?.prompt, durable: Boolean(creatorTaskId || cloudStoragePath) },
                 });
+                console.info("[canvas video asset saved]", { nodeId: node.id, creatorTaskId: creatorTaskId || null, hasCloudBackup: Boolean(cloudStoragePath) });
                 message.success("已加入我的资产");
                 return;
             }
@@ -3403,7 +3544,16 @@ function InfiniteCanvasPage() {
                         position: { x: center.x - nextSize.width / 2, y: center.y - nextSize.height / 2 },
                         width: nextSize.width,
                         height: nextSize.height,
-                        metadata: { content: payload.url, storageKey: payload.storageKey, status: NODE_STATUS_SUCCESS, naturalWidth: payload.width, naturalHeight: payload.height },
+                        metadata: {
+                            content: payload.url,
+                            storageKey: payload.storageKey,
+                            cloudStoragePath: payload.cloudStoragePath,
+                            cloudAssetId: payload.cloudAssetId,
+                            creatorTaskId: payload.creatorTaskId,
+                            status: NODE_STATUS_SUCCESS,
+                            naturalWidth: payload.width,
+                            naturalHeight: payload.height,
+                        },
                     },
                 ]);
                 setSelectedNodeIds(new Set([id]));
@@ -3491,6 +3641,7 @@ function InfiniteCanvasPage() {
                     onBeginReferenceSelection={handleReferenceSelectionToggle}
                     onBeginReferenceReplacement={handleReferenceReplacementStart}
                     onRemoveReference={handleReferenceRemove}
+                    onReorderReference={handleReferenceReorder}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
@@ -3502,7 +3653,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceReorder, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(
@@ -3644,6 +3795,7 @@ function InfiniteCanvasPage() {
                             onContentChange={handleNodeContentChange}
                             onTextAlternativeChange={handleTextAlternativeChange}
                             onVideoAlternativeChange={handleVideoAlternativeChange}
+                            onVideoPlaybackError={handleVideoPlaybackError}
                             onTitleChange={handleNodeTitleChange}
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}

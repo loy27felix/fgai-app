@@ -3,6 +3,7 @@ import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
 import { randomId } from '@/lib/utils';
+import { logServerEvent, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,6 +66,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const traceId = requestTraceId(req);
   try {
     const context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
@@ -90,7 +92,10 @@ export async function POST(req: Request) {
         console.error('[creator canvas asset admin upload]', error);
       }
     }
-    if (upload.error) return response('素材上传失败，请稍后重试', 'ASSET_UPLOAD_FAILED', 502);
+    if (upload.error) {
+      logServerEvent('creator_canvas_asset', { traceId, feature: 'creator_canvas_asset', stage: 'storage_upload_failed', kind, bytes: file.size, nodeId: nodeId || null }, 'warn');
+      return response('素材上传失败，请稍后重试', 'ASSET_UPLOAD_FAILED', 502);
+    }
 
     const inserted = await context.localClient
       .from('creator_assets')
@@ -108,9 +113,11 @@ export async function POST(req: Request) {
       .single();
     if (inserted.error || !inserted.data) {
       await context.localClient.storage.from('creator-assets').remove([storagePath]);
+      logServerEvent('creator_canvas_asset', { traceId, feature: 'creator_canvas_asset', stage: 'asset_record_failed', kind, bytes: file.size, nodeId: nodeId || null }, 'warn');
       return response('素材记录保存失败，请稍后重试', 'ASSET_RECORD_FAILED', 500);
     }
     const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
+    logServerEvent('creator_canvas_asset', { traceId, feature: 'creator_canvas_asset', stage: 'completed', kind, source, bytes: file.size, nodeId: nodeId || null, assetId: inserted.data.id, storagePath: inserted.data.storage_path });
     return NextResponse.json({
       assetId: inserted.data.id,
       storagePath: inserted.data.storage_path,
@@ -118,6 +125,7 @@ export async function POST(req: Request) {
     }, { status: 201 });
   } catch (error) {
     console.error('[creator canvas asset upload]', error);
+    logServerFailure('creator_canvas_asset_failed', error, { traceId, feature: 'creator_canvas_asset', stage: 'exception' });
     return response('素材上传失败，请稍后重试', 'ASSET_UPLOAD_FAILED', 500);
   }
 }

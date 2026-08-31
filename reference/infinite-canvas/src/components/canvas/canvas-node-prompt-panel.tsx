@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Plus, Square, X } from "lucide-react";
 import { Button, Modal, Tooltip } from "antd";
 
@@ -31,11 +31,12 @@ type CanvasNodePromptPanelProps = {
     onBeginReferenceSelection?: (nodeId: string) => void;
     onBeginReferenceReplacement?: (nodeId: string, reference: CanvasResourceReference) => void;
     onRemoveReference?: (nodeId: string, referenceId: string) => void;
+    onReorderReference?: (nodeId: string, draggedReferenceId: string, anchorReferenceId: string, placement: "before" | "after") => void;
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // 插件节点用 useBuiltinPanel.mode 指定生成类型
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceReplacement, onRemoveReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceReplacement, onRemoveReference, onReorderReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -83,6 +84,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 onSelect={onBeginReferenceSelection}
                 onReplace={onBeginReferenceReplacement}
                 onRemove={onRemoveReference}
+                onReorderReference={onReorderReference}
             />
             <CanvasPromptChipInput
                 value={prompt}
@@ -174,6 +176,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         onSelect={onBeginReferenceSelection}
                         onReplace={onBeginReferenceReplacement}
                         onRemove={onRemoveReference}
+                        onReorderReference={onReorderReference}
                     />
                     <CanvasPromptChipInput
                         value={prompt}
@@ -198,6 +201,7 @@ function ReferenceStrip({
     onSelect,
     onReplace,
     onRemove,
+    onReorderReference,
 }: {
     nodeId: string;
     references: CanvasResourceReference[];
@@ -207,7 +211,42 @@ function ReferenceStrip({
     onSelect?: (nodeId: string) => void;
     onReplace?: (nodeId: string, reference: CanvasResourceReference) => void;
     onRemove?: (nodeId: string, referenceId: string) => void;
+    onReorderReference?: (nodeId: string, draggedReferenceId: string, anchorReferenceId: string, placement: "before" | "after") => void;
 }) {
+    const [draggingReferenceId, setDraggingReferenceId] = useState<string | null>(null);
+    const suppressReplacementClickRef = useRef(false);
+    const canReorder = Boolean(onReorderReference && !isSelecting && !replacingReferenceId);
+
+    const finishDrag = () => {
+        setDraggingReferenceId(null);
+        window.setTimeout(() => {
+            suppressReplacementClickRef.current = false;
+        }, 0);
+    };
+
+    const reorderByKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>, index: number, reference: CanvasResourceReference) => {
+        if (!onReorderReference || !event.altKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return false;
+        const nextIndex = event.key === "ArrowLeft" ? index - 1 : index + 1;
+        const anchor = references[nextIndex];
+        if (!anchor) return true;
+        event.preventDefault();
+        event.stopPropagation();
+        onReorderReference(nodeId, reference.id, anchor.id, event.key === "ArrowLeft" ? "before" : "after");
+        return true;
+    };
+
+    const handleDrop = (event: ReactDragEvent<HTMLDivElement>, reference: CanvasResourceReference) => {
+        if (!onReorderReference) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const draggedReferenceId = event.dataTransfer.getData("text/plain") || draggingReferenceId;
+        if (!draggedReferenceId || draggedReferenceId === reference.id) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const placement = event.clientX - bounds.left < bounds.width / 2 ? "before" : "after";
+        suppressReplacementClickRef.current = true;
+        onReorderReference(nodeId, draggedReferenceId, reference.id, placement);
+    };
+
     if (!references.length && !onSelect) return null;
     return (
         <div
@@ -217,27 +256,49 @@ function ReferenceStrip({
         >
             <span className="shrink-0 text-[11px] font-semibold opacity-70">参考素材</span>
             <div className="flex min-w-0 items-center gap-1.5">
-                {references.map((reference) => (
+                {references.map((reference, index) => (
                     <ReferencePreviewTooltip key={reference.id} reference={reference} theme={theme}>
                         <div
-                            className="flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5 transition hover:-translate-y-px hover:shadow-sm"
-                            style={{ borderColor: replacingReferenceId === reference.id ? theme.node.activeStroke : theme.toolbar.border, background: replacingReferenceId === reference.id ? `${theme.node.activeStroke}18` : theme.toolbar.panel }}
-                            title={onReplace ? `点击后在画布中替换 ${reference.label}` : reference.label + " · " + reference.title}
+                            draggable={canReorder}
+                            className={`flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5 transition hover:-translate-y-px hover:shadow-sm ${draggingReferenceId === reference.id ? "scale-95 opacity-45" : ""}`}
+                            style={{ borderColor: draggingReferenceId === reference.id || replacingReferenceId === reference.id ? theme.node.activeStroke : theme.toolbar.border, background: replacingReferenceId === reference.id ? `${theme.node.activeStroke}18` : theme.toolbar.panel }}
+                            title={canReorder ? `按住并拖动 ${reference.label} 调整图号顺序；点击可替换素材` : onReplace ? `点击后在画布中替换 ${reference.label}` : reference.label + " · " + reference.title}
                             role={onReplace ? "button" : undefined}
                             tabIndex={onReplace ? 0 : undefined}
                             onClick={(event) => {
+                                if (suppressReplacementClickRef.current) {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    return;
+                                }
                                 if (!onReplace) return;
                                 event.stopPropagation();
                                 onReplace(nodeId, reference);
                             }}
                             onKeyDown={(event) => {
+                                if (reorderByKeyboard(event, index, reference)) return;
                                 if (!onReplace || (event.key !== "Enter" && event.key !== " ")) return;
                                 event.preventDefault();
                                 event.stopPropagation();
                                 onReplace(nodeId, reference);
                             }}
+                            onDragStart={(event) => {
+                                if (!canReorder) return;
+                                event.stopPropagation();
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData("text/plain", reference.id);
+                                setDraggingReferenceId(reference.id);
+                            }}
+                            onDragOver={(event) => {
+                                if (!canReorder || draggingReferenceId === reference.id) return;
+                                event.preventDefault();
+                                event.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(event) => handleDrop(event, reference)}
+                            onDragEnd={finishDrag}
                             onMouseDown={(event) => event.stopPropagation()}
-                            aria-label={onReplace ? `替换 ${reference.label}` : undefined}
+                            aria-label={canReorder ? `${reference.label}，按住拖动调整参考顺序；也可按 Alt 加左右方向键排序` : onReplace ? `替换 ${reference.label}` : undefined}
+                            aria-roledescription={canReorder ? "可拖拽参考素材" : undefined}
                         >
                             {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
                             {reference.previewUrl && reference.kind === "video" ? <video src={reference.previewUrl} className="size-7 rounded-lg bg-black object-cover" muted preload="metadata" /> : null}
@@ -252,6 +313,7 @@ function ReferenceStrip({
                                         onRemove(nodeId, reference.id);
                                     }}
                                     onMouseDown={(event) => event.stopPropagation()}
+                                    onDragStart={(event) => event.stopPropagation()}
                                     aria-label={`移除 ${reference.label}`}
                                     title="移除参考素材"
                                 >

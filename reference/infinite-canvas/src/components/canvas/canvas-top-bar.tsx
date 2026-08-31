@@ -156,10 +156,12 @@ export function CanvasTopBar({
                     </Button>
                 </div>
             </div>
-            <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
+            <Modal title="快捷键与操作说明" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered width={640}>
                 <div className="space-y-2 border-t pt-4 text-sm" style={{ borderColor: theme.node.stroke }}>
                     <Shortcut keys={["拖动画布"]} value="平移视图" />
                     <Shortcut keys={["滚轮"]} value="缩放画布" />
+                    <Shortcut keys={["Ctrl / Cmd", "滚轮"]} value="纵向移动画布" />
+                    <Shortcut keys={["Shift", "滚轮"]} value="横向移动画布" />
                     <Shortcut keys={["缩放滑杆"]} value="精确调整缩放" />
                     <Shortcut keys={["Ctrl / Cmd", "拖动"]} value="框选多个节点" />
                     <Shortcut keys={["Shift / Ctrl / Cmd", "点击"]} value="追加选择节点" />
@@ -171,6 +173,11 @@ export function CanvasTopBar({
                     <Shortcut keys={["Delete / Backspace"]} value="删除选中" />
                     <Shortcut keys={["Esc"]} value="取消选择并关闭浮层" />
                     <Shortcut keys={["拖入图片/视频/音频"]} value="上传到画布" />
+                    <Shortcut keys={["提示词框", "回车"]} value="换行；点击“开始生成”才会提交" />
+                    <Shortcut keys={["@ 引用候选项", "回车"]} value="选择当前参考素材" />
+                    <Shortcut keys={["视频节点", "再次生成"]} value="在同一节点新增可切换的视频版本" />
+                    <Shortcut keys={["右键视频", "首帧 / 尾帧 / 当前帧"]} value="截取为新的图片节点" />
+                    <Shortcut keys={["节点插件", "生成前确认"]} value="按需启用生成前的模型、类型与提示词确认" />
                 </div>
             </Modal>
         </>

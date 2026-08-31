@@ -6,11 +6,12 @@ import { localForageStorage } from "@/reference/infinite-canvas/src/lib/localfor
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { readGenerationLogStorageSnapshot } from "@/reference/infinite-canvas/src/services/generation-storage";
+import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
 
 export type AssetKind = "text" | "image" | "video";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
 export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
-export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
+export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; creatorTaskId?: string; width: number; height: number; bytes: number; mimeType: string } };
 export type Asset = TextAsset | ImageAsset | VideoAsset;
 
 type AssetBase<T extends AssetKind> = {
@@ -45,7 +46,26 @@ const assetStorage: PersistStorage<AssetStore> = {
         const parsed = JSON.parse(value) as StorageValue<AssetStore>;
         parsed.state.assets = await Promise.all(
             parsed.state.assets.map(async (asset) => {
-                if (asset.kind === "video" && asset.data.storageKey) return { ...asset, data: { ...asset.data, url: await resolveMediaUrl(asset.data.storageKey, asset.data.url) } };
+                if (asset.kind === "video") {
+                    const durableUrl = asset.data.creatorTaskId
+                        ? creatorVideoContentUrl(asset.data.creatorTaskId)
+                        : asset.data.cloudStoragePath
+                            ? creatorCanvasAssetContentUrl(asset.data.cloudStoragePath)
+                            : "";
+                    if (durableUrl) {
+                        console.info("[canvas asset video hydrated]", { assetId: asset.id, source: asset.data.creatorTaskId ? "creator-task" : "canvas-asset" });
+                        return { ...asset, data: { ...asset.data, url: durableUrl, storageKey: undefined } };
+                    }
+                    if (asset.data.storageKey) {
+                        const localUrl = await resolveMediaUrl(asset.data.storageKey, "");
+                        if (localUrl) return { ...asset, data: { ...asset.data, url: localUrl } };
+                    }
+                    if (asset.data.url.startsWith("blob:")) {
+                        console.warn("[canvas asset video hydration unavailable]", { assetId: asset.id, hasStorageKey: Boolean(asset.data.storageKey) });
+                        return { ...asset, data: { ...asset.data, url: "" }, metadata: { ...asset.metadata, playbackError: "视频本地副本已失效，且没有云端备份" } };
+                    }
+                    return asset;
+                }
                 if (asset.kind !== "image") return asset;
                 if (asset.data.storageKey)
                     return {

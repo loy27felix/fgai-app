@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from "react";
 import { App, Empty, Input, Popconfirm, Select, Spin, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Check, ChevronRight, Download, Eye, FileText, Image as ImageIcon, ListChecks, Music2, Plus, Search, Settings2, Square, Trash2, Type, Video } from "lucide-react";
@@ -10,6 +10,8 @@ import { getNodeDefinition } from "@/reference/infinite-canvas/src/lib/canvas/no
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
 import { PromptDetailDialog } from "@/reference/infinite-canvas/src/pages/prompts/components/prompt-detail-dialog";
 import { fetchSourcePrompts, type Prompt } from "@/reference/infinite-canvas/src/services/api/prompts";
+import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
+import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
 import { uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { useAssetStore, type Asset, type AssetKind } from "@/reference/infinite-canvas/src/stores/use-asset-store";
@@ -408,7 +410,7 @@ const ASSET_GROUPS: { kind: AssetKind; label: string; icon: typeof Square }[] = 
 
 function buildInsertPayload(asset: Asset): InsertAssetPayload {
     if (asset.kind === "text") return { kind: "text", content: asset.data.content, title: asset.title };
-    if (asset.kind === "video") return { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height };
+    if (asset.kind === "video") return { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, cloudStoragePath: asset.data.cloudStoragePath, cloudAssetId: asset.data.cloudAssetId, creatorTaskId: asset.data.creatorTaskId, title: asset.title, width: asset.data.width, height: asset.data.height };
     return { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title };
 }
 
@@ -446,7 +448,30 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
                     added += 1;
                 } else if (file.type.startsWith("video/")) {
                     const media = await uploadMediaFile(file, "video");
-                    addAsset({ kind: "video", title: file.name || "视频", coverUrl: "", tags: [], data: { url: media.url, storageKey: media.storageKey, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType } });
+                    let durable: Awaited<ReturnType<typeof uploadCanvasAsset>> | null = null;
+                    try {
+                        durable = await uploadCanvasAsset(file, { kind: "video", source: "upload", name: file.name });
+                    } catch (error) {
+                        console.warn("[canvas asset durable copy failed]", { kind: "video", name: file.name, error });
+                    }
+                    addAsset({
+                        kind: "video",
+                        title: file.name || "视频",
+                        coverUrl: "",
+                        tags: [],
+                        data: {
+                            url: durable?.contentUrl || media.url,
+                            storageKey: media.storageKey,
+                            cloudStoragePath: durable?.storagePath,
+                            cloudAssetId: durable?.assetId || undefined,
+                            width: media.width || 0,
+                            height: media.height || 0,
+                            bytes: media.bytes,
+                            mimeType: media.mimeType,
+                        },
+                        metadata: durable ? { durable: true } : { durable: false, durableUploadError: "云端备份失败，当前视频仅保存在本机浏览器" },
+                    });
+                    if (!durable) message.warning(`${file.name || "视频"} 已添加，但云端备份失败；请保持本浏览器缓存可用后重试上传`);
                     added += 1;
                 }
             }
@@ -527,9 +552,22 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
 });
 
 function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: CanvasTheme; onInsert: () => void; onRemove: () => void }) {
+    const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
+    const startPreview = () => {
+        if (asset.kind !== "video") return;
+        const video = videoElement;
+        if (!video) return;
+        void video.play().catch((error) => console.warn("[canvas asset video preview failed]", { assetId: asset.id, error }));
+    };
+    const stopPreview = () => {
+        const video = videoElement;
+        if (!video) return;
+        video.pause();
+        video.currentTime = 0;
+    };
     return (
-        <div className="group relative aspect-square overflow-hidden rounded-xl border transition duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
-            <AssetCover asset={asset} />
+        <div className="group relative aspect-square overflow-hidden rounded-xl border transition duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: theme.node.stroke, background: theme.node.panel }} onPointerEnter={startPreview} onPointerLeave={stopPreview}>
+            <AssetCover asset={asset} videoRef={setVideoElement} />
             <div className="absolute inset-0 flex items-center justify-center gap-2.5 opacity-0 transition duration-200 group-hover:opacity-100">
                 <button
                     type="button"
@@ -553,13 +591,52 @@ function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: 
     );
 }
 
-function AssetCover({ asset }: { asset: Asset }) {
+function AssetCover({ asset, videoRef }: { asset: Asset; videoRef?: Ref<HTMLVideoElement> }) {
     if (asset.kind === "text") return <div className="size-full overflow-hidden whitespace-pre-wrap break-words p-2.5 text-[11px] leading-snug opacity-80">{asset.data.content}</div>;
-    if (asset.kind === "video") {
-        if (asset.coverUrl) return <img src={asset.coverUrl} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
-        return <video src={`${asset.data.url}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
-    }
+    if (asset.kind === "video") return <VideoAssetCover asset={asset} videoRef={videoRef} />;
     return <img src={asset.coverUrl || asset.data.dataUrl} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
+}
+
+function VideoAssetCover({ asset, videoRef }: { asset: Extract<Asset, { kind: "video" }>; videoRef?: Ref<HTMLVideoElement> }) {
+    const [failedUrls, setFailedUrls] = useState<string[]>([]);
+    const fallbackUrl = asset.data.creatorTaskId
+        ? creatorVideoContentUrl(asset.data.creatorTaskId)
+        : asset.data.cloudStoragePath
+            ? creatorCanvasAssetContentUrl(asset.data.cloudStoragePath)
+            : "";
+    const sourceUrl = !failedUrls.includes(asset.data.url)
+        ? asset.data.url
+        : fallbackUrl && !failedUrls.includes(fallbackUrl)
+            ? fallbackUrl
+            : "";
+    const isUnavailable = !sourceUrl;
+
+    if (isUnavailable) {
+        return (
+            <div className="flex size-full flex-col items-center justify-center gap-1.5 px-3 text-center" style={{ color: "rgba(148,163,184,.9)" }}>
+                <Video className="size-5 opacity-70" />
+                <span className="text-[10px] leading-4">视频副本不可用</span>
+                <span className="text-[9px] leading-3 opacity-65">请从原始文件重新上传</span>
+            </div>
+        );
+    }
+
+    return (
+        <video
+            ref={videoRef}
+            key={sourceUrl}
+            src={`${sourceUrl}#t=0.1`}
+            muted
+            playsInline
+            loop
+            preload="metadata"
+            className="size-full object-cover transition duration-300 group-hover:scale-[1.04]"
+            onError={() => {
+                console.warn("[canvas asset video playback failed]", { assetId: asset.id, hasCloudBackup: Boolean(asset.data.cloudStoragePath), hasCreatorTask: Boolean(asset.data.creatorTaskId), urlKind: sourceUrl.startsWith("blob:") ? "blob" : "remote" });
+                setFailedUrls((previous) => previous.includes(sourceUrl) ? previous : [...previous, sourceUrl]);
+            }}
+        />
+    );
 }
 
 // ---------------------------------------------------------------------------

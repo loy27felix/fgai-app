@@ -57,14 +57,21 @@ export function CanvasZoomControls({ scale, onScaleChange, onReset, isMiniMapOpe
                     <Button type="text" className="!h-8 !w-8 !min-w-8 !p-0" style={shortcutsOpen ? activeStyle : { color: theme.toolbar.item }} icon={<HelpCircle className="size-4" />} onClick={() => setShortcutsOpen(true)} aria-label="快捷键" />
                 </Tooltip>
             </div>
-            <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
+            <Modal title="快捷键与操作说明" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered width={640}>
                 <div className="space-y-3 border-t pt-4 text-sm" style={{ borderColor: theme.node.stroke }}>
                     <Shortcut label="拖动画布" value="平移视图" />
                     <Shortcut label="滚轮" value="缩放画布" />
+                    <Shortcut label="Ctrl / Cmd + 滚轮" value="纵向移动画布" />
+                    <Shortcut label="Shift + 滚轮" value="横向移动画布" />
                     <Shortcut label="Ctrl / Cmd + 拖动" value="框选多个节点" />
                     <Shortcut label="Shift / Ctrl / Cmd + 点击" value="追加选择节点" />
                     <Shortcut label="Ctrl / Cmd + C / V" value="复制 / 粘贴节点" />
                     <Shortcut label="Delete / Backspace" value="删除选中" />
+                    <Shortcut label="提示词框 + 回车" value="换行；点击“开始生成”才会提交" />
+                    <Shortcut label="@ 引用候选项 + 回车" value="选择当前参考素材" />
+                    <Shortcut label="视频节点 + 再次生成" value="在同一节点新增可切换的视频版本" />
+                    <Shortcut label="右键视频 + 首帧 / 尾帧 / 当前帧" value="截取为新的图片节点" />
+                    <Shortcut label="节点插件 + 生成前确认" value="按需启用生成前的模型、类型与提示词确认" />
                 </div>
             </Modal>
         </div>
