@@ -74,6 +74,47 @@ export async function GET(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const context = await creatorContext();
+    if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
+    const body = await request.json().catch(() => ({}));
+    const assetId = typeof body.assetId === 'string' ? body.assetId.trim() : '';
+    if (!assetId) return errorResponse('素材标识无效', 'INVALID_ASSET_ID', 400);
+    if (body.folderId !== null && typeof body.folderId !== 'undefined' && typeof body.folderId !== 'string') {
+      return errorResponse('文件夹标识无效', 'INVALID_FOLDER_ID', 400);
+    }
+    const folderId = typeof body.folderId === 'string'
+      ? body.folderId.trim().replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48) || null
+      : null;
+
+    const found = await context.localClient
+      .from('creator_assets')
+      .select('id, metadata')
+      .eq('id', assetId)
+      .eq('workspace_id', context.workspace.id)
+      .maybeSingle();
+    if (found.error) throw found.error;
+    if (!found.data) return errorResponse('素材不存在或已删除', 'ASSET_NOT_FOUND', 404);
+    const metadata = found.data.metadata && typeof found.data.metadata === 'object' && !Array.isArray(found.data.metadata) ? found.data.metadata as Record<string, unknown> : {};
+    const isMaterial = metadata.library_scope === 'material-library' || typeof metadata.library_folder === 'string';
+    if (!isMaterial) return errorResponse('只能移动素材库中的素材', 'ASSET_SCOPE_FORBIDDEN', 403);
+
+    const updated = await context.localClient
+      .from('creator_assets')
+      .update({ metadata: { ...metadata, library_scope: 'material-library', library_folder_id: folderId } })
+      .eq('id', found.data.id)
+      .eq('workspace_id', context.workspace.id);
+    if (updated.error) throw updated.error;
+
+    console.info('[material library folder updated]', { assetId, folderId });
+    return NextResponse.json({ updated: true, folderId });
+  } catch (error) {
+    console.error('[material library folder update]', error);
+    return errorResponse('移动素材失败，请稍后重试', 'MATERIAL_MOVE_FAILED', 500);
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     const context = await creatorContext();

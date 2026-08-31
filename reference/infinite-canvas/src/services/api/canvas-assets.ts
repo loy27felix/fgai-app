@@ -45,3 +45,18 @@ export async function deleteMaterialLibraryAsset(assetId: string) {
     }
     console.info("[material library delete completed]", { assetId });
 }
+
+export async function moveMaterialLibraryAsset(assetId: string, folderId: string | null) {
+    const response = await fetch("/api/creator/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId, folderId }),
+    });
+    const payload = await response.json().catch(() => ({})) as { updated?: unknown; error?: unknown; code?: unknown };
+    if (!response.ok || payload.updated !== true) {
+        const message = typeof payload.error === "string" ? payload.error : "移动素材失败";
+        const code = typeof payload.code === "string" ? payload.code : "UNKNOWN";
+        throw new Error(`${message}（${code}）`);
+    }
+    console.info("[material library folder persisted]", { assetId, folderId });
+}

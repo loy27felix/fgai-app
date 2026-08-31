@@ -4,7 +4,7 @@ import { ChevronRight, FileAudio, Folder, FolderOpen, Plus, Search, Trash2, Uplo
 
 import type { CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
-import { deleteMaterialLibraryAsset, uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
+import { deleteMaterialLibraryAsset, moveMaterialLibraryAsset, uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { MATERIAL_LIBRARY_DRAG_MIME, materialToInsertPayload, useMaterialLibraryStore, type MaterialFolder, type MaterialInsertPayload, type MaterialItem } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 
 const ROOT_ID = "__all_materials__";
@@ -78,6 +78,21 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
             hide();
         }
     };
+    const moveItem = async (item: MaterialItem, folderId: string | null) => {
+        if (item.folderId === folderId) return;
+        const hide = message.loading("正在移动素材…", 0);
+        try {
+            if (item.cloudAssetId) await moveMaterialLibraryAsset(item.cloudAssetId, folderId);
+            updateItem(item.id, { folderId });
+            console.info("[material library item moved]", { materialId: item.id, folderId, cloud: Boolean(item.cloudAssetId) });
+            message.success("素材已移动");
+        } catch (error) {
+            console.warn("[material library item move failed]", { materialId: item.id, folderId, error });
+            message.error("移动素材失败，请重试");
+        } finally {
+            hide();
+        }
+    };
 
     return <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-2 px-3 pb-2 pt-1">
@@ -93,7 +108,7 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
                 {rootFolders.map((folder) => <FolderBranch key={folder.id} folder={folder} folders={folders} items={items} selectedFolderId={selectedFolderId} collapsed={collapsed} onSelect={setSelectedFolderId} onToggle={(id) => setCollapsed((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} />)}
             </div>
             <div className="flex items-center justify-between px-1 pb-1"><span className="text-[11px] font-medium opacity-55">{selectedFolderId === ROOT_ID ? "全部素材" : folders.find((folder) => folder.id === selectedFolderId)?.name || "文件夹"}</span><span className="text-[11px] opacity-40">{visibleItems.length}</span></div>
-            {visibleItems.length ? <div className="grid grid-cols-2 gap-2">{visibleItems.map((item) => <MaterialCard key={item.id} item={item} folders={folders} onInsert={() => onInsert(materialToInsertPayload(item))} onMove={(folderId) => updateItem(item.id, { folderId })} onRemove={() => void deleteItem(item)} />)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没有素材" className="pt-10" />}
+            {visibleItems.length ? <div className="grid grid-cols-2 gap-2">{visibleItems.map((item) => <MaterialCard key={item.id} item={item} folders={folders} onInsert={() => onInsert(materialToInsertPayload(item))} onMove={(folderId) => void moveItem(item, folderId)} onRemove={() => void deleteItem(item)} />)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没有素材" className="pt-10" />}
         </div>
     </div>;
 });

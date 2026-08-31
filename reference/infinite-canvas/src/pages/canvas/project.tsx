@@ -19,7 +19,7 @@ import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-data";
 import { fitNodeSize, nodeSizeFromRatio } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-size";
-import { App, Button, Modal } from "antd";
+import { App, Button, Modal, Select } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/reference/infinite-canvas/src/constant/canvas";
 import { ActiveConnectionPath, ConnectionPath } from "@/reference/infinite-canvas/src/components/canvas/canvas-connections";
 import { CanvasConfigComposer } from "@/reference/infinite-canvas/src/components/canvas/canvas-config-composer";
@@ -445,6 +445,9 @@ function InfiniteCanvasPage() {
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
     const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
     const [materialReferenceTargetId, setMaterialReferenceTargetId] = useState<string | null>(null);
+    const [materialSaveNode, setMaterialSaveNode] = useState<CanvasNodeData | null>(null);
+    const [materialSaveFolderId, setMaterialSaveFolderId] = useState("");
+    const materialLibraryFolders = useMaterialLibraryStore((state) => state.folders);
     const [projectLoaded, setProjectLoaded] = useState(false);
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
     const [nodeImageSettingsOpen, setNodeImageSettingsOpen] = useState(false);
@@ -3668,7 +3671,7 @@ function InfiniteCanvasPage() {
         setContextMenu({ type: "node", x: event.clientX, y: event.clientY, nodeId });
     }, []);
 
-    const saveNodeToMaterialLibrary = useCallback(async (node: CanvasNodeData) => {
+    const saveNodeToMaterialLibrary = useCallback(async (node: CanvasNodeData, folderId: string | null) => {
         const kind = node.type === CanvasNodeType.Image ? "image" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : null;
         const content = node.metadata?.content;
         if (!kind || !content) return;
@@ -3679,9 +3682,9 @@ function InfiniteCanvasPage() {
             if (!response.ok) throw new Error(`source-fetch-${response.status}`);
             const blob = await response.blob();
             const file = new File([blob], `${node.title || kind}.${extension}`, { type: node.metadata?.mimeType || blob.type || `${kind}/*` });
-            const stored = await uploadCanvasAsset(file, { kind, source: "project_copy", name: file.name, nodeId: node.id, libraryScope: "material-library" });
-            useMaterialLibraryStore.getState().addItem({ kind, title: node.title || "画布素材", url: stored.contentUrl, mimeType: file.type, storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId: null, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight, durationMs: node.metadata?.durationMs });
-            console.info("[material library node saved]", { nodeId: node.id, kind, materialId: stored.assetId });
+            const stored = await uploadCanvasAsset(file, { kind, source: "project_copy", name: file.name, nodeId: node.id, libraryScope: "material-library", folderId: folderId || undefined });
+            useMaterialLibraryStore.getState().addItem({ kind, title: node.title || "画布素材", url: stored.contentUrl, mimeType: file.type, storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight, durationMs: node.metadata?.durationMs });
+            console.info("[material library node saved]", { nodeId: node.id, kind, materialId: stored.assetId, folderId });
             message.success("已添加到素材库");
         } catch (error) {
             console.warn("[material library node save failed]", { nodeId: node.id, kind, error });
@@ -4023,7 +4026,10 @@ function InfiniteCanvasPage() {
                             if (contextMenu.type !== "node") return;
                             const node = nodes.find((item) => item.id === contextMenu.nodeId);
                             setContextMenu(null);
-                            if (node) void saveNodeToMaterialLibrary(node);
+                            if (node) {
+                                setMaterialSaveFolderId("");
+                                setMaterialSaveNode(node);
+                            }
                         }}
                     />
                 ) : null}
@@ -4078,6 +4084,35 @@ function InfiniteCanvasPage() {
                     }
                 >
                     <p className="text-sm opacity-60">这会删除当前画布上的所有节点和连线。</p>
+                </Modal>
+
+                <Modal
+                    title="添加到素材库"
+                    open={Boolean(materialSaveNode)}
+                    centered
+                    okText="添加"
+                    cancelText="取消"
+                    onCancel={() => setMaterialSaveNode(null)}
+                    onOk={() => {
+                        const node = materialSaveNode;
+                        const folderId = materialSaveFolderId || null;
+                        setMaterialSaveNode(null);
+                        if (node) void saveNodeToMaterialLibrary(node, folderId);
+                    }}
+                >
+                    <div className="space-y-3 py-2">
+                        <p className="text-sm opacity-70">选择保存位置；未选择时将保存到“未分类”。</p>
+                        <Select
+                            aria-label="选择保存位置"
+                            value={materialSaveFolderId}
+                            onChange={setMaterialSaveFolderId}
+                            className="w-full"
+                            options={[
+                                { value: "", label: "未分类" },
+                                ...materialLibraryFolders.map((folder) => ({ value: folder.id, label: folder.name })),
+                            ]}
+                        />
+                    </div>
                 </Modal>
 
                 <MaterialLibraryPickerModal

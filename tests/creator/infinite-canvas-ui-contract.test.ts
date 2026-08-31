@@ -294,13 +294,17 @@ test('material library remains separate from assets and previews video reference
   assert.match(materialPicker, /<Select/);
   assert.match(materialTab, /删除素材/);
   assert.match(materialTab, /deleteMaterialLibraryAsset/);
+  assert.match(materialTab, /moveMaterialLibraryAsset/);
   assert.match(promptPanel, /onSelectFromLibrary/);
   assert.match(project, /MaterialLibraryPickerModal/);
   assert.match(project, /handleMaterialReferenceInsert/);
   assert.match(project, /saveNodeToMaterialLibrary/);
+  assert.match(project, /materialSaveNode/);
+  assert.match(project, /选择保存位置/);
   assert.match(contextMenu, /添加到素材库/);
   assert.match(uploadRoute, /library_scope/);
   assert.match(read('app/api/creator/assets/route.ts'), /export async function DELETE/);
+  assert.match(read('app/api/creator/assets/route.ts'), /export async function PATCH/);
 });
 
 test('canvas shortcut guides include modifier-wheel panning and generation input behavior', () => {
