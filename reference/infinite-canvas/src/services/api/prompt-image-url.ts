@@ -13,6 +13,25 @@ export function toPromptImageUrl(value: string) {
     }
 }
 
+/**
+ * Return the public source URL embedded in a same-origin prompt-image proxy
+ * URL.  This is deliberately only used after the proxy has failed in the
+ * browser; the proxy remains the primary path so private-network protection
+ * and authentication checks are not bypassed by default.
+ */
+export function promptImageOriginalUrl(value: string) {
+    if (!value.startsWith(PROMPT_IMAGE_PROXY_PATH)) return "";
+    try {
+        const query = value.slice(PROMPT_IMAGE_PROXY_PATH.indexOf("?") + 1);
+        const original = new URLSearchParams(query).get("url")?.trim() || "";
+        if (!original) return "";
+        const url = new URL(original);
+        return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : "";
+    } catch {
+        return "";
+    }
+}
+
 export function normalizeGitHubImageUrl(input: URL) {
     if (input.hostname.toLowerCase() !== "github.com") return input;
     const parts = input.pathname.split("/").filter(Boolean);

@@ -80,6 +80,7 @@ export async function POST(req: Request) {
     const kind = KINDS.has(kindValue) ? kindValue : file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document';
     const source = SOURCES.has(sourceValue) ? sourceValue : 'project_copy';
     const nodeId = String(form.get('nodeId') || '').slice(0, 128);
+    const folderId = String(form.get('folderId') || '').trim().replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48) || 'uncategorized';
     const name = safeName(String(form.get('name') || file.name || 'asset'));
     const extension = extensionFor(file.type, name);
     const storagePath = context.user.id + '/canvas-assets/' + randomId() + '-' + name.replace(/\.[a-z0-9]{1,8}$/i, '') + '.' + extension;
@@ -107,7 +108,7 @@ export async function POST(req: Request) {
         name,
         storage_path: storagePath,
         mime_type: file.type || 'application/octet-stream',
-        metadata: { canvas_node_id: nodeId || null, original_name: file.name, bytes: file.size },
+        metadata: { canvas_node_id: nodeId || null, original_name: file.name, bytes: file.size, library_folder: folderId },
       })
       .select('id, storage_path')
       .single();
@@ -117,7 +118,7 @@ export async function POST(req: Request) {
       return response('素材记录保存失败，请稍后重试', 'ASSET_RECORD_FAILED', 500);
     }
     const signed = await context.localClient.storage.from('creator-assets').createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
-    logServerEvent('creator_canvas_asset', { traceId, feature: 'creator_canvas_asset', stage: 'completed', kind, source, bytes: file.size, nodeId: nodeId || null, assetId: inserted.data.id, storagePath: inserted.data.storage_path });
+    logServerEvent('creator_canvas_asset', { traceId, feature: 'creator_canvas_asset', stage: 'completed', kind, source, bytes: file.size, nodeId: nodeId || null, folderId, assetId: inserted.data.id, storagePath: inserted.data.storage_path });
     return NextResponse.json({
       assetId: inserted.data.id,
       storagePath: inserted.data.storage_path,

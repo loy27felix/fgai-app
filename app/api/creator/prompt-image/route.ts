@@ -10,11 +10,17 @@ const PRIVATE_HOSTNAME = /(^|\.)(localhost|local|internal)$/i;
 export async function GET(request: NextRequest) {
     const localClient = createClient();
     const { data: { user } } = await localClient.auth.getUser();
-    if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+    if (!user) {
+        console.warn("[prompt image proxy unauthenticated]");
+        return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+    }
 
     const rawUrl = request.nextUrl.searchParams.get("url")?.trim() || "";
     const target = parsePublicImageUrl(rawUrl);
-    if (!target) return NextResponse.json({ error: "invalid image url" }, { status: 400 });
+    if (!target) {
+        console.warn("[prompt image proxy rejected target]");
+        return NextResponse.json({ error: "invalid image url" }, { status: 400 });
+    }
 
     try {
         const response = await fetch(target, {
@@ -27,16 +33,28 @@ export async function GET(request: NextRequest) {
                 "User-Agent": "FG-Studio prompt image proxy",
             },
         });
-        if (!response.ok) return NextResponse.json({ error: "remote image returned " + response.status }, { status: 502 });
+        if (!response.ok) {
+            console.warn("[prompt image proxy remote error]", { host: target.hostname, status: response.status });
+            return NextResponse.json({ error: "remote image returned " + response.status }, { status: 502 });
+        }
 
         const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() || "";
-        if (!contentType.startsWith("image/")) return NextResponse.json({ error: "remote resource is not an image" }, { status: 415 });
+        if (!contentType.startsWith("image/")) {
+            console.warn("[prompt image proxy invalid content type]", { host: target.hostname, contentType });
+            return NextResponse.json({ error: "remote resource is not an image" }, { status: 415 });
+        }
 
         const contentLength = Number(response.headers.get("content-length"));
-        if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) return NextResponse.json({ error: "image exceeds 12 MB" }, { status: 413 });
+        if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
+            console.warn("[prompt image proxy too large]", { host: target.hostname, contentLength });
+            return NextResponse.json({ error: "image exceeds 12 MB" }, { status: 413 });
+        }
 
         const body = await response.arrayBuffer();
-        if (body.byteLength > MAX_IMAGE_BYTES) return NextResponse.json({ error: "image exceeds 12 MB" }, { status: 413 });
+        if (body.byteLength > MAX_IMAGE_BYTES) {
+            console.warn("[prompt image proxy too large after download]", { host: target.hostname, bytes: body.byteLength });
+            return NextResponse.json({ error: "image exceeds 12 MB" }, { status: 413 });
+        }
 
         return new NextResponse(body, {
             headers: {
@@ -48,6 +66,7 @@ export async function GET(request: NextRequest) {
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        console.warn("[prompt image proxy fetch failed]", { host: target.hostname, message });
         return NextResponse.json({ error: "image proxy failed: " + message }, { status: 502 });
     }
 }

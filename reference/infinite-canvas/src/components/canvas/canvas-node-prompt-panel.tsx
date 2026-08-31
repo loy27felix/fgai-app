@@ -1,6 +1,6 @@
 import { type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Plus, Square, X } from "lucide-react";
-import { Button, Modal, Tooltip } from "antd";
+import { Button, Dropdown, Modal, Tooltip } from "antd";
 
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -29,6 +29,7 @@ type CanvasNodePromptPanelProps = {
     isSelectingReferences?: boolean;
     replacingReferenceId?: string | null;
     onBeginReferenceSelection?: (nodeId: string) => void;
+    onBeginReferenceLibrarySelection?: (nodeId: string) => void;
     onBeginReferenceReplacement?: (nodeId: string, reference: CanvasResourceReference) => void;
     onRemoveReference?: (nodeId: string, referenceId: string) => void;
     onReorderReference?: (nodeId: string, draggedReferenceId: string, anchorReferenceId: string, placement: "before" | "after") => void;
@@ -36,7 +37,7 @@ type CanvasNodePromptPanelProps = {
     modeOverride?: CanvasNodeGenerationMode; // 插件节点用 useBuiltinPanel.mode 指定生成类型
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceReplacement, onRemoveReference, onReorderReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceLibrarySelection, onBeginReferenceReplacement, onRemoveReference, onReorderReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -82,6 +83,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 isSelecting={isSelectingReferences}
                 replacingReferenceId={replacingReferenceId}
                 onSelect={onBeginReferenceSelection}
+                onSelectFromLibrary={onBeginReferenceLibrarySelection}
                 onReplace={onBeginReferenceReplacement}
                 onRemove={onRemoveReference}
                 onReorderReference={onReorderReference}
@@ -174,6 +176,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         isSelecting={isSelectingReferences}
                         replacingReferenceId={replacingReferenceId}
                         onSelect={onBeginReferenceSelection}
+                        onSelectFromLibrary={onBeginReferenceLibrarySelection}
                         onReplace={onBeginReferenceReplacement}
                         onRemove={onRemoveReference}
                         onReorderReference={onReorderReference}
@@ -199,6 +202,7 @@ function ReferenceStrip({
     isSelecting = false,
     replacingReferenceId,
     onSelect,
+    onSelectFromLibrary,
     onReplace,
     onRemove,
     onReorderReference,
@@ -209,6 +213,7 @@ function ReferenceStrip({
     isSelecting?: boolean;
     replacingReferenceId?: string | null;
     onSelect?: (nodeId: string) => void;
+    onSelectFromLibrary?: (nodeId: string) => void;
     onReplace?: (nodeId: string, reference: CanvasResourceReference) => void;
     onRemove?: (nodeId: string, referenceId: string) => void;
     onReorderReference?: (nodeId: string, draggedReferenceId: string, anchorReferenceId: string, placement: "before" | "after") => void;
@@ -247,7 +252,7 @@ function ReferenceStrip({
         onReorderReference(nodeId, draggedReferenceId, reference.id, placement);
     };
 
-    if (!references.length && !onSelect) return null;
+    if (!references.length && !onSelect && !onSelectFromLibrary) return null;
     return (
         <div
             className="mb-2 flex min-w-0 items-center gap-2 overflow-x-auto rounded-2xl border px-2.5 py-2"
@@ -324,21 +329,32 @@ function ReferenceStrip({
                     </ReferencePreviewTooltip>
                 ))}
                 {replacingReferenceId ? <span className="shrink-0 text-[10px] font-medium" style={{ color: theme.node.activeStroke }}>请在画布中选择同类型素材</span> : null}
-                {onSelect ? (
-                    <button
-                        type="button"
-                        className="inline-flex h-9 shrink-0 items-center gap-1 rounded-xl border px-2 text-[11px] font-medium transition hover:opacity-80"
-                        style={{ borderColor: isSelecting ? theme.node.activeStroke : theme.toolbar.border, background: isSelecting ? `${theme.node.activeStroke}18` : theme.toolbar.panel, color: theme.node.text }}
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            onSelect(nodeId);
+                {onSelect || onSelectFromLibrary ? (
+                    <Dropdown
+                        trigger={["click"]}
+                        menu={{
+                            items: [
+                                onSelect ? { key: "canvas", label: isSelecting ? "结束画布选取" : "从画布选择" } : null,
+                                onSelectFromLibrary ? { key: "library", label: "从素材库选择" } : null,
+                            ].filter(Boolean) as { key: string; label: string }[],
+                            onClick: ({ key }) => {
+                                if (key === "canvas") onSelect?.(nodeId);
+                                if (key === "library") onSelectFromLibrary?.(nodeId);
+                            },
                         }}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        title={isSelecting ? "正在从画布选择素材，点击结束" : "从画布选择图片、视频、文本或组"}
                     >
-                        <Plus className="size-3.5" />
-                        {isSelecting ? "选取中" : "添加"}
-                    </button>
+                        <button
+                            type="button"
+                            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-xl border px-2 text-[11px] font-medium transition hover:opacity-80"
+                            style={{ borderColor: isSelecting ? theme.node.activeStroke : theme.toolbar.border, background: isSelecting ? `${theme.node.activeStroke}18` : theme.toolbar.panel, color: theme.node.text }}
+                            onClick={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            title="选择画布或素材库中的参考内容"
+                        >
+                            <Plus className="size-3.5" />
+                            {isSelecting ? "选取中" : "添加"}
+                        </button>
+                    </Dropdown>
                 ) : null}
             </div>
         </div>

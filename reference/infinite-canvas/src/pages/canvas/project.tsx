@@ -37,7 +37,7 @@ import { Minimap } from "@/reference/infinite-canvas/src/components/canvas/canva
 import { CanvasNode } from "@/reference/infinite-canvas/src/components/canvas/canvas-node";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel";
 import { CanvasToolbar } from "@/reference/infinite-canvas/src/components/canvas/canvas-toolbar";
-import { AssetPickerModal, type InsertAssetPayload } from "@/reference/infinite-canvas/src/components/canvas/asset-picker-modal";
+import { ASSET_DRAG_MIME, AssetPickerModal, assetToInsertPayload, type InsertAssetPayload } from "@/reference/infinite-canvas/src/components/canvas/asset-picker-modal";
 import { CanvasSidePanel } from "@/reference/infinite-canvas/src/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/reference/infinite-canvas/src/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
@@ -442,6 +442,7 @@ function InfiniteCanvasPage() {
     const [showImageInfo, setShowImageInfo] = useState(false);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+    const [assetReferenceTargetId, setAssetReferenceTargetId] = useState<string | null>(null);
     const [projectLoaded, setProjectLoaded] = useState(false);
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
     const [nodeImageSettingsOpen, setNodeImageSettingsOpen] = useState(false);
@@ -486,6 +487,7 @@ function InfiniteCanvasPage() {
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const pendingGenerationConfirmationsRef = useRef(new Set<string>());
+    const materialDropInsertRef = useRef<((assetId: string, position: Position) => void) | null>(null);
     const cloudCanvasIdRef = useRef<string | null>(null);
     const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const cloudCreateInFlightRef = useRef(false);
@@ -1477,6 +1479,14 @@ function InfiniteCanvasPage() {
     const handleReferenceSelectionToggle = useCallback((targetNodeId: string) => {
         setReferenceReplacement(null);
         setReferenceSelectionTargetId((current) => (current === targetNodeId ? null : targetNodeId));
+    }, []);
+
+    const handleReferenceLibrarySelection = useCallback((targetNodeId: string) => {
+        setReferenceSelectionTargetId(null);
+        setReferenceReplacement(null);
+        setAssetReferenceTargetId(targetNodeId);
+        setAssetPickerOpen(true);
+        console.info("[material library reference picker opened]", { targetNodeId });
     }, []);
 
     const handleReferenceReplacementStart = useCallback(
@@ -2732,6 +2742,12 @@ function InfiniteCanvasPage() {
     const handleDrop = useCallback(
         (event: ReactDragEvent<HTMLDivElement>) => {
             event.preventDefault();
+            const materialAssetId = event.dataTransfer.getData(ASSET_DRAG_MIME);
+            if (materialAssetId) {
+                const position = screenToCanvas(event.clientX, event.clientY);
+                materialDropInsertRef.current?.(materialAssetId, position);
+                return;
+            }
             const files = Array.from(event.dataTransfer.files).filter(
                 (item) => item.type.startsWith("image/") || item.type.startsWith("video/") || isAudioFile(item),
             );
@@ -3526,44 +3542,111 @@ function InfiniteCanvasPage() {
         [screenToCanvas, size.height, size.width],
     );
 
-    const handleAssetInsert = useCallback(
-        (payload: InsertAssetPayload) => {
+    const createMaterialAssetNode = useCallback(
+        async (payload: InsertAssetPayload, position?: Position) => {
+            const center = position || screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
+            let node: CanvasNodeData;
+
             if (payload.kind === "text") {
-                insertAssistantText(payload.content, payload.title);
+                node = {
+                    ...createCanvasNode(CanvasNodeType.Text, center, { content: payload.content, status: NODE_STATUS_SUCCESS }),
+                    title: payload.title || payload.content.slice(0, 32) || "素材文本",
+                };
             } else if (payload.kind === "video") {
                 const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
-                const center = screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
-                const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
                 const nextSize = fitNodeSize(payload.width || spec.width, payload.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
-                setNodes((prev) => [
-                    ...prev,
-                    {
-                        id,
-                        type: CanvasNodeType.Video,
-                        title: payload.title,
-                        position: { x: center.x - nextSize.width / 2, y: center.y - nextSize.height / 2 },
-                        width: nextSize.width,
-                        height: nextSize.height,
-                        metadata: {
-                            content: payload.url,
-                            storageKey: payload.storageKey,
-                            cloudStoragePath: payload.cloudStoragePath,
-                            cloudAssetId: payload.cloudAssetId,
-                            creatorTaskId: payload.creatorTaskId,
-                            status: NODE_STATUS_SUCCESS,
-                            naturalWidth: payload.width,
-                            naturalHeight: payload.height,
-                        },
-                    },
-                ]);
-                setSelectedNodeIds(new Set([id]));
+                node = {
+                    id: `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    type: CanvasNodeType.Video,
+                    title: payload.title,
+                    position: { x: center.x - nextSize.width / 2, y: center.y - nextSize.height / 2 },
+                    width: nextSize.width,
+                    height: nextSize.height,
+                    metadata: { content: payload.url, storageKey: payload.storageKey, cloudStoragePath: payload.cloudStoragePath, cloudAssetId: payload.cloudAssetId, creatorTaskId: payload.creatorTaskId, status: NODE_STATUS_SUCCESS, naturalWidth: payload.width, naturalHeight: payload.height },
+                };
+            } else if (payload.kind === "audio") {
+                const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
+                node = {
+                    id: `audio-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    type: CanvasNodeType.Audio,
+                    title: payload.title,
+                    position: { x: center.x - spec.width / 2, y: center.y - spec.height / 2 },
+                    width: spec.width,
+                    height: spec.height,
+                    metadata: { ...audioMetadata({ url: payload.url, storageKey: payload.storageKey || "", bytes: 0, mimeType: payload.mimeType || "audio/mpeg", durationMs: payload.durationMs }), cloudStoragePath: payload.cloudStoragePath, cloudAssetId: payload.cloudAssetId },
+                };
             } else {
-                insertAssistantImage({ id: `asset-${Date.now()}`, prompt: payload.title, dataUrl: payload.dataUrl, storageKey: payload.storageKey });
+                const storedImage = payload.storageKey || payload.cloudStoragePath
+                    ? { url: payload.dataUrl, storageKey: payload.storageKey || "", width: 1, height: 1, bytes: 0, mimeType: "image/png" }
+                    : await uploadImage(payload.dataUrl);
+                const meta = storedImage.width === 1 && storedImage.height === 1 ? await readImageMeta(storedImage.url) : storedImage;
+                const imageSize = fitNodeSize(meta.width, meta.height);
+                node = {
+                    id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    type: CanvasNodeType.Image,
+                    title: payload.title,
+                    position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                    width: imageSize.width,
+                    height: imageSize.height,
+                    metadata: { ...imageMetadata({ ...storedImage, width: meta.width, height: meta.height }), prompt: payload.title, cloudStoragePath: payload.cloudStoragePath, cloudAssetId: payload.cloudAssetId },
+                };
             }
-            setAssetPickerOpen(false);
+
+            setNodes((prev) => [...prev, node]);
+            setSelectedNodeIds(new Set([node.id]));
+            setSelectedConnectionId(null);
+            if (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video) setDialogNodeId(node.id);
+            console.info("[material library asset inserted]", { nodeId: node.id, nodeType: node.type, title: node.title, source: "library" });
+            return node.id;
         },
-        [insertAssistantImage, insertAssistantText, screenToCanvas, size.height, size.width],
+        [screenToCanvas, size.height, size.width],
     );
+
+    const handleAssetInsert = useCallback(
+        (payload: InsertAssetPayload) => {
+            setAssetPickerOpen(false);
+            void createMaterialAssetNode(payload).catch((error) => {
+                console.warn("[material library insert failed]", { kind: payload.kind, error });
+                message.error("素材插入失败，请重试");
+            });
+        },
+        [createMaterialAssetNode, message],
+    );
+
+    const handleAssetReferenceInsert = useCallback(
+        async (payload: InsertAssetPayload) => {
+            const targetNodeId = assetReferenceTargetId;
+            setAssetReferenceTargetId(null);
+            setAssetPickerOpen(false);
+            if (!targetNodeId || !nodesRef.current.some((node) => node.id === targetNodeId)) return;
+            try {
+                const target = nodesRef.current.find((node) => node.id === targetNodeId)!;
+                const referenceNodeId = await createMaterialAssetNode(payload, { x: target.position.x + target.width + 120, y: target.position.y + target.height / 2 });
+                setConnections((previous) => {
+                    if (previous.some((connection) => connection.fromNodeId === referenceNodeId && connection.toNodeId === targetNodeId)) return previous;
+                    return [...previous, { id: nanoid(), fromNodeId: referenceNodeId, toNodeId: targetNodeId }];
+                });
+                console.info("[material library reference connected]", { targetNodeId, referenceNodeId, kind: payload.kind });
+                message.success("素材已添加为参考，提示词 @ 引用会同步更新");
+            } catch (error) {
+                console.warn("[material library reference insert failed]", { targetNodeId, kind: payload.kind, error });
+                message.error("参考素材添加失败，请重试");
+            }
+        },
+        [assetReferenceTargetId, createMaterialAssetNode, message],
+    );
+
+    materialDropInsertRef.current = (assetId, position) => {
+        const asset = useAssetStore.getState().assets.find((item) => item.id === assetId);
+        if (!asset) {
+            console.warn("[material library drop ignored]", { assetId, reason: "asset-not-found" });
+            return;
+        }
+        void createMaterialAssetNode(assetToInsertPayload(asset), position).catch((error) => {
+            console.warn("[material library drop failed]", { assetId, kind: asset.kind, error });
+            message.error("素材拖入画布失败，请重试");
+        });
+    };
 
     // --- 传给 CanvasNode 的回调/渲染函数统一 memo 化 ---
     // CanvasNode 是 React.memo,但只要这些 prop 每次渲染都是新引用,memo 就失效,
@@ -3639,6 +3722,7 @@ function InfiniteCanvasPage() {
                     isSelectingReferences={referenceSelectionTargetId === panelNode.id}
                     replacingReferenceId={referenceReplacement?.targetNodeId === panelNode.id ? referenceReplacement.referenceNodeId : null}
                     onBeginReferenceSelection={handleReferenceSelectionToggle}
+                    onBeginReferenceLibrarySelection={handleReferenceLibrarySelection}
                     onBeginReferenceReplacement={handleReferenceReplacementStart}
                     onRemoveReference={handleReferenceRemove}
                     onReorderReference={handleReferenceReorder}
@@ -3653,7 +3737,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceRemove, handleReferenceReorder, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceLibrarySelection, handleReferenceRemove, handleReferenceReorder, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(
@@ -3966,7 +4050,15 @@ function InfiniteCanvasPage() {
                     <p className="text-sm opacity-60">这会删除当前画布上的所有节点和连线。</p>
                 </Modal>
 
-                <AssetPickerModal open={assetPickerOpen} onInsert={handleAssetInsert} onClose={() => setAssetPickerOpen(false)} />
+                <AssetPickerModal
+                    open={assetPickerOpen}
+                    title={assetReferenceTargetId ? "选择素材作为参考" : "选择素材"}
+                    onInsert={assetReferenceTargetId ? handleAssetReferenceInsert : handleAssetInsert}
+                    onClose={() => {
+                        setAssetPickerOpen(false);
+                        setAssetReferenceTargetId(null);
+                    }}
+                />
             </section>
         </main>
     );

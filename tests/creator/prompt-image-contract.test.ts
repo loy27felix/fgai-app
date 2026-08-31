@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { normalizeGitHubImageUrl, toPromptImageUrl } from "../../reference/infinite-canvas/src/services/api/prompt-image-url";
+import { normalizeGitHubImageUrl, promptImageOriginalUrl, toPromptImageUrl } from "../../reference/infinite-canvas/src/services/api/prompt-image-url";
 
 test("prompt source images are routed through the same-origin proxy", () => {
   const proxied = toPromptImageUrl("https://github.com/acme/prompts/blob/main/images/cover.png");
@@ -21,6 +21,12 @@ test("github blob links normalize to raw content before proxying", () => {
     normalizeGitHubImageUrl(new URL("https://github.com/acme/prompts/blob/main/images/cover.png")).toString(),
     "https://raw.githubusercontent.com/acme/prompts/main/images/cover.png",
   );
+});
+
+test("a failed prompt-image proxy can fall back to the original public image URL", () => {
+  const original = "https://cms-assets.youmind.com/media/example.jpg";
+  assert.equal(promptImageOriginalUrl(toPromptImageUrl(original)), original);
+  assert.equal(promptImageOriginalUrl("/local-cover.png"), "");
 });
 
 test("prompt image proxy is authenticated and blocks non-public targets", () => {

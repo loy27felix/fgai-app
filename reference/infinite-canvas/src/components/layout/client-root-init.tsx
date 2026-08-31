@@ -45,10 +45,12 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                         createdAt: typeof asset.createdAt === "string" ? asset.createdAt : new Date().toISOString(),
                         updatedAt: typeof asset.updatedAt === "string" ? asset.updatedAt : new Date().toISOString(),
                         metadata,
+                        folderId: typeof sourceMetadata.library_folder === "string" ? sourceMetadata.library_folder : "uncategorized",
                     };
                     if (asset.kind === "video") return { ...base, kind: "video", data: { url: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, width: Number(asset.width) || 1280, height: Number(asset.height) || 720, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "video/mp4" } } as Asset;
-                    if (asset.kind === "image") return { ...base, kind: "image", data: { dataUrl: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, width: Number(asset.width) || 1024, height: Number(asset.height) || 1024, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "image/png" } } as Asset;
-                    if (asset.kind === "document" || asset.kind === "audio") return null;
+                    if (asset.kind === "image") return { ...base, kind: "image", data: { dataUrl: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, cloudStoragePath: typeof asset.storagePath === "string" ? asset.storagePath : undefined, cloudAssetId: typeof asset.id === "string" ? asset.id : undefined, width: Number(asset.width) || 1024, height: Number(asset.height) || 1024, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "image/png" } } as Asset;
+                    if (asset.kind === "audio") return { ...base, kind: "audio", data: { url: typeof asset.signedUrl === "string" ? asset.signedUrl : "", storageKey: undefined, bytes: 0, mimeType: typeof asset.mimeType === "string" ? asset.mimeType : "audio/mpeg", durationMs: Number(asset.durationMs) || undefined } } as Asset;
+                    if (asset.kind === "document") return null;
                     return { ...base, kind: "text", data: { content: typeof metadata.content === "string" ? metadata.content : "" } } as Asset;
                 }).filter((asset: Asset | null): asset is Asset => Boolean(asset));
                 const remoteIds = new Set(remoteAssets.map((asset: Asset) => asset.metadata?.cloudAssetId));

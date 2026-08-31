@@ -31,7 +31,7 @@ export function VersionReleaseModal({ className, style }: VersionReleaseModalPro
                 className={className || "shrink-0 cursor-pointer text-xs font-medium text-stone-500 transition hover:text-stone-950 dark:text-stone-400 dark:hover:text-white"}
                 style={style}
                 onClick={openReleaseModal}
-                title="查看本次修改"
+                title="查看更新内容"
             >
                 <span className="inline-flex">{CURRENT_RELEASE_LABEL}</span>
             </button>

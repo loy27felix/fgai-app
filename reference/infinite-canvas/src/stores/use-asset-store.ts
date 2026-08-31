@@ -8,11 +8,12 @@ import { cleanupUnusedMedia, resolveMediaUrl } from "@/reference/infinite-canvas
 import { readGenerationLogStorageSnapshot } from "@/reference/infinite-canvas/src/services/generation-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
 
-export type AssetKind = "text" | "image" | "video";
+export type AssetKind = "text" | "image" | "video" | "audio";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
-export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storageKey?: string; width: number; height: number; bytes: number; mimeType: string } };
+export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; width: number; height: number; bytes: number; mimeType: string } };
 export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; creatorTaskId?: string; width: number; height: number; bytes: number; mimeType: string } };
-export type Asset = TextAsset | ImageAsset | VideoAsset;
+export type AudioAsset = AssetBase<"audio"> & { data: { url: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; bytes: number; mimeType: string; durationMs?: number } };
+export type Asset = TextAsset | ImageAsset | VideoAsset | AudioAsset;
 
 type AssetBase<T extends AssetKind> = {
     id: string;
@@ -22,6 +23,8 @@ type AssetBase<T extends AssetKind> = {
     tags: string[];
     source?: string;
     note?: string;
+    /** Stable workspace material-library folder identifier. */
+    folderId?: string;
     createdAt: string;
     updatedAt: string;
     metadata?: Record<string, unknown>;
@@ -53,7 +56,7 @@ const assetStorage: PersistStorage<AssetStore> = {
                             ? creatorCanvasAssetContentUrl(asset.data.cloudStoragePath)
                             : "";
                     if (durableUrl) {
-                        console.info("[canvas asset video hydrated]", { assetId: asset.id, source: asset.data.creatorTaskId ? "creator-task" : "canvas-asset" });
+                        console.info("[material library asset hydrated]", { assetId: asset.id, kind: asset.kind, source: asset.data.creatorTaskId ? "creator-task" : "canvas-asset" });
                         return { ...asset, data: { ...asset.data, url: durableUrl, storageKey: undefined } };
                     }
                     if (asset.data.storageKey) {
@@ -61,12 +64,33 @@ const assetStorage: PersistStorage<AssetStore> = {
                         if (localUrl) return { ...asset, data: { ...asset.data, url: localUrl } };
                     }
                     if (asset.data.url.startsWith("blob:")) {
-                        console.warn("[canvas asset video hydration unavailable]", { assetId: asset.id, hasStorageKey: Boolean(asset.data.storageKey) });
+                        console.warn("[material library asset hydration unavailable]", { assetId: asset.id, kind: asset.kind, hasStorageKey: Boolean(asset.data.storageKey) });
                         return { ...asset, data: { ...asset.data, url: "" }, metadata: { ...asset.metadata, playbackError: "视频本地副本已失效，且没有云端备份" } };
                     }
                     return asset;
                 }
+                if (asset.kind === "audio") {
+                    const durableUrl = asset.data.cloudStoragePath ? creatorCanvasAssetContentUrl(asset.data.cloudStoragePath) : "";
+                    if (durableUrl) {
+                        console.info("[material library asset hydrated]", { assetId: asset.id, kind: asset.kind, source: "canvas-asset" });
+                        return { ...asset, data: { ...asset.data, url: durableUrl, storageKey: undefined } };
+                    }
+                    if (asset.data.storageKey) {
+                        const localUrl = await resolveMediaUrl(asset.data.storageKey, "");
+                        if (localUrl) return { ...asset, data: { ...asset.data, url: localUrl } };
+                    }
+                    if (asset.data.url.startsWith("blob:")) {
+                        console.warn("[material library asset hydration unavailable]", { assetId: asset.id, kind: asset.kind, hasStorageKey: Boolean(asset.data.storageKey) });
+                        return { ...asset, data: { ...asset.data, url: "" }, metadata: { ...asset.metadata, playbackError: "音频本地副本已失效，且没有云端备份" } };
+                    }
+                    return asset;
+                }
                 if (asset.kind !== "image") return asset;
+                if (asset.data.cloudStoragePath) {
+                    const durableUrl = creatorCanvasAssetContentUrl(asset.data.cloudStoragePath);
+                    console.info("[material library image hydrated]", { assetId: asset.id, source: "canvas-asset" });
+                    return { ...asset, coverUrl: durableUrl, data: { ...asset.data, dataUrl: durableUrl, storageKey: undefined } };
+                }
                 if (asset.data.storageKey)
                     return {
                         ...asset,

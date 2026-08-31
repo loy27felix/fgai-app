@@ -260,7 +260,7 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
   const sources = read('reference/infinite-canvas/src/services/api/prompt-source-presets.ts');
 
   assert.match(version, /SYSTEM_VERSION/);
-  assert.match(release, /本次修改/);
+  assert.match(release, /更新内容/);
   assert.match(release, /生成前确认/);
   assert.match(release, /AI 对话历史/);
   assert.doesNotMatch(versionCheck, /basketikun\/infinite-canvas/);
@@ -268,6 +268,24 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
   assert.match(sources, /awesome-seedance-2-prompts/);
   assert.doesNotMatch(sources, /davidwu-gpt-image2-prompts/);
   assert.doesNotMatch(sources, /awesome-gpt4o-image-prompts/);
+});
+
+test('material library persists audio assets, folder metadata, canvas drops, and reference insertion', () => {
+  const store = read('reference/infinite-canvas/src/stores/use-asset-store.ts');
+  const sidePanel = read('reference/infinite-canvas/src/components/canvas/canvas-side-panel.tsx');
+  const picker = read('reference/infinite-canvas/src/components/canvas/asset-picker-modal.tsx');
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const uploadRoute = read('app/api/creator/canvas-assets/route.ts');
+
+  assert.match(store, /AssetKind = "text" \| "image" \| "video" \| "audio"/);
+  assert.match(sidePanel, /素材库/);
+  assert.match(sidePanel, /MATERIAL_FOLDERS/);
+  assert.match(sidePanel, /folderId/);
+  assert.match(picker, /ASSET_DRAG_MIME/);
+  assert.match(promptPanel, /onSelectFromLibrary/);
+  assert.match(project, /handleAssetReferenceInsert/);
+  assert.match(uploadRoute, /library_folder/);
 });
 
 test('canvas shortcut guides include modifier-wheel panning and generation input behavior', () => {
