@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
+import { parseMarkdownSource } from '../../reference/infinite-canvas/src/services/api/prompt-source-runtime';
+
 const read = (file: string) => fs.readFileSync(path.join(process.cwd(), file), 'utf8');
 
 test('infinite canvas keeps reference theme variables scoped to the mounted host', () => {
@@ -292,4 +294,42 @@ test('canvas reference strip reorders source connections so image labels follow 
   assert.match(promptPanel, /onReorderReference/);
   assert.match(project, /handleReferenceReorder/);
   assert.match(project, /\[canvas reference reordered\]/);
+});
+
+test('markdown prompt sources retain paired HTML video outputs and thumbnail previews', () => {
+  const items = parseMarkdownSource(`
+### No. 1: Video prompt
+
+#### Prompt
+\`\`\`
+make a short film
+\`\`\`
+
+#### Video
+<a href="https://github.com/example/repo/releases/download/videos/example.mp4">
+<img src="https://media.example.com/thumbnails/example.jpg" alt="Generated video">
+</a>
+`, {
+    id: 'example-video-prompts',
+    name: 'Example video prompts',
+    url: 'https://raw.githubusercontent.com/example/repo/main/README.md',
+    homepage: 'https://github.com/example/repo',
+    enabled: true,
+    builtIn: true,
+    format: 'markdown',
+  });
+
+  assert.equal(items.length, 1);
+  assert.match(items[0].coverUrl, /prompt-image\?url=/);
+  assert.deepEqual(items[0].referenceImageUrls, [items[0].coverUrl]);
+  assert.deepEqual(items[0].previewMedia, [
+    { kind: 'video', url: 'https://github.com/example/repo/releases/download/videos/example.mp4' },
+    { kind: 'image', url: items[0].coverUrl },
+  ]);
+});
+
+test('prompt source cache invalidates records parsed before preview media support', () => {
+  const prompts = read('reference/infinite-canvas/src/services/api/prompts.ts');
+
+  assert.match(prompts, /prompt-cache-v2/);
 });

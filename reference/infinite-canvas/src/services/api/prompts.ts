@@ -1,6 +1,6 @@
 import localforage from "localforage";
 
-import { runPromptSource, type RawPrompt } from "./prompt-source-runtime";
+import { runPromptSource, type RawPrompt, type PromptPreviewMedia } from "./prompt-source-runtime";
 import { usePromptSourceStore } from "@/reference/infinite-canvas/src/stores/use-prompt-source-store";
 import type { PromptSource } from "./prompt-source-presets";
 import { toPromptImageUrl } from "./prompt-image-url";
@@ -46,6 +46,7 @@ type SourceCache = PromptSourceStatus & {
 };
 
 const cacheTtlMs = 1000 * 60 * 60;
+const promptSourceCacheVersion = "prompt-cache-v2";
 const promptCacheStore = localforage.createInstance({ name: "infinite-canvas", storeName: "prompt_cache" });
 const loadingSources = new Map<string, Promise<PromptSourceRefreshResult>>();
 
@@ -58,7 +59,7 @@ function cacheKey(sourceId: string) {
 }
 
 function sourceSignature(source: PromptSource) {
-    const value = `${source.name}\n${source.url}\n${source.homepage}\n${source.format || "json"}`;
+    const value = `${promptSourceCacheVersion}\n${source.name}\n${source.url}\n${source.homepage}\n${source.format || "json"}`;
     let hash = 0;
     for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) | 0;
     return `${value.length}:${hash}`;
@@ -70,10 +71,27 @@ function withSourceMeta(source: PromptSource, items: RawPrompt[]): Prompt[] {
         description: item.description || "",
         coverUrl: toPromptImageUrl(item.coverUrl || ""),
         referenceImageUrls: (Array.isArray(item.referenceImageUrls) ? item.referenceImageUrls : []).map((url) => toPromptImageUrl(url)),
+        previewMedia: normalizePromptPreviewMedia(item.previewMedia, item.coverUrl, item.referenceImageUrls),
         sourceId: source.id,
         category: source.name,
         githubUrl: item.sourceUrl || source.homepage,
     }));
+}
+
+function normalizePromptPreviewMedia(value: unknown, coverUrl: string, referenceImageUrls: string[]): PromptPreviewMedia[] {
+    const media = Array.isArray(value)
+        ? value.flatMap((item) => {
+            if (!item || typeof item !== "object") return [];
+            const record = item as Partial<PromptPreviewMedia>;
+            if ((record.kind !== "image" && record.kind !== "video") || typeof record.url !== "string" || !record.url) return [];
+            return [{ kind: record.kind, url: record.kind === "image" ? toPromptImageUrl(record.url) : record.url }];
+        })
+        : [];
+    for (const url of [coverUrl, ...referenceImageUrls].filter(Boolean)) {
+        const normalized = toPromptImageUrl(url);
+        if (!media.some((item) => item.kind === "image" && item.url === normalized)) media.push({ kind: "image", url: normalized });
+    }
+    return media;
 }
 
 async function readSourceCache(sourceId: string) {
