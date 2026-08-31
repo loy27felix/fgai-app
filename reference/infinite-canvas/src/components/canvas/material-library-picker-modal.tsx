@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Empty, Input, Modal, Tag } from "antd";
+import { Empty, Input, Modal, Select, Tag } from "antd";
 import { FileAudio, Search } from "lucide-react";
 
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
@@ -28,7 +28,7 @@ export function MaterialLibraryPickerModal({ open, title = "从素材库选择",
             <div className="flex flex-wrap items-center gap-3">
                 <Input className="w-52" size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder="搜索素材库" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
                 <div className="flex gap-1.5">{(["all", "image", "video", "audio"] as const).map((option) => <Tag.CheckableTag key={option} checked={kind === option} className={cn("prompt-filter-tag", kind === option && "is-active")} onChange={() => setKind(option)}>{option === "all" ? "全部" : option === "image" ? "图片" : option === "video" ? "视频" : "音频"}</Tag.CheckableTag>)}</div>
-                <select aria-label="素材库文件夹" value={folderId} onChange={(event) => setFolderId(event.target.value)} className="rounded-md border border-stone-300 bg-transparent px-2 py-1 text-xs dark:border-stone-700"><option value="all">全部文件夹</option><option value="">未分类</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>
+                <Select aria-label="素材库文件夹" size="small" value={folderId} onChange={setFolderId} className="min-w-32" options={[{ value: "all", label: "全部文件夹" }, { value: "", label: "未分类" }, ...folders.map((folder) => ({ value: folder.id, label: folder.name }))]} />
             </div>
             {visible.length ? <div className="grid grid-cols-4 gap-3">{visible.map((item) => <PickerCard key={item.id} item={item} onClick={() => onInsert(materialToInsertPayload(item))} />)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="素材库还没有可用素材" className="py-12" />}
         </div>

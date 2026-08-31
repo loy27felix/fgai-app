@@ -276,6 +276,7 @@ test('material library remains separate from assets and previews video reference
   const sidePanel = read('reference/infinite-canvas/src/components/canvas/canvas-side-panel.tsx');
   const picker = read('reference/infinite-canvas/src/components/canvas/asset-picker-modal.tsx');
   const materialPicker = read('reference/infinite-canvas/src/components/canvas/material-library-picker-modal.tsx');
+  const materialTab = read('reference/infinite-canvas/src/components/canvas/canvas-material-library-tab.tsx');
   const contextMenu = read('reference/infinite-canvas/src/components/canvas/canvas-context-menu.tsx');
   const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
@@ -290,12 +291,16 @@ test('material library remains separate from assets and previews video reference
   assert.match(sidePanel, /CanvasMaterialLibraryTab/);
   assert.match(picker, /<video/);
   assert.match(materialPicker, /<video/);
+  assert.match(materialPicker, /<Select/);
+  assert.match(materialTab, /删除素材/);
+  assert.match(materialTab, /deleteMaterialLibraryAsset/);
   assert.match(promptPanel, /onSelectFromLibrary/);
   assert.match(project, /MaterialLibraryPickerModal/);
   assert.match(project, /handleMaterialReferenceInsert/);
   assert.match(project, /saveNodeToMaterialLibrary/);
   assert.match(contextMenu, /添加到素材库/);
   assert.match(uploadRoute, /library_scope/);
+  assert.match(read('app/api/creator/assets/route.ts'), /export async function DELETE/);
 });
 
 test('canvas shortcut guides include modifier-wheel panning and generation input behavior', () => {

@@ -34,3 +34,14 @@ export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKi
     console.info("[canvas asset persisted]", { kind: input.kind, assetId, nodeId: input.nodeId || null, scope: input.libraryScope || "asset", folderId: input.folderId || null, storagePath: payload.storagePath });
     return { assetId, storagePath: payload.storagePath, contentUrl: creatorCanvasAssetContentUrl(payload.storagePath) };
 }
+
+export async function deleteMaterialLibraryAsset(assetId: string) {
+    const response = await fetch("/api/creator/assets", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetId }) });
+    const payload = await response.json().catch(() => ({})) as { deleted?: unknown; error?: unknown; code?: unknown };
+    if (!response.ok || payload.deleted !== true) {
+        const message = typeof payload.error === "string" ? payload.error : "删除素材失败";
+        const code = typeof payload.code === "string" ? payload.code : "UNKNOWN";
+        throw new Error(`${message}（${code}）`);
+    }
+    console.info("[material library delete completed]", { assetId });
+}
