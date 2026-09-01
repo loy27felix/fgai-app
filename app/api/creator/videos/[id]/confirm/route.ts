@@ -32,7 +32,7 @@ import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing'
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
-import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
+import { logServerEvent, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 1800;
@@ -524,9 +524,10 @@ async function completeProviderSubmission(input: {
   }
 }
 
-export async function POST(_req: Request, { params }: RouteContext) {
+export async function POST(req: Request, { params }: RouteContext) {
   let context: Awaited<ReturnType<typeof creatorContext>> = null;
   let claimed: CreatorVideoTask | null = null;
+  const traceId = requestTraceId(req);
   logServerEvent('creator_video', {
     feature: 'creator_video',
     stage: 'confirm_received',
@@ -641,6 +642,9 @@ export async function POST(_req: Request, { params }: RouteContext) {
         feature: 'creator_video',
         stage: 'provider_asset_upload_failed',
         taskId: claimed.id,
+        traceId,
+        actorId: context.user.id,
+        workspaceId: context.workspace.id,
         provider: 'wetoken',
         referenceCount: references.length,
       });
@@ -653,6 +657,11 @@ export async function POST(_req: Request, { params }: RouteContext) {
       await recordVideoTaskEvent(claimed.id, 'provider_asset_upload_failed', 'draft', {
         provider: 'wetoken',
         referenceCount: references.length,
+      }, {
+        traceId,
+        actorId: context.user.id,
+        workspaceId: context.workspace.id,
+        error,
       });
       return response(ERRORS.REFERENCES_UPLOAD_FAILED, 'REFERENCES_UPLOAD_FAILED', 502);
     }

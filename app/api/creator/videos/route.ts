@@ -190,7 +190,7 @@ export async function POST(req: Request) {
         duration: strictNumber(body.duration, 5, 'duration'),
         ratio: strictString(body.ratio, '16:9', 'ratio'),
         resolution: strictString(body.resolution, '720p', 'resolution'),
-        watermark: strictBoolean(body.watermark, true, 'watermark'),
+        watermark: strictBoolean(body.watermark, false, 'watermark'),
         generateAudio: strictBoolean(body.generateAudio, false, 'generateAudio'),
         skill: normalizeSkill(body.skill),
       });

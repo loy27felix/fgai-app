@@ -1,3 +1,5 @@
+import { wetokenProviderDispatcher, type WetokenFetcher } from './wetoken-transport';
+
 export type WetokenAssetType = 'Image' | 'Video' | 'Audio';
 
 export type WetokenAssetReference = {
@@ -16,7 +18,7 @@ export type WetokenPreparedAssetReferences<T extends WetokenAssetReference> = {
   createdAssets: WetokenCreatedAsset[];
 };
 
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Fetcher = WetokenFetcher;
 
 const ASSET_REQUEST_TIMEOUT_MS = 60_000;
 const ASSET_READY_TIMEOUT_MS = 120_000;
@@ -164,6 +166,7 @@ async function assetRequest(
       Authorization: `Bearer ${requireKey()}`,
     },
     body: JSON.stringify(body),
+    dispatcher: wetokenProviderDispatcher,
     signal: AbortSignal.timeout(ASSET_REQUEST_TIMEOUT_MS),
   });
   const data = await response.json().catch(() => ({}));

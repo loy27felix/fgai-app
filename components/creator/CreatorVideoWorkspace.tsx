@@ -93,7 +93,7 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [ratio, setRatio] = useState("16:9");
   const [resolution, setResolution] = useState("720p");
-  const [watermark, setWatermark] = useState(true);
+  const [watermark, setWatermark] = useState(false);
   const [generateAudio, setGenerateAudio] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);

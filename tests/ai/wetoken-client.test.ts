@@ -40,7 +40,7 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
     authorization: 'Bearer test-wetoken-key',
     body: {
       model: 'gpt-5.6-luna-t1a',
-      messages: [{ role: 'user', content: 'hello' }],
+      messages: [{ role: 'user', content: 'hello\n\n仅返回一个有效的 json object，不要 Markdown。' }],
       stream: false,
       max_tokens: 321,
       response_format: { type: 'json_object' },

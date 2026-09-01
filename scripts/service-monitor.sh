@@ -12,6 +12,8 @@ STATE_ROOT="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application Support/fg-studio-
 LOG_ROOT="${FG_MONITOR_LOG_DIR:-$HOME/Library/Logs/fg-studio-monitor}"
 LOCK_DIR="$STATE_ROOT/lock"
 DISK_THRESHOLD="${FG_MONITOR_DISK_THRESHOLD:-90}"
+MAX_APP_ERROR_LINES_PER_RUN="${FG_MONITOR_MAX_APP_ERROR_LINES_PER_RUN:-200}"
+MAX_APP_ERROR_EVENTS_PER_RUN="${FG_MONITOR_MAX_APP_ERROR_EVENTS_PER_RUN:-20}"
 USER_DOMAIN="gui/$(id -u)"
 AUTO_DEPLOY_LABEL="com.fgstudio.auto-deploy"
 AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
@@ -40,6 +42,63 @@ read_env_value() {
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+}
+
+observability_secret() {
+  local secret
+  secret="$(read_env_value FG_OBSERVABILITY_SECRET)"
+  printf '%s' "${secret:-$(read_env_value SESSION_SECRET)}"
+}
+
+send_monitor_event() {
+  local service="$1"
+  local state="$2"
+  local previous="$3"
+  local message="$4"
+  local secret
+  local endpoint
+  local base_url
+  local host
+  local event_key
+  local payload
+  secret="$(observability_secret)"
+  [[ -n "$secret" ]] || return 0
+  base_url="$(read_env_value FG_OBSERVABILITY_URL)"
+  base_url="${base_url:-http://127.0.0.1:3000}"
+  endpoint="${base_url%/}/api/observability/monitor-events"
+  host="$(hostname -s 2>/dev/null || hostname)"
+  event_key="monitor-${host}-${service}-$(date -u '+%Y%m%dT%H%M%SZ')"
+  payload="{\"host\":\"$(json_escape "$host")\",\"service\":\"$(json_escape "$service")\",\"checkName\":\"health\",\"state\":\"$(json_escape "$state")\",\"previousState\":\"$(json_escape "$previous")\",\"message\":\"$(json_escape "$message")\",\"eventKey\":\"$(json_escape "$event_key")\"}"
+  (
+    /usr/bin/curl -fsS --connect-timeout 1 --max-time 2 \
+      -H "x-fg-observability-secret: $secret" -H 'Content-Type: application/json' \
+      -d "$payload" "$endpoint" >/dev/null 2>&1 || true
+  ) &
+}
+
+send_app_error_event() {
+  local line="$1"
+  local occurred_at="${line%% *}"
+  local message
+  local secret
+  local endpoint
+  local base_url
+  local event_key
+  local payload
+  message="$(printf '%s' "$line" | sed -E 's/^[0-9-]+T[0-9:.+-]+Z[[:space:]]*//')"
+  [[ -n "$message" ]] || return 0
+  secret="$(observability_secret)"
+  [[ -n "$secret" ]] || return 0
+  base_url="$(read_env_value FG_OBSERVABILITY_URL)"
+  base_url="${base_url:-http://127.0.0.1:3000}"
+  endpoint="${base_url%/}/api/observability/error-events"
+  event_key="$(printf '%s' "$line" | /usr/bin/shasum -a 256 | awk '{print "app-log-" $1}')"
+  payload="{\"occurredAt\":\"$(json_escape "$occurred_at")\",\"source\":\"app\",\"service\":\"app\",\"severity\":\"error\",\"impact\":\"unknown\",\"code\":\"app_log\",\"message\":\"$(json_escape "$message")\",\"eventKey\":\"$(json_escape "$event_key")\"}"
+  (
+    /usr/bin/curl -fsS --connect-timeout 1 --max-time 2 \
+      -H "x-fg-observability-secret: $secret" -H 'Content-Type: application/json' \
+      -d "$payload" "$endpoint" >/dev/null 2>&1 || true
+  ) &
 }
 
 send_alert() {
@@ -71,6 +130,7 @@ update_state() {
   local state_file="$STATE_ROOT/$service.state"
   local previous=""
   [[ -f "$state_file" ]] && previous="$(<"$state_file")"
+  send_monitor_event "$service" "$next" "$previous" "$message"
   [[ "$previous" == "$next" ]] && return 0
   printf '%s' "$next" > "$state_file"
   log "Monitor: $service $next - $message"
@@ -121,13 +181,17 @@ check_nas() {
 check_app() {
   local container
   local health="missing"
+  local http_status
   container="$(container_id app)"
   [[ -n "$container" ]] && health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
-  if [[ "$health" == "healthy" ]] && /usr/bin/curl -fsS --max-time 5 http://127.0.0.1:3000 >/dev/null 2>&1; then
+  # Probe a lightweight public endpoint instead of rendering the homepage, so monitoring measures app readiness rather than page cost.
+  # 使用无需登录的轻量接口，监控应用是否就绪，而不是把首页渲染耗时误判为服务异常。
+  http_status="$(/usr/bin/curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/api/version 2>/dev/null || printf 'unreachable')"
+  if [[ "$health" == "healthy" ]] && [[ "$http_status" == "200" ]]; then
     clear_failures app
-    update_state app healthy "container health and HTTP checks passed"
+    update_state app healthy "container health=healthy; HTTP /api/version=200"
   else
-    update_state app unhealthy "container health=$health or HTTP check failed; NAS supervisor will recover it"
+    update_state app unhealthy "container health=$health; HTTP /api/version=$http_status; NAS supervisor will recover it"
   fi
 }
 
@@ -183,16 +247,26 @@ check_app_errors() {
   local container
   local matches
   local count
+  local reported=0
   container="$(container_id app)"
   [[ -n "$container" ]] || return 0
-  matches="$(docker logs --since 40s "$container" 2>&1 | grep -Ei '"stage":"[^"]*(failed|error)|"error":|(^|[[:space:]])(fatal|panic|exception)([^[:alnum:]_]|$)' || true)"
+  [[ "$MAX_APP_ERROR_LINES_PER_RUN" =~ ^[1-9][0-9]*$ ]] || MAX_APP_ERROR_LINES_PER_RUN=200
+  [[ "$MAX_APP_ERROR_EVENTS_PER_RUN" =~ ^[1-9][0-9]*$ ]] || MAX_APP_ERROR_EVENTS_PER_RUN=20
+  # Cap collection and HTTP fan-out so an error storm cannot create a process storm on the Docker host.
+  # 限制单轮采集与 HTTP 上报数量，避免错误风暴在 Docker 主机上放大成进程风暴。
+  matches="$(docker logs --since 40s "$container" 2>&1 | grep -Ei '"stage":"[^"]*(failed|error)|"error":|(^|[[:space:]])(fatal|panic|exception)([^[:alnum:]_]|$)' | sed -n "1,${MAX_APP_ERROR_LINES_PER_RUN}p" || true)"
   if [[ -z "$matches" ]]; then
     update_state app-errors healthy "no new error/fail events"
     return
   fi
   count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
   printf '%s\n' "$matches" >> "$LOG_ROOT/app-errors.log"
-  update_state app-errors unhealthy "$count new error/fail log events; details saved to $LOG_ROOT/app-errors.log"
+  while IFS= read -r line; do
+    ((reported >= MAX_APP_ERROR_EVENTS_PER_RUN)) && break
+    send_app_error_event "$line"
+    reported=$((reported + 1))
+  done <<< "$matches"
+  update_state app-errors unhealthy "$count captured error/fail log events; $reported sent to observability; details saved to $LOG_ROOT/app-errors.log"
 }
 
 check_auto_deploy() {

@@ -1,4 +1,5 @@
 import { getImageModel } from '../imageModels';
+import { wetokenProviderDispatcher, type WetokenFetcher } from './wetoken-transport';
 import {
   logCreatorImageEvent,
   logCreatorImageFailure,
@@ -92,7 +93,7 @@ export type WetokenImageResultDiagnostic = {
   payloadShape: string[];
 };
 
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Fetcher = WetokenFetcher;
 type TimeoutSignal = (timeoutMs: number) => AbortSignal;
 type ImageGenerationDependencies = {
   fetcher?: Fetcher;
@@ -228,7 +229,10 @@ async function downloadGeneratedImage(rawUrl: unknown, declaredMimeType: unknown
   if (url.protocol !== 'https:') {
     throw new WetokenImageResultError('图片模型返回了不安全的图片地址');
   }
-  const response = await fetcher(url, { signal: AbortSignal.timeout(30_000) });
+  const response = await fetcher(url, {
+    dispatcher: wetokenProviderDispatcher,
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!response.ok) throw new WetokenImageResultError(`读取生成图片失败（HTTP ${response.status}）`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   return normaliseGeneratedImage({
@@ -607,6 +611,7 @@ export async function generateWetokenImage(
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify(buildGeminiImageBody(input)),
+        dispatcher: wetokenProviderDispatcher,
         signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
       });
     } else if (input.references.length) {
@@ -621,6 +626,7 @@ export async function generateWetokenImage(
       });
       response = await fetcher(`${base}/images/edits`, {
         method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
+        dispatcher: wetokenProviderDispatcher,
         signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
       });
     } else {
@@ -630,6 +636,7 @@ export async function generateWetokenImage(
         body: JSON.stringify({
           model: input.model, prompt: input.prompt, n: 1, size: input.size,
         }),
+        dispatcher: wetokenProviderDispatcher,
         signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
       });
     }

@@ -1,0 +1,351 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
+import type { getReportDetails, ReportRunRecord } from "@/lib/observability/reporting";
+
+type ReportDetails = NonNullable<Awaited<ReturnType<typeof getReportDetails>>>;
+type ReportType = ReportRunRecord["report_type"];
+type ReportStatusTone = "final" | "draft" | "failed" | "running";
+
+type AccountSnapshot = {
+  user_id: string;
+  account_email: string;
+  activity_kind: string;
+  usage_calls: number | string;
+  successful_calls: number | string;
+  failed_calls: number | string;
+  total_tokens: number | string;
+  image_count: number | string;
+  video_seconds: number | string;
+  confirmed_cost_usd: number | string;
+  estimated_cost_usd: number | string;
+  reserved_cost_usd: number | string;
+  unknown_cost_calls: number | string;
+  error_count: number | string;
+};
+
+type ErrorSnapshot = {
+  source: string;
+  service: string;
+  severity: string;
+  impact: string;
+  code: string | null;
+  message: string;
+  first_occurred_at: string | null;
+  last_occurred_at: string | null;
+  occurrences: number | string;
+  affected_accounts: number | string;
+  affected_requests: number | string;
+};
+
+type ServiceSnapshot = {
+  service: string;
+  check_count: number | string;
+  healthy_checks: number | string;
+  unhealthy_checks: number | string;
+  incident_count: number | string;
+  observed_seconds: number | string;
+  unhealthy_seconds: number | string;
+  availability_ratio: number | string | null;
+  data_complete: boolean;
+};
+
+type Summary = {
+  accounts?: { active?: number; aiActive?: number; sessionOnly?: number };
+  usage?: { calls?: number; successfulCalls?: number; failedCalls?: number; totalTokens?: number; imageCount?: number; videoSeconds?: number };
+  costs?: { confirmedUsd?: number; estimatedUsd?: number; reservedUsd?: number; unknownCostCalls?: number; cnyRate?: number; confirmedCny?: number; estimatedCny?: number; reservedCny?: number };
+  errors?: { fingerprints?: number; occurrences?: number; affectedAccounts?: number; blocked?: number; degraded?: number; unknown?: number };
+  services?: { monitored?: number; complete?: number; incidents?: number };
+};
+
+const REPORT_TYPES: ReportType[] = ["daily", "weekly", "monthly"];
+const REPORT_META: Record<ReportType, { label: string; kicker: string }> = {
+  daily: { label: "日报", kicker: "DAILY" },
+  weekly: { label: "周报", kicker: "WEEKLY" },
+  monthly: { label: "月报", kicker: "MONTHLY" },
+};
+
+const numeric = (value: unknown) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+const integer = (value: unknown) => Math.trunc(numeric(value)).toLocaleString("zh-CN");
+
+function dateText(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function compactDate(value: string | null | undefined) {
+  if (!value) return "日期待定";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "日期待定";
+  return date.toLocaleDateString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).replace(/\//g, ".");
+}
+
+function reportPeriod(run: ReportRunRecord) {
+  return dateText(run.period_start) + " — " + dateText(run.period_end);
+}
+
+function compactReportPeriod(run: ReportRunRecord) {
+  return compactDate(run.period_start) + " — " + compactDate(run.period_end);
+}
+
+function statusLabel(run: ReportRunRecord) {
+  if (run.status === "succeeded") return run.is_final ? "最终版" : "临时版";
+  if (run.status === "running") return "生成中";
+  return "失败待重试";
+}
+
+function statusTone(run: ReportRunRecord): ReportStatusTone {
+  if (run.status === "failed") return "failed";
+  if (run.status === "running") return "running";
+  return run.is_final ? "final" : "draft";
+}
+
+function activityLabel(value: string) {
+  if (value === "session_only") return "仅访问";
+  if (value === "ai_and_session") return "AI + 访问";
+  return "AI 使用";
+}
+
+function impactTone(value: string) {
+  if (value === "blocked") return "is-blocked";
+  if (value === "degraded") return "is-degraded";
+  return "is-neutral";
+}
+
+function percentage(value: number | string | null) {
+  if (value === null) return "—";
+  return (numeric(value) * 100).toFixed(2) + "%";
+}
+
+function money(usd: unknown, rate: number) {
+  const amount = numeric(usd);
+  return "$" + amount.toFixed(4) + " · ¥" + (amount * rate).toFixed(2);
+}
+
+function latestRun(runs: ReportRunRecord[], reportType: ReportType) {
+  return runs.find((run) => run.report_type === reportType) || null;
+}
+
+function reportHref(run: ReportRunRecord, query: string) {
+  const params = new URLSearchParams({ id: run.id });
+  if (query) {
+    params.set("q", query);
+  }
+  return "/admin/reports?" + params.toString();
+}
+
+function deploymentVersion(run: ReportRunRecord) {
+  const value = run.summary && typeof run.summary === "object" ? run.summary.deploymentVersion : null;
+  return typeof value === "string" && value ? value : "unknown";
+}
+
+function metric(label: string, value: string, detail?: string) {
+  return <div key={label} className="observability-metric">
+    <div className="fg-mono observability-metric__label">{label}</div>
+    <div className="fg-mono observability-metric__value">{value}</div>
+    {detail ? <div className="observability-metric__detail">{detail}</div> : null}
+  </div>;
+}
+
+function ReportSelector({ runs, selectedRun, query }: { runs: ReportRunRecord[]; selectedRun: ReportRunRecord | null; query: string }) {
+  const selectedType = selectedRun?.report_type;
+  const selectedRuns = selectedType ? runs.filter((run) => run.report_type === selectedType) : [];
+  const selectedMeta = selectedType ? REPORT_META[selectedType] : null;
+
+  return <section className="observability-report__selector" aria-label="报表周期与版本选择">
+    <div className="observability-selector__intro">
+      <span className="fg-mono observability-kicker">REPORT DESK</span>
+      <strong>{selectedRun && selectedMeta ? selectedMeta.label + " · " + statusLabel(selectedRun) : "选择一份报表"}</strong>
+      <span>{selectedRun ? compactReportPeriod(selectedRun) : "从周期入口查看明细"}</span>
+    </div>
+
+    <nav className="observability-period-nav" aria-label="报表周期">
+      {REPORT_TYPES.map((reportType) => {
+        const run = latestRun(runs, reportType);
+        const meta = REPORT_META[reportType];
+        const isActive = selectedType === reportType;
+        if (!run) {
+          return <div key={reportType} className="observability-period-tab is-empty" aria-disabled="true">
+            <span className="fg-mono observability-period-tab__kicker">{meta.kicker}</span>
+            <strong>{meta.label}</strong>
+            <span className="observability-period-tab__period">暂无数据</span>
+          </div>;
+        }
+        return <Link key={reportType} href={"/admin/reports?id=" + run.id} className={"observability-period-tab observability-period-tab--" + statusTone(run) + (isActive ? " is-active" : "")} aria-current={isActive ? "page" : undefined}>
+          <span className="fg-mono observability-period-tab__kicker">{meta.kicker}</span>
+          <strong>{meta.label}</strong>
+          <span className="observability-period-tab__period">{compactReportPeriod(run)}</span>
+          <span className="fg-mono observability-status-line"><i aria-hidden="true" />{statusLabel(run)} · r{run.revision}</span>
+        </Link>;
+      })}
+    </nav>
+
+    {selectedRun && selectedMeta ? <details className="observability-history" open={Boolean(query)}>
+      <summary>
+        <span><span className="fg-mono observability-kicker">HISTORY</span>历史版本</span>
+        <span className="fg-mono observability-history__count">{query ? selectedRuns.length + " 条结果" : selectedRuns.length + " 条"} <b aria-hidden="true">⌄</b></span>
+      </summary>
+      <div className="observability-history__popover">
+        <form action="/admin/reports" method="get" className="observability-history__search">
+          <label htmlFor="observability-report-search">快速查找版本</label>
+          <div className="observability-history__search-row">
+            <input id="observability-report-search" name="q" type="search" defaultValue={query} placeholder="日期 / r1 / 最终版" maxLength={80} />
+            <button type="submit">查找</button>
+          </div>
+          {query ? <Link href={reportHref(selectedRun, "")} className="observability-history__clear">清除筛选</Link> : <span className="observability-history__hint">支持日期、版本号和状态</span>}
+        </form>
+        <div className="observability-history__heading">
+          <span>{selectedMeta.label}版本</span>
+          <span className="fg-mono">{query ? "筛选结果" : "按周期倒序"}</span>
+        </div>
+        <div className="observability-history__list">
+          {selectedRuns.length === 0 ? <div className="observability-history__no-result">没有匹配的版本，请换一个日期或状态。</div> : selectedRuns.map((run) => <Link key={run.id} href={reportHref(run, query)} className={"observability-history__item observability-history__item--" + statusTone(run) + (selectedRun.id === run.id ? " is-active" : "")} aria-current={selectedRun.id === run.id ? "page" : undefined}>
+            <span className="fg-mono observability-history__revision">r{run.revision}</span>
+            <span className="observability-history__period">{compactReportPeriod(run)}</span>
+            <span className="fg-mono">{statusLabel(run)}</span>
+          </Link>)}
+        </div>
+      </div>
+    </details> : null}
+  </section>;
+}
+
+function DataPanel({ eyebrow, title, count, children }: { eyebrow: string; title: string; count: string; children: ReactNode }) {
+  return <section className="observability-data-panel">
+    <div className="observability-data-panel__heading">
+      <div>
+        <span className="fg-mono observability-kicker">{eyebrow}</span>
+        <h3>{title}</h3>
+      </div>
+      <span className="fg-mono observability-data-panel__count">{count}</span>
+    </div>
+    {children}
+  </section>;
+}
+
+export default function ObservabilityReportView({ runs, detail, error, query = "" }: { runs: ReportRunRecord[]; detail: ReportDetails | null; error?: string; query?: string }) {
+  const summary = (detail?.run.summary || {}) as Summary;
+  const rate = numeric(summary.costs?.cnyRate);
+  const accounts = (detail?.accounts || []) as AccountSnapshot[];
+  const errors = (detail?.errors || []) as ErrorSnapshot[];
+  const services = (detail?.services || []) as ServiceSnapshot[];
+  const selectedMeta = detail ? REPORT_META[detail.run.report_type] : null;
+  const selectedTone = detail ? statusTone(detail.run) : null;
+
+  return <main className="observability-report">
+    <header className="observability-report__header">
+      <div>
+        <span className="fg-mono observability-kicker">FG STUDIO / OPERATIONS</span>
+        <h1>服务监控报表</h1>
+        <p>日报、周报、月报按上海时区生成；当前报表优先展示，历史版本收纳在版本菜单内。</p>
+      </div>
+      <Link href="/admin" className="observability-report__back">返回管理后台</Link>
+    </header>
+
+    {error ? <div className="observability-report__alert" role="alert">{error}</div> : null}
+
+    {runs.length === 0 ? <section className="observability-report__empty">
+      <span className="fg-mono observability-kicker">NO REPORT RUNS</span>
+      <h2>暂无报表</h2>
+      <p>scheduler 首次运行后会自动生成日报、周报和月报。</p>
+    </section> : <>
+      <ReportSelector runs={runs} selectedRun={detail?.run || null} query={query} />
+
+      {!detail ? <section className="observability-report__empty">
+        <span className="fg-mono observability-kicker">SELECT A REPORT</span>
+        <h2>选择一份报表</h2>
+        <p>从上方周期入口打开账户、错误和服务明细。</p>
+      </section> : detail.run.status !== "succeeded" ? <section className="observability-report__empty observability-report__empty--warning">
+        <span className="fg-mono observability-kicker">REPORT NOT READY</span>
+        <h2>该报表尚未成功生成</h2>
+        <p>{detail.run.error || "scheduler 会自动重试失败任务。"}</p>
+      </section> : <>
+        <section className="observability-report__hero">
+          <div className="observability-report__hero-top">
+            <div>
+              <span className="fg-mono observability-kicker">{selectedMeta?.kicker} / REVISION R{detail.run.revision}</span>
+              <h2>{selectedMeta?.label} <span>·</span> {detail.run.is_final ? "最终版" : "临时版"}</h2>
+              <p>周期：{reportPeriod(detail.run)}；数据截至：{dateText(detail.run.data_as_of)}</p>
+            </div>
+            <div className={"observability-report__state observability-report__state--" + selectedTone}>
+              <i aria-hidden="true" />
+              <span>{detail.run.is_final ? "数据已结算" : "等待迟到任务和费用补齐"}</span>
+            </div>
+          </div>
+          <div className="observability-report__meta">
+            <div><span>部署版本</span><strong className="fg-mono">{deploymentVersion(detail.run)}</strong></div>
+            <div><span>报表架构</span><strong className="fg-mono">schema v{detail.run.schema_version}</strong></div>
+            <div><span>生成时间</span><strong className="fg-mono">{dateText(detail.run.updated_at)}</strong></div>
+          </div>
+          <div className="observability-metric-grid">
+            {metric("活跃账户", integer(summary.accounts?.active), "AI " + integer(summary.accounts?.aiActive) + " · 仅访问 " + integer(summary.accounts?.sessionOnly))}
+            {metric("调用次数", integer(summary.usage?.calls), "成功 " + integer(summary.usage?.successfulCalls) + " · 失败 " + integer(summary.usage?.failedCalls))}
+            {metric("Token", integer(summary.usage?.totalTokens), "图片 " + integer(summary.usage?.imageCount) + " · 视频 " + numeric(summary.usage?.videoSeconds).toFixed(1) + " 秒")}
+            {metric("确认成本", money(summary.costs?.confirmedUsd, rate), "¥" + numeric(summary.costs?.confirmedCny).toFixed(2) + " · 已确认供应商金额")}
+            {metric("估算成本", money(summary.costs?.estimatedUsd, rate), "¥" + numeric(summary.costs?.estimatedCny).toFixed(2) + " · 价格表估算")}
+            {metric("风险预留", money(summary.costs?.reservedUsd, rate), "未知成本调用 " + integer(summary.costs?.unknownCostCalls))}
+            {metric("错误事件", integer(summary.errors?.occurrences), "错误类型 " + integer(summary.errors?.fingerprints) + " · 影响账户 " + integer(summary.errors?.affectedAccounts))}
+            {metric("服务可用性", integer(summary.services?.complete) + " / " + integer(summary.services?.monitored), "事件 " + integer(summary.services?.incidents) + " · 仅对完整观测计算比例")}
+          </div>
+        </section>
+
+        <DataPanel eyebrow="ACCOUNT LEDGER" title="按账户汇总" count={accounts.length + " 个账户"}>
+          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "2fr .9fr .9fr 1.1fr 1.3fr 1.2fr 1.2fr .7fr" }}><div>账户</div><div>活动</div><div>调用</div><div>Token</div><div>图片 / 视频</div><div>成本</div><div>预留 / 未知</div><div>错误</div></div>
+            {accounts.length === 0 ? <div className="observability-table__empty">周期内暂无账户活动</div> : accounts.map((account) => <div key={account.user_id} className="observability-table__row" style={{ gridTemplateColumns: "2fr .9fr .9fr 1.1fr 1.3fr 1.2fr 1.2fr .7fr" }}>
+              <div className="observability-nowrap">{account.account_email}</div>
+              <div>{activityLabel(account.activity_kind)}</div>
+              <div>{integer(account.usage_calls)}<small>成功 {integer(account.successful_calls)} / 失败 {integer(account.failed_calls)}</small></div>
+              <div className="fg-mono">{integer(account.total_tokens)}</div>
+              <div>{integer(account.image_count)} 张<small>{numeric(account.video_seconds).toFixed(1)} 秒</small></div>
+              <div className="fg-mono">{money(account.confirmed_cost_usd, rate)}<small>估算 {money(account.estimated_cost_usd, rate)}</small></div>
+              <div className="fg-mono">{money(account.reserved_cost_usd, rate)}<small>未知 {integer(account.unknown_cost_calls)}</small></div>
+              <div className={numeric(account.error_count) ? "observability-danger" : "observability-muted"}>{integer(account.error_count)}</div>
+            </div>)}
+          </div>
+        </DataPanel>
+
+        <DataPanel eyebrow="ERROR IMPACT" title="错误与影响" count={errors.length + " 类错误"}>
+          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.2fr 1.2fr .9fr .9fr 1.1fr 3fr" }}><div>来源 / 服务</div><div>级别 / 影响</div><div>次数</div><div>账户</div><div>首次 / 末次</div><div>错误信息</div></div>
+            {errors.length === 0 ? <div className="observability-table__empty">周期内没有归档错误事件</div> : errors.map((item, index) => <div key={item.source + ":" + item.service + ":" + (item.code || "error") + ":" + index} className="observability-table__row" style={{ gridTemplateColumns: "1.2fr 1.2fr .9fr .9fr 1.1fr 3fr" }}>
+              <div>{item.source}<small>{item.service}</small></div>
+              <div><span className={"observability-impact " + impactTone(item.impact)}>{item.severity}</span><small className={"observability-impact " + impactTone(item.impact)}>{item.impact}</small></div>
+              <div className="fg-mono">{integer(item.occurrences)}<small>请求 {integer(item.affected_requests)}</small></div>
+              <div className="fg-mono">{integer(item.affected_accounts)}</div>
+              <div className="fg-mono observability-table__timestamp">{dateText(item.first_occurred_at)}<br />{dateText(item.last_occurred_at)}</div>
+              <div className="observability-message"><div>{item.message || "未提供错误信息"}</div><small className="fg-mono">{item.code || "未分类"}</small></div>
+            </div>)}
+          </div>
+        </DataPanel>
+
+        <DataPanel eyebrow="SERVICE HEALTH" title="服务健康与监控完整度" count={services.length + " 项服务"}>
+          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.6fr .9fr .9fr 1fr 1fr 1.2fr" }}><div>服务</div><div>可用率</div><div>检查次数</div><div>健康 / 异常</div><div>异常时长</div><div>数据完整</div></div>
+            {services.length === 0 ? <div className="observability-table__empty">周期内没有服务健康事件</div> : services.map((item) => <div key={item.service} className="observability-table__row" style={{ gridTemplateColumns: "1.6fr .9fr .9fr 1fr 1fr 1.2fr" }}>
+              <div>{item.service}<small>观测 {numeric(item.observed_seconds).toFixed(0)} 秒</small></div>
+              <div className={"fg-mono " + (item.data_complete ? "observability-success" : "observability-warning")}>{percentage(item.availability_ratio)}</div>
+              <div className="fg-mono">{integer(item.check_count)}<small>事件 {integer(item.incident_count)}</small></div>
+              <div>{integer(item.healthy_checks)} / {integer(item.unhealthy_checks)}</div>
+              <div className="fg-mono">{numeric(item.unhealthy_seconds).toFixed(0)} 秒</div>
+              <div className={item.data_complete ? "observability-success" : "observability-warning"}>{item.data_complete ? "完整" : "不完整，勿作可用性结论"}</div>
+            </div>)}
+          </div>
+        </DataPanel>
+      </>}
+    </>}
+  </main>;
+}

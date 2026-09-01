@@ -1,5 +1,6 @@
 import type { ChatResult } from "../deepseek";
 import { providerReasoningEffort, type ReasoningEffort } from "./reasoning";
+import { wetokenProviderDispatcher, type WetokenFetcher } from "./wetoken-transport";
 
 export type OpenAITextPart = { type: "text"; text: string };
 export type OpenAIImagePart = { type: "image_url"; image_url: { url: string } };
@@ -13,13 +14,25 @@ export interface WetokenChatOptions {
   maxTokens?: number;
 }
 
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type Fetcher = WetokenFetcher;
+
+function messagesForJsonOutput(messages: OpenAIMessage[]) {
+  const instruction = "\n\n仅返回一个有效的 json object，不要 Markdown。";
+  const index = messages.map((message) => message.role).lastIndexOf("user");
+  if (index < 0) return [...messages, { role: "user" as const, content: instruction.trim() }];
+  return messages.map((message, messageIndex) => {
+    if (messageIndex !== index) return message;
+    if (typeof message.content === "string") return { ...message, content: `${message.content}${instruction}` };
+    return { ...message, content: [...message.content, { type: "text" as const, text: instruction.trim() }] };
+  });
+}
 
 export async function wetokenChat(options: WetokenChatOptions, dependencies: { fetcher?: Fetcher } = {}): Promise<ChatResult> {
   const key = process.env.WETOKEN_API_KEY;
   if (!key) throw new Error("缺少 WETOKEN_API_KEY 环境变量");
   const base = (process.env.WETOKEN_BASE_URL || "https://wetoken.ai/v1").replace(/\/$/, "");
-  const body: Record<string, unknown> = { model: options.model, messages: options.messages, stream: false, max_tokens: options.maxTokens ?? 2000 };
+  const messages = options.jsonOutput ? messagesForJsonOutput(options.messages) : options.messages;
+  const body: Record<string, unknown> = { model: options.model, messages, stream: false, max_tokens: options.maxTokens ?? 2000 };
   const reasoningEffort = providerReasoningEffort(options.reasoningEffort, "wetoken");
   if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   if (options.jsonOutput) body.response_format = { type: "json_object" };
@@ -27,6 +40,7 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
+    dispatcher: wetokenProviderDispatcher,
     signal: AbortSignal.timeout(55_000),
   });
   const data = await response.json().catch(() => ({})) as any;

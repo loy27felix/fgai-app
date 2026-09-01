@@ -3,6 +3,12 @@ import { logServerFailure } from '@/lib/observability/server-log';
 import { recordAuditEvent } from '@/lib/observability/audit-event';
 
 type VideoTaskEventDetails = Record<string, string | number | boolean | null | undefined>;
+export type VideoTaskEventContext = {
+  traceId?: string | null;
+  actorId?: string | null;
+  workspaceId?: string | null;
+  error?: unknown;
+};
 
 function compactDetails(details: VideoTaskEventDetails) {
   return Object.fromEntries(Object.entries(details).filter(([, value]) => value !== undefined));
@@ -13,6 +19,7 @@ export async function recordVideoTaskEvent(
   event: string,
   status: string | null,
   details: VideoTaskEventDetails = {},
+  context: VideoTaskEventContext = {},
 ) {
   const compact = compactDetails(details);
   try {
@@ -40,6 +47,9 @@ export async function recordVideoTaskEvent(
         ? 'succeeded'
         : 'started';
   await recordAuditEvent({
+    traceId: context.traceId,
+    actorId: context.actorId,
+    workspaceId: context.workspaceId,
     feature: 'creator_video',
     action: 'task',
     resourceType: 'creator_generation_task',
@@ -48,6 +58,7 @@ export async function recordVideoTaskEvent(
     outcome,
     statusAfter: status,
     data: compact,
+    error: context.error,
     level: outcome === 'failed' ? 'error' : outcome === 'unknown' ? 'warn' : 'info',
   });
 }

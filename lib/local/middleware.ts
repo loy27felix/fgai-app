@@ -9,7 +9,12 @@ export function updateSession(request: NextRequest, traceId?: string) {
   if (traceId) response.headers.set("x-fg-trace-id", traceId);
   const path = request.nextUrl.pathname;
   const isAuthPage = path === "/login";
-  const isPublic = isAuthPage || path === "/" || path === "/api/version" || path.startsWith("/api/auth") || path.startsWith("/api/local") || path.startsWith("/_next");
+  const isPublic = isAuthPage || path === "/" || path === "/api/version"
+    || path === "/api/observability/client-errors"
+    || path === "/api/observability/monitor-events"
+    || path === "/api/observability/error-events"
+    || path === "/api/observability/report-runner"
+    || path.startsWith("/api/auth") || path.startsWith("/api/local") || path.startsWith("/_next");
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
   if (!hasSession && !isPublic) {
     const url = request.nextUrl.clone();

@@ -11,6 +11,7 @@ FG Studio 是一个面向个人创作与小团队协作的 AI 视觉工作台：
 - 提示词库与素材库：提示词收藏、搜索、复制和生成结果归档。
 - 用量账本：记录 token、图片/视频调用、供应商实际扣费或已确认的价格估算，并同时显示 USD/CNY。
 - 管理后台：按用户、模型、媒体类型查看调用次数、token、费用和待定价记录。
+- 服务监控报表：按日、周、月汇总服务健康、前后端错误、账户活跃度、Token、媒体用量和成本。
 
 ## 本地开发
 
@@ -76,6 +77,7 @@ pnpm logs:postgres        # 只看 PostgreSQL 日志（含时间戳）
 pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志（含时间戳）
 pnpm logs:monitor         # 查看统一服务状态与新增业务错误告警
 pnpm logs:audit           # 查询最近 168 小时的持久化业务审计事件
+pnpm reports:run          # 立即触发一次到期报表检查（仅调用内部 endpoint）
 scripts/audit-events.sh all  # 查询 audit_events 全部历史
 ```
 
@@ -109,7 +111,7 @@ chmod +x scripts/auto-deploy.sh scripts/install-auto-deploy.sh
 scripts/install-auto-deploy.sh
 ```
 
-服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会为本次构建生成独立的 `deploymentVersion`（UTC 时间加 commit 短 SHA），通过 Docker build arg 写入 App，并等待容器 health、主页和 `/api/version` 都返回成功且版本一致。代码 fast-forward 后，脚本会重新执行刚拉取的最新脚本，并在 `docker compose build` 时显式传入版本参数，避免部署进程继续使用旧脚本或 Compose 默认值 `dev`。完整构建输出保存到宿主机 `$HOME/Library/Logs/fg-studio-auto-deploy-build/`，构建失败时主部署日志会输出尾部摘要，并在自动部署状态目录的 `failed-detail` 文件中保留失败阶段和完整日志路径。它随后执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行 `002-local-upgrade.sql` 和后续迁移（当前包括 `003-local-observability.sql`），仅重建 `app` 容器。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
+服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会为本次构建生成独立的 `deploymentVersion`（UTC 时间加 commit 短 SHA），通过 Docker build arg 写入 App，并等待容器 health、无需登录的轻量 `/api/version` 健康接口返回成功且版本一致。代码 fast-forward 后，脚本会重新执行刚拉取的最新脚本，并在 `docker compose build` 时显式传入版本参数，避免部署进程继续使用旧脚本或 Compose 默认值 `dev`。完整构建输出保存到宿主机 `$HOME/Library/Logs/fg-studio-auto-deploy-build/`，构建失败时主部署日志会输出尾部摘要，并在自动部署状态目录的 `failed-detail` 文件中保留失败阶段和完整日志路径。它随后执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行版本化迁移，仅重建 `app` 容器。构建、数据库升级或健康检查失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
 
 项目系统版本维护在 `lib/version.ts` 的 `SYSTEM_VERSION`，这是用于强制升级判断的三段式 semver，必须由代码变更人工递增；例如将 `1.0.0` 改为 `1.0.1` 后提交并推送，自动部署完成即提高最低可用版本，自动部署不会修改它。所有页面右下角会展示系统版本和部署版本，`/api/version` 返回两者及当前要求的系统版本。旧页面会立即检查并每 60 秒复查；检测到当前页面系统版本低于服务端要求时会阻断页面并提示刷新升级。版本接口暂时不可用时页面放行，避免诊断链路故障阻断正常使用。
 
@@ -132,6 +134,17 @@ scripts/install-service-monitor.sh
 
 状态变化会写入 `$HOME/Library/Logs/fg-studio-service-monitor.log`，匹配到的 App 错误会追加到 `$HOME/Library/Logs/fg-studio-monitor/app-errors.log`。如需主动通知，在 `.env.docker` 配置 `FG_MONITOR_WEBHOOK_URL`，并将 `FG_MONITOR_WEBHOOK_TYPE` 设置为 `generic`、`feishu` 或 `wecom`；未配置 webhook 时不影响自动恢复和本地日志。告警只在健康状态发生变化时发送，恢复后也会发送一次，避免重复轰炸。
 
+服务监控、部署失败和浏览器错误会通过独立的观测接口写入 PostgreSQL；观测写入失败只丢弃观测，不阻断正常业务。浏览器只上报 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应，服务端会限流并脱敏。内部接口优先使用 `FG_OBSERVABILITY_SECRET`，未配置时兼容使用 `SESSION_SECRET`；建议生产环境配置独立长随机值，并保持 `FG_OBSERVABILITY_URL=http://127.0.0.1:3000`。
+
+在实际 Docker 主机安装报表 scheduler（每 5 分钟检查一次到期任务，单轮最多生成 4 份，进程带互斥锁，失败或历史补算会在下一轮继续）并访问管理员页面 `/admin/reports`：
+
+```bash
+chmod +x scripts/report-scheduler.sh scripts/install-report-scheduler.sh
+scripts/install-report-scheduler.sh
+```
+
+日报在次日 00:15 后生成临时版，较早日期会在后续窗口生成最终版；周报在周一生成临时版、周三后结算；月报在次月 1 日生成临时版、次月 3 日后结算。每个周期保留 `revision=0` 临时版和 `revision=1` 最终版，不覆盖旧结果。报表将成本分为供应商确认、价格估算和风险预留，并把未知成本调用单独计数；服务观测不完整时不计算可用率结论。可选配置 `FG_REPORT_WEBHOOK_URL` 和 `FG_REPORT_WEBHOOK_TYPE`（`generic`、`feishu`、`wecom`）接收报表任务结果通知。
+
 媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，应用会先用 Cloudflare Tunnel 的公网 HTTPS 签名 URL 和生成任务的精确 `model` 创建 WeToken 素材，等待 `GetAsset` 返回 `Active`，再把 `asset://asset-...` 交给 Seedance；上传或确定性提交失败时会尽力清理本次新建素材。`192.168.x.x`、localhost 和需要登录的局域网地址无法被素材库下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不需要素材库上传。该素材库契约仅适用于 Seedance 视频参考素材，Wetoken 文本视觉输入和图片编辑继续使用各自原生协议。不要把 Cloudflare Tunnel 的 token 提交到 Git。
 
 参考素材确认前会使用 `Range: bytes=0-0` 做公网预检；对 `530`、`5xx` 和网络超时最多重试 3 次。重试后仍不可达时返回 `503 REFERENCES_TEMPORARILY_UNAVAILABLE` 并保留草稿，不进入 Wetoken 素材上传和用量扣除；`401/403/404` 等确定性访问失败则直接返回 `REFERENCES_NOT_REACHABLE`。
@@ -145,6 +158,8 @@ lib/                         本地数据库、认证、媒体、AI 适配器、
 reference/infinite-canvas/   超级画布运行时及其适配层
 docker/initdb/001-local.sql  PostgreSQL 初始化结构
 docker/initdb/002-local-upgrade.sql  已有本地 volume 的幂等升级
+docker/initdb/003-local-observability.sql  业务审计事件兼容升级
+docker/initdb/005-observability-reporting.sql  监控事件与周期报表结构
 tests/                       类型、账本、API 和价格测试
 ```
 

@@ -11,7 +11,7 @@ ENV_FILE="${FG_AUTO_DEPLOY_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
 BRANCH="${FG_AUTO_DEPLOY_BRANCH:-main}"
 REMOTE="${FG_AUTO_DEPLOY_REMOTE:-origin}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-fgai-app}"
-HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-http://127.0.0.1:3000}"
+HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-http://127.0.0.1:3000/api/version}"
 VERSION_URL="${FG_AUTO_DEPLOY_VERSION_URL:-http://127.0.0.1:3000/api/version}"
 DEPLOY_TARGET_SHA="${FG_AUTO_DEPLOY_TARGET_SHA:-}"
 DEPLOY_PREVIOUS_SHA="${FG_AUTO_DEPLOY_PREVIOUS_SHA:-}"
@@ -61,6 +61,29 @@ read_env_value() {
   line="${line%\'}"
   line="${line#\'}"
   printf '%s' "$line"
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+}
+
+send_deploy_error_event() {
+  local sha="$1"
+  local phase="$2"
+  local secret
+  local endpoint
+  local base_url
+  local payload
+  secret="$(read_env_value FG_OBSERVABILITY_SECRET)"
+  secret="${secret:-$(read_env_value SESSION_SECRET)}"
+  [[ -n "$secret" ]] || return 0
+  base_url="$(read_env_value FG_OBSERVABILITY_URL)"
+  base_url="${base_url:-http://127.0.0.1:3000}"
+  endpoint="${base_url%/}/api/observability/error-events"
+  payload="{\"source\":\"deploy\",\"service\":\"auto-deploy\",\"severity\":\"critical\",\"impact\":\"blocked\",\"code\":\"$(json_escape "$phase")\",\"message\":\"deployment failed for commit $(json_escape "$sha") at $(json_escape "$phase")\",\"deploymentVersion\":\"$(json_escape "${APP_DEPLOYMENT_VERSION:-dev}")\",\"eventKey\":\"deploy-${sha}-${phase}\"}"
+  /usr/bin/curl -fsS --connect-timeout 1 --max-time 2 \
+    -H "x-fg-observability-secret: $secret" -H 'Content-Type: application/json' \
+    -d "$payload" "$endpoint" >/dev/null 2>&1 || true
 }
 
 compose() {
@@ -324,11 +347,13 @@ log "Auto deploy: building deployment $APP_DEPLOYMENT_VERSION"
 if ! compose_build_app; then
   record_failed_deployment "$target_sha" "image-build"
   rollback "$previous_sha" || true
+  send_deploy_error_event "$target_sha" "image-build"
   exit 1
 fi
 if ! apply_database_upgrade; then
   record_failed_deployment "$target_sha" "database-upgrade"
   rollback "$previous_sha" || true
+  send_deploy_error_event "$target_sha" "database-upgrade"
   exit 1
 fi
 
@@ -337,6 +362,7 @@ if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healt
   archive_app_logs "failed-${target_sha:0:12}"
   record_failed_deployment "$target_sha" "container-health"
   rollback "$previous_sha" || true
+  send_deploy_error_event "$target_sha" "container-health"
   exit 1
 fi
 

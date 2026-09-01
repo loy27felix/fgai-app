@@ -4,6 +4,7 @@ import { fetchPrompts } from "@/reference/infinite-canvas/src/services/api/promp
 import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { imageAspectOptions, imageQualityOptions } from "@/reference/infinite-canvas/src/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/reference/infinite-canvas/src/components/video-settings-panel";
+import { boolConfig } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import type { CanvasAgentSnapshot } from "@/reference/infinite-canvas/src/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
@@ -190,8 +191,8 @@ function getVideoConfig() {
             size: config.size || "1280x720",
             seconds: config.videoSeconds || "6",
             resolution: config.vquality || "720",
-            generateAudio: config.videoGenerateAudio !== "false",
-            watermark: config.videoWatermark === "true",
+            generateAudio: boolConfig(config.videoGenerateAudio, true),
+            watermark: boolConfig(config.videoWatermark, false),
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
         sizeOptions: videoSizeOptions,

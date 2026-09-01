@@ -149,7 +149,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     });
     let draft: Awaited<ReturnType<typeof createVideoDraft>>;
     try {
-        draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: config.videoWatermark === "true", generateAudio: config.videoGenerateAudio !== "false", skill: null, idempotencyKey: randomId() });
+        draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: boolConfig(config.videoWatermark, false), generateAudio: boolConfig(config.videoGenerateAudio, true), skill: null, idempotencyKey: randomId() });
     } catch (error) {
         throw new Error(`视频草稿创建失败：${error instanceof Error ? error.message : "网络请求失败"}`);
     }

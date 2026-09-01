@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import AppVersionBadge from "@/components/AppVersionBadge";
+import ClientErrorReporter from "@/components/ClientErrorReporter";
 import SystemVersionGate from "@/components/SystemVersionGate";
+import { getDeploymentVersion, SYSTEM_VERSION } from "@/lib/version";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AppVersionBadge />
         <SystemVersionGate />
+        <ClientErrorReporter deploymentVersion={getDeploymentVersion()} systemVersion={SYSTEM_VERSION} />
         {children}
       </body>
     </html>

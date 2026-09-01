@@ -21,6 +21,20 @@ FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的
 
 日志中不得写入 Prompt 原文、模型回复、图片 Base64、Bearer/API Key、密码、Cookie、签名 URL、邮箱或原始媒体内容。需要关联使用者时使用内部 UUID，不使用邮箱。
 
+## 前端、主机和周期报表
+
+浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应，发送到 `/api/observability/client-errors`。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本在入库前脱敏和截断。
+
+实际 Docker 主机上的 `scripts/service-monitor.sh` 每轮把 Docker、NAS、App、PostgreSQL、Tunnel、磁盘和 App 错误检查写入 `observability_service_events` / `observability_error_events`。观测 HTTP 上报在独立后台进程中执行，网络或 App 不可用时不会拖慢本机健康检查。`scripts/report-scheduler.sh` 每 5 分钟调用一次内部 `/api/observability/report-runner`；每轮最多生成 4 份报表，scheduler 失败或历史补算未完成时下一轮继续重试。内部接口使用 `x-fg-observability-secret`，优先读取 `FG_OBSERVABILITY_SECRET`，兼容回退到 `SESSION_SECRET`。
+
+周期报表由 `lib/observability/reporting.ts` 生成并写入 `report_runs` 及三个快照表：
+
+- `report_account_summaries`：按账户汇总 AI 调用、成功/失败/处理中、Token、图片、视频、确认/估算/预留成本、未知成本调用和错误数。
+- `report_error_summaries`：合并前端、App、Provider、Infra、Deploy、Billing、Data 和任务状态错误，保留错误类型、首次/末次时间、发生次数及受影响账户/请求/任务数。
+- `report_service_summaries`：根据主机心跳和状态事件计算检查次数、事故次数、异常时长；观测断档时标记 `data_complete=false`，不伪造可用率。
+
+日报、周报和月报都按 `Asia/Shanghai` 计算。`revision=0` 是允许异步任务和供应商费用迟到的临时版，`revision=1` 是后续对账的最终版；任务使用数据库唯一键幂等，失败任务保留失败原因并可安全重试。管理员从 `/admin/reports` 查看报表，通知 webhook 失败不会改变报表成功状态。
+
 ## 排查方式
 
 ```bash

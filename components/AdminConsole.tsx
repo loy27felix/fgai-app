@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { addWhitelist, deleteWhitelist, setMonthlyBudget, setUserRole, setWhitelistStatus } from "@/app/admin/actions";
 import PageShell from "@/components/studio/PageShell";
 import { Hov } from "@/components/studio/ui";
@@ -155,7 +156,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 30px 70px" }}>
       <header style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
         <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>成功任务按当前模型价格计费；失败任务费用固定为 ¥0。生成提交时会临时锁定额度，失败后自动释放。</p></div>
-        <label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询月份<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={inputStyle} /></label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><Link href="/admin/reports" style={reportLinkStyle}>服务监控报表</Link><label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询月份<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={inputStyle} /></label></div>
       </header>
       <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；1 USD = ¥{usdToCnyRate.toFixed(4)}。</p>
       <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>{tabButton("overview", "概览")}{tabButton("whitelist", `白名单${pendingWhitelist ? ` · ${pendingWhitelist} 待审` : ""}`)}{tabButton("users", `用户 · ${profiles.length}`)}</nav>
@@ -194,6 +195,7 @@ const panelStyle = { padding: "16px 18px", borderRadius: 16, background: "var(--
 const cardLabelStyle = { fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" } as const;
 const sectionTitleStyle = { margin: 0, fontSize: 10.5, letterSpacing: 1, color: "var(--text-3)", textTransform: "uppercase" } as const;
 const inputStyle = { height: 36, borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--bg-2)", color: "var(--text)", padding: "0 10px", outline: "none" } as const;
+const reportLinkStyle = { display: "inline-flex", alignItems: "center", height: 36, padding: "0 12px", borderRadius: 10, color: "var(--accent)", background: "var(--user-bubble)", border: "1px solid var(--user-stroke)", fontSize: 12.5 } as const;
 const tableHeaderStyle = { minWidth: 860, display: "grid", gridTemplateColumns: ".65fr 1.8fr 1fr 1.2fr .8fr", gap: 10, padding: "10px 16px", background: "var(--bg-2)", fontSize: 10.5, color: "var(--text-3)" } as const;
 const tableRowStyle = { minWidth: 860, display: "grid", gridTemplateColumns: ".65fr 1.8fr 1fr 1.2fr .8fr", gap: 10, padding: "11px 16px", borderTop: "1px solid var(--stroke)", fontSize: 12.5 } as const;
 const plainButton = (color: string) => ({ fontSize: 12, color, background: "none", border: "none", cursor: "pointer" } as const);
