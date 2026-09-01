@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { DEFAULT_TEXT_MODEL_ID, isTextModelId } from "@/lib/ai/catalog";
 import { chatWithTextModel } from "@/lib/ai/text";
 import { normalizeReasoningEffort } from "@/lib/ai/reasoning";
+import { getVideoModel } from "@/lib/ai/video-models";
+import { estimateCompanyVideoProduction, normalizeCompanyVideoSegmentCount } from "@/lib/creator/company-video-production";
 import { ensureCreatorWorkspace } from "@/lib/creator/workspace";
 import { createClient } from "@/lib/local/server";
 import { buildTextLedgerEntry, recordUsageBestEffort } from "@/lib/usage/ledger";
@@ -17,15 +19,23 @@ type VideoPlanBody = {
   model?: string;
   reasoningEffort?: unknown;
   skill?: unknown;
+  skills?: unknown;
   brief?: unknown;
   subject?: unknown;
   visualDirection?: unknown;
   ratio?: unknown;
   duration?: unknown;
+  segmentCount?: unknown;
+  videoModel?: unknown;
+  videoResolution?: unknown;
+  storyboardModel?: unknown;
+  storyboardResolution?: unknown;
   referenceNames?: unknown;
 };
 
 type ActiveSkill = { name: string; content: string };
+type VideoPlanShot = { title: string; storyboardPrompt: string; videoPrompt: string; duration: number };
+type VideoPlan = { prompt: string; shots: VideoPlanShot[] };
 
 function normalizeSkill(input: unknown): ActiveSkill | null {
   if (!input || typeof input !== "object") return null;
@@ -36,17 +46,42 @@ function normalizeSkill(input: unknown): ActiveSkill | null {
   return name && content ? { name, content } : null;
 }
 
+function normalizeSkills(input: unknown, legacy: unknown) {
+  const candidates = Array.isArray(input) ? input : [legacy];
+  const seen = new Set<string>();
+  const skills: ActiveSkill[] = [];
+  for (const candidate of candidates) {
+    const skill = normalizeSkill(candidate);
+    if (!skill || seen.has(skill.name)) continue;
+    seen.add(skill.name);
+    skills.push(skill);
+    if (skills.length === 4) break;
+  }
+  return skills;
+}
+
 function compactText(input: unknown, limit: number) {
   return typeof input === "string" ? input.trim().slice(0, limit) : "";
+}
+
+function modelName(value: string) {
+  const separator = "::";
+  const index = value.indexOf(separator);
+  return (index >= 0 ? value.slice(index + separator.length) : value).trim();
 }
 
 function normalizeRatio(input: unknown) {
   return typeof input === "string" && ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"].includes(input) ? input : "16:9";
 }
 
-function normalizeDuration(input: unknown) {
+function normalizeDuration(input: unknown, model: string) {
   const value = typeof input === "number" ? input : Number(input);
-  return [4, 5, 6, 8, 10, 15].includes(value) ? value : 5;
+  const spec = getVideoModel(modelName(model));
+  const fallback = spec?.minDuration || 5;
+  if (!Number.isFinite(value)) return fallback;
+  const seconds = Math.floor(value);
+  if (spec) return Math.min(spec.maxDuration, Math.max(spec.minDuration, seconds));
+  return [4, 5, 6, 8, 10, 15].includes(seconds) ? seconds : 5;
 }
 
 function normalizeReferenceNames(input: unknown) {
@@ -55,29 +90,55 @@ function normalizeReferenceNames(input: unknown) {
     : [];
 }
 
+function safePlanText(input: unknown, fallback: string) {
+  return typeof input === "string" && input.trim() ? input.trim().slice(0, 8_000) : fallback;
+}
+
+function parseVideoPlan(content: string, fallbackPrompt: string, segmentCount: number, duration: number): VideoPlan {
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(content.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+  } catch {
+    // The fallback below still gives the user a complete, editable production plan.
+  }
+  const raw = parsed && typeof parsed === "object" ? parsed as { prompt?: unknown; shots?: unknown } : {};
+  const prompt = safePlanText(raw.prompt, content.trim() || fallbackPrompt);
+  const rawShots = Array.isArray(raw.shots) ? raw.shots : [];
+  const shots = Array.from({ length: segmentCount }, (_, index): VideoPlanShot => {
+    const source = rawShots[index] && typeof rawShots[index] === "object" ? rawShots[index] as Record<string, unknown> : {};
+    const shotTitle = safePlanText(source.title, `镜头 ${index + 1}`);
+    const storyboardPrompt = safePlanText(source.storyboardPrompt, `${prompt}\n\n这是第 ${index + 1} 段的关键分镜静帧：画幅 ${index + 1} / ${segmentCount}，保持人物、产品、服装、空间与风格连续。`);
+    const videoPrompt = safePlanText(source.videoPrompt, `${prompt}\n\n第 ${index + 1} 段，共 ${segmentCount} 段；时长 ${duration} 秒。承接前一段的动作和视觉连续性，完成本段独立、清晰的镜头动作。`);
+    return { title: shotTitle, storyboardPrompt, videoPrompt, duration };
+  });
+  return { prompt, shots };
+}
+
 function buildVideoPlanMessages(input: {
-  skill: ActiveSkill;
+  skills: ActiveSkill[];
   brief: string;
   subject: string;
   visualDirection: string;
   ratio: string;
   duration: number;
+  segmentCount: number;
   referenceNames: string[];
 }) {
   return [
     {
       role: "system" as const,
-      content: "你是 FG Studio 的视频创作导演。根据用户选定的 Skill 和制作问卷，输出一段可直接交给视频模型的完整中文提示词。只输出最终提示词本身，不要 Markdown、标题、解释、清单或声称已经生成视频。提示词要包含主体、动作/故事节奏、镜头、环境、光影和风格；遵守用户对画幅、时长与参考素材的要求。不要虚构参考素材中不可见的事实。",
+      content: "你是 FG Studio 的视频创作导演。请根据用户选择的多个 Skill 和制作问卷，规划一个可先生成分镜静帧、再生成连续视频的制作方案。只输出有效 JSON，不要 Markdown。格式必须是：{\"prompt\":\"完整中文总提示词\",\"shots\":[{\"title\":\"镜头标题\",\"storyboardPrompt\":\"用于生成该镜头分镜图的中文提示词\",\"videoPrompt\":\"用于生成该段视频的中文提示词\"}]}。shots 数量必须严格等于 segmentCount。每段要保持角色、物体、空间、光线和动作连续，不能虚构参考素材中不可见的事实。",
     },
     {
       role: "user" as const,
       content: JSON.stringify({
-        selectedSkill: input.skill,
+        selectedSkills: input.skills,
         productionBrief: input.brief,
         subjectAndStory: input.subject || "未额外填写",
         visualAndCameraDirection: input.visualDirection || "未额外填写",
         aspectRatio: input.ratio,
-        durationSeconds: input.duration,
+        secondsPerSegment: input.duration,
+        segmentCount: input.segmentCount,
         uploadedCanvasReferences: input.referenceNames,
       }),
     },
@@ -103,22 +164,27 @@ export async function POST(req: Request) {
   }
 
   const model = typeof body.model === "string" ? body.model : DEFAULT_TEXT_MODEL_ID;
-  const skill = normalizeSkill(body.skill);
+  const skills = normalizeSkills(body.skills, body.skill);
   const brief = compactText(body.brief, 4_000);
   const subject = compactText(body.subject, 4_000);
   const visualDirection = compactText(body.visualDirection, 4_000);
   const ratio = normalizeRatio(body.ratio);
-  const duration = normalizeDuration(body.duration);
+  const videoModel = compactText(body.videoModel, 180) || "doubao-seedance-2-0";
+  const videoResolution = compactText(body.videoResolution, 40) || "720p";
+  const duration = normalizeDuration(body.duration, videoModel);
+  const segmentCount = normalizeCompanyVideoSegmentCount(body.segmentCount);
+  const storyboardModel = compactText(body.storyboardModel, 180) || "gpt-image-2";
+  const storyboardResolution = compactText(body.storyboardResolution, 40) || "1024x1024";
   const referenceNames = normalizeReferenceNames(body.referenceNames);
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
 
-  if (!skill || !brief) {
-    logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "rejected", actorId: user.id, reason: "missing_skill_or_brief" }, "warn");
-    return respond({ error: "请先选择 Skill 并填写创作目标" }, { status: 400 });
+  if (!skills.length || !brief) {
+    logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "rejected", actorId: user.id, reason: "missing_skills_or_brief" }, "warn");
+    return respond({ error: "请至少选择一个 Skill 并填写创作目标" }, { status: 400 });
   }
   if (!isTextModelId(model)) {
     logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "rejected", actorId: user.id, reason: "unsupported_model" }, "warn");
-    return respond({ error: "不支持的模型" }, { status: 400 });
+    return respond({ error: "不支持的策划模型" }, { status: 400 });
   }
 
   let workspaceId: string | undefined;
@@ -129,10 +195,10 @@ export async function POST(req: Request) {
       load: async (id) => localClient.from("creator_workspaces").select("*").eq("id", id).single(),
     }, user.id);
     workspaceId = workspace.id;
-    const messages = buildVideoPlanMessages({ skill, brief, subject, visualDirection, ratio, duration, referenceNames });
+    const messages = buildVideoPlanMessages({ skills, brief, subject, visualDirection, ratio, duration, segmentCount, referenceNames });
     const budget = await assertMonthlyBudgetAvailable({
       userId: user.id,
-      estimatedCostUsd: estimateTextBudgetUsd({ model, inputText: JSON.stringify(messages), maxOutputTokens: 1_800 }),
+      estimatedCostUsd: estimateTextBudgetUsd({ model, inputText: JSON.stringify(messages), maxOutputTokens: 2_800 }),
     });
     if (!budget.allowed) {
       logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "rejected", actorId: user.id, workspaceId, model, reason: budget.code || "monthly_budget" }, "warn");
@@ -140,80 +206,39 @@ export async function POST(req: Request) {
     }
 
     logServerEvent("canvas_skill_video", {
-      traceId,
-      feature: "canvas_skill_video",
-      stage: "provider_started",
-      actorId: user.id,
-      workspaceId,
-      model,
-      skillName: skill.name,
-      referenceCount: referenceNames.length,
-      ratio,
-      duration,
+      traceId, feature: "canvas_skill_video", stage: "provider_started", actorId: user.id, workspaceId, model,
+      skillNames: skills.map((skill) => skill.name), referenceCount: referenceNames.length, ratio, duration, segmentCount, videoModel: modelName(videoModel),
     });
     await recordAuditEvent({
-      traceId,
-      actorId: user.id,
-      workspaceId,
-      feature: "canvas_skill_video",
-      action: "plan_video",
-      resourceType: "canvas_skill",
-      resourceId: skill.name,
-      stage: "received",
-      outcome: "started",
-      parameters: { model, ratio, duration, referenceCount: referenceNames.length, reasoningEffort },
+      traceId, actorId: user.id, workspaceId, feature: "canvas_skill_video", action: "plan_video", resourceType: "canvas_skill", resourceId: skills.map((skill) => skill.name).join(", "), stage: "received", outcome: "started",
+      parameters: { model, ratio, duration, segmentCount, videoModel: modelName(videoModel), referenceCount: referenceNames.length, reasoningEffort },
     });
 
     const { spec, result } = await chatWithTextModel({
-      modelId: model,
-      messages,
-      thinking: reasoningEffort !== "auto",
-      reasoningEffort,
-      maxTokens: 1_800,
+      modelId: model, messages, thinking: reasoningEffort !== "auto", reasoningEffort, jsonOutput: true, maxTokens: 2_800,
     });
-    const prompt = result.content.trim();
-    if (!prompt) throw new Error("模型没有返回可用的视频提示词");
+    const fallbackPrompt = `${brief}\n${subject}\n${visualDirection}`.trim();
+    const plan = parseVideoPlan(result.content, fallbackPrompt, segmentCount, duration);
+    const quote = estimateCompanyVideoProduction({
+      videoModel, videoResolution, secondsPerSegment: duration, segmentCount, storyboardModel, storyboardResolution,
+    });
 
     const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
-      userId: user.id,
-      workspaceId,
-      provider: spec.provider,
-      model: spec.id,
-      usage: result.usage,
-      durationMs: Date.now() - startedAt,
+      userId: user.id, workspaceId, provider: spec.provider, model: spec.id, usage: result.usage, durationMs: Date.now() - startedAt,
     }));
-    logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "completed", actorId: user.id, workspaceId, model: spec.id, durationMs: Date.now() - startedAt, referenceCount: referenceNames.length, ledgerRecorded });
+    logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "completed", actorId: user.id, workspaceId, model: spec.id, durationMs: Date.now() - startedAt, referenceCount: referenceNames.length, segmentCount, ledgerRecorded });
     await recordAuditEvent({
-      traceId,
-      actorId: user.id,
-      workspaceId,
-      feature: "canvas_skill_video",
-      action: "plan_video",
-      resourceType: "canvas_skill",
-      resourceId: skill.name,
-      stage: "completed",
-      outcome: "succeeded",
-      durationMs: Date.now() - startedAt,
-      parameters: { model: spec.id, ratio, duration, referenceCount: referenceNames.length },
-      data: { usagePresent: Boolean(result.usage), ledgerRecorded },
+      traceId, actorId: user.id, workspaceId, feature: "canvas_skill_video", action: "plan_video", resourceType: "canvas_skill", resourceId: skills.map((skill) => skill.name).join(", "), stage: "completed", outcome: "succeeded", durationMs: Date.now() - startedAt,
+      parameters: { model: spec.id, ratio, duration, segmentCount, videoModel: modelName(videoModel), referenceCount: referenceNames.length },
+      data: { usagePresent: Boolean(result.usage), ledgerRecorded, quoteKnown: !quote.hasUnpricedItems },
     });
-    return respond({ prompt, model: spec.id, usage: result.usage });
+    return respond({ prompt: plan.prompt, plan, quote, model: spec.id, usage: result.usage });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "视频制作计划生成失败";
-    logServerFailure("canvas_skill_video", error, { traceId, feature: "canvas_skill_video", stage: "failed", actorId: user.id, workspaceId, model, skillName: skill?.name });
+    logServerFailure("canvas_skill_video", error, { traceId, feature: "canvas_skill_video", stage: "failed", actorId: user.id, workspaceId, model, skillNames: skills.map((skill) => skill.name) });
     await recordAuditEvent({
-      traceId,
-      actorId: user.id,
-      workspaceId,
-      feature: "canvas_skill_video",
-      action: "plan_video",
-      resourceType: "canvas_skill",
-      resourceId: skill?.name,
-      stage: "failed",
-      outcome: "failed",
-      parameters: { model, ratio, duration, referenceCount: referenceNames.length },
-      error,
-      level: "error",
+      traceId, actorId: user.id, workspaceId, feature: "canvas_skill_video", action: "plan_video", resourceType: "canvas_skill", resourceId: skills.map((skill) => skill.name).join(", "), stage: "failed", outcome: "failed",
+      parameters: { model, ratio, duration, segmentCount, videoModel: modelName(videoModel), referenceCount: referenceNames.length }, error, level: "error",
     });
     return respond({ error: detail }, { status: 500 });
   }

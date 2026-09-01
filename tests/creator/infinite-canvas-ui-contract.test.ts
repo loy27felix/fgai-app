@@ -52,12 +52,24 @@ test('canvas Agent is wired to the creator chat API with skills and reasoning', 
 
 test('company-model Skill video production stays in a user-confirmed canvas workflow', () => {
   const agent = read('reference/infinite-canvas/src/components/agent/local-agent-panel.tsx');
+  const flow = read('reference/infinite-canvas/src/components/agent/company-video-skill-flow.tsx');
+  const route = read('app/api/creator/canvas-agent/video-plan/route.ts');
 
   assert.match(agent, /CompanyVideoSkillFlow/);
   assert.match(agent, /\/api\/creator\/canvas-agent\/video-plan/);
   assert.match(agent, /canvasContext\.applyOps/);
   assert.match(agent, /type: "run_generation"/);
   assert.match(agent, /mode: "video"/);
+  assert.match(agent, /startNewConversation/);
+  assert.match(agent, /deleteTarget/);
+  assert.match(agent, /runSkillVideoSequence/);
+  assert.match(flow, /视频模型/);
+  assert.match(flow, /预计总价/);
+  assert.match(flow, /分镜图/);
+  assert.match(flow, /视频段数/);
+  assert.match(route, /selectedSkills/);
+  assert.match(route, /segmentCount/);
+  assert.match(route, /estimateCompanyVideoProduction/);
 });
 
 test('canvas prompt sources include the upstream GPT Image 2 collection', () => {
