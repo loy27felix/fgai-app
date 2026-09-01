@@ -135,3 +135,34 @@ export type CreatorCanvas = {
   created_at: string;
   updated_at: string;
 };
+
+export type CreatorProductionStatus = 'draft' | 'planning' | 'ready' | 'rendering' | 'assembling' | 'succeeded' | 'failed';
+
+/** A durable director-led production, separate from ordinary Agent chats. */
+export type CreatorProduction = {
+  id: string;
+  workspace_id: string;
+  session_id: string;
+  canvas_project_id: string | null;
+  title: string;
+  stage: string;
+  status: CreatorProductionStatus;
+  state: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreatorVideoAssemblyJob = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  production_id: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

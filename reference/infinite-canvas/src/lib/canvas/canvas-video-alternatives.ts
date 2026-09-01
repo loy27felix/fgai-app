@@ -64,6 +64,28 @@ export function videoAlternativeMetadata(alternative: CanvasVideoAlternative): V
     };
 }
 
+export function activeVideoAlternativeIndex(metadata?: CanvasNodeMetadata) {
+    const alternatives = readVideoAlternatives(metadata);
+    if (!alternatives.length) return 0;
+    const requested = metadata?.activeVideoAlternativeIndex ?? alternatives.length - 1;
+    return Math.min(Math.max(requested, 0), alternatives.length - 1);
+}
+
+export function videoAlternativeVersionLabel(metadata?: CanvasNodeMetadata) {
+    return `V${String(activeVideoAlternativeIndex(metadata) + 1).padStart(2, "0")}`;
+}
+
+export function videoAlternativeAssetTitle(title: string | undefined, metadata?: CanvasNodeMetadata) {
+    return `${safeVideoFileBase(title)} · ${videoAlternativeVersionLabel(metadata)}`;
+}
+
+export function videoAlternativeFileName(title: string | undefined, metadata?: CanvasNodeMetadata) {
+    const alternatives = readVideoAlternatives(metadata);
+    const activeAlternative = alternatives[activeVideoAlternativeIndex(metadata)];
+    const extension = videoExtension(activeAlternative?.mimeType || metadata?.mimeType);
+    return `${safeVideoFileBase(title)}-v${String(activeVideoAlternativeIndex(metadata) + 1).padStart(2, "0")}.${extension}`;
+}
+
 function dedupeVideoAlternatives(alternatives: CanvasVideoAlternative[]) {
     const seen = new Set<string>();
     return alternatives.filter((alternative) => {
@@ -71,4 +93,22 @@ function dedupeVideoAlternatives(alternatives: CanvasVideoAlternative[]) {
         seen.add(alternative.id);
         return true;
     });
+}
+
+function safeVideoFileBase(title?: string) {
+    const sanitized = (title || "canvas-video")
+        .replace(/[\\/:*?"<>|]/g, "-")
+        .replace(/[\u0000-\u001f]/g, "")
+        .replace(/\s+/g, " ")
+        .replace(/[. ]+$/g, "")
+        .trim()
+        .slice(0, 96);
+    return sanitized || "canvas-video";
+}
+
+function videoExtension(mimeType?: string) {
+    if (mimeType?.includes("webm")) return "webm";
+    if (mimeType?.includes("quicktime") || mimeType?.includes("mov")) return "mov";
+    if (mimeType?.includes("ogg")) return "ogv";
+    return "mp4";
 }

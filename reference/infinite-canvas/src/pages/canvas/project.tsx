@@ -51,7 +51,7 @@ import { buildNodeMentionReferences, getCanvasResourceKind, type CanvasResourceR
 import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
-import { appendVideoAlternative, readVideoAlternatives, videoAlternativeMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
+import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
@@ -2309,7 +2309,10 @@ function InfiniteCanvasPage() {
 
     const downloadNodeImage = useCallback((node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
-        saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
+        const fileName = node.type === CanvasNodeType.Video
+            ? videoAlternativeFileName(node.title, node.metadata)
+            : `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`;
+        saveAs(node.metadata.content, fileName);
     }, []);
 
     const saveNodeAsset = useCallback(
@@ -2323,6 +2326,7 @@ function InfiniteCanvasPage() {
             }
             if (node.type === CanvasNodeType.Video) {
                 if (!node.metadata?.content) return message.error("没有可保存的视频");
+                const assetTitle = videoAlternativeAssetTitle(node.title, node.metadata);
                 const creatorTaskId = node.metadata.creatorTaskId;
                 const cloudStoragePath = node.metadata.cloudStoragePath;
                 const durableUrl = creatorTaskId
@@ -2332,14 +2336,14 @@ function InfiniteCanvasPage() {
                         : node.metadata.content;
                 addAsset({
                     kind: "video",
-                    title: node.metadata?.prompt?.slice(0, 24) || "画布视频",
+                    title: assetTitle,
                     coverUrl: "",
                     tags: [],
                     source: "Canvas",
                     data: { url: durableUrl, storageKey: node.metadata.storageKey, cloudStoragePath, cloudAssetId: node.metadata.cloudAssetId, creatorTaskId, width: node.width, height: node.height, bytes: node.metadata.bytes || 0, mimeType: node.metadata.mimeType || "video/mp4" },
-                    metadata: { source: "canvas", nodeId: node.id, prompt: node.metadata?.prompt, durable: Boolean(creatorTaskId || cloudStoragePath) },
+                    metadata: { source: "canvas", nodeId: node.id, prompt: node.metadata?.prompt, videoVersion: videoAlternativeVersionLabel(node.metadata), durable: Boolean(creatorTaskId || cloudStoragePath) },
                 });
-                console.info("[canvas video asset saved]", { nodeId: node.id, creatorTaskId: creatorTaskId || null, hasCloudBackup: Boolean(cloudStoragePath) });
+                console.info("[canvas video asset saved]", { nodeId: node.id, title: assetTitle, creatorTaskId: creatorTaskId || null, hasCloudBackup: Boolean(cloudStoragePath) });
                 message.success("已加入我的资产");
                 return;
             }
@@ -3675,16 +3679,17 @@ function InfiniteCanvasPage() {
         const kind = node.type === CanvasNodeType.Image ? "image" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : null;
         const content = node.metadata?.content;
         if (!kind || !content) return;
-        const extension = kind === "image" ? "png" : kind === "video" ? "mp4" : "mp3";
+        const title = kind === "video" ? videoAlternativeAssetTitle(node.title, node.metadata) : node.title || "画布素材";
+        const fileName = kind === "video" ? videoAlternativeFileName(node.title, node.metadata) : `${title}.${kind === "image" ? "png" : "mp3"}`;
         const hide = message.loading("正在添加到素材库…", 0);
         try {
             const response = await fetch(content);
             if (!response.ok) throw new Error(`source-fetch-${response.status}`);
             const blob = await response.blob();
-            const file = new File([blob], `${node.title || kind}.${extension}`, { type: node.metadata?.mimeType || blob.type || `${kind}/*` });
+            const file = new File([blob], fileName, { type: node.metadata?.mimeType || blob.type || `${kind}/*` });
             const stored = await uploadCanvasAsset(file, { kind, source: "project_copy", name: file.name, nodeId: node.id, libraryScope: "material-library", folderId: folderId || undefined });
-            useMaterialLibraryStore.getState().addItem({ kind, title: node.title || "画布素材", url: stored.contentUrl, mimeType: file.type, storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight, durationMs: node.metadata?.durationMs });
-            console.info("[material library node saved]", { nodeId: node.id, kind, materialId: stored.assetId, folderId });
+            useMaterialLibraryStore.getState().addItem({ kind, title, url: stored.contentUrl, mimeType: file.type, storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight, durationMs: node.metadata?.durationMs });
+            console.info("[material library node saved]", { nodeId: node.id, kind, title, materialId: stored.assetId, folderId });
             message.success("已添加到素材库");
         } catch (error) {
             console.warn("[material library node save failed]", { nodeId: node.id, kind, error });

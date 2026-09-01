@@ -159,6 +159,7 @@ reference/infinite-canvas/   超级画布运行时及其适配层
 docker/initdb/001-local.sql  PostgreSQL 初始化结构
 docker/initdb/002-local-upgrade.sql  已有本地 volume 的幂等升级
 docker/initdb/003-local-observability.sql  业务审计事件兼容升级
+docker/initdb/004-company-productions.sql  公司视频制片流程结构
 docker/initdb/005-observability-reporting.sql  监控事件与周期报表结构
 tests/                       类型、账本、API 和价格测试
 ```

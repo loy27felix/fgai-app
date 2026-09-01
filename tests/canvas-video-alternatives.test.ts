@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { appendVideoAlternative, readVideoAlternatives, videoAlternativeMetadata } from "../reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
+import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata } from "../reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 
 test("video reruns append a selectable version instead of replacing the original result", () => {
     const initial = {
@@ -43,4 +43,17 @@ test("video caching updates the current version rather than adding a duplicate c
     assert.equal(cached.alternatives.length, 1);
     assert.equal(cached.alternatives[0]?.content, "/api/media/videos/one.mp4");
     assert.equal(readVideoAlternatives({ videoAlternatives: cached.alternatives })[0]?.storageKey, "videos/one.mp4");
+});
+
+test("video alternatives receive a readable active-version name when saved or downloaded", () => {
+    const metadata = {
+        activeVideoAlternativeIndex: 1,
+        videoAlternatives: [
+            { id: "first", content: "https://media.example/first.mp4", mimeType: "video/mp4" },
+            { id: "second", content: "https://media.example/second.webm", mimeType: "video/webm" },
+        ],
+    };
+
+    assert.equal(videoAlternativeAssetTitle("贝瓦吉他开箱", metadata), "贝瓦吉他开箱 · V02");
+    assert.equal(videoAlternativeFileName("贝瓦吉他开箱", metadata), "贝瓦吉他开箱-v02.webm");
 });

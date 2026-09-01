@@ -20,7 +20,7 @@ ARG APP_DEPLOYMENT_VERSION=dev
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
-RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
+RUN apk add --no-cache ffmpeg && addgroup -S nextjs && adduser -S nextjs -G nextjs
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 # The startup migration script runs outside Next's output-file tracing, so it
 # needs the application's PostgreSQL driver and its transitive dependencies.
@@ -31,6 +31,7 @@ COPY --from=builder --chown=nextjs:nextjs /app/scripts/local-db-migrate.mjs ./sc
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/002-local-upgrade.sql ./docker/initdb/002-local-upgrade.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/003-local-observability.sql ./docker/initdb/003-local-observability.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/005-observability-reporting.sql ./docker/initdb/005-observability-reporting.sql
+COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/004-company-productions.sql ./docker/initdb/004-company-productions.sql
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

@@ -16,6 +16,11 @@ export interface WetokenChatOptions {
 
 type Fetcher = WetokenFetcher;
 
+/**
+ * Wetoken validates only the final user turn for this provider quirk. Put a
+ * lowercase `json` token there instead of relying on system instructions.
+ * Wetoken 只校验最后一个用户消息，因此必须把小写 `json` 放在该消息中。
+ */
 function messagesForJsonOutput(messages: OpenAIMessage[]) {
   const instruction = "\n\n仅返回一个有效的 json object，不要 Markdown。";
   const index = messages.map((message) => message.role).lastIndexOf("user");

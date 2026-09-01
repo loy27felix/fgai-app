@@ -52,6 +52,42 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
   });
 });
 
+test('Wetoken JSON mode always gives the provider a lowercase json instruction', async () => {
+  process.env.WETOKEN_API_KEY = 'test-wetoken-key';
+  let requestBody: { messages?: Array<{ content?: unknown }> } | undefined;
+  const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  await wetokenChat({
+    model: 'gpt-5.6-luna-t1a',
+    messages: [{ role: 'user', content: '帮我规划一个视频' }],
+    jsonOutput: true,
+  }, { fetcher });
+
+  assert.equal(requestBody?.messages?.some((message) => typeof message.content === 'string' && /\bjson\b/.test(message.content)), true);
+});
+
+test('Wetoken JSON mode adds the json instruction to the final user message', async () => {
+  process.env.WETOKEN_API_KEY = 'test-wetoken-key';
+  let requestBody: { messages?: Array<{ role?: string; content?: unknown }> } | undefined;
+  const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  await wetokenChat({
+    model: 'gpt-5.6-luna-t1a',
+    messages: [{ role: 'system', content: '请规划视频。' }, { role: 'user', content: '我想做一个玩具宣传片。' }],
+    jsonOutput: true,
+  }, { fetcher });
+
+  const finalUser = requestBody?.messages?.filter((message) => message.role === 'user').at(-1);
+  assert.equal(typeof finalUser?.content, 'string');
+  assert.match(String(finalUser?.content), /\bjson\b/);
+});
+
 test('Wetoken client rejects a missing server key before fetching', async () => {
   delete process.env.WETOKEN_API_KEY;
   await assert.rejects(

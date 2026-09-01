@@ -277,6 +277,37 @@ create table if not exists creator_messages (
   created_at timestamptz not null default now()
 );
 
+-- A durable production project is intentionally separate from normal Agent
+-- chats. Its session stores director discussion; this record stores the
+-- approved production plan and recovery state for the canvas execution.
+create table if not exists creator_productions (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references creator_workspaces(id) on delete cascade,
+  session_id uuid not null unique references creator_sessions(id) on delete cascade,
+  canvas_project_id text,
+  title text not null default '未命名制片项目',
+  stage text not null default 'research',
+  status text not null default 'draft',
+  state jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists creator_video_assembly_jobs (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references creator_workspaces(id) on delete cascade,
+  user_id uuid not null references app_users(id) on delete cascade,
+  production_id uuid not null references creator_productions(id) on delete cascade,
+  status text not null default 'queued',
+  input jsonb not null default '{}'::jsonb,
+  output jsonb not null default '{}'::jsonb,
+  error text,
+  started_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists creator_canvases (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references creator_workspaces(id) on delete cascade,
@@ -457,6 +488,8 @@ create table if not exists ai_usage_budgets (
 create index if not exists sessions_user_idx on sessions(user_id, expires_at);
 create index if not exists projects_created_by_idx on projects(created_by, created_at desc);
 create index if not exists creator_assets_workspace_idx on creator_assets(workspace_id, created_at desc);
+create index if not exists creator_productions_workspace_idx on creator_productions(workspace_id, updated_at desc);
+create index if not exists creator_assembly_jobs_production_idx on creator_video_assembly_jobs(production_id, updated_at desc);
 create index if not exists creator_tasks_workspace_idx on creator_generation_tasks(workspace_id, status, created_at desc);
 create index if not exists creator_task_events_task_idx on creator_generation_task_events(task_id, created_at desc);
 create index if not exists usage_ledger_user_idx on ai_usage_ledger(user_id, created_at desc);
