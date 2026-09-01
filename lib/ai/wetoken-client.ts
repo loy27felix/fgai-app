@@ -15,20 +15,19 @@ export interface WetokenChatOptions {
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
-function containsLowercaseJson(messages: OpenAIMessage[]) {
-  return messages.some((message) => typeof message.content === "string"
-    ? /\bjson\b/.test(message.content)
-    : message.content.some((part) => part.type === "text" && /\bjson\b/.test(part.text)));
-}
-
 /**
- * Wetoken rejects `json_object` requests unless a lowercase `json` token is
- * present in the messages. Keep the provider quirk behind the client so every
- * structured caller gets the same safe request shape.
+ * Wetoken validates only the final user turn for this provider quirk. Put a
+ * lowercase `json` token there instead of relying on system instructions.
  */
 function messagesForJsonOutput(messages: OpenAIMessage[]) {
-  if (containsLowercaseJson(messages)) return messages;
-  return [{ role: "system" as const, content: "Return one valid json object only. Do not include markdown." }, ...messages];
+  const instruction = "\n\n仅返回一个有效的 json object，不要 Markdown。";
+  const index = messages.map((message) => message.role).lastIndexOf("user");
+  if (index < 0) return [...messages, { role: "user" as const, content: instruction.trim() }];
+  return messages.map((message, messageIndex) => {
+    if (messageIndex !== index) return message;
+    if (typeof message.content === "string") return { ...message, content: `${message.content}${instruction}` };
+    return { ...message, content: [...message.content, { type: "text" as const, text: instruction.trim() }] };
+  });
 }
 
 export async function wetokenChat(options: WetokenChatOptions, dependencies: { fetcher?: Fetcher } = {}): Promise<ChatResult> {
