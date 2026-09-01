@@ -33,9 +33,9 @@ export type MaterialItem = {
 };
 
 export type MaterialInsertPayload =
-    | { kind: "image"; dataUrl: string; title: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; width?: number; height?: number }
-    | { kind: "video"; url: string; title: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; creatorTaskId?: string; width?: number; height?: number }
-    | { kind: "audio"; url: string; title: string; storageKey?: string; mimeType: string; cloudStoragePath?: string; cloudAssetId?: string; durationMs?: number };
+    | { kind: "image"; dataUrl: string; title: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; width?: number; height?: number; origin?: "library" | "upload" }
+    | { kind: "video"; url: string; title: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; creatorTaskId?: string; width?: number; height?: number; origin?: "library" | "upload" }
+    | { kind: "audio"; url: string; title: string; storageKey?: string; mimeType: string; cloudStoragePath?: string; cloudAssetId?: string; durationMs?: number; origin?: "library" | "upload" };
 
 type MaterialLibraryStore = {
     hydrated: boolean;

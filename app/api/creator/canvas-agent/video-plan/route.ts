@@ -30,12 +30,22 @@ type VideoPlanBody = {
   videoResolution?: unknown;
   storyboardModel?: unknown;
   storyboardResolution?: unknown;
+  visualImageCount?: unknown;
+  visualModel?: unknown;
+  visualResolution?: unknown;
+  researchMode?: unknown;
   referenceNames?: unknown;
 };
 
 type ActiveSkill = { name: string; content: string };
 type VideoPlanShot = { title: string; storyboardPrompt: string; videoPrompt: string; duration: number };
-type VideoPlan = { prompt: string; shots: VideoPlanShot[] };
+type VideoPlan = {
+  prompt: string;
+  research: { summary: string; searchQueries: string[] };
+  script: { title: string; logline: string; beats: string[] };
+  visuals: { characters: Array<{ name: string; prompt: string }>; styles: Array<{ name: string; prompt: string }> };
+  shots: VideoPlanShot[];
+};
 
 function normalizeSkill(input: unknown): ActiveSkill | null {
   if (!input || typeof input !== "object") return null;
@@ -94,6 +104,27 @@ function safePlanText(input: unknown, fallback: string) {
   return typeof input === "string" && input.trim() ? input.trim().slice(0, 8_000) : fallback;
 }
 
+function shortList(input: unknown, fallback: string[], limit: number) {
+  if (!Array.isArray(input)) return fallback.slice(0, limit);
+  const next = input.filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().slice(0, 800))
+    .filter(Boolean)
+    .slice(0, limit);
+  return next.length ? next : fallback.slice(0, limit);
+}
+
+function visualCards(input: unknown, fallback: Array<{ name: string; prompt: string }>, limit: number) {
+  if (!Array.isArray(input)) return fallback.slice(0, limit);
+  const cards = input.map((item, index) => {
+    const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    return {
+      name: safePlanText(value.name, `视觉设定 ${index + 1}`).slice(0, 80),
+      prompt: safePlanText(value.prompt, fallback[index]?.prompt || "根据已确认的脚本与调研方向生成视觉参考图。"),
+    };
+  }).filter((item) => item.prompt).slice(0, limit);
+  return cards.length ? cards : fallback.slice(0, limit);
+}
+
 function parseVideoPlan(content: string, fallbackPrompt: string, segmentCount: number, duration: number): VideoPlan {
   let parsed: unknown = null;
   try {
@@ -101,8 +132,24 @@ function parseVideoPlan(content: string, fallbackPrompt: string, segmentCount: n
   } catch {
     // The fallback below still gives the user a complete, editable production plan.
   }
-  const raw = parsed && typeof parsed === "object" ? parsed as { prompt?: unknown; shots?: unknown } : {};
+  const raw = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
   const prompt = safePlanText(raw.prompt, content.trim() || fallbackPrompt);
+  const researchRecord = raw.research && typeof raw.research === "object" ? raw.research as Record<string, unknown> : {};
+  const scriptRecord = raw.script && typeof raw.script === "object" ? raw.script as Record<string, unknown> : {};
+  const visualRecord = raw.visuals && typeof raw.visuals === "object" ? raw.visuals as Record<string, unknown> : {};
+  const research = {
+    summary: safePlanText(researchRecord.summary, `围绕“${fallbackPrompt.slice(0, 120)}”梳理主体、风格、场景与受众记忆点。`),
+    searchQueries: shortList(researchRecord.searchQueries, [fallbackPrompt.slice(0, 120) || "视频创作参考"], 6),
+  };
+  const script = {
+    title: safePlanText(scriptRecord.title, "视频创作 Brief").slice(0, 120),
+    logline: safePlanText(scriptRecord.logline, fallbackPrompt),
+    beats: shortList(scriptRecord.beats, Array.from({ length: segmentCount }, (_, index) => `镜头 ${index + 1}：承接核心目标并推进动作。`), 8),
+  };
+  const visuals = {
+    characters: visualCards(visualRecord.characters, [{ name: "主角设定", prompt: `${prompt}\n\n角色设定图：保证身份、服装、面部与动作连续。` }], 4),
+    styles: visualCards(visualRecord.styles, [{ name: "风格设定", prompt: `${prompt}\n\n风格参考图：确定色彩、灯光、构图与材质，不包含文字或水印。` }], 4),
+  };
   const rawShots = Array.isArray(raw.shots) ? raw.shots : [];
   const shots = Array.from({ length: segmentCount }, (_, index): VideoPlanShot => {
     const source = rawShots[index] && typeof rawShots[index] === "object" ? rawShots[index] as Record<string, unknown> : {};
@@ -111,7 +158,7 @@ function parseVideoPlan(content: string, fallbackPrompt: string, segmentCount: n
     const videoPrompt = safePlanText(source.videoPrompt, `${prompt}\n\n第 ${index + 1} 段，共 ${segmentCount} 段；时长 ${duration} 秒。承接前一段的动作和视觉连续性，完成本段独立、清晰的镜头动作。`);
     return { title: shotTitle, storyboardPrompt, videoPrompt, duration };
   });
-  return { prompt, shots };
+  return { prompt, research, script, visuals, shots };
 }
 
 function buildVideoPlanMessages(input: {
@@ -127,7 +174,7 @@ function buildVideoPlanMessages(input: {
   return [
     {
       role: "system" as const,
-      content: "你是 FG Studio 的视频创作导演。请根据用户选择的多个 Skill 和制作问卷，规划一个可先生成分镜静帧、再生成连续视频的制作方案。只输出有效 JSON，不要 Markdown。格式必须是：{\"prompt\":\"完整中文总提示词\",\"shots\":[{\"title\":\"镜头标题\",\"storyboardPrompt\":\"用于生成该镜头分镜图的中文提示词\",\"videoPrompt\":\"用于生成该段视频的中文提示词\"}]}。shots 数量必须严格等于 segmentCount。每段要保持角色、物体、空间、光线和动作连续，不能虚构参考素材中不可见的事实。",
+      content: "你是 FG Studio 的视频创作导演。请根据用户选择的多个 Skill 和制作问卷，规划一个可落在画布上的完整制片方案：调研、脚本、角色与风格、分镜静帧、连续视频。只输出有效 JSON，不要 Markdown。格式必须是：{\"prompt\":\"完整中文总提示词\",\"research\":{\"summary\":\"调研结论\",\"searchQueries\":[\"可用于联网找图的检索词\"]},\"script\":{\"title\":\"标题\",\"logline\":\"一句话故事\",\"beats\":[\"节拍\"]},\"visuals\":{\"characters\":[{\"name\":\"角色\",\"prompt\":\"人设图提示词\"}],\"styles\":[{\"name\":\"风格\",\"prompt\":\"风格图提示词\"}]},\"shots\":[{\"title\":\"镜头标题\",\"storyboardPrompt\":\"用于生成该镜头分镜图的中文提示词\",\"videoPrompt\":\"用于生成该段视频的中文提示词\"}]}。shots 数量必须严格等于 segmentCount。每段要保持角色、物体、空间、光线和动作连续，不能把未验证的联网检索结果当作事实。",
     },
     {
       role: "user" as const,
@@ -175,6 +222,9 @@ export async function POST(req: Request) {
   const segmentCount = normalizeCompanyVideoSegmentCount(body.segmentCount);
   const storyboardModel = compactText(body.storyboardModel, 180) || "gpt-image-2";
   const storyboardResolution = compactText(body.storyboardResolution, 40) || "1024x1024";
+  const visualImageCount = Math.min(12, Math.max(0, Math.floor(Number(body.visualImageCount) || 0)));
+  const visualModel = compactText(body.visualModel, 180) || storyboardModel;
+  const visualResolution = compactText(body.visualResolution, 40) || storyboardResolution;
   const referenceNames = normalizeReferenceNames(body.referenceNames);
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
 
@@ -221,6 +271,7 @@ export async function POST(req: Request) {
     const plan = parseVideoPlan(result.content, fallbackPrompt, segmentCount, duration);
     const quote = estimateCompanyVideoProduction({
       videoModel, videoResolution, secondsPerSegment: duration, segmentCount, storyboardModel, storyboardResolution,
+      visualImageCount, visualModel, visualResolution,
     });
 
     const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({

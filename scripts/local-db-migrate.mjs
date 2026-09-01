@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Client } from "pg";
 
-const migrationNames = ["002-local-upgrade.sql", "003-local-observability.sql"];
+const migrationNames = ["002-local-upgrade.sql", "003-local-observability.sql", "004-company-productions.sql"];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";
 

@@ -35,3 +35,21 @@ test("company video production keeps a quote honest when a custom model has no p
   assert.equal(quote.totalCostUsd, null);
   assert.equal(quote.hasUnpricedItems, true);
 });
+
+test("company video production includes confirmed character and style images in its quote", () => {
+  const quote = estimateCompanyVideoProduction({
+    videoModel: "dreamina-seedance-2-0-mini",
+    videoResolution: "720p",
+    secondsPerSegment: 5,
+    segmentCount: 1,
+    storyboardModel: "gpt-image-2",
+    storyboardResolution: "1024x1024",
+    visualImageCount: 5,
+    visualModel: "gpt-image-2",
+    visualResolution: "1024x1024",
+  });
+
+  assert.equal(quote.visualImageCount, 5);
+  assert.equal(quote.visualCostUsd, 0.1);
+  assert.equal(quote.totalCostUsd, 2.605);
+});

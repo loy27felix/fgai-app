@@ -3,13 +3,22 @@
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { ArrowLeft, Check, Clapperboard, FileVideo, ImagePlus, LoaderCircle, ReceiptText, Sparkles, X } from "lucide-react";
 import { getVideoModel } from "@/lib/ai/video-models";
+import type { MaterialInsertPayload } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 
 export type CompanyVideoSkill = { name: string; content: string };
 export type CompanyVideoPlanShot = { title: string; storyboardPrompt: string; videoPrompt: string; duration: number };
-export type CompanyVideoPlan = { prompt: string; shots: CompanyVideoPlanShot[] };
+export type CompanyVideoPlan = {
+  prompt: string;
+  research: { summary: string; searchQueries: string[] };
+  script: { title: string; logline: string; beats: string[] };
+  visuals: { characters: Array<{ name: string; prompt: string }>; styles: Array<{ name: string; prompt: string }> };
+  shots: CompanyVideoPlanShot[];
+};
 export type CompanyVideoQuote = {
+  visualImageCount: number;
   storyboardCount: number;
   segmentCount: number;
+  visualCostUsd: number | null;
   storyboardCostUsd: number | null;
   videoCostUsd: number | null;
   totalCostUsd: number | null;
@@ -26,7 +35,15 @@ export type CompanyVideoSkillFlowInput = {
   videoResolution: string;
   storyboardModel: string;
   storyboardResolution: string;
+  visualImageCount: number;
+  visualModel: string;
+  visualResolution: string;
+  characterCount: number;
+  styleCount: number;
+  researchMode: "library" | "online";
+  assemble: boolean;
   references: File[];
+  materialReferences: MaterialInsertPayload[];
   prompt: string;
   plan: CompanyVideoPlan | null;
   quote: CompanyVideoQuote | null;
@@ -92,7 +109,10 @@ export function CompanyVideoSkillFlow({ skills, planningModelLabel, videoModels,
   const videoResolutions = useMemo(() => getVideoModel(modelName(videoModel))?.resolutions || ["480p", "720p", "1080p", "4K"], [videoModel]);
   const input = (): CompanyVideoSkillFlowInput => ({
     brief: brief.trim(), subject: subject.trim(), visualDirection: visualDirection.trim(), ratio, duration, segmentCount,
-    videoModel, videoResolution, storyboardModel, storyboardResolution, references, prompt: plan?.prompt.trim() || "", plan, quote,
+    videoModel, videoResolution, storyboardModel, storyboardResolution,
+    visualImageCount: 0, visualModel: storyboardModel, visualResolution: storyboardResolution, characterCount: 0, styleCount: 0,
+    researchMode: "library", assemble: false,
+    references, materialReferences: [], prompt: plan?.prompt.trim() || "", plan, quote,
   });
 
   function addReferences(event: ChangeEvent<HTMLInputElement>) {
