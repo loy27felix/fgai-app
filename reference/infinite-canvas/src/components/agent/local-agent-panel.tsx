@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { DEFAULT_TEXT_MODEL_ID, isTextModelId, TEXT_MODELS } from "@/lib/ai/catalog";
 import { REASONING_EFFORT_OPTIONS, type ReasoningEffort } from "@/lib/ai/reasoning";
 import { isConversationNearBottom } from "@/lib/creator/history";
+import type { CompanyProductionDirection } from "@/lib/creator/company-production-direction";
 import type { CreatorMessage, CreatorProduction, CreatorSession } from "@/lib/creator/types";
 import CompanySkillPicker, { type CompanySelectedSkill } from "@/components/CompanySkillPicker";
 import PromptPicker from "@/components/PromptPicker";
@@ -398,6 +399,27 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }
 
+  async function exploreProductionDirections(input: CompanyVideoSkillFlowInput) {
+    if (!skills.length) throw new Error("请至少选择一个 Skill");
+    const response = await fetch("/api/creator/canvas-agent/video-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "directions",
+        model,
+        reasoningEffort,
+        skills,
+        brief: input.brief,
+        subject: input.subject,
+        visualDirection: input.visualDirection,
+        referenceNames: [...input.references.map((file) => file.name), ...input.materialReferences.map((item) => item.title)],
+      }),
+    });
+    const data = await readAgentResponse<{ directions: CompanyProductionDirection[] }>(response, "创作方向生成失败");
+    if (!Array.isArray(data.directions) || data.directions.length !== 3) throw new Error("模型没有返回三条可选创作方向");
+    return { directions: data.directions };
+  }
+
   async function prepareSkillVideo(input: CompanyVideoSkillFlowInput) {
     if (!skills.length) throw new Error("请至少选择一个 Skill");
     const response = await fetch("/api/creator/canvas-agent/video-plan", {
@@ -641,6 +663,7 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
         imageModels={storyboardModelOptions}
         canvasReady={Boolean(canvasContext)}
         initial={productionDraft || undefined}
+        onExploreDirections={exploreProductionDirections}
         onPrepare={prepareSkillVideo}
         onConfirmStage={confirmProductionStage}
         onStart={startSkillVideo}

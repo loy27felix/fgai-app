@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Check, Clapperboard, FileSearch, Film, ImagePlus, LoaderCircle, MessageCircleMore, ReceiptText, Search, Sparkles, UserRound, WandSparkles, X } from "lucide-react";
 import { getVideoModel } from "@/lib/ai/video-models";
 import { estimateCompanyVideoProduction } from "@/lib/creator/company-video-production";
+import type { CompanyProductionDirection } from "@/lib/creator/company-production-direction";
 import { MaterialLibraryPickerModal } from "@/reference/infinite-canvas/src/components/canvas/material-library-picker-modal";
 import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import type { MaterialInsertPayload } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
@@ -30,6 +31,9 @@ export type CompanyProductionDraft = {
   researchMode: "library" | "online";
   assemble: boolean;
   materialReferences?: MaterialInsertPayload[];
+  directions?: CompanyProductionDirection[];
+  selectedDirectionId?: string | null;
+  customDirection?: string;
   plan: CompanyVideoPlan | null;
   quote: CompanyVideoQuote | null;
 };
@@ -43,6 +47,7 @@ type Props = {
   imageModels: ModelOption[];
   canvasReady: boolean;
   initial?: Partial<CompanyProductionDraft> | null;
+  onExploreDirections: (input: CompanyVideoSkillFlowInput) => Promise<{ directions: CompanyProductionDirection[] }>;
   onPrepare: (input: CompanyVideoSkillFlowInput) => Promise<{ plan: CompanyVideoPlan; quote: CompanyVideoQuote }>;
   onConfirmStage?: (stage: Stage, input: CompanyVideoSkillFlowInput) => Promise<void>;
   onStart: (input: CompanyVideoSkillFlowInput) => Promise<void>;
@@ -67,7 +72,7 @@ function modelName(value: string) { const index = value.indexOf("::"); return (i
 function imageResolution(value: string) { return value.split(" · ")[0]; }
 function phaseIndex(phase: CompanyProductionPhase) { return PHASES.findIndex((item) => item.id === phase); }
 
-export function CompanyProductionFlow({ skills, planningModelLabel, videoModels, imageModels, canvasReady, initial, onPrepare, onConfirmStage, onStart, onDiscuss, onDraftChange, onClose }: Props) {
+export function CompanyProductionFlow({ skills, planningModelLabel, videoModels, imageModels, canvasReady, initial, onExploreDirections, onPrepare, onConfirmStage, onStart, onDiscuss, onDraftChange, onClose }: Props) {
   const [phase, setPhase] = useState<CompanyProductionPhase>(initial?.phase || "direction");
   const [brief, setBrief] = useState(initial?.brief || "");
   const [subject, setSubject] = useState(initial?.subject || "");
@@ -88,6 +93,9 @@ export function CompanyProductionFlow({ skills, planningModelLabel, videoModels,
   const [materialReferences, setMaterialReferences] = useState<MaterialInsertPayload[]>(initial?.materialReferences || []);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const [uploadingReferences, setUploadingReferences] = useState(false);
+  const [directions, setDirections] = useState<CompanyProductionDirection[]>(initial?.directions || []);
+  const [selectedDirectionId, setSelectedDirectionId] = useState<string | null>(initial?.selectedDirectionId || null);
+  const [customDirection, setCustomDirection] = useState(initial?.customDirection || "");
   const [plan, setPlan] = useState<CompanyVideoPlan | null>(initial?.plan || null);
   const [quote, setQuote] = useState<CompanyVideoQuote | null>(initial?.quote || null);
   const [busy, setBusy] = useState(false);
@@ -106,7 +114,7 @@ export function CompanyProductionFlow({ skills, planningModelLabel, videoModels,
   const draft = (): CompanyProductionDraft => ({
     phase, brief: brief.trim(), subject: subject.trim(), visualDirection: visualDirection.trim(), ratio, duration, segmentCount,
     videoModel, videoResolution, storyboardModel, storyboardResolution, visualImageCount, visualModel, visualResolution,
-    characterCount, styleCount, researchMode, assemble, materialReferences, plan, quote: liveQuote,
+    characterCount, styleCount, researchMode, assemble, materialReferences, directions, selectedDirectionId, customDirection: customDirection.trim(), plan, quote: liveQuote,
   });
   const input = (): CompanyVideoSkillFlowInput => ({
     brief: brief.trim(), subject: subject.trim(), visualDirection: visualDirection.trim(), ratio, duration, segmentCount,
@@ -114,7 +122,20 @@ export function CompanyProductionFlow({ skills, planningModelLabel, videoModels,
     characterCount, styleCount, researchMode, assemble, references: [], materialReferences, prompt: plan?.prompt.trim() || "", plan, quote: liveQuote,
   });
 
-  useEffect(() => { onDraftChange?.(draft()); }, [phase, brief, subject, visualDirection, ratio, duration, segmentCount, videoModel, videoResolution, storyboardModel, storyboardResolution, visualImageCount, visualModel, visualResolution, characterCount, styleCount, researchMode, assemble, materialReferences, plan, liveQuote]);
+  function selectedDirection() {
+    return directions.find((direction) => direction.id === selectedDirectionId) || null;
+  }
+
+  function productionInput() {
+    const selected = selectedDirection();
+    const directionContext = selected
+      ? `已确认创作方向：${selected.title}\n钩子：${selected.hook}\n处理：${selected.treatment}\n画面：${selected.visualLanguage}`
+      : customDirection.trim() ? `用户指定创作方向：${customDirection.trim()}` : "";
+    const base = input();
+    return { ...base, subject: [base.subject, directionContext].filter(Boolean).join("\n\n") };
+  }
+
+  useEffect(() => { onDraftChange?.(draft()); }, [phase, brief, subject, visualDirection, ratio, duration, segmentCount, videoModel, videoResolution, storyboardModel, storyboardResolution, visualImageCount, visualModel, visualResolution, characterCount, styleCount, researchMode, assemble, materialReferences, directions, selectedDirectionId, customDirection, plan, liveQuote]);
 
   async function addReferences(event: ChangeEvent<HTMLInputElement>) {
     const remaining = Math.max(0, 8 - materialReferences.length);
@@ -164,12 +185,22 @@ export function CompanyProductionFlow({ skills, planningModelLabel, videoModels,
     });
   }
 
-  async function prepare() {
+  async function exploreDirections() {
     if (!brief.trim()) { setError("先写下创作目标，Agent 才能给出调研与制片提案。"); return; }
     if (!skills.length) { setError("请先选择至少一个 Skill，再开始制片。 "); return; }
     setBusy(true); setError("");
     try {
-      const output = await onPrepare(input());
+      const output = await onExploreDirections(input());
+      setDirections(output.directions); setSelectedDirectionId(null); setCustomDirection("");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "方向建议生成失败，请稍后重试。"); }
+    finally { setBusy(false); }
+  }
+
+  async function prepare() {
+    if (!selectedDirection() && !customDirection.trim()) { setError("请选择一个方向，或输入你想要的自定义方向。"); return; }
+    setBusy(true); setError("");
+    try {
+      const output = await onPrepare(productionInput());
       setPlan(output.plan); setQuote(output.quote); setPhase("research");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "制片提案生成失败，请稍后重试。"); }
     finally { setBusy(false); }
@@ -211,7 +242,19 @@ export function CompanyProductionFlow({ skills, planningModelLabel, videoModels,
     </div>
 
     <div className="fg-production-flow-body">
-      {phase === "direction" ? <section className="fg-production-card intro"><span>01 · 对话确认方向</span><h3>这次想做成什么片子？</h3><p>先确定受众、目标、故事与调性。确认后，Agent 才会提调研、脚本、人设、分镜和模型方案。</p><textarea autoFocus value={brief} onChange={(event) => setBrief(event.target.value)} placeholder="例如：为新款互动玩具做 15 秒竖版种草视频，强调孩子第一次发现琴颈和按键会发声的惊喜。" /><label>主体、故事和关键动作<textarea value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="谁在什么场景里做什么，必须保持什么结构或人物连续性？" /></label><label>画面与镜头方向<textarea value={visualDirection} onChange={(event) => setVisualDirection(event.target.value)} placeholder="风格、光线、景别、运镜、禁止出现的元素。" /></label><button type="button" className="primary" disabled={busy} onClick={() => void prepare()}>{busy ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}生成制片提案</button></section> : null}
+      {phase === "direction" ? <section className="fg-production-card intro fg-production-direction">
+        <span>01 · 先对齐创作方向</span>
+        <h3>你想做什么？</h3>
+        <p>先选好 Skill，再用一句话告诉制片 Agent 你想做的片子。它会给你三个不同的方向，不会直接替你写完整方案。</p>
+        <label className="fg-production-primary-question">这次想做成什么片子？<textarea autoFocus value={brief} onChange={(event) => { setBrief(event.target.value); setDirections([]); setSelectedDirectionId(null); }} placeholder="例如：为贝瓦新出的玩具做一支宣传视频，想突出它会唱、会动、很适合亲子一起玩。" /></label>
+        <label>补充需求或注意事项 <small>可选</small><textarea value={visualDirection} onChange={(event) => { setVisualDirection(event.target.value); setDirections([]); setSelectedDirectionId(null); }} placeholder="例如：不要 AI 感；要温暖真实；已有角色图或产品图；不想出现哪些内容。" /></label>
+        {!directions.length ? <button type="button" className="primary" disabled={busy} onClick={() => void exploreDirections()}>{busy ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}让 Agent 给我三个方向</button> : <>
+          <div className="fg-production-direction-heading"><span>制片 Agent 的方向建议</span><button type="button" disabled={busy} onClick={() => void exploreDirections()}>换一组</button></div>
+          <div className="fg-production-direction-options">{directions.map((direction, index) => <button type="button" className={selectedDirectionId === direction.id ? "active" : ""} key={direction.id} onClick={() => { setSelectedDirectionId(direction.id); setCustomDirection(""); }}><em>方向 {String(index + 1).padStart(2, "0")}</em><strong>{direction.title}</strong><span>{direction.hook}</span><small><b>怎么拍</b>{direction.treatment}</small><small><b>画面</b>{direction.visualLanguage}</small></button>)}</div>
+          <div className={selectedDirectionId === "custom" ? "fg-production-custom-direction active" : "fg-production-custom-direction"}><button type="button" onClick={() => setSelectedDirectionId("custom")}>以上都不是，我自己说方向</button>{selectedDirectionId === "custom" ? <textarea autoFocus value={customDirection} onChange={(event) => setCustomDirection(event.target.value)} placeholder="直接告诉 Agent 你更想怎么拍，它会以这条方向继续做调研和方案。" /> : null}</div>
+          <button type="button" className="primary" disabled={busy} onClick={() => void prepare()}>{busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}确认这个方向，继续调研</button>
+        </>}
+      </section> : null}
 
       {phase === "research" && plan ? <section className="fg-production-card"><span>02 · 调研提案确认</span><h3>参考不是装饰，是后续每个节点的上游依据。</h3><p>{plan.research.summary}</p><div className="fg-production-query-list">{plan.research.searchQueries.map((query, index) => <code key={`${query}-${index}`}>{query}</code>)}</div><div className="fg-production-choice"><button type="button" className={researchMode === "library" ? "active" : ""} onClick={() => setResearchMode("library")}>素材库 / 上传内容</button><button type="button" className={researchMode === "online" ? "active" : ""} onClick={() => setResearchMode("online")}>Agent 联网检索</button></div><p className="fg-production-help">素材库引用与上传参考都会立即私有存储并写入制片项目；当前未配置联网图片源时，“联网检索”只会保留检索方向，配置合规来源后才会拉取外部图片。</p><div className="fg-production-upload"><input ref={uploadRef} hidden type="file" accept="image/*,video/*,audio/*" multiple onChange={(event) => void addReferences(event)} /><button type="button" disabled={uploadingReferences || materialReferences.length >= 8} onClick={() => uploadRef.current?.click()}><ImagePlus size={14} />{uploadingReferences ? "正在存储…" : "上传参考素材"}</button><button type="button" disabled={uploadingReferences || materialReferences.length >= 8} onClick={() => setMaterialPickerOpen(true)}>从素材库选择</button><small>{materialReferences.length}/8</small></div>{materialReferences.length ? <ul className="fg-production-files">{materialReferences.map((item, index) => <li key={`${item.cloudAssetId || item.title}-${index}`}><span>{item.origin === "upload" ? "上传" : item.kind === "video" ? "素材库视频" : item.kind === "audio" ? "素材库音频" : "素材库图片"}</span><strong>{item.title}</strong><button type="button" onClick={() => setMaterialReferences((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={12} /></button></li>)}</ul> : null}<button type="button" className="primary" disabled={busy || uploadingReferences} onClick={() => void confirm("research", "script")}>确认调研提案</button></section> : null}
 

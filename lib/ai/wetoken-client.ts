@@ -15,11 +15,28 @@ export interface WetokenChatOptions {
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
+function containsLowercaseJson(messages: OpenAIMessage[]) {
+  return messages.some((message) => typeof message.content === "string"
+    ? /\bjson\b/.test(message.content)
+    : message.content.some((part) => part.type === "text" && /\bjson\b/.test(part.text)));
+}
+
+/**
+ * Wetoken rejects `json_object` requests unless a lowercase `json` token is
+ * present in the messages. Keep the provider quirk behind the client so every
+ * structured caller gets the same safe request shape.
+ */
+function messagesForJsonOutput(messages: OpenAIMessage[]) {
+  if (containsLowercaseJson(messages)) return messages;
+  return [{ role: "system" as const, content: "Return one valid json object only. Do not include markdown." }, ...messages];
+}
+
 export async function wetokenChat(options: WetokenChatOptions, dependencies: { fetcher?: Fetcher } = {}): Promise<ChatResult> {
   const key = process.env.WETOKEN_API_KEY;
   if (!key) throw new Error("缺少 WETOKEN_API_KEY 环境变量");
   const base = (process.env.WETOKEN_BASE_URL || "https://wetoken.ai/v1").replace(/\/$/, "");
-  const body: Record<string, unknown> = { model: options.model, messages: options.messages, stream: false, max_tokens: options.maxTokens ?? 2000 };
+  const messages = options.jsonOutput ? messagesForJsonOutput(options.messages) : options.messages;
+  const body: Record<string, unknown> = { model: options.model, messages, stream: false, max_tokens: options.maxTokens ?? 2000 };
   const reasoningEffort = providerReasoningEffort(options.reasoningEffort, "wetoken");
   if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   if (options.jsonOutput) body.response_format = { type: "json_object" };
