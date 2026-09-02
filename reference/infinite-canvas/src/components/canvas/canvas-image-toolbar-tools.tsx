@@ -36,7 +36,9 @@ export type ImageQuickToolsConfig = {
     showLabels: boolean;
 };
 
-export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v6";
+// Keep the existing custom toolbar settings. normalizeImageQuickToolIds drops
+// the relocated copy action without resetting the user's other choices.
+export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
 
 const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "duplicate", "saveAsset", "download", "edit"];
 
@@ -125,10 +127,10 @@ export const imageToolDefinitions: ImageToolDefinition[] = [
     },
     {
         id: "angle",
-        defaultVisible: false,
-        panelLabel: "多角度",
+        defaultVisible: true,
+        panelLabel: "多角度 / 分镜",
         label: "多角度",
-        title: "生成角度",
+        title: "生成新角度或九宫格分镜",
         icon: () => <Camera className="size-4" />,
         run: (node, handlers) => handlers.onAngle(node),
     },

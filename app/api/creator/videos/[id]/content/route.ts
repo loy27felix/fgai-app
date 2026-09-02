@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GET as getVideoTask } from '../route';
 import { createAdminClient } from '@/lib/local/admin';
+import { resolveInternalMediaUrl } from '@/lib/local/media-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,7 +54,7 @@ export async function GET(req: Request, { params }: RouteContext) {
   let sawFetchError = false;
   for (const candidate of candidates) {
     try {
-      const response = await fetch(candidate, {
+      const response = await fetch(resolveInternalMediaUrl(candidate), {
         redirect: 'follow',
         headers: range ? { range } : undefined,
       });

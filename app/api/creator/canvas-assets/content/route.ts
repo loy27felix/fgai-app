@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
+import { resolveInternalMediaUrl } from '@/lib/local/media-url';
 import { logServerEvent, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
   const range = req.headers.get('range');
   let upstream: Response;
   try {
-    upstream = await fetch(signedUrl, { redirect: 'follow', headers: range ? { range } : undefined });
+    upstream = await fetch(resolveInternalMediaUrl(signedUrl), { redirect: 'follow', headers: range ? { range } : undefined });
   } catch (error) {
     console.error('[creator canvas asset content proxy]', error);
     logServerFailure('creator_canvas_asset_content_fetch_failed', error, { traceId, feature: 'creator_canvas_asset_content', stage: 'upstream_fetch', storagePath: path, hasRange: Boolean(range) });

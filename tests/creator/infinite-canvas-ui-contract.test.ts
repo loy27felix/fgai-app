@@ -118,6 +118,15 @@ test('canvas pastes externally copied images through the native HTTP-compatible 
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
 });
 
+test('canvas image copy writes a user-activated image payload instead of using legacy DOM selection copy', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const imageClipboard = read('reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard.ts');
+
+  assert.match(imageClipboard, /new ClipboardItemClass\(\{ "image\/png": pngPromise \}\)/);
+  assert.doesNotMatch(imageClipboard, /execCommand\("copy"\)/);
+  assert.doesNotMatch(project, /isCanvasNativeImageCopyInFlight/);
+});
+
 test('canvas error details wrap and scroll inside narrow portrait nodes', () => {
   const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
 
@@ -273,6 +282,43 @@ test('canvas video assets retain a durable playback path and surface a recoverab
   assert.match(panel, /video\.play\(\)/);
   assert.match(node, /视频暂时无法播放/);
   assert.match(node, /\[canvas video playback failed\]/);
+});
+
+test('replacing a canvas video creates a fresh cloud backup instead of retaining stale metadata', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const replacementStart = project.indexOf('else if (first.type.startsWith("video/"))');
+  const replacementEnd = project.indexOf('} else {', replacementStart);
+  const replacement = project.slice(replacementStart, replacementEnd);
+
+  assert.ok(replacementStart >= 0);
+  assert.match(replacement, /uploadCanvasAsset\(first/);
+  assert.match(replacement, /cloudStoragePath/);
+  assert.match(replacement, /cloudAssetId/);
+});
+
+test('uploaded and replaced canvas images receive their own durable cloud asset', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const imageCreation = project.slice(project.indexOf('const createImageFileNode'), project.indexOf('const createVideoFileNode'));
+  const imageReplacementStart = project.indexOf('const image = await uploadImage(first);');
+  const imageReplacement = project.slice(imageReplacementStart, project.indexOf('// 剩余文件', imageReplacementStart));
+
+  assert.match(imageCreation, /uploadCanvasAsset\(file, \{ kind: "image"/);
+  assert.match(imageCreation, /cloudStoragePath/);
+  assert.match(imageReplacement, /uploadCanvasAsset\(first, \{ kind: "image"/);
+  assert.match(imageReplacement, /creatorTaskId: undefined/);
+});
+
+test('image copying is an image-node context-menu action rather than a hovering toolbar action', () => {
+  const contextMenu = read('reference/infinite-canvas/src/components/canvas/canvas-context-menu.tsx');
+  const hoverToolbar = read('reference/infinite-canvas/src/components/canvas/canvas-node-hover-toolbar.tsx');
+  const imageTools = read('reference/infinite-canvas/src/components/canvas/canvas-image-toolbar-tools.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(contextMenu, /onCopyImage/);
+  assert.match(contextMenu, /label="复制图片"/);
+  assert.match(project, /onCopyImage=\{\(\) =>/);
+  assert.doesNotMatch(hoverToolbar, /copyCanvasImageToClipboard/);
+  assert.doesNotMatch(imageTools, /id: "copyImage"/);
 });
 
 test('canvas release notes and prompt sources are owned by FG Studio', () => {

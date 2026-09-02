@@ -155,11 +155,15 @@ export function isAudioFile(file: File) {
 }
 
 export function buildAngleLabel(params: CanvasImageAngleParams) {
+    if (params.mode === "storyboard") return "AI 九宫格分镜";
     const horizontal = params.horizontalAngle === 0 ? "正面视角" : params.horizontalAngle > 0 ? `向右旋转 ${params.horizontalAngle} 度` : `向左旋转 ${Math.abs(params.horizontalAngle)} 度`;
     const pitch = params.pitchAngle === 0 ? "水平视角" : params.pitchAngle > 0 ? `俯视 ${params.pitchAngle} 度` : `仰视 ${Math.abs(params.pitchAngle)} 度`;
     return `AI 多角度：${horizontal}，${pitch}，镜头距离 ${params.cameraDistance.toFixed(1)}，${params.wideAngle ? "广角" : "标准"}镜头`;
 }
 
 export function buildAnglePrompt(params: CanvasImageAngleParams) {
+    if (params.mode === "storyboard") {
+        return "基于参考图创作一张电影级九宫格分镜表，严格 3×3 九格、每格清楚分隔。保持同一主体、角色造型、颜色、材质、场景和风格连续一致；九格依次为：建立镜头、标准中景、主体特写、侧面构图、核心动作、反应镜头、关键细节、俯视或低机位变化、收束定格。每格都必须是不同镜头，不要文字、标题、编号、边框外元素、水印或拼贴错位。";
+    }
     return `基于参考图重新生成同一主体的新视角，保持主体、颜色、材质和画面风格一致，不要只做透视变形。${buildAngleLabel(params)}。`;
 }
