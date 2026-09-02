@@ -3,11 +3,10 @@ import { Brush, Camera, Copy, FileText, Grid2x2, Lock, LockOpen, Maximize2, Scis
 
 import type { CanvasNodeData } from "@/reference/infinite-canvas/src/types/canvas";
 
-export type ImageNodeActionToolId = "copyImage" | "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
+export type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
 export type ImageQuickToolId = "info" | "delete" | "duplicate" | "saveAsset" | "download" | "edit" | ImageNodeActionToolId;
 
 export type ImageToolHandlers = {
-    onCopyImage: (node: CanvasNodeData) => void;
     onUpload: (node: CanvasNodeData) => void;
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
@@ -37,20 +36,13 @@ export type ImageQuickToolsConfig = {
     showLabels: boolean;
 };
 
+// Keep the existing custom toolbar settings. normalizeImageQuickToolIds drops
+// the relocated copy action without resetting the user's other choices.
 export const IMAGE_QUICK_TOOLS_STORAGE_KEY = "canvas-image-quick-tools-v7";
 
 const defaultBaseToolIds: ImageQuickToolId[] = ["info", "delete", "duplicate", "saveAsset", "download", "edit"];
 
 export const imageToolDefinitions: ImageToolDefinition[] = [
-    {
-        id: "copyImage",
-        defaultVisible: true,
-        panelLabel: "复制图片",
-        label: "复制图片",
-        title: "复制原始图片到系统剪贴板",
-        icon: () => <Copy className="size-4" />,
-        run: (node, handlers) => handlers.onCopyImage(node),
-    },
     {
         id: "copyPrompt",
         defaultVisible: true,

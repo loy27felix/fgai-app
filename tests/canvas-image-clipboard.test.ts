@@ -22,3 +22,36 @@ test("copying a canvas image writes image data to the system clipboard", async (
   assert.equal(writes[0]["image/png"]?.type, "image/png");
   assert.ok((writes[0]["image/png"]?.size || 0) > 0);
 });
+
+test("copying still attempts ClipboardItem when an embedded browser reports an insecure context", async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const writes: unknown[] = [];
+  class MockClipboardItem {
+    constructor(_data: Record<string, Blob>) {}
+  }
+
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { isSecureContext: false } });
+  try {
+    await copyCanvasImageToClipboard("https://assets.example/frame.png", {
+      fetcher: async () => new Response(new Blob(["image-bytes"], { type: "image/png" }), { status: 200 }),
+      clipboard: { write: async (items) => { writes.push(...items); } },
+      ClipboardItem: MockClipboardItem,
+    });
+  } finally {
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+
+  assert.equal(writes.length, 1);
+});
+
+test("copying falls back to a legacy native copy operation when ClipboardItem is unavailable", async () => {
+  let copiedBytes = 0;
+
+  await copyCanvasImageToClipboard("https://assets.example/frame.png", {
+    fetcher: async () => new Response(new Blob(["image-bytes"], { type: "image/png" }), { status: 200 }),
+    legacyCopy: async (blob) => { copiedBytes = blob.size; },
+  });
+
+  assert.equal(copiedBytes, "image-bytes".length);
+});

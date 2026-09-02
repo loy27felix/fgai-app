@@ -20,6 +20,7 @@ import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-ca
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-data";
+import { copyCanvasImageToClipboard } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
 import { fitNodeSize, nodeSizeFromRatio } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-size";
 import { App, Button, Modal, Select } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/reference/infinite-canvas/src/constant/canvas";
@@ -4175,6 +4176,15 @@ function InfiniteCanvasPage() {
                                 deleteConnection(contextMenu.connectionId);
                             }
                             setContextMenu(null);
+                        }}
+                        onCopyImage={() => {
+                            if (contextMenu.type !== "node") return;
+                            const node = nodes.find((item) => item.id === contextMenu.nodeId);
+                            setContextMenu(null);
+                            if (!node?.metadata?.content || node.type !== CanvasNodeType.Image) return;
+                            void copyCanvasImageToClipboard(node.metadata.content)
+                                .then(() => message.success("图片已复制到系统剪贴板"))
+                                .catch((error) => message.error(error instanceof Error ? error.message : "复制图片失败，请重试"));
                         }}
                         onCaptureVideoFrame={(frame) => {
                             if (contextMenu.type === "node") void handleVideoFrameCapture(contextMenu.nodeId, frame);

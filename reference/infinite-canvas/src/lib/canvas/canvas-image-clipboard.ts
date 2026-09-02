@@ -4,6 +4,7 @@ type CanvasImageClipboardDependencies = {
     fetcher?: (input: RequestInfo | URL) => Promise<Response>;
     clipboard?: { write: (items: unknown[]) => Promise<void> };
     ClipboardItem?: ClipboardItemConstructor;
+    legacyCopy?: (blob: Blob) => Promise<void>;
 };
 
 /**
@@ -13,9 +14,6 @@ type CanvasImageClipboardDependencies = {
 export async function copyCanvasImageToClipboard(source: string, dependencies: CanvasImageClipboardDependencies = {}) {
     const clipboard = dependencies.clipboard ?? (typeof navigator !== "undefined" ? navigator.clipboard : undefined);
     const ClipboardItemClass = dependencies.ClipboardItem ?? (typeof window !== "undefined" ? window.ClipboardItem : undefined);
-    if (!clipboard || !ClipboardItemClass || (typeof window !== "undefined" && !window.isSecureContext)) {
-        throw new Error("当前浏览器环境不支持复制图片，请使用 HTTPS 或 localhost 后重试");
-    }
 
     const response = await (dependencies.fetcher ?? fetch)(source);
     if (!response.ok) throw new Error("无法读取图片数据，请刷新后重试");
@@ -23,8 +21,68 @@ export async function copyCanvasImageToClipboard(source: string, dependencies: C
     if (!blob.size || !blob.type.startsWith("image/")) throw new Error("图片数据无效，无法复制");
 
     const png = blob.type === "image/png" ? blob : await renderClipboardPng(blob);
-    const clipboardWriter = clipboard as { write: (items: ClipboardItem[]) => Promise<void> };
-    await clipboardWriter.write([new ClipboardItemClass({ "image/png": png }) as ClipboardItem]);
+    let clipboardError: unknown;
+    if (clipboard && ClipboardItemClass) {
+        try {
+            const clipboardWriter = clipboard as { write: (items: ClipboardItem[]) => Promise<void> };
+            await clipboardWriter.write([new ClipboardItemClass({ "image/png": png }) as ClipboardItem]);
+            return;
+        } catch (error) {
+            // Some embedded and legacy browsers report a non-secure context
+            // even though a user-triggered native copy still works.
+            clipboardError = error;
+        }
+    }
+
+    try {
+        await (dependencies.legacyCopy ?? legacyCopyCanvasImage)(png);
+    } catch (legacyError) {
+        console.warn("[canvas image clipboard copy failed]", { clipboardError, legacyError });
+        throw new Error("浏览器阻止写入图片剪贴板；请使用 HTTPS 地址打开，或检查浏览器的剪贴板权限后重试");
+    }
+}
+
+async function legacyCopyCanvasImage(blob: Blob) {
+    if (typeof document === "undefined" || typeof window === "undefined" || typeof document.execCommand !== "function") {
+        throw new Error("legacy clipboard copy unavailable");
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    const image = document.createElement("img");
+    image.src = objectUrl;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    Object.assign(image.style, {
+        position: "fixed",
+        left: "-2px",
+        top: "-2px",
+        width: "1px",
+        height: "1px",
+        opacity: "0.01",
+        pointerEvents: "none",
+    });
+    document.body.append(image);
+    try {
+        await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error("clipboard image load failed"));
+        });
+        const selection = window.getSelection();
+        if (!selection) throw new Error("clipboard selection unavailable");
+        const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange());
+        const range = document.createRange();
+        range.selectNode(image);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        try {
+            if (!document.execCommand("copy")) throw new Error("legacy clipboard copy rejected");
+        } finally {
+            selection.removeAllRanges();
+            ranges.forEach((saved) => selection.addRange(saved));
+        }
+    } finally {
+        image.remove();
+        URL.revokeObjectURL(objectUrl);
+    }
 }
 
 async function renderClipboardPng(blob: Blob) {

@@ -299,6 +299,19 @@ test('uploaded and replaced canvas images receive their own durable cloud asset'
   assert.match(imageReplacement, /creatorTaskId: undefined/);
 });
 
+test('image copying is an image-node context-menu action rather than a hovering toolbar action', () => {
+  const contextMenu = read('reference/infinite-canvas/src/components/canvas/canvas-context-menu.tsx');
+  const hoverToolbar = read('reference/infinite-canvas/src/components/canvas/canvas-node-hover-toolbar.tsx');
+  const imageTools = read('reference/infinite-canvas/src/components/canvas/canvas-image-toolbar-tools.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(contextMenu, /onCopyImage/);
+  assert.match(contextMenu, /label="复制图片"/);
+  assert.match(project, /onCopyImage=\{\(\) =>/);
+  assert.doesNotMatch(hoverToolbar, /copyCanvasImageToClipboard/);
+  assert.doesNotMatch(imageTools, /id: "copyImage"/);
+});
+
 test('canvas release notes and prompt sources are owned by FG Studio', () => {
   const version = read('reference/infinite-canvas/src/constant/env.ts');
   const release = read('reference/infinite-canvas/src/lib/fg-release-notes.ts');

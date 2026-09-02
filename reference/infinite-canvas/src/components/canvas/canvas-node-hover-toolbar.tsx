@@ -5,7 +5,6 @@ import { CopyPlus, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, Mes
 import { canvasThemes, type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { useCopyText } from "@/reference/infinite-canvas/src/hooks/use-copy-text";
-import { copyCanvasImageToClipboard } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/reference/infinite-canvas/src/types/canvas";
 import type { CanvasNodeToolbarItem } from "@/reference/infinite-canvas/src/types/canvas-plugin";
@@ -129,14 +128,7 @@ export function CanvasNodeHoverToolbar({
         }
         copyText(prompt, "提示词已复制");
     };
-    const copyImage = (target: CanvasNodeData) => {
-        const content = target.metadata?.content;
-        if (!content) return;
-        void copyCanvasImageToClipboard(content)
-            .then(() => message.success("图片已复制到系统剪贴板"))
-            .catch((error) => message.error(error instanceof Error ? error.message : "复制图片失败，请重试"));
-    };
-    const imageTools = buildImageToolbarTools(node, { onCopyImage: copyImage, onUpload, onToggleFreeResize, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
+    const imageTools = buildImageToolbarTools(node, { onUpload, onToggleFreeResize, onMaskEdit, onCrop, onSplit, onUpscale, onSuperResolve, onAngle, onViewImage, onCopyPrompt: copyImagePrompt, onReversePrompt });
 
     function openImageToolSettings() {
         onKeep(activeNode.id);
