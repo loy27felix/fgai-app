@@ -71,7 +71,16 @@ export function getImageModel(model: string) {
   return IMG_MODELS.find((item) => item.id === model);
 }
 
+/**
+ * Gemini image endpoints only accept an aspect ratio plus their fixed 1K
+ * output tier. Exact pixel dimensions are a GPT Image 2 capability, so the
+ * UI must not promise Gemini 2K/4K output that the server will normalize.
+ */
+export function supportsExactImageSize(model: string) {
+  return getImageModel(model)?.provider === 'gpt-image';
+}
+
 export function sizeFor(model: string, ratio: string) {
-  const sizes = getImageModel(model)?.provider === 'gpt-image' ? GPT_SIZES : GEMINI_SIZES;
+  const sizes = supportsExactImageSize(model) ? GPT_SIZES : GEMINI_SIZES;
   return sizes[ratio] || '1024x1024';
 }

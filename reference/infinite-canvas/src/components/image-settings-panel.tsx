@@ -3,6 +3,7 @@ import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import type { AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { ratioForImageSize, supportsExactImageSize } from "@/lib/imageModels";
 
 const qualityOptions = [
     { value: "auto", label: "自动" },
@@ -14,18 +15,18 @@ const DIMENSION_STEP = 16;
 
 const aspectOptions = [
     { value: "1:1", label: "1:1", width: 1024, height: 1024, icon: "square" },
-    { value: "3:2", label: "3:2", width: 1536, height: 1024, icon: "landscape" },
-    { value: "2:3", label: "2:3", width: 1024, height: 1536, icon: "portrait" },
-    { value: "4:3", label: "4:3", width: 1360, height: 1024, icon: "landscape" },
-    { value: "3:4", label: "3:4", width: 1024, height: 1360, icon: "portrait" },
-    { value: "16:9", label: "16:9", width: 1824, height: 1024, icon: "landscape" },
-    { value: "9:16", label: "9:16", width: 1024, height: 1824, icon: "portrait" },
+    { value: "3:2", label: "3:2", width: 1248, height: 832, icon: "landscape" },
+    { value: "2:3", label: "2:3", width: 832, height: 1248, icon: "portrait" },
+    { value: "4:3", label: "4:3", width: 1024, height: 768, icon: "landscape" },
+    { value: "3:4", label: "3:4", width: 768, height: 1024, icon: "portrait" },
+    { value: "16:9", label: "16:9", width: 1536, height: 864, icon: "landscape" },
+    { value: "9:16", label: "9:16", width: 864, height: 1536, icon: "portrait" },
     { value: "1:1-2k", label: "1:1(2k)", size: "2048x2048", width: 2048, height: 2048, icon: "square" },
     { value: "16:9-2k", label: "16:9(2k)", size: "2048x1152", width: 2048, height: 1152, icon: "landscape" },
     { value: "9:16-2k", label: "9:16(2k)", size: "1152x2048", width: 1152, height: 2048, icon: "portrait" },
     { value: "16:9-4k", label: "16:9(4k)", size: "3840x2160", width: 3840, height: 2160, icon: "landscape" },
     { value: "9:16-4k", label: "9:16(4k)", size: "2160x3840", width: 2160, height: 3840, icon: "portrait" },
-    { value: "auto", label: "auto", width: 0, height: 0, icon: "auto" },
+    { value: "auto", label: "默认 1:1", width: 1024, height: 1024, icon: "square" },
 ];
 
 export const imageQualityOptions = qualityOptions.map((item) => ({ value: item.value, label: item.label }));
@@ -46,9 +47,13 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
+    const selectedModel = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
+    const exactSizeSupported = supportsExactImageSize(selectedModel);
+    const displayedSize = exactSizeSupported || activeSize === "auto" ? activeSize : ratioForImageSize(activeSize);
+    const visibleAspectOptions = exactSizeSupported ? aspectOptions : aspectOptions.filter((item) => !item.size);
     const transparentBackground = config.background === "transparent";
-    const selectedAspect = aspectOptions.find((item) => (item.size || item.value) === activeSize || item.value === activeSize);
-    const dimensions = readSizeDimensions(activeSize, selectedAspect || aspectOptions[0]);
+    const selectedAspect = aspectOptions.find((item) => (item.size || item.value) === displayedSize || item.value === displayedSize);
+    const dimensions = readSizeDimensions(displayedSize, selectedAspect || aspectOptions[0]);
     const selectAspect = (value: string) => {
         const option = aspectOptions.find((item) => item.value === value);
         onConfigChange("size", option?.size || option?.value || "auto");
@@ -85,25 +90,26 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 <div className="space-y-2.5">
                     <div className="flex items-center justify-between gap-3">
                         <SettingTitle color={theme.node.muted}>尺寸</SettingTitle>
-                        <div className="flex items-center gap-2">
+                        {exactSizeSupported ? <div className="flex items-center gap-2">
                             <span className="text-xs font-medium" style={{ color: theme.node.muted }}>
                                 16倍数对齐
                             </span>
                             <span title="输入完成后自动向上补成 16 的倍数" onMouseDown={(event) => event.stopPropagation()}>
                                 <Switch size="small" checked={snapDimensionToStep} onChange={setSnapDimensionToStep} />
                             </span>
-                        </div>
+                        </div> : null}
                     </div>
                     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-                        <DimensionInput prefix="W" value={dimensions.width} disabled={activeSize === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("width", value)} />
+                        <DimensionInput prefix="W" value={dimensions.width} disabled={activeSize === "auto" || !exactSizeSupported} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("width", value)} />
                         <span className="text-lg opacity-45">↔</span>
-                        <DimensionInput prefix="H" value={dimensions.height} disabled={activeSize === "auto"} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("height", value)} />
+                        <DimensionInput prefix="H" value={dimensions.height} disabled={activeSize === "auto" || !exactSizeSupported} theme={theme} alignToStep={snapDimensionToStep} onChange={(value) => updateDimension("height", value)} />
                     </div>
+                    {!exactSizeSupported ? <div className="text-xs" style={{ color: theme.node.muted, opacity: 0.82 }}>当前 Gemini 模型仅输出 1K；可选宽高比，2K/4K 与自定义像素尺寸仅 GPT Image 2 支持。</div> : null}
                 </div>
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>宽高比</SettingTitle>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {aspectOptions.map((item) => (
+                        {visibleAspectOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"

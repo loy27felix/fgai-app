@@ -4,6 +4,7 @@ import type { AiConfig } from "@/reference/infinite-canvas/src/stores/use-config
 import type { UploadedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import type { UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
+import type { CreatorImageTaskView } from "@/lib/creator/types";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/reference/infinite-canvas/src/types/canvas";
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
@@ -24,8 +25,48 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     };
 }
 
-export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
-    return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
+type ImageMetadataSource = Omit<UploadedImage, "storageKey"> & {
+    storageKey?: string;
+    creatorTaskId?: string;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
+};
+
+export function imageMetadata(image: ImageMetadataSource): CanvasNodeMetadata {
+    return {
+        content: image.url,
+        ...(image.storageKey ? { storageKey: image.storageKey } : {}),
+        ...(image.creatorTaskId ? { creatorTaskId: image.creatorTaskId } : {}),
+        ...(image.cloudStoragePath ? { cloudStoragePath: image.cloudStoragePath } : {}),
+        ...(image.cloudAssetId ? { cloudAssetId: image.cloudAssetId } : {}),
+        status: "success",
+        naturalWidth: image.width,
+        naturalHeight: image.height,
+        bytes: image.bytes,
+        mimeType: image.mimeType,
+    };
+}
+
+type CreatorImageRecoveryTask = Pick<CreatorImageTaskView, "id" | "model" | "status" | "request" | "resultUrl">;
+
+/**
+ * Pre-durable canvas nodes stored only a browser cache key. A cache can be
+ * cleared by the browser, a profile switch, or an origin change. Recover them
+ * only when the saved prompt and model identify exactly one completed task;
+ * guessing among duplicate renders would show the user the wrong image.
+ */
+export function findLegacyCreatorImageTask(metadata: CanvasNodeMetadata | undefined, tasks: readonly CreatorImageRecoveryTask[]) {
+    const prompt = metadata?.prompt?.trim();
+    const model = metadata?.model?.replace(/^.*::/, "");
+    if (!prompt || !model) return undefined;
+    const matches = tasks.filter((task) =>
+        task.status === "succeeded"
+        && Boolean(task.resultUrl)
+        && task.model === model
+        && typeof task.request.prompt === "string"
+        && task.request.prompt.trim() === prompt,
+    );
+    return matches.length === 1 ? matches[0] : undefined;
 }
 
 type VideoMetadataSource = Omit<UploadedFile, "storageKey" | "bytes"> & {

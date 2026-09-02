@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { imageDraftGeometry, IMG_MODELS, ratioForImageSize, sizeFor } from '../../lib/imageModels';
+import { imageDraftGeometry, IMG_MODELS, ratioForImageSize, sizeFor, supportsExactImageSize } from '../../lib/imageModels';
 
 test('image catalog contains exactly the requested Wetoken models', () => {
   assert.deepEqual(IMG_MODELS.map((model) => model.id), [
@@ -33,4 +33,10 @@ test('ratioForImageSize retains the ratio of exact 2K and 4K presets', () => {
 
 test('all image models accept eight references', () => {
   assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8]);
+});
+
+test('only GPT Image 2 exposes exact 2K and 4K image-size controls', () => {
+  assert.equal(supportsExactImageSize('gpt-image-2'), true);
+  assert.equal(supportsExactImageSize('gemini-3-pro-image-preview'), false);
+  assert.equal(supportsExactImageSize('gemini-3.1-flash-image-preview'), false);
 });
