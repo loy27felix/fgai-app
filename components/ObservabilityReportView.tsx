@@ -8,20 +8,20 @@ type ReportType = ReportRunRecord["report_type"];
 type ReportStatusTone = "final" | "draft" | "failed" | "running";
 
 type AccountSnapshot = {
-  user_id: string;
-  account_email: string;
-  activity_kind: string;
-  usage_calls: number | string;
-  successful_calls: number | string;
-  failed_calls: number | string;
-  total_tokens: number | string;
-  image_count: number | string;
-  video_seconds: number | string;
-  confirmed_cost_usd: number | string;
-  estimated_cost_usd: number | string;
-  reserved_cost_usd: number | string;
-  unknown_cost_calls: number | string;
-  error_count: number | string;
+  userId: string;
+  accountEmail: string;
+  activityKind: string;
+  usageCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  totalTokens: number;
+  imageCount: number;
+  videoSeconds: number;
+  confirmedCostUsd: number;
+  estimatedCostUsd: number;
+  reservedCostUsd: number;
+  unknownCostCalls: number;
+  errorCount: number;
 };
 
 type ErrorSnapshot = {
@@ -333,15 +333,15 @@ export default function ObservabilityReportView({ runs, detail, liveToday, error
 
         <DataPanel eyebrow="ACCOUNT LEDGER" title="按账户汇总" count={accounts.length + " 个账户"}>
           <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "2fr .9fr .9fr 1.1fr 1.3fr 1.2fr 1.2fr .7fr" }}><div>账户</div><div>活动</div><div>调用</div><div>Token</div><div>图片 / 视频</div><div>成本</div><div>预留 / 未知</div><div>错误</div></div>
-            {accounts.length === 0 ? <div className="observability-table__empty">周期内暂无账户活动</div> : accounts.map((account) => <div key={account.user_id} className="observability-table__row" style={{ gridTemplateColumns: "2fr .9fr .9fr 1.1fr 1.3fr 1.2fr 1.2fr .7fr" }}>
-              <div className="observability-nowrap">{account.account_email}</div>
-              <div>{activityLabel(account.activity_kind)}</div>
-              <div>{integer(account.usage_calls)}<small>成功 {integer(account.successful_calls)} / 失败 {integer(account.failed_calls)}</small></div>
-              <div className="fg-mono">{integer(account.total_tokens)}</div>
-              <div>{integer(account.image_count)} 张<small>{numeric(account.video_seconds).toFixed(1)} 秒</small></div>
-              <div className="fg-mono">{money(account.confirmed_cost_usd, rate)}<small>估算 {money(account.estimated_cost_usd, rate)}</small></div>
-              <div className="fg-mono">{money(account.reserved_cost_usd, rate)}<small>未知 {integer(account.unknown_cost_calls)}</small></div>
-              <div className={numeric(account.error_count) ? "observability-danger" : "observability-muted"}>{integer(account.error_count)}</div>
+            {accounts.length === 0 ? <div className="observability-table__empty">周期内暂无账户活动</div> : accounts.map((account) => <div key={account.userId} className="observability-table__row" style={{ gridTemplateColumns: "2fr .9fr .9fr 1.1fr 1.3fr 1.2fr 1.2fr .7fr" }}>
+              <div className="observability-nowrap">{account.accountEmail}</div>
+              <div>{activityLabel(account.activityKind)}</div>
+              <div>{integer(account.usageCalls)}<small>成功 {integer(account.successfulCalls)} / 失败 {integer(account.failedCalls)}</small></div>
+              <div className="fg-mono">{integer(account.totalTokens)}</div>
+              <div>{integer(account.imageCount)} 张<small>{numeric(account.videoSeconds).toFixed(1)} 秒</small></div>
+              <div className="fg-mono">{money(account.confirmedCostUsd, rate)}<small>估算 {money(account.estimatedCostUsd, rate)}</small></div>
+              <div className="fg-mono">{money(account.reservedCostUsd, rate)}<small>未知 {integer(account.unknownCostCalls)}</small></div>
+              <div className={numeric(account.errorCount) ? "observability-danger" : "observability-muted"}>{integer(account.errorCount)}</div>
             </div>)}
           </div>
         </DataPanel>

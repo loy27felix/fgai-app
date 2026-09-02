@@ -765,11 +765,12 @@ export async function getReportDetails(reportRunId: string) {
   ].join("\n");
   const run = await query<ReportRunRecord>(runSql, [reportRunId]);
   if (!run.rows[0]) return null;
-  const [accounts, errorSnapshotResult, services] = await Promise.all([
-    query("select * from report_account_summaries where report_run_id = $1 order by reserved_cost_usd desc, usage_calls desc, account_email", [reportRunId]),
+  const [accountSnapshotResult, errorSnapshotResult, services] = await Promise.all([
+    query<AccountRow>("select * from report_account_summaries where report_run_id = $1 order by reserved_cost_usd desc, usage_calls desc, account_email", [reportRunId]),
     query<ErrorRow>("select * from report_error_summaries where report_run_id = $1 order by occurrences desc, last_occurred_at desc", [reportRunId]),
     query("select * from report_service_summaries where report_run_id = $1 order by service", [reportRunId]),
   ]);
+  const accounts = accountSnapshotResult.rows.map(accountSnapshot);
   let errors = errorSnapshotResult.rows;
   const reportRun = run.rows[0];
   const needsAccountLookup = errors.some((row) => numberValue(row.affected_accounts) > 0 && errorAccountEmails(row).length === 0);
@@ -788,5 +789,5 @@ export async function getReportDetails(reportRunId: string) {
       return emails.length ? { ...row, affected_account_emails: emails } : row;
     });
   }
-  return { run: reportRun, accounts: accounts.rows, errors, services: services.rows };
+  return { run: reportRun, accounts, errors, services: services.rows };
 }
