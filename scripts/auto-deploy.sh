@@ -99,13 +99,21 @@ send_deploy_error_event() {
 }
 
 compose() {
-  local profile_args=()
-  [[ -n "$COMPOSE_PROFILE" ]] && profile_args+=(--profile "$COMPOSE_PROFILE")
+  if [[ -n "$COMPOSE_PROFILE" ]]; then
+    docker compose \
+      --project-directory "$PROJECT_ROOT" \
+      --project-name "$COMPOSE_PROJECT_NAME" \
+      --env-file "$ENV_FILE" \
+      --profile "$COMPOSE_PROFILE" \
+      "$@"
+    return
+  fi
+  # Do not expand an empty Bash array under nounset when HTTPS is disabled.
+  # 未启用 HTTPS 时不展开空 Bash array，避免 nounset 导致自动部署失败。
   docker compose \
     --project-directory "$PROJECT_ROOT" \
     --project-name "$COMPOSE_PROJECT_NAME" \
     --env-file "$ENV_FILE" \
-    "${profile_args[@]}" \
     "$@"
 }
 

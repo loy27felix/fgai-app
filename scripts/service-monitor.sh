@@ -162,11 +162,15 @@ clear_failures() {
 }
 
 compose() {
-  local profile_args=()
   local compose_profile
   compose_profile="$(read_env_value FG_COMPOSE_PROFILE)"
-  [[ -n "$compose_profile" ]] && profile_args+=(--profile "$compose_profile")
-  docker compose --project-directory "$PROJECT_ROOT" --project-name fgai-app --env-file "$ENV_FILE" "${profile_args[@]}" "$@"
+  if [[ -n "$compose_profile" ]]; then
+    docker compose --project-directory "$PROJECT_ROOT" --project-name fgai-app --env-file "$ENV_FILE" --profile "$compose_profile" "$@"
+    return
+  fi
+  # Do not expand an empty Bash array under nounset when HTTPS is disabled.
+  # 未启用 HTTPS 时不展开空 Bash array，避免 nounset 导致监控脚本失败。
+  docker compose --project-directory "$PROJECT_ROOT" --project-name fgai-app --env-file "$ENV_FILE" "$@"
 }
 
 container_id() {
