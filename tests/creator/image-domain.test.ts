@@ -19,6 +19,19 @@ test('accepts eight references and rejects the ninth', () => {
   }), /最多 8 张参考图/);
 });
 
+test('preserves a supported custom GPT Image 2 resolution instead of reducing it to the 1K ratio preset', () => {
+  const draft = validateImageDraftInput({
+    prompt: 'a cinematic bedroom',
+    model: 'gpt-image-2',
+    ratio: '16:9',
+    size: '2048x1152',
+    references: [],
+  });
+
+  assert.equal(draft.ratio, '16:9');
+  assert.equal(draft.size, '2048x1152');
+});
+
 test('rejects unsupported reference types', () => {
   assert.throws(() => validateImageDraftInput({
     prompt: 'x', model: 'gpt-image-2', ratio: '1:1', references: [{ name: 'x.gif', mimeType: 'image/gif', size: 10 }],

@@ -9,7 +9,7 @@ const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
 export type ImageReferenceManifest = { name: string; mimeType: string; size: number };
 export type CreatorImageSkill = { name: string; content: string };
-export type ImageDraftInput = { prompt: string; model: string; ratio: string; references: ImageReferenceManifest[]; skill?: CreatorImageSkill | null };
+export type ImageDraftInput = { prompt: string; model: string; ratio: string; size?: string; references: ImageReferenceManifest[]; skill?: CreatorImageSkill | null };
 
 export function composeImageGenerationPrompt(prompt: string, skill?: CreatorImageSkill | null) {
   if (!skill) return prompt;
@@ -34,7 +34,40 @@ export function validateImageDraftInput(input: ImageDraftInput) {
     total += reference.size;
   }
   if (total > MAX_CREATOR_IMAGE_TOTAL_BYTES) throw new Error('参考图总大小不能超过 28MB');
-  return { prompt, effectivePrompt, skill, model: model.id, ratio: input.ratio, size: sizeFor(model.id, input.ratio), references: input.references };
+  return {
+    prompt,
+    effectivePrompt,
+    skill,
+    model: model.id,
+    ratio: input.ratio,
+    size: model.provider === 'gpt-image'
+      ? validatedGptImageSize(input.size) || sizeFor(model.id, input.ratio)
+      : sizeFor(model.id, input.ratio),
+    references: input.references,
+  };
+}
+
+function validatedGptImageSize(value: string | undefined) {
+  const size = typeof value === 'string' ? value.trim() : '';
+  if (!size) return null;
+  const match = /^(\d+)x(\d+)$/i.exec(size);
+  if (!match) throw new Error('图片尺寸必须为 宽x高');
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  const pixels = width * height;
+  if (
+    !Number.isSafeInteger(width)
+    || !Number.isSafeInteger(height)
+    || width % 16 !== 0
+    || height % 16 !== 0
+    || Math.max(width, height) > 3840
+    || Math.max(width / height, height / width) > 3
+    || pixels < 655_360
+    || pixels > 8_294_400
+  ) {
+    throw new Error('GPT Image 2 尺寸超出支持范围');
+  }
+  return `${width}x${height}`;
 }
 
 export function referencePathFor(userId: string, taskId: string, index: number, mimeType: string) {
@@ -170,6 +203,7 @@ export function validateStoredImageDraftRequest(model: unknown, request: unknown
     prompt: value.prompt,
     model,
     ratio: value.ratio,
+    size: value.size,
     skill,
     references: storedReferences(value.reference_manifest),
   });

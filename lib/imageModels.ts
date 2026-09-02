@@ -25,6 +25,39 @@ export const RATIOS = [
   { key: '3:2', label: '3:2' },
 ];
 
+/**
+ * Image settings may hold either a named ratio or an exact `WIDTHxHEIGHT`
+ * value. Creator drafts still need a named ratio for metadata and legacy
+ * model routes, so derive it from the selected dimensions rather than
+ * silently defaulting custom 2K/4K selections to a square image.
+ */
+export function ratioForImageSize(value: string) {
+  const size = value.trim();
+  if (RATIOS.some((item) => item.key === size)) return size;
+  const match = /^(\d+)x(\d+)$/i.exec(size);
+  if (!match) return '1:1';
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return '1:1';
+  const target = width / height;
+  return RATIOS.reduce((best, candidate) => {
+    const [candidateWidth, candidateHeight] = candidate.key.split(':').map(Number);
+    const [bestWidth, bestHeight] = best.split(':').map(Number);
+    return Math.abs(Math.log(candidateWidth / candidateHeight / target))
+      < Math.abs(Math.log(bestWidth / bestHeight / target))
+      ? candidate.key
+      : best;
+  }, '1:1');
+}
+
+export function imageDraftGeometry(value: string) {
+  const size = value.trim();
+  return {
+    ratio: ratioForImageSize(size),
+    size: /^\d+x\d+$/i.test(size) ? size : undefined,
+  };
+}
+
 const GPT_SIZES: Record<string, string> = {
   '1:1': '1024x1024', '16:9': '1536x864', '9:16': '864x1536',
   '4:3': '1024x768', '3:4': '768x1024', '3:2': '1248x832', '2:3': '832x1248',
@@ -38,7 +71,16 @@ export function getImageModel(model: string) {
   return IMG_MODELS.find((item) => item.id === model);
 }
 
+/**
+ * Gemini image endpoints only accept an aspect ratio plus their fixed 1K
+ * output tier. Exact pixel dimensions are a GPT Image 2 capability, so the
+ * UI must not promise Gemini 2K/4K output that the server will normalize.
+ */
+export function supportsExactImageSize(model: string) {
+  return getImageModel(model)?.provider === 'gpt-image';
+}
+
 export function sizeFor(model: string, ratio: string) {
-  const sizes = getImageModel(model)?.provider === 'gpt-image' ? GPT_SIZES : GEMINI_SIZES;
+  const sizes = supportsExactImageSize(model) ? GPT_SIZES : GEMINI_SIZES;
   return sizes[ratio] || '1024x1024';
 }

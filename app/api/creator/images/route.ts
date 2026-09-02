@@ -32,6 +32,7 @@ type CreateDraftBody = {
   prompt?: unknown;
   model?: unknown;
   ratio?: unknown;
+  size?: unknown;
   idempotencyKey?: unknown;
   references?: unknown;
   skill?: unknown;
@@ -183,6 +184,7 @@ export async function POST(req: Request) {
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
         model: typeof body.model === 'string' ? body.model : 'gpt-image-2',
         ratio: typeof body.ratio === 'string' ? body.ratio : '1:1',
+        size: typeof body.size === 'string' ? body.size : undefined,
         references: normalizeReferences(body.references),
         skill: normalizeSkill(body.skill),
       });

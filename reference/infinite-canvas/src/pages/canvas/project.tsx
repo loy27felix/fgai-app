@@ -9,9 +9,11 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/reference/infinit
 import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinite-canvas/src/services/api/video";
 import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
-import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { resolveImageUrl, storeGeneratedImage, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTask } from "@/lib/creator/video-client";
+import { listImageTasks } from "@/lib/creator/image-client";
+import type { CreatorImageTaskView } from "@/lib/creator/types";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
@@ -50,7 +52,7 @@ import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hook
 import { buildNodeMentionReferences, getCanvasResourceKind, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
-import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
+import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import {
@@ -213,6 +215,24 @@ function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], 
 }
 
 async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
+    const imageTaskIds = new Set(
+        nodes
+            .filter((node) => node.type === CanvasNodeType.Image && typeof node.metadata?.creatorTaskId === "string")
+            .map((node) => node.metadata!.creatorTaskId as string),
+    );
+    const hasLegacyImageRecoveryCandidate = nodes.some((node) => node.type === CanvasNodeType.Image
+        && !node.metadata?.creatorTaskId
+        && !node.metadata?.content
+        && Boolean(node.metadata?.prompt?.trim())
+        && Boolean(node.metadata?.model));
+    const imageTasks: Map<string, CreatorImageTaskView> = imageTaskIds.size || hasLegacyImageRecoveryCandidate
+        ? await listImageTasks()
+            .then((response) => new Map(response.tasks.map((task) => [task.id, task])))
+            .catch((error) => {
+                console.warn("[canvas image recovery task lookup failed]", error);
+                return new Map<string, CreatorImageTaskView>();
+            })
+        : new Map<string, CreatorImageTaskView>();
     return Promise.all(
         nodes.map(async (node) => {
             let recoveryError: string | undefined;
@@ -220,13 +240,57 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
             // A long Wetoken render can still be running when this page is
             // reopened. Our local task ID is enough to query the task route;
             // that route persists a completed result to NAS before it returns.
-            const creatorTaskId = node.type === CanvasNodeType.Video ? node.metadata?.creatorTaskId : undefined;
+            const creatorTaskId = node.metadata?.creatorTaskId;
             const existingContent = node.metadata?.content || "";
+            if (node.type === CanvasNodeType.Image && creatorTaskId) {
+                const task = imageTasks.get(creatorTaskId);
+                if (task?.resultUrl) {
+                    const recovered = {
+                        url: task.resultUrl,
+                        width: task.asset?.width || node.metadata?.naturalWidth || 1024,
+                        height: task.asset?.height || node.metadata?.naturalHeight || 1024,
+                        bytes: node.metadata?.bytes || 0,
+                        mimeType: task.asset?.mime_type || node.metadata?.mimeType || "image/png",
+                        creatorTaskId: task.id,
+                        ...(task.asset?.storage_path ? { cloudStoragePath: task.asset.storage_path } : {}),
+                        ...(task.asset?.id ? { cloudAssetId: task.asset.id } : {}),
+                    };
+                    console.info("[canvas image recovered from creator task]", { nodeId: node.id, creatorTaskId, hadTemporarySource: Boolean(existingContent), durable: Boolean(recovered.cloudStoragePath) });
+                    return {
+                        ...node,
+                        metadata: { ...node.metadata, ...imageMetadata(recovered), status: NODE_STATUS_SUCCESS, errorDetails: undefined },
+                    };
+                }
+                if (task?.status === "failed" || task?.status === "expired") {
+                    return {
+                        ...node,
+                        metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: task.error || "图片生成失败，请从生成记录查看详情" },
+                    };
+                }
+            }
+            if (node.type === CanvasNodeType.Image && !creatorTaskId && !existingContent) {
+                const task = findLegacyCreatorImageTask(node.metadata, Array.from(imageTasks.values()));
+                if (task?.resultUrl) {
+                    const recovered = {
+                        url: task.resultUrl,
+                        width: node.metadata?.naturalWidth || 1024,
+                        height: node.metadata?.naturalHeight || 1024,
+                        bytes: node.metadata?.bytes || 0,
+                        mimeType: node.metadata?.mimeType || "image/png",
+                        creatorTaskId: task.id,
+                    };
+                    console.info("[canvas legacy image recovered from creator task]", { nodeId: node.id, creatorTaskId: task.id });
+                    return {
+                        ...node,
+                        metadata: { ...node.metadata, ...imageMetadata(recovered), status: NODE_STATUS_SUCCESS, errorDetails: undefined },
+                    };
+                }
+            }
             // Provider URLs and object URLs are both temporary. If the node
             // has a creator task, always prefer the task-owned same-origin
             // playback endpoint when it has completed; this prevents a saved
             // graph from reopening with an expired provider URL.
-            if (creatorTaskId) {
+            if (node.type === CanvasNodeType.Video && creatorTaskId) {
                 try {
                     const task = (await getVideoTask(creatorTaskId)).task;
                     if (task.videoUrl) {
@@ -311,11 +375,21 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                     const payload = await response.json().catch(() => ({}));
                     if (response.ok && typeof payload.signedUrl === "string") {
                         try {
-                            const stored = node.type === CanvasNodeType.Image
-                                ? await uploadImage(payload.signedUrl)
-                                : node.type === CanvasNodeType.Audio
-                                    ? await uploadMediaFile(payload.signedUrl, "audio-cloud-migration")
-                                    : await storeGeneratedVideo({ url: payload.signedUrl, mimeType: "video/mp4", storagePath: path, assetId: node.metadata?.cloudAssetId, externalTaskId: node.metadata?.externalTaskId });
+                            if (node.type === CanvasNodeType.Image) {
+                                return {
+                                    ...node,
+                                    metadata: {
+                                        ...node.metadata,
+                                        content: payload.signedUrl,
+                                        storageKey: undefined,
+                                        status: NODE_STATUS_SUCCESS,
+                                        errorDetails: undefined,
+                                    },
+                                };
+                            }
+                            const stored = node.type === CanvasNodeType.Audio
+                                ? await uploadMediaFile(payload.signedUrl, "audio-cloud-migration")
+                                : await storeGeneratedVideo({ url: payload.signedUrl, mimeType: "video/mp4", storagePath: path, assetId: node.metadata?.cloudAssetId, externalTaskId: node.metadata?.externalTaskId });
                             return { ...node, metadata: { ...node.metadata, content: stored.url, storageKey: stored.storageKey, mimeType: stored.mimeType, bytes: stored.bytes, width: stored.width, height: stored.height, durationMs: "durationMs" in stored ? stored.durationMs : undefined } };
                         } catch (error) {
                             recoveryError = error instanceof Error ? error.message : "云端视频文件不可用";
@@ -346,6 +420,16 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                         ...node.metadata,
                         status: NODE_STATUS_ERROR,
                         errorDetails: "视频本地副本已失效，且没有找到云端备份；请从原始文件重新上传",
+                    },
+                };
+            }
+            if (node.type === CanvasNodeType.Image && !node.metadata?.content) {
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        status: NODE_STATUS_ERROR,
+                        errorDetails: "图片本地缓存已失效，且未找到云端备份；若是以前生成的图片，请从图片生成记录重新插入，避免重复生成",
                     },
                 };
             }
@@ -2506,7 +2590,7 @@ function InfiniteCanvasPage() {
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
                 const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal }).then((items) => items[0]);
-                const uploaded = await uploadImage(image.dataUrl);
+                const uploaded = await storeGeneratedImage(image);
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
@@ -2588,7 +2672,7 @@ function InfiniteCanvasPage() {
                     undefined,
                     { signal: controller.signal },
                 ).then((items) => items[0]);
-                const uploaded = await uploadImage(image.dataUrl);
+                const uploaded = await storeGeneratedImage(image);
                 const size = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
@@ -2847,7 +2931,7 @@ function InfiniteCanvasPage() {
                     const image = refs.length
                         ? await requestEdit({ ...generationConfig, count: "1" }, fullPrompt, refs, undefined, { signal: controller.signal }).then((items) => items[0])
                         : await requestGeneration({ ...generationConfig, count: "1" }, fullPrompt, { signal: controller.signal }).then((items) => items[0]);
-                    const uploaded = await uploadImage(image.dataUrl);
+                    const uploaded = await storeGeneratedImage(image);
                     setNodes((prev) =>
                         prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: scene, model: generationConfig.model, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)),
                     );
@@ -2995,7 +3079,7 @@ function InfiniteCanvasPage() {
                                 const image = referenceImages.length
                                     ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal }).then((items) => items[0])
                                     : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
-                                const uploaded = await uploadImage(image.dataUrl);
+                                const uploaded = await storeGeneratedImage(image);
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                                 setNodes((prev) => {
                                     const root = prev.find((node) => node.id === rootId);
@@ -3434,7 +3518,7 @@ function InfiniteCanvasPage() {
                 const image = useReferenceImages
                     ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }).then((items) => items[0])
                     : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
-                const uploadedImage = await uploadImage(image.dataUrl);
+                const uploadedImage = await storeGeneratedImage(image);
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                 const imageSize = fitNodeSize(uploadedImage.width, uploadedImage.height, imageConfig.width, imageConfig.height);
                 const generationMetadata = savedImageMetadata?.generationType

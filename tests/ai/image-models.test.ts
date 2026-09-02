@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { IMG_MODELS, sizeFor } from '../../lib/imageModels';
+import { imageDraftGeometry, IMG_MODELS, ratioForImageSize, sizeFor, supportsExactImageSize } from '../../lib/imageModels';
 
 test('image catalog contains exactly the requested Wetoken models', () => {
   assert.deepEqual(IMG_MODELS.map((model) => model.id), [
@@ -24,6 +24,19 @@ test('sizeFor keeps supported ratio dimensions stable', () => {
   assert.equal(sizeFor('unknown', 'unknown'), '1024x1024');
 });
 
+test('ratioForImageSize retains the ratio of exact 2K and 4K presets', () => {
+  assert.equal(ratioForImageSize('2048x1152'), '16:9');
+  assert.equal(ratioForImageSize('2160x3840'), '9:16');
+  assert.deepEqual(imageDraftGeometry('2048x1152'), { ratio: '16:9', size: '2048x1152' });
+  assert.deepEqual(imageDraftGeometry('16:9'), { ratio: '16:9', size: undefined });
+});
+
 test('all image models accept eight references', () => {
   assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8]);
+});
+
+test('only GPT Image 2 exposes exact 2K and 4K image-size controls', () => {
+  assert.equal(supportsExactImageSize('gpt-image-2'), true);
+  assert.equal(supportsExactImageSize('gemini-3-pro-image-preview'), false);
+  assert.equal(supportsExactImageSize('gemini-3.1-flash-image-preview'), false);
 });

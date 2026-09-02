@@ -10,7 +10,9 @@ import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image
 import { createClient } from "@/lib/local/client";
 import { CreatorImageClientError, createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
 import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
+import { imageDraftGeometry } from "@/lib/imageModels";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
+import type { CreatorImageAsset } from "@/lib/creator/types";
 
 export type AiTextMessage = {
     role: "system" | "user" | "assistant";
@@ -96,6 +98,17 @@ type GeminiPayload = {
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
 type RequestOptions = { signal?: AbortSignal };
+
+export type GeneratedImage = {
+    id: string;
+    dataUrl: string;
+    creatorTaskId?: string;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
+    mimeType?: string;
+    width?: number | null;
+    height?: number | null;
+};
 
 const QUALITY_BASE: Record<string, number> = {
     low: 1024,
@@ -728,9 +741,9 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const files = await Promise.all(references.slice(0, 8).map((image, index) => fgReferenceFile(image, index)));
     const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
-    const ratio = config.size.includes(":") ? config.size : "1:1";
+    const geometry = imageDraftGeometry(config.size);
     const localClient = createClient();
-    const draft = await createImageDraft({ canvasId: null, nodeId: null, prompt, model, ratio, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
+    const draft = await createImageDraft({ canvasId: null, nodeId: null, prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
     for (let index = 0; index < files.length; index += 1) {
         const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
         if (upload.error) throw upload.error;
@@ -746,11 +759,11 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     } catch (error) {
         if (!(error instanceof CreatorImageClientError) || error.code !== "WETOKEN_IMAGE_RESULT_INVALID") throw error;
     }
-    if (immediate?.resultUrl) return [{ id: nanoid(), dataUrl: immediate.resultUrl }];
+    if (immediate?.resultUrl) return [creatorGeneratedImage(draft.task.id, immediate.resultUrl, immediate.asset)];
     for (let attempt = 0; attempt < 40; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const task = (await listImageTasks()).tasks.find((item) => item.id === draft.task.id);
-        if (task?.resultUrl) return [{ id: nanoid(), dataUrl: task.resultUrl }];
+        if (task?.resultUrl) return [creatorGeneratedImage(task.id, task.resultUrl, task.asset)];
         if (task?.status === "unknown") {
             throw new Error(task.error || "图片模型已返回结果，但本地未收到可保存的图片数据。请从 Wetoken 下载后，在该次生成记录中点击“导入已下载图”。");
         }
@@ -760,6 +773,19 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     throw new Error("图片生成超时，请稍后重试");
 }export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     return fgGenerateImage(config, prompt, [], options?.signal);
+}
+
+function creatorGeneratedImage(taskId: string, dataUrl: string, asset?: CreatorImageAsset | null): GeneratedImage {
+    return {
+        id: nanoid(),
+        dataUrl,
+        creatorTaskId: taskId,
+        ...(asset?.storage_path ? { cloudStoragePath: asset.storage_path } : {}),
+        ...(asset?.id ? { cloudAssetId: asset.id } : {}),
+        ...(asset?.mime_type ? { mimeType: asset.mime_type } : {}),
+        ...(asset?.width ? { width: asset.width } : {}),
+        ...(asset?.height ? { height: asset.height } : {}),
+    };
 }
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestPrompt = buildImageReferencePromptText(prompt, references);
