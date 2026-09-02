@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { getReportDetails, ReportRunRecord } from "@/lib/observability/reporting";
+import type { getLiveTodayReport, getReportDetails, ReportRunRecord } from "@/lib/observability/reporting";
 
 type ReportDetails = NonNullable<Awaited<ReturnType<typeof getReportDetails>>>;
+type LiveTodayDetails = NonNullable<Awaited<ReturnType<typeof getLiveTodayReport>>>;
 type ReportType = ReportRunRecord["report_type"];
 type ReportStatusTone = "final" | "draft" | "failed" | "running";
 
@@ -35,6 +36,8 @@ type ErrorSnapshot = {
   occurrences: number | string;
   affected_accounts: number | string;
   affected_requests: number | string;
+  affected_account_emails?: string[] | null;
+  metadata?: { affectedAccountEmails?: unknown } | null;
 };
 
 type ServiceSnapshot = {
@@ -47,6 +50,8 @@ type ServiceSnapshot = {
   unhealthy_seconds: number | string;
   availability_ratio: number | string | null;
   data_complete: boolean;
+  first_observed_at: string | null;
+  last_observed_at: string | null;
 };
 
 type Summary = {
@@ -128,6 +133,16 @@ function impactTone(value: string) {
   return "is-neutral";
 }
 
+function stringValues(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+function errorAccountEmails(item: ErrorSnapshot) {
+  const direct = stringValues(item.affected_account_emails);
+  if (direct.length) return direct;
+  return stringValues(item.metadata?.affectedAccountEmails);
+}
+
 function percentage(value: number | string | null) {
   if (value === null) return "—";
   return (numeric(value) * 100).toFixed(2) + "%";
@@ -143,7 +158,9 @@ function latestRun(runs: ReportRunRecord[], reportType: ReportType) {
 }
 
 function reportHref(run: ReportRunRecord, query: string) {
-  const params = new URLSearchParams({ id: run.id });
+  const params = run.id === "live-today"
+    ? new URLSearchParams({ view: "today" })
+    : new URLSearchParams({ id: run.id });
   if (query) {
     params.set("q", query);
   }
@@ -163,23 +180,31 @@ function metric(label: string, value: string, detail?: string) {
   </div>;
 }
 
-function ReportSelector({ runs, selectedRun, query }: { runs: ReportRunRecord[]; selectedRun: ReportRunRecord | null; query: string }) {
+function ReportSelector({ runs, selectedRun, liveToday, isLiveToday, query }: { runs: ReportRunRecord[]; selectedRun: ReportRunRecord | null; liveToday: LiveTodayDetails | null; isLiveToday: boolean; query: string }) {
   const selectedType = selectedRun?.report_type;
   const selectedRuns = selectedType ? runs.filter((run) => run.report_type === selectedType) : [];
   const selectedMeta = selectedType ? REPORT_META[selectedType] : null;
 
   return <section className="observability-report__selector" aria-label="报表周期与版本选择">
+    {liveToday ? <Link href="/admin/reports?view=today" className={"observability-live-card" + (isLiveToday ? " is-active" : "")} aria-current={isLiveToday ? "page" : undefined}>
+      <div>
+        <span className="fg-mono observability-kicker">LIVE / TODAY</span>
+        <strong>今日实时</strong>
+        <span>{compactDate(liveToday.run.period_start)} — 数据截至 {dateText(liveToday.run.data_as_of)}</span>
+      </div>
+      <span className="fg-mono observability-live-card__status"><i aria-hidden="true" />实时读取 · 刷新页面更新</span>
+    </Link> : null}
     <div className="observability-selector__intro">
-      <span className="fg-mono observability-kicker">REPORT DESK</span>
-      <strong>{selectedRun && selectedMeta ? selectedMeta.label + " · " + statusLabel(selectedRun) : "选择一份报表"}</strong>
-      <span>{selectedRun ? compactReportPeriod(selectedRun) : "从周期入口查看明细"}</span>
+      <span className="fg-mono observability-kicker">{isLiveToday ? "LIVE ACTIVE" : "REPORT DESK"}</span>
+      <strong>{isLiveToday ? "当前选择" : selectedRun && selectedMeta ? selectedMeta.label + " · " + statusLabel(selectedRun) : "选择一份报表"}</strong>
+      <span>{isLiveToday && selectedRun ? "今日 00:00 — 数据截至 " + dateText(selectedRun.data_as_of) : selectedRun ? compactReportPeriod(selectedRun) : "从周期入口查看明细"}</span>
     </div>
 
     <nav className="observability-period-nav" aria-label="报表周期">
       {REPORT_TYPES.map((reportType) => {
         const run = latestRun(runs, reportType);
         const meta = REPORT_META[reportType];
-        const isActive = selectedType === reportType;
+        const isActive = !isLiveToday && selectedType === reportType;
         if (!run) {
           return <div key={reportType} className="observability-period-tab is-empty" aria-disabled="true">
             <span className="fg-mono observability-period-tab__kicker">{meta.kicker}</span>
@@ -196,7 +221,7 @@ function ReportSelector({ runs, selectedRun, query }: { runs: ReportRunRecord[];
       })}
     </nav>
 
-    {selectedRun && selectedMeta ? <details className="observability-history" open={Boolean(query)}>
+    {selectedRun && selectedMeta ? <details key={"history-" + selectedRun.id + "-" + query + (isLiveToday ? "-live" : "-history")} className="observability-history" open={Boolean(query)}>
       <summary>
         <span><span className="fg-mono observability-kicker">HISTORY</span>历史版本</span>
         <span className="fg-mono observability-history__count">{query ? selectedRuns.length + " 条结果" : selectedRuns.length + " 条"} <b aria-hidden="true">⌄</b></span>
@@ -215,7 +240,7 @@ function ReportSelector({ runs, selectedRun, query }: { runs: ReportRunRecord[];
           <span className="fg-mono">{query ? "筛选结果" : "按周期倒序"}</span>
         </div>
         <div className="observability-history__list">
-          {selectedRuns.length === 0 ? <div className="observability-history__no-result">没有匹配的版本，请换一个日期或状态。</div> : selectedRuns.map((run) => <Link key={run.id} href={reportHref(run, query)} className={"observability-history__item observability-history__item--" + statusTone(run) + (selectedRun.id === run.id ? " is-active" : "")} aria-current={selectedRun.id === run.id ? "page" : undefined}>
+          {selectedRuns.length === 0 ? <div className="observability-history__no-result">没有匹配的版本，请换一个日期或状态。</div> : selectedRuns.map((run) => <Link key={run.id} href={reportHref(run, "")} className={"observability-history__item observability-history__item--" + statusTone(run) + (selectedRun.id === run.id ? " is-active" : "")} aria-current={selectedRun.id === run.id ? "page" : undefined}>
             <span className="fg-mono observability-history__revision">r{run.revision}</span>
             <span className="observability-history__period">{compactReportPeriod(run)}</span>
             <span className="fg-mono">{statusLabel(run)}</span>
@@ -239,14 +264,15 @@ function DataPanel({ eyebrow, title, count, children }: { eyebrow: string; title
   </section>;
 }
 
-export default function ObservabilityReportView({ runs, detail, error, query = "" }: { runs: ReportRunRecord[]; detail: ReportDetails | null; error?: string; query?: string }) {
+export default function ObservabilityReportView({ runs, detail, liveToday, error, query = "" }: { runs: ReportRunRecord[]; detail: ReportDetails | LiveTodayDetails | null; liveToday?: LiveTodayDetails | null; error?: string; query?: string }) {
   const summary = (detail?.run.summary || {}) as Summary;
   const rate = numeric(summary.costs?.cnyRate);
   const accounts = (detail?.accounts || []) as AccountSnapshot[];
   const errors = (detail?.errors || []) as ErrorSnapshot[];
   const services = (detail?.services || []) as ServiceSnapshot[];
   const selectedMeta = detail ? REPORT_META[detail.run.report_type] : null;
-  const selectedTone = detail ? statusTone(detail.run) : null;
+  const isLiveToday = detail?.run.id === "live-today";
+  const selectedTone = detail ? (isLiveToday ? "running" : statusTone(detail.run)) : null;
 
   return <main className="observability-report">
     <header className="observability-report__header">
@@ -260,12 +286,12 @@ export default function ObservabilityReportView({ runs, detail, error, query = "
 
     {error ? <div className="observability-report__alert" role="alert">{error}</div> : null}
 
-    {runs.length === 0 ? <section className="observability-report__empty">
+    {runs.length === 0 && !liveToday ? <section className="observability-report__empty">
       <span className="fg-mono observability-kicker">NO REPORT RUNS</span>
       <h2>暂无报表</h2>
       <p>scheduler 首次运行后会自动生成日报、周报和月报。</p>
     </section> : <>
-      <ReportSelector runs={runs} selectedRun={detail?.run || null} query={query} />
+      <ReportSelector runs={runs} selectedRun={detail?.run || null} liveToday={liveToday || null} isLiveToday={isLiveToday} query={query} />
 
       {!detail ? <section className="observability-report__empty">
         <span className="fg-mono observability-kicker">SELECT A REPORT</span>
@@ -279,19 +305,19 @@ export default function ObservabilityReportView({ runs, detail, error, query = "
         <section className="observability-report__hero">
           <div className="observability-report__hero-top">
             <div>
-              <span className="fg-mono observability-kicker">{selectedMeta?.kicker} / REVISION R{detail.run.revision}</span>
-              <h2>{selectedMeta?.label} <span>·</span> {detail.run.is_final ? "最终版" : "临时版"}</h2>
-              <p>周期：{reportPeriod(detail.run)}；数据截至：{dateText(detail.run.data_as_of)}</p>
+              <span className="fg-mono observability-kicker">{isLiveToday ? "LIVE / TODAY" : selectedMeta?.kicker + " / REVISION R" + detail.run.revision}</span>
+              <h2>{isLiveToday ? "今日实时汇总" : <>{selectedMeta?.label} <span>·</span> {detail.run.is_final ? "最终版" : "临时版"}</>}</h2>
+              <p>周期：{reportPeriod(detail.run)}；数据截至：{dateText(detail.run.data_as_of)}{isLiveToday ? "；只读实时汇总，刷新页面更新" : ""}</p>
             </div>
             <div className={"observability-report__state observability-report__state--" + selectedTone}>
               <i aria-hidden="true" />
-              <span>{detail.run.is_final ? "数据已结算" : "等待迟到任务和费用补齐"}</span>
+              <span>{isLiveToday ? "实时读取 · 刷新页面更新" : detail.run.is_final ? "数据已结算" : "等待迟到任务和费用补齐"}</span>
             </div>
           </div>
           <div className="observability-report__meta">
             <div><span>部署版本</span><strong className="fg-mono">{deploymentVersion(detail.run)}</strong></div>
             <div><span>报表架构</span><strong className="fg-mono">schema v{detail.run.schema_version}</strong></div>
-            <div><span>生成时间</span><strong className="fg-mono">{dateText(detail.run.updated_at)}</strong></div>
+            <div><span>{isLiveToday ? "读取时间" : "生成时间"}</span><strong className="fg-mono">{dateText(detail.run.updated_at)}</strong></div>
           </div>
           <div className="observability-metric-grid">
             {metric("活跃账户", integer(summary.accounts?.active), "AI " + integer(summary.accounts?.aiActive) + " · 仅访问 " + integer(summary.accounts?.sessionOnly))}
@@ -321,26 +347,43 @@ export default function ObservabilityReportView({ runs, detail, error, query = "
         </DataPanel>
 
         <DataPanel eyebrow="ERROR IMPACT" title="错误与影响" count={errors.length + " 类错误"}>
-          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.2fr 1.2fr .9fr .9fr 1.1fr 3fr" }}><div>来源 / 服务</div><div>级别 / 影响</div><div>次数</div><div>账户</div><div>首次 / 末次</div><div>错误信息</div></div>
-            {errors.length === 0 ? <div className="observability-table__empty">周期内没有归档错误事件</div> : errors.map((item, index) => <div key={item.source + ":" + item.service + ":" + (item.code || "error") + ":" + index} className="observability-table__row" style={{ gridTemplateColumns: "1.2fr 1.2fr .9fr .9fr 1.1fr 3fr" }}>
-              <div>{item.source}<small>{item.service}</small></div>
-              <div><span className={"observability-impact " + impactTone(item.impact)}>{item.severity}</span><small className={"observability-impact " + impactTone(item.impact)}>{item.impact}</small></div>
-              <div className="fg-mono">{integer(item.occurrences)}<small>请求 {integer(item.affected_requests)}</small></div>
-              <div className="fg-mono">{integer(item.affected_accounts)}</div>
-              <div className="fg-mono observability-table__timestamp">{dateText(item.first_occurred_at)}<br />{dateText(item.last_occurred_at)}</div>
-              <div className="observability-message"><div>{item.message || "未提供错误信息"}</div><small className="fg-mono">{item.code || "未分类"}</small></div>
-            </div>)}
+          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.2fr 1.2fr .85fr 1fr 1.25fr 2.7fr" }}><div>来源 / 服务</div><div>级别 / 影响</div><div>次数</div><div>影响人</div><div>首次 / 末次</div><div>错误信息</div></div>
+            {errors.length === 0 ? <div className="observability-table__empty">周期内没有归档错误事件</div> : errors.map((item, index) => {
+              const message = item.message || "未提供错误信息";
+              const accountEmails = errorAccountEmails(item);
+              const accountCount = numeric(item.affected_accounts);
+              return <div key={item.source + ":" + item.service + ":" + (item.code || "error") + ":" + index} className="observability-table__row" style={{ gridTemplateColumns: "1.2fr 1.2fr .85fr 1fr 1.25fr 2.7fr" }}>
+                <div>{item.source}<small>{item.service}</small></div>
+                <div><span className={"observability-impact " + impactTone(item.impact)}>{item.severity}</span><small className={"observability-impact " + impactTone(item.impact)}>{item.impact}</small></div>
+                <div className="fg-mono">{integer(item.occurrences)}<small>请求 {integer(item.affected_requests)}</small></div>
+                <div className="fg-mono observability-impact-people"><strong>{integer(item.affected_accounts)} 人</strong>
+                  {accountEmails.length > 2 ? <details className="observability-impact-people__details">
+                    <summary title={accountEmails.join("、")}><span>{accountEmails.slice(0, 2).join("、")} 等 {integer(accountCount)} 人</span><b>查看</b></summary>
+                    <div>{accountEmails.map((email) => <span key={email}>{email}</span>)}</div>
+                  </details> : accountEmails.length ? <small title={accountEmails.join("、")}>{accountEmails.join("、")}</small> : <small>{accountCount > 0 ? "账户明细未记录" : "未关联账户"}</small>}
+                </div>
+                <div className="fg-mono observability-table__timestamp">{dateText(item.first_occurred_at)}<br />{dateText(item.last_occurred_at)}</div>
+                <div className="observability-message">
+                  <details className="observability-message__details">
+                    <summary className="observability-message__summary" title={message}><span>{message}</span><b>展开</b></summary>
+                    <div className="observability-message__full">{message}</div>
+                  </details>
+                  <small className="fg-mono">{item.code || "未分类"}</small>
+                </div>
+              </div>;
+            })}
           </div>
         </DataPanel>
 
         <DataPanel eyebrow="SERVICE HEALTH" title="服务健康与监控完整度" count={services.length + " 项服务"}>
-          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.6fr .9fr .9fr 1fr 1fr 1.2fr" }}><div>服务</div><div>可用率</div><div>检查次数</div><div>健康 / 异常</div><div>异常时长</div><div>数据完整</div></div>
-            {services.length === 0 ? <div className="observability-table__empty">周期内没有服务健康事件</div> : services.map((item) => <div key={item.service} className="observability-table__row" style={{ gridTemplateColumns: "1.6fr .9fr .9fr 1fr 1fr 1.2fr" }}>
+          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.45fr .82fr .86fr 1fr 1fr 1.75fr 1.25fr" }}><div>服务</div><div>可用率</div><div>检查次数</div><div>健康 / 异常</div><div>异常时长</div><div>观测时间</div><div>数据完整</div></div>
+            {services.length === 0 ? <div className="observability-table__empty">周期内没有服务健康事件</div> : services.map((item) => <div key={item.service} className="observability-table__row" style={{ gridTemplateColumns: "1.45fr .82fr .86fr 1fr 1fr 1.75fr 1.25fr" }}>
               <div>{item.service}<small>观测 {numeric(item.observed_seconds).toFixed(0)} 秒</small></div>
               <div className={"fg-mono " + (item.data_complete ? "observability-success" : "observability-warning")}>{percentage(item.availability_ratio)}</div>
               <div className="fg-mono">{integer(item.check_count)}<small>事件 {integer(item.incident_count)}</small></div>
               <div>{integer(item.healthy_checks)} / {integer(item.unhealthy_checks)}</div>
               <div className="fg-mono">{numeric(item.unhealthy_seconds).toFixed(0)} 秒</div>
+              <div className="fg-mono observability-table__timestamp"><span>首：{dateText(item.first_observed_at)}</span><span>末：{dateText(item.last_observed_at)}</span></div>
               <div className={item.data_complete ? "observability-success" : "observability-warning"}>{item.data_complete ? "完整" : "不完整，勿作可用性结论"}</div>
             </div>)}
           </div>

@@ -301,7 +301,24 @@ type ErrorRow = {
   affected_requests: string | number;
   affected_tasks: string | number;
   sample_trace_id: string | null;
+  affected_account_emails?: string[] | null;
+  metadata?: unknown;
 };
+
+function stringValues(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
+}
+
+function errorAccountEmails(row: Pick<ErrorRow, 'affected_account_emails' | 'metadata'>) {
+  const direct = stringValues(row.affected_account_emails);
+  if (direct.length) return direct;
+  if (!row.metadata || typeof row.metadata !== 'object' || Array.isArray(row.metadata)) return [];
+  return stringValues((row.metadata as Record<string, unknown>).affectedAccountEmails);
+}
+
+function errorGroupKey(row: Pick<ErrorRow, 'fingerprint' | 'source' | 'service' | 'severity' | 'impact'>) {
+  return [row.fingerprint, row.source, row.service, row.severity, row.impact].join('\u001f');
+}
 
 async function errorRows(spec: ReportRevision) {
   const result = await query<ErrorRow>(
@@ -348,15 +365,22 @@ async function errorRows(spec: ReportRevision) {
               state, left(message, 1000), null, null, null, null
          from observability_service_events
         where state = 'unhealthy' and observed_at >= $1 and observed_at < $2
+     ), raw_errors_with_accounts as (
+       select raw_errors.*,
+              coalesce(nullif(profiles.email, ''), '[已删除账户]') as account_email
+         from raw_errors
+         left join profiles on profiles.id = raw_errors.user_id
      )
      select fingerprint, source, service, severity, impact, max(code) as code,
             max(message) as message, min(occurred_at) as first_occurred_at,
             max(occurred_at) as last_occurred_at, count(*) as occurrences,
             count(distinct user_id) as affected_accounts,
+            array_agg(distinct account_email order by account_email)
+              filter (where user_id is not null) as affected_account_emails,
             count(distinct coalesce(request_id, trace_id)) as affected_requests,
             count(distinct task_id) as affected_tasks,
             max(trace_id) as sample_trace_id
-       from raw_errors
+       from raw_errors_with_accounts
       group by fingerprint, source, service, severity, impact
       order by occurrences desc, last_occurred_at desc`,
     [spec.periodStart.toISOString(), spec.periodEnd.toISOString()],
@@ -515,6 +539,16 @@ function reportSummary(spec: ReportRevision, accounts: ReturnType<typeof account
   };
 }
 
+async function readReportSnapshots(spec: ReportRevision) {
+  // Keep live reads on the same query path as persisted reports so both views remain comparable.
+  // 实时视图与持久化报表复用同一套查询，确保两者口径一致。
+  const rawAccounts = await accountRows(spec);
+  const errors = await errorRows(spec);
+  const services = await serviceRows(spec);
+  const accounts = rawAccounts.map(accountSnapshot);
+  return { accounts, errors, services, summary: reportSummary(spec, accounts, errors, services) };
+}
+
 async function insertAccountSnapshots(client: PoolClient, reportRunId: string, rows: ReturnType<typeof accountSnapshot>[]) {
   if (!rows.length) return;
   const values: unknown[] = [];
@@ -547,7 +581,8 @@ async function insertErrorSnapshots(client: PoolClient, reportRunId: string, row
     values.push(
       reportRunId, row.fingerprint, row.source, row.service, row.severity, row.impact, row.code,
       row.message, row.first_occurred_at, row.last_occurred_at, numberValue(row.occurrences),
-      numberValue(row.affected_accounts), numberValue(row.affected_requests), numberValue(row.affected_tasks), row.sample_trace_id, JSON.stringify({}),
+      numberValue(row.affected_accounts), numberValue(row.affected_requests), numberValue(row.affected_tasks), row.sample_trace_id,
+      JSON.stringify({ affectedAccountEmails: errorAccountEmails(row) }),
     );
     return `(${Array.from({ length: 16 }, (_, field) => `$${offset + field + 1}`).join(', ')})`;
   });
@@ -592,11 +627,7 @@ export async function generateReport(spec: ReportRevision): Promise<ReportJobRes
     // Run report reads sequentially so catch-up work consumes at most one shared
     // PostgreSQL connection while interactive creation requests are active.
     // 报表读取串行执行，补算期间最多占用一个共享连接，避免与在线创作请求争抢连接池。
-    const rawAccounts = await accountRows(spec);
-    const errors = await errorRows(spec);
-    const services = await serviceRows(spec);
-    const accounts = rawAccounts.map(accountSnapshot);
-    const summary = reportSummary(spec, accounts, errors, services);
+    const { accounts, errors, services, summary } = await readReportSnapshots(spec);
     // Publish all report snapshots and the succeeded marker atomically so readers
     // can never observe a partially regenerated report.
     // 三类报表快照与成功状态必须原子发布，读取端不能看到半份重算结果。
@@ -656,6 +687,30 @@ export type ReportRunRecord = {
   updated_at: string;
 };
 
+export async function getLiveTodayReport(now = new Date()) {
+  const spec = job('daily', { start: shanghaiDayStart(now), end: now }, 0, false);
+  const { accounts, errors, services, summary } = await readReportSnapshots(spec);
+  const dataAsOf = summary.dataAsOf;
+  const run: ReportRunRecord = {
+    id: 'live-today',
+    report_type: 'daily',
+    period_start: spec.periodStart.toISOString(),
+    period_end: spec.periodEnd.toISOString(),
+    revision: 0,
+    status: 'succeeded',
+    is_final: false,
+    data_as_of: dataAsOf,
+    schema_version: REPORT_SCHEMA_VERSION,
+    summary,
+    error: null,
+    created_at: dataAsOf,
+    updated_at: dataAsOf,
+  };
+  // This synthetic run is read-only and never enters report_runs or scheduler history.
+  // 该临时快照只读生成，不写入 report_runs，也不会污染调度历史。
+  return { run, accounts, errors, services };
+}
+
 export type ReportRunFilters = {
   search?: string;
 };
@@ -710,10 +765,28 @@ export async function getReportDetails(reportRunId: string) {
   ].join("\n");
   const run = await query<ReportRunRecord>(runSql, [reportRunId]);
   if (!run.rows[0]) return null;
-  const [accounts, errors, services] = await Promise.all([
+  const [accounts, errorSnapshotResult, services] = await Promise.all([
     query("select * from report_account_summaries where report_run_id = $1 order by reserved_cost_usd desc, usage_calls desc, account_email", [reportRunId]),
-    query("select * from report_error_summaries where report_run_id = $1 order by occurrences desc, last_occurred_at desc", [reportRunId]),
+    query<ErrorRow>("select * from report_error_summaries where report_run_id = $1 order by occurrences desc, last_occurred_at desc", [reportRunId]),
     query("select * from report_service_summaries where report_run_id = $1 order by service", [reportRunId]),
   ]);
-  return { run: run.rows[0], accounts: accounts.rows, errors: errors.rows, services: services.rows };
+  let errors = errorSnapshotResult.rows;
+  const reportRun = run.rows[0];
+  const needsAccountLookup = errors.some((row) => numberValue(row.affected_accounts) > 0 && errorAccountEmails(row).length === 0);
+  if (needsAccountLookup) {
+    const currentErrorRows = await errorRows({
+      reportType: reportRun.report_type,
+      periodStart: new Date(reportRun.period_start),
+      periodEnd: new Date(reportRun.period_end),
+      revision: reportRun.revision,
+      isFinal: reportRun.is_final,
+    });
+    const accountEmailsByError = new Map(currentErrorRows.map((row) => [errorGroupKey(row), errorAccountEmails(row)]));
+    errors = errors.map((row) => {
+      if (numberValue(row.affected_accounts) === 0 || errorAccountEmails(row).length > 0) return row;
+      const emails = accountEmailsByError.get(errorGroupKey(row)) || [];
+      return emails.length ? { ...row, affected_account_emails: emails } : row;
+    });
+  }
+  return { run: reportRun, accounts: accounts.rows, errors, services: services.rows };
 }

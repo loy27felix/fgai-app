@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/local/server";
-import { getReportDetails, listReportRuns, type ReportRunRecord } from "@/lib/observability/reporting";
+import { getLiveTodayReport, getReportDetails, listReportRuns, type ReportRunRecord } from "@/lib/observability/reporting";
 import PageShell from "@/components/studio/PageShell";
 import ObservabilityReportView from "@/components/ObservabilityReportView";
 
@@ -14,7 +14,7 @@ function valueOf(value: string | string[] | undefined) {
   return typeof value === "string" ? value : "";
 }
 
-export default async function ReportsPage({ searchParams }: { searchParams?: { id?: string | string[]; q?: string | string[] } }) {
+export default async function ReportsPage({ searchParams }: { searchParams?: { id?: string | string[]; q?: string | string[]; view?: string | string[] } }) {
   const localClient = createClient();
   const { data: { user } } = await localClient.auth.getUser();
   if (!user) redirect("/");
@@ -27,20 +27,34 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { i
   let detail: Awaited<ReturnType<typeof getReportDetails>> = null;
   let error = "";
   let search = "";
+  let liveToday: Awaited<ReturnType<typeof getLiveTodayReport>> | null = null;
+  const requestedId = valueOf(searchParams?.id);
+  const requestedView = valueOf(searchParams?.view);
+  search = valueOf(searchParams?.q).trim().slice(0, 80);
+  const wantsLiveToday = !requestedId && (requestedView === "today" || !search);
+
   try {
-    const requestedId = valueOf(searchParams?.id);
-    search = valueOf(searchParams?.q).trim().slice(0, 80);
+    liveToday = await getLiveTodayReport();
+  } catch (loadError) {
+    console.error("[observability live report read failed]", loadError instanceof Error ? loadError.message : String(loadError));
+  }
+  const showLiveToday = wantsLiveToday && Boolean(liveToday);
+
+  try {
     runs = await listReportRuns(40, { search });
     const selectedId = requestedId && validUuid(requestedId)
       ? requestedId
-      : runs.find((run) => run.status === "succeeded")?.id || runs[0]?.id || "";
+      : showLiveToday
+        ? ""
+        : runs.find((run) => run.status === "succeeded")?.id || runs[0]?.id || "";
     if (selectedId) detail = await getReportDetails(selectedId);
   } catch (loadError) {
     console.error("[observability reports read failed]", loadError instanceof Error ? loadError.message : String(loadError));
     error = "报表数据暂时不可用，请确认数据库迁移和 report scheduler 已完成。";
   }
+  if (showLiveToday && liveToday) detail = liveToday;
 
   return <PageShell title="监控报表" email={user.email || ""}>
-    <ObservabilityReportView runs={runs} detail={detail} error={error} query={search} />
+    <ObservabilityReportView runs={runs} detail={detail} liveToday={liveToday} error={error} query={search} />
   </PageShell>;
 }

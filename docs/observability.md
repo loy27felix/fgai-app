@@ -30,7 +30,7 @@ FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的
 周期报表由 `lib/observability/reporting.ts` 生成并写入 `report_runs` 及三个快照表：
 
 - `report_account_summaries`：按账户汇总 AI 调用、成功/失败/处理中、Token、图片、视频、确认/估算/预留成本、未知成本调用和错误数。
-- `report_error_summaries`：合并前端、App、Provider、Infra、Deploy、Billing、Data 和任务状态错误，保留错误类型、首次/末次时间、发生次数及受影响账户/请求/任务数。
+- `report_error_summaries`：合并前端、App、Provider、Infra、Deploy、Billing、Data 和任务状态错误，保留错误类型、首次/末次时间、发生次数及受影响账户/请求/任务数；`metadata.affectedAccountEmails` 保存报表时可关联的账户邮箱，供管理员定位具体影响对象。
 - `report_service_summaries`：根据主机心跳和状态事件计算检查次数、事故次数、异常时长；观测断档时标记 `data_complete=false`，不伪造可用率。
 
 日报、周报和月报都按 `Asia/Shanghai` 计算。`revision=0` 是允许异步任务和供应商费用迟到的临时版，`revision=1` 是后续对账的最终版；任务使用数据库唯一键幂等，失败任务保留失败原因并可安全重试。管理员从 `/admin/reports` 查看报表，通知 webhook 失败不会改变报表成功状态。
