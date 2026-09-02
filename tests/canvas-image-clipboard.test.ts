@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { copyCanvasImageToClipboard } from "../reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
+import {
+  copyCanvasImageToClipboard,
+  isCanvasNativeImageCopyInFlight,
+  runCanvasNativeImageClipboardCopy,
+} from "../reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
 
 test("copying a canvas image writes image data to the system clipboard", async () => {
   const writes: Array<Record<string, Blob>> = [];
@@ -54,4 +58,18 @@ test("copying falls back to a legacy native copy operation when ClipboardItem is
   });
 
   assert.equal(copiedBytes, "image-bytes".length);
+});
+
+test("legacy image copying marks only its native copy event as external clipboard content", () => {
+  assert.equal(isCanvasNativeImageCopyInFlight(), false);
+
+  let wasMarkedDuringCopy = false;
+  const result = runCanvasNativeImageClipboardCopy(() => {
+    wasMarkedDuringCopy = isCanvasNativeImageCopyInFlight();
+    return "copied";
+  });
+
+  assert.equal(result, "copied");
+  assert.equal(wasMarkedDuringCopy, true);
+  assert.equal(isCanvasNativeImageCopyInFlight(), false);
 });

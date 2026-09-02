@@ -7,6 +7,24 @@ type CanvasImageClipboardDependencies = {
     legacyCopy?: (blob: Blob) => Promise<void>;
 };
 
+// `document.execCommand("copy")` emits the same global copy event used by the
+// canvas node shortcut. Keep the native image-copy event distinct so that the
+// canvas listener cannot replace the system image clipboard with its marker.
+let nativeImageClipboardCopyInFlight = false;
+
+export function isCanvasNativeImageCopyInFlight() {
+    return nativeImageClipboardCopyInFlight;
+}
+
+export function runCanvasNativeImageClipboardCopy<T>(operation: () => T): T {
+    nativeImageClipboardCopyInFlight = true;
+    try {
+        return operation();
+    } finally {
+        nativeImageClipboardCopyInFlight = false;
+    }
+}
+
 /**
  * Writes the actual image bytes to the system clipboard.  Canvas graph copy
  * deliberately stays separate, so Ctrl/Cmd+C can keep its node-copy behavior.
@@ -74,7 +92,9 @@ async function legacyCopyCanvasImage(blob: Blob) {
         selection.removeAllRanges();
         selection.addRange(range);
         try {
-            if (!document.execCommand("copy")) throw new Error("legacy clipboard copy rejected");
+            if (!runCanvasNativeImageClipboardCopy(() => document.execCommand("copy"))) {
+                throw new Error("legacy clipboard copy rejected");
+            }
         } finally {
             selection.removeAllRanges();
             ranges.forEach((saved) => selection.addRange(saved));

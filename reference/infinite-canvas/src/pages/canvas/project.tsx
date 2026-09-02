@@ -20,7 +20,7 @@ import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-ca
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-data";
-import { copyCanvasImageToClipboard } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
+import { copyCanvasImageToClipboard, isCanvasNativeImageCopyInFlight } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
 import { fitNodeSize, nodeSizeFromRatio } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-size";
 import { App, Button, Modal, Select } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/reference/infinite-canvas/src/constant/canvas";
@@ -2058,6 +2058,10 @@ function InfiniteCanvasPage() {
     );
 
     const handleCopy = useCallback((event: ClipboardEvent) => {
+        // The legacy image-copy fallback triggers a native copy event. Let the
+        // browser keep that image payload instead of replacing it with our
+        // canvas-only clipboard marker.
+        if (isCanvasNativeImageCopyInFlight()) return;
         const target = event.target instanceof Element ? event.target : null;
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
         if (window.getSelection()?.toString() || !selectedNodeIdsRef.current.size) return;
