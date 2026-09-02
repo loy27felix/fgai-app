@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getVideoModel } from './video-models';
 import { wetokenProviderDispatcher, type WetokenFetcher, type WetokenFetcherInit } from './wetoken-transport';
 import {
@@ -7,7 +8,15 @@ import {
   prepareWetokenAssetReferences,
   WetokenAssetError,
   type WetokenAssetReference,
+  type WetokenProviderLogContext,
 } from './wetoken-assets';
+import {
+  fullLogPayload,
+  logServerEvent,
+  logServerFailure,
+  redactProviderUrl,
+  safeProviderHeaders,
+} from '../observability/server-log';
 
 export { VIDEO_MODELS, getVideoModel } from './video-models';
 export type { VideoModelSpec } from './video-models';
@@ -32,6 +41,15 @@ export type SeedanceInput = {
 export type VideoTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired';
 type FetcherInit = WetokenFetcherInit;
 type Fetcher = WetokenFetcher;
+type ProviderOperation = 'submit' | 'poll';
+type ProviderFetchContext = WetokenProviderLogContext & { requestBody: unknown };
+type ProviderFetchResult = { response: Response; exchangeId: string; startedAt: number };
+type ProviderJsonContext = WetokenProviderLogContext & {
+  operation: ProviderOperation;
+  exchangeId: string;
+  startedAt: number;
+  requestBody: unknown;
+};
 
 // Some Wetoken video routes do not acknowledge the request until the provider
 // has finished rendering. Seedance 2.5 can therefore take an hour or more
@@ -263,8 +281,51 @@ function taskPayload(value: unknown): Record<string, unknown> {
   const candidates = [asRecord(nested.task), nested, asRecord(root.task)];
   return candidates.find((candidate) => hasTaskShape(candidate)) || root;
 }
-async function providerJson(response: Response) {
-  const data = await response.json().catch(() => ({})) as any;
+async function providerJson(response: Response, context: ProviderJsonContext) {
+  let responseText: string;
+  try {
+    responseText = await response.text();
+  } catch (error) {
+    logServerFailure('wetoken_video_exchange', error, {
+      traceId: context.traceId,
+      taskId: context.taskId,
+      provider: 'wetoken',
+      feature: 'wetoken_video',
+      operation: context.operation,
+      exchangeId: context.exchangeId,
+      stage: 'response_body_read_failed',
+      durationMs: Date.now() - context.startedAt,
+      responseStatus: response.status,
+      responseHeaders: safeProviderHeaders(response.headers),
+      requestBody: fullLogPayload(context.requestBody),
+    });
+    throw error;
+  }
+
+  let data: unknown = {};
+  let responseBodyEncoding: 'json' | 'text' = 'json';
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responseBodyEncoding = 'text';
+  }
+  logServerEvent('wetoken_video_exchange', {
+    traceId: context.traceId,
+    taskId: context.taskId,
+    provider: 'wetoken',
+    feature: 'wetoken_video',
+    operation: context.operation,
+    exchangeId: context.exchangeId,
+    stage: 'response_received',
+    durationMs: Date.now() - context.startedAt,
+    responseStatus: response.status,
+    responseStatusText: response.statusText,
+    responseHeaders: safeProviderHeaders(response.headers),
+    responseBodyEncoding,
+    responseBody: fullLogPayload(data),
+    ...(responseBodyEncoding === 'text' ? { responseBodyText: fullLogPayload(responseText) } : {}),
+  }, response.ok ? 'info' : 'warn');
+
   if (!response.ok) {
     const parsedError = readProviderError(data);
     throw new WetokenVideoError(parsedError.message.slice(0, 500) || response.statusText || 'request failed', response.status, parsedError.code);
@@ -276,19 +337,53 @@ async function providerFetch(
   fetcher: Fetcher,
   input: string,
   init: FetcherInit,
-  operation: 'submit' | 'poll',
-) {
+  operation: ProviderOperation,
+  context: ProviderFetchContext,
+): Promise<ProviderFetchResult> {
+  const exchangeId = randomUUID();
   const startedAt = Date.now();
+  const request = {
+    method: init.method || 'GET',
+    url: redactProviderUrl(input),
+    headers: safeProviderHeaders(init.headers),
+    body: fullLogPayload(context.requestBody),
+  };
+  logServerEvent('wetoken_video_exchange', {
+    traceId: context.traceId,
+    taskId: context.taskId,
+    provider: 'wetoken',
+    feature: 'wetoken_video',
+    operation,
+    exchangeId,
+    stage: 'request_sent',
+    request,
+  });
   try {
-    return await fetcher(input, init);
+    const response = await fetcher(input, init);
+    return { response, exchangeId, startedAt };
   } catch (error) {
-    throw new WetokenVideoTransportError(operation, Date.now() - startedAt, error);
+    const transportError = new WetokenVideoTransportError(operation, Date.now() - startedAt, error);
+    logServerFailure('wetoken_video_exchange', transportError, {
+      traceId: context.traceId,
+      taskId: context.taskId,
+      provider: 'wetoken',
+      feature: 'wetoken_video',
+      operation,
+      exchangeId,
+      stage: 'transport_failed',
+      durationMs: Date.now() - startedAt,
+      request,
+      causeName: transportError.causeName,
+      causeCode: transportError.causeCode,
+      causeMessage: transportError.causeMessage,
+    });
+    throw transportError;
   }
 }
 
 export async function createWetokenVideoTask(
   input: SeedanceInput,
-  dependencies: { fetcher?: Fetcher; assetsPrepared?: boolean } = {},
+  dependencies: { fetcher?: Fetcher; assetsPrepared?: boolean } & WetokenProviderLogContext = {},
 ) {
   const key = requireKey();
   const fetcher = dependencies.fetcher ?? fetch;
@@ -303,10 +398,14 @@ export async function createWetokenVideoTask(
     : await prepareWetokenAssetReferences(
       input.model,
       input.references as WetokenAssetReference[],
-      { fetcher },
+      { fetcher, traceId: dependencies.traceId, taskId: dependencies.taskId },
     );
   try {
-    const response = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
+    const requestBody = buildSeedanceRequest({
+      ...input,
+      references: prepared.references as VideoReference[],
+    });
+    const providerResponse = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -316,22 +415,30 @@ export async function createWetokenVideoTask(
         Connection: 'close',
       },
       dispatcher: wetokenProviderDispatcher,
-      body: JSON.stringify(buildSeedanceRequest({
-        ...input,
-        references: prepared.references as VideoReference[],
-      })),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS),
-    }, 'submit');
-    const data = await providerJson(response);
+    }, 'submit', {
+      traceId: dependencies.traceId,
+      taskId: dependencies.taskId,
+      requestBody,
+    });
+    const data = await providerJson(providerResponse.response, {
+      traceId: dependencies.traceId,
+      taskId: dependencies.taskId,
+      operation: 'submit',
+      exchangeId: providerResponse.exchangeId,
+      startedAt: providerResponse.startedAt,
+      requestBody,
+    });
     const payload = taskPayload(data);
     const externalTaskId = payload.id || payload.task_id;
     if (!externalTaskId) throw new Error('Wetoken video task ID missing');
-    return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || data?.status || 'queued'), raw: data };
+    return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || asRecord(data).status || 'queued'), raw: data };
   } catch (error) {
     // Only definitive 4xx rejection is safe to clean up; 408/5xx may hide an accepted upstream task.
     // 仅确定性 4xx 拒绝可清理素材；408/5xx 可能发生在上游已受理之后，必须保留用于对账。
     if (isDefinitiveWetokenVideoRejection(error)) {
-      await cleanupWetokenAssets(prepared.createdAssets, { fetcher });
+      await cleanupWetokenAssets(prepared.createdAssets, { fetcher, traceId: dependencies.traceId, taskId: dependencies.taskId });
     }
     throw error;
   }
@@ -339,11 +446,11 @@ export async function createWetokenVideoTask(
 
 export async function getWetokenVideoTask(
   externalTaskId: string,
-  dependencies: { fetcher?: Fetcher } = {},
+  dependencies: { fetcher?: Fetcher } & WetokenProviderLogContext = {},
 ) {
   const key = requireKey();
   const fetcher = dependencies.fetcher ?? fetch;
-  const response = await providerFetch(
+  const providerResponse = await providerFetch(
     fetcher,
     `${wetokenOrigin()}/api/v3/contents/generations/tasks/${encodeURIComponent(externalTaskId)}`,
     {
@@ -352,8 +459,16 @@ export async function getWetokenVideoTask(
       signal: AbortSignal.timeout(WETOKEN_VIDEO_POLL_TIMEOUT_MS),
     },
     'poll',
+    { traceId: dependencies.traceId, taskId: dependencies.taskId, requestBody: null },
   );
-  const data = await providerJson(response);
+  const data = await providerJson(providerResponse.response, {
+    traceId: dependencies.traceId,
+    taskId: dependencies.taskId,
+    operation: 'poll',
+    exchangeId: providerResponse.exchangeId,
+    startedAt: providerResponse.startedAt,
+    requestBody: null,
+  });
   const payload = taskPayload(data);
   const taskContent = asRecord(payload.content);
   const taskError = asRecord(payload.error);

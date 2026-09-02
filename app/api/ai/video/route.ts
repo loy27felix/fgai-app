@@ -22,6 +22,7 @@ import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing'
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { canAccessStoragePath } from '@/lib/local/storage-auth';
 import { localStorage } from '@/lib/local/storage';
+import { requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 1800;
@@ -141,6 +142,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const traceId = requestTraceId(req);
   const localClient = createClient();
   const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
@@ -234,7 +236,7 @@ export async function POST(req: Request) {
     });
     await recordUsageRequired(pendingLedgerEntry);
 
-    const created = await createWetokenVideoTask(providerInput);
+    const created = await createWetokenVideoTask(providerInput, { traceId, taskId: persistedPendingTask.id });
     const completedAt = ['succeeded', 'failed', 'expired'].includes(created.status)
       ? new Date().toISOString()
       : null;

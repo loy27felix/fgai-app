@@ -90,6 +90,7 @@ export async function POST(req: Request) {
       thinking: !!body.thinking || reasoningEffort !== "auto",
       reasoningEffort,
       jsonOutput: !!body.jsonOutput,
+      traceId,
     });
 
     try {

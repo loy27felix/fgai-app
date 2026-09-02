@@ -159,7 +159,7 @@ test('creator video confirmation signs every reference before Wetoken asset uplo
   const route = fs.readFileSync(path.join(process.cwd(), 'app/api/creator/videos/[id]/confirm/route.ts'), 'utf8');
 
   assert.match(route, /createProviderSignedUrl\(paths\[index\], SIGNED_URL_TTL_SECONDS\)/);
-  assert.match(route, /prepareWetokenAssetReferences\(claimed\.model, references\)/);
+  assert.match(route, /prepareWetokenAssetReferences\(claimed\.model, references(?:, \{ traceId, taskId: claimed\.id \})?\)/);
   assert.doesNotMatch(route, /readLocalFile\('creator-assets', paths\[index\]\)/);
 });
 test('Seedance validation rejects invalid combinations and model capabilities', () => {

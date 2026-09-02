@@ -159,6 +159,8 @@ export async function POST(req: Request) {
       thinking: !!body.thinking || reasoningEffort !== "auto",
       reasoningEffort,
       maxTokens: 4000,
+      traceId,
+      sessionId: activeSession.id,
     });
 
     const insertedAssistant = await localClient.from('creator_messages').insert({

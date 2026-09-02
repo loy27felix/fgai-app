@@ -1,16 +1,24 @@
 import { getImageModel } from '../imageModels';
-import { wetokenProviderDispatcher, type WetokenFetcher } from './wetoken-transport';
+import { wetokenProviderDispatcher, type WetokenFetcher, type WetokenFetcherInit } from './wetoken-transport';
 import {
   logCreatorImageEvent,
   logCreatorImageFailure,
   redactCreatorImageLogText,
 } from '../creator/image-logging';
 import { randomId } from '../utils';
+import {
+  fullLogPayload,
+  logServerEvent,
+  logServerFailure,
+  redactProviderUrl,
+  safeProviderHeaders,
+} from '../observability/server-log';
 
 export type ImageReference = { data: string; mimeType: string };
 export type ImageGenerationTrace = {
   taskId?: string;
   requestId?: string;
+  traceId?: string;
 };
 export type ImageGenerationInput = {
   model: string;
@@ -526,7 +534,7 @@ function describePayloadShape(value: unknown) {
 function parseResponsePayload(bytes: Uint8Array) {
   const text = new TextDecoder().decode(bytes);
   try {
-    return JSON.parse(text);
+    return { data: JSON.parse(text), encoding: 'json' as const, text };
   } catch {
     const events = text
       .split(/\r?\n\r?\n/)
@@ -535,7 +543,11 @@ function parseResponsePayload(bytes: Uint8Array) {
       .flatMap((value) => {
         try { return [JSON.parse(value)]; } catch { return []; }
       });
-    return events.length ? { events } : {};
+    return {
+      data: events.length ? { events } : {},
+      encoding: events.length ? 'json' as const : 'text' as const,
+      text,
+    };
   }
 }
 
@@ -543,7 +555,10 @@ async function readProviderPayload(response: Response, providerCallId: string) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   const rawContentType = response.headers.get('content-type');
   const contentType = normaliseImageMimeType(rawContentType, '');
-  const data = contentType || !bytes.byteLength ? {} : parseResponsePayload(bytes);
+  const parsed = contentType || !bytes.byteLength
+    ? { data: {}, encoding: contentType ? 'binary' as const : 'json' as const, text: '' }
+    : parseResponsePayload(bytes);
+  const data = parsed.data;
   const requestId = diagnosticText(
     response.headers.get('x-request-id')
       || response.headers.get('request-id')
@@ -562,6 +577,11 @@ async function readProviderPayload(response: Response, providerCallId: string) {
     data,
     directImage: contentType ? normaliseGeneratedImage({ bytes, mimeType: contentType }) : null,
     diagnostic,
+    responseBody: contentType
+      ? { contentType: rawContentType, byteLength: bytes.byteLength, body: Buffer.from(bytes).toString('base64') }
+      : data,
+    responseBodyEncoding: parsed.encoding,
+    ...(parsed.encoding === 'text' ? { responseBodyText: parsed.text } : {}),
   };
 }
 
@@ -584,6 +604,7 @@ export async function generateWetokenImage(
   const requestContext = {
     provider: 'wetoken',
     providerCallId,
+    ...(input.trace?.traceId ? { traceId: input.trace.traceId } : {}),
     ...(input.trace?.taskId ? { taskId: input.trace.taskId } : {}),
     ...(input.trace?.requestId ? { requestId: input.trace.requestId } : {}),
     model: input.model,
@@ -603,44 +624,87 @@ export async function generateWetokenImage(
     ...requestContext,
     operation: providerOperation,
   });
+  let requestUrl: string;
+  let requestInit: WetokenFetcherInit;
+  let requestBody: unknown;
+  let bodyEncoding: 'json' | 'multipart/form-data';
+
+  if (spec.provider === 'gemini') {
+    requestUrl = `${base}/content/models/${encodeURIComponent(input.model)}:generateContent`;
+    requestBody = buildGeminiImageBody(input);
+    bodyEncoding = 'json';
+    requestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify(requestBody),
+      dispatcher: wetokenProviderDispatcher,
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+    };
+  } else if (input.references.length) {
+    const files = input.references.map((reference, index) => ({
+      field: 'image[]',
+      filename: `reference-${index + 1}.${extensionFor(reference.mimeType)}`,
+      contentType: reference.mimeType,
+      data: reference.data,
+    }));
+    const form = new FormData();
+    form.append('model', input.model);
+    form.append('prompt', input.prompt);
+    form.append('size', input.size);
+    form.append('n', '1');
+    files.forEach((file, index) => {
+      form.append(file.field, new Blob([Buffer.from(input.references[index].data, 'base64')], { type: file.contentType }), file.filename);
+    });
+    requestUrl = `${base}/images/edits`;
+    requestBody = { model: input.model, prompt: input.prompt, size: input.size, n: 1, files };
+    bodyEncoding = 'multipart/form-data';
+    requestInit = {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+      dispatcher: wetokenProviderDispatcher,
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+    };
+  } else {
+    requestUrl = `${base}/images/generations`;
+    requestBody = { model: input.model, prompt: input.prompt, n: 1, size: input.size };
+    bodyEncoding = 'json';
+    requestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify(requestBody),
+      dispatcher: wetokenProviderDispatcher,
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+    };
+  }
+
+  const exchangeRequest = {
+    method: requestInit.method || 'POST',
+    url: redactProviderUrl(requestUrl),
+    headers: safeProviderHeaders(requestInit.headers),
+    bodyEncoding,
+    body: fullLogPayload(requestBody),
+  };
+  logServerEvent('wetoken_image_exchange', {
+    ...requestContext,
+    operation: providerOperation,
+    exchangeId: providerCallId,
+    stage: 'request_sent',
+    request: exchangeRequest,
+  });
   let response: Response;
 
   try {
-    if (spec.provider === 'gemini') {
-      response = await fetcher(`${base}/content/models/${encodeURIComponent(input.model)}:generateContent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify(buildGeminiImageBody(input)),
-        dispatcher: wetokenProviderDispatcher,
-        signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
-      });
-    } else if (input.references.length) {
-      const form = new FormData();
-      form.append('model', input.model);
-      form.append('prompt', input.prompt);
-      form.append('size', input.size);
-      form.append('n', '1');
-      input.references.forEach((reference, index) => {
-        const ext = extensionFor(reference.mimeType);
-        form.append('image[]', new Blob([Buffer.from(reference.data, 'base64')], { type: reference.mimeType }), `reference-${index + 1}.${ext}`);
-      });
-      response = await fetcher(`${base}/images/edits`, {
-        method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
-        dispatcher: wetokenProviderDispatcher,
-        signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
-      });
-    } else {
-      response = await fetcher(`${base}/images/generations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          model: input.model, prompt: input.prompt, n: 1, size: input.size,
-        }),
-        dispatcher: wetokenProviderDispatcher,
-        signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
-      });
-    }
+    response = await fetcher(requestUrl, requestInit);
   } catch (error) {
+    logServerFailure('wetoken_image_exchange', error, {
+      ...requestContext,
+      operation: providerOperation,
+      exchangeId: providerCallId,
+      stage: 'transport_failed',
+      durationMs: Date.now() - startedAt,
+      request: exchangeRequest,
+    });
     logCreatorImageFailure('provider_request_failed', error, {
       ...requestContext,
       operation: providerOperation,
@@ -652,9 +716,22 @@ export async function generateWetokenImage(
   let data: any;
   let directImage: ImageGenerationResult | null;
   let diagnostic: WetokenImageResultDiagnostic;
+  let responseBody: unknown;
+  let responseBodyEncoding: 'json' | 'text' | 'binary';
+  let responseBodyText: string | undefined;
   try {
-    ({ data, directImage, diagnostic } = await readProviderPayload(response, providerCallId));
+    ({ data, directImage, diagnostic, responseBody, responseBodyEncoding, responseBodyText } = await readProviderPayload(response, providerCallId));
   } catch (error) {
+    logServerFailure('wetoken_image_exchange', error, {
+      ...requestContext,
+      operation: providerOperation,
+      exchangeId: providerCallId,
+      stage: 'response_body_read_failed',
+      durationMs: Date.now() - startedAt,
+      responseStatus: response.status,
+      responseHeaders: safeProviderHeaders(response.headers),
+      request: exchangeRequest,
+    });
     logCreatorImageFailure('provider_response_read_failed', error, {
       ...requestContext,
       httpStatus: response.status,
@@ -663,6 +740,21 @@ export async function generateWetokenImage(
     });
     throw error;
   }
+
+  logServerEvent('wetoken_image_exchange', {
+    ...requestContext,
+    operation: providerOperation,
+    exchangeId: providerCallId,
+    stage: 'response_received',
+    durationMs: Date.now() - startedAt,
+    responseStatus: response.status,
+    responseStatusText: response.statusText,
+    responseHeaders: safeProviderHeaders(response.headers),
+    responseBodyEncoding,
+    responseBody: fullLogPayload(responseBody),
+    ...(responseBodyText !== undefined ? { responseBodyText: fullLogPayload(responseBodyText) } : {}),
+    request: exchangeRequest,
+  }, response.ok ? 'info' : 'warn');
 
   const responseFields = {
     ...requestContext,

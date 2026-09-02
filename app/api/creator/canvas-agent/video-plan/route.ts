@@ -291,6 +291,7 @@ export async function POST(req: Request) {
 
     const { spec, result } = await chatWithTextModel({
       modelId: model, messages, thinking: reasoningEffort !== "auto", reasoningEffort, jsonOutput: true, maxTokens: maxOutputTokens,
+      traceId,
     });
     if (mode === "directions") {
       const directions = parseCompanyProductionDirections(result.content, brief);

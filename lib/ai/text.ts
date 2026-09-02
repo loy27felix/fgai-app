@@ -11,6 +11,9 @@ export interface TextChatOptions {
   reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
   maxTokens?: number;
+  traceId?: string;
+  taskId?: string;
+  sessionId?: string;
 }
 
 type TextDependencies = { wetoken?: typeof wetokenChat };
@@ -35,6 +38,9 @@ export async function chatWithTextModel(options: TextChatOptions, dependencies: 
     ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     jsonOutput: options.jsonOutput,
     maxTokens: options.maxTokens,
+    ...(options.traceId ? { traceId: options.traceId } : {}),
+    ...(options.taskId ? { taskId: options.taskId } : {}),
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
   });
   return { spec, result };
 }

@@ -355,7 +355,7 @@ export async function confirmCreatorImage(
       prompt: effectivePrompt,
       size,
       references,
-      trace: { taskId: task.id, requestId },
+      trace: { taskId: task.id, requestId, traceId: input.traceId },
     });
     logCreatorImageEvent('generation_returned', {
       ...taskContext,

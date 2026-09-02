@@ -1,6 +1,14 @@
+import { randomUUID } from "node:crypto";
 import type { ChatResult } from "../deepseek";
 import { providerReasoningEffort, type ReasoningEffort } from "./reasoning";
 import { wetokenProviderDispatcher, type WetokenFetcher } from "./wetoken-transport";
+import {
+  fullLogPayload,
+  logServerEvent,
+  logServerFailure,
+  redactProviderUrl,
+  safeProviderHeaders,
+} from "../observability/server-log";
 
 export type OpenAITextPart = { type: "text"; text: string };
 export type OpenAIImagePart = { type: "image_url"; image_url: { url: string } };
@@ -12,6 +20,9 @@ export interface WetokenChatOptions {
   reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
   maxTokens?: number;
+  traceId?: string;
+  taskId?: string;
+  sessionId?: string;
 }
 
 type Fetcher = WetokenFetcher;
@@ -41,14 +52,86 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
   const reasoningEffort = providerReasoningEffort(options.reasoningEffort, "wetoken");
   if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   if (options.jsonOutput) body.response_format = { type: "json_object" };
-  const response = await (dependencies.fetcher ?? fetch)(`${base}/chat/completions`, {
+  const exchangeId = randomUUID();
+  const requestUrl = `${base}/chat/completions`;
+  const requestInit = {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
     dispatcher: wetokenProviderDispatcher,
     signal: AbortSignal.timeout(55_000),
+  };
+  const baseLogFields = {
+    traceId: options.traceId,
+    taskId: options.taskId,
+    sessionId: options.sessionId,
+    provider: "wetoken",
+    feature: "wetoken_chat",
+    operation: "chat.completions",
+    exchangeId,
+  };
+  const request = {
+    method: requestInit.method,
+    url: redactProviderUrl(requestUrl),
+    headers: safeProviderHeaders(requestInit.headers),
+    body: fullLogPayload(body),
+  };
+  logServerEvent("wetoken_chat_exchange", {
+    ...baseLogFields,
+    stage: "request_sent",
+    request,
   });
-  const data = await response.json().catch(() => ({})) as any;
+
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await (dependencies.fetcher ?? fetch)(requestUrl, requestInit);
+  } catch (error) {
+    logServerFailure("wetoken_chat_exchange", error, {
+      ...baseLogFields,
+      stage: "transport_failed",
+      durationMs: Date.now() - startedAt,
+      request,
+    });
+    throw error;
+  }
+
+  let responseText = "";
+  let responseBodyReadError: unknown;
+  try {
+    responseText = await response.text();
+  } catch (error) {
+    responseBodyReadError = error;
+    logServerFailure("wetoken_chat_exchange", error, {
+      ...baseLogFields,
+      stage: "response_body_read_failed",
+      durationMs: Date.now() - startedAt,
+      responseStatus: response.status,
+      responseHeaders: safeProviderHeaders(response.headers),
+      request,
+    });
+  }
+
+  let data: any = {};
+  let responseBodyEncoding: "json" | "text" = "json";
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responseBodyEncoding = "text";
+  }
+  logServerEvent("wetoken_chat_exchange", {
+    ...baseLogFields,
+    stage: "response_received",
+    durationMs: Date.now() - startedAt,
+    responseStatus: response.status,
+    responseStatusText: response.statusText,
+    responseHeaders: safeProviderHeaders(response.headers),
+    responseBodyEncoding,
+    responseBody: fullLogPayload(data),
+    ...(responseBodyEncoding === "text" ? { responseBodyText: fullLogPayload(responseText) } : {}),
+    ...(responseBodyReadError ? { responseBodyReadFailed: true } : {}),
+  }, response.ok ? "info" : "warn");
+
   if (!response.ok) {
     const message = String(data?.error?.message || data?.message || response.statusText || "request failed").slice(0, 300);
     throw new Error(`Wetoken ${response.status}: ${message}`);

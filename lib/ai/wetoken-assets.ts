@@ -1,3 +1,11 @@
+import { randomUUID } from 'node:crypto';
+import {
+  fullLogPayload,
+  logServerEvent,
+  logServerFailure,
+  redactProviderUrl,
+  safeProviderHeaders,
+} from '../observability/server-log';
 import { wetokenProviderDispatcher, type WetokenFetcher } from './wetoken-transport';
 
 export type WetokenAssetType = 'Image' | 'Video' | 'Audio';
@@ -19,6 +27,15 @@ export type WetokenPreparedAssetReferences<T extends WetokenAssetReference> = {
 };
 
 type Fetcher = WetokenFetcher;
+
+export type WetokenProviderLogContext = {
+  traceId?: string;
+  taskId?: string;
+};
+
+type AssetRequestDependencies = WetokenProviderLogContext & {
+  fetcher?: Fetcher;
+};
 
 const ASSET_REQUEST_TIMEOUT_MS = 60_000;
 const ASSET_READY_TIMEOUT_MS = 120_000;
@@ -158,18 +175,87 @@ async function assetRequest(
   path: '/v3/open/CreateAsset' | '/v3/open/GetAsset' | '/v3/open/DeleteAsset',
   body: Record<string, unknown>,
   fetcher: Fetcher,
+  context: WetokenProviderLogContext = {},
 ) {
-  const response = await fetcher(`${assetOrigin()}${path}`, {
+  const exchangeId = randomUUID();
+  const requestUrl = `${assetOrigin()}${path}`;
+  const baseLogFields = {
+    traceId: context.traceId,
+    taskId: context.taskId,
+    provider: 'wetoken',
+    feature: 'wetoken_asset',
+    operation: path.split('/').pop(),
+    exchangeId,
+  };
+  const request = {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${requireKey()}`,
-    },
-    body: JSON.stringify(body),
-    dispatcher: wetokenProviderDispatcher,
-    signal: AbortSignal.timeout(ASSET_REQUEST_TIMEOUT_MS),
+    url: redactProviderUrl(requestUrl),
+    headers: { 'content-type': 'application/json', authorization: '[redacted]' },
+    body: fullLogPayload(body),
+  };
+  logServerEvent('wetoken_asset_exchange', {
+    ...baseLogFields,
+    stage: 'request_sent',
+    request,
   });
-  const data = await response.json().catch(() => ({}));
+
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await fetcher(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${requireKey()}`,
+      },
+      body: JSON.stringify(body),
+      dispatcher: wetokenProviderDispatcher,
+      signal: AbortSignal.timeout(ASSET_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    logServerFailure('wetoken_asset_exchange', error, {
+      ...baseLogFields,
+      stage: 'transport_failed',
+      durationMs: Date.now() - startedAt,
+      request,
+    });
+    throw error;
+  }
+
+  let responseText: string;
+  try {
+    responseText = await response.text();
+  } catch (error) {
+    logServerFailure('wetoken_asset_exchange', error, {
+      ...baseLogFields,
+      stage: 'response_body_read_failed',
+      durationMs: Date.now() - startedAt,
+      responseStatus: response.status,
+      responseHeaders: safeProviderHeaders(response.headers),
+      request,
+    });
+    throw error;
+  }
+
+  let data: unknown = {};
+  let responseBodyEncoding: 'json' | 'text' = 'json';
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responseBodyEncoding = 'text';
+  }
+  logServerEvent('wetoken_asset_exchange', {
+    ...baseLogFields,
+    stage: 'response_received',
+    durationMs: Date.now() - startedAt,
+    responseStatus: response.status,
+    responseStatusText: response.statusText,
+    responseHeaders: safeProviderHeaders(response.headers),
+    responseBodyEncoding,
+    responseBody: fullLogPayload(data),
+    ...(responseBodyEncoding === 'text' ? { responseBodyText: fullLogPayload(responseText) } : {}),
+  }, response.ok ? 'info' : 'warn');
+
   if (!response.ok) {
     const error = providerError(data);
     throw new WetokenAssetError(error.message, response.status, error.code);
@@ -182,6 +268,7 @@ async function createAsset(
   reference: WetokenAssetReference,
   index: number,
   fetcher: Fetcher,
+  context: WetokenProviderLogContext,
 ) {
   if (!isProviderReachableAssetSourceUrl(reference.url)) {
     throw new WetokenAssetError('素材 URL 必须是公网 HTTPS 地址', 400, 'invalid_asset_url');
@@ -195,7 +282,7 @@ async function createAsset(
     name: assetName(reference, index),
     AssetType: assetTypeFor(reference),
     ...(model.endsWith('-filter-off') ? { Moderation: { Strategy: 'Skip' } } : {}),
-  }, fetcher);
+  }, fetcher, context);
   const root = asRecord(data);
   const nested = asRecord(root.data);
   const id = typeof root.id === 'string'
@@ -211,11 +298,11 @@ async function createAsset(
   return { id, model } satisfies WetokenCreatedAsset;
 }
 
-async function assetStatus(asset: WetokenCreatedAsset, fetcher: Fetcher) {
+async function assetStatus(asset: WetokenCreatedAsset, fetcher: Fetcher, context: WetokenProviderLogContext) {
   const data = await assetRequest('/v3/open/GetAsset', {
     model: asset.model,
     Id: asset.id,
-  }, fetcher);
+  }, fetcher, context);
   const root = asRecord(data);
   const nested = asRecord(root.data);
   const rawStatus = root.Status ?? root.status ?? nested.Status ?? nested.status;
@@ -234,13 +321,13 @@ async function assetStatus(asset: WetokenCreatedAsset, fetcher: Fetcher) {
   return status;
 }
 
-async function waitForAssetsActive(assets: WetokenCreatedAsset[], fetcher: Fetcher) {
+async function waitForAssetsActive(assets: WetokenCreatedAsset[], fetcher: Fetcher, context: WetokenProviderLogContext) {
   const deadline = Date.now() + ASSET_READY_TIMEOUT_MS;
   let pending = assets;
   while (pending.length) {
     const checks = await Promise.allSettled(pending.map(async (asset) => ({
       asset,
-      status: await assetStatus(asset, fetcher),
+      status: await assetStatus(asset, fetcher, context),
     })));
     const failed = checks.find((result) => result.status === 'rejected');
     if (failed?.status === 'rejected') throw failed.reason;
@@ -255,20 +342,20 @@ async function waitForAssetsActive(assets: WetokenCreatedAsset[], fetcher: Fetch
   }
 }
 
-async function deleteAsset(asset: WetokenCreatedAsset, fetcher: Fetcher) {
+async function deleteAsset(asset: WetokenCreatedAsset, fetcher: Fetcher, context: WetokenProviderLogContext) {
   await assetRequest('/v3/open/DeleteAsset', {
     model: asset.model,
     Id: asset.id,
-  }, fetcher);
+  }, fetcher, context);
 }
 
 export async function cleanupWetokenAssets(
   assets: WetokenCreatedAsset[],
-  dependencies: { fetcher?: Fetcher } = {},
+  dependencies: AssetRequestDependencies = {},
 ) {
   if (!assets.length) return true;
   const fetcher = dependencies.fetcher ?? fetch;
-  const results = await Promise.allSettled(assets.map((asset) => deleteAsset(asset, fetcher)));
+  const results = await Promise.allSettled(assets.map((asset) => deleteAsset(asset, fetcher, dependencies)));
   const failures = results.flatMap((result, index) => result.status === 'rejected'
     ? [{ asset: assets[index], error: result.reason }]
     : []);
@@ -291,7 +378,7 @@ export async function cleanupWetokenAssets(
 export async function prepareWetokenAssetReferences<T extends WetokenAssetReference>(
   model: string,
   references: T[],
-  dependencies: { fetcher?: Fetcher } = {},
+  dependencies: AssetRequestDependencies = {},
 ): Promise<WetokenPreparedAssetReferences<T>> {
   const fetcher = dependencies.fetcher ?? fetch;
   const prepared: T[] = [];
@@ -305,15 +392,15 @@ export async function prepareWetokenAssetReferences<T extends WetokenAssetRefere
         prepared.push(reference);
         continue;
       }
-      const asset = await createAsset(model, reference, index, fetcher);
+      const asset = await createAsset(model, reference, index, fetcher, dependencies);
       createdAssets.push(asset);
       assetsToCheck.push(asset);
       prepared.push({ ...reference, url: `asset://${asset.id}` } as T);
     }
-    await waitForAssetsActive(assetsToCheck, fetcher);
+    await waitForAssetsActive(assetsToCheck, fetcher, dependencies);
     return { references: prepared, createdAssets };
   } catch (error) {
-    await cleanupWetokenAssets(createdAssets, { fetcher });
+    await cleanupWetokenAssets(createdAssets, dependencies);
     throw error;
   }
 }

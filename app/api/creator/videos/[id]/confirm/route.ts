@@ -326,8 +326,9 @@ async function completeProviderSubmission(input: {
   references: VideoReference[];
   createdAssets: WetokenCreatedAsset[];
   requestId: string;
+  traceId: string;
 }) {
-  const { context, task, validated, references, createdAssets, requestId } = input;
+  const { context, task, validated, references, createdAssets, requestId, traceId } = input;
   let providerTask: Awaited<ReturnType<typeof createWetokenVideoTask>>;
   let providerRequestAttempted = false;
   const submissionStartedAt = new Date().toISOString();
@@ -363,7 +364,7 @@ async function completeProviderSubmission(input: {
       resolution: validated.resolution,
       watermark: validated.watermark,
       generateAudio: validated.generateAudio,
-    }, { assetsPrepared: true });
+    }, { assetsPrepared: true, traceId, taskId: task.id });
   } catch (error) {
     const providerStatus = providerRequestAttempted ? providerFailureStatus(error) : 'failed';
     const providerError = providerFailureMessage(error);
@@ -434,7 +435,7 @@ async function completeProviderSubmission(input: {
       ledgerStatus: providerStatus === 'failed' ? 'failed' : 'unknown',
     });
     if ((!providerRequestAttempted || error instanceof WetokenAssetError || isDefinitiveWetokenVideoRejection(error)) && createdAssets.length) {
-      const cleaned = await cleanupWetokenAssets(createdAssets);
+      const cleaned = await cleanupWetokenAssets(createdAssets, { traceId, taskId: task.id });
       await recordVideoTaskEvent(task.id, cleaned ? 'provider_assets_cleaned' : 'provider_assets_cleanup_failed', providerStatus, {
         assetIds: createdAssets.map((asset) => asset.id).join(','),
       }).catch(() => undefined);
@@ -628,7 +629,7 @@ export async function POST(req: Request, { params }: RouteContext) {
     // Asset registration must precede usage reservation and provider submission.
     // 素材上传必须早于用量扣除和生成提交，失败时任务回到 draft。
     try {
-      const prepared = await prepareWetokenAssetReferences(claimed.model, references);
+      const prepared = await prepareWetokenAssetReferences(claimed.model, references, { traceId, taskId: claimed.id });
       references = prepared.references;
       createdAssets = prepared.createdAssets;
       await recordVideoTaskEvent(claimed.id, 'provider_assets_ready', 'submitting', {
@@ -637,7 +638,7 @@ export async function POST(req: Request, { params }: RouteContext) {
         model: claimed.model,
       });
     } catch (error) {
-      await cleanupWetokenAssets(createdAssets);
+      await cleanupWetokenAssets(createdAssets, { traceId, taskId: claimed.id });
       logServerFailure('creator_video', error, {
         feature: 'creator_video',
         stage: 'provider_asset_upload_failed',
@@ -685,7 +686,7 @@ export async function POST(req: Request, { params }: RouteContext) {
         possiblyCharged: true,
       });
     } catch (error) {
-      await cleanupWetokenAssets(createdAssets);
+      await cleanupWetokenAssets(createdAssets, { traceId, taskId: claimed.id });
       logServerFailure('creator_video', error, {
         feature: 'creator_video',
         stage: 'usage_reservation_failed',
@@ -698,7 +699,7 @@ export async function POST(req: Request, { params }: RouteContext) {
 
     // Return after durable claim and ledger reservation while Node waits for Wetoken.
     // 持久化任务认领与账本预留后立即返回，由 Node 后台等待 Wetoken 回传任务 ID。
-    void completeProviderSubmission({ context, task: claimed, validated, references, createdAssets, requestId })
+    void completeProviderSubmission({ context, task: claimed, validated, references, createdAssets, requestId, traceId })
       .catch((error) => logServerFailure('creator_video', error, {
         feature: 'creator_video',
         stage: 'background_submission_unhandled_failure',

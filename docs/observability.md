@@ -12,6 +12,12 @@ FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的
 
 异步且可能收费的任务（图片、视频、音频）还必须把关键状态写入各自的任务事件表；日志只用于诊断，不能替代任务状态或用量账本。
 
+## Wetoken 请求/响应审计
+
+Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_exchange` 和 `wetoken_image_exchange` 事件会为每次供应商 HTTP 调用记录：`exchangeId`、`traceId`、`taskId` / `sessionId`、`operation`、请求 `method`、脱敏后的 `url`、请求 headers、完整 logical request body、HTTP 状态、响应 headers、完整 logical response body、body 编码和 `durationMs`。请求发送、响应收到、网络失败和响应 body 读取失败分别使用稳定的 `stage` 值，便于按 `exchangeId` 配对请求与响应。
+
+这里的“完整”指正常 JSON 业务字段会保留到日志；为防止日志失控，payload 有深度、数组、对象键数量和字符串长度上限，单条 server log 最大为 256 KiB，超出部分以截断标记保留可识别结构。`Authorization`、Cookie、API key、token、签名 query value、签名 URL 的用户名/密码和 query value、Base64/二进制媒体内容均会脱敏；URL 只保留可定位的 origin/path/query key，并附带不可逆的关联 fingerprint。Prompt 和供应商错误响应属于本次 provider exchange 的排障数据，访问日志必须受控，不能对外返回。
+
 ## 必须带的字段
 
 - `traceId`：单次 HTTP 请求关联 ID；响应头会回传 `x-fg-trace-id`。
@@ -19,7 +25,7 @@ FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的
 - `taskId` / `sessionId` / `workspaceId`：有对应对象时必须带。
 - `model`、`referenceCount`、`durationMs`、`outcome`：适用时记录，便于核对模型与耗时。
 
-日志中不得写入 Prompt 原文、模型回复、图片 Base64、Bearer/API Key、密码、Cookie、签名 URL、邮箱或原始媒体内容。需要关联使用者时使用内部 UUID，不使用邮箱。
+普通业务日志中不得写入 Prompt 原文、模型回复、图片 Base64、Bearer/API Key、密码、Cookie、签名 URL、邮箱或原始媒体内容；只有上节定义的 provider exchange 审计事件可保留脱敏后的完整 logical request/response body。需要关联使用者时使用内部 UUID，不使用邮箱。
 
 ## 前端、主机和周期报表
 

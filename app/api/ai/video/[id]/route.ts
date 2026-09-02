@@ -3,11 +3,13 @@ import { createClient } from '@/lib/local/server';
 import { getWetokenVideoTask } from '@/lib/ai/video';
 import { updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { extractReportedCostUsd } from '@/lib/usage/pricing';
+import { requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const traceId = requestTraceId(_req);
   const localClient = createClient();
   const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
@@ -24,7 +26,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 
   try {
-    const result = await getWetokenVideoTask(task.external_task_id);
+    const result = await getWetokenVideoTask(task.external_task_id, { traceId, taskId: task.id });
     const terminal = ['succeeded', 'failed', 'expired'].includes(result.status);
     const reportedCostUsd = extractReportedCostUsd(result.usage);
     const output = result.videoUrl ? { videoUrl: result.videoUrl, usage: result.usage || null } : { usage: result.usage || null };

@@ -21,7 +21,7 @@ import { ensureVideoOutputStored, persistVideoOutput, signedVideoOutputUrl } fro
 import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
 import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
 import { KnownVideoTaskRecoveryError, reconcileKnownWetokenVideoTask } from '@/lib/creator/video-recovery';
-import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
+import { logServerEvent, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -154,6 +154,7 @@ function providerErrorMessage(error: unknown) {
 async function pollTask(
   context: NonNullable<Awaited<ReturnType<typeof creatorContext>>>,
   task: CreatorVideoTask,
+  traceId: string,
 ) {
   const currentTask = await markStaleVideoSubmission(task);
   if (!currentTask.external_task_id || ['failed', 'expired'].includes(currentTask.status)) return currentTask;
@@ -164,7 +165,7 @@ async function pollTask(
   let polled;
   const pollStartedAt = Date.now();
   try {
-    polled = await getWetokenVideoTask(currentTask.external_task_id);
+    polled = await getWetokenVideoTask(currentTask.external_task_id, { traceId, taskId: currentTask.id });
   } catch (error) {
     const checkedAt = new Date().toISOString();
     console.error('[creator video poll]', {
@@ -298,13 +299,14 @@ export async function POST(req: Request, { params }: RouteContext) {
     return serverError(error, 'VIDEO_REFERENCE_UPLOAD_FAILED', '参考素材上传失败，请稍后重试');
   }
 }
-export async function GET(_req: Request, { params }: RouteContext) {
+export async function GET(req: Request, { params }: RouteContext) {
+  const traceId = requestTraceId(req);
   try {
     const context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
     const task = await loadOwnedTask(context, params.id);
     if (!task) return response('视频任务不存在', 'VIDEO_TASK_NOT_FOUND', 404);
-    const current = await pollTask(context, task);
+    const current = await pollTask(context, task, traceId);
     return NextResponse.json({ task: await taskView(context, current) });
   } catch (error: unknown) {
     return serverError(error, 'VIDEO_TASK_READ_FAILED', '视频任务读取失败，请稍后重试');
@@ -317,6 +319,7 @@ export async function GET(_req: Request, { params }: RouteContext) {
  * to an owned internal UUID: provider task IDs alone cannot expose any media.
  */
 export async function PUT(req: Request, { params }: RouteContext) {
+  const traceId = requestTraceId(req);
   try {
     const context = await creatorContext();
     if (!context) return response('请先登录', 'UNAUTHENTICATED', 401);
@@ -332,7 +335,10 @@ export async function PUT(req: Request, { params }: RouteContext) {
     const recovered = await reconcileKnownWetokenVideoTask({
       task,
       externalTaskId,
-      loadProviderTask: getWetokenVideoTask,
+      loadProviderTask: (providerTaskId) => getWetokenVideoTask(providerTaskId, {
+        traceId,
+        taskId: task.id,
+      }),
       persistOutput: (output) => persistVideoOutput(context, task, output),
       saveTask: async (update) => {
         const saved = await context.localClient

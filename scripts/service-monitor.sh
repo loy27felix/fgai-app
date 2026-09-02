@@ -40,6 +40,13 @@ read_env_value() {
   printf '%s' "$line"
 }
 
+app_base_url() {
+  local app_host_port
+  app_host_port="$(read_env_value FG_APP_HOST_PORT)"
+  [[ "$app_host_port" =~ ^[0-9]+$ ]] || app_host_port=3000
+  printf 'http://127.0.0.1:%s' "$app_host_port"
+}
+
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
 }
@@ -64,7 +71,7 @@ send_monitor_event() {
   secret="$(observability_secret)"
   [[ -n "$secret" ]] || return 0
   base_url="$(read_env_value FG_OBSERVABILITY_URL)"
-  base_url="${base_url:-http://127.0.0.1:3000}"
+  base_url="${base_url:-$(app_base_url)}"
   endpoint="${base_url%/}/api/observability/monitor-events"
   host="$(hostname -s 2>/dev/null || hostname)"
   event_key="monitor-${host}-${service}-$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -90,7 +97,7 @@ send_app_error_event() {
   secret="$(observability_secret)"
   [[ -n "$secret" ]] || return 0
   base_url="$(read_env_value FG_OBSERVABILITY_URL)"
-  base_url="${base_url:-http://127.0.0.1:3000}"
+  base_url="${base_url:-$(app_base_url)}"
   endpoint="${base_url%/}/api/observability/error-events"
   event_key="$(printf '%s' "$line" | /usr/bin/shasum -a 256 | awk '{print "app-log-" $1}')"
   payload="{\"occurredAt\":\"$(json_escape "$occurred_at")\",\"source\":\"app\",\"service\":\"app\",\"severity\":\"error\",\"impact\":\"unknown\",\"code\":\"app_log\",\"message\":\"$(json_escape "$message")\",\"eventKey\":\"$(json_escape "$event_key")\"}"
@@ -155,6 +162,14 @@ clear_failures() {
 }
 
 compose() {
+  local compose_profile
+  compose_profile="$(read_env_value FG_COMPOSE_PROFILE)"
+  if [[ -n "$compose_profile" ]]; then
+    docker compose --project-directory "$PROJECT_ROOT" --project-name fgai-app --env-file "$ENV_FILE" --profile "$compose_profile" "$@"
+    return
+  fi
+  # Do not expand an empty Bash array under nounset when HTTPS is disabled.
+  # 未启用 HTTPS 时不展开空 Bash array，避免 nounset 导致监控脚本失败。
   docker compose --project-directory "$PROJECT_ROOT" --project-name fgai-app --env-file "$ENV_FILE" "$@"
 }
 
@@ -186,12 +201,34 @@ check_app() {
   [[ -n "$container" ]] && health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
   # Probe a lightweight public endpoint instead of rendering the homepage, so monitoring measures app readiness rather than page cost.
   # 使用无需登录的轻量接口，监控应用是否就绪，而不是把首页渲染耗时误判为服务异常。
-  http_status="$(/usr/bin/curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/api/version 2>/dev/null || printf 'unreachable')"
+  http_status="$(/usr/bin/curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$(app_base_url)/api/version" 2>/dev/null || printf 'unreachable')"
   if [[ "$health" == "healthy" ]] && [[ "$http_status" == "200" ]]; then
     clear_failures app
     update_state app healthy "container health=healthy; HTTP /api/version=200"
   else
     update_state app unhealthy "container health=$health; HTTP /api/version=$http_status; NAS supervisor will recover it"
+  fi
+}
+
+check_nginx() {
+  local compose_profile
+  local container
+  local health="missing"
+  local nginx_host_port
+  local http_status
+
+  compose_profile="$(read_env_value FG_COMPOSE_PROFILE)"
+  [[ "$compose_profile" == "https" ]] || return 0
+  container="$(container_id nginx)"
+  [[ -n "$container" ]] && health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
+  nginx_host_port="$(read_env_value FG_NGINX_HOST_PORT)"
+  [[ "$nginx_host_port" =~ ^[0-9]+$ ]] || nginx_host_port=3000
+  http_status="$(/usr/bin/curl -ksS -o /dev/null -w '%{http_code}' --max-time 5 "https://127.0.0.1:$nginx_host_port/api/version" 2>/dev/null || printf 'unreachable')"
+  if [[ "$health" == "healthy" ]] && [[ "$http_status" == "200" ]]; then
+    clear_failures nginx
+    update_state nginx healthy "container health=healthy; HTTPS /api/version=200"
+  else
+    update_state nginx unhealthy "container health=$health; HTTPS /api/version=$http_status"
   fi
 }
 
@@ -300,6 +337,7 @@ fi
 update_state docker healthy "Docker daemon is available"
 check_nas
 check_app
+check_nginx
 check_postgres
 check_tunnel
 check_disk

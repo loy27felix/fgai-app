@@ -13,6 +13,7 @@ import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { readLocalFile } from '@/lib/local/storage';
 import { logCreatorImageEvent, logCreatorImageFailure } from '@/lib/creator/image-logging';
 import { randomId } from '@/lib/utils';
+import { requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -50,6 +51,7 @@ async function referenceFromStorageUrl(value: string) {
 }
 
 export async function POST(req: Request) {
+  const traceId = requestTraceId(req);
   const localClient = createClient();
   const { data: { user } } = await localClient.auth.getUser();
   if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
@@ -127,7 +129,7 @@ export async function POST(req: Request) {
       prompt,
       size: body.size || '1024x1024',
       references,
-      trace: { requestId },
+      trace: { requestId, traceId },
     });
     providerRequestId = providerRequestIdFromImageDiagnostic(generated.providerDiagnostic);
     const ledgerRecorded = await recordUsageBestEffort(buildImageLedgerEntry({
