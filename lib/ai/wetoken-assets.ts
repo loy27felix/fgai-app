@@ -56,13 +56,28 @@ function requireKey() {
 
 function providerError(value: unknown) {
   const root = asRecord(value);
-  const nested = asRecord(root.error);
-  const message = typeof root.error === 'string'
-    ? root.error
-    : typeof nested.message === 'string'
-      ? nested.message
-      : typeof root.message === 'string' ? root.message : 'asset request failed';
-  const rawCode = nested.code ?? root.code;
+  const data = asRecord(root.data);
+  const upperData = asRecord(root.Data);
+  const records = [
+    asRecord(root.error),
+    asRecord(root.Error),
+    asRecord(data.error),
+    asRecord(data.Error),
+    asRecord(upperData.error),
+    asRecord(upperData.Error),
+    data,
+    upperData,
+    root,
+  ];
+  const stringMessages = [root.error, root.Error, data.error, data.Error, upperData.error, upperData.Error];
+  const message = stringMessages.find((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    ?? records
+      .flatMap((record) => [record.message, record.Message, record.error_description, record.errorDescription, record.reason])
+      .find((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    ?? 'asset request failed';
+  const rawCode = records
+    .flatMap((record) => [record.code, record.Code, record.error_code, record.errorCode])
+    .find((item) => typeof item === 'string' || typeof item === 'number');
   const code = typeof rawCode === 'string' || typeof rawCode === 'number' ? String(rawCode) : null;
   return {
     message: message
@@ -228,7 +243,7 @@ async function assetStatus(asset: WetokenCreatedAsset, fetcher: Fetcher) {
     throw new WetokenAssetError(
       error.message === 'asset request failed' ? '素材处理失败' : error.message,
       422,
-      'asset_processing_failed',
+      error.code || 'asset_processing_failed',
     );
   }
   return status;

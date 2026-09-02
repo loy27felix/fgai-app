@@ -1968,7 +1968,18 @@ function InfiniteCanvasPage() {
         setSelectedNodeIds(new Set([id]));
         setSelectedConnectionId(null);
         setDialogNodeId(id);
-    }, []);
+        try {
+            const durable = await uploadCanvasAsset(file, { kind: "image", source: "upload", name: file.name, nodeId: id });
+            setNodes((prev) => prev.map((node) => node.id === id && node.metadata?.content === image.url ? {
+                ...node,
+                metadata: { ...node.metadata, ...imageMetadata({ ...image, url: durable.contentUrl, cloudStoragePath: durable.storagePath, cloudAssetId: durable.assetId }) },
+            } : node));
+            console.info("[canvas image durable copy linked]", { nodeId: id, assetId: durable.assetId, storagePath: durable.storagePath });
+        } catch (error) {
+            console.warn("[canvas image durable copy failed]", { nodeId: id, name: file.name, error });
+            message.warning("图片已添加到画布，但云端备份失败；请暂时不要清理当前浏览器缓存");
+        }
+    }, [message]);
 
     const createVideoFileNode = useCallback(async (file: File, position: Position) => {
         const video = await uploadMediaFile(file, "video");
@@ -2754,13 +2765,47 @@ function InfiniteCanvasPage() {
                                       position: { x: node.position.x + node.width / 2 - nextSize.width / 2, y: node.position.y + node.height / 2 - nextSize.height / 2 },
                                       width: nextSize.width,
                                       height: nextSize.height,
-                                      metadata: { ...node.metadata, ...videoMetadata(video), errorDetails: undefined },
+                                      // Replacing a video must clear the previous durable
+                                      // identity first. Keeping it would replay an old cloud
+                                      // file after a refresh while the new local blob disappears.
+                                      metadata: {
+                                          ...node.metadata,
+                                          ...videoMetadata(video),
+                                          cloudStoragePath: undefined,
+                                          cloudAssetId: undefined,
+                                          creatorTaskId: undefined,
+                                          externalTaskId: undefined,
+                                          errorDetails: undefined,
+                                      },
                                   }
                                 : node,
                         ),
                     );
                     setSelectedNodeIds(new Set([target.nodeId]));
                     setSelectedConnectionId(null);
+                    try {
+                        const durable = await uploadCanvasAsset(first, { kind: "video", source: "upload", name: first.name, nodeId: target.nodeId });
+                        setNodes((prev) =>
+                            prev.map((node) =>
+                                node.id === target.nodeId && node.metadata?.content === video.url
+                                    ? {
+                                          ...node,
+                                          metadata: {
+                                              ...node.metadata,
+                                              content: durable.contentUrl,
+                                              cloudStoragePath: durable.storagePath,
+                                              cloudAssetId: durable.assetId,
+                                              storageKey: video.storageKey,
+                                          },
+                                      }
+                                    : node,
+                            ),
+                        );
+                        console.info("[canvas replaced video durable copy linked]", { nodeId: target.nodeId, assetId: durable.assetId, storagePath: durable.storagePath });
+                    } catch (error) {
+                        console.warn("[canvas replaced video durable copy failed]", { nodeId: target.nodeId, name: first.name, error });
+                        message.warning("视频已替换，但云端备份失败；请暂时不要清理当前浏览器缓存");
+                    }
                 } else {
                     const image = await uploadImage(first);
                     const s = fitNodeSize(image.width, image.height);
@@ -2776,6 +2821,9 @@ function InfiniteCanvasPage() {
                                       metadata: {
                                           ...node.metadata,
                                           ...imageMetadata(image),
+                                          cloudStoragePath: undefined,
+                                          cloudAssetId: undefined,
+                                          creatorTaskId: undefined,
                                           errorDetails: undefined,
                                           freeResize: false,
                                           isBatchRoot: undefined,
@@ -2797,6 +2845,26 @@ function InfiniteCanvasPage() {
                     );
                     setSelectedNodeIds(new Set([target.nodeId]));
                     setSelectedConnectionId(null);
+                    try {
+                        const durable = await uploadCanvasAsset(first, { kind: "image", source: "upload", name: first.name, nodeId: target.nodeId });
+                        setNodes((prev) =>
+                            prev.map((node) =>
+                                node.id === target.nodeId && node.metadata?.content === image.url
+                                    ? {
+                                          ...node,
+                                          metadata: {
+                                              ...node.metadata,
+                                              ...imageMetadata({ ...image, url: durable.contentUrl, cloudStoragePath: durable.storagePath, cloudAssetId: durable.assetId }),
+                                          },
+                                      }
+                                    : node,
+                            ),
+                        );
+                        console.info("[canvas replaced image durable copy linked]", { nodeId: target.nodeId, assetId: durable.assetId, storagePath: durable.storagePath });
+                    } catch (error) {
+                        console.warn("[canvas replaced image durable copy failed]", { nodeId: target.nodeId, name: first.name, error });
+                        message.warning("图片已替换，但云端备份失败；请暂时不要清理当前浏览器缓存");
+                    }
                 }
 
                 // 剩余文件：在目标节点附近新建

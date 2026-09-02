@@ -275,6 +275,30 @@ test('canvas video assets retain a durable playback path and surface a recoverab
   assert.match(node, /\[canvas video playback failed\]/);
 });
 
+test('replacing a canvas video creates a fresh cloud backup instead of retaining stale metadata', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const replacementStart = project.indexOf('else if (first.type.startsWith("video/"))');
+  const replacementEnd = project.indexOf('} else {', replacementStart);
+  const replacement = project.slice(replacementStart, replacementEnd);
+
+  assert.ok(replacementStart >= 0);
+  assert.match(replacement, /uploadCanvasAsset\(first/);
+  assert.match(replacement, /cloudStoragePath/);
+  assert.match(replacement, /cloudAssetId/);
+});
+
+test('uploaded and replaced canvas images receive their own durable cloud asset', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const imageCreation = project.slice(project.indexOf('const createImageFileNode'), project.indexOf('const createVideoFileNode'));
+  const imageReplacementStart = project.indexOf('const image = await uploadImage(first);');
+  const imageReplacement = project.slice(imageReplacementStart, project.indexOf('// 剩余文件', imageReplacementStart));
+
+  assert.match(imageCreation, /uploadCanvasAsset\(file, \{ kind: "image"/);
+  assert.match(imageCreation, /cloudStoragePath/);
+  assert.match(imageReplacement, /uploadCanvasAsset\(first, \{ kind: "image"/);
+  assert.match(imageReplacement, /creatorTaskId: undefined/);
+});
+
 test('canvas release notes and prompt sources are owned by FG Studio', () => {
   const version = read('reference/infinite-canvas/src/constant/env.ts');
   const release = read('reference/infinite-canvas/src/lib/fg-release-notes.ts');
