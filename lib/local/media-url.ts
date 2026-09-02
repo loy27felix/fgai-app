@@ -1,4 +1,6 @@
-const DEFAULT_INTERNAL_MEDIA_URL = "http://127.0.0.1:3000/api/local/storage/content";
+const DEFAULT_INTERNAL_MEDIA_URL = process.env.NODE_ENV === "production"
+  ? "http://app:3000/api/local/storage/content"
+  : "http://127.0.0.1:3000/api/local/storage/content";
 
 function parseUrl(value: string, base?: URL) {
   try {
