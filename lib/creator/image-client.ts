@@ -13,6 +13,7 @@ export type CreateImageDraftPayload = {
   prompt: string;
   model: string;
   ratio: string;
+  size?: string;
   references: ImageReferenceManifest[];
   skill?: CreatorImageSkill | null;
   idempotencyKey: string;

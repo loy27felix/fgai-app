@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getGenerationResourceNodes } from "../reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
+import { buildNodeMentionReferences, getGenerationResourceNodes } from "../reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../reference/infinite-canvas/src/types/canvas";
 
 const position = { x: 0, y: 0 };
@@ -41,4 +41,10 @@ test("group expansion omits empty children and keeps direct resources only once"
         getGenerationResourceNodes("config", nodes, connections).map((item) => item.id),
         ["image"],
     );
+});
+
+test("a generated image without upstream inputs does not present itself as a reference material", () => {
+    const image = node("generated-image", CanvasNodeType.Image, { content: "https://assets.example/generated.png" });
+
+    assert.deepEqual(buildNodeMentionReferences(image, [image], []), []);
 });
