@@ -44,7 +44,9 @@ if [[ -z "$secret" ]]; then
 fi
 
 base_url="$(read_env_value FG_OBSERVABILITY_URL)"
-base_url="${base_url:-http://127.0.0.1:3000}"
+app_host_port="$(read_env_value FG_APP_HOST_PORT)"
+[[ "$app_host_port" =~ ^[0-9]+$ ]] || app_host_port=3000
+base_url="${base_url:-http://127.0.0.1:$app_host_port}"
 endpoint="${base_url%/}/api/observability/report-runner"
 http_code="$(/usr/bin/curl -sS -o /dev/null -w '%{http_code}' \
   --connect-timeout 2 --max-time 60 \

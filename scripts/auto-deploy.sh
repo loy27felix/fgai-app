@@ -11,8 +11,6 @@ ENV_FILE="${FG_AUTO_DEPLOY_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
 BRANCH="${FG_AUTO_DEPLOY_BRANCH:-main}"
 REMOTE="${FG_AUTO_DEPLOY_REMOTE:-origin}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-fgai-app}"
-HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-http://127.0.0.1:3000/api/version}"
-VERSION_URL="${FG_AUTO_DEPLOY_VERSION_URL:-http://127.0.0.1:3000/api/version}"
 DEPLOY_TARGET_SHA="${FG_AUTO_DEPLOY_TARGET_SHA:-}"
 DEPLOY_PREVIOUS_SHA="${FG_AUTO_DEPLOY_PREVIOUS_SHA:-}"
 export APP_DEPLOYMENT_VERSION="${APP_DEPLOYMENT_VERSION:-dev}"
@@ -63,6 +61,18 @@ read_env_value() {
   printf '%s' "$line"
 }
 
+app_base_url() {
+  local app_host_port
+  app_host_port="$(read_env_value FG_APP_HOST_PORT)"
+  [[ "$app_host_port" =~ ^[0-9]+$ ]] || app_host_port=3000
+  printf 'http://127.0.0.1:%s' "$app_host_port"
+}
+
+APP_BASE_URL="$(app_base_url)"
+HEALTH_URL="${FG_AUTO_DEPLOY_HEALTH_URL:-${APP_BASE_URL}/api/version}"
+VERSION_URL="${FG_AUTO_DEPLOY_VERSION_URL:-${APP_BASE_URL}/api/version}"
+COMPOSE_PROFILE="${FG_AUTO_DEPLOY_COMPOSE_PROFILE:-$(read_env_value FG_COMPOSE_PROFILE)}"
+
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
 }
@@ -73,12 +83,14 @@ send_deploy_error_event() {
   local secret
   local endpoint
   local base_url
+  local app_base
   local payload
   secret="$(read_env_value FG_OBSERVABILITY_SECRET)"
   secret="${secret:-$(read_env_value SESSION_SECRET)}"
   [[ -n "$secret" ]] || return 0
   base_url="$(read_env_value FG_OBSERVABILITY_URL)"
-  base_url="${base_url:-http://127.0.0.1:3000}"
+  app_base="$(app_base_url)"
+  base_url="${base_url:-$app_base}"
   endpoint="${base_url%/}/api/observability/error-events"
   payload="{\"source\":\"deploy\",\"service\":\"auto-deploy\",\"severity\":\"critical\",\"impact\":\"blocked\",\"code\":\"$(json_escape "$phase")\",\"message\":\"deployment failed for commit $(json_escape "$sha") at $(json_escape "$phase")\",\"deploymentVersion\":\"$(json_escape "${APP_DEPLOYMENT_VERSION:-dev}")\",\"eventKey\":\"deploy-${sha}-${phase}\"}"
   /usr/bin/curl -fsS --connect-timeout 1 --max-time 2 \
@@ -87,10 +99,13 @@ send_deploy_error_event() {
 }
 
 compose() {
+  local profile_args=()
+  [[ -n "$COMPOSE_PROFILE" ]] && profile_args+=(--profile "$COMPOSE_PROFILE")
   docker compose \
     --project-directory "$PROJECT_ROOT" \
     --project-name "$COMPOSE_PROJECT_NAME" \
     --env-file "$ENV_FILE" \
+    "${profile_args[@]}" \
     "$@"
 }
 
