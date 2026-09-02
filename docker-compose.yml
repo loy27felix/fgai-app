@@ -46,9 +46,9 @@ services:
     ports:
       - "3000:3000"
     healthcheck:
-      # Probe the public version endpoint so health checks do not render the homepage or depend on container DNS.
-      # 使用无需登录的轻量版本接口，避免首页渲染和容器 DNS 抖动造成误报。
-      test: ["CMD-SHELL", "test -f \"$${NAS_READY_FILE}\" && node -e \"fetch('http://127.0.0.1:3000/api/version').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      # Standalone Next binds to the container hostname; probe its lightweight public endpoint without rendering the homepage.
+      # Standalone Next 监听容器 hostname；使用轻量公开接口检查就绪状态，避免渲染首页。
+      test: ["CMD-SHELL", "test -f \"$${NAS_READY_FILE}\" && node -e \"const h=require('os').hostname(); fetch('http://'+h+':3000/api/version').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 3
