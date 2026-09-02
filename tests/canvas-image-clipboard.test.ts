@@ -1,17 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  copyCanvasImageToClipboard,
-  isCanvasNativeImageCopyInFlight,
-  runCanvasNativeImageClipboardCopy,
-} from "../reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
+import { copyCanvasImageToClipboard } from "../reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard";
+
+type ClipboardPayload = Blob | Promise<Blob>;
 
 test("copying a canvas image writes image data to the system clipboard", async () => {
-  const writes: Array<Record<string, Blob>> = [];
+  const writes: Array<Record<string, ClipboardPayload>> = [];
   class MockClipboardItem {
-    readonly data: Record<string, Blob>;
-    constructor(data: Record<string, Blob>) {
+    readonly data: Record<string, ClipboardPayload>;
+    constructor(data: Record<string, ClipboardPayload>) {
       this.data = data;
     }
   }
@@ -23,15 +21,16 @@ test("copying a canvas image writes image data to the system clipboard", async (
   });
 
   assert.equal(writes.length, 1);
-  assert.equal(writes[0]["image/png"]?.type, "image/png");
-  assert.ok((writes[0]["image/png"]?.size || 0) > 0);
+  const png = await writes[0]["image/png"];
+  assert.equal(png?.type, "image/png");
+  assert.ok((png?.size || 0) > 0);
 });
 
 test("copying still attempts ClipboardItem when an embedded browser reports an insecure context", async () => {
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const writes: unknown[] = [];
   class MockClipboardItem {
-    constructor(_data: Record<string, Blob>) {}
+    constructor(_data: Record<string, ClipboardPayload>) {}
   }
 
   Object.defineProperty(globalThis, "window", { configurable: true, value: { isSecureContext: false } });
@@ -49,27 +48,39 @@ test("copying still attempts ClipboardItem when an embedded browser reports an i
   assert.equal(writes.length, 1);
 });
 
-test("copying falls back to a legacy native copy operation when ClipboardItem is unavailable", async () => {
-  let copiedBytes = 0;
+test("copying starts the native clipboard write before source bytes finish loading", async () => {
+  let resolveResponse: (response: Response) => void = () => {};
+  const response = new Promise<Response>((resolve) => {
+    resolveResponse = resolve;
+  });
+  const events: string[] = [];
 
-  await copyCanvasImageToClipboard("https://assets.example/frame.png", {
-    fetcher: async () => new Response(new Blob(["image-bytes"], { type: "image/png" }), { status: 200 }),
-    legacyCopy: async (blob) => { copiedBytes = blob.size; },
+  class MockClipboardItem {
+    constructor(readonly data: Record<string, ClipboardPayload>) {}
+  }
+
+  const copying = copyCanvasImageToClipboard("https://assets.example/frame.png", {
+    fetcher: () => {
+      events.push("fetch");
+      return response;
+    },
+    clipboard: {
+      write: async (items) => {
+        events.push("write");
+        const image = await (items[0] as MockClipboardItem).data["image/png"];
+        assert.equal(image.type, "image/png");
+      },
+    },
+    ClipboardItem: MockClipboardItem,
   });
 
-  assert.equal(copiedBytes, "image-bytes".length);
+  assert.deepEqual(events, ["fetch", "write"]);
+  resolveResponse(new Response(new Blob(["image-bytes"], { type: "image/png" }), { status: 200 }));
+  await copying;
 });
 
-test("legacy image copying marks only its native copy event as external clipboard content", () => {
-  assert.equal(isCanvasNativeImageCopyInFlight(), false);
-
-  let wasMarkedDuringCopy = false;
-  const result = runCanvasNativeImageClipboardCopy(() => {
-    wasMarkedDuringCopy = isCanvasNativeImageCopyInFlight();
-    return "copied";
-  });
-
-  assert.equal(result, "copied");
-  assert.equal(wasMarkedDuringCopy, true);
-  assert.equal(isCanvasNativeImageCopyInFlight(), false);
+test("copying fails clearly when the browser cannot write an image clipboard item", async () => {
+  await assert.rejects(() => copyCanvasImageToClipboard("https://assets.example/frame.png", {
+    fetcher: async () => new Response(new Blob(["image-bytes"], { type: "image/png" }), { status: 200 }),
+  }), /当前浏览器不支持直接复制图片/);
 });

@@ -1,108 +1,48 @@
-type ClipboardItemConstructor = new (items: Record<string, Blob>) => unknown;
+type ClipboardPayload = Blob | Promise<Blob>;
+type ClipboardItemConstructor = new (items: Record<string, ClipboardPayload>) => unknown;
 
 type CanvasImageClipboardDependencies = {
     fetcher?: (input: RequestInfo | URL) => Promise<Response>;
     clipboard?: { write: (items: unknown[]) => Promise<void> };
     ClipboardItem?: ClipboardItemConstructor;
-    legacyCopy?: (blob: Blob) => Promise<void>;
 };
-
-// `document.execCommand("copy")` emits the same global copy event used by the
-// canvas node shortcut. Keep the native image-copy event distinct so that the
-// canvas listener cannot replace the system image clipboard with its marker.
-let nativeImageClipboardCopyInFlight = false;
-
-export function isCanvasNativeImageCopyInFlight() {
-    return nativeImageClipboardCopyInFlight;
-}
-
-export function runCanvasNativeImageClipboardCopy<T>(operation: () => T): T {
-    nativeImageClipboardCopyInFlight = true;
-    try {
-        return operation();
-    } finally {
-        nativeImageClipboardCopyInFlight = false;
-    }
-}
 
 /**
  * Writes the actual image bytes to the system clipboard.  Canvas graph copy
  * deliberately stays separate, so Ctrl/Cmd+C can keep its node-copy behavior.
  */
 export async function copyCanvasImageToClipboard(source: string, dependencies: CanvasImageClipboardDependencies = {}) {
-    const clipboard = dependencies.clipboard ?? (typeof navigator !== "undefined" ? navigator.clipboard : undefined);
-    const ClipboardItemClass = dependencies.ClipboardItem ?? (typeof window !== "undefined" ? window.ClipboardItem : undefined);
+    const clipboard = (dependencies.clipboard ?? (typeof navigator !== "undefined" ? navigator.clipboard : undefined)) as CanvasImageClipboardDependencies["clipboard"];
+    const ClipboardItemClass = (dependencies.ClipboardItem ?? (typeof window !== "undefined" ? window.ClipboardItem : undefined)) as ClipboardItemConstructor | undefined;
+    // Start the image load but hand its promise to ClipboardItem immediately.
+    // This keeps the browser's user-activation from the context-menu click,
+    // which can be lost if we await fetch() before clipboard.write().
+    const pngPromise = readClipboardPng(source, dependencies.fetcher);
 
-    const response = await (dependencies.fetcher ?? fetch)(source);
-    if (!response.ok) throw new Error("无法读取图片数据，请刷新后重试");
-    const blob = await response.blob();
-    if (!blob.size || !blob.type.startsWith("image/")) throw new Error("图片数据无效，无法复制");
-
-    const png = blob.type === "image/png" ? blob : await renderClipboardPng(blob);
-    let clipboardError: unknown;
-    if (clipboard && ClipboardItemClass) {
-        try {
-            const clipboardWriter = clipboard as { write: (items: ClipboardItem[]) => Promise<void> };
-            await clipboardWriter.write([new ClipboardItemClass({ "image/png": png }) as ClipboardItem]);
-            return;
-        } catch (error) {
-            // Some embedded and legacy browsers report a non-secure context
-            // even though a user-triggered native copy still works.
-            clipboardError = error;
-        }
+    if (!clipboard || !ClipboardItemClass) {
+        await pngPromise;
+        throw new Error("当前浏览器不支持直接复制图片；请使用最新版 Chrome 或 Edge，并通过 HTTPS 或 localhost 打开");
     }
 
     try {
-        await (dependencies.legacyCopy ?? legacyCopyCanvasImage)(png);
-    } catch (legacyError) {
-        console.warn("[canvas image clipboard copy failed]", { clipboardError, legacyError });
-        throw new Error("浏览器阻止写入图片剪贴板；请使用 HTTPS 地址打开，或检查浏览器的剪贴板权限后重试");
+        await clipboard.write([new ClipboardItemClass({ "image/png": pngPromise })]);
+    } catch (clipboardError) {
+        try {
+            await pngPromise;
+        } catch (imageError) {
+            throw imageError instanceof Error ? imageError : new Error("无法读取图片数据，请刷新后重试");
+        }
+        console.warn("[canvas image clipboard copy failed]", { clipboardError });
+        throw new Error("图片未复制：浏览器阻止了图片剪贴板访问。请使用 HTTPS 或 localhost，并允许本网站访问剪贴板后重试");
     }
 }
 
-async function legacyCopyCanvasImage(blob: Blob) {
-    if (typeof document === "undefined" || typeof window === "undefined" || typeof document.execCommand !== "function") {
-        throw new Error("legacy clipboard copy unavailable");
-    }
-    const objectUrl = URL.createObjectURL(blob);
-    const image = document.createElement("img");
-    image.src = objectUrl;
-    image.alt = "";
-    image.setAttribute("aria-hidden", "true");
-    Object.assign(image.style, {
-        position: "fixed",
-        left: "-2px",
-        top: "-2px",
-        width: "1px",
-        height: "1px",
-        opacity: "0.01",
-        pointerEvents: "none",
-    });
-    document.body.append(image);
-    try {
-        await new Promise<void>((resolve, reject) => {
-            image.onload = () => resolve();
-            image.onerror = () => reject(new Error("clipboard image load failed"));
-        });
-        const selection = window.getSelection();
-        if (!selection) throw new Error("clipboard selection unavailable");
-        const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange());
-        const range = document.createRange();
-        range.selectNode(image);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        try {
-            if (!runCanvasNativeImageClipboardCopy(() => document.execCommand("copy"))) {
-                throw new Error("legacy clipboard copy rejected");
-            }
-        } finally {
-            selection.removeAllRanges();
-            ranges.forEach((saved) => selection.addRange(saved));
-        }
-    } finally {
-        image.remove();
-        URL.revokeObjectURL(objectUrl);
-    }
+async function readClipboardPng(source: string, fetcher: (input: RequestInfo | URL) => Promise<Response> = fetch) {
+    const response = await fetcher(source);
+    if (!response.ok) throw new Error("无法读取图片数据，请刷新后重试");
+    const blob = await response.blob();
+    if (!blob.size || !blob.type.startsWith("image/")) throw new Error("图片数据无效，无法复制");
+    return blob.type === "image/png" ? blob : renderClipboardPng(blob);
 }
 
 async function renderClipboardPng(blob: Blob) {

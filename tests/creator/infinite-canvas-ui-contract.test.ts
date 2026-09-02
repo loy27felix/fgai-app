@@ -118,13 +118,13 @@ test('canvas pastes externally copied images through the native HTTP-compatible 
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
 });
 
-test('canvas does not overwrite a legacy native image copy with its internal node-copy marker', () => {
+test('canvas image copy writes a user-activated image payload instead of using legacy DOM selection copy', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const imageClipboard = read('reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard.ts');
 
-  assert.match(project, /isCanvasNativeImageCopyInFlight/);
-  assert.match(project, /if \(isCanvasNativeImageCopyInFlight\(\)\) return;/);
-  assert.match(imageClipboard, /runCanvasNativeImageClipboardCopy\(\(\) => document\.execCommand\("copy"\)\)/);
+  assert.match(imageClipboard, /new ClipboardItemClass\(\{ "image\/png": pngPromise \}\)/);
+  assert.doesNotMatch(imageClipboard, /execCommand\("copy"\)/);
+  assert.doesNotMatch(project, /isCanvasNativeImageCopyInFlight/);
 });
 
 test('canvas error details wrap and scroll inside narrow portrait nodes', () => {
