@@ -45,6 +45,27 @@ test("video caching updates the current version rather than adding a duplicate c
     assert.equal(readVideoAlternatives({ videoAlternatives: cached.alternatives })[0]?.storageKey, "videos/one.mp4");
 });
 
+test("task recovery does not duplicate a video that was already written by the live run", () => {
+    const liveRun = appendVideoAlternative(
+        { content: "https://media.example/video-one.mp4", creatorTaskId: "creator-one", mimeType: "video/mp4" },
+        { content: "https://media.example/video-two.mp4", creatorTaskId: "creator-two", mimeType: "video/mp4" },
+        "live-attempt-id",
+    );
+    const recovered = appendVideoAlternative(
+        {
+            content: "https://media.example/video-two.mp4",
+            creatorTaskId: "creator-two",
+            mimeType: "video/mp4",
+            videoAlternatives: liveRun.alternatives,
+        },
+        { content: "https://media.example/video-two.mp4", creatorTaskId: "creator-two", mimeType: "video/mp4" },
+    );
+
+    assert.equal(recovered.alternatives.length, 2);
+    assert.equal(recovered.activeVideoAlternativeIndex, 1);
+    assert.equal(recovered.alternatives[1]?.id, "live-attempt-id");
+});
+
 test("video alternatives receive a readable active-version name when saved or downloaded", () => {
     const metadata = {
         activeVideoAlternativeIndex: 1,

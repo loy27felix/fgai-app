@@ -33,14 +33,16 @@ export function readVideoAlternatives(metadata?: CanvasNodeMetadata): CanvasVide
 }
 
 export function appendVideoAlternative(metadata: CanvasNodeMetadata | undefined, media: VideoMediaFields, alternativeId?: string) {
-    const nextAlternative = videoAlternativeFromMetadata({ ...metadata, ...media }, alternativeId);
+    // `media` belongs to this run. Do not inherit the previous node's task ID:
+    // doing so would treat a genuinely new render as the old version.
+    const nextAlternative = videoAlternativeFromMetadata(media, alternativeId);
     const alternatives = readVideoAlternatives(metadata);
     if (!nextAlternative) return { alternatives, activeVideoAlternativeIndex: Math.max(0, alternatives.length - 1) };
 
-    const existingIndex = alternatives.findIndex((alternative) => alternative.id === nextAlternative.id);
+    const existingIndex = alternatives.findIndex((alternative) => sameVideoAlternative(alternative, nextAlternative));
     const nextAlternatives =
         existingIndex >= 0
-            ? alternatives.map((alternative, index) => (index === existingIndex ? { ...alternative, ...nextAlternative } : alternative))
+            ? alternatives.map((alternative, index) => (index === existingIndex ? { ...alternative, ...nextAlternative, id: alternative.id } : alternative))
             : [...alternatives, nextAlternative];
     return {
         alternatives: nextAlternatives,
@@ -87,12 +89,22 @@ export function videoAlternativeFileName(title: string | undefined, metadata?: C
 }
 
 function dedupeVideoAlternatives(alternatives: CanvasVideoAlternative[]) {
-    const seen = new Set<string>();
-    return alternatives.filter((alternative) => {
-        if (seen.has(alternative.id)) return false;
-        seen.add(alternative.id);
-        return true;
-    });
+    return alternatives.reduce<CanvasVideoAlternative[]>((deduped, alternative) => {
+        const existingIndex = deduped.findIndex((candidate) => sameVideoAlternative(candidate, alternative));
+        if (existingIndex < 0) return [...deduped, alternative];
+        const existing = deduped[existingIndex]!;
+        return deduped.map((candidate, index) => (index === existingIndex ? { ...candidate, ...alternative, id: existing.id } : candidate));
+    }, []);
+}
+
+function sameVideoAlternative(left: CanvasVideoAlternative, right: CanvasVideoAlternative) {
+    if (left.id === right.id) return true;
+    if (left.creatorTaskId && left.creatorTaskId === right.creatorTaskId) return true;
+    if (left.externalTaskId && left.externalTaskId === right.externalTaskId) return true;
+    if (left.cloudAssetId && left.cloudAssetId === right.cloudAssetId) return true;
+    if (left.cloudStoragePath && left.cloudStoragePath === right.cloudStoragePath) return true;
+    if (left.storageKey && left.storageKey === right.storageKey) return true;
+    return Boolean(left.content && left.content === right.content);
 }
 
 function safeVideoFileBase(title?: string) {

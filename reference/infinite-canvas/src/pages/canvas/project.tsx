@@ -54,6 +54,7 @@ import { buildNodeMentionReferences, getCanvasResourceKind, type CanvasResourceR
 import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
+import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import {
@@ -1274,6 +1275,7 @@ function InfiniteCanvasPage() {
                       isBatchRoot: undefined,
                       imageBatchExpanded: undefined,
                       primaryImageId: undefined,
+                      imageAlternatives: source.metadata.imageAlternatives?.map((alternative) => ({ ...alternative })),
                       videoAlternatives: source.metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
                   }
                 : undefined,
@@ -2246,6 +2248,35 @@ function InfiniteCanvasPage() {
         );
     }, []);
 
+    const handleImageAlternativeChange = useCallback(async (nodeId: string, alternativeIndex: number) => {
+        const initialNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Image);
+        const initialAlternative = initialNode ? readImageAlternatives(initialNode.metadata)[alternativeIndex] : undefined;
+        if (!initialAlternative) return;
+        const resolvedContent = await resolveImageUrl(initialAlternative.storageKey, initialAlternative.content);
+        setNodes((prev) =>
+            prev.map((node) => {
+                if (node.id !== nodeId || node.type !== CanvasNodeType.Image) return node;
+                const alternatives = readImageAlternatives(node.metadata);
+                const selected = alternatives[alternativeIndex];
+                if (!selected) return node;
+                const resolvedAlternative = { ...selected, content: selected.id === initialAlternative.id ? resolvedContent : selected.content };
+                const resolvedAlternatives = alternatives.map((alternative, index) => (index === alternativeIndex ? resolvedAlternative : alternative));
+                console.info("[canvas image alternative selected]", { nodeId, alternativeIndex, alternatives: alternatives.length });
+                return {
+                    ...node,
+                    metadata: {
+                        ...node.metadata,
+                        ...imageAlternativeMetadata(resolvedAlternative),
+                        imageAlternatives: resolvedAlternatives,
+                        activeImageAlternativeIndex: alternativeIndex,
+                        status: NODE_STATUS_SUCCESS,
+                        errorDetails: undefined,
+                    },
+                };
+            }),
+        );
+    }, []);
+
     const handleVideoAlternativeChange = useCallback(async (nodeId: string, alternativeIndex: number) => {
         const initialNode = nodesRef.current.find((node) => node.id === nodeId && node.type === CanvasNodeType.Video);
         const initialAlternative = initialNode ? readVideoAlternatives(initialNode.metadata)[alternativeIndex] : undefined;
@@ -3021,9 +3052,21 @@ function InfiniteCanvasPage() {
             const runController = startGenerationRequest(nodeId, nodeId, nodeId);
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
-            const generationContext = await hydrateNodeGenerationContext(
+            const hydratedGenerationContext = await hydrateNodeGenerationContext(
                 buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt),
             );
+            // A completed media node is a result, not an implicit reference for
+            // its own next run. Ignore a malformed self-connection as well so
+            // image and video reruns share the same non-destructive contract.
+            const generationContext = {
+                ...hydratedGenerationContext,
+                referenceImages: hydratedGenerationContext.referenceImages.filter((reference) => reference.id !== nodeId),
+                referenceVideos: hydratedGenerationContext.referenceVideos.filter((reference) => reference.id !== nodeId),
+                referenceAudios: hydratedGenerationContext.referenceAudios.filter((reference) => reference.id !== nodeId),
+            };
+            generationContext.imageCount = generationContext.referenceImages.length;
+            generationContext.videoCount = generationContext.referenceVideos.length;
+            generationContext.audioCount = generationContext.referenceAudios.length;
             const effectivePrompt = generationContext.prompt.trim();
             if (runController.signal.aborted) {
                 finishGenerationRequest(nodeId, runController);
@@ -3045,15 +3088,91 @@ function InfiniteCanvasPage() {
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
                     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
-                    const sourceReference =
-                        isImageNode && sourceNode?.metadata?.content
-                            ? [{ id: sourceNode.id, name: `${sourceNode.title || sourceNode.id}.png`, type: sourceNode.metadata.mimeType || "image/png", dataUrl: sourceNode.metadata.content, storageKey: sourceNode.metadata.storageKey }]
-                            : [];
-                    const referenceImages = sourceReference.length ? sourceReference : generationContext.referenceImages;
+                    const referenceImages = generationContext.referenceImages;
                     const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
                     const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+
+                    // A rerun on a completed image stays in this node. The old
+                    // image remains selectable instead of being silently fed
+                    // back as the only reference for a new downstream node.
+                    if (isImageNode && !isEmptyImageNode && sourceNode) {
+                        const attemptIds = Array.from({ length: count }, () => nanoid());
+                        let hasSuccess = false;
+                        let hasFailure = false;
+                        let firstError = "";
+                        pendingChildIds = [nodeId];
+                        setNodes((prev) =>
+                            prev.map((node) =>
+                                node.id === nodeId
+                                    ? {
+                                          ...node,
+                                          title: effectivePrompt.slice(0, 32) || node.title,
+                                          metadata: {
+                                              ...node.metadata,
+                                              prompt: effectivePrompt,
+                                              status: NODE_STATUS_LOADING,
+                                              errorDetails: undefined,
+                                              ...generationMetadata,
+                                          },
+                                      }
+                                    : node,
+                            ),
+                        );
+                        await Promise.all(
+                            attemptIds.map(async (attemptId) => {
+                                try {
+                                    const image = referenceImages.length
+                                        ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: runController.signal }).then((items) => items[0])
+                                        : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: runController.signal }).then((items) => items[0]);
+                                    const uploaded = await storeGeneratedImage(image);
+                                    const imageSize = fitNodeSize(uploaded.width, uploaded.height, sourceNode.width, sourceNode.height);
+                                    setNodes((prev) =>
+                                        prev.map((node) => {
+                                            if (node.id !== nodeId) return node;
+                                            const alternativeState = appendImageAlternative(node.metadata, imageMetadata(uploaded), attemptId);
+                                            const center = { x: node.position.x + node.width / 2, y: node.position.y + node.height / 2 };
+                                            return {
+                                                ...node,
+                                                width: imageSize.width,
+                                                height: imageSize.height,
+                                                position: { x: center.x - imageSize.width / 2, y: center.y - imageSize.height / 2 },
+                                                metadata: {
+                                                    ...node.metadata,
+                                                    ...imageMetadata(uploaded),
+                                                    prompt: effectivePrompt,
+                                                    status: NODE_STATUS_SUCCESS,
+                                                    errorDetails: undefined,
+                                                    ...generationMetadata,
+                                                    imageAlternatives: alternativeState.alternatives,
+                                                    activeImageAlternativeIndex: alternativeState.activeImageAlternativeIndex,
+                                                },
+                                            };
+                                        }),
+                                    );
+                                    hasSuccess = true;
+                                } catch (error) {
+                                    if (isGenerationCanceled(error)) return;
+                                    const errorDetails = error instanceof Error ? error.message : "生成失败";
+                                    if (!firstError) firstError = errorDetails;
+                                    hasFailure = true;
+                                }
+                            }),
+                        );
+                        if (runController.signal.aborted) return;
+                        if (hasFailure) message.error(hasSuccess ? "部分图片生成失败" : firstError || "生成失败");
+                        if (!hasSuccess)
+                            setNodes((prev) =>
+                                prev.map((node) =>
+                                    node.id === nodeId
+                                        ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: firstError || "生成失败" } }
+                                        : node,
+                                ),
+                            );
+                        return;
+                    }
+
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
                     const gap = 96;
                     const rowGap = 36;
@@ -4063,6 +4182,7 @@ function InfiniteCanvasPage() {
                             onResizeEnd={handleNodeResizeEnd}
                             onContentChange={handleNodeContentChange}
                             onTextAlternativeChange={handleTextAlternativeChange}
+                            onImageAlternativeChange={handleImageAlternativeChange}
                             onVideoAlternativeChange={handleVideoAlternativeChange}
                             onVideoPlaybackError={handleVideoPlaybackError}
                             onTitleChange={handleNodeTitleChange}

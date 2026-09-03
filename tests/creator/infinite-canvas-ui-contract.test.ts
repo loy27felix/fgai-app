@@ -152,6 +152,19 @@ test('video reruns stay in one node with selectable versions and keyboard deleti
   assert.match(menu, /w-\[360px\]/);
 });
 
+test('image reruns stay in one node and never promote their previous result into an implicit reference', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+
+  assert.match(project, /if \(isImageNode && !isEmptyImageNode && sourceNode\)/);
+  assert.match(project, /appendImageAlternative/);
+  assert.match(project, /referenceImages: hydratedGenerationContext\.referenceImages\.filter/);
+  assert.doesNotMatch(project, /const sourceReference/);
+  assert.match(project, /\[canvas image alternative selected\]/);
+  assert.match(node, /第 \{index \+ 1\} 个图片版本/);
+  assert.match(node, /onImageAlternativeChange/);
+});
+
 test('canvas reference chips support in-place replacement and the expanded prompt editor keeps every reference action usable', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
