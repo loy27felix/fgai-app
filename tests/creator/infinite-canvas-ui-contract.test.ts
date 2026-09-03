@@ -108,11 +108,16 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
 
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const pasteStart = project.indexOf('const handlePaste');
+  const pasteEnd = project.indexOf('useEffect(() => {', pasteStart);
+  const pasteHandler = project.slice(pasteStart, pasteEnd);
 
   assert.match(project, /const handlePaste = useCallback\(\s*\(event: ClipboardEvent\)/);
   assert.match(project, /event\.clipboardData/);
   assert.match(project, /clipboardData\?\.items/);
   assert.match(project, /CANVAS_CLIPBOARD_MIME/);
+  assert.match(project, /shouldIgnoreCanvasClipboardTarget\(target\)/);
+  assert.doesNotMatch(pasteHandler, /data-canvas-no-zoom/);
   assert.match(project, /window\.addEventListener\("paste", handlePaste, true\)/);
   assert.match(project, /window\.addEventListener\("copy", handleCopy\)/);
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);

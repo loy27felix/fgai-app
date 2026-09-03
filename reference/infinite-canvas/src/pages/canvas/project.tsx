@@ -53,6 +53,8 @@ import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hook
 import { buildNodeMentionReferences, getCanvasResourceKind, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas/src/lib/canvas/generation-confirmation";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
+import { shouldIgnoreCanvasClipboardTarget } from "@/reference/infinite-canvas/src/lib/canvas/canvas-clipboard-target";
+import { shouldReportMissingImageBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-recovery";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
@@ -425,7 +427,7 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                     },
                 };
             }
-            if (node.type === CanvasNodeType.Image && !node.metadata?.content) {
+            if (shouldReportMissingImageBackup(node)) {
                 return {
                     ...node,
                     metadata: {
@@ -2061,7 +2063,7 @@ function InfiniteCanvasPage() {
 
     const handleCopy = useCallback((event: ClipboardEvent) => {
         const target = event.target instanceof Element ? event.target : null;
-        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
+        if (shouldIgnoreCanvasClipboardTarget(target)) return;
         if (window.getSelection()?.toString() || !selectedNodeIdsRef.current.size) return;
 
         copySelectedNodes();
@@ -2074,7 +2076,7 @@ function InfiniteCanvasPage() {
 
     const handlePaste = useCallback((event: ClipboardEvent) => {
         const target = event.target instanceof Element ? event.target : null;
-        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
+        if (shouldIgnoreCanvasClipboardTarget(target)) return;
 
         const clipboardData = event.clipboardData;
         // Screenshots copied from browser, chat, and desktop apps may expose
