@@ -248,6 +248,18 @@ wait_for_healthy() {
   return 1
 }
 
+reload_nginx() {
+  local nginx_container
+
+  nginx_container="$(compose ps -q nginx 2>/dev/null || true)"
+  [[ -n "$nginx_container" ]] || return 0
+  # A bind-mounted Nginx config needs an explicit reload after a repository update.
+  # bind-mounted Nginx 配置随仓库更新后不会自动生效，必须显式 reload。
+  log "Auto deploy: validating and reloading Nginx"
+  compose exec -T nginx nginx -t >/dev/null
+  compose exec -T nginx nginx -s reload >/dev/null
+}
+
 fetch_main() {
   local attempt
   local fetch_output
@@ -381,7 +393,7 @@ if ! apply_database_upgrade; then
 fi
 
 archive_app_logs "before-${target_sha:0:12}"
-if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy; then
+if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy || ! reload_nginx; then
   archive_app_logs "failed-${target_sha:0:12}"
   record_failed_deployment "$target_sha" "container-health"
   rollback "$previous_sha" || true
