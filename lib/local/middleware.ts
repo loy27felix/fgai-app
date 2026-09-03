@@ -13,6 +13,7 @@ export function updateSession(request: NextRequest, traceId?: string) {
     || path === "/api/observability/client-errors"
     || path === "/api/observability/monitor-events"
     || path === "/api/observability/error-events"
+    || path === "/api/observability/request-events"
     || path === "/api/observability/report-runner"
     || path.startsWith("/api/auth") || path.startsWith("/api/local") || path.startsWith("/_next");
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);

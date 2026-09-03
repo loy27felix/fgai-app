@@ -8,6 +8,7 @@ const migrationNames = [
   "004-company-productions.sql",
   "005-observability-reporting.sql",
   "006-observability-log-stream.sql",
+  "007-observability-integrity.sql",
 ];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";

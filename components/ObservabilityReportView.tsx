@@ -36,8 +36,11 @@ type ErrorSnapshot = {
   occurrences: number | string;
   affected_accounts: number | string;
   affected_requests: number | string;
+  affected_tasks?: number | string;
+  sample_trace_id?: string | null;
+  sample?: unknown;
   affected_account_emails?: string[] | null;
-  metadata?: { affectedAccountEmails?: unknown } | null;
+  metadata?: unknown;
 };
 
 type ServiceSnapshot = {
@@ -67,6 +70,16 @@ const REPORT_META: Record<ReportType, { label: string; kicker: string }> = {
   daily: { label: "日报", kicker: "DAILY" },
   weekly: { label: "周报", kicker: "WEEKLY" },
   monthly: { label: "月报", kicker: "MONTHLY" },
+};
+const ERROR_GRID = "1.05fr 1.05fr .72fr 1fr 1.75fr 1.15fr 2fr";
+const ERROR_SOURCE_LABELS: Record<string, string> = {
+  frontend: "浏览器",
+  app: "应用",
+  provider: "供应商",
+  infra: "基础设施",
+  deploy: "部署",
+  billing: "计费",
+  data: "数据",
 };
 
 const numeric = (value: unknown) => {
@@ -140,7 +153,115 @@ function stringValues(value: unknown) {
 function errorAccountEmails(item: ErrorSnapshot) {
   const direct = stringValues(item.affected_account_emails);
   if (direct.length) return direct;
-  return stringValues(item.metadata?.affectedAccountEmails);
+  const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+    ? item.metadata as Record<string, unknown>
+    : null;
+  return stringValues(metadata?.affectedAccountEmails);
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function errorSample(item: ErrorSnapshot) {
+  return recordValue(item.sample) || recordValue(recordValue(item.metadata)?.sample);
+}
+
+function sampleValue(sample: Record<string, unknown> | null, keys: string[]) {
+  if (!sample) return null;
+  for (const key of keys) {
+    const value = sample[key];
+    if (value !== null && value !== undefined && value !== "") return value;
+  }
+  return null;
+}
+
+function sampleText(sample: Record<string, unknown> | null, keys: string[]) {
+  const value = sampleValue(sample, keys);
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function sampleDisplay(value: unknown) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value, null, 2) || "";
+  } catch {
+    return "无法展示该上下文";
+  }
+}
+
+function sourceLabel(value: string) {
+  return ERROR_SOURCE_LABELS[value] || value;
+}
+
+function isoText(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value || ""));
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function errorLogHref(run: ReportRunRecord, item: ErrorSnapshot) {
+  const sample = errorSample(item);
+  const lookup = sampleText(sample, ["eventId", "traceId", "requestId", "taskId"])
+    || item.sample_trace_id
+    || item.code
+    || item.message;
+  const params = new URLSearchParams();
+  const from = isoText(run.period_start);
+  const to = isoText(run.period_end);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (lookup) params.set("q", lookup);
+  return "/admin/logs?" + params.toString();
+}
+
+function SampleField({ label, value, mono = false }: { label: string; value: unknown; mono?: boolean }) {
+  const display = sampleDisplay(value);
+  if (!display) return null;
+  return <div><dt>{label}</dt><dd className={mono ? "fg-mono" : ""} title={display}>{display}</dd></div>;
+}
+
+function SampleData({ label, value }: { label: string; value: unknown }) {
+  const display = sampleDisplay(value);
+  if (!display) return null;
+  return <div className="observability-error-chain__data"><span className="fg-mono">{label}</span><pre>{display}</pre></div>;
+}
+
+function ErrorChain({ run, item, accountCount }: { run: ReportRunRecord; item: ErrorSnapshot; accountCount: number }) {
+  const sample = errorSample(item);
+  const actor = sampleText(sample, ["actorEmail", "actorId"]) || (accountCount ? "受影响账户" : "未关联账户");
+  const sampleTime = sampleText(sample, ["occurredAt"]) || item.last_occurred_at;
+  const feature = sampleText(sample, ["feature"]) || item.service;
+  const action = sampleText(sample, ["action", "stage", "outcome"]);
+  return <div className="observability-error-chain">
+    <div className="observability-error-chain__top">
+      <strong title={actor}>{actor}</strong>
+      <Link href={errorLogHref(run, item)} className="observability-error-chain__link">查看日志</Link>
+    </div>
+    <div className="observability-error-chain__meta"><span>{dateText(sampleTime)}</span><span title={feature}>{feature}</span>{action ? <span title={action}>{action}</span> : null}</div>
+    <details className="observability-error-chain__details">
+      <summary><span>展开失败上下文</span><b>链路</b></summary>
+      <dl>
+        <SampleField label="主体" value={sampleValue(sample, ["actorEmail", "actorId"]) || (accountCount ? "受影响账户" : "未关联账户")} />
+        <SampleField label="发生时间" value={sampleTime} mono />
+        <SampleField label="功能" value={sampleValue(sample, ["feature"]) || item.service} />
+        <SampleField label="动作" value={sampleValue(sample, ["action"])} />
+        <SampleField label="阶段" value={sampleValue(sample, ["stage"])} />
+        <SampleField label="结果" value={sampleValue(sample, ["outcome"])} />
+        <SampleField label="Route" value={sampleValue(sample, ["route"])} mono />
+        <SampleField label="Trace ID" value={sampleValue(sample, ["traceId"]) || item.sample_trace_id} mono />
+        <SampleField label="Request ID" value={sampleValue(sample, ["requestId"])} mono />
+        <SampleField label="Task ID" value={sampleValue(sample, ["taskId"])} mono />
+      </dl>
+      <SampleData label="Parameters / 执行参数" value={sampleValue(sample, ["parameters"])} />
+      <SampleData label="Data / 业务数据" value={sampleValue(sample, ["data"])} />
+      <SampleData label="Metadata / 附加元数据" value={sampleValue(sample, ["metadata"])} />
+      <SampleData label="Stack / 原始堆栈" value={sampleValue(sample, ["stack"])} />
+    </details>
+  </div>;
 }
 
 function percentage(value: number | string | null) {
@@ -281,7 +402,10 @@ export default function ObservabilityReportView({ runs, detail, liveToday, error
         <h1>服务监控报表</h1>
         <p>日报、周报、月报按上海时区生成；当前报表优先展示，历史版本收纳在版本菜单内。</p>
       </div>
-      <Link href="/admin" className="observability-report__back">返回管理后台</Link>
+      <div className="observability-report__actions">
+        <Link href="/admin/logs" className="observability-report__logs">日志检索</Link>
+        <Link href="/admin" className="observability-report__back">返回管理后台</Link>
+      </div>
     </header>
 
     {error ? <div className="observability-report__alert" role="alert">{error}</div> : null}
@@ -347,14 +471,14 @@ export default function ObservabilityReportView({ runs, detail, liveToday, error
         </DataPanel>
 
         <DataPanel eyebrow="ERROR IMPACT" title="错误与影响" count={errors.length + " 类错误"}>
-          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: "1.2fr 1.2fr .85fr 1fr 1.25fr 2.7fr" }}><div>来源 / 服务</div><div>级别 / 影响</div><div>次数</div><div>影响人</div><div>首次 / 末次</div><div>错误信息</div></div>
+          <div className="observability-table-scroll"><div className="fg-mono observability-table__header" style={{ gridTemplateColumns: ERROR_GRID }}><div>来源 / 服务</div><div>级别 / 影响</div><div>次数</div><div>影响人</div><div>失败链路</div><div>首次 / 末次</div><div>错误信息</div></div>
             {errors.length === 0 ? <div className="observability-table__empty">周期内没有归档错误事件</div> : errors.map((item, index) => {
               const message = item.message || "未提供错误信息";
               const accountEmails = errorAccountEmails(item);
               const accountCount = numeric(item.affected_accounts);
-              return <div key={item.source + ":" + item.service + ":" + (item.code || "error") + ":" + index} className="observability-table__row" style={{ gridTemplateColumns: "1.2fr 1.2fr .85fr 1fr 1.25fr 2.7fr" }}>
-                <div>{item.source}<small>{item.service}</small></div>
-                <div><span className={"observability-impact " + impactTone(item.impact)}>{item.severity}</span><small className={"observability-impact " + impactTone(item.impact)}>{item.impact}</small></div>
+              return <div key={item.source + ":" + item.service + ":" + (item.code || "error") + ":" + index} className="observability-table__row" style={{ gridTemplateColumns: ERROR_GRID }}>
+                <div><strong>{sourceLabel(item.source)}</strong><small>{item.service}</small></div>
+                <div><span className={"observability-error-level " + impactTone(item.impact)}>{item.severity}</span><small className={"observability-impact " + impactTone(item.impact)}>{item.impact}</small></div>
                 <div className="fg-mono">{integer(item.occurrences)}<small>请求 {integer(item.affected_requests)}</small></div>
                 <div className="fg-mono observability-impact-people"><strong>{integer(item.affected_accounts)} 人</strong>
                   {accountEmails.length > 2 ? <details className="observability-impact-people__details">
@@ -362,6 +486,7 @@ export default function ObservabilityReportView({ runs, detail, liveToday, error
                     <div>{accountEmails.map((email) => <span key={email}>{email}</span>)}</div>
                   </details> : accountEmails.length ? <small title={accountEmails.join("、")}>{accountEmails.join("、")}</small> : <small>{accountCount > 0 ? "账户明细未记录" : "未关联账户"}</small>}
                 </div>
+                <ErrorChain run={detail.run} item={item} accountCount={accountCount} />
                 <div className="fg-mono observability-table__timestamp">{dateText(item.first_occurred_at)}<br />{dateText(item.last_occurred_at)}</div>
                 <div className="observability-message">
                   <details className="observability-message__details">

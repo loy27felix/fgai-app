@@ -135,7 +135,7 @@ scripts/install-service-monitor.sh
 
 状态变化会写入 `$HOME/Library/Logs/fg-studio-service-monitor.log`，匹配到的 App 错误会追加到 `$HOME/Library/Logs/fg-studio-monitor/app-errors.log`。如需主动通知，在 `.env.docker` 配置 `FG_MONITOR_WEBHOOK_URL`，并将 `FG_MONITOR_WEBHOOK_TYPE` 设置为 `generic`、`feishu` 或 `wecom`；未配置 webhook 时不影响自动恢复和本地日志。告警只在健康状态发生变化时发送，恢复后也会发送一次，避免重复轰炸。
 
-服务监控、部署失败和浏览器错误/诊断会通过独立的观测接口写入 PostgreSQL；观测写入失败只丢弃观测，不阻断正常业务。浏览器端上报受限于 `error`、`unhandledrejection`、网络失败、未成功的 `/api/*` 响应和少量关键诊断事件，服务端会限流并脱敏。内部接口优先使用 `FG_OBSERVABILITY_SECRET`，未配置时兼容使用 `SESSION_SECRET`；启用 Nginx TLS 后，生产部署脚本和监控默认使用 App 的回环端口 `http://127.0.0.1:3001`。
+服务监控、部署失败和浏览器错误/诊断会通过独立的观测接口写入 PostgreSQL；观测写入走异步有界队列并重试，不阻断正常业务。浏览器端上报受限于 `error`、`unhandledrejection`、网络失败、未成功的 `/api/*` 响应和少量关键诊断事件，服务端会限流并脱敏；长时间数据库故障、浏览器离线或保护性限流仍需从 Docker stdout 恢复。内部接口优先使用 `FG_OBSERVABILITY_SECRET`，未配置时兼容使用 `SESSION_SECRET`；启用 Nginx TLS 后，生产部署脚本和监控默认使用 App 的回环端口 `http://127.0.0.1:3001`。
 
 在实际 Docker 主机安装报表 scheduler（每 5 分钟检查一次到期任务，单轮最多生成 4 份，进程带互斥锁，失败或历史补算会在下一轮继续）并访问管理员页面 `/admin/reports`：
 

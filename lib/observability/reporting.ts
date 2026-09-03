@@ -301,6 +301,7 @@ type ErrorRow = {
   affected_requests: string | number;
   affected_tasks: string | number;
   sample_trace_id: string | null;
+  sample: unknown;
   affected_account_emails?: string[] | null;
   metadata?: unknown;
 };
@@ -316,6 +317,14 @@ function errorAccountEmails(row: Pick<ErrorRow, 'affected_account_emails' | 'met
   return stringValues((row.metadata as Record<string, unknown>).affectedAccountEmails);
 }
 
+function recordValue(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function errorSample(row: Pick<ErrorRow, 'sample' | 'metadata'>) {
+  return recordValue(row.sample) || recordValue(recordValue(row.metadata)?.sample);
+}
+
 function errorGroupKey(row: Pick<ErrorRow, 'fingerprint' | 'source' | 'service' | 'severity' | 'impact'>) {
   return [row.fingerprint, row.source, row.service, row.severity, row.impact].join('\u001f');
 }
@@ -324,7 +333,11 @@ async function errorRows(spec: ReportRevision) {
   const result = await query<ErrorRow>(
     `with raw_errors as (
        select occurred_at, source, service, severity, impact, fingerprint, code, message,
-              user_id, request_id, task_id, trace_id
+              user_id, request_id, task_id, trace_id,
+              event_key::text as sample_event_id, route as sample_route, stack as sample_stack,
+              feature as sample_feature, action as sample_action, null::text as sample_stage,
+              severity as sample_outcome, null::jsonb as sample_parameters, null::jsonb as sample_data,
+              metadata as sample_metadata
          from observability_error_events
         where occurred_at >= $1 and occurred_at < $2
        union all
@@ -339,7 +352,8 @@ async function errorRows(spec: ReportRevision) {
               left(coalesce(nullif(error->>'message', ''), feature || ' ' || stage || ' ' || outcome), 1000),
               actor_id, trace_id,
               case when resource_type = 'creator_generation_task' then resource_id else null end,
-              trace_id
+              trace_id, event_id::text, coalesce(data->>'route', metadata->>'route'),
+              nullif(error->>'stack', ''), feature, action, stage, outcome, parameters, data, metadata
          from audit_events
         where occurred_at >= $1 and occurred_at < $2
           and (outcome in ('failed', 'rejected', 'unknown') or (error is not null and error <> 'null'::jsonb))
@@ -348,7 +362,9 @@ async function errorRows(spec: ReportRevision) {
               case when status = 'unknown' then 'unknown' else 'blocked' end,
               md5(concat_ws('|', 'task', model, status, coalesce(error, ''))),
               null, left(coalesce(nullif(error, ''), 'task status ' || status), 1000),
-              user_id, null, id::text, null
+              user_id, null, id::text, null, null::text, null::text, null::text,
+              'generation_task', 'status', status, status, request, output,
+              jsonb_build_object('provider', provider, 'model', model, 'externalTaskId', external_task_id)
          from creator_generation_tasks task
         where status in ('failed', 'unknown')
           and coalesce(completed_at, updated_at, created_at) >= $1
@@ -362,14 +378,24 @@ async function errorRows(spec: ReportRevision) {
        select observed_at, 'infra', service, 'error',
               case when service in ('app', 'postgres') then 'blocked' else 'degraded' end,
               md5(concat_ws('|', 'service', service, check_name, state)),
-              state, left(message, 1000), null, null, null, null
+              state, left(message, 1000), null::uuid, null::text, null::text, null::text,
+              event_key::text, null::text, null::text, 'service.health', check_name, state, state,
+              null::jsonb, null::jsonb, metadata
          from observability_service_events
         where state = 'unhealthy' and observed_at >= $1 and observed_at < $2
      ), raw_errors_with_accounts as (
        select raw_errors.*,
-              coalesce(nullif(profiles.email, ''), '[已删除账户]') as account_email
+              case when raw_errors.user_id is null then null
+                   else coalesce(nullif(profiles.email, ''), '[已删除账户]') end as account_email
          from raw_errors
          left join profiles on profiles.id = raw_errors.user_id
+     ), ranked_errors as (
+       select raw_errors_with_accounts.*,
+              row_number() over (
+                partition by fingerprint, source, service, severity, impact
+                order by occurred_at desc, sample_event_id desc nulls last
+              ) as sample_rank
+         from raw_errors_with_accounts
      )
      select fingerprint, source, service, severity, impact, max(code) as code,
             max(message) as message, min(occurred_at) as first_occurred_at,
@@ -379,8 +405,30 @@ async function errorRows(spec: ReportRevision) {
               filter (where user_id is not null) as affected_account_emails,
             count(distinct coalesce(request_id, trace_id)) as affected_requests,
             count(distinct task_id) as affected_tasks,
-            max(trace_id) as sample_trace_id
-       from raw_errors_with_accounts
+            max(trace_id) filter (where sample_rank = 1) as sample_trace_id,
+            (jsonb_agg(
+              jsonb_strip_nulls(jsonb_build_object(
+                'occurredAt', occurred_at,
+                'eventId', sample_event_id,
+                'actorId', user_id,
+                'actorEmail', account_email,
+                'traceId', trace_id,
+                'requestId', request_id,
+                'taskId', task_id,
+                'route', sample_route,
+                'feature', sample_feature,
+                'action', sample_action,
+                'stage', sample_stage,
+                'outcome', sample_outcome,
+                'code', code,
+                'message', message,
+                'stack', sample_stack,
+                'parameters', sample_parameters,
+                'data', sample_data,
+                'metadata', sample_metadata
+              )) order by occurred_at desc, sample_event_id desc nulls last
+            ) filter (where sample_rank = 1))->0 as sample
+       from ranked_errors
       group by fingerprint, source, service, severity, impact
       order by occurrences desc, last_occurred_at desc`,
     [spec.periodStart.toISOString(), spec.periodEnd.toISOString()],
@@ -582,7 +630,7 @@ async function insertErrorSnapshots(client: PoolClient, reportRunId: string, row
       reportRunId, row.fingerprint, row.source, row.service, row.severity, row.impact, row.code,
       row.message, row.first_occurred_at, row.last_occurred_at, numberValue(row.occurrences),
       numberValue(row.affected_accounts), numberValue(row.affected_requests), numberValue(row.affected_tasks), row.sample_trace_id,
-      JSON.stringify({ affectedAccountEmails: errorAccountEmails(row) }),
+      JSON.stringify({ affectedAccountEmails: errorAccountEmails(row), sample: row.sample || null }),
     );
     return `(${Array.from({ length: 16 }, (_, field) => `$${offset + field + 1}`).join(', ')})`;
   });
@@ -773,8 +821,10 @@ export async function getReportDetails(reportRunId: string) {
   const accounts = accountSnapshotResult.rows.map(accountSnapshot);
   let errors = errorSnapshotResult.rows;
   const reportRun = run.rows[0];
-  const needsAccountLookup = errors.some((row) => numberValue(row.affected_accounts) > 0 && errorAccountEmails(row).length === 0);
-  if (needsAccountLookup) {
+  const needsErrorLookup = errors.some((row) => (
+    numberValue(row.affected_accounts) > 0 && errorAccountEmails(row).length === 0
+  ) || !errorSample(row));
+  if (needsErrorLookup) {
     const currentErrorRows = await errorRows({
       reportType: reportRun.report_type,
       periodStart: new Date(reportRun.period_start),
@@ -782,11 +832,20 @@ export async function getReportDetails(reportRunId: string) {
       revision: reportRun.revision,
       isFinal: reportRun.is_final,
     });
-    const accountEmailsByError = new Map(currentErrorRows.map((row) => [errorGroupKey(row), errorAccountEmails(row)]));
+    const currentErrorsByKey = new Map(currentErrorRows.map((row) => [errorGroupKey(row), row]));
     errors = errors.map((row) => {
-      if (numberValue(row.affected_accounts) === 0 || errorAccountEmails(row).length > 0) return row;
-      const emails = accountEmailsByError.get(errorGroupKey(row)) || [];
-      return emails.length ? { ...row, affected_account_emails: emails } : row;
+      const current = currentErrorsByKey.get(errorGroupKey(row));
+      if (!current) return row;
+      const emails = errorAccountEmails(row).length ? errorAccountEmails(row) : errorAccountEmails(current);
+      const sample = errorSample(row) || errorSample(current);
+      const metadata = recordValue(row.metadata) || {};
+      return {
+        ...row,
+        ...(emails.length ? { affected_account_emails: emails } : {}),
+        ...(row.sample || sample ? { sample: row.sample || sample } : {}),
+        ...(row.sample_trace_id || !current.sample_trace_id ? {} : { sample_trace_id: current.sample_trace_id }),
+        ...(sample && !metadata.sample ? { metadata: { ...metadata, sample } } : {}),
+      };
     });
   }
   return { run: reportRun, accounts, errors, services: services.rows };

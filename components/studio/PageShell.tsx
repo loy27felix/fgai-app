@@ -3,7 +3,7 @@ import { ReactNode } from "react";
 import { useFgTheme, Icon, Hov } from "./ui";
 import FGLogo from "@/components/FGLogo";
 
-export default function PageShell({ title, email, children }: { title: string; email?: string; children: ReactNode }) {
+export default function PageShell({ title, email, children, mainClassName }: { title: string; email?: string; children: ReactNode; mainClassName?: string }) {
   const { theme, toggle } = useFgTheme();
   const ini = (email || "?").replace(/@.*/, "").slice(0, 2).toUpperCase();
   return (
@@ -26,7 +26,7 @@ export default function PageShell({ title, email, children }: { title: string; e
         <a href="/projects" style={{ display: "flex", alignItems: "center", gap: 6, height: 38, padding: "0 13px", borderRadius: 11, fontSize: 12.5, color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)" }}><Icon d={["m15 6-6 6 6 6"]} size={15} sw={1.7} />返回项目</a>
         <div className="fg-mono" style={{ width: 34, height: 34, borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 600, color: "var(--accent-ink)", background: "linear-gradient(150deg,var(--accent),var(--accent-2))" }}>{ini}</div>
       </header>
-      <main style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, overflowY: "auto" }}>{children}</main>
+      <main className={mainClassName} style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, overflowY: "auto" }}>{children}</main>
     </div>
   );
 }
