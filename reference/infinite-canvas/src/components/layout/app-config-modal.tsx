@@ -9,6 +9,7 @@ import { exportAppConfig, importAppConfig } from "@/reference/infinite-canvas/sr
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/reference/infinite-canvas/src/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/reference/infinite-canvas/src/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/reference/infinite-canvas/src/lib/audio-generation";
+import { seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/reference/infinite-canvas/src/stores/use-config-store";
 
 type ModelGroup = {
@@ -308,6 +309,29 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                         {webdavSyncStatus ? <span className="text-xs text-stone-500">{webdavSyncStatus}</span> : null}
                                     </div>
                                     {syncingWebdav || webdavSyncStatus ? <WebdavProgressGrid progress={webdavDomainProgress} /> : null}
+                                </section>
+                            </Form>
+                        ),
+                    },
+                    {
+                        key: "video-node-defaults",
+                        label: "新建视频节点",
+                        children: (
+                            <Form layout="vertical" requiredMark={false}>
+                                <section className="rounded-lg border border-stone-200 p-4 dark:border-stone-800">
+                                    <div className="mb-1 text-sm font-semibold">新建视频节点预设</div>
+                                    <div className="mb-4 text-xs leading-5 text-stone-500">只作用于之后新建的视频节点（包括从连线创建）。创建时会写入该节点，已有节点和之后更改的全局偏好都不会覆盖它。</div>
+                                    <div className="grid gap-4 md:grid-cols-3">
+                                        <Form.Item label="新建节点画幅" className="mb-0">
+                                            <Select value={config.newVideoNodeSize} options={seedanceRatioOptions.map((item) => ({ value: item.value, label: item.label }))} onChange={(value) => updateConfig("newVideoNodeSize", value)} />
+                                        </Form.Item>
+                                        <Form.Item label="新建节点分辨率" className="mb-0">
+                                            <Select value={config.newVideoNodeResolution} options={seedanceResolutionOptions.map((item) => ({ value: item.value, label: item.label }))} onChange={(value) => updateConfig("newVideoNodeResolution", value)} />
+                                        </Form.Item>
+                                        <Form.Item label="新建节点时长" extra="4–30 秒；具体模型仍会按其能力校正。" className="mb-0">
+                                            <Select value={config.newVideoNodeSeconds} options={seedanceDurationOptions.filter((value) => value !== -1).map((value) => ({ value: String(value), label: `${value} 秒` }))} onChange={(value) => updateConfig("newVideoNodeSeconds", value)} />
+                                        </Form.Item>
+                                    </div>
                                 </section>
                             </Form>
                         ),

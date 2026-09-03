@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronDown, ChevronRight, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Video } from "lucide-react";
+import { ChevronDown, ChevronRight, Group, Image as ImageIcon, Music2, PencilLine, Puzzle, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { formatBytes } from "@/reference/infinite-canvas/src/lib/image-utils";
@@ -58,6 +58,7 @@ type CanvasNodeProps = {
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
     onRetry?: (node: CanvasNodeData) => void;
+    onOpenPrompt?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onViewImage?: (node: CanvasNodeData) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
@@ -83,6 +84,7 @@ type NodeContentRendererProps = {
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
+    onOpenPrompt?: (node: CanvasNodeData) => void;
     onGenerateImage?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: () => void;
@@ -129,6 +131,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onToggleBatch,
     onSetBatchPrimary,
     onRetry,
+    onOpenPrompt,
     onGenerateImage,
     onViewImage,
     onContextMenu,
@@ -408,6 +411,16 @@ export const CanvasNode = React.memo(function CanvasNode({
                     boxShadow: isGroupDropTarget ? `0 0 0 2px ${selectionBlue}66, inset 0 0 0 999px ${selectionBlue}10` : isActive ? `0 0 0 1px ${selectionBlue}55` : isRelated && !isBatchChild ? `0 0 0 1px ${theme.node.muted}55, 0 18px 48px rgba(0,0,0,.14)` : undefined,
                 }}
                 onMouseDown={(event) => onMouseDown(event, data.id)}
+                onClick={(event) => {
+                    // Error cards contain buttons and a scrollable error detail. Do not rely on
+                    // the drag-end click detector alone: a normal node click must always reopen
+                    // the prompt editor so the failed request can be corrected in place.
+                    if (data.metadata?.status !== "error") return;
+                    const target = event.target;
+                    if (target instanceof Element && target.closest("button")) return;
+                    event.stopPropagation();
+                    onOpenPrompt?.(data);
+                }}
                 onDoubleClick={(event) => {
                     if (data.type === CanvasNodeType.Image && hasImageContent) {
                         event.stopPropagation();
@@ -462,6 +475,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onVideoPlaybackError={onVideoPlaybackError}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
+                        onOpenPrompt={onOpenPrompt}
                         onGenerateImage={onGenerateImage}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
@@ -482,7 +496,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             {!isGroup ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
             {!isGroup ? <ConnectionHandleDot side="right" visible={(definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
 
-            {showPanel && !isGroup && renderPanel ? <div className="absolute left-1/2 top-full z-[70] w-[min(720px,calc(100vw-40px))] max-w-[calc(100vw-40px)] -translate-x-1/2 pt-4">{renderPanel(data)}</div> : null}
+            {showPanel && !isGroup && renderPanel ? <div className={`absolute left-1/2 top-full z-[70] max-w-[calc(100vw-40px)] -translate-x-1/2 pt-4 ${definition?.Panel ? "w-[min(960px,calc(100vw-40px))]" : "w-[min(720px,calc(100vw-40px))]"}`}>{renderPanel(data)}</div> : null}
         </div>
     );
 });
@@ -491,7 +505,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
-    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
+    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onOpenPrompt={props.onOpenPrompt} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
     if (Renderer) return <Renderer {...props} />;
@@ -540,7 +554,7 @@ function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
     );
 }
 
-function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry">) {
+function ErrorContent({ node, theme, onRetry, onOpenPrompt }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry" | "onOpenPrompt">) {
     const detail = node.metadata?.errorDetails || "生成失败";
     return (
         <div className="flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-center gap-3 overflow-hidden px-3 py-3 text-center">
@@ -550,19 +564,34 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
             >
                 {detail}
             </div>
-            <button
-                type="button"
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
-                style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onRetry?.(node);
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-            >
-                <RefreshCw className="size-3.5" />
-                重试
-            </button>
+            <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
+                <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                    style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenPrompt?.(node);
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                >
+                    <PencilLine className="size-3.5" />
+                    修改提示词
+                </button>
+                <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                    style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onRetry?.(node);
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                >
+                    <RefreshCw className="size-3.5" />
+                    重试
+                </button>
+            </div>
         </div>
     );
 }
@@ -628,7 +657,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             props.node.metadata?.status === "loading" ? (
                 <LoadingContent theme={props.theme} />
             ) : props.node.metadata?.status === "error" ? (
-                <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />
+                <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onOpenPrompt={props.onOpenPrompt} />
             ) : (
                 <EmptyImageContent {...props} isBatchRoot={false} />
         );

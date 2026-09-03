@@ -121,6 +121,11 @@ export type CreatorCanvasGraph = {
   /** Persisted viewport state, compatible with the infinite-canvas reference. */
   viewport?: { x: number; y: number; zoom: number; k?: number };
   background?: "grid" | "dots" | "blank";
+  appearance?: {
+    backgroundImagePath?: string;
+    backgroundImageOpacity?: number;
+    gridOpacity?: number;
+  };
 };
 
 export type CreatorCanvas = {

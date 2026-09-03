@@ -25,7 +25,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         document.documentElement.classList.toggle("dark", dark);
-        document.documentElement.style.colorScheme = theme;
+        // The custom canvas skin still uses valid native light controls;
+        // only the reference canvas itself swaps to its custom palette.
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
     }, [dark, theme]);
 
     return (

@@ -123,6 +123,23 @@ test('canvas pastes externally copied images through the native HTTP-compatible 
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
 });
 
+test('canvas appearance exposes a custom background upload with independent image and grid opacity controls', () => {
+  const toolbar = read('reference/infinite-canvas/src/components/canvas/canvas-toolbar.tsx');
+  const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const providers = read('reference/infinite-canvas/src/components/layout/app-providers.tsx');
+
+  assert.match(toolbar, /自定义/);
+  assert.match(toolbar, /上传背景/);
+  assert.match(toolbar, /背景透明度/);
+  assert.match(toolbar, /网格透明度/);
+  assert.match(canvas, /customBackgroundUrl/);
+  assert.match(canvas, /customBackgroundOpacity/);
+  assert.match(canvas, /gridOpacity/);
+  assert.match(project, /uploadCanvasAsset\(file, \{ kind: "image", source: "upload", name: file\.name \}\)/);
+  assert.match(providers, /dark \? "dark" : "light"/);
+});
+
 test('canvas image copy writes a user-activated image payload instead of using legacy DOM selection copy', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const imageClipboard = read('reference/infinite-canvas/src/lib/canvas/canvas-image-clipboard.ts');
@@ -463,4 +480,34 @@ test('stale prompt source caches wait for refreshed preview data before renderin
 
   assert.match(cachedBranch, /await getOrStartRefresh\(source\)/);
   assert.doesNotMatch(cachedBranch, /void getOrStartRefresh\(source\)/);
+});
+
+test('failed canvas media nodes keep a direct prompt-editor path without relying on drag completion', () => {
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(node, /onOpenPrompt\?: \(node: CanvasNodeData\) => void/);
+  assert.match(node, /修改提示词/);
+  assert.match(node, /onOpenPrompt\?\.\(node\)/);
+  assert.match(node, /data\.metadata\?\.status !== "error"/);
+  assert.match(project, /onOpenPrompt=\{\(node\) => setDialogNodeId\(node\.id\)\}/);
+});
+
+test('new video nodes snapshot the persisted video-node defaults from the settings dialog', () => {
+  const config = read('reference/infinite-canvas/src/stores/use-config-store.ts');
+  const dialog = read('reference/infinite-canvas/src/components/layout/app-config-modal.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(config, /newVideoNodeSize/);
+  assert.match(config, /newVideoNodeResolution/);
+  assert.match(config, /newVideoNodeSeconds/);
+  assert.match(config, /"video-node-defaults"/);
+  assert.match(dialog, /新建视频节点/);
+  assert.match(dialog, /新建节点画幅/);
+  assert.match(dialog, /新建节点分辨率/);
+  assert.match(dialog, /新建节点时长/);
+  assert.match(project, /type === CanvasNodeType\.Video/);
+  assert.match(project, /size: effectiveConfig\.newVideoNodeSize/);
+  assert.match(project, /vquality: effectiveConfig\.newVideoNodeResolution/);
+  assert.match(project, /seconds: effectiveConfig\.newVideoNodeSeconds/);
 });

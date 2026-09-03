@@ -13,6 +13,7 @@ import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
 import { imageDraftGeometry } from "@/lib/imageModels";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import type { CreatorImageAsset } from "@/lib/creator/types";
+import { assertCreatorImageReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
 
 export type AiTextMessage = {
     role: "system" | "user" | "assistant";
@@ -739,7 +740,10 @@ async function fgReferenceFile(image: ReferenceImage, index: number) {
 
 async function fgGenerateImage(config: AiConfig, prompt: string, references: ReferenceImage[], signal?: AbortSignal) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const files = await Promise.all(references.slice(0, 8).map((image, index) => fgReferenceFile(image, index)));
+    // Do not silently drop references: the user needs to know exactly why a
+    // selected source cannot reach the image model.
+    const files = await Promise.all(references.map((image, index) => fgReferenceFile(image, index)));
+    assertCreatorImageReferenceFiles(files);
     const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     const geometry = imageDraftGeometry(config.size);
     const localClient = createClient();

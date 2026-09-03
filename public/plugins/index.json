@@ -1,3 +1,4 @@
 [
-  "/plugins/generation-confirmation.plugin.js"
+  "/plugins/generation-confirmation.plugin.js",
+  "/plugins/prompt-studio.plugin.js"
 ]

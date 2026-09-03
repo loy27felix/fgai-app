@@ -4,6 +4,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/reference/infinite-canvas/src/lib/localforage-storage";
 import type { CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
+import { DEFAULT_CANVAS_APPEARANCE, normalizeCanvasAppearance, type CanvasAppearance } from "@/reference/infinite-canvas/src/lib/canvas/canvas-appearance";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/reference/infinite-canvas/src/types/canvas";
 
 export type CanvasProject = {
@@ -17,6 +18,7 @@ export type CanvasProject = {
     chatSessions: CanvasAssistantSession[];
     activeChatId: string | null;
     backgroundMode: CanvasBackgroundMode;
+    appearance: CanvasAppearance;
     showImageInfo: boolean;
     viewport: ViewportTransform;
 };
@@ -31,7 +33,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[]) => void;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "cloudCanvasId" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "showImageInfo" | "viewport">>) => void;
+    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "cloudCanvasId" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "appearance" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
@@ -80,6 +82,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     chatSessions: [],
                     activeChatId: null,
                     backgroundMode: "lines",
+                    appearance: DEFAULT_CANVAS_APPEARANCE,
                     showImageInfo: false,
                     viewport: initialViewport,
                 };
@@ -133,6 +136,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     connections,
                     chatSessions: source.chatSessions.map((session) => ({ ...session, id: nanoid() })),
                     activeChatId: null,
+                    appearance: normalizeCanvasAppearance(source.appearance),
                     viewport: { ...source.viewport },
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
@@ -150,6 +154,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     chatSessions: source.chatSessions || [],
                     activeChatId: source.activeChatId || null,
                     backgroundMode: source.backgroundMode || "lines",
+                    appearance: normalizeCanvasAppearance(source.appearance),
                     showImageInfo: source.showImageInfo || false,
                     viewport: source.viewport || initialViewport,
                 };
@@ -157,7 +162,8 @@ export const useCanvasStore = create<CanvasStore>()(
                 return project.id;
             },
             openProject: (id) => {
-                return get().projects.find((item) => item.id === id) || null;
+                const project = get().projects.find((item) => item.id === id);
+                return project ? { ...project, appearance: normalizeCanvasAppearance(project.appearance) } : null;
             },
             renameProject: (id, title) =>
                 set((state) => ({
