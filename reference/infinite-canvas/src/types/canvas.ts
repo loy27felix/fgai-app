@@ -43,6 +43,20 @@ export type CanvasVideoAlternative = {
     creatorTaskId?: string;
 };
 
+// 图片节点复用与视频相同的版本栈：每次重新生成保留原图，可从右上角切换。
+export type CanvasImageAlternative = {
+    id: string;
+    content: string;
+    storageKey?: string;
+    mimeType?: string;
+    bytes?: number;
+    naturalWidth?: number;
+    naturalHeight?: number;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
+    creatorTaskId?: string;
+};
+
 export type CanvasNodeMetadata = {
     content?: string;
     composerContent?: string;
@@ -69,6 +83,8 @@ export type CanvasNodeMetadata = {
     // choice mirrors the ordinary media fields above for backwards compatibility.
     videoAlternatives?: CanvasVideoAlternative[];
     activeVideoAlternativeIndex?: number;
+    imageAlternatives?: CanvasImageAlternative[];
+    activeImageAlternativeIndex?: number;
     seconds?: string;
     vquality?: string;
     generateAudio?: string;

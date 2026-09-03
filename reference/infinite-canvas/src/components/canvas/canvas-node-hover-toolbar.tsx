@@ -4,6 +4,7 @@ import { CopyPlus, Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, Mes
 
 import { canvasThemes, type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/reference/infinite-canvas/src/lib/image-utils";
+import { getNodeToolbarTop } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-toolbar-position";
 import { useCopyText } from "@/reference/infinite-canvas/src/hooks/use-copy-text";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/reference/infinite-canvas/src/types/canvas";
@@ -108,7 +109,7 @@ export function CanvasNodeHoverToolbar({
 
     const activeNode = node;
     const left = viewport.x + (node.position.x + node.width / 2) * viewport.k;
-    const top = viewport.y + node.position.y * viewport.k - 14;
+    const top = getNodeToolbarTop(viewport.y + node.position.y * viewport.k, viewport.k);
     const isImage = node.type === CanvasNodeType.Image;
     const isVideo = node.type === CanvasNodeType.Video;
     const isAudio = node.type === CanvasNodeType.Audio;

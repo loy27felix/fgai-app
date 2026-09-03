@@ -9,6 +9,7 @@ import { buildNodeContext } from "@/reference/infinite-canvas/src/lib/canvas/plu
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/reference/infinite-canvas/src/types/canvas";
+import { readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { readVideoAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/reference/infinite-canvas/src/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
@@ -50,6 +51,7 @@ type CanvasNodeProps = {
     onResizeEnd?: (nodeId: string) => void;
     onContentChange: (nodeId: string, content: string) => void;
     onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
+    onImageAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoPlaybackError?: (node: CanvasNodeData, failedUrl: string) => void;
     onTitleChange: (nodeId: string, title: string) => void;
@@ -75,6 +77,7 @@ type NodeContentRendererProps = {
     pluginContext?: CanvasNodeContext | null;
     onContentChange: (nodeId: string, content: string) => void;
     onTextAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
+    onImageAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoPlaybackError?: (node: CanvasNodeData, failedUrl: string) => void;
     onStopEditing: () => void;
@@ -119,6 +122,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onResizeEnd,
     onContentChange,
     onTextAlternativeChange,
+    onImageAlternativeChange,
     onVideoAlternativeChange,
     onVideoPlaybackError,
     onTitleChange,
@@ -138,6 +142,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [titleDraft, setTitleDraft] = useState(data.title || "");
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
+    const hasImageAlternatives = data.type === CanvasNodeType.Image && readImageAlternatives(data.metadata).length > 1;
     const hasVideoAlternatives = data.type === CanvasNodeType.Video && readVideoAlternatives(data.metadata).length > 1;
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
@@ -424,7 +429,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 }}
             >
                 <div
-                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || hasVideoAlternatives ? "overflow-visible" : "overflow-hidden"}`}
+                    className={`relative flex h-full w-full items-center justify-center rounded-[inherit] ${isBatchRoot || hasImageAlternatives || hasVideoAlternatives ? "overflow-visible" : "overflow-hidden"}`}
                     style={
                         {
                             background: isGroup ? "transparent" : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
@@ -452,6 +457,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         mentionReferences={mentionReferences}
                         onContentChange={onContentChange}
                         onTextAlternativeChange={onTextAlternativeChange}
+                        onImageAlternativeChange={onImageAlternativeChange}
                         onVideoAlternativeChange={onVideoAlternativeChange}
                         onVideoPlaybackError={onVideoPlaybackError}
                         onStopEditing={() => setIsEditingContent(false)}
@@ -644,6 +650,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             batchRecovering={props.batchRecovering}
             onToggleBatch={props.onToggleBatch}
             onSetBatchPrimary={props.onSetBatchPrimary}
+            onImageAlternativeChange={props.onImageAlternativeChange}
         />
     );
 }
@@ -794,6 +801,7 @@ function ImageContent({
     batchRecovering,
     onToggleBatch,
     onSetBatchPrimary,
+    onImageAlternativeChange,
 }: {
     node: CanvasNodeData;
     isBatchRoot: boolean;
@@ -803,15 +811,35 @@ function ImageContent({
     batchRecovering: boolean;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: () => void;
+    onImageAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
+    const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
+    const alternatives = readImageAlternatives(node.metadata);
+    const activeAlternativeIndex = Math.min(Math.max(node.metadata?.activeImageAlternativeIndex ?? alternatives.length - 1, 0), Math.max(alternatives.length - 1, 0));
+    const activeContent = alternatives[activeAlternativeIndex]?.content || node.metadata?.content;
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} transparent={node.metadata?.mimeType === "image/png"}>
-            <div className="h-full w-full overflow-hidden rounded-3xl">
+            {alternatives.length > 1 ? (
+                <div className="pointer-events-none absolute inset-0 z-0 overflow-visible">
+                    {alternatives.slice(0, -1).slice(-3).map((alternative, index) => (
+                        <div
+                            key={alternative.id}
+                            className="absolute inset-0 rounded-[18px] border shadow-[0_18px_38px_rgba(0,0,0,.28)]"
+                            style={{
+                                background: `linear-gradient(145deg, ${theme.node.panel}, ${theme.node.fill})`,
+                                borderColor: theme.node.stroke,
+                                transform: `translate(${14 + index * 12}px, ${10 + index * 8}px) rotate(${2 + index * 1.6}deg)`,
+                            }}
+                        />
+                    ))}
+                </div>
+            ) : null}
+            <div className="relative z-10 h-full w-full overflow-hidden rounded-3xl">
                 <img
-                    src={node.metadata!.content!}
+                    src={activeContent}
                     alt={node.title}
                     draggable={false}
                     onDragStart={(event) => event.preventDefault()}
@@ -821,7 +849,7 @@ function ImageContent({
             {isBatchRoot ? (
                 <button
                     type="button"
-                    className="absolute right-2.5 top-2.5 z-30 flex h-8 items-center justify-center gap-1 rounded-full border px-2.5 text-xs font-semibold shadow-[0_6px_18px_rgba(15,23,42,.10)] backdrop-blur-md transition hover:scale-[1.02]"
+                    className={`absolute ${alternatives.length > 1 ? "left-2.5" : "right-2.5"} top-2.5 z-30 flex h-8 items-center justify-center gap-1 rounded-full border px-2.5 text-xs font-semibold shadow-[0_6px_18px_rgba(15,23,42,.10)] backdrop-blur-md transition hover:scale-[1.02]`}
                     style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }}
                     aria-label={batchExpanded ? "图片组已展开" : "图片组已收起"}
                     onClick={(event) => {
@@ -834,6 +862,50 @@ function ImageContent({
                     <span className="leading-none text-[#2f80ff]">{batchCount}</span>
                     <ChevronRight className={`size-3.5 opacity-55 transition-transform ${batchExpanded ? "rotate-90" : ""}`} />
                 </button>
+            ) : null}
+            {alternatives.length > 1 ? (
+                <div className="absolute right-2.5 top-2.5 z-30">
+                    <button
+                        type="button"
+                        className="flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold shadow-[0_8px_20px_rgba(0,0,0,.24)] backdrop-blur-md transition hover:scale-[1.02]"
+                        style={{ background: `${theme.toolbar.panel}e8`, borderColor: `${theme.toolbar.border}d9`, color: theme.node.text }}
+                        aria-expanded={isVersionMenuOpen}
+                        aria-label={`图片共有 ${alternatives.length} 个版本，当前显示第 ${activeAlternativeIndex + 1} 个`}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setIsVersionMenuOpen((open) => !open);
+                        }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                    >
+                        <span className="text-[#2f80ff]">{activeAlternativeIndex + 1}/{alternatives.length}</span>
+                        <ChevronDown className={`size-3.5 opacity-70 transition-transform ${isVersionMenuOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {isVersionMenuOpen ? (
+                        <div className="absolute right-0 top-11 min-w-[148px] overflow-hidden rounded-xl border p-1.5 shadow-2xl backdrop-blur-xl" style={{ background: `${theme.toolbar.panel}f7`, borderColor: theme.toolbar.border }}>
+                            {alternatives.map((alternative, index) => (
+                                <button
+                                    key={alternative.id}
+                                    type="button"
+                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition hover:bg-white/10"
+                                    style={{ color: index === activeAlternativeIndex ? selectionBlue : theme.node.text }}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onImageAlternativeChange?.(node.id, index);
+                                        setIsVersionMenuOpen(false);
+                                    }}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                >
+                                    <span className="grid size-5 shrink-0 place-items-center rounded-md border text-[10px]" style={{ borderColor: index === activeAlternativeIndex ? selectionBlue : theme.node.stroke }}>
+                                        {index + 1}
+                                    </span>
+                                    <span className="truncate">第 {index + 1} 个图片版本</span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
             ) : null}
             {isBatchChild ? (
                 <button

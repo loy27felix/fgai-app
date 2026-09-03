@@ -108,11 +108,16 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
 
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const pasteStart = project.indexOf('const handlePaste');
+  const pasteEnd = project.indexOf('useEffect(() => {', pasteStart);
+  const pasteHandler = project.slice(pasteStart, pasteEnd);
 
   assert.match(project, /const handlePaste = useCallback\(\s*\(event: ClipboardEvent\)/);
   assert.match(project, /event\.clipboardData/);
   assert.match(project, /clipboardData\?\.items/);
   assert.match(project, /CANVAS_CLIPBOARD_MIME/);
+  assert.match(project, /shouldIgnoreCanvasClipboardTarget\(target\)/);
+  assert.doesNotMatch(pasteHandler, /data-canvas-no-zoom/);
   assert.match(project, /window\.addEventListener\("paste", handlePaste, true\)/);
   assert.match(project, /window\.addEventListener\("copy", handleCopy\)/);
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
@@ -150,6 +155,19 @@ test('video reruns stay in one node with selectable versions and keyboard deleti
   assert.match(node, /第 \{index \+ 1\} 个视频版本/);
   assert.match(node, /onVideoAlternativeChange/);
   assert.match(menu, /w-\[360px\]/);
+});
+
+test('image reruns stay in one node and never promote their previous result into an implicit reference', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+
+  assert.match(project, /if \(isImageNode && !isEmptyImageNode && sourceNode\)/);
+  assert.match(project, /appendImageAlternative/);
+  assert.match(project, /referenceImages: hydratedGenerationContext\.referenceImages\.filter/);
+  assert.doesNotMatch(project, /const sourceReference/);
+  assert.match(project, /\[canvas image alternative selected\]/);
+  assert.match(node, /第 \{index \+ 1\} 个图片版本/);
+  assert.match(node, /onImageAlternativeChange/);
 });
 
 test('canvas reference chips support in-place replacement and the expanded prompt editor keeps every reference action usable', () => {
