@@ -9,6 +9,8 @@ test("local prompt studio plugin is discoverable and supplies a scalable canvas 
     const index = JSON.parse(read("public/plugins/index.json")) as string[];
     const plugin = read("public/plugins/prompt-studio.plugin.js");
     const node = read("reference/infinite-canvas/src/components/canvas/canvas-node.tsx");
+    const promptPanel = read("reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx");
+    const canvas = read("reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx");
 
     assert.ok(index.includes("/plugins/prompt-studio.plugin.js"));
     assert.match(plugin, /id:\s*PLUGIN_ID/);
@@ -16,5 +18,12 @@ test("local prompt studio plugin is discoverable and supplies a scalable canvas 
     assert.match(plugin, /defaultSize:\s*\{\s*width:\s*820,\s*height:\s*360\s*\}/);
     assert.match(plugin, /textarea/);
     assert.match(plugin, /updateMetadata/);
+    assert.match(plugin, /enableNativePromptWorkspaceScaling/);
+    assert.match(plugin, /MutationObserver/);
+    assert.match(plugin, /data-canvas-prompt-workspace/);
+    assert.match(plugin, /--fg-prompt-studio-workspace-scale/);
+    assert.match(plugin, /setup\(\)/);
+    assert.match(promptPanel, /data-canvas-prompt-workspace/);
+    assert.match(canvas, /data-canvas-viewport-layer/);
     assert.match(node, /definition\?\.Panel \? "w-\[min\(960px/);
 });

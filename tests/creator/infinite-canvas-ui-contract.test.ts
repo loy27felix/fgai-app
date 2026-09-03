@@ -106,16 +106,18 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
   assert.match(promptPanel, /composerContent/);
 });
 
-test('node prompt workspaces leave canvas zoom available outside the scrollable editor', () => {
+test('native node prompt workspaces expose a plugin hook without globally changing their scale', () => {
   const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
   const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
   const workspaceRoot = promptPanel.slice(promptPanel.indexOf('return ('), promptPanel.indexOf('<ReferenceStrip'));
 
-  assert.doesNotMatch(workspaceRoot, /data-canvas-no-zoom/);
-  assert.doesNotMatch(workspaceRoot, /onWheel=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(workspaceRoot, /data-canvas-prompt-workspace/);
+  assert.doesNotMatch(workspaceRoot, /--fg-prompt-studio-workspace-scale/);
+  assert.doesNotMatch(workspaceRoot, /transform: `scale/);
+  assert.match(workspaceRoot, /data-canvas-no-zoom/);
+  assert.match(workspaceRoot, /onWheel=\{\(event\) => event\.stopPropagation\(\)\}/);
   assert.doesNotMatch(promptInput, /data-canvas-no-zoom/);
-  assert.match(promptInput, /onWheelCapture/);
-  assert.match(promptInput, /editor\.scrollHeight > editor\.clientHeight/);
+  assert.doesNotMatch(promptInput, /onWheelCapture/);
 });
 
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {

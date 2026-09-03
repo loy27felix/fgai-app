@@ -69,10 +69,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     return (
         <div
+            data-canvas-no-zoom
+            data-canvas-prompt-workspace
             className="thin-scrollbar max-h-[min(560px,calc(100vh-120px))] overflow-y-auto rounded-[24px] border p-3 shadow-2xl backdrop-blur"
             style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
         >
             <ReferenceStrip
                 nodeId={node.id}
