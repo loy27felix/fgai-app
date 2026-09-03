@@ -77,6 +77,7 @@ pnpm logs:postgres        # 只看 PostgreSQL 日志（含时间戳）
 pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志（含时间戳）
 pnpm logs:monitor         # 查看统一服务状态与新增业务错误告警
 pnpm logs:audit           # 查询最近 168 小时的持久化业务审计事件
+# 浏览器访问 /admin/logs    # SLS 风格统一检索 audit、server、frontend、infra 事件
 pnpm reports:run          # 立即触发一次到期报表检查（仅调用内部 endpoint）
 scripts/audit-events.sh all  # 查询 audit_events 全部历史
 ```
@@ -85,13 +86,13 @@ scripts/audit-events.sh all  # 查询 audit_events 全部历史
 
 ```bash
 pnpm logs:app | grep '"event":"creator_image"'  # 图片生成与供应商请求
-pnpm logs:app | grep '\[creator video'             # 视频生成、提交与轮询
-pnpm logs:app | grep '\[local media'               # NAS 媒体鉴权、读取与失败
+pnpm logs:app | grep '"event":"creator_video"'  # 视频生成、提交与轮询
+pnpm logs:app | grep '"event":"local_media'      # NAS 媒体鉴权、读取与失败
 ```
 
-本地执行 `pnpm dev` 时，App 日志直接输出在当前终端，不经过 Docker；浏览器端日志仍在浏览器 DevTools Console 中查看。
+本地执行 `pnpm dev` 时，App 日志直接输出在当前终端，并异步写入 `observability_log_events`；浏览器错误、画布异常和必要的创作台诊断会通过观测入口进入数据库，剩余浏览器运行时日志仍在 DevTools Console 中查看。
 
-业务审计事件保存在 PostgreSQL 的 `audit_events` 表中。每条记录包含 `event_id`、`trace_id`、操作者、workspace、feature/action、资源、阶段、前后状态、结果、耗时、脱敏后的参数/数据和错误摘要；视频任务同时保留在 `creator_generation_task_events`。应用会在 stdout 输出同一个事件 ID，便于把实时日志与数据库历史关联。Prompt、完整 URL、signed URL、token、密码、API key、图片/视频二进制不会写入审计事件。
+业务审计事件保存在 PostgreSQL 的 `audit_events` 表中；普通服务日志和浏览器观测事件分别保存在 `observability_log_events` / `observability_error_events`。管理员可从 `/admin/logs` 统一检索，详情显示完整的安全序列化事件 JSON。每条业务审计记录包含 `event_id`、`trace_id`、操作者、workspace、feature/action、资源、阶段、前后状态、结果、耗时、脱敏后的参数/数据和错误摘要；视频任务同时保留在 `creator_generation_task_events`。应用会在 stdout 输出同一个事件 ID，便于把实时日志与数据库历史关联。Prompt、完整 URL、signed URL、token、密码、API key、图片/视频二进制不会写入审计事件。
 
 实际运行 Docker 的 macOS 宿主机必须安装 NAS 守护进程；不要在开发机或仅用于编辑代码的机器上执行：
 
@@ -134,7 +135,7 @@ scripts/install-service-monitor.sh
 
 状态变化会写入 `$HOME/Library/Logs/fg-studio-service-monitor.log`，匹配到的 App 错误会追加到 `$HOME/Library/Logs/fg-studio-monitor/app-errors.log`。如需主动通知，在 `.env.docker` 配置 `FG_MONITOR_WEBHOOK_URL`，并将 `FG_MONITOR_WEBHOOK_TYPE` 设置为 `generic`、`feishu` 或 `wecom`；未配置 webhook 时不影响自动恢复和本地日志。告警只在健康状态发生变化时发送，恢复后也会发送一次，避免重复轰炸。
 
-服务监控、部署失败和浏览器错误会通过独立的观测接口写入 PostgreSQL；观测写入失败只丢弃观测，不阻断正常业务。浏览器只上报 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应，服务端会限流并脱敏。内部接口优先使用 `FG_OBSERVABILITY_SECRET`，未配置时兼容使用 `SESSION_SECRET`；启用 Nginx TLS 后，生产部署脚本和监控默认使用 App 的回环端口 `http://127.0.0.1:3001`。
+服务监控、部署失败和浏览器错误/诊断会通过独立的观测接口写入 PostgreSQL；观测写入失败只丢弃观测，不阻断正常业务。浏览器端上报受限于 `error`、`unhandledrejection`、网络失败、未成功的 `/api/*` 响应和少量关键诊断事件，服务端会限流并脱敏。内部接口优先使用 `FG_OBSERVABILITY_SECRET`，未配置时兼容使用 `SESSION_SECRET`；启用 Nginx TLS 后，生产部署脚本和监控默认使用 App 的回环端口 `http://127.0.0.1:3001`。
 
 在实际 Docker 主机安装报表 scheduler（每 5 分钟检查一次到期任务，单轮最多生成 4 份，进程带互斥锁，失败或历史补算会在下一轮继续）并访问管理员页面 `/admin/reports`：
 
@@ -161,6 +162,7 @@ docker/initdb/002-local-upgrade.sql  已有本地 volume 的幂等升级
 docker/initdb/003-local-observability.sql  业务审计事件兼容升级
 docker/initdb/004-company-productions.sql  公司视频制片流程结构
 docker/initdb/005-observability-reporting.sql  监控事件与周期报表结构
+docker/initdb/006-observability-log-stream.sql  结构化服务日志检索流
 tests/                       类型、账本、API 和价格测试
 ```
 

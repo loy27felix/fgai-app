@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/local/admin';
 import { createClient } from '@/lib/local/server';
 import type { CreatorVideoTask } from '@/lib/creator/types';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 const MAX_VIDEO_BYTES = 320 * 1024 * 1024;
 
@@ -36,7 +37,7 @@ export async function persistVideoOutput(
       try {
         upload = await createAdminClient().storage.from('creator-assets').upload(storagePath, Buffer.from(body), { upsert: true, contentType: mimeType });
       } catch (error) {
-        console.error('[creator video durable upload]', error);
+        logServerFailure('creator_video_durable_upload', error, { taskId: task.id });
       }
     }
     if (upload.error) throw upload.error;
@@ -61,7 +62,7 @@ export async function persistVideoOutput(
       };
       let inserted = await context.localClient.from('creator_assets').insert(row).select('id').maybeSingle();
       if (inserted.error) {
-        try { inserted = await createAdminClient().from('creator_assets').insert(row).select('id').maybeSingle(); } catch (error) { console.error('[creator video durable asset row]', error); }
+        try { inserted = await createAdminClient().from('creator_assets').insert(row).select('id').maybeSingle(); } catch (error) { logServerFailure('creator_video_durable_asset_row', error, { taskId: task.id }); }
       }
       if (inserted.error) throw inserted.error;
       assetId = inserted.data?.id || null;
@@ -70,7 +71,7 @@ export async function persistVideoOutput(
   } catch (error) {
     // Keep the provider URL as a fallback; a transient download failure must
     // not turn a successful generation into a failed task.
-    console.error('[creator video durable persistence]', error);
+    logServerFailure('creator_video_durable_persistence', error, { taskId: task.id });
     return output;
   }
 }
@@ -92,7 +93,7 @@ export async function ensureVideoOutputStored(context: VideoStorageContext, task
     try {
       update = await createAdminClient().from('creator_generation_tasks').update(values).eq('id', task.id).eq('workspace_id', context.workspace.id).eq('user_id', context.user.id).eq('kind', 'video').select('*').maybeSingle();
     } catch (error) {
-      console.error('[creator video durable task update]', error);
+      logServerFailure('creator_video_durable_task_update', error, { taskId: task.id });
     }
   }
   return update.error || !update.data ? task : update.data as CreatorVideoTask;

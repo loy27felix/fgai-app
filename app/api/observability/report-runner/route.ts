@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { hasObservabilitySecret } from '@/lib/observability/internal-auth';
 import { generateDueReports } from '@/lib/observability/reporting';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 
@@ -33,7 +34,7 @@ async function notify(results: Awaited<ReturnType<typeof generateDueReports>>) {
   } catch (error) {
     // Notification failure must not turn a successful report run into a retry.
     // 通知失败不能把已成功的报表变成失败任务，避免重复生成和重复通知。
-    console.error('[observability report notification failed]', escaped, error instanceof Error ? error.message : String(error));
+    logServerFailure('observability_report_notification_failed', error, { reportMessage: escaped });
   }
 }
 
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     const failed = results.filter((result) => result.status === 'failed');
     return NextResponse.json({ ok: failed.length === 0, results }, { status: failed.length ? 500 : 200 });
   } catch (error) {
-    console.error('[observability report runner failed]', error instanceof Error ? error.message : String(error));
+    logServerFailure('observability_report_runner_failed', error);
     return NextResponse.json({ ok: false, error: 'report runner failed' }, { status: 500 });
   }
 }

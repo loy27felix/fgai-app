@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
+import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,7 @@ function errorResponse(error: string, code: string, status: number) {
 }
 
 function serverError(error: unknown) {
-  console.error('[creator assets route]', error);
+  logServerFailure('creator_assets_route', error);
   return errorResponse('资产加载失败，请稍后重试', 'ASSETS_FAILED', 500);
 }
 
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
         signedUrl: signed.error ? null : signed.data?.signedUrl || null,
       };
     }));
-    console.info('[creator assets listed]', { scope: materialScope ? 'material-library' : 'assets', count: assets.length });
+    logServerEvent('creator_assets_listed', { scope: materialScope ? 'material-library' : 'assets', count: assets.length });
     return NextResponse.json({ assets });
   } catch (error) {
     return serverError(error);
@@ -107,10 +108,10 @@ export async function PATCH(request: Request) {
       .eq('workspace_id', context.workspace.id);
     if (updated.error) throw updated.error;
 
-    console.info('[material library folder updated]', { assetId, folderId });
+    logServerEvent('material_library_folder_updated', { assetId, folderId });
     return NextResponse.json({ updated: true, folderId });
   } catch (error) {
-    console.error('[material library folder update]', error);
+    logServerFailure('material_library_folder_update', error);
     return errorResponse('移动素材失败，请稍后重试', 'MATERIAL_MOVE_FAILED', 500);
   }
 }
@@ -144,12 +145,12 @@ export async function DELETE(request: Request) {
 
     const removed = await context.localClient.storage.from('creator-assets').remove([found.data.storage_path]);
     if (removed.error) {
-      console.warn('[material library storage cleanup failed]', { assetId, code: removed.error.message });
+      logServerEvent('material_library_storage_cleanup_failed', { assetId, code: removed.error.message }, 'warn');
     }
-    console.info('[material library asset deleted]', { assetId, storageCleanup: !removed.error });
+    logServerEvent('material_library_asset_deleted', { assetId, storageCleanup: !removed.error });
     return NextResponse.json({ deleted: true, storageCleanup: !removed.error });
   } catch (error) {
-    console.error('[material library delete]', error);
+    logServerFailure('material_library_delete', error);
     return errorResponse('删除素材失败，请稍后重试', 'MATERIAL_DELETE_FAILED', 500);
   }
 }

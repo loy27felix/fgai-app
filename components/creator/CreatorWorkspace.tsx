@@ -8,6 +8,7 @@ import SkillPicker from "@/components/SkillPicker";
 import PromptPicker from "@/components/PromptPicker";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
 import FGLogo from "@/components/FGLogo";
+import { logClientEvent } from "@/lib/observability/client-log";
 
 const I = {
   chat: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
@@ -140,7 +141,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     stickToBottomRef.current = true;
     setShowJumpToLatest(false);
     history.replaceState(null, "", `/chat?session=${data.session.id}`);
-    console.info("[creator chat history] session created", { sessionId: data.session.id, model: data.session.default_model || model });
+    logClientEvent("creator_chat_history", { stage: "session_created", sessionId: data.session.id, model: data.session.default_model || model });
     return data.session.id as string;
   }
 
@@ -192,7 +193,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
         setSessionId(null);
         setMessages([]);
       }
-      console.info("[creator chat history] reload completed", { sessionCount: next.length, preferredSessionId: preferredSessionId || undefined, selectedSessionId: target || undefined });
+      logClientEvent("creator_chat_history", { stage: "reload_completed", sessionCount: next.length, preferredSessionId: preferredSessionId || undefined, selectedSessionId: target || undefined });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "读取会话失败");
     } finally {
@@ -207,7 +208,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     if (!initialLoadError || initialHistoryRecoveryRef.current) return;
     initialHistoryRecoveryRef.current = true;
     const preferredSessionId = sessionId || initialRequestedSessionId;
-    console.info("[creator chat history] retrying initial history read", { preferredSessionId: preferredSessionId || undefined });
+    logClientEvent("creator_chat_history", { stage: "retry_initial_read", preferredSessionId: preferredSessionId || undefined }, "warning");
     void reloadHistory(preferredSessionId);
     // `reloadHistory` intentionally reads the initial state once only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -398,4 +399,3 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
     </div>
   );
 }
-

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/local/server';
 import { fxSnapshot, getUsdToCnyRate } from '@/lib/usage/fx';
 import { getMonthlyUsageSummary } from '@/lib/usage/budget';
 import { summarizeUsageRows, withEligibleCatalogEstimate } from '@/lib/usage/reporting';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 
@@ -114,7 +115,7 @@ export async function GET(req: Request) {
     .order('created_at', { ascending: false })
     .limit(limit);
   if (result.error) {
-    console.error('[creator usage]', result.error);
+    logServerFailure('creator_usage', result.error);
     return NextResponse.json({ error: '用量记录加载失败，请稍后重试', code: 'USAGE_LOAD_FAILED' }, { status: 500 });
   }
 
@@ -137,7 +138,7 @@ export async function GET(req: Request) {
   try {
     budget = await getMonthlyUsageSummary(user.id);
   } catch (error) {
-    console.error('[creator usage budget]', error);
+    logServerFailure('creator_usage_budget', error);
   }
 
   return NextResponse.json({

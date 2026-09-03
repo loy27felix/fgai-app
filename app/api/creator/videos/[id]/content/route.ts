@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { GET as getVideoTask } from '../route';
 import { createAdminClient } from '@/lib/local/admin';
 import { resolveInternalMediaUrl } from '@/lib/local/media-url';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function GET(req: Request, { params }: RouteContext) {
       const signed = await createAdminClient().storage.from('creator-assets').createSignedUrl(storagePath, 300);
       if (!signed.error && signed.data?.signedUrl) videoUrl = signed.data.signedUrl;
     } catch (error) {
-      console.error('[creator video durable asset proxy]', error);
+      logServerFailure('creator_video_durable_asset_proxy', error, { taskId: params.id });
     }
   }
   if (!videoUrl && typeof payload.task?.videoUrl === 'string') videoUrl = payload.task.videoUrl;
@@ -71,7 +72,7 @@ export async function GET(req: Request, { params }: RouteContext) {
       break;
     } catch (error) {
       sawFetchError = true;
-      console.error('[creator video content proxy]', error);
+      logServerFailure('creator_video_content_proxy', error, { taskId: params.id });
     }
   }
   if (!upstream) {

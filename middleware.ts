@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/local/middleware";
-import { logServerEvent, requestTraceId } from "@/lib/observability/server-log";
+import { logServerEvent, requestTraceId } from "@/lib/observability/server-log-edge";
 
 export async function middleware(request: NextRequest) {
   const traceId = requestTraceId(request);

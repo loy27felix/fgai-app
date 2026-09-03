@@ -5,6 +5,7 @@ import { DEFAULT_TEXT_MODEL_ID, isTextModelId } from "@/lib/ai/catalog";
 import { ensureCreatorWorkspace } from "@/lib/creator/workspace";
 import type { CreatorProduction, CreatorProductionStatus } from "@/lib/creator/types";
 import { createClient } from "@/lib/local/server";
+import { logServerFailure } from "@/lib/observability/server-log";
 
 export const runtime = "nodejs";
 
@@ -71,7 +72,7 @@ export async function GET(req: Request) {
     const productions = (Array.isArray(result.data) ? result.data : []).map(normalizeProduction).filter((item): item is CreatorProduction => Boolean(item));
     return NextResponse.json({ productions });
   } catch (error) {
-    console.error("[creator productions read]", error);
+    logServerFailure("creator_productions_read", error);
     return NextResponse.json({ error: "读取制片项目失败，请稍后重试" }, { status: 500 });
   }
 }
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
     if (!production) throw new Error("制片项目数据无效");
     return NextResponse.json({ production }, { status: 201 });
   } catch (error) {
-    console.error("[creator productions create]", error);
+    logServerFailure("creator_productions_create", error);
     return NextResponse.json({ error: "创建制片项目失败，请稍后重试" }, { status: 500 });
   }
 }
@@ -149,7 +150,7 @@ export async function PATCH(req: Request) {
     }
     return NextResponse.json({ production });
   } catch (error) {
-    console.error("[creator productions update]", error);
+    logServerFailure("creator_productions_update", error);
     return NextResponse.json({ error: "保存制片项目失败，请稍后重试" }, { status: 500 });
   }
 }

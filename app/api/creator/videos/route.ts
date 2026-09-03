@@ -15,6 +15,7 @@ import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -24,7 +25,7 @@ function response(error: string, code: string, status: number) {
 }
 
 function serverError(error: unknown, code: string, message: string) {
-  console.error('[creator video collection]', error);
+  logServerFailure('creator_video_collection', error);
   return response(message, code, 500);
 }
 
@@ -195,7 +196,7 @@ export async function POST(req: Request) {
         skill: normalizeSkill(body.skill),
       });
     } catch (error) {
-      console.error('[creator video draft validation]', error);
+      logServerFailure('creator_video_draft_validation', error);
       return response(clientValidationMessage(error), 'INVALID_VIDEO_DRAFT', 400);
     }
 

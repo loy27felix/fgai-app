@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 export function Icon({ d, size = 18, sw = 1.6 }: { d: readonly string[]; size?: number; sw?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
       {d.map((p, i) => <path key={i} d={p} />)}
     </svg>

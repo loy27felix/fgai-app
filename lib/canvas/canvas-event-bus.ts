@@ -1,6 +1,7 @@
 import localforage from "localforage";
 
 import type { PluginStorage } from "@/types/canvas-plugin";
+import { logClientEvent } from "@/lib/observability/client-log";
 
 // 画布内轻量事件总线,供节点/插件互相通信
 type Handler = (payload: unknown) => void;
@@ -11,7 +12,7 @@ export function emitCanvasEvent(event: string, payload?: unknown) {
         try {
             handler(payload);
         } catch (error) {
-            console.error(`[canvas-event] handler for "${event}" failed`, error);
+            logClientEvent("canvas_event_handler_failed", { event, error }, "error");
         }
     });
 }

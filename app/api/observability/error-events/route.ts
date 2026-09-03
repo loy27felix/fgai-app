@@ -7,6 +7,7 @@ import {
   type ObservationSeverity,
   type ObservationSource,
 } from '@/lib/observability/observability-events';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
       eventKey: text(body.eventKey, 240) || null,
     });
   } catch (error) {
-    console.error('[observability error event write failed]', error instanceof Error ? error.message : String(error));
+    logServerFailure('observability_error_event_write_failed', error);
     return NextResponse.json({ error: 'event persistence failed' }, { status: 503 });
   }
   return NextResponse.json({ ok: true });

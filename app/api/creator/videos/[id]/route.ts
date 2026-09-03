@@ -35,7 +35,7 @@ function response(error: string, code: string, status: number) {
 }
 
 function serverError(error: unknown, code: string, message: string) {
-  console.error('[creator video item]', error);
+  logServerFailure('creator_video_item', error);
   return response(message, code, 500);
 }
 
@@ -168,7 +168,7 @@ async function pollTask(
     polled = await getWetokenVideoTask(currentTask.external_task_id, { traceId, taskId: currentTask.id });
   } catch (error) {
     const checkedAt = new Date().toISOString();
-    console.error('[creator video poll]', {
+    logServerFailure('creator_video_poll', error, {
       taskId: currentTask.id,
       externalTaskId: currentTask.external_task_id,
       httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
@@ -178,7 +178,7 @@ async function pollTask(
       causeName: error instanceof WetokenVideoTransportError ? error.causeName : undefined,
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
       causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
-      message: providerErrorMessage(error),
+      providerMessage: providerErrorMessage(error),
     });
     await context.localClient.from('creator_generation_tasks').update({
       last_provider_checked_at: checkedAt,
@@ -290,7 +290,7 @@ export async function POST(req: Request, { params }: RouteContext) {
       try {
         upload = await createAdminClient().storage.from('creator-assets').upload(path, body, { upsert: false, contentType: file.type });
       } catch (error) {
-        console.error('[creator video server upload]', error);
+        logServerFailure('creator_video_server_upload', error, { taskId: params.id });
       }
     }
     if (upload.error) return response('参考素材上传失败，请稍后重试', 'VIDEO_REFERENCE_UPLOAD_FAILED', 502);
@@ -413,7 +413,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       for (const path of paths) assertOwnedReferencePath(path, context.user.id, task.id);
       await assertUploadedObjects(context, paths, validated.references);
     } catch (error) {
-      console.error('[creator video upload validation]', error);
+      logServerFailure('creator_video_upload_validation', error, { taskId: params.id });
       return response('参考素材上传尚未完成', 'REFERENCES_NOT_READY', 409);
     }
     const request = {
@@ -475,7 +475,7 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
     if (!deleted.data) return response('视频任务未被删除，请刷新后重试', 'VIDEO_TASK_DELETE_MISSING', 409);
     // Delete the database row atomically before best-effort file cleanup to close confirm/delete races.
     // 先按状态原子删除任务，再尽力清理文件，避免草稿确认与删除并发时删掉正在提交的任务。
-    try { await removeTaskFiles(context, task); } catch (error) { console.error('[creator video file cleanup]', error); }
+    try { await removeTaskFiles(context, task); } catch (error) { logServerFailure('creator_video_file_cleanup', error, { taskId: task.id }); }
     return NextResponse.json({ ok: true, id: deleted.data.id });
   } catch (error: unknown) {
     return serverError(error, 'VIDEO_TASK_DELETE_FAILED', '视频任务删除失败，请稍后重试');

@@ -9,6 +9,7 @@ import {
 import type { CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 type RouteContext = { params: { id: string } };
 
@@ -32,7 +33,7 @@ function serverError(
   fallbackMessage: string,
   storageStatus: number,
 ) {
-  console.error('[creator image item]', error);
+  logServerFailure('creator_image_item', error);
   if (error instanceof ImageStorageError) {
     return NextResponse.json(
       { error: error.publicMessage, code: error.code },

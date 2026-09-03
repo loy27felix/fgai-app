@@ -377,11 +377,13 @@ export async function cleanupWetokenAssets(
   if (failures.length) {
     // Cleanup is best-effort and must never hide the original provider failure.
     // 清理失败不能覆盖原始错误，但必须留下不含凭据的可审计记录。
-    console.error('[wetoken asset cleanup failed]', failures.map(({ asset, error }) => ({
-      id: asset.id,
-      model: asset.model,
-      message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-    })));
+    logServerFailure('wetoken_asset_cleanup_failed', new Error('asset cleanup failed'), {
+      failures: failures.map(({ asset, error }) => ({
+        id: asset.id,
+        model: asset.model,
+        message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+      })),
+    });
   }
   return failures.length === 0;
 }

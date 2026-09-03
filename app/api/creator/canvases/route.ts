@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import type { CreatorCanvasGraph } from '@/lib/creator/types';
 import { createClient } from '@/lib/local/server';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 const MAX_GRAPH_BYTES = 900_000;
@@ -11,7 +12,7 @@ function errorResponse(error: string, code: string, status: number) {
 }
 
 function serverError(error: unknown, code: string, message: string) {
-  console.error('[creator canvas route]', error);
+  logServerFailure('creator_canvas_route', error);
   return errorResponse(message, code, 500);
 }
 

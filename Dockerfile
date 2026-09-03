@@ -31,6 +31,7 @@ COPY --from=builder --chown=nextjs:nextjs /app/scripts/local-db-migrate.mjs ./sc
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/002-local-upgrade.sql ./docker/initdb/002-local-upgrade.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/003-local-observability.sql ./docker/initdb/003-local-observability.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/005-observability-reporting.sql ./docker/initdb/005-observability-reporting.sql
+COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/006-observability-log-stream.sql ./docker/initdb/006-observability-log-stream.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/004-company-productions.sql ./docker/initdb/004-company-productions.sql
 USER nextjs
 EXPOSE 3000

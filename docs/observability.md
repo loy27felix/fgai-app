@@ -1,6 +1,6 @@
 # 功能日志与问题溯源
 
-FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的 `pnpm logs:app` 读取。新功能必须先接入 `lib/observability/server-log.ts`，再接入业务逻辑；日志写入失败不能影响正常创作、保存或计费。
+FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的 `pnpm logs:app` 读取；Node runtime 的结构化日志同时异步写入 `observability_log_events`，供 `/admin/logs` 检索。新功能必须先接入 `lib/observability/server-log.ts`，再接入业务逻辑；日志写入失败不能影响正常创作、保存或计费。
 
 ## 每个服务端功能的最小事件链
 
@@ -29,7 +29,7 @@ Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_
 
 ## 前端、主机和周期报表
 
-浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应，发送到 `/api/observability/client-errors`。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本在入库前脱敏和截断。
+浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应；画布事件异常和必要的创作台诊断通过 `lib/observability/client-log.ts` 进入同一入口 `/api/observability/client-errors`。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本和 metadata 在入库前脱敏和截断。
 
 实际 Docker 主机上的 `scripts/service-monitor.sh` 每轮把 Docker、NAS、App、PostgreSQL、Tunnel、磁盘和 App 错误检查写入 `observability_service_events` / `observability_error_events`。观测 HTTP 上报在独立后台进程中执行，网络或 App 不可用时不会拖慢本机健康检查。`scripts/report-scheduler.sh` 每 5 分钟调用一次内部 `/api/observability/report-runner`；每轮最多生成 4 份报表，scheduler 失败或历史补算未完成时下一轮继续重试。内部接口使用 `x-fg-observability-secret`，优先读取 `FG_OBSERVABILITY_SECRET`，兼容回退到 `SESSION_SECRET`。
 
@@ -41,6 +41,12 @@ Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_
 
 日报、周报和月报都按 `Asia/Shanghai` 计算。`revision=0` 是允许异步任务和供应商费用迟到的临时版，`revision=1` 是后续对账的最终版；任务使用数据库唯一键幂等，失败任务保留失败原因并可安全重试。管理员从 `/admin/reports` 查看报表，通知 webhook 失败不会改变报表成功状态。
 
+## 日志检索工作台
+
+管理员从 `/admin/logs` 查看统一日志流。页面把 `audit_events`、`observability_log_events`、`observability_error_events` 和 `observability_service_events` 合并为同一条可检索事件流，支持近 15 分钟、1 小时、6 小时、24 小时、7 天和 31 天范围，按关键词、来源和级别筛选，并通过时间分布、事件列表和右侧完整事件 JSON 详情定位一次异常。默认只读取最近 24 小时，单次最多返回 200 条，继续加载时使用 keyset cursor 在同一组筛选条件下读取后续记录，不受旧 offset 上限影响；当前查询条件会同步到 URL，刷新后保持不变。
+
+`logServerEvent` 先输出 JSON Lines，再把同一份已安全序列化的 payload 放入异步数据库队列；正常数据库可用时，普通服务日志会进入 `observability_log_events`，`recordAuditEvent` 的重复 raw 行会按 `eventId` 与 `audit_events` 合并显示。数据库或队列不可用时保留 Docker stdout 旁路并丢弃数据库副本，保证业务请求不等待观测写入；因此 Docker 日志轮转或 Edge middleware 的 `http_request_received` 仍需通过 `pnpm logs:app` 溯源，不能把它们误认为已进入工作台。事件详情沿用写入端的安全序列化结果，仅对管理员开放。
+
 ## 排查方式
 
 ```bash
@@ -49,4 +55,4 @@ pnpm logs:app | grep '"feature":"creator_chat"'
 pnpm logs:app | grep '"taskId":"<task-id>"'
 ```
 
-修改或新增 API 路由时，代码评审应确认：成功、可预期拒绝和异常失败三条分支都有对应的安全日志，并为关键脱敏或关联行为补充自动化测试。
+修改或新增 API 路由时，代码评审应确认：成功、可预期拒绝和异常失败三条分支都有对应的安全日志，并为关键脱敏或关联行为补充自动化测试。Node 日志单条上限为 256 KiB；业务/诊断字段尽量完整保留，但凭据、token、密码、Cookie、签名 query value 和二进制内容仍必须保护。

@@ -5,6 +5,7 @@ import { ensureCreatorWorkspace } from "@/lib/creator/workspace";
 import { createAdminClient } from "@/lib/local/admin";
 import { createClient } from "@/lib/local/server";
 import { localStorage, readLocalFile } from "@/lib/local/storage";
+import { logServerFailure } from "@/lib/observability/server-log";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -125,7 +126,7 @@ export async function POST(req: Request, { params }: { params: { productionId: s
       await context.localClient.from("creator_video_assembly_jobs").update({ status: "failed", error: detail.slice(0, 3000), completed_at: completedAt, updated_at: completedAt }).eq("id", jobId).eq("workspace_id", context.workspace.id);
       await context.localClient.from("creator_productions").update({ status: "failed", updated_at: completedAt }).eq("id", productionId).eq("workspace_id", context.workspace.id);
     }
-    console.error("[creator production assembly]", error);
+    logServerFailure("creator_production_assembly", error, { productionId });
     return NextResponse.json({ error: detail }, { status: 500 });
   }
 }

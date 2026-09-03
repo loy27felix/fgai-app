@@ -1,5 +1,5 @@
 /**
- * Small, dependency-free structured logger for server-side feature work.
+ * Small structured logger for server-side feature work.
  *
  * It writes JSON lines so Docker, `pnpm logs:app`, and any later log collector
  * can filter the same fields. Logging is deliberately best-effort: tracing a
@@ -26,7 +26,6 @@ const FULL_LOG_TRUNCATION_MARKER = '[truncated]';
 type FullLogPayload = { readonly [FULL_LOG_PAYLOAD]: unknown };
 type FullLogBudget = { remaining: number };
 type LogSerialiseContext = { fullLogBudget: FullLogBudget };
-
 function fingerprintText(value: string) {
   // Keep the diagnostic fingerprint synchronous and browser-compatible; it is only for correlation, not security.
   // 保持诊断指纹同步且兼容 browser；它只用于关联请求，不承担安全校验。
@@ -271,6 +270,18 @@ export function attachTraceId<T extends Response>(response: T, traceId: string):
   return response;
 }
 
+let logPersistenceModule: Promise<typeof import('./server-log-persistence')> | null = null;
+
+function queueServerLog(eventName: string, payload: Record<string, unknown>, level: ServerLogLevel) {
+  // Middleware is bundled for the Edge runtime; the database writer is Node-only.
+  // middleware 属于 Edge bundle，数据库写入器只允许在 Node runtime 动态加载。
+  if (typeof process !== 'undefined' && process.env.NEXT_RUNTIME === 'edge') return;
+  logPersistenceModule ||= import('./server-log-persistence');
+  void logPersistenceModule
+    .then((persistence) => persistence.queueServerLog(eventName, payload, level))
+    .catch(() => { logPersistenceModule = null; });
+}
+
 export function logServerEvent(
   event: string,
   fields: ServerLogFields = {},
@@ -284,31 +295,37 @@ export function logServerEvent(
       timestampUtc: now.toISOString(),
       ...fields,
     };
-    let line = JSON.stringify(serialiseLogValue(
+    let serialisedPayload = serialiseLogValue(
       value,
       0,
       new WeakSet<object>(),
       { fullLogBudget: { remaining: SERVER_LOG_MAX_BYTES } },
-    ));
+    );
+    let line = JSON.stringify(serialisedPayload);
     if (utf8ByteLength(line) > SERVER_LOG_MAX_BYTES) {
-      line = JSON.stringify(serialiseLogValue(
+      serialisedPayload = serialiseLogValue(
         { ...value, logPayloadTruncated: true },
         0,
         new WeakSet<object>(),
         { fullLogBudget: { remaining: 16 } },
-      ));
+      );
+      line = JSON.stringify(serialisedPayload);
     }
     if (utf8ByteLength(line) > SERVER_LOG_MAX_BYTES) {
-      line = JSON.stringify({
+      serialisedPayload = {
         event,
         timestamp: value.timestamp,
         timestampUtc: value.timestampUtc,
         logPayloadTruncated: true,
-      });
+      };
+      line = JSON.stringify(serialisedPayload);
     }
     if (level === 'error') console.error(line);
     else if (level === 'warn') console.warn(line);
     else console.info(line);
+    if (serialisedPayload && typeof serialisedPayload === 'object' && !Array.isArray(serialisedPayload)) {
+      queueServerLog(event, serialisedPayload as Record<string, unknown>, level);
+    }
   } catch {
     // Never let diagnostics break a generation or a chat response.
     try { console.error('{"event":"logging_failure","stage":"serialisation"}'); } catch { /* noop */ }

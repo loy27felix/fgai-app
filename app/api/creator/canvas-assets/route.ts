@@ -60,7 +60,7 @@ export async function GET(req: Request) {
     if (signed.error || !signed.data?.signedUrl) return response('素材不存在或已删除', 'ASSET_NOT_FOUND', 404);
     return NextResponse.json({ signedUrl: signed.data.signedUrl, path });
   } catch (error) {
-    console.error('[creator canvas asset url]', error);
+    logServerFailure('creator_canvas_asset_url', error, { feature: 'creator_canvas_asset', stage: 'signed_url' });
     return response('素材地址读取失败', 'ASSET_URL_FAILED', 500);
   }
 }
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       try {
         upload = await createAdminClient().storage.from('creator-assets').upload(storagePath, body, { upsert: false, contentType: file.type || 'application/octet-stream' });
       } catch (error) {
-        console.error('[creator canvas asset admin upload]', error);
+        logServerFailure('creator_canvas_asset_admin_upload', error, { traceId, feature: 'creator_canvas_asset', stage: 'admin_upload' });
       }
     }
     if (upload.error) {
@@ -131,7 +131,6 @@ export async function POST(req: Request) {
       signedUrl: signed.error ? null : signed.data?.signedUrl || null,
     }, { status: 201 });
   } catch (error) {
-    console.error('[creator canvas asset upload]', error);
     logServerFailure('creator_canvas_asset_failed', error, { traceId, feature: 'creator_canvas_asset', stage: 'exception' });
     return response('素材上传失败，请稍后重试', 'ASSET_UPLOAD_FAILED', 500);
   }

@@ -3,9 +3,10 @@ import { createClient } from '@/lib/local/server';
 import {
   observationFingerprint,
   recordObservationError,
+  type ObservationSeverity,
   type ObservationImpact,
 } from '@/lib/observability/observability-events';
-import { requestTraceId } from '@/lib/observability/server-log';
+import { logServerFailure, requestTraceId } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 
@@ -23,10 +24,12 @@ type ClientErrorBody = {
   apiPath?: unknown;
   method?: unknown;
   httpStatus?: unknown;
+  severity?: unknown;
   impact?: unknown;
   deploymentVersion?: unknown;
   systemVersion?: unknown;
   eventId?: unknown;
+  metadata?: unknown;
 };
 
 function text(value: unknown, limit: number) {
@@ -37,6 +40,11 @@ function allowedImpact(value: unknown): ObservationImpact {
   return value === 'none' || value === 'degraded' || value === 'blocked' || value === 'unknown'
     ? value
     : 'unknown';
+}
+
+function allowedSeverity(value: unknown, status: number | null): ObservationSeverity {
+  if (value === 'info' || value === 'warning' || value === 'error' || value === 'critical') return value;
+  return status && status >= 500 ? 'error' : 'warning';
 }
 
 function allowedStatus(value: unknown) {
@@ -111,7 +119,7 @@ export async function POST(request: Request) {
     await recordObservationError({
       source: 'frontend',
       service,
-      severity: status && status >= 500 ? 'error' : 'warning',
+      severity: allowedSeverity(body.severity, status),
       impact: allowedImpact(body.impact),
       fingerprint,
       code: text(body.name, 160) || null,
@@ -126,10 +134,11 @@ export async function POST(request: Request) {
       metadata: {
         method: text(body.method, 16) || null,
         systemVersion: text(body.systemVersion, 80) || null,
+        client: body.metadata || null,
       },
     });
   } catch (error) {
-    console.error('[observability client error write failed]', error instanceof Error ? error.message : String(error));
+    logServerFailure('observability_client_error_write_failed', error);
   }
   return new NextResponse(null, { status: 204 });
 }

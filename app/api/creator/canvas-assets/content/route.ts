@@ -34,7 +34,6 @@ export async function GET(req: Request) {
       const adminSigned = await createAdminClient().storage.from('creator-assets').createSignedUrl(path, 300);
       if (!adminSigned.error && adminSigned.data?.signedUrl) signedUrl = adminSigned.data.signedUrl;
     } catch (error) {
-      console.error('[creator canvas asset admin url]', error);
       logServerFailure('creator_canvas_asset_content_admin_url_failed', error, { traceId, feature: 'creator_canvas_asset_content', stage: 'admin_signed_url', storagePath: path });
     }
   }
@@ -48,7 +47,6 @@ export async function GET(req: Request) {
   try {
     upstream = await fetch(resolveInternalMediaUrl(signedUrl), { redirect: 'follow', headers: range ? { range } : undefined });
   } catch (error) {
-    console.error('[creator canvas asset content proxy]', error);
     logServerFailure('creator_canvas_asset_content_fetch_failed', error, { traceId, feature: 'creator_canvas_asset_content', stage: 'upstream_fetch', storagePath: path, hasRange: Boolean(range) });
     return errorResponse('素材文件读取失败，请稍后重试', 'ASSET_CONTENT_FETCH_FAILED', 502);
   }

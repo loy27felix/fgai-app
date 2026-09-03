@@ -20,7 +20,7 @@ export default function PageShell({ title, email, children }: { title: string; e
           <span style={{ color: "var(--text)", fontWeight: 500 }}>{title}</span>
         </nav>
         <div style={{ flex: 1 }} />
-        <Hov as="button" onClick={toggle} title="日/夜" base={{ width: 38, height: 38, borderRadius: 11, display: "grid", placeItems: "center", cursor: "pointer", color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }} hover={{ color: "var(--text)", background: "var(--panel-2)" }}>
+        <Hov as="button" onClick={toggle} title="日/夜" aria-label="切换日夜主题" base={{ width: 38, height: 38, borderRadius: 11, display: "grid", placeItems: "center", cursor: "pointer", color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" }} hover={{ color: "var(--text)", background: "var(--panel-2)" }}>
           {theme === "dark" ? <Icon d={["M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19", "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"]} size={19} /> : <Icon d={["M21 12.8A8.5 8.5 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8Z"]} size={19} />}
         </Hov>
         <a href="/projects" style={{ display: "flex", alignItems: "center", gap: 6, height: 38, padding: "0 13px", borderRadius: 11, fontSize: 12.5, color: "var(--text-2)", background: "var(--panel)", border: "1px solid var(--stroke)" }}><Icon d={["m15 6-6 6 6 6"]} size={15} sw={1.7} />返回项目</a>

@@ -12,6 +12,7 @@ import {
 import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
+import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +23,7 @@ function response(error: string, code: string, status: number) {
 }
 
 function serverError(error: unknown, code: string, message: string) {
-  console.error('[creator image collection]', error);
+  logServerFailure('creator_image_collection', error);
   return response(message, code, 500);
 }
 
@@ -189,7 +190,7 @@ export async function POST(req: Request) {
         skill: normalizeSkill(body.skill),
       });
     } catch (error: unknown) {
-      console.error('[creator image draft validation]', error);
+      logServerFailure('creator_image_draft_validation', error);
       return response('\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548', 'INVALID_IMAGE_DRAFT', 400);
     }
 

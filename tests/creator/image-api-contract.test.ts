@@ -80,7 +80,7 @@ test('image routes return stable error codes without raw dependency details', ()
   assert.match(item, /error instanceof ImageStorageError/);
   assert.match(item, /code: error\.code/);
   for (const source of [collection, item]) {
-    assert.match(source, /console\.error/);
+    assert.match(source, /logServerFailure/);
     assert.doesNotMatch(source, /error:\s*error instanceof Error\s*\?\s*error\.message/);
     assert.doesNotMatch(source, /error:\s*[^,}\n]*\.message/);
   }

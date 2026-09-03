@@ -3,6 +3,7 @@ import { createClient } from "@/lib/local/server";
 import { getLiveTodayReport, getReportDetails, listReportRuns, type ReportRunRecord } from "@/lib/observability/reporting";
 import PageShell from "@/components/studio/PageShell";
 import ObservabilityReportView from "@/components/ObservabilityReportView";
+import { logServerFailure } from "@/lib/observability/server-log";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { i
   try {
     liveToday = await getLiveTodayReport();
   } catch (loadError) {
-    console.error("[observability live report read failed]", loadError instanceof Error ? loadError.message : String(loadError));
+    logServerFailure("observability_live_report_read_failed", loadError);
   }
   const showLiveToday = wantsLiveToday && Boolean(liveToday);
 
@@ -49,7 +50,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { i
         : runs.find((run) => run.status === "succeeded")?.id || runs[0]?.id || "";
     if (selectedId) detail = await getReportDetails(selectedId);
   } catch (loadError) {
-    console.error("[observability reports read failed]", loadError instanceof Error ? loadError.message : String(loadError));
+    logServerFailure("observability_reports_read_failed", loadError);
     error = "报表数据暂时不可用，请确认数据库迁移和 report scheduler 已完成。";
   }
   if (showLiveToday && liveToday) detail = liveToday;
