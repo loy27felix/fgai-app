@@ -1,18 +1,21 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, MousePointer2, Moon, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, ImagePlus, Info, MousePointer2, Moon, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video, X } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/reference/infinite-canvas/src/lib/canvas/node-registry";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { AnimatedThemeToggler } from "@/reference/infinite-canvas/src/components/ui/animated-theme-toggler";
+import type { CanvasAppearance } from "@/reference/infinite-canvas/src/lib/canvas/canvas-appearance";
 
 export function CanvasToolbar({
     selectedCount,
     canUndo,
     canRedo,
     backgroundMode,
+    appearance,
+    customBackgroundUrl,
     canvasTool,
     showImageInfo,
     onAddImage,
@@ -30,12 +33,17 @@ export function CanvasToolbar({
     onDeselect,
     onCanvasToolChange,
     onBackgroundModeChange,
+    onAppearanceChange,
+    onUploadCustomBackground,
+    onClearCustomBackground,
     onShowImageInfoChange,
 }: {
     selectedCount: number;
     canUndo: boolean;
     canRedo: boolean;
     backgroundMode: CanvasBackgroundMode;
+    appearance: CanvasAppearance;
+    customBackgroundUrl?: string;
     canvasTool: "select" | "pan";
     showImageInfo: boolean;
     onAddImage: () => void;
@@ -53,10 +61,14 @@ export function CanvasToolbar({
     onDeselect: () => void;
     onCanvasToolChange: (tool: "select" | "pan") => void;
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
+    onAppearanceChange: (patch: Partial<CanvasAppearance>) => void;
+    onUploadCustomBackground: (file: File) => Promise<void>;
+    onClearCustomBackground: () => void;
     onShowImageInfoChange: (show: boolean) => void;
 }) {
     const wrapRef = useRef<HTMLDivElement>(null);
     const rootRef = useRef<HTMLDivElement>(null);
+    const backgroundInputRef = useRef<HTMLInputElement>(null);
     const colorTheme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const theme = canvasThemes[colorTheme];
@@ -66,6 +78,7 @@ export function CanvasToolbar({
     const [panelX, setPanelX] = useState(0);
     const [extensionsOpen, setExtensionsOpen] = useState(false);
     const [extPanelX, setExtPanelX] = useState(0);
+    const [backgroundUploading, setBackgroundUploading] = useState(false);
     // 扩展(插件)节点,随注册表变化实时更新
     useNodeRegistryVersion();
     const extensionDefs = listNodeDefinitions().filter((def) => def.showInCreateMenu !== false && getNodePluginId(def.type) !== "builtin");
@@ -226,7 +239,7 @@ export function CanvasToolbar({
                 >
                     <div className="px-1 pb-2 text-sm font-medium opacity-65">画布外观</div>
                     <div className="px-1 pb-1.5 text-[11px] font-medium opacity-50">主题模式</div>
-                    <div className="grid grid-cols-2 gap-1 rounded-lg p-1" style={{ background: theme.toolbar.itemHover }}>
+                    <div className="grid grid-cols-3 gap-1 rounded-lg p-1" style={{ background: theme.toolbar.itemHover }}>
                         <CanvasThemeButton colorTheme={colorTheme} targetTheme="light" onThemeChange={setTheme}>
                             <Sun className="size-4" />
                             浅色
@@ -235,7 +248,37 @@ export function CanvasToolbar({
                             <Moon className="size-4" />
                             深色
                         </CanvasThemeButton>
+                        <CanvasThemeButton colorTheme={colorTheme} targetTheme="custom" onThemeChange={setTheme}>
+                            <ImagePlus className="size-4" />
+                            自定义
+                        </CanvasThemeButton>
                     </div>
+                    {colorTheme === "custom" ? (
+                        <div className="mt-3 rounded-lg border p-2" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.itemHover }}>
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-medium opacity-70">自定义背景</span>
+                                {appearance.backgroundImagePath ? (
+                                    <button type="button" className="inline-flex items-center gap-1 text-[11px] text-red-300 hover:text-red-200" onClick={onClearCustomBackground}>
+                                        <X className="size-3" />移除
+                                    </button>
+                                ) : null}
+                            </div>
+                            <button
+                                type="button"
+                                className="group relative flex h-20 w-full items-center justify-center overflow-hidden rounded-md border text-[11px] font-medium transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+                                style={{ borderColor: theme.toolbar.border, background: theme.node.fill, color: theme.toolbar.item }}
+                                disabled={backgroundUploading}
+                                onClick={() => backgroundInputRef.current?.click()}
+                            >
+                                {customBackgroundUrl ? <span className="absolute inset-0 bg-cover bg-center opacity-60" style={{ backgroundImage: `url("${customBackgroundUrl}")` }} /> : null}
+                                <span className="relative inline-flex items-center gap-1.5 rounded-md px-2 py-1" style={{ background: `${theme.toolbar.panel}d9` }}>
+                                    <Upload className="size-3.5" />{backgroundUploading ? "正在上传…" : customBackgroundUrl ? "更换背景" : "上传背景"}
+                                </span>
+                            </button>
+                            <label className="mt-2 block text-[11px] font-medium opacity-60">背景透明度 <span className="float-right tabular-nums">{Math.round(appearance.backgroundImageOpacity * 100)}%</span></label>
+                            <input className="mt-1 w-full accent-cyan-400" type="range" min="0" max="100" value={Math.round(appearance.backgroundImageOpacity * 100)} onChange={(event) => onAppearanceChange({ backgroundImageOpacity: Number(event.target.value) / 100 })} />
+                        </div>
+                    ) : null}
                     <div className="mt-3 px-1 pb-1.5 text-[11px] font-medium opacity-50">网格样式</div>
                     <Segmented
                         className="w-full !p-1 [&_.ant-segmented-group]:!flex [&_.ant-segmented-item]:!min-h-8 [&_.ant-segmented-item]:!flex-1 [&_.ant-segmented-item-label]:!min-h-8 [&_.ant-segmented-item-label]:!leading-8"
@@ -269,6 +312,8 @@ export function CanvasToolbar({
                             },
                         ]}
                     />
+                    <label className="mt-3 block px-1 text-[11px] font-medium opacity-60">网格透明度 <span className="float-right tabular-nums">{Math.round(appearance.gridOpacity * 100)}%</span></label>
+                    <input className="mx-1 mt-1 w-[calc(100%-8px)] accent-cyan-400" type="range" min="0" max="100" value={Math.round(appearance.gridOpacity * 100)} onChange={(event) => onAppearanceChange({ gridOpacity: Number(event.target.value) / 100 })} />
                     <div className="mt-3 flex items-center justify-between gap-3 rounded-lg px-1.5 py-1">
                         <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium opacity-65">
                             <Info className="size-3.5" />
@@ -278,6 +323,19 @@ export function CanvasToolbar({
                     </div>
                 </div>
             ) : null}
+            <input
+                ref={backgroundInputRef}
+                className="hidden"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    setBackgroundUploading(true);
+                    void onUploadCustomBackground(file).finally(() => setBackgroundUploading(false));
+                }}
+            />
         </div>
     );
 }
@@ -345,10 +403,10 @@ function CanvasThemeButton({ colorTheme, targetTheme, onThemeChange, children }:
             theme={colorTheme}
             targetTheme={targetTheme}
             onThemeChange={onThemeChange}
-            className="inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-sm transition"
+            className="inline-flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-0 text-[13px] transition"
             style={active ? activeStyle : { color: theme.toolbar.item }}
-            aria-label={`切换到${targetTheme === "dark" ? "深色" : "浅色"}主题`}
-            title={`切换到${targetTheme === "dark" ? "深色" : "浅色"}主题`}
+            aria-label={`切换到${targetTheme === "dark" ? "深色" : targetTheme === "light" ? "浅色" : "自定义"}主题`}
+            title={`切换到${targetTheme === "dark" ? "深色" : targetTheme === "light" ? "浅色" : "自定义"}主题`}
         >
             {children}
         </AnimatedThemeToggler>

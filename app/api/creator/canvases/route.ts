@@ -38,7 +38,18 @@ function normalizeGraph(value: unknown): CreatorCanvasGraph {
   const zoomValue = typeof viewportRecord.zoom === 'number' ? viewportRecord.zoom : viewportRecord.k;
   const zoom = typeof zoomValue === 'number' && Number.isFinite(zoomValue) ? Math.max(0.35, Math.min(2.4, zoomValue)) : 1;
   const background: 'grid' | 'dots' | 'blank' = record.background === 'dots' || record.background === 'blank' ? record.background : 'grid';
-  const graph = { nodes, edges, viewport: { x, y, zoom, k: zoom }, background };
+  const appearanceRecord = asRecord(record.appearance);
+  const backgroundImagePath = typeof appearanceRecord.backgroundImagePath === 'string' && appearanceRecord.backgroundImagePath.trim() && appearanceRecord.backgroundImagePath.length <= 1024
+    ? appearanceRecord.backgroundImagePath.trim()
+    : undefined;
+  const backgroundImageOpacity = typeof appearanceRecord.backgroundImageOpacity === 'number' && Number.isFinite(appearanceRecord.backgroundImageOpacity)
+    ? Math.max(0, Math.min(1, appearanceRecord.backgroundImageOpacity))
+    : 0.72;
+  const gridOpacity = typeof appearanceRecord.gridOpacity === 'number' && Number.isFinite(appearanceRecord.gridOpacity)
+    ? Math.max(0, Math.min(1, appearanceRecord.gridOpacity))
+    : 0.4;
+  const appearance = { ...(backgroundImagePath ? { backgroundImagePath } : {}), backgroundImageOpacity, gridOpacity };
+  const graph = { nodes, edges, viewport: { x, y, zoom, k: zoom }, background, appearance };
   if (JSON.stringify(graph).length > MAX_GRAPH_BYTES) throw new Error('canvas graph is too large');
   return graph;
 }

@@ -106,6 +106,20 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
   assert.match(promptPanel, /composerContent/);
 });
 
+test('native node prompt workspaces expose a plugin hook without globally changing their scale', () => {
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
+  const workspaceRoot = promptPanel.slice(promptPanel.indexOf('return ('), promptPanel.indexOf('<ReferenceStrip'));
+
+  assert.match(workspaceRoot, /data-canvas-prompt-workspace/);
+  assert.doesNotMatch(workspaceRoot, /--fg-prompt-studio-workspace-scale/);
+  assert.doesNotMatch(workspaceRoot, /transform: `scale/);
+  assert.match(workspaceRoot, /data-canvas-no-zoom/);
+  assert.match(workspaceRoot, /onWheel=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.doesNotMatch(promptInput, /data-canvas-no-zoom/);
+  assert.doesNotMatch(promptInput, /onWheelCapture/);
+});
+
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const pasteStart = project.indexOf('const handlePaste');
@@ -121,6 +135,23 @@ test('canvas pastes externally copied images through the native HTTP-compatible 
   assert.match(project, /window\.addEventListener\("paste", handlePaste, true\)/);
   assert.match(project, /window\.addEventListener\("copy", handleCopy\)/);
   assert.doesNotMatch(project, /navigator\.clipboard\.read/);
+});
+
+test('canvas appearance exposes a custom background upload with independent image and grid opacity controls', () => {
+  const toolbar = read('reference/infinite-canvas/src/components/canvas/canvas-toolbar.tsx');
+  const canvas = read('reference/infinite-canvas/src/components/canvas/infinite-canvas.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const providers = read('reference/infinite-canvas/src/components/layout/app-providers.tsx');
+
+  assert.match(toolbar, /自定义/);
+  assert.match(toolbar, /上传背景/);
+  assert.match(toolbar, /背景透明度/);
+  assert.match(toolbar, /网格透明度/);
+  assert.match(canvas, /customBackgroundUrl/);
+  assert.match(canvas, /customBackgroundOpacity/);
+  assert.match(canvas, /gridOpacity/);
+  assert.match(project, /uploadCanvasAsset\(file, \{ kind: "image", source: "upload", name: file\.name \}\)/);
+  assert.match(providers, /dark \? "dark" : "light"/);
 });
 
 test('canvas image copy writes a user-activated image payload instead of using legacy DOM selection copy', () => {
@@ -463,4 +494,48 @@ test('stale prompt source caches wait for refreshed preview data before renderin
 
   assert.match(cachedBranch, /await getOrStartRefresh\(source\)/);
   assert.doesNotMatch(cachedBranch, /void getOrStartRefresh\(source\)/);
+});
+
+test('failed canvas media nodes keep a direct prompt-editor path without relying on drag completion', () => {
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(node, /onOpenPrompt\?: \(node: CanvasNodeData\) => void/);
+  assert.match(node, /修改提示词/);
+  assert.match(node, /onOpenPrompt\?\.\(node\)/);
+  assert.match(node, /data\.metadata\?\.status !== "error"/);
+  assert.match(project, /onOpenPrompt=\{\(node\) => setDialogNodeId\(node\.id\)\}/);
+});
+
+test('new video nodes snapshot model-compatible defaults from the settings dialog', () => {
+  const config = read('reference/infinite-canvas/src/stores/use-config-store.ts');
+  const dialog = read('reference/infinite-canvas/src/components/layout/app-config-modal.tsx');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+
+  assert.match(config, /newVideoNodeSize/);
+  assert.match(config, /newVideoNodeResolution/);
+  assert.match(config, /newVideoNodeSeconds/);
+  assert.match(config, /"video-node-defaults"/);
+  assert.match(dialog, /新建视频节点/);
+  assert.match(dialog, /新建节点画幅/);
+  assert.match(dialog, /新建节点分辨率/);
+  assert.match(dialog, /新建节点时长/);
+  assert.match(dialog, /当前默认模型/);
+  assert.match(dialog, /videoNodePresetFor/);
+  assert.match(dialog, /getVideoModel\(modelId\)/);
+  assert.match(dialog, /modelSpec\.resolutions/);
+  assert.match(dialog, /modelSpec\?\.minDuration/);
+  assert.match(dialog, /requiresAdaptiveFrameRatio/);
+  assert.doesNotMatch(dialog, /开源许可与来源/);
+  assert.match(project, /type === CanvasNodeType\.Video/);
+  assert.match(project, /size: effectiveConfig\.newVideoNodeSize/);
+  assert.match(project, /vquality: effectiveConfig\.newVideoNodeResolution/);
+  assert.match(project, /seconds: effectiveConfig\.newVideoNodeSeconds/);
+});
+
+test('canvas appearance keeps the custom theme label on one line', () => {
+  const toolbar = read('reference/infinite-canvas/src/components/canvas/canvas-toolbar.tsx');
+
+  assert.match(toolbar, /targetTheme="custom"/);
+  assert.match(toolbar, /whitespace-nowrap/);
 });

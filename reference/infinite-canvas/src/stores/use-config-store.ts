@@ -41,6 +41,9 @@ export type AiConfig = {
     audioInstructions: string;
     videoSeconds: string;
     vquality: string;
+    newVideoNodeSize: string;
+    newVideoNodeResolution: string;
+    newVideoNodeSeconds: string;
     videoGenerateAudio: string;
     videoWatermark: string;
     videoReferenceMode: VideoReferenceMode;
@@ -61,7 +64,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "preferences" | "prompt-sources" | "webdav";
+export type ConfigTabKey = "channels" | "preferences" | "prompt-sources" | "webdav" | "video-node-defaults";
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
@@ -115,6 +118,9 @@ export const defaultConfig: AiConfig = {
     audioInstructions: "",
     videoSeconds: "6",
     vquality: "720",
+    newVideoNodeSize: "16:9",
+    newVideoNodeResolution: "720p",
+    newVideoNodeSeconds: "6",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     videoReferenceMode: "reference",
@@ -264,6 +270,9 @@ export const useConfigStore = create<ConfigStore>()(
                         reasoningEffort: config.reasoningEffort || "auto",
                         videoSeconds: config.videoSeconds || "6",
                         vquality: config.vquality || "720",
+                        newVideoNodeSize: config.newVideoNodeSize || defaultConfig.newVideoNodeSize,
+                        newVideoNodeResolution: config.newVideoNodeResolution || defaultConfig.newVideoNodeResolution,
+                        newVideoNodeSeconds: config.newVideoNodeSeconds || defaultConfig.newVideoNodeSeconds,
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         videoReferenceMode: config.videoReferenceMode === "first_last" ? "first_last" : "reference",

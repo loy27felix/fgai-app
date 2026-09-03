@@ -11,9 +11,9 @@ interface AnimatedThemeTogglerProps extends React.ComponentPropsWithoutRef<"butt
     variant?: TransitionVariant;
     /** When true, the transition expands from the viewport center instead of the button center. */
     fromCenter?: boolean;
-    theme?: "light" | "dark";
-    targetTheme?: "light" | "dark";
-    onThemeChange?: (theme: "light" | "dark") => void;
+    theme?: "light" | "dark" | "custom";
+    targetTheme?: "light" | "dark" | "custom";
+    onThemeChange?: (theme: "light" | "dark" | "custom") => void;
 }
 
 function polygonCollapsed(cx: number, cy: number, vertexCount: number): string {
@@ -129,10 +129,13 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
 
         const applyTheme = () => {
             const nextTheme = targetTheme ?? (isDark ? "light" : "dark");
-            if (nextTheme === (isDark ? "dark" : "light")) return;
+            if (theme && nextTheme === theme) return;
             setIsDark(nextTheme === "dark");
             document.documentElement.classList.toggle("dark", nextTheme === "dark");
-            document.documentElement.style.colorScheme = nextTheme;
+            // "custom" is a canvas-only skin. Keep the browser's native
+            // controls in a valid light/dark color scheme instead of writing
+            // an unsupported CSS color-scheme value.
+            document.documentElement.style.colorScheme = nextTheme === "dark" ? "dark" : "light";
             onThemeChange?.(nextTheme);
         };
 
@@ -181,7 +184,7 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
                 );
             });
         }
-    }, [shape, fromCenter, duration, isDark, targetTheme, onThemeChange]);
+    }, [shape, fromCenter, duration, isDark, targetTheme, theme, onThemeChange]);
 
     return (
         <button type="button" ref={buttonRef} onClick={toggleTheme} className={cn(className)} {...props}>

@@ -17,6 +17,7 @@ import type { CreatorImageTaskView } from "@/lib/creator/types";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/reference/infinite-canvas/src/lib/canvas-theme";
+import { DEFAULT_CANVAS_APPEARANCE, normalizeCanvasAppearance, type CanvasAppearance } from "@/reference/infinite-canvas/src/lib/canvas/canvas-appearance";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-data";
@@ -123,6 +124,7 @@ type CanvasHistoryEntry = Pick<CanvasClipboard, "nodes" | "connections"> & {
     chatSessions: CanvasAssistantSession[];
     activeChatId: string | null;
     backgroundMode: CanvasBackgroundMode;
+    appearance: CanvasAppearance;
     showImageInfo: boolean;
 };
 
@@ -199,7 +201,7 @@ async function captureVideoFrameFile(sourceUrl: string, frame: "first" | "curren
     return new File([blob], `video-${frame}-frame.png`, { type: "image/png" });
 }
 
-function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], viewport: ViewportTransform, background: CanvasBackgroundMode) {
+function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], viewport: ViewportTransform, background: CanvasBackgroundMode, appearance: CanvasAppearance) {
     const safeNodes = nodes.map((node) => {
         const safeNode = { ...node, metadata: node.metadata ? { ...node.metadata } : undefined };
         const content = safeNode.metadata?.content;
@@ -215,6 +217,7 @@ function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], 
         edges: connections.map((connection) => ({ from: connection.fromNodeId, to: connection.toNodeId })),
         viewport: { x: viewport.x, y: viewport.y, zoom: viewport.k },
         background: background === "dots" || background === "blank" ? background : "grid",
+        appearance: normalizeCanvasAppearance(appearance),
     };
 }
 
@@ -529,6 +532,7 @@ function InfiniteCanvasPage() {
     const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
     const [isMiniMapOpen, setIsMiniMapOpen] = useState(false);
     const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("lines");
+    const [appearance, setAppearance] = useState<CanvasAppearance>(DEFAULT_CANVAS_APPEARANCE);
     const [showImageInfo, setShowImageInfo] = useState(false);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
     const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
@@ -594,9 +598,10 @@ function InfiniteCanvasPage() {
             chatSessions,
             activeChatId,
             backgroundMode,
+            appearance,
             showImageInfo,
         }),
-        [activeChatId, backgroundMode, chatSessions, showImageInfo],
+        [activeChatId, appearance, backgroundMode, chatSessions, showImageInfo],
     );
 
     const cleanupCanvasFiles = useCallback(
@@ -667,6 +672,7 @@ function InfiniteCanvasPage() {
             setChatSessions(restoredSessions);
             setActiveChatId(project.activeChatId || null);
             setBackgroundMode(project.backgroundMode);
+            setAppearance(normalizeCanvasAppearance(project.appearance));
             setShowImageInfo(project.showImageInfo || false);
             setViewport(project.viewport);
             historyRef.current = { past: [], future: [] };
@@ -680,6 +686,7 @@ function InfiniteCanvasPage() {
                 chatSessions: restoredSessions,
                 activeChatId: project.activeChatId || null,
                 backgroundMode: project.backgroundMode,
+                appearance: normalizeCanvasAppearance(project.appearance),
                 showImageInfo: project.showImageInfo || false,
             };
             setHistoryState({ canUndo: false, canRedo: false });
@@ -793,6 +800,7 @@ function InfiniteCanvasPage() {
             previous.chatSessions === next.chatSessions &&
             previous.activeChatId === next.activeChatId &&
             previous.backgroundMode === next.backgroundMode &&
+            previous.appearance === next.appearance &&
             previous.showImageInfo === next.showImageInfo
         )
             return;
@@ -815,12 +823,12 @@ function InfiniteCanvasPage() {
                 historyCommitTimerRef.current = null;
             }
         };
-    }, [activeChatId, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectLoaded, showImageInfo]);
+    }, [activeChatId, appearance, backgroundMode, chatSessions, connections, createHistoryEntry, nodes, projectLoaded, showImageInfo]);
 
     useEffect(() => {
         if (!projectLoaded || historyPausedRef.current) return;
-        updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, showImageInfo });
-    }, [activeChatId, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
+        updateProject(projectId, { nodes, connections, chatSessions, activeChatId, backgroundMode, appearance, showImageInfo });
+    }, [activeChatId, appearance, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
 
     useEffect(() => {
         if (!projectLoaded || !currentProject) return;
@@ -828,7 +836,7 @@ function InfiniteCanvasPage() {
         if (!cloudCanvasIdRef.current && cloudCreateInFlightRef.current) return;
         if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         cloudSyncTimerRef.current = setTimeout(() => {
-            const graph = toCloudGraph(nodes, connections, viewport, backgroundMode);
+            const graph = toCloudGraph(nodes, connections, viewport, backgroundMode, appearance);
             const cloudId = cloudCanvasIdRef.current;
             const kind = nodes.some((node) => node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) ? "video" : "image";
             if (!cloudId) cloudCreateInFlightRef.current = true;
@@ -856,7 +864,7 @@ function InfiniteCanvasPage() {
         return () => {
             if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         };
-    }, [backgroundMode, connections, currentProject, nodes, projectId, projectLoaded, updateProject, viewport]);
+    }, [appearance, backgroundMode, connections, currentProject, nodes, projectId, projectLoaded, updateProject, viewport]);
     useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);
@@ -963,7 +971,17 @@ function InfiniteCanvasPage() {
 
     const createConnectedNode = useCallback(
         (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Video | CanvasNodeType.Audio, pending: PendingConnectionCreate) => {
-            const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
+            const metadata =
+                type === CanvasNodeType.Config
+                    ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) }
+                    : type === CanvasNodeType.Video
+                      ? {
+                            model: effectiveConfig.videoModel || effectiveConfig.model,
+                            size: effectiveConfig.newVideoNodeSize,
+                            vquality: effectiveConfig.newVideoNodeResolution,
+                            seconds: effectiveConfig.newVideoNodeSeconds,
+                        }
+                      : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
             if (!connection) {
@@ -978,7 +996,7 @@ function InfiniteCanvasPage() {
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, message, setConnecting],
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.newVideoNodeResolution, effectiveConfig.newVideoNodeSeconds, effectiveConfig.newVideoNodeSize, effectiveConfig.size, effectiveConfig.videoModel, message, setConnecting],
     );
 
     const cancelPendingConnectionCreate = useCallback(() => {
@@ -1151,6 +1169,13 @@ function InfiniteCanvasPage() {
                           size: effectiveConfig.size,
                           count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
                       }
+                    : type === CanvasNodeType.Video
+                      ? {
+                            model: effectiveConfig.videoModel || effectiveConfig.model,
+                            size: effectiveConfig.newVideoNodeSize,
+                            vquality: effectiveConfig.newVideoNodeResolution,
+                            seconds: effectiveConfig.newVideoNodeSeconds,
+                        }
                     : undefined;
             const newNode = createCanvasNode(type, targetPosition, configMetadata);
 
@@ -1170,7 +1195,7 @@ function InfiniteCanvasPage() {
                     : isBuiltinType(type) && type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Group;
             if (wantsPanel) setDialogNodeId(newNode.id);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.newVideoNodeResolution, effectiveConfig.newVideoNodeSeconds, effectiveConfig.newVideoNodeSize, effectiveConfig.size, effectiveConfig.videoModel, getCanvasCenter],
     );
 
     const deleteNodes = useCallback(
@@ -1451,6 +1476,7 @@ function InfiniteCanvasPage() {
         setChatSessions(entry.chatSessions);
         setActiveChatId(entry.activeChatId);
         setBackgroundMode(entry.backgroundMode);
+        setAppearance(normalizeCanvasAppearance(entry.appearance));
         setShowImageInfo(entry.showImageInfo);
         setSelectedNodeIds(new Set());
         setSelectedConnectionId(null);
@@ -2740,6 +2766,34 @@ function InfiniteCanvasPage() {
         uploadTargetRef.current = { nodeId, position };
         imageInputRef.current?.click();
     }, []);
+
+    const handleAppearanceChange = useCallback((patch: Partial<CanvasAppearance>) => {
+        setAppearance((current) => normalizeCanvasAppearance({ ...current, ...patch }));
+    }, []);
+
+    const handleCustomBackgroundUpload = useCallback(
+        async (file: File) => {
+            if (!file.type.startsWith("image/")) {
+                message.error("请上传 PNG、JPG、WEBP 或 GIF 图片作为画布背景");
+                return;
+            }
+            try {
+                const stored = await uploadCanvasAsset(file, { kind: "image", source: "upload", name: file.name });
+                setAppearance((current) => normalizeCanvasAppearance({ ...current, backgroundImagePath: stored.storagePath }));
+                useThemeStore.getState().setTheme("custom");
+                message.success("自定义画布背景已保存");
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : "背景上传失败";
+                message.error(detail);
+            }
+        },
+        [message],
+    );
+
+    const clearCustomBackground = useCallback(() => {
+        setAppearance((current) => normalizeCanvasAppearance({ ...current, backgroundImagePath: undefined }));
+        message.success("已移除自定义画布背景");
+    }, [message]);
 
     const handleImageInputChange = useCallback(
         async (event: ReactChangeEvent<HTMLInputElement>) => {
@@ -4100,6 +4154,9 @@ function InfiniteCanvasPage() {
                     viewport={viewport}
                     tool={canvasTool}
                     backgroundMode={backgroundMode}
+                    customBackgroundUrl={appearance.backgroundImagePath ? creatorCanvasAssetContentUrl(appearance.backgroundImagePath) : undefined}
+                    customBackgroundOpacity={appearance.backgroundImageOpacity}
+                    gridOpacity={appearance.gridOpacity}
                     onViewportChange={(next) => {
                         setViewport(next);
                         setContextMenu(null);
@@ -4191,6 +4248,7 @@ function InfiniteCanvasPage() {
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}
                             onRetry={handleNodeRetry}
+                            onOpenPrompt={(node) => setDialogNodeId(node.id)}
                             onGenerateImage={generateImageFromTextNode}
                             onViewImage={handleNodeViewImage}
                             onContextMenu={handleNodeContextMenu}
@@ -4257,6 +4315,8 @@ function InfiniteCanvasPage() {
                     canUndo={historyState.canUndo}
                     canRedo={historyState.canRedo}
                     backgroundMode={backgroundMode}
+                    appearance={appearance}
+                    customBackgroundUrl={appearance.backgroundImagePath ? creatorCanvasAssetContentUrl(appearance.backgroundImagePath) : undefined}
                     canvasTool={canvasTool}
                     showImageInfo={showImageInfo}
                     onAddImage={() => createNode(CanvasNodeType.Image)}
@@ -4274,6 +4334,9 @@ function InfiniteCanvasPage() {
                     onDeselect={deselectCanvas}
                     onCanvasToolChange={setCanvasTool}
                     onBackgroundModeChange={setBackgroundMode}
+                    onAppearanceChange={handleAppearanceChange}
+                    onUploadCustomBackground={handleCustomBackgroundUpload}
+                    onClearCustomBackground={clearCustomBackground}
                     onShowImageInfoChange={setShowImageInfo}
                 />
 

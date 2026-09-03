@@ -8,6 +8,9 @@ type InfiniteCanvasProps = {
     containerRef: React.RefObject<HTMLDivElement | null>;
     viewport: ViewportTransform;
     backgroundMode?: CanvasBackgroundMode;
+    customBackgroundUrl?: string;
+    customBackgroundOpacity?: number;
+    gridOpacity?: number;
     tool?: "select" | "pan";
     onViewportChange: (viewport: ViewportTransform) => void;
     onCanvasMouseDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -18,7 +21,7 @@ type InfiniteCanvasProps = {
     children: React.ReactNode;
 };
 
-export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines", tool = "pan", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasDoubleClick, onContextMenu, onDrop, children }: InfiniteCanvasProps) {
+export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines", customBackgroundUrl, customBackgroundOpacity = 0.72, gridOpacity = 0.4, tool = "pan", onViewportChange, onCanvasMouseDown, onCanvasDeselect, onCanvasDoubleClick, onContextMenu, onDrop, children }: InfiniteCanvasProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const panState = useRef({
         isPanning: false,
@@ -240,8 +243,21 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
             onDragOver={(event) => event.preventDefault()}
             onDrop={onDrop}
         >
-            <CanvasGrid viewport={viewport} mode={backgroundMode} />
+            {customBackgroundUrl ? (
+                <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                        backgroundImage: `linear-gradient(rgba(9,12,16,${Math.max(0, 0.2 - customBackgroundOpacity * 0.16)}), rgba(9,12,16,${Math.max(0, 0.2 - customBackgroundOpacity * 0.16)})), url("${customBackgroundUrl}")`,
+                        backgroundPosition: "center",
+                        backgroundRepeat: "no-repeat",
+                        backgroundSize: "cover",
+                        opacity: Math.min(1, Math.max(0, customBackgroundOpacity)),
+                    }}
+                />
+            ) : null}
+            <CanvasGrid viewport={viewport} mode={backgroundMode} opacity={gridOpacity} />
             <div
+                data-canvas-viewport-layer
                 className="absolute origin-top-left"
                 style={{
                     transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.k})`,
@@ -253,7 +269,7 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
     );
 }
 
-function CanvasGrid({ viewport, mode }: { viewport: ViewportTransform; mode: CanvasBackgroundMode }) {
+function CanvasGrid({ viewport, mode, opacity }: { viewport: ViewportTransform; mode: CanvasBackgroundMode; opacity: number }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     if (mode === "blank") return null;
 
@@ -266,11 +282,12 @@ function CanvasGrid({ viewport, mode }: { viewport: ViewportTransform; mode: Can
 
     return (
         <div
-            className="pointer-events-none absolute inset-0 opacity-40"
+            className="pointer-events-none absolute inset-0"
             style={{
                 backgroundImage,
                 backgroundSize: `${gridSize}px ${gridSize}px`,
                 backgroundPosition: `${x}px ${y}px`,
+                opacity: Math.min(1, Math.max(0, opacity)),
             }}
         />
     );

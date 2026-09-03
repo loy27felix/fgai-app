@@ -15,6 +15,7 @@ import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, creat
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 import { assertPlayableVideoUrl } from "@/lib/creator/video-recovery";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
+import { assertCreatorVideoReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -113,9 +114,15 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const mode = normalizedVideoReferenceMode(config);
     const model = (config.model || config.videoModel || "doubao-seedance-2-0").replace(/^.*::/, "");
     const modelSpec = getVideoModel(model);
-    const imageInputs = references.slice(0, modelSpec?.maxImageReferences || SEEDANCE_REFERENCE_LIMITS.images);
-    const videoInputs = videoReferences.slice(0, modelSpec?.maxVideoReferences || SEEDANCE_REFERENCE_LIMITS.videos);
-    const audioInputs = audioReferences.slice(0, modelSpec?.maxAudioReferences || SEEDANCE_REFERENCE_LIMITS.audios);
+    const maxImages = modelSpec?.maxImageReferences || SEEDANCE_REFERENCE_LIMITS.images;
+    const maxVideos = modelSpec?.maxVideoReferences || SEEDANCE_REFERENCE_LIMITS.videos;
+    const maxAudios = modelSpec?.maxAudioReferences || SEEDANCE_REFERENCE_LIMITS.audios;
+    if (references.length > maxImages) throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxImages} 张参考图，请移除多余图片后重试`);
+    if (videoReferences.length > maxVideos) throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxVideos} 个参考视频，请移除多余视频后重试`);
+    if (audioReferences.length > maxAudios) throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxAudios} 个参考音频，请移除多余音频后重试`);
+    const imageInputs = references;
+    const videoInputs = videoReferences;
+    const audioInputs = audioReferences;
     if (videoInputs.length && modelSpec && !modelSpec.referenceTypes.includes("video")) throw new Error(`${modelSpec.label} 不支持参考视频`);
     if (audioInputs.length && modelSpec && !modelSpec.referenceTypes.includes("audio")) throw new Error(`${modelSpec.label} 不支持参考音频`);
     const imageRoles = assertVideoReferenceMode(mode, imageInputs.length, videoInputs.length, audioInputs.length);
@@ -132,6 +139,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const videoFiles = await Promise.all(videoInputs.map((video, index) => fgVideoFile(video.url, video.name || `reference-video-${index + 1}.mp4`, video.type || "video/mp4")));
     const audioFiles = await Promise.all(audioInputs.map((audio, index) => fgVideoFile(audio.url, audio.name || `reference-audio-${index + 1}.mp3`, audio.type || "audio/mpeg")));
     const files = [...imageFiles, ...videoFiles, ...audioFiles];
+    assertCreatorVideoReferenceFiles(files);
     const ratio = modelSpec?.requiresAdaptiveRatioForFrameMode && mode === "first_last"
         ? "adaptive"
         : config.size === "adaptive" || config.size.includes(":") ? config.size : "16:9";

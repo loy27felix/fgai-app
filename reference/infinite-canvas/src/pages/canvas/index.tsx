@@ -13,6 +13,7 @@ import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/us
 import { useCanvasUiStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
+import { normalizeCanvasAppearance } from "@/reference/infinite-canvas/src/lib/canvas/canvas-appearance";
 import { listCreatorCanvases } from "@/lib/creator/canvas-client";
 function matchesRemoteCanvas(
     project: { title: string; nodes: unknown[]; connections: unknown[] },
@@ -131,6 +132,7 @@ export default function CanvasPage() {
                             .filter((edge) => typeof edge?.from === "string" && typeof edge?.to === "string")
                             .map((edge) => ({ id: "cloud-" + randomId(), fromNodeId: edge.from, toNodeId: edge.to })),
                         backgroundMode: graph.background === "dots" || graph.background === "blank" ? graph.background : "lines",
+                        appearance: normalizeCanvasAppearance(graph.appearance as any),
                         viewport: {
                             x: typeof viewport.x === "number" ? viewport.x : 0,
                             y: typeof viewport.y === "number" ? viewport.y : 0,

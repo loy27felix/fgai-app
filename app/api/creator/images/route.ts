@@ -191,7 +191,8 @@ export async function POST(req: Request) {
       });
     } catch (error: unknown) {
       logServerFailure('creator_image_draft_validation', error);
-      return response('\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548', 'INVALID_IMAGE_DRAFT', 400);
+      const message = error instanceof Error ? error.message.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+      return response(message || '\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548', 'INVALID_IMAGE_DRAFT', 400);
     }
 
     if (canvasId) {
