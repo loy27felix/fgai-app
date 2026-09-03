@@ -403,7 +403,7 @@ function CanvasThemeButton({ colorTheme, targetTheme, onThemeChange, children }:
             theme={colorTheme}
             targetTheme={targetTheme}
             onThemeChange={onThemeChange}
-            className="inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-sm transition"
+            className="inline-flex h-8 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-0 text-[13px] transition"
             style={active ? activeStyle : { color: theme.toolbar.item }}
             aria-label={`切换到${targetTheme === "dark" ? "深色" : targetTheme === "light" ? "浅色" : "自定义"}主题`}
             title={`切换到${targetTheme === "dark" ? "深色" : targetTheme === "light" ? "浅色" : "自定义"}主题`}

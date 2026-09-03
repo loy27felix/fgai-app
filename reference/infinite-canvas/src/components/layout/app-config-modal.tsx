@@ -9,8 +9,10 @@ import { exportAppConfig, importAppConfig } from "@/reference/infinite-canvas/sr
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/reference/infinite-canvas/src/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/reference/infinite-canvas/src/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/reference/infinite-canvas/src/lib/audio-generation";
-import { seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
-import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
+import { normalizeVideoResolutionValue, normalizeVideoSizeValue, videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/reference/infinite-canvas/src/components/video-settings-panel";
+import { createModelChannel, modelOptionName, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { getVideoModel } from "@/lib/ai/video-models";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -69,7 +71,19 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const clearPromptContinue = useConfigStore((state) => state.clearPromptContinue);
     const webdavReady = Boolean(webdav.url.trim());
     const editingChannel = config.channels.find((channel) => channel.id === editingChannelId) || null;
+    const videoNodePreset = videoNodePresetFor(config);
     useEffect(() => setActiveTab(initialTab), [initialTab]);
+
+    useEffect(() => {
+        const nextValues = {
+            size: videoNodePreset.size,
+            resolution: videoNodePreset.resolution,
+            seconds: videoNodePreset.seconds,
+        };
+        if (config.newVideoNodeSize !== nextValues.size) updateConfig("newVideoNodeSize", nextValues.size);
+        if (config.newVideoNodeResolution !== nextValues.resolution) updateConfig("newVideoNodeResolution", nextValues.resolution);
+        if (config.newVideoNodeSeconds !== nextValues.seconds) updateConfig("newVideoNodeSeconds", nextValues.seconds);
+    }, [config.newVideoNodeResolution, config.newVideoNodeSeconds, config.newVideoNodeSize, updateConfig, videoNodePreset.resolution, videoNodePreset.seconds, videoNodePreset.size]);
 
     const saveConfig = (nextConfig: AiConfig) => {
         (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
@@ -321,15 +335,20 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                 <section className="rounded-lg border border-stone-200 p-4 dark:border-stone-800">
                                     <div className="mb-1 text-sm font-semibold">新建视频节点预设</div>
                                     <div className="mb-4 text-xs leading-5 text-stone-500">只作用于之后新建的视频节点（包括从连线创建）。创建时会写入该节点，已有节点和之后更改的全局偏好都不会覆盖它。</div>
+                                    <div className="mb-4 rounded-md bg-stone-100 px-3 py-2 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">
+                                        <span className="font-medium text-stone-800 dark:text-stone-100">当前默认模型：{videoNodePreset.modelLabel}</span>
+                                        <span className="mx-1.5 text-stone-400">·</span>
+                                        {videoNodePreset.capabilityNote}
+                                    </div>
                                     <div className="grid gap-4 md:grid-cols-3">
                                         <Form.Item label="新建节点画幅" className="mb-0">
-                                            <Select value={config.newVideoNodeSize} options={seedanceRatioOptions.map((item) => ({ value: item.value, label: item.label }))} onChange={(value) => updateConfig("newVideoNodeSize", value)} />
+                                            <Select value={videoNodePreset.size} options={videoNodePreset.sizeOptions} onChange={(value) => updateConfig("newVideoNodeSize", value)} />
                                         </Form.Item>
                                         <Form.Item label="新建节点分辨率" className="mb-0">
-                                            <Select value={config.newVideoNodeResolution} options={seedanceResolutionOptions.map((item) => ({ value: item.value, label: item.label }))} onChange={(value) => updateConfig("newVideoNodeResolution", value)} />
+                                            <Select value={videoNodePreset.resolution} options={videoNodePreset.resolutionOptions} onChange={(value) => updateConfig("newVideoNodeResolution", value)} />
                                         </Form.Item>
-                                        <Form.Item label="新建节点时长" extra="4–30 秒；具体模型仍会按其能力校正。" className="mb-0">
-                                            <Select value={config.newVideoNodeSeconds} options={seedanceDurationOptions.filter((value) => value !== -1).map((value) => ({ value: String(value), label: `${value} 秒` }))} onChange={(value) => updateConfig("newVideoNodeSeconds", value)} />
+                                        <Form.Item label="新建节点时长" extra={videoNodePreset.durationNote} className="mb-0">
+                                            <Select value={videoNodePreset.seconds} options={videoNodePreset.secondOptions} onChange={(value) => updateConfig("newVideoNodeSeconds", value)} />
                                         </Form.Item>
                                     </div>
                                 </section>
@@ -345,14 +364,81 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                     </Button>
                 </div>
             ) : null}
-            <div className="mt-3 border-t border-stone-200 pt-3 text-right text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
-                <a href="/NOTICE.md" target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                    开源许可与来源
-                </a>
-            </div>
             <ChannelEditorDrawer open={Boolean(editingChannel)} channel={editingChannel} onSave={saveChannel} onClose={() => setEditingChannelId("")} />
         </>
     );
+}
+
+type VideoNodePreset = {
+    modelLabel: string;
+    capabilityNote: string;
+    durationNote: string;
+    sizeOptions: Array<{ value: string; label: string }>;
+    resolutionOptions: Array<{ value: string; label: string }>;
+    secondOptions: Array<{ value: string; label: string }>;
+    size: string;
+    resolution: string;
+    seconds: string;
+};
+
+function videoNodePresetFor(config: AiConfig): VideoNodePreset {
+    const modelId = modelOptionName(config.videoModel || config.model);
+    const modelSpec = getVideoModel(modelId);
+    const seedanceConfig = isSeedanceVideoConfig({ ...config, model: config.videoModel || config.model });
+    const requiresAdaptiveFrameRatio = config.videoReferenceMode === "first_last" && Boolean(modelSpec?.requiresAdaptiveRatioForFrameMode);
+
+    if (!seedanceConfig) {
+        const normalizedSize = normalizeVideoSizeValue(config.newVideoNodeSize);
+        const normalizedResolution = normalizeVideoResolutionValue(config.newVideoNodeResolution);
+        const normalizedSeconds = nearestOption(config.newVideoNodeSeconds, videoSecondOptions);
+        return {
+            modelLabel: modelId || "未选择视频模型",
+            capabilityNote: "使用通用视频节点预设；自定义渠道的特殊限制仍以其接口返回为准。",
+            durationNote: "可选 4–15 秒。",
+            sizeOptions: videoSizeOptions,
+            resolutionOptions: videoResolutionOptions,
+            secondOptions: videoSecondOptions.map((value) => ({ value, label: `${value} 秒` })),
+            size: videoSizeOptions.some((item) => item.value === normalizedSize) ? normalizedSize : videoSizeOptions[0].value,
+            resolution: videoResolutionOptions.some((item) => item.value === normalizedResolution) ? normalizedResolution : videoResolutionOptions[0].value,
+            seconds: normalizedSeconds,
+        };
+    }
+
+    const allowedResolutions = modelSpec
+        ? seedanceResolutionOptions.filter((item) => modelSpec.resolutions.includes(item.value))
+        : seedanceResolutionOptions;
+    const allowedSeconds = seedanceDurationOptions.filter((value) => value === -1
+        ? modelSpec?.supportsAdaptiveDuration !== false
+        : value >= (modelSpec?.minDuration || 4) && value <= (modelSpec?.maxDuration || 15));
+    const allowedRatios = requiresAdaptiveFrameRatio
+        ? seedanceRatioOptions.filter((item) => item.value === "adaptive")
+        : seedanceRatioOptions;
+    const normalizedResolution = normalizeSeedanceResolution(config.newVideoNodeResolution, modelSpec?.id);
+    const normalizedSeconds = String(normalizeSeedanceDuration(config.newVideoNodeSeconds, modelSpec?.id));
+    const normalizedSize = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.newVideoNodeSize);
+    const label = modelSpec?.label || modelId || "未选择视频模型";
+    const durationMin = modelSpec?.minDuration || 4;
+    const durationMax = modelSpec?.maxDuration || 15;
+
+    return {
+        modelLabel: label,
+        capabilityNote: modelSpec
+            ? `仅展示 ${label} 支持的分辨率与时长。${requiresAdaptiveFrameRatio ? "当前为首尾帧模式，画幅固定为自适应。" : ""}`
+            : "该渠道未声明模型能力，展示 Seedance 通用预设；接口仍会进行最终校验。",
+        durationNote: `${durationMin}–${durationMax} 秒${modelSpec?.supportsAdaptiveDuration !== false ? "，或选择智能" : ""}。`,
+        sizeOptions: allowedRatios.map((item) => ({ value: item.value, label: item.label })),
+        resolutionOptions: allowedResolutions.map((item) => ({ value: item.value, label: item.label })),
+        secondOptions: allowedSeconds.map((value) => ({ value: String(value), label: value === -1 ? "智能" : `${value} 秒` })),
+        size: allowedRatios.some((item) => item.value === normalizedSize) ? normalizedSize : allowedRatios[0].value,
+        resolution: allowedResolutions.some((item) => item.value === normalizedResolution) ? normalizedResolution : allowedResolutions[0].value,
+        seconds: allowedSeconds.some((value) => String(value) === normalizedSeconds) ? normalizedSeconds : String(allowedSeconds[0]),
+    };
+}
+
+function nearestOption(value: string, options: readonly string[]) {
+    const requested = Number(value);
+    if (!Number.isFinite(requested)) return options[0];
+    return options.reduce((nearest, option) => Math.abs(Number(option) - requested) < Math.abs(Number(nearest) - requested) ? option : nearest, options[0]);
 }
 
 export function AppConfigModal() {

@@ -106,6 +106,18 @@ test('canvas adopts stable tool, text-count, resize, and batch-preview interacti
   assert.match(promptPanel, /composerContent/);
 });
 
+test('node prompt workspaces leave canvas zoom available outside the scrollable editor', () => {
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
+  const workspaceRoot = promptPanel.slice(promptPanel.indexOf('return ('), promptPanel.indexOf('<ReferenceStrip'));
+
+  assert.doesNotMatch(workspaceRoot, /data-canvas-no-zoom/);
+  assert.doesNotMatch(workspaceRoot, /onWheel=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.doesNotMatch(promptInput, /data-canvas-no-zoom/);
+  assert.match(promptInput, /onWheelCapture/);
+  assert.match(promptInput, /editor\.scrollHeight > editor\.clientHeight/);
+});
+
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const pasteStart = project.indexOf('const handlePaste');
@@ -493,7 +505,7 @@ test('failed canvas media nodes keep a direct prompt-editor path without relying
   assert.match(project, /onOpenPrompt=\{\(node\) => setDialogNodeId\(node\.id\)\}/);
 });
 
-test('new video nodes snapshot the persisted video-node defaults from the settings dialog', () => {
+test('new video nodes snapshot model-compatible defaults from the settings dialog', () => {
   const config = read('reference/infinite-canvas/src/stores/use-config-store.ts');
   const dialog = read('reference/infinite-canvas/src/components/layout/app-config-modal.tsx');
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
@@ -506,8 +518,22 @@ test('new video nodes snapshot the persisted video-node defaults from the settin
   assert.match(dialog, /新建节点画幅/);
   assert.match(dialog, /新建节点分辨率/);
   assert.match(dialog, /新建节点时长/);
+  assert.match(dialog, /当前默认模型/);
+  assert.match(dialog, /videoNodePresetFor/);
+  assert.match(dialog, /getVideoModel\(modelId\)/);
+  assert.match(dialog, /modelSpec\.resolutions/);
+  assert.match(dialog, /modelSpec\?\.minDuration/);
+  assert.match(dialog, /requiresAdaptiveFrameRatio/);
+  assert.doesNotMatch(dialog, /开源许可与来源/);
   assert.match(project, /type === CanvasNodeType\.Video/);
   assert.match(project, /size: effectiveConfig\.newVideoNodeSize/);
   assert.match(project, /vquality: effectiveConfig\.newVideoNodeResolution/);
   assert.match(project, /seconds: effectiveConfig\.newVideoNodeSeconds/);
+});
+
+test('canvas appearance keeps the custom theme label on one line', () => {
+  const toolbar = read('reference/infinite-canvas/src/components/canvas/canvas-toolbar.tsx');
+
+  assert.match(toolbar, /targetTheme="custom"/);
+  assert.match(toolbar, /whitespace-nowrap/);
 });

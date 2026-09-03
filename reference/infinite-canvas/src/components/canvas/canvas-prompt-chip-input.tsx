@@ -139,6 +139,13 @@ export function CanvasPromptChipInput({ value, references, onChange, className, 
                 aria-multiline="true"
                 className={`${className || ""} overflow-y-auto whitespace-pre-wrap break-words outline-none`}
                 style={{ ...style, cursor: "text" }}
+                onWheelCapture={(event) => {
+                    const editor = event.currentTarget;
+                    // A short prompt should not turn the whole node panel into a
+                    // no-zoom island. Once the editor itself can scroll, keep the
+                    // wheel gesture local so creators can read long prompts.
+                    if (editor.scrollHeight > editor.clientHeight) event.stopPropagation();
+                }}
                 onInput={() => {
                     if (!composingRef.current) syncFromEditor();
                 }}
