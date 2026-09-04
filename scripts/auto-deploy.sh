@@ -117,17 +117,22 @@ compose() {
     "$@"
 }
 
-compose_build_app() {
+compose_build_runtime_services() {
   local build_log
   local exit_code
+  local services=(app)
 
-  # Pass the deployment version explicitly so Compose interpolation cannot fall back to dev.
-  # 显式传递部署版本，避免 Compose 插值异常时回退为 dev。
+  if video_worker_is_configured; then
+    services+=(video-worker)
+  fi
+
+  # Build every runnable service so workers cannot retain an older service-specific image.
+  # 构建全部运行服务，避免 worker 保留旧的服务专属镜像。
   mkdir -p "$BUILD_LOG_ROOT"
   build_log="$BUILD_LOG_ROOT/build-${APP_DEPLOYMENT_VERSION}.log"
   LAST_BUILD_LOG_FILE="$build_log"
   log "Auto deploy: build output is $build_log"
-  if BUILDKIT_PROGRESS=plain compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" app >"$build_log" 2>&1; then
+  if BUILDKIT_PROGRESS=plain compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "${services[@]}" >"$build_log" 2>&1; then
     return 0
   else
     exit_code=$?
@@ -338,7 +343,7 @@ rollback() {
   fi
   export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$previous_sha")"
   log "Auto deploy: rollback deployment version is $APP_DEPLOYMENT_VERSION"
-  if ! compose_build_app; then
+  if ! compose_build_runtime_services; then
     log "Auto deploy: rollback image build failed"
     return 1
   fi
@@ -427,7 +432,7 @@ fi
 
 export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$target_sha")"
 log "Auto deploy: building deployment $APP_DEPLOYMENT_VERSION"
-if ! compose_build_app; then
+if ! compose_build_runtime_services; then
   record_failed_deployment "$target_sha" "image-build"
   rollback "$previous_sha" || true
   send_deploy_error_event "$target_sha" "image-build"
