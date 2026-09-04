@@ -40,14 +40,15 @@ export function validateImageDraftInput(input: ImageDraftInput) {
     skill,
     model: model.id,
     ratio: input.ratio,
-    size: model.provider === 'gpt-image'
-      ? validatedGptImageSize(input.size) || sizeFor(model.id, input.ratio)
-      : sizeFor(model.id, input.ratio),
+    // Gemini uses the dimensions to retain the user-selected output tier
+    // (which is converted to imageConfig.imageSize at provider time), while
+    // GPT Image 2 can consume the same validated dimensions directly.
+    size: validatedImageSize(input.size) || sizeFor(model.id, input.ratio),
     references: input.references,
   };
 }
 
-function validatedGptImageSize(value: string | undefined) {
+function validatedImageSize(value: string | undefined) {
   const size = typeof value === 'string' ? value.trim() : '';
   if (!size) return null;
   const match = /^(\d+)x(\d+)$/i.exec(size);
@@ -65,7 +66,7 @@ function validatedGptImageSize(value: string | undefined) {
     || pixels < 655_360
     || pixels > 8_294_400
   ) {
-    throw new Error('GPT Image 2 尺寸超出支持范围');
+    throw new Error('图片尺寸超出支持范围');
   }
   return `${width}x${height}`;
 }

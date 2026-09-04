@@ -12,6 +12,7 @@ import {
 import { validateVideoDraftInput, videoImageRoles } from '../../lib/creator/video';
 import { CanvasNodeType, type CanvasNodeData } from '../../reference/infinite-canvas/src/types/canvas';
 import { resetInterruptedGeneration } from '../../reference/infinite-canvas/src/lib/canvas/canvas-generation-helpers';
+import { getVideoModel } from '../../lib/ai/video-models';
 
 const originalKey = process.env.WETOKEN_API_KEY;
 const originalBase = process.env.WETOKEN_BASE_URL;
@@ -37,6 +38,14 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
   assert.deepEqual(VIDEO_MODELS.map((model) => model.filterOff), [
     false, true, false, true, false, true, false, true,
   ]);
+});
+
+test('video model capability lists declare the ratios that the settings panel may offer', () => {
+  const seedance = getVideoModel('doubao-seedance-2-0') as (ReturnType<typeof getVideoModel> & { ratios?: string[] });
+  const seedance25 = getVideoModel('dreamina-seedance-2-5') as (ReturnType<typeof getVideoModel> & { ratios?: string[] });
+
+  assert.deepEqual(seedance?.ratios, ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']);
+  assert.deepEqual(seedance25?.ratios, ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']);
 });
 
 test('video submission keeps the provider connection alive for three hours by default', () => {

@@ -539,3 +539,12 @@ test('canvas appearance keeps the custom theme label on one line', () => {
   assert.match(toolbar, /targetTheme="custom"/);
   assert.match(toolbar, /whitespace-nowrap/);
 });
+
+test('direct canvas Gemini calls use imageConfig and OpenAI image edits submit image[] references', () => {
+  const imageApi = read('reference/infinite-canvas/src/services/api/image.ts');
+  const pluginTemplates = read('reference/infinite-canvas/src/services/api/model-plugin.ts');
+
+  assert.match(imageApi, /return Object\.keys\(image\)\.length \? \{ imageConfig: image \} : \{\};/);
+  assert.doesNotMatch(imageApi, /responseFormat: \{ image \}/);
+  assert.match(pluginTemplates, /form\.append\("image\[\]"/);
+});

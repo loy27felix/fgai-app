@@ -194,7 +194,7 @@ export const PLUGIN_TEMPLATES: Record<ModelCapability, PluginTemplate[]> = {
         {
             label: "OpenAI 规范",
             script: `// 生图 / 改图：两者接口不同，用 images 是否为空来区分。
-// 可用：prompt、images(dataURL[])、params{size,quality,count}、model、baseUrl、apiKey
+// 可用：prompt、images(dataURL[])、params{size,quality,count,background}、model、baseUrl、apiKey
 if (images.length === 0) {
   // 文生图：/images/generations（JSON）
   const data = await request({
@@ -213,7 +213,7 @@ form.set("prompt", prompt);
 form.set("n", String(params.count));
 form.set("response_format", "b64_json");
 for (const dataUrl of images) {
-  form.append("image", await (await fetch(dataUrl)).blob(), "ref.png");
+  form.append("image[]", await (await fetch(dataUrl)).blob(), "ref.png");
 }
 const edited = await request({
   method: "post",

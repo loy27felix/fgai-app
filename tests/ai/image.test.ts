@@ -175,6 +175,24 @@ test('Gemini accepts Wetoken OpenAI-compatible URL results without another provi
   assert.equal(urls.length, 2);
 });
 
+test('Gemini request keeps the selected output tier and clamps models that only support 1K', () => {
+  const pro = buildGeminiImageBody({
+    model: 'gemini-3-pro-image-preview',
+    prompt: 'cinematic fox',
+    size: '2720x1536',
+    references: [],
+  });
+  const lite = buildGeminiImageBody({
+    model: 'gemini-3.1-flash-lite-image',
+    prompt: 'cinematic fox',
+    size: '2720x1536',
+    references: [],
+  });
+
+  assert.equal(pro.generationConfig.imageConfig.imageSize, '2K');
+  assert.equal(lite.generationConfig.imageConfig.imageSize, '1K');
+});
+
 test('Gemini accepts nested gateway envelopes and SSE result events', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   const result = await generateWetokenImage({

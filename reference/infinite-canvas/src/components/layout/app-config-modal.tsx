@@ -9,7 +9,7 @@ import { exportAppConfig, importAppConfig } from "@/reference/infinite-canvas/sr
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/reference/infinite-canvas/src/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/reference/infinite-canvas/src/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/reference/infinite-canvas/src/lib/audio-generation";
-import { isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
+import { isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptionsForModel, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { normalizeVideoResolutionValue, normalizeVideoSizeValue, videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/reference/infinite-canvas/src/components/video-settings-panel";
 import { createModelChannel, modelOptionName, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { getVideoModel } from "@/lib/ai/video-models";
@@ -411,11 +411,11 @@ function videoNodePresetFor(config: AiConfig): VideoNodePreset {
         ? modelSpec?.supportsAdaptiveDuration !== false
         : value >= (modelSpec?.minDuration || 4) && value <= (modelSpec?.maxDuration || 15));
     const allowedRatios = requiresAdaptiveFrameRatio
-        ? seedanceRatioOptions.filter((item) => item.value === "adaptive")
-        : seedanceRatioOptions;
+        ? seedanceRatioOptionsForModel(modelSpec?.id).filter((item) => item.value === "adaptive")
+        : seedanceRatioOptionsForModel(modelSpec?.id);
     const normalizedResolution = normalizeSeedanceResolution(config.newVideoNodeResolution, modelSpec?.id);
     const normalizedSeconds = String(normalizeSeedanceDuration(config.newVideoNodeSeconds, modelSpec?.id));
-    const normalizedSize = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.newVideoNodeSize);
+    const normalizedSize = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.newVideoNodeSize, modelSpec?.id);
     const label = modelSpec?.label || modelId || "未选择视频模型";
     const durationMin = modelSpec?.minDuration || 4;
     const durationMax = modelSpec?.maxDuration || 15;
@@ -423,7 +423,7 @@ function videoNodePresetFor(config: AiConfig): VideoNodePreset {
     return {
         modelLabel: label,
         capabilityNote: modelSpec
-            ? `仅展示 ${label} 支持的分辨率与时长。${requiresAdaptiveFrameRatio ? "当前为首尾帧模式，画幅固定为自适应。" : ""}`
+            ? `仅展示 ${label} 支持的画幅、分辨率与时长。${requiresAdaptiveFrameRatio ? "当前为首尾帧模式，画幅固定为自适应。" : ""}`
             : "该渠道未声明模型能力，展示 Seedance 通用预设；接口仍会进行最终校验。",
         durationNote: `${durationMin}–${durationMax} 秒${modelSpec?.supportsAdaptiveDuration !== false ? "，或选择智能" : ""}。`,
         sizeOptions: allowedRatios.map((item) => ({ value: item.value, label: item.label })),
