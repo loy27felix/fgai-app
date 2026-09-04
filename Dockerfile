@@ -20,7 +20,16 @@ ARG APP_DEPLOYMENT_VERSION=dev
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
-RUN apk add --no-cache ffmpeg && addgroup -S nextjs && adduser -S nextjs -G nextjs
+# Alpine mirror downloads can be truncated transiently on the deployment host.
+# 部署主机的 Alpine 镜像下载可能短暂中断，有限重试后仍失败才中止构建。
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+      if apk add --no-cache ffmpeg; then break; fi; \
+      [ "$attempt" -lt 3 ] || exit 1; \
+      sleep 3; \
+    done; \
+    addgroup -S nextjs; \
+    adduser -S nextjs -G nextjs
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 # The startup migration script runs outside Next's output-file tracing, so it
 # needs the application's PostgreSQL driver and its transitive dependencies.
