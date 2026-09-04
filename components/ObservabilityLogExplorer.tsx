@@ -525,13 +525,14 @@ function exchangeSide(item: LogRecord): { exchangeId: string | null; request: Ex
   const details = asDetailRecord(item.details) || {};
   const requestRecord = asDetailRecord(details.request);
   const responseRecord = asDetailRecord(details.response);
+  const receivedRequest = item.event === "http_request_received" ? details : null;
   const requestBody = detailValue(requestRecord, ["body", "bodyText"]) ?? detailValue(details, ["requestBody", "requestBodyText"]);
   const responseText = detailValue(responseRecord, ["bodyText", "text"]) ?? detailValue(details, ["responseBodyText"]);
   const responseBody = responseText ?? detailValue(responseRecord, ["body", "data"]) ?? detailValue(details, ["responseBody", "response"]);
   const request: ExchangeSide = {
     hasData: false,
-    method: detailText(detailValue(requestRecord, ["method"]) ?? detailValue(details, ["requestMethod", "method"])),
-    url: detailText(detailValue(requestRecord, ["url"]) ?? detailValue(details, ["requestUrl", "url"])),
+    method: detailText(detailValue(requestRecord, ["method"]) ?? detailValue(details, ["requestMethod", "method"]) ?? detailValue(receivedRequest, ["method"])),
+    url: detailText(detailValue(requestRecord, ["url"]) ?? detailValue(details, ["requestUrl", "url"]) ?? detailValue(receivedRequest, ["url", "path"]) ?? item.route),
     headers: detailValue(requestRecord, ["headers"]) ?? detailValue(details, ["requestHeaders"]),
     encoding: detailText(detailValue(requestRecord, ["bodyEncoding", "encoding"]) ?? detailValue(details, ["requestBodyEncoding"])),
     status: null,
@@ -638,8 +639,8 @@ function LogDetail({ item, onClose }: { item: LogRecord; onClose: () => void }) 
       <section className="log-explorer__exchange" aria-label="请求与响应信息">
         <div className="log-explorer__payloadhead"><span className="fg-mono">HTTP EXCHANGE</span><span className="fg-mono log-explorer__exchangeid">{exchange.exchangeId || "未关联 exchangeId"}</span></div>
         <div className="log-explorer__exchangegrid">
-          <LogExchangeCard side="request" title="请求信息" data={exchange.request} emptyMessage="本条事件没有记录请求；可按 Exchange ID 查看配对事件。" />
-          <LogExchangeCard side="response" title="响应信息" data={exchange.response} emptyMessage="本条事件没有记录响应；请求可能仍在处理中或记录在配对事件中。" />
+          <LogExchangeCard side="request" title="请求信息" data={exchange.request} emptyMessage="本条事件没有记录请求；可按 Trace ID 查看配对事件。" />
+          <LogExchangeCard side="response" title="响应信息" data={exchange.response} emptyMessage={item.event === "http_request_received" ? "这是请求开始事件；完成后的响应会记录在同一 Trace 的 HTTP exchange 中。" : "本条事件没有记录响应；请求可能仍在处理中或记录在配对事件中。"} />
         </div>
       </section>
       <div className="log-explorer__payloadhead"><span className="fg-mono">FULL EVENT JSON</span><button type="button" onClick={() => void copy("JSON 已复制", detailJson)}>{copied || "复制 JSON"}</button></div>

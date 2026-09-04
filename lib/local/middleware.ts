@@ -11,6 +11,7 @@ export function updateSession(request: NextRequest, traceId?: string) {
   const isAuthPage = path === "/login";
   const isPublic = isAuthPage || path === "/" || path === "/api/version"
     || path === "/api/observability/client-errors"
+    || path === "/api/observability/client-exchanges"
     || path === "/api/observability/monitor-events"
     || path === "/api/observability/error-events"
     || path === "/api/observability/request-events"

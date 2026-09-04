@@ -250,14 +250,24 @@ wait_for_healthy() {
 
 reload_nginx() {
   local nginx_container
+  local attempt
 
   nginx_container="$(compose ps -q nginx 2>/dev/null || true)"
   [[ -n "$nginx_container" ]] || return 0
   # A bind-mounted Nginx config needs an explicit reload after a repository update.
   # bind-mounted Nginx 配置随仓库更新后不会自动生效，必须显式 reload。
   log "Auto deploy: validating and reloading Nginx"
-  compose exec -T nginx nginx -t >/dev/null
-  compose exec -T nginx nginx -s reload >/dev/null
+  for attempt in {1..5}; do
+    if compose exec -T nginx nginx -t >/dev/null && compose exec -T nginx nginx -s reload >/dev/null; then
+      return 0
+    fi
+    if ((attempt < 5)); then
+      log "Auto deploy: Nginx validation/reload attempt $attempt/5 failed; retrying"
+      sleep 2
+    fi
+  done
+  log "Auto deploy: Nginx validation/reload failed after 5 attempts"
+  return 1
 }
 
 fetch_main() {

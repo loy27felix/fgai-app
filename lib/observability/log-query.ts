@@ -226,6 +226,16 @@ const LOG_CTE = `with logs as (
      where log.event_id is not null
        and audit.event_id::text = log.event_id
   )
+    and not (
+      log.event_name = 'http_request_received'
+      and log.trace_id is not null
+      and exists (
+        select 1
+          from observability_log_events completed
+         where completed.event_name = 'http_exchange_completed'
+           and completed.trace_id = log.trace_id
+      )
+    )
 
   union all
 
