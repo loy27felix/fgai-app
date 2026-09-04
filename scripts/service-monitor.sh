@@ -194,7 +194,23 @@ structured_app_error_lines() {
     '
     return
   fi
-  grep -Ei '"level":"(error|critical)"|"outcome":"(failed|error|unknown)"|"stage":"[^"]*(failed|error)|(^|[[:space:]])(error|failed|failure|fatal|panic|exception)([^[:alnum:]_]|$)' || true
+  # macOS ships Ruby even when launchd cannot see an nvm-managed Node binary.
+  # macOS 自带 Ruby；当 launchd 找不到 nvm 管理的 Node 时仍按 JSON 字段判定，不能退化为关键词误报。
+  /usr/bin/ruby -rjson -e '
+    STDIN.each_line do |line|
+      value = JSON.parse(line.sub(/\A\S+\s+/, ""))
+      next unless value.is_a?(Hash)
+      level = value.fetch("level", "").to_s.downcase
+      stage = value.fetch("stage", "").to_s.downcase
+      outcome = value.fetch("outcome", "").to_s.downcase
+      event_and_message = "#{value.fetch("event", "")} #{value.fetch("message", "")}".downcase
+      failed = %w[error critical].include?(level) || %w[failed error unknown].include?(outcome) ||
+        stage.match?(/failed|error/) || event_and_message.match?(/\b(fatal|panic|exception)\b/)
+      puts line if failed
+    rescue JSON::ParserError
+      puts line if line.match?(/\b(error|failed|failure|fatal|panic|exception)\b/i)
+    end
+  ' || true
 }
 
 send_alert() {
