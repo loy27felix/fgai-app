@@ -276,6 +276,38 @@ reload_nginx() {
   return 1
 }
 
+video_worker_is_configured() {
+  compose config --services 2>/dev/null | grep -Fxq 'video-worker'
+}
+
+recreate_runtime_services() {
+  local services=(app)
+  if video_worker_is_configured; then
+    services+=(video-worker)
+  fi
+  # Keep queue consumers on the same image as the app and remove services absent after a rollback.
+  # 让队列消费者与 App 使用同一镜像，并在回滚后移除已不存在的服务。
+  compose up -d --no-deps --force-recreate --remove-orphans "${services[@]}"
+}
+
+wait_for_video_worker() {
+  local container
+  local running
+  local attempt
+
+  video_worker_is_configured || return 0
+  for attempt in {1..15}; do
+    container="$(compose ps -q video-worker 2>/dev/null || true)"
+    if [[ -n "$container" ]]; then
+      running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
+      [[ "$running" == "true" ]] && return 0
+    fi
+    sleep 2
+  done
+  log "Auto deploy: video-worker did not enter running state"
+  return 1
+}
+
 fetch_main() {
   local attempt
   local fetch_output
@@ -310,12 +342,12 @@ rollback() {
     log "Auto deploy: rollback image build failed"
     return 1
   fi
-  if ! compose up -d --no-deps --force-recreate app >/dev/null; then
+  if ! recreate_runtime_services >/dev/null; then
     log "Auto deploy: rollback Compose start failed"
     return 1
   fi
-  if ! wait_for_healthy; then
-    log "Auto deploy: rollback health check failed"
+  if ! wait_for_healthy || ! wait_for_video_worker; then
+    log "Auto deploy: rollback runtime health check failed"
     return 1
   fi
   log "Auto deploy: rollback completed"
@@ -409,7 +441,7 @@ if ! apply_database_upgrade; then
 fi
 
 archive_app_logs "before-${target_sha:0:12}"
-if ! compose up -d --no-deps --force-recreate app >/dev/null || ! wait_for_healthy || ! reload_nginx; then
+if ! recreate_runtime_services >/dev/null || ! wait_for_healthy || ! wait_for_video_worker || ! reload_nginx; then
   archive_app_logs "failed-${target_sha:0:12}"
   record_failed_deployment "$target_sha" "container-health"
   rollback "$previous_sha" || true
