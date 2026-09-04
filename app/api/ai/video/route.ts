@@ -16,6 +16,7 @@ import {
   isProviderReachableAssetSourceUrl,
   isWetokenAssetUrl,
   WetokenAssetError,
+  WetokenAssetTransportError,
 } from '@/lib/ai/wetoken-assets';
 import { buildVideoLedgerEntry, recordUsageRequired, updateVideoUsageBestEffort } from '@/lib/usage/ledger';
 import { estimateVideoPrice, extractReportedCostUsd } from '@/lib/usage/pricing';
@@ -236,7 +237,11 @@ export async function POST(req: Request) {
     });
     await recordUsageRequired(pendingLedgerEntry);
 
-    const created = await createWetokenVideoTask(providerInput, { traceId, taskId: persistedPendingTask.id });
+    const created = await createWetokenVideoTask(providerInput, {
+      traceId,
+      taskId: persistedPendingTask.id,
+      idempotencyKey: pendingLedgerEntry.request_id,
+    });
     const completedAt = ['succeeded', 'failed', 'expired'].includes(created.status)
       ? new Date().toISOString()
       : null;
@@ -278,6 +283,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     const unknownSubmission = error instanceof WetokenVideoTransportError
+      || error instanceof WetokenAssetTransportError
+      || (error instanceof WetokenAssetError && error.uncertain)
       || (error instanceof WetokenVideoError && !isDefinitiveWetokenVideoRejection(error))
       || (error instanceof Error && error.message === 'Wetoken video task ID missing');
     if (unknownSubmission) {

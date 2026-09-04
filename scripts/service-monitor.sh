@@ -85,27 +85,116 @@ send_monitor_event() {
 
 send_app_error_event() {
   local line="$1"
-  local occurred_at="${line%% *}"
-  local message
   local secret
   local endpoint
   local base_url
   local event_key
   local payload
-  message="$(printf '%s' "$line" | sed -E 's/^[0-9-]+T[0-9:.+-]+Z[[:space:]]*//')"
-  [[ -n "$message" ]] || return 0
   secret="$(observability_secret)"
   [[ -n "$secret" ]] || return 0
   base_url="$(read_env_value FG_OBSERVABILITY_URL)"
   base_url="${base_url:-$(app_base_url)}"
   endpoint="${base_url%/}/api/observability/error-events"
-  event_key="$(printf '%s' "$line" | /usr/bin/shasum -a 256 | awk '{print "app-log-" $1}')"
-  payload="{\"occurredAt\":\"$(json_escape "$occurred_at")\",\"source\":\"app\",\"service\":\"app\",\"severity\":\"error\",\"impact\":\"unknown\",\"code\":\"app_log\",\"message\":\"$(json_escape "$message")\",\"eventKey\":\"$(json_escape "$event_key")\"}"
+  if command -v node >/dev/null 2>&1; then
+    # Parse the structured application line once so the error event keeps the
+    # original trace, task, route and HTTP status instead of a generic summary.
+    # 解析结构化应用日志，保留原始 trace、task、route 和 HTTP 状态，避免只上报泛化摘要。
+    payload="$(printf '%s\n' "$line" | node -e '
+      const crypto = require("node:crypto");
+      const fs = require("node:fs");
+      const line = fs.readFileSync(0, "utf8").trimEnd();
+      const match = line.match(/^(\S+)\s+(\{.*\})\s*$/s);
+      const dockerTimestamp = match?.[1] || "";
+      const raw = match?.[2] || line.trim();
+      let value = {};
+      try { value = JSON.parse(raw); } catch {
+        const message = raw.replace(/Bearer\s+[^\s,;]+/gi, "Bearer [redacted]").slice(0, 1000);
+        process.stdout.write(JSON.stringify({ occurredAt: dockerTimestamp || undefined, source: "app", service: "app", severity: "error", impact: "unknown", code: "app_log", message, eventKey: `app-log-${crypto.createHash("sha256").update(line).digest("hex")}` }));
+        process.exit(0);
+      }
+      const text = (candidate, limit = 240) => typeof candidate === "string" ? candidate.trim().slice(0, limit) : "";
+      const trace = text(value.traceId || value.trace_id, 128);
+      const requestId = text(value.requestId || value.request_id, 160);
+      const taskId = text(value.taskId || value.task_id, 160);
+      const userId = text(value.userId || value.user_id || value.actorId || value.actor_id, 80);
+      const route = text(value.route || value.path, 240);
+      const error = value.error && typeof value.error === "object" ? value.error : {};
+      const status = Number(value.httpStatus || value.http_status);
+      const httpStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+      const level = text(value.level, 20).toLowerCase();
+      const stage = text(value.stage, 160);
+      const outcome = text(value.outcome, 80).toLowerCase();
+      const source = ["frontend", "app", "provider", "infra", "deploy", "billing", "data"].includes(text(value.source, 40))
+        ? text(value.source, 40)
+        : value.provider ? "provider" : "app";
+      const message = text(value.message || error.message || stage || value.event || raw, 1000) || "application error";
+      const severity = level === "critical" ? "critical" : level === "warning" || level === "warn" ? "warning" : "error";
+      const impact = httpStatus >= 500 ? "blocked" : outcome === "unknown" || /unknown|reconciliation/i.test(`${stage} ${message}`) ? "unknown" : "degraded";
+      const eventKey = text(value.eventId || value.event_id, 240) || `app-log-${crypto.createHash("sha256").update(line).digest("hex")}`;
+      const payload = {
+        occurredAt: text(value.timestampUtc, 80) || dockerTimestamp || undefined,
+        source,
+        service: text(value.service || value.feature || value.provider, 80) || "app",
+        feature: text(value.feature, 120) || undefined,
+        action: text(value.action, 120) || undefined,
+        severity,
+        impact,
+        code: text(value.code || value.event || stage, 160) || "app_log",
+        message,
+        stack: text(error.stack || value.stack, 2000) || undefined,
+        traceId: /^[A-Za-z0-9._:-]{8,128}$/.test(trace) ? trace : undefined,
+        requestId: requestId || undefined,
+        taskId: taskId || undefined,
+        userId: userId || undefined,
+        route: route || undefined,
+        httpStatus,
+        deploymentVersion: text(value.deploymentVersion, 160) || undefined,
+        eventKey,
+        metadata: { appLog: value },
+      };
+      process.stdout.write(JSON.stringify(payload));
+    ' || true)"
+  else
+    local occurred_at="${line%% *}"
+    local message
+    message="$(printf '%s' "$line" | sed -E 's/^[0-9-]+T[0-9:.+-]+Z[[:space:]]*//')"
+    [[ -n "$message" ]] || return 0
+    event_key="$(printf '%s' "$line" | /usr/bin/shasum -a 256 | awk '{print "app-log-" $1}')"
+    payload="{\"occurredAt\":\"$(json_escape "$occurred_at")\",\"source\":\"app\",\"service\":\"app\",\"severity\":\"error\",\"impact\":\"unknown\",\"code\":\"app_log\",\"message\":\"$(json_escape "$message")\",\"eventKey\":\"$(json_escape "$event_key")\"}"
+  fi
+  [[ -n "$payload" ]] || return 0
   (
     /usr/bin/curl -fsS --connect-timeout 1 --max-time 2 \
       -H "x-fg-observability-secret: $secret" -H 'Content-Type: application/json' \
       -d "$payload" "$endpoint" >/dev/null 2>&1 || true
   ) &
+}
+
+structured_app_error_lines() {
+  if command -v node >/dev/null 2>&1; then
+    node -e '
+      const readline = require("node:readline");
+      const rl = readline.createInterface({ input: process.stdin });
+      rl.on("line", (line) => {
+        const match = line.match(/^(\S+)\s+(\{.*\})\s*$/s);
+        const raw = match?.[2] || line.trim();
+        try {
+          const value = JSON.parse(raw);
+          if (!value || Array.isArray(value)) return;
+          const level = String(value.level || "").toLowerCase();
+          const stage = String(value.stage || "").toLowerCase();
+          const outcome = String(value.outcome || "").toLowerCase();
+          const event = String(value.event || "").toLowerCase();
+          const message = String(value.message || "").toLowerCase();
+          if (["error", "critical"].includes(level) || ["failed", "error", "unknown"].includes(outcome) || /failed|error/.test(stage) || /\b(fatal|panic|exception)\b/.test(`${event} ${message}`)) console.log(line);
+        } catch {
+          if (/\b(error|failed|failure|fatal|panic|exception)\b/i.test(line)) console.log(line);
+        }
+      });
+    '
+    return
+  fi
+  grep -Ei '"level":"(error|critical)"|"outcome":"(failed|error|unknown)"|"stage":"[^"]*(failed|error)|(^|[[:space:]])(error|failed|failure|fatal|panic|exception)([^[:alnum:]_]|$)' || true
 }
 
 send_alert() {
@@ -134,10 +223,11 @@ update_state() {
   local service="$1"
   local next="$2"
   local message="$3"
+  local emit_repeated="${4:-true}"
   local state_file="$STATE_ROOT/$service.state"
   local previous=""
   [[ -f "$state_file" ]] && previous="$(<"$state_file")"
-  send_monitor_event "$service" "$next" "$previous" "$message"
+  [[ "$previous" == "$next" && "$emit_repeated" != "true" ]] || send_monitor_event "$service" "$next" "$previous" "$message"
   [[ "$previous" == "$next" ]] && return 0
   printf '%s' "$next" > "$state_file"
   log "Monitor: $service $next - $message"
@@ -291,9 +381,9 @@ check_app_errors() {
   [[ "$MAX_APP_ERROR_EVENTS_PER_RUN" =~ ^[1-9][0-9]*$ ]] || MAX_APP_ERROR_EVENTS_PER_RUN=20
   # Cap collection and HTTP fan-out so an error storm cannot create a process storm on the Docker host.
   # 限制单轮采集与 HTTP 上报数量，避免错误风暴在 Docker 主机上放大成进程风暴。
-  matches="$(docker logs --since 40s "$container" 2>&1 | grep -Ei '"stage":"[^"]*(failed|error)|"error":|(^|[[:space:]])(fatal|panic|exception)([^[:alnum:]_]|$)' | sed -n "1,${MAX_APP_ERROR_LINES_PER_RUN}p" || true)"
+  matches="$(docker logs --since 40s --timestamps "$container" 2>&1 | structured_app_error_lines | sed -n "1,${MAX_APP_ERROR_LINES_PER_RUN}p" || true)"
   if [[ -z "$matches" ]]; then
-    update_state app-errors healthy "no new error/fail events"
+    update_state app-errors healthy "no new error/fail events" false
     return
   fi
   count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
@@ -303,7 +393,7 @@ check_app_errors() {
     send_app_error_event "$line"
     reported=$((reported + 1))
   done <<< "$matches"
-  update_state app-errors unhealthy "$count captured error/fail log events; $reported sent to observability; details saved to $LOG_ROOT/app-errors.log"
+  update_state app-errors unhealthy "$count captured error/fail log events; $reported sent to observability; details saved to $LOG_ROOT/app-errors.log" false
 }
 
 check_auto_deploy() {

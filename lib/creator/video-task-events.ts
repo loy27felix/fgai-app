@@ -46,19 +46,30 @@ export async function recordVideoTaskEvent(
       : event.includes('acknowledged') || event.includes('succeeded') || event.includes('settled')
         ? 'succeeded'
         : 'started';
-  await recordAuditEvent({
-    traceId: context.traceId,
-    actorId: context.actorId,
-    workspaceId: context.workspaceId,
-    feature: 'creator_video',
-    action: 'task',
-    resourceType: 'creator_generation_task',
-    resourceId: taskId,
-    stage: event,
-    outcome,
-    statusAfter: status,
-    data: compact,
-    error: context.error,
-    level: outcome === 'failed' ? 'error' : outcome === 'unknown' ? 'warn' : 'info',
-  });
+  try {
+    await recordAuditEvent({
+      traceId: context.traceId,
+      actorId: context.actorId,
+      workspaceId: context.workspaceId,
+      feature: 'creator_video',
+      action: 'task',
+      resourceType: 'creator_generation_task',
+      resourceId: taskId,
+      stage: event,
+      outcome,
+      statusAfter: status,
+      data: compact,
+      error: context.error,
+      level: outcome === 'failed' ? 'error' : outcome === 'unknown' ? 'warn' : 'info',
+    });
+  } catch (error) {
+    // Audit persistence is diagnostic only and must not change task outcomes.
+    // 审计写入只用于诊断，失败时不能改变任务状态或触发重复提交。
+    logServerFailure('creator_video_task_audit', error, {
+      feature: 'creator_video',
+      stage: 'audit_persistence_failed',
+      taskId,
+      event,
+    });
+  }
 }

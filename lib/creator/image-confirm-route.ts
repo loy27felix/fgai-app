@@ -25,6 +25,7 @@ import {
   providerRequestIdFromImageDiagnostic,
   WetokenImageRequestError,
   WetokenImageResultError,
+  WetokenImageTransportError,
   type ImageGenerationResult,
 } from '@/lib/ai/image';
 import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
@@ -35,7 +36,7 @@ import {
   updateImageUsageStatus,
 } from '@/lib/usage/ledger';
 import { logCreatorImageEvent, logCreatorImageFailure } from './image-logging';
-import { requestTraceId } from '@/lib/observability/server-log';
+import { attachTraceId, requestTraceId } from '@/lib/observability/server-log';
 import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
 
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -52,8 +53,9 @@ type ConfirmImageRouteDeps = {
   confirmCreatorImage: typeof confirmCreatorImage;
 };
 
-function response(error: string, code: string, status: number) {
-  return NextResponse.json({ error, code }, { status });
+function response(error: string, code: string, status: number, traceId?: string, headers?: HeadersInit) {
+  const result = NextResponse.json({ error, code }, { status, headers });
+  return traceId ? attachTraceId(result, traceId) : result;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -108,7 +110,7 @@ function serviceError(
   error: unknown,
   fallbackCode: string,
   fallbackMessage: string,
-  context: { taskId?: string } = {},
+  context: { taskId?: string; traceId?: string } = {},
 ) {
   logCreatorImageFailure('http_failed', error, {
     ...context,
@@ -124,22 +126,28 @@ function serviceError(
         : error.code === 'REFERENCES_NOT_READY' || error.code === 'INVALID_DRAFT' || error.code === 'USAGE_RECORD_FAILED'
           ? 409
           : 502;
-    return response(error.publicMessage, error.code, status);
+    return response(error.publicMessage, error.code, status, context.traceId);
+  }
+  if (error instanceof WetokenImageTransportError || error instanceof WetokenImageResultError) {
+    return response(
+      IMAGE_CONFIRM_PUBLIC_ERRORS.GENERATION_STATUS_UNKNOWN,
+      'GENERATION_STATUS_UNKNOWN',
+      503,
+      context.traceId,
+      { 'Retry-After': '30' },
+    );
   }
   if (isTimeoutError(error)) {
-    return response(IMAGE_CONFIRM_PUBLIC_ERRORS.GENERATION_TIMEOUT, 'GENERATION_TIMEOUT', 504);
+    return response(IMAGE_CONFIRM_PUBLIC_ERRORS.GENERATION_TIMEOUT, 'GENERATION_TIMEOUT', 504, context.traceId);
   }
   if (error instanceof ImageStorageError) {
-    return response(IMAGE_CONFIRM_PUBLIC_ERRORS.INVALID_DRAFT, 'INVALID_DRAFT', 409);
+    return response(IMAGE_CONFIRM_PUBLIC_ERRORS.INVALID_DRAFT, 'INVALID_DRAFT', 409, context.traceId);
   }
   if (error instanceof WetokenImageRequestError) {
     const status = error.status >= 400 && error.status <= 599 ? error.status : 502;
-    return response(error.publicMessage, 'WETOKEN_IMAGE_REQUEST_FAILED', status);
+    return response(error.publicMessage, 'WETOKEN_IMAGE_REQUEST_FAILED', status, context.traceId);
   }
-  if (error instanceof WetokenImageResultError) {
-    return response(error.publicMessage, 'WETOKEN_IMAGE_RESULT_INVALID', 502);
-  }
-  return response(fallbackMessage, fallbackCode, 500);
+  return response(fallbackMessage, fallbackCode, 500, context.traceId);
 }
 
 function isCreatorImageTask(value: unknown): value is ConfirmImageTask {
@@ -585,7 +593,7 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
           status: 401,
           code: 'UNAUTHENTICATED',
         }, 'warn');
-        return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
+        return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401, traceId);
       }
       const input: ConfirmImageInput = {
         taskId: params.id,
@@ -601,35 +609,35 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         logCreatorImageEvent('http_duplicate', { taskId: params.id }, 'warn');
         const currentTask = result.task;
         if (currentTask && taskNeedsLedgerReconciliation(currentTask)) {
-          return NextResponse.json({
+          return attachTraceId(NextResponse.json({
             error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
             code: 'LEDGER_RECONCILIATION_REQUIRED',
             task: currentTask,
             ledgerStatus: 'unknown',
             requiresReconciliation: true,
-          }, { status: 503 });
+          }, { status: 503 }), traceId);
         }
-        if (currentTask) return NextResponse.json({ duplicate: true, task: currentTask });
+        if (currentTask) return attachTraceId(NextResponse.json({ duplicate: true, task: currentTask }), traceId);
         const current = await findOwnedTask(context, params.id);
         if (current.error) throw current.error;
-        if (!current.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404);
+        if (!current.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404, traceId);
         if (taskNeedsLedgerReconciliation(current.data)) {
-          return NextResponse.json({
+          return attachTraceId(NextResponse.json({
             error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
             code: 'LEDGER_RECONCILIATION_REQUIRED',
             task: current.data,
             ledgerStatus: 'unknown',
             requiresReconciliation: true,
-          }, { status: 503 });
+          }, { status: 503 }), traceId);
         }
-        return NextResponse.json({ duplicate: true, task: current.data });
+        return attachTraceId(NextResponse.json({ duplicate: true, task: current.data }), traceId);
       }
       if (result.requiresReconciliation) {
         logCreatorImageEvent('http_reconciliation_required', {
           taskId: params.id,
           ledgerStatus: result.ledgerStatus,
         }, 'warn');
-        return NextResponse.json({
+        return attachTraceId(NextResponse.json({
           error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
           code: 'LEDGER_RECONCILIATION_REQUIRED',
           task: result.task,
@@ -637,24 +645,24 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
           resultUrl: result.resultUrl ?? null,
           ledgerStatus: 'unknown',
           requiresReconciliation: true,
-        }, { status: 503 });
+        }, { status: 503 }), traceId);
       }
       logCreatorImageEvent('http_completed', {
         taskId: params.id,
         status: 200,
         assetId: typeof result.assetId === 'string' ? result.assetId : undefined,
       });
-      return NextResponse.json({
+      return attachTraceId(NextResponse.json({
         task: result.task,
         asset: result.asset,
         resultUrl: result.resultUrl ?? null,
-      });
+      }), traceId);
     } catch (error: unknown) {
       return serviceError(
         error,
         'IMAGE_CONFIRM_FAILED',
         '\u56fe\u7247\u786e\u8ba4\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
-        { taskId: params.id },
+        { taskId: params.id, traceId },
       );
     }
   }

@@ -29,8 +29,12 @@ type ClientErrorBody = {
   deploymentVersion?: unknown;
   systemVersion?: unknown;
   eventId?: unknown;
+  traceId?: unknown;
+  requestId?: unknown;
   metadata?: unknown;
 };
+
+const TRACE_ID = /^[A-Za-z0-9._:-]{8,128}$/;
 
 function text(value: unknown, limit: number) {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
@@ -70,7 +74,7 @@ function allowReport(key: string, limit = MAX_EVENTS_PER_WINDOW) {
 }
 
 export async function POST(request: Request) {
-  const traceId = requestTraceId(request);
+  const ingestionTraceId = requestTraceId(request);
   // Bound anonymous traffic before touching session storage or PostgreSQL.
   // 在读取会话和 PostgreSQL 前限制匿名流量，避免公开观测入口争抢业务连接池。
   if (!allowReport('global', MAX_GLOBAL_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
@@ -105,6 +109,12 @@ export async function POST(request: Request) {
   const apiPath = text(body.apiPath, 240);
   const route = apiPath || pageRoute;
   const status = allowedStatus(body.httpStatus);
+  // Prefer the business request trace carried by the client exchange. The
+  // telemetry POST has its own ingestion trace and must not break the chain.
+  // 优先使用业务请求携带的 trace；观测 POST 自身的 trace 只作为接收链路记录。
+  const submittedTraceId = text(body.traceId, 128);
+  const traceId = TRACE_ID.test(submittedTraceId) ? submittedTraceId : ingestionTraceId;
+  const requestId = text(body.requestId, 160);
   const fingerprint = observationFingerprint({
     source: 'frontend',
     service,
@@ -125,6 +135,7 @@ export async function POST(request: Request) {
       message,
       stack: text(body.stack, 2_000) || null,
       traceId,
+      requestId: requestId || null,
       userId: user?.id || null,
       route: route || null,
       httpStatus: status,
@@ -137,6 +148,7 @@ export async function POST(request: Request) {
         apiPath: apiPath || null,
         pageRoute: pageRoute || null,
         systemVersion: text(body.systemVersion, 80) || null,
+        telemetryTraceId: ingestionTraceId,
         client: body.metadata || null,
       },
     });

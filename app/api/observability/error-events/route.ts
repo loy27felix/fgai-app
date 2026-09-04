@@ -22,11 +22,15 @@ type ErrorBody = {
   code?: unknown;
   message?: unknown;
   traceId?: unknown;
+  requestId?: unknown;
   taskId?: unknown;
+  userId?: unknown;
   route?: unknown;
   httpStatus?: unknown;
   deploymentVersion?: unknown;
   eventKey?: unknown;
+  stack?: unknown;
+  metadata?: unknown;
 };
 
 const SOURCES = new Set<ObservationSource>(['frontend', 'app', 'provider', 'infra', 'deploy', 'billing', 'data']);
@@ -78,12 +82,16 @@ export async function POST(request: Request) {
       fingerprint: observationFingerprint({ source, service, code: text(body.code, 160), message, route, httpStatus }),
       code: text(body.code, 160) || null,
       message,
+      stack: text(body.stack, 2_000) || null,
       traceId: text(body.traceId, 160) || null,
+      requestId: text(body.requestId, 160) || null,
       taskId: text(body.taskId, 160) || null,
+      userId: text(body.userId, 80) || null,
       route: route || null,
       httpStatus,
       deploymentVersion: text(body.deploymentVersion, 160) || null,
       eventKey: text(body.eventKey, 240) || null,
+      metadata: body.metadata,
     });
   } catch (error) {
     logServerFailure('observability_error_event_write_failed', error);

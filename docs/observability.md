@@ -16,6 +16,8 @@ FG Studio 的服务端日志输出为 JSON Lines，可通过 Docker 主机上的
 
 Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_exchange` 和 `wetoken_image_exchange` 事件会为每次供应商 HTTP 调用记录：`exchangeId`、`traceId`、`taskId` / `sessionId`、`operation`、请求 `method`、脱敏后的 `url`、请求 headers、完整 logical request body、HTTP 状态、响应 headers、完整 logical response body、body 编码和 `durationMs`。请求发送、响应收到、网络失败和响应 body 读取失败分别使用稳定的 `stage` 值，便于按 `exchangeId` 配对请求与响应。
 
+付费图片或视频请求在连接中断、响应 body 读取失败、成功响应缺少可用结果或任务状态无法确认时，一律记录为 `unknown` / `awaiting_reconciliation`，不自动发起第二次可能收费的请求。图片确认接口返回 `503 GENERATION_STATUS_UNKNOWN`；Creator 视频确认接口只把草稿原子切换为 `queued` 并返回 `202`，由 Compose 的 `video-worker` 继续处理。worker 使用 `creator-video:<taskId>` 作为 Provider 与素材请求的稳定 `Idempotency-Key`，并把 `prepared`、`usage_reserved`、`provider_request_started` 阶段写入任务输出；进程在 Provider 请求阶段重启或超时后只进入待对账，不重复提交。确定性参数/权限拒绝仍标记为失败，并只清理确认未产生副作用的临时素材。
+
 这里的“完整”指正常 JSON 业务字段会保留到日志；为防止日志失控，payload 有深度、数组、对象键数量和字符串长度上限，单条 server log 最大为 256 KiB，超出部分以截断标记保留可识别结构。`Authorization`、Cookie、API key、token、签名 query value、签名 URL 的用户名/密码和 query value、Base64/二进制媒体内容均会脱敏；URL 只保留可定位的 origin/path/query key，并附带不可逆的关联 fingerprint。Prompt 和供应商错误响应属于本次 provider exchange 的排障数据，访问日志必须受控，不能对外返回。
 
 ## 必须带的字段
@@ -31,7 +33,7 @@ Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_
 
 浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应；画布事件异常和必要的创作台诊断通过 `lib/observability/client-log.ts` 进入同一入口 `/api/observability/client-errors`。服务端从当前 `fg_session` 解析主体并写入 `user_id`，同时把权威 `actorId` / `actorEmail` 固化在 metadata，日志详情优先展示账户邮箱，其次展示用户 UUID；没有会话的历史浏览器错误明确显示为“浏览器会话 / 未关联账户”，不能根据时间猜测用户。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本和 metadata 在入库前脱敏和截断。
 
-实际 Docker 主机上的 `scripts/service-monitor.sh` 每轮把 Docker、NAS、App、PostgreSQL、Tunnel、磁盘和 App 错误检查写入 `observability_service_events` / `observability_error_events`。观测 HTTP 上报在独立后台进程中执行，网络或 App 不可用时不会拖慢本机健康检查。`scripts/report-scheduler.sh` 每 5 分钟调用一次内部 `/api/observability/report-runner`；每轮最多生成 4 份报表，scheduler 失败或历史补算未完成时下一轮继续重试。内部接口使用 `x-fg-observability-secret`，优先读取 `FG_OBSERVABILITY_SECRET`，兼容回退到 `SESSION_SECRET`。
+实际 Docker 主机上的 `scripts/service-monitor.sh` 每轮把 Docker、NAS、App、PostgreSQL、Tunnel、磁盘和 App 错误检查写入 `observability_service_events` / `observability_error_events`。App 错误采集只匹配顶层 `level=error/critical`、失败/未知 `outcome`、失败 `stage` 或明确的 fatal/panic/exception 文本，不会把成功日志中的嵌套 `error: null` 当成故障；`app-errors` 同一健康状态不重复写事件，只记录状态变化。观测 HTTP 上报在独立后台进程中执行，网络或 App 不可用时不会拖慢本机健康检查。`scripts/report-scheduler.sh` 每 5 分钟调用一次内部 `/api/observability/report-runner`；每轮最多生成 4 份报表，scheduler 失败或历史补算未完成时下一轮继续重试。内部接口使用 `x-fg-observability-secret`，优先读取 `FG_OBSERVABILITY_SECRET`，兼容回退到 `SESSION_SECRET`。
 
 周期报表由 `lib/observability/reporting.ts` 生成并写入 `report_runs` 及三个快照表：
 

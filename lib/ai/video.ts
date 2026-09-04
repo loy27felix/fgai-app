@@ -80,9 +80,10 @@ export class WetokenVideoTransportError extends Error {
   readonly causeName: string;
   readonly causeCode: string | null;
   readonly causeMessage: string;
+  readonly exchangeId?: string;
   readonly retryable = true;
 
-  constructor(operation: 'submit' | 'poll', durationMs: number, cause: unknown) {
+  constructor(operation: 'submit' | 'poll', durationMs: number, cause: unknown, exchangeId?: string) {
     const outer = asRecord(cause);
     const nested = asRecord(outer.cause);
     const detail = Object.keys(nested).length ? nested : outer;
@@ -100,6 +101,7 @@ export class WetokenVideoTransportError extends Error {
     this.causeName = detailName;
     this.causeCode = detailCode;
     this.causeMessage = detailMessage.slice(0, 300);
+    this.exchangeId = exchangeId;
   }
 }
 
@@ -376,7 +378,7 @@ async function providerJson(response: Response, context: ProviderJsonContext) {
       responseHeaders: safeProviderHeaders(response.headers),
       requestBody: fullLogPayload(context.requestBody),
     });
-    throw error;
+    throw new WetokenVideoTransportError(context.operation, Date.now() - context.startedAt, error, context.exchangeId);
   }
 
   let data: unknown = {};
@@ -439,7 +441,7 @@ async function providerFetch(
     const response = await fetcher(input, init);
     return { response, exchangeId, startedAt };
   } catch (error) {
-    const transportError = new WetokenVideoTransportError(operation, Date.now() - startedAt, error);
+    const transportError = new WetokenVideoTransportError(operation, Date.now() - startedAt, error, exchangeId);
     logServerFailure('wetoken_video_exchange', transportError, {
       traceId: context.traceId,
       taskId: context.taskId,
@@ -495,7 +497,12 @@ export async function createWetokenVideoTask(
     : await prepareWetokenAssetReferences(
       input.model,
       input.references as WetokenAssetReference[],
-      { fetcher, traceId: dependencies.traceId, taskId: dependencies.taskId },
+      {
+        fetcher,
+        traceId: dependencies.traceId,
+        taskId: dependencies.taskId,
+        idempotencyKey: dependencies.idempotencyKey,
+      },
     );
   try {
     const request = buildWetokenVideoRequest({
@@ -509,6 +516,7 @@ export async function createWetokenVideoTask(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
         ...(request.family === 'dashscope' ? { 'X-DashScope-Async': 'enable' } : {}),
+        ...(dependencies.idempotencyKey ? { 'Idempotency-Key': dependencies.idempotencyKey } : {}),
         // Avoid reusing a stale proxy socket for this long-running paid POST.
         // 付费提交可能长时间等待响应，强制新连接可避免复用已被代理关闭的 keep-alive socket。
         Connection: 'close',

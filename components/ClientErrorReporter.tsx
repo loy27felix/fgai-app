@@ -192,7 +192,7 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
             && requestUrl.pathname !== "/api/observability/client-errors"
             && (response.status >= 500 || response.status === 429);
           if (!response.ok && shouldReportResponse && requestUrl) {
-            report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: requestUrl.pathname, method, httpStatus: response.status, impact: response.status >= 500 ? "blocked" : "degraded" });
+            report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: requestUrl.pathname, method, httpStatus: response.status, traceId: response.headers.get("x-fg-trace-id") || undefined, requestId: response.headers.get("x-request-id") || undefined, impact: response.status >= 500 ? "blocked" : "degraded" });
           }
           return response;
         } catch (error) {
@@ -262,7 +262,7 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
           });
         }).catch(() => undefined);
         if (!response.ok && (response.status >= 500 || response.status === 429)) {
-          report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: exchangeUrl.pathname, method, httpStatus: response.status, impact: response.status >= 500 ? "blocked" : "degraded" });
+          report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: exchangeUrl.pathname, method, httpStatus: response.status, traceId, requestId: response.headers.get("x-request-id") || undefined, impact: response.status >= 500 ? "blocked" : "degraded" });
         }
         return response;
       } catch (error) {
@@ -286,7 +286,7 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
             error: { name: details.name, message: details.message, stack: details.stack },
           });
         }).catch(() => undefined);
-        report({ name: text(details.name, 160) || "NetworkError", message: text(details.message, 1_000), stack: text(details.stack, 2_000), apiPath: exchangeUrl.pathname, method, impact: "degraded" });
+        report({ name: text(details.name, 160) || "NetworkError", message: text(details.message, 1_000), stack: text(details.stack, 2_000), apiPath: exchangeUrl.pathname, method, traceId, impact: "degraded" });
         throw error;
       }
     };

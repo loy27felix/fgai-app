@@ -31,6 +31,8 @@ type Fetcher = WetokenFetcher;
 export type WetokenProviderLogContext = {
   traceId?: string;
   taskId?: string;
+  /** Stable key for one logical paid operation; providers may deduplicate it. */
+  idempotencyKey?: string;
 };
 
 type AssetRequestDependencies = WetokenProviderLogContext & {
@@ -45,14 +47,54 @@ export class WetokenAssetError extends Error {
   readonly status: number;
   readonly providerCode: string | null;
   readonly retryable: boolean;
+  readonly uncertain: boolean;
 
-  constructor(message: string, status: number, providerCode?: string | null) {
+  constructor(message: string, status: number, providerCode?: string | null, options: { uncertain?: boolean } = {}) {
     super(`Wetoken asset request failed (${status}): ${message}`);
     this.name = 'WetokenAssetError';
     this.status = status;
     this.providerCode = providerCode || null;
     this.retryable = status === 408 || status === 429 || status >= 500;
+    this.uncertain = options.uncertain === true;
   }
+}
+
+/**
+ * A transport failure after an asset side effect may have been accepted.
+ * 素材副作用可能已经被 provider 接受后才发生传输失败，必须保留资产并等待对账。
+ */
+export class WetokenAssetTransportError extends Error {
+  readonly operation: string;
+  readonly exchangeId: string;
+  readonly durationMs: number;
+  readonly causeName: string;
+  readonly causeCode: string | null;
+  readonly causeMessage: string;
+  readonly retryable = true;
+  readonly uncertain = true;
+
+  constructor(operation: string, exchangeId: string, durationMs: number, cause: unknown) {
+    const outer = asRecord(cause);
+    const nested = asRecord(outer.cause);
+    const detail = Object.keys(nested).length ? nested : outer;
+    const outerMessage = cause instanceof Error ? cause.message : 'network request failed';
+    const detailMessage = typeof detail.message === 'string' ? detail.message : outerMessage;
+    const causeName = typeof detail.name === 'string' ? detail.name : cause instanceof Error ? cause.name : typeof cause;
+    const causeCode = typeof detail.code === 'string' ? detail.code : null;
+    const diagnostic = causeCode ? `${outerMessage} (${causeCode}: ${detailMessage})` : `${outerMessage}: ${detailMessage}`;
+    super(`Wetoken asset ${operation} transport failed after ${durationMs}ms: ${diagnostic.slice(0, 300)}`);
+    this.name = 'WetokenAssetTransportError';
+    this.operation = operation;
+    this.exchangeId = exchangeId;
+    this.durationMs = durationMs;
+    this.causeName = causeName;
+    this.causeCode = causeCode;
+    this.causeMessage = detailMessage.slice(0, 300);
+  }
+}
+
+export function isUncertainAssetError(error: unknown) {
+  return error instanceof WetokenAssetTransportError || error instanceof WetokenAssetError && error.uncertain;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -222,25 +264,38 @@ async function assetRequest(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${requireKey()}`,
+        ...(context.idempotencyKey ? { 'Idempotency-Key': context.idempotencyKey } : {}),
       },
       body: JSON.stringify(body),
       dispatcher: wetokenProviderDispatcher,
       signal: AbortSignal.timeout(ASSET_REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
+    const transportError = new WetokenAssetTransportError(
+      path.split('/').pop() || 'request',
+      exchangeId,
+      Date.now() - startedAt,
+      error,
+    );
     logServerFailure('wetoken_asset_exchange', error, {
       ...baseLogFields,
       stage: 'transport_failed',
       durationMs: Date.now() - startedAt,
       request,
     });
-    throw error;
+    throw transportError;
   }
 
   let responseText: string;
   try {
     responseText = await response.text();
   } catch (error) {
+    const transportError = new WetokenAssetTransportError(
+      path.split('/').pop() || 'response_body_read',
+      exchangeId,
+      Date.now() - startedAt,
+      error,
+    );
     logServerFailure('wetoken_asset_exchange', error, {
       ...baseLogFields,
       stage: 'response_body_read_failed',
@@ -249,7 +304,7 @@ async function assetRequest(
       responseHeaders: safeProviderHeaders(response.headers),
       request,
     });
-    throw error;
+    throw transportError;
   }
 
   let data: unknown = {};
@@ -273,7 +328,9 @@ async function assetRequest(
 
   if (!response.ok) {
     const error = providerError(data);
-    throw new WetokenAssetError(error.message, response.status, error.code);
+    throw new WetokenAssetError(error.message, response.status, error.code, {
+      uncertain: path.endsWith('/CreateAsset') && (response.status === 408 || response.status >= 500),
+    });
   }
   return data;
 }
@@ -308,7 +365,7 @@ async function createAsset(
         ? nested.id
         : typeof nested.Id === 'string' ? nested.Id : null;
   if (!id || !/^asset-[a-z0-9_-]+$/i.test(id)) {
-    throw new WetokenAssetError('素材库响应缺少有效资产 ID', 502, 'asset_id_missing');
+    throw new WetokenAssetError('素材库响应缺少有效资产 ID', 502, 'asset_id_missing', { uncertain: true });
   }
   return { id, model } satisfies WetokenCreatedAsset;
 }
@@ -339,19 +396,37 @@ async function assetStatus(asset: WetokenCreatedAsset, fetcher: Fetcher, context
 async function waitForAssetsActive(assets: WetokenCreatedAsset[], fetcher: Fetcher, context: WetokenProviderLogContext) {
   const deadline = Date.now() + ASSET_READY_TIMEOUT_MS;
   let pending = assets;
+  let attempt = 0;
   while (pending.length) {
+    attempt += 1;
     const checks = await Promise.allSettled(pending.map(async (asset) => ({
       asset,
       status: await assetStatus(asset, fetcher, context),
     })));
     const failed = checks.find((result) => result.status === 'rejected');
-    if (failed?.status === 'rejected') throw failed.reason;
+    if (failed?.status === 'rejected') {
+      const retryable = failed.reason instanceof WetokenAssetTransportError
+        || failed.reason instanceof WetokenAssetError && failed.reason.retryable;
+      if (!retryable || Date.now() >= deadline) throw failed.reason;
+      logServerEvent('wetoken_asset_exchange', {
+        traceId: context.traceId,
+        taskId: context.taskId,
+        provider: 'wetoken',
+        feature: 'wetoken_asset',
+        stage: 'asset_poll_retry',
+        attempt,
+        pendingCount: pending.length,
+        operation: 'GetAsset',
+      }, 'warn');
+      await new Promise((resolve) => setTimeout(resolve, ASSET_POLL_INTERVAL_MS));
+      continue;
+    }
     pending = checks.flatMap((result) => result.status === 'fulfilled' && result.value.status !== 'active'
       ? [result.value.asset]
       : []);
     if (!pending.length) return;
     if (Date.now() >= deadline) {
-      throw new WetokenAssetError('等待素材变为 Active 超时', 504, 'asset_ready_timeout');
+      throw new WetokenAssetError('等待素材变为 Active 超时', 504, 'asset_ready_timeout', { uncertain: true });
     }
     await new Promise((resolve) => setTimeout(resolve, ASSET_POLL_INTERVAL_MS));
   }
@@ -409,7 +484,10 @@ export async function prepareWetokenAssetReferences<T extends WetokenAssetRefere
         prepared.push(reference);
         continue;
       }
-      const asset = await createAsset(model, reference, index, fetcher, dependencies);
+      const asset = await createAsset(model, reference, index, fetcher, {
+        ...dependencies,
+        ...(dependencies.idempotencyKey ? { idempotencyKey: `${dependencies.idempotencyKey}:asset:${index}` } : {}),
+      });
       createdAssets.push(asset);
       assetsToCheck.push(asset);
       prepared.push({ ...reference, url: `asset://${asset.id}` } as T);
@@ -417,7 +495,7 @@ export async function prepareWetokenAssetReferences<T extends WetokenAssetRefere
     await waitForAssetsActive(assetsToCheck, fetcher, dependencies);
     return { references: prepared, createdAssets };
   } catch (error) {
-    await cleanupWetokenAssets(createdAssets, dependencies);
+    if (!isUncertainAssetError(error)) await cleanupWetokenAssets(createdAssets, dependencies);
     throw error;
   }
 }

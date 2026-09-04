@@ -61,6 +61,40 @@ export class WetokenImageRequestError extends Error {
 }
 
 /**
+ * The provider may have accepted a paid image request before the client loses
+ * the response. Callers must preserve the task as unknown instead of retrying.
+ * Provider 可能已经受理付费图片请求后客户端才断开，因此必须进入未知状态并对账，不能自动重试。
+ */
+export class WetokenImageTransportError extends Error {
+  readonly operation: string;
+  readonly durationMs: number;
+  readonly providerCallId: string;
+  readonly causeName: string;
+  readonly causeCode: string | null;
+  readonly causeMessage: string;
+  readonly retryable = true;
+
+  constructor(operation: string, durationMs: number, providerCallId: string, cause: unknown) {
+    const outer = asRecord(cause) || {};
+    const nested = asRecord(outer.cause) || {};
+    const detail = Object.keys(nested).length ? nested : outer;
+    const outerMessage = cause instanceof Error ? cause.message : 'network request failed';
+    const detailMessage = typeof detail.message === 'string' ? detail.message : outerMessage;
+    const causeName = typeof detail.name === 'string' ? detail.name : cause instanceof Error ? cause.name : typeof cause;
+    const causeCode = typeof detail.code === 'string' ? detail.code : null;
+    const diagnostic = causeCode ? `${outerMessage} (${causeCode}: ${detailMessage})` : `${outerMessage}: ${detailMessage}`;
+    super(`Wetoken image ${operation} transport failed after ${durationMs}ms: ${diagnostic.slice(0, 300)}`);
+    this.name = 'WetokenImageTransportError';
+    this.operation = operation;
+    this.durationMs = durationMs;
+    this.providerCallId = providerCallId;
+    this.causeName = causeName;
+    this.causeCode = causeCode;
+    this.causeMessage = detailMessage.slice(0, 300);
+  }
+}
+
+/**
  * A successful provider HTTP response that does not contain a usable image.
  * This is intentionally separate from a rejected request: Wetoken can settle
  * a request before its gateway serialises the generated image into one of the
@@ -700,6 +734,12 @@ export async function generateWetokenImage(
   try {
     response = await fetcher(requestUrl, requestInit);
   } catch (error) {
+    const transportError = new WetokenImageTransportError(
+      'submit',
+      Date.now() - startedAt,
+      providerCallId,
+      error,
+    );
     logServerFailure('wetoken_image_exchange', error, {
       ...requestContext,
       operation: providerOperation,
@@ -713,7 +753,7 @@ export async function generateWetokenImage(
       operation: providerOperation,
       durationMs: Date.now() - startedAt,
     });
-    throw error;
+    throw transportError;
   }
 
   let data: any;
@@ -725,6 +765,9 @@ export async function generateWetokenImage(
   try {
     ({ data, directImage, diagnostic, responseBody, responseBodyEncoding, responseBodyText } = await readProviderPayload(response, providerCallId));
   } catch (error) {
+    const transportError = error instanceof WetokenImageTransportError
+      ? error
+      : new WetokenImageTransportError('response_body_read', Date.now() - startedAt, providerCallId, error);
     logServerFailure('wetoken_image_exchange', error, {
       ...requestContext,
       operation: providerOperation,
@@ -741,7 +784,7 @@ export async function generateWetokenImage(
       contentType: response.headers.get('content-type'),
       durationMs: Date.now() - startedAt,
     });
-    throw error;
+    throw transportError;
   }
 
   logServerEvent('wetoken_image_exchange', {
@@ -789,9 +832,11 @@ export async function generateWetokenImage(
     });
     return { ...parsed, usage: data?.usage, providerDiagnostic: diagnostic };
   } catch (error) {
-    const normalized = error instanceof WetokenImageResultError && !error.diagnostic
-      ? new WetokenImageResultError(error.publicMessage, diagnostic)
-      : error;
+    const normalized = error instanceof WetokenImageResultError
+      ? error.diagnostic ? error : new WetokenImageResultError(error.publicMessage, diagnostic)
+      : error instanceof WetokenImageTransportError
+        ? error
+        : new WetokenImageTransportError('image_download', Date.now() - startedAt, providerCallId, error);
     const providerDiagnostic = normalized instanceof WetokenImageResultError
       ? normalized.diagnostic || diagnostic
       : diagnostic;

@@ -1,4 +1,5 @@
 import {
+  WetokenImageTransportError,
   WetokenImageResultError,
   type ImageGenerationResult,
   type ImageGenerationTrace,
@@ -18,6 +19,7 @@ export const IMAGE_CONFIRM_PUBLIC_ERRORS = {
   MONTHLY_BUDGET_EXCEEDED: '\u672c\u6708\u989d\u5ea6\u5df2\u7528\u5b8c\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458',
   MONTHLY_BUDGET_PRICE_UNKNOWN: '\u5f53\u524d\u6a21\u578b\u6216\u53c2\u6570\u6ca1\u6709\u53ef\u786e\u8ba4\u7684\u4ef7\u683c\uff0c\u5df2\u542f\u7528\u6708\u5ea6\u989d\u5ea6\u540e\u6682\u4e0d\u80fd\u8c03\u7528',
   GENERATION_TIMEOUT: '\u56fe\u7247\u751f\u6210\u8d85\u65f6\uff0c\u53ef\u80fd\u5df2\u7ecf\u4ea7\u751f\u8d39\u7528\uff0c\u8bf7\u67e5\u770b\u4efb\u52a1\u72b6\u6001',
+  GENERATION_STATUS_UNKNOWN: '\u56fe\u7247\u751f\u6210\u8bf7\u6c42\u72b6\u6001\u672a\u77e5\uff0c\u53ef\u80fd\u5df2\u4ea7\u751f\u8d39\u7528\uff0c\u7cfb\u7edf\u6b63\u5728\u7b49\u5f85\u5bf9\u8d26\uff0c\u8bf7\u52ff\u91cd\u590d\u63d0\u4ea4',
   GENERATION_FAILED: '\u56fe\u7247\u751f\u6210\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
   RESULT_INVALID: '\u56fe\u7247\u751f\u6210\u7ed3\u679c\u65e0\u6548\uff0c\u4efb\u52a1\u672a\u5b8c\u6210',
   RESULT_PERSIST_FAILED: '\u56fe\u7247\u7ed3\u679c\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
@@ -136,9 +138,14 @@ function isTimeoutError(error: unknown) {
   return name === 'TimeoutError' || name === 'AbortError';
 }
 
+function isTransportUncertainty(error: unknown) {
+  return error instanceof WetokenImageTransportError;
+}
+
 function publicErrorFor(error: unknown, fallback: ImageConfirmErrorCode) {
   if (error instanceof CreatorImageConfirmError) return error.publicMessage;
   if (error instanceof WetokenImageResultError) return error.publicMessage;
+  if (error instanceof WetokenImageTransportError) return IMAGE_CONFIRM_PUBLIC_ERRORS.GENERATION_STATUS_UNKNOWN;
   return IMAGE_CONFIRM_PUBLIC_ERRORS[fallback];
 }
 
@@ -384,17 +391,28 @@ export async function confirmCreatorImage(
       throw error;
     }
     const timeout = isTimeoutError(error);
+    const transportUncertain = isTransportUncertainty(error);
     // A 2xx gateway response without a serialised image is not proof that the
     // model failed. Treat it like a timeout so it stays recoverable instead
     // of encouraging another paid retry from the same task.
     const providerResultMissing = error instanceof WetokenImageResultError;
-    const status = timeout || providerResultMissing ? 'unknown' : 'failed';
-    const code: ImageConfirmErrorCode = timeout ? 'GENERATION_TIMEOUT' : 'GENERATION_FAILED';
+    const status = timeout || transportUncertain || providerResultMissing ? 'unknown' : 'failed';
+    const code: ImageConfirmErrorCode = timeout
+      ? 'GENERATION_TIMEOUT'
+      : transportUncertain
+        ? 'GENERATION_STATUS_UNKNOWN'
+        : 'GENERATION_FAILED';
     logCreatorImageFailure('generation_failed', error, {
       ...taskContext,
       settlementStatus: status,
       possiblyCharged: status === 'unknown',
       ...(providerResultMissing && error.diagnostic ? { providerDiagnostic: error.diagnostic } : {}),
+      ...(transportUncertain ? {
+        providerOperation: error.operation,
+        providerCallId: error.providerCallId,
+        providerCauseName: error.causeName,
+        providerCauseCode: error.causeCode,
+      } : {}),
     });
     await auditImage(input, 'generation_failed', status === 'unknown' ? 'unknown' : 'failed', task, {
       settlementStatus: status,
@@ -406,6 +424,16 @@ export async function confirmCreatorImage(
       status,
       error: publicErrorFor(error, code),
       ...(providerResultMissing && error.diagnostic ? { details: { provider_result: error.diagnostic } } : {}),
+      ...(transportUncertain ? {
+        details: {
+          provider_transport: {
+            operation: error.operation,
+            providerCallId: error.providerCallId,
+            causeName: error.causeName,
+            causeCode: error.causeCode,
+          },
+        },
+      } : {}),
     });
     throw error;
   }

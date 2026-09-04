@@ -6,7 +6,7 @@ import { deleteStoredMedia, getMediaBlob, uploadMediaFile, type UploadedFile } f
 import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
-import { getVideoModel } from "@/lib/ai/video-models";
+import { getVideoModel, VIDEO_MODELS } from "@/lib/ai/video-models";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
@@ -43,6 +43,9 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
 const pluginVideoErrors = new Map<string, string>();
 const pluginVideoPromises = new Map<string, Promise<void>>();
+// Keep one membership set derived from the shared catalog for the canvas branch.
+// 使用共享模型目录生成集合，避免前端维护另一份易过期的模型清单。
+const FG_VIDEO_MODELS = new Set(VIDEO_MODELS.map((model) => model.id));
 /**
  * FG tasks can finish before the NAS archival copy is available.  Return the
  * stable task-content proxy immediately so the canvas can render the provider
@@ -235,7 +238,7 @@ async function localUploadVideoReference(taskId: string, path: string, file: Fil
     return { data: { path }, error: null };
 }
 function isFgCreatorVideoModel(value: string) {
-    return Boolean(getVideoModel(modelOptionName(value)));
+    return FG_VIDEO_MODELS.has(modelOptionName(value));
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {

@@ -16,10 +16,14 @@ export function createClient(options?: { bypassAuth?: boolean }) {
       if (name === "ensure_creator_workspace") {
         const user = await userPromise;
         if (!user) return { data: null, error: { message: "未登录" } };
-        const existing = await new LocalQuery<{ id: string }>("creator_workspaces").select("id").eq("owner_id", user.id).maybeSingle();
-        if (existing.data) return { data: (existing.data as { id: string }).id, error: null };
-        const inserted = await new LocalQuery<{ id: string }>("creator_workspaces").insert({ owner_id: user.id }).select("id").single();
-        return { data: (inserted.data as { id: string } | null)?.id || null, error: inserted.error };
+        // Resolve the unique owner row atomically so concurrent requests do not
+        // race between SELECT and INSERT and turn normal page fan-out into 500s.
+        // 通过唯一键原子 upsert，避免并发页面请求在 SELECT/INSERT 之间竞争而返回 500。
+        const ensured = await new LocalQuery<{ id: string }>("creator_workspaces")
+          .upsert({ owner_id: user.id }, { onConflict: "owner_id" })
+          .select("id")
+          .single();
+        return { data: (ensured.data as { id: string } | null)?.id || null, error: ensured.error };
       }
       return { data: null, error: { message: `Unsupported local RPC: ${name}` } };
     },
