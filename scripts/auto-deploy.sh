@@ -117,17 +117,13 @@ compose() {
     "$@"
 }
 
-compose_build_runtime_services() {
+compose_build_services() {
   local build_log
   local exit_code
-  local services=(app)
+  local services=("$@")
 
-  if video_worker_is_configured; then
-    services+=(video-worker)
-  fi
-
-  # Build every runnable service so workers cannot retain an older service-specific image.
-  # 构建全部运行服务，避免 worker 保留旧的服务专属镜像。
+  # Pass the deployment version explicitly for every service selected by the active revision.
+  # 为当前代码版本选择的服务显式传递部署版本，避免 Compose 插值异常时回退为 dev。
   mkdir -p "$BUILD_LOG_ROOT"
   build_log="$BUILD_LOG_ROOT/build-${APP_DEPLOYMENT_VERSION}.log"
   LAST_BUILD_LOG_FILE="$build_log"
@@ -281,36 +277,16 @@ reload_nginx() {
   return 1
 }
 
-video_worker_is_configured() {
-  compose config --services 2>/dev/null | grep -Fxq 'video-worker'
-}
-
-recreate_runtime_services() {
-  local services=(app)
-  if video_worker_is_configured; then
-    services+=(video-worker)
-  fi
-  # Keep queue consumers on the same image as the app and remove services absent after a rollback.
-  # 让队列消费者与 App 使用同一镜像，并在回滚后移除已不存在的服务。
-  compose up -d --no-deps --force-recreate --remove-orphans "${services[@]}"
-}
-
-wait_for_video_worker() {
+legacy_video_worker_is_absent() {
   local container
-  local running
-  local attempt
-
-  video_worker_is_configured || return 0
-  for attempt in {1..15}; do
-    container="$(compose ps -q video-worker 2>/dev/null || true)"
-    if [[ -n "$container" ]]; then
-      running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
-      [[ "$running" == "true" ]] && return 0
-    fi
-    sleep 2
-  done
-  log "Auto deploy: video-worker did not enter running state"
-  return 1
+  container="$(docker ps \
+    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
+    --filter "label=com.docker.compose.service=video-worker" \
+    --format '{{.ID}}' | head -n 1)"
+  if [[ -n "$container" ]]; then
+    log "Auto deploy: legacy video-worker is still running"
+    return 1
+  fi
 }
 
 fetch_main() {
@@ -335,6 +311,7 @@ fetch_main() {
 
 rollback() {
   local previous_sha="$1"
+  local services=(app)
 
   log "Auto deploy: rolling back to $previous_sha"
   if ! git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null; then
@@ -343,16 +320,21 @@ rollback() {
   fi
   export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$previous_sha")"
   log "Auto deploy: rollback deployment version is $APP_DEPLOYMENT_VERSION"
-  if ! compose_build_runtime_services; then
+  # A failed worker-removal deployment must restore the worker required by the previous revision.
+  # 移除 worker 的部署失败时，必须恢复上一版本仍依赖的 worker，避免回滚后队列无人处理。
+  if compose config --services 2>/dev/null | grep -Fxq 'video-worker'; then
+    services+=(video-worker)
+  fi
+  if ! compose_build_services "${services[@]}"; then
     log "Auto deploy: rollback image build failed"
     return 1
   fi
-  if ! recreate_runtime_services >/dev/null; then
+  if ! compose up -d --no-deps --force-recreate --remove-orphans "${services[@]}" >/dev/null; then
     log "Auto deploy: rollback Compose start failed"
     return 1
   fi
-  if ! wait_for_healthy || ! wait_for_video_worker; then
-    log "Auto deploy: rollback runtime health check failed"
+  if ! wait_for_healthy; then
+    log "Auto deploy: rollback health check failed"
     return 1
   fi
   log "Auto deploy: rollback completed"
@@ -432,7 +414,7 @@ fi
 
 export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$target_sha")"
 log "Auto deploy: building deployment $APP_DEPLOYMENT_VERSION"
-if ! compose_build_runtime_services; then
+if ! compose_build_services app; then
   record_failed_deployment "$target_sha" "image-build"
   rollback "$previous_sha" || true
   send_deploy_error_event "$target_sha" "image-build"
@@ -446,7 +428,10 @@ if ! apply_database_upgrade; then
 fi
 
 archive_app_logs "before-${target_sha:0:12}"
-if ! recreate_runtime_services >/dev/null || ! wait_for_healthy || ! wait_for_video_worker || ! reload_nginx; then
+if ! compose up -d --no-deps --force-recreate --remove-orphans app >/dev/null \
+  || ! legacy_video_worker_is_absent \
+  || ! wait_for_healthy \
+  || ! reload_nginx; then
   archive_app_logs "failed-${target_sha:0:12}"
   record_failed_deployment "$target_sha" "container-health"
   rollback "$previous_sha" || true

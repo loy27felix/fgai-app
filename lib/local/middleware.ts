@@ -16,9 +16,6 @@ export function updateSession(request: NextRequest, traceId?: string) {
     || path === "/api/observability/error-events"
     || path === "/api/observability/request-events"
     || path === "/api/observability/report-runner"
-    // The worker uses x-fg-observability-secret instead of a browser session.
-    // 后台 worker 使用 x-fg-observability-secret 鉴权，不能被浏览器会话守卫重定向到登录页。
-    || path === "/api/internal/video-task-worker"
     || path.startsWith("/api/auth") || path.startsWith("/api/local") || path.startsWith("/_next");
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
   if (!hasSession && !isPublic) {

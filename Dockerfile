@@ -37,12 +37,12 @@ COPY --from=deps --chown=nextjs:nextjs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/local-db-migrate.mjs ./scripts/local-db-migrate.mjs
-COPY --from=builder --chown=nextjs:nextjs /app/scripts/video-task-worker.mjs ./scripts/video-task-worker.mjs
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/002-local-upgrade.sql ./docker/initdb/002-local-upgrade.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/003-local-observability.sql ./docker/initdb/003-local-observability.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/005-observability-reporting.sql ./docker/initdb/005-observability-reporting.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/006-observability-log-stream.sql ./docker/initdb/006-observability-log-stream.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/007-observability-integrity.sql ./docker/initdb/007-observability-integrity.sql
+COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/008-video-worker-rollback.sql ./docker/initdb/008-video-worker-rollback.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/004-company-productions.sql ./docker/initdb/004-company-productions.sql
 USER nextjs
 EXPOSE 3000

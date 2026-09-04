@@ -112,9 +112,7 @@ chmod +x scripts/auto-deploy.sh scripts/install-auto-deploy.sh
 scripts/install-auto-deploy.sh
 ```
 
-服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会为本次构建生成独立的 `deploymentVersion`（UTC 时间加 commit 短 SHA），通过 Docker build arg 写入 App，并等待容器 health、无需登录的轻量 `/api/version` 健康接口返回成功且版本一致。代码 fast-forward 后，脚本会重新执行刚拉取的最新脚本，并在 `docker compose build` 时显式传入版本参数，避免部署进程继续使用旧脚本或 Compose 默认值 `dev`。部署会以同一镜像重建 `app` 及已配置的 `video-worker`，并确认 worker 运行；回滚时会清理新版本遗留的 orphan service。完整构建输出保存到宿主机 `$HOME/Library/Logs/fg-studio-auto-deploy-build/`，构建失败时主部署日志会输出尾部摘要，并在自动部署状态目录的 `failed-detail` 文件中保留失败阶段和完整日志路径。它随后执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行版本化迁移，重建服务后会校验并平滑 reload bind-mounted Nginx 配置。构建、数据库升级、运行服务 health 或 Nginx reload 失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
-
-视频 worker 默认以 32 个并发槽位领取不同任务，可通过 `.env.docker` 的 `FG_VIDEO_WORKER_CONCURRENCY` 下调，最大 32。已有 Provider task ID 的任务不会重新进入提交队列，避免旧任务占用槽位或重复提交。
+服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会为本次构建生成独立的 `deploymentVersion`（UTC 时间加 commit 短 SHA），通过 Docker build arg 写入 App，并等待容器 health、无需登录的轻量 `/api/version` 健康接口返回成功且版本一致。代码 fast-forward 后，脚本会重新执行刚拉取的最新脚本，并在 `docker compose build` 时显式传入版本参数，避免部署进程继续使用旧脚本或 Compose 默认值 `dev`。完整构建输出保存到宿主机 `$HOME/Library/Logs/fg-studio-auto-deploy-build/`，构建失败时主部署日志会输出尾部摘要，并在自动部署状态目录的 `failed-detail` 文件中保留失败阶段和完整日志路径。它随后执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行版本化迁移，重建 `app` 后会校验并平滑 reload bind-mounted Nginx 配置。构建、数据库升级、App health 或 Nginx reload 失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
 
 项目系统版本维护在 `lib/version.ts` 的 `SYSTEM_VERSION`，这是用于强制升级判断的三段式 semver，必须由代码变更人工递增；例如将 `1.0.0` 改为 `1.0.1` 后提交并推送，自动部署完成即提高最低可用版本，自动部署不会修改它。所有页面右下角会展示系统版本和部署版本，`/api/version` 返回两者及当前要求的系统版本。旧页面会立即检查并每 60 秒复查；检测到当前页面系统版本低于服务端要求时会阻断页面并提示刷新升级。版本接口暂时不可用时页面放行，避免诊断链路故障阻断正常使用。
 

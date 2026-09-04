@@ -59,25 +59,6 @@ services:
     networks:
       - fg
 
-  video-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP_DEPLOYMENT_VERSION: ${APP_DEPLOYMENT_VERSION:-dev}
-    restart: unless-stopped
-    # The worker only calls the authenticated internal endpoint; provider work is durable in Postgres.
-    # worker 只调用带密钥的内部端点，Provider 提交进度持久化在 Postgres，不依赖 app 请求进程存活。
-    env_file:
-      - .env.docker
-    depends_on:
-      app:
-        condition: service_healthy
-    command: ["node", "scripts/video-task-worker.mjs"]
-    networks:
-      - fg
-    logging: *default-logging
-
   nginx:
     image: nginx:stable-alpine
     profiles:
