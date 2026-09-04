@@ -111,7 +111,7 @@ export function isDefinitiveWetokenVideoRejection(error: unknown): error is Weto
     && error.status !== 499;
 }
 
-const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']);
+const RATIOS = new Set(['adaptive', '16:9', '4:3', '1:1', '3:4', '4:5', '5:4', '9:16', '21:9', '9:21']);
 
 function assertUrl(value: string, _type: VideoReference['type']) {
   if (isWetokenAssetUrl(value)) return;
@@ -145,7 +145,13 @@ export function assertSeedanceInputTypes(input: SeedanceInput) {
   if (typeof input.generateAudio !== 'boolean') throw new Error('generateAudio 必须是 boolean');
 }
 
-export function buildSeedanceRequest(input: SeedanceInput) {
+type VideoContent = Array<Record<string, unknown>>;
+export type WetokenVideoRequest =
+  | { family: 'volcengine'; body: Record<string, unknown> }
+  | { family: 'dashscope'; body: Record<string, unknown> }
+  | { family: 'minimax-v2'; body: Record<string, unknown> };
+
+function validateWetokenVideoInput(input: SeedanceInput) {
   assertSeedanceInputTypes(input);
   const spec = getVideoModel(input.model);
   if (!spec) throw new Error(`不支持的视频模型：${input.model}`);
@@ -153,6 +159,7 @@ export function buildSeedanceRequest(input: SeedanceInput) {
     throw new Error(`视频时长必须为 ${spec.minDuration} 到 ${spec.maxDuration} 秒${spec.supportsAdaptiveDuration ? '，或使用 -1 自适应' : ''}`);
   }
   if (!RATIOS.has(input.ratio)) throw new Error(`不支持的画幅：${input.ratio}`);
+  if (!spec.ratios.includes(input.ratio)) throw new Error(`${spec.label} 不支持 ${input.ratio} 画幅`);
   if (!spec.resolutions.includes(input.resolution)) {
     throw new Error(`${spec.label} 不支持 ${input.resolution}`);
   }
@@ -162,23 +169,31 @@ export function buildSeedanceRequest(input: SeedanceInput) {
   const audios = input.references.filter((item) => item.type === 'audio');
   const unsupportedReference = input.references.find((item) => !spec.referenceTypes.includes(item.type));
   if (unsupportedReference) throw new Error(`${spec.label} 不支持参考${unsupportedReference.type === 'video' ? '视频' : unsupportedReference.type === 'audio' ? '音频' : '图片'}`);
+  if (input.references.length > spec.maxTotalReferences) throw new Error(`参考素材最多 ${spec.maxTotalReferences} 个`);
   if (!input.prompt.trim() && input.references.length === 0) throw new Error('提示词和参考素材不能同时为空');
+  if (spec.requiresPrompt && !input.prompt.trim()) throw new Error(`${spec.label} 需要填写提示词`);
   if (audios.length && !images.length && !videos.length && !spec.supportsAudioOnlyReference) {
     throw new Error('音频不能单独作为参考，至少同时提供图片或视频');
   }
+  if (images.length < spec.minImageReferences) throw new Error(`${spec.label} 至少需要 ${spec.minImageReferences} 张参考图片`);
   if (images.length > spec.maxImageReferences) throw new Error(`参考图片最多 ${spec.maxImageReferences} 张`);
   if (videos.length > spec.maxVideoReferences) throw new Error(`参考视频最多 ${spec.maxVideoReferences} 个`);
   if (audios.length > spec.maxAudioReferences) throw new Error(`参考音频最多 ${spec.maxAudioReferences} 个`);
   if (images.filter((item) => item.role === 'first_frame').length > 1) throw new Error('首帧图片最多 1 张');
   if (images.filter((item) => item.role === 'last_frame').length > 1) throw new Error('尾帧图片最多 1 张');
+  const unsupportedImageRole = images.find((item) => !spec.imageRoles.includes(item.role));
+  if (unsupportedImageRole) throw new Error(`${spec.label} 不支持${unsupportedImageRole.role === 'first_frame' ? '首帧' : unsupportedImageRole.role === 'last_frame' ? '尾帧' : '参考图'}模式`);
   const hasFrameImage = images.some((item) => item.role === 'first_frame' || item.role === 'last_frame');
   const referenceMediaCount = images.filter((item) => item.role === 'reference_image').length + videos.length + audios.length;
   if (hasFrameImage && referenceMediaCount > 0) throw new Error('首帧/尾帧不能与参考图、参考视频或参考音频混用');
   if (hasFrameImage && spec.requiresAdaptiveRatioForFrameMode && input.ratio !== 'adaptive') {
     throw new Error(`${spec.label} 的首帧/首尾帧模式只能使用 adaptive 画幅`);
   }
+  if (!input.references.length && spec.requiresFixedRatioWithoutReferences && input.ratio === 'adaptive') {
+    throw new Error(`${spec.label} 无参考素材时需要选择固定画幅`);
+  }
 
-  const content: any[] = [];
+  const content: VideoContent = [];
   if (input.prompt.trim()) content.push({ type: 'text', text: input.prompt.trim() });
   for (const reference of input.references) {
     assertUrl(reference.url, reference.type);
@@ -191,6 +206,10 @@ export function buildSeedanceRequest(input: SeedanceInput) {
     }
   }
 
+  return { spec, content, images };
+}
+
+function buildVolcengineRequest(input: SeedanceInput, content: VideoContent, supportsAudioGeneration: boolean) {
   return {
     model: input.model,
     content,
@@ -198,7 +217,63 @@ export function buildSeedanceRequest(input: SeedanceInput) {
     ratio: input.ratio,
     resolution: input.resolution,
     watermark: input.watermark,
-    ...(spec.supportsAudioGeneration ? { generate_audio: input.generateAudio } : {}),
+    ...(supportsAudioGeneration ? { generate_audio: input.generateAudio } : {}),
+  };
+}
+
+export function buildWetokenVideoRequest(input: SeedanceInput): WetokenVideoRequest {
+  const { spec, content, images } = validateWetokenVideoInput(input);
+  if (spec.transport === 'volcengine') {
+    return { family: 'volcengine', body: buildVolcengineRequest(input, content, spec.supportsAudioGeneration) };
+  }
+  if (spec.transport === 'dashscope') {
+    const parameters: Record<string, unknown> = {
+      resolution: input.resolution === '1080p' ? '1080P' : '720P',
+      duration: input.duration,
+      prompt_extend: true,
+      watermark: input.watermark,
+    };
+    if (input.ratio !== 'adaptive') parameters.ratio = input.ratio;
+    return {
+      family: 'dashscope',
+      body: {
+        model: input.model,
+        input: {
+          prompt: input.prompt.trim(),
+          ...(images.length ? { media: images.map((reference) => ({ type: reference.role, url: reference.url })) } : {}),
+        },
+        parameters,
+      },
+    };
+  }
+  return {
+    family: 'minimax-v2',
+    body: {
+      model: input.model,
+      content,
+      resolution: input.resolution === '2K' ? '2K' : '768P',
+      duration: input.duration,
+      ratio: input.ratio,
+    },
+  };
+}
+
+// Kept as a compatibility API for callers and custom scripts that expect the
+// established Volcengine body. New provider families must use the generic
+// builder above so their distinct contracts cannot be sent to this endpoint.
+export function buildSeedanceRequest(input: SeedanceInput) {
+  const request = buildWetokenVideoRequest(input);
+  if (request.family !== 'volcengine') {
+    throw new Error(`${input.model} 不使用 Seedance 请求协议`);
+  }
+  return request.body as {
+    model: string;
+    content: VideoContent;
+    duration: number;
+    ratio: string;
+    resolution: string;
+    watermark: boolean;
+    generate_audio?: boolean;
   };
 }
 
@@ -214,11 +289,12 @@ function requireKey() {
 }
 
 function normalizeStatus(value: unknown): VideoTaskStatus {
-  if (value === 'queued' || value === 'running' || value === 'succeeded' || value === 'failed' || value === 'expired') return value;
-  if (value === 'completed') return 'succeeded';
-  if (value === 'cancelled' || value === 'canceled' || value === 'error') return 'failed';
-  if (value === 'submitted' || value === 'created') return 'queued';
-  if (value === 'pending' || value === 'processing') return 'running';
+  const status = typeof value === 'string' ? value.toLowerCase() : '';
+  if (status === 'queued' || status === 'running' || status === 'succeeded' || status === 'failed' || status === 'expired') return status;
+  if (status === 'completed' || status === 'success') return 'succeeded';
+  if (status === 'cancelled' || status === 'canceled' || status === 'error' || status === 'fail') return 'failed';
+  if (status === 'submitted' || status === 'created') return 'queued';
+  if (status === 'pending' || status === 'processing') return 'running';
   return 'running';
 }
 
@@ -278,7 +354,8 @@ function taskPayload(value: unknown): Record<string, unknown> {
   const root = asRecord(value);
   if (typeof root.id === 'string' || typeof root.task_id === 'string') return root;
   const nested = asRecord(root.data);
-  const candidates = [asRecord(nested.task), nested, asRecord(root.task)];
+  const output = asRecord(root.output);
+  const candidates = [asRecord(nested.task), nested, asRecord(root.task), output, asRecord(output.task)];
   return candidates.find((candidate) => hasTaskShape(candidate)) || root;
 }
 async function providerJson(response: Response, context: ProviderJsonContext) {
@@ -381,6 +458,26 @@ async function providerFetch(
   }
 }
 
+function taskSubmitPath(family: WetokenVideoRequest['family']) {
+  if (family === 'dashscope') return '/dashscope/api/v1/services/aigc/video-generation/video-synthesis';
+  if (family === 'minimax-v2') return '/v2/video_generation';
+  return '/api/v3/contents/generations/tasks';
+}
+
+function taskQueryPath(family: WetokenVideoRequest['family'], externalTaskId: string) {
+  const taskId = encodeURIComponent(externalTaskId);
+  if (family === 'dashscope') return `/dashscope/api/v1/tasks/${taskId}`;
+  if (family === 'minimax-v2') return `/v2/query/video_generation/${taskId}`;
+  return `/api/v3/contents/generations/tasks/${taskId}`;
+}
+
+function transportForModel(model: string): WetokenVideoRequest['family'] {
+  const transport = getVideoModel(model)?.transport;
+  if (transport === 'dashscope') return 'dashscope';
+  if (transport === 'minimax-v2') return 'minimax-v2';
+  return 'volcengine';
+}
+
 export async function createWetokenVideoTask(
   input: SeedanceInput,
   dependencies: { fetcher?: Fetcher; assetsPrepared?: boolean } & WetokenProviderLogContext = {},
@@ -389,7 +486,7 @@ export async function createWetokenVideoTask(
   const fetcher = dependencies.fetcher ?? fetch;
   // Validate generation capabilities before creating provider-side assets.
   // 先校验生成参数，避免无效请求先在素材库留下资产。
-  buildSeedanceRequest(input);
+  buildWetokenVideoRequest(input);
   if (dependencies.assetsPrepared && input.references.some((reference) => !isWetokenAssetUrl(reference.url))) {
     throw new WetokenAssetError('预处理后的参考素材必须全部使用 asset:// 地址', 500, 'asset_preparation_incomplete');
   }
@@ -401,15 +498,17 @@ export async function createWetokenVideoTask(
       { fetcher, traceId: dependencies.traceId, taskId: dependencies.taskId },
     );
   try {
-    const requestBody = buildSeedanceRequest({
+    const request = buildWetokenVideoRequest({
       ...input,
       references: prepared.references as VideoReference[],
     });
-    const providerResponse = await providerFetch(fetcher, `${wetokenOrigin()}/api/v3/contents/generations/tasks`, {
+    const requestBody = request.body;
+    const providerResponse = await providerFetch(fetcher, `${wetokenOrigin()}${taskSubmitPath(request.family)}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
+        ...(request.family === 'dashscope' ? { 'X-DashScope-Async': 'enable' } : {}),
         // Avoid reusing a stale proxy socket for this long-running paid POST.
         // 付费提交可能长时间等待响应，强制新连接可避免复用已被代理关闭的 keep-alive socket。
         Connection: 'close',
@@ -433,7 +532,7 @@ export async function createWetokenVideoTask(
     const payload = taskPayload(data);
     const externalTaskId = payload.id || payload.task_id;
     if (!externalTaskId) throw new Error('Wetoken video task ID missing');
-    return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || asRecord(data).status || 'queued'), raw: data };
+    return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || payload.task_status || asRecord(data).status || 'queued'), raw: data };
   } catch (error) {
     // Only definitive 4xx rejection is safe to clean up; 408/5xx may hide an accepted upstream task.
     // 仅确定性 4xx 拒绝可清理素材；408/5xx 可能发生在上游已受理之后，必须保留用于对账。
@@ -446,15 +545,19 @@ export async function createWetokenVideoTask(
 
 export async function getWetokenVideoTask(
   externalTaskId: string,
-  dependencies: { fetcher?: Fetcher } & WetokenProviderLogContext = {},
+  dependencies: { fetcher?: Fetcher; model?: string } & WetokenProviderLogContext = {},
 ) {
   const key = requireKey();
   const fetcher = dependencies.fetcher ?? fetch;
+  const family = transportForModel(dependencies.model || '');
   const providerResponse = await providerFetch(
     fetcher,
-    `${wetokenOrigin()}/api/v3/contents/generations/tasks/${encodeURIComponent(externalTaskId)}`,
+    `${wetokenOrigin()}${taskQueryPath(family, externalTaskId)}`,
     {
-      headers: { Authorization: `Bearer ${key}` },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        ...(family === 'dashscope' ? { 'X-DashScope-Async': 'enable' } : {}),
+      },
       dispatcher: wetokenProviderDispatcher,
       signal: AbortSignal.timeout(WETOKEN_VIDEO_POLL_TIMEOUT_MS),
     },
@@ -474,12 +577,16 @@ export async function getWetokenVideoTask(
   const taskError = asRecord(payload.error);
   const taskErrorMessage = typeof taskError.message === 'string'
     ? taskError.message
-    : typeof payload.error === 'string' ? payload.error : undefined;
+    : typeof payload.error === 'string' ? payload.error
+      : typeof payload.message === 'string' ? payload.message : undefined;
   return {
     externalTaskId: String(payload.id || payload.task_id || externalTaskId),
-    status: normalizeStatus(payload.status),
+    status: normalizeStatus(payload.status || payload.task_status || asRecord(data).status),
     error: taskErrorMessage ? String(taskErrorMessage).slice(0, 500) : undefined,
-    videoUrl: typeof taskContent.video_url === 'string' ? taskContent.video_url : typeof taskContent.url === 'string' ? taskContent.url : undefined,
+    videoUrl: typeof taskContent.video_url === 'string' ? taskContent.video_url
+      : typeof taskContent.url === 'string' ? taskContent.url
+        : typeof payload.video_url === 'string' ? payload.video_url
+          : typeof payload.url === 'string' ? payload.url : undefined,
     usage: payload.usage,
   };
 }

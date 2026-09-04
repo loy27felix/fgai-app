@@ -19,8 +19,10 @@ export type VideoReferenceMode = "reference" | "first_last";
 export type VideoImageRole = "first_frame" | "last_frame" | "reference_image";
 
 /** Keep browser and server manifests aligned with the provider's two image modes. */
-export function videoImageRoles(mode: VideoReferenceMode, imageCount: number): VideoImageRole[] {
+export function videoImageRoles(mode: VideoReferenceMode, imageCount: number, modelId?: string): VideoImageRole[] {
   if (!Number.isInteger(imageCount) || imageCount < 0) throw new Error("invalid image reference count");
+  const modelRoles = modelId ? getVideoModel(modelId)?.imageRoles : undefined;
+  if (modelRoles?.length === 1) return Array.from({ length: imageCount }, () => modelRoles[0]);
   if (mode === "first_last") {
     if (imageCount > 2) throw new Error("首尾帧模式最多需要 2 张图片");
     return Array.from({ length: imageCount }, (_, index) => index === 0 ? "first_frame" : "last_frame");
@@ -86,12 +88,15 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   const model = getVideoModel(input.model);
   if (!model) throw new Error("不支持的视频模型");
   if (!prompt && input.references.length === 0) throw new Error("提示词和参考素材不能同时为空");
+  if (model.requiresPrompt && !prompt) throw new Error(`${model.label} 需要填写提示词`);
   if ((input.duration === -1 && !model.supportsAdaptiveDuration) || (input.duration !== -1 && (!Number.isInteger(input.duration) || input.duration < model.minDuration || input.duration > model.maxDuration))) {
     throw new Error(`视频时长必须为 ${model.minDuration} 到 ${model.maxDuration} 秒${model.supportsAdaptiveDuration ? '，或使用自适应' : ''}`);
   }
   if (!model.ratios.includes(input.ratio)) throw new Error("当前模型不支持这个画幅");
   if (!model.resolutions.includes(input.resolution)) throw new Error("当前模型不支持这个清晰度");
-  if (input.references.length > MAX_CREATOR_VIDEO_TOTAL_REFERENCES) throw new Error("参考素材最多 15 个");
+  if (input.references.length > Math.min(MAX_CREATOR_VIDEO_TOTAL_REFERENCES, model.maxTotalReferences)) {
+    throw new Error(`参考素材最多 ${Math.min(MAX_CREATOR_VIDEO_TOTAL_REFERENCES, model.maxTotalReferences)} 个`);
+  }
 
   let total = 0;
   let imageCount = 0;
@@ -103,6 +108,9 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
     if (!["image", "video", "audio"].includes(reference.kind)) throw new Error("参考素材类型无效");
     if (!isRoleForKind(reference.kind, reference.role)) throw new Error("参考素材角色无效");
     if (!model.referenceTypes.includes(reference.kind)) throw new Error(`${model.label} 不支持参考${reference.kind === "video" ? "视频" : reference.kind === "audio" ? "音频" : "图片"}`);
+    if (reference.kind === "image" && !model.imageRoles.includes(reference.role as VideoImageRole)) {
+      throw new Error(`${model.label} 不支持${reference.role === "first_frame" ? "首帧" : reference.role === "last_frame" ? "尾帧" : "参考图"}模式`);
+    }
     if (!mimeAllowed(reference.kind, reference.mimeType)) throw new Error("参考素材格式不受支持");
     if (!Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > maxBytesFor(reference.kind)) {
       throw new Error(reference.kind === "image" ? "单张参考图不能超过 7MB" : reference.kind === "video" ? "单个参考视频不能超过 200MB" : "单个参考音频不能超过 15MB");
@@ -118,6 +126,7 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
       audioCount += 1;
     }
   }
+  if (imageCount < model.minImageReferences) throw new Error(`${model.label} 至少需要 ${model.minImageReferences} 张参考图片`);
   if (imageCount > model.maxImageReferences) throw new Error(`参考图片最多 ${model.maxImageReferences} 张`);
   if (videoCount > model.maxVideoReferences) throw new Error(`参考视频最多 ${model.maxVideoReferences} 个`);
   if (audioCount > model.maxAudioReferences) throw new Error(`参考音频最多 ${model.maxAudioReferences} 个`);
@@ -128,6 +137,9 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   if (hasFrameImage && referenceMediaCount > 0) throw new Error("首帧/尾帧不能与参考图、参考视频或参考音频混用");
   if (hasFrameImage && model.requiresAdaptiveRatioForFrameMode && input.ratio !== "adaptive") {
     throw new Error(`${model.label} 的首帧/首尾帧模式只能使用 adaptive 画幅`);
+  }
+  if (input.references.length === 0 && model.requiresFixedRatioWithoutReferences && input.ratio === "adaptive") {
+    throw new Error(`${model.label} 无参考素材时需要选择固定画幅`);
   }
   if (total > MAX_CREATOR_VIDEO_TOTAL_BYTES) throw new Error("参考素材总大小不能超过 200MB");
   if (audioCount > 0 && imageCount === 0 && videoCount === 0 && !model.supportsAudioOnlyReference) throw new Error("音频不能单独作为参考");

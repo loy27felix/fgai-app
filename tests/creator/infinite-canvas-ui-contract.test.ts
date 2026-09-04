@@ -548,3 +548,25 @@ test('direct canvas Gemini calls use imageConfig and OpenAI image edits submit i
   assert.doesNotMatch(imageApi, /responseFormat: \{ image \}/);
   assert.match(pluginTemplates, /form\.append\("image\[\]"/);
 });
+
+test('canvas refresh ignores blank video drafts and material folder names survive reloads', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const videoRecovery = read('reference/infinite-canvas/src/lib/canvas/canvas-video-recovery.ts');
+  const materialStore = read('reference/infinite-canvas/src/stores/use-material-library-store.ts');
+  const materialTab = read('reference/infinite-canvas/src/components/canvas/canvas-material-library-tab.tsx');
+  const assetsApi = read('reference/infinite-canvas/src/services/api/canvas-assets.ts');
+  const assetsRoute = read('app/api/creator/assets/route.ts');
+
+  assert.match(project, /shouldReportMissingVideoBackup\(node\)/);
+  assert.match(videoRecovery, /hasMaterializedVideoOutput/);
+  assert.match(videoRecovery, /metadata\?\.content/);
+  assert.match(materialStore, /folderName\?: string/);
+  assert.match(materialStore, /library_folder_name/);
+  assert.match(materialStore, /withoutLegacyUncategorizedFolder/);
+  assert.match(materialStore, /ensureFolder\(\{ folders: result \}, item\.folderId, item\.folderName\)/);
+  assert.match(materialTab, /renameFolder/);
+  assert.match(materialTab, /onRename/);
+  assert.match(assetsApi, /renameMaterialLibraryFolder/);
+  assert.match(assetsRoute, /library_folder_name/);
+  assert.match(assetsRoute, /renameFolder/);
+});

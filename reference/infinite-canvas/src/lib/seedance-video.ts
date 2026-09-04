@@ -15,8 +15,10 @@ export const SEEDANCE_VIDEO_MIME_TYPES = ["video/mp4", "video/quicktime"];
 
 export const seedanceResolutionOptions = [
     { value: "480p", label: "480p" },
+    { value: "768p", label: "768p" },
     { value: "720p", label: "720p" },
     { value: "1080p", label: "1080p" },
+    { value: "2K", label: "2K" },
     { value: "4K", label: "4K" },
 ] as const;
 
@@ -26,7 +28,10 @@ export const seedanceRatioOptions = [
     { value: "1:1", label: "1:1" },
     { value: "4:3", label: "4:3" },
     { value: "3:4", label: "3:4" },
+    { value: "4:5", label: "4:5" },
+    { value: "5:4", label: "5:4" },
     { value: "21:9", label: "21:9" },
+    { value: "9:21", label: "9:21" },
     { value: "adaptive", label: "自适应" },
 ] as const;
 
@@ -90,6 +95,7 @@ export function normalizeResolutionToken(value: string) {
     if (value === "auto" || value === "high" || value === "medium") return "720p";
     const raw = String(value || "").trim();
     if (raw.toLowerCase() === "4k") return "4K";
+    if (raw.toLowerCase() === "2k") return "2K";
     const resolution = raw.replace(/p$/i, "") || "720";
     return `${resolution}p`;
 }
@@ -117,18 +123,22 @@ export function normalizeSeedanceRatio(value: string, model?: string) {
         ["4:3", 4 / 3],
         ["1:1", 1],
         ["3:4", 3 / 4],
+        ["4:5", 4 / 5],
+        ["5:4", 5 / 4],
         ["9:16", 9 / 16],
         ["21:9", 21 / 9],
+        ["9:21", 9 / 21],
     ] as const;
     const candidate = ratioCandidates.reduce((best, item) => (Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best), ratioCandidates[0])[0];
     return seedanceRatioOptionsForModel(model).some((item) => item.value === candidate) ? candidate : fallback;
 }
 
 export function seedancePixelLabel(resolution: string, ratio: string) {
-    const normalizedResolution = normalizeSeedanceResolution(resolution) as keyof typeof seedancePixels;
-    const normalizedRatio = normalizeSeedanceRatio(ratio) as keyof (typeof seedancePixels)[typeof normalizedResolution] | "adaptive";
+    const normalizedResolution = normalizeSeedanceResolution(resolution);
+    const normalizedRatio = normalizeSeedanceRatio(ratio);
     if (normalizedRatio === "adaptive") return "自动匹配";
-    return seedancePixels[normalizedResolution][normalizedRatio] || "";
+    const dimensions = seedancePixels[normalizedResolution as keyof typeof seedancePixels] as Record<string, string> | undefined;
+    return dimensions?.[normalizedRatio] || "";
 }
 
 export function boolConfig(value: string | undefined, fallback: boolean) {

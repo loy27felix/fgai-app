@@ -5,8 +5,8 @@ import { normalizeSeedanceRatio, seedanceRatioOptions } from '../reference/infin
 
 test('video ratio presets use standard aspect-ratio labels instead of pixel dimensions', () => {
   assert.deepEqual(
-    seedanceRatioOptions.slice(0, 6).map((item) => item.label),
-    ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    seedanceRatioOptions.slice(0, 9).map((item) => item.label),
+    ['16:9', '9:16', '1:1', '4:3', '3:4', '4:5', '5:4', '21:9', '9:21'],
   );
   assert.equal(normalizeSeedanceRatio('1280x720'), '16:9');
   assert.equal(normalizeSeedanceRatio('720x1280'), '9:16');

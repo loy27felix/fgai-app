@@ -26,7 +26,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 
   try {
-    const result = await getWetokenVideoTask(task.external_task_id, { traceId, taskId: task.id });
+    const result = await getWetokenVideoTask(task.external_task_id, { model: task.model, traceId, taskId: task.id });
     const terminal = ['succeeded', 'failed', 'expired'].includes(result.status);
     const reportedCostUsd = extractReportedCostUsd(result.usage);
     const output = result.videoUrl ? { videoUrl: result.videoUrl, usage: result.usage || null } : { usage: result.usage || null };

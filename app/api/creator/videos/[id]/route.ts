@@ -165,7 +165,7 @@ async function pollTask(
   let polled;
   const pollStartedAt = Date.now();
   try {
-    polled = await getWetokenVideoTask(currentTask.external_task_id, { traceId, taskId: currentTask.id });
+    polled = await getWetokenVideoTask(currentTask.external_task_id, { model: currentTask.model, traceId, taskId: currentTask.id });
   } catch (error) {
     const checkedAt = new Date().toISOString();
     logServerFailure('creator_video_poll', error, {
@@ -336,6 +336,7 @@ export async function PUT(req: Request, { params }: RouteContext) {
       task,
       externalTaskId,
       loadProviderTask: (providerTaskId) => getWetokenVideoTask(providerTaskId, {
+        model: task.model,
         traceId,
         taskId: task.id,
       }),

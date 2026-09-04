@@ -43,17 +43,6 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
 const pluginVideoErrors = new Map<string, string>();
 const pluginVideoPromises = new Map<string, Promise<void>>();
-const FG_VIDEO_MODELS = new Set([
-    "doubao-seedance-2-0",
-    "doubao-seedance-2-0-filter-off",
-    "doubao-seedance-2-0-fast",
-    "doubao-seedance-2-0-fast-filter-off",
-    "dreamina-seedance-2-0-mini",
-    "dreamina-seedance-2-0-mini-filter-off",
-    "dreamina-seedance-2-5",
-    "dreamina-seedance-2-5-filter-off",
-]);
-
 /**
  * FG tasks can finish before the NAS archival copy is available.  Return the
  * stable task-content proxy immediately so the canvas can render the provider
@@ -101,11 +90,11 @@ function normalizedVideoReferenceMode(config: AiConfig): VideoReferenceMode {
     return config.videoReferenceMode === "first_last" ? "first_last" : "reference";
 }
 
-function assertVideoReferenceMode(mode: VideoReferenceMode, imageCount: number, videoCount: number, audioCount: number) {
+function assertVideoReferenceMode(mode: VideoReferenceMode, imageCount: number, videoCount: number, audioCount: number, model?: string) {
     if (mode === "first_last" && (videoCount > 0 || audioCount > 0)) {
         throw new Error("首尾帧模式只能连接图片，不能混合视频或音频参考");
     }
-    return videoImageRoles(mode, imageCount);
+    return videoImageRoles(mode, imageCount, model);
 }
 
 async function fgGenerateVideo(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -117,6 +106,10 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const maxImages = modelSpec?.maxImageReferences || SEEDANCE_REFERENCE_LIMITS.images;
     const maxVideos = modelSpec?.maxVideoReferences || SEEDANCE_REFERENCE_LIMITS.videos;
     const maxAudios = modelSpec?.maxAudioReferences || SEEDANCE_REFERENCE_LIMITS.audios;
+    const maxTotalReferences = modelSpec?.maxTotalReferences || 15;
+    if (references.length + videoReferences.length + audioReferences.length > maxTotalReferences) {
+        throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxTotalReferences} 个参考素材，请移除多余素材后重试`);
+    }
     if (references.length > maxImages) throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxImages} 张参考图，请移除多余图片后重试`);
     if (videoReferences.length > maxVideos) throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxVideos} 个参考视频，请移除多余视频后重试`);
     if (audioReferences.length > maxAudios) throw new Error(`${modelSpec?.label || "当前模型"} 最多支持 ${maxAudios} 个参考音频，请移除多余音频后重试`);
@@ -125,7 +118,9 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const audioInputs = audioReferences;
     if (videoInputs.length && modelSpec && !modelSpec.referenceTypes.includes("video")) throw new Error(`${modelSpec.label} 不支持参考视频`);
     if (audioInputs.length && modelSpec && !modelSpec.referenceTypes.includes("audio")) throw new Error(`${modelSpec.label} 不支持参考音频`);
-    const imageRoles = assertVideoReferenceMode(mode, imageInputs.length, videoInputs.length, audioInputs.length);
+    if (imageInputs.length && modelSpec && !modelSpec.referenceTypes.includes("image")) throw new Error(`${modelSpec.label} 不支持参考图片`);
+    if (modelSpec && imageInputs.length < modelSpec.minImageReferences) throw new Error(`${modelSpec.label} 至少需要 ${modelSpec.minImageReferences} 张参考图片`);
+    const imageRoles = assertVideoReferenceMode(mode, imageInputs.length, videoInputs.length, audioInputs.length, modelSpec?.id);
     const imageFiles = await Promise.all(imageInputs.map(async (image, index) => {
         try {
             const dataUrl = await imageToDataUrl(image);
@@ -140,14 +135,14 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     const audioFiles = await Promise.all(audioInputs.map((audio, index) => fgVideoFile(audio.url, audio.name || `reference-audio-${index + 1}.mp3`, audio.type || "audio/mpeg")));
     const files = [...imageFiles, ...videoFiles, ...audioFiles];
     assertCreatorVideoReferenceFiles(files);
-    const ratio = modelSpec?.requiresAdaptiveRatioForFrameMode && mode === "first_last"
+    const ratio = modelSpec?.requiresAdaptiveRatioForFrameMode && imageRoles.some((role) => role === "first_frame" || role === "last_frame")
         ? "adaptive"
         : normalizeSeedanceRatio(config.size, modelSpec?.id);
     const rawSeconds = Number(config.videoSeconds);
     const seconds = rawSeconds === -1 && modelSpec?.supportsAdaptiveDuration !== false
         ? -1
         : Math.max(modelSpec?.minDuration || 4, Math.min(modelSpec?.maxDuration || 15, rawSeconds || 5));
-    const resolution = normalizeCreatorVideoResolution(config.vquality);
+    const resolution = normalizeSeedanceResolution(config.vquality, modelSpec?.id);
     let imageIndex = 0;
     const referencesManifest = files.map((file) => {
         const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image";
@@ -239,16 +234,8 @@ async function localUploadVideoReference(taskId: string, path: string, file: Fil
     await uploadVideoReference(taskId, path, file);
     return { data: { path }, error: null };
 }
-function normalizeCreatorVideoResolution(value: string) {
-    const normalized = String(value || "720").trim().toLowerCase();
-    if (normalized === "4k") return "4K";
-    if (normalized === "auto" || normalized === "high" || normalized === "medium") return "720p";
-    const token = normalized.replace(/p$/i, "") || "720";
-    return `${token}p`;
-}
-
 function isFgCreatorVideoModel(value: string) {
-    return FG_VIDEO_MODELS.has(modelOptionName(value));
+    return Boolean(getVideoModel(modelOptionName(value)));
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {

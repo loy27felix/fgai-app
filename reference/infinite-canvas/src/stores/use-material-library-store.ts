@@ -28,6 +28,9 @@ export type MaterialItem = {
     storagePath?: string;
     cloudAssetId?: string;
     folderId: string | null;
+    // Stored with every cloud asset so a custom folder name can be restored
+    // even after the browser-local material-library cache is unavailable.
+    folderName?: string;
     createdAt: string;
     updatedAt: string;
 };
@@ -45,7 +48,7 @@ type MaterialLibraryStore = {
     renameFolder: (id: string, name: string) => void;
     removeFolder: (id: string) => void;
     addItem: (item: Omit<MaterialItem, "id" | "createdAt" | "updatedAt">) => string;
-    updateItem: (id: string, patch: Partial<Pick<MaterialItem, "title" | "folderId">>) => void;
+    updateItem: (id: string, patch: Partial<Pick<MaterialItem, "title" | "folderId" | "folderName">>) => void;
     removeItem: (id: string) => void;
     replaceRemoteItems: (items: MaterialItem[]) => void;
     migrateLegacyItems: (assets: Array<Record<string, unknown>>) => void;
@@ -66,10 +69,35 @@ function safeFolderName(value: string) {
     return value.trim().replace(/\s+/g, " ").slice(0, 48);
 }
 
-function ensureFolder(state: Pick<MaterialLibraryStore, "folders">, id: string, name = "未分类") {
-    return state.folders.some((folder) => folder.id === id)
-        ? state.folders
-        : [...state.folders, { id, name, parentId: null, createdAt: new Date().toISOString() }];
+function materialFolderId(metadata: Record<string, unknown>) {
+    const raw = typeof metadata.library_folder_id === "string"
+        ? metadata.library_folder_id
+        : typeof metadata.library_folder === "string"
+            ? metadata.library_folder
+            : "";
+    const id = raw.trim();
+    // The retired merged material tab wrote this sentinel for the default
+    // bucket. It must remain the built-in "未分类" option, not a second folder
+    // with the same label.
+    return id && id !== "uncategorized" ? id : null;
+}
+
+function ensureFolder(state: Pick<MaterialLibraryStore, "folders">, id: string, name?: string) {
+    const normalizedName = typeof name === "string" ? safeFolderName(name) : "";
+    const existing = state.folders.find((folder) => folder.id === id);
+    if (existing) {
+        if (!normalizedName || existing.name === normalizedName) return state.folders;
+        return state.folders.map((folder) => folder.id === id ? { ...folder, name: normalizedName } : folder);
+    }
+    return [...state.folders, { id, name: normalizedName || "未分类", parentId: null, createdAt: new Date().toISOString() }];
+}
+
+function withoutLegacyUncategorizedFolder(folders: MaterialFolder[]) {
+    return folders.filter((folder) => folder.id !== "uncategorized");
+}
+
+function normalizeLegacyUncategorizedItems(items: MaterialItem[]) {
+    return items.map((item) => item.folderId === "uncategorized" ? { ...item, folderId: null, folderName: undefined } : item);
 }
 
 export function materialToInsertPayload(item: MaterialItem): MaterialInsertPayload {
@@ -96,7 +124,8 @@ export function materialFromCreatorAsset(asset: Record<string, unknown>): Materi
         durationMs: Number(asset.durationMs) || undefined,
         storagePath,
         cloudAssetId: id,
-        folderId: typeof metadata.library_folder_id === "string" ? metadata.library_folder_id : typeof metadata.library_folder === "string" ? metadata.library_folder : null,
+        folderId: materialFolderId(metadata),
+        folderName: typeof metadata.library_folder_name === "string" ? safeFolderName(metadata.library_folder_name) || undefined : undefined,
         createdAt: typeof asset.createdAt === "string" ? asset.createdAt : new Date().toISOString(),
         updatedAt: typeof asset.updatedAt === "string" ? asset.updatedAt : new Date().toISOString(),
     };
@@ -126,7 +155,7 @@ export const useMaterialLibraryStore = create<MaterialLibraryStore>()(
                 const id = item.cloudAssetId || `material-${nanoid(12)}`;
                 const now = new Date().toISOString();
                 set((state) => ({
-                    folders: item.folderId ? ensureFolder(state, item.folderId) : state.folders,
+                    folders: item.folderId ? ensureFolder(state, item.folderId, item.folderName) : state.folders,
                     items: [{ ...item, id, createdAt: now, updatedAt: now }, ...state.items.filter((existing) => existing.id !== id && existing.cloudAssetId !== item.cloudAssetId)],
                 }));
                 console.info("[material library item added]", { materialId: id, kind: item.kind, folderId: item.folderId });
@@ -136,8 +165,8 @@ export const useMaterialLibraryStore = create<MaterialLibraryStore>()(
             removeItem: (id) => set((state) => ({ items: state.items.filter((item) => item.id !== id) })),
             replaceRemoteItems: (remoteItems) => set((state) => {
                 const remoteIds = new Set(remoteItems.map((item) => item.cloudAssetId || item.id));
-                const localOnly = state.items.filter((item) => !item.cloudAssetId || !remoteIds.has(item.cloudAssetId));
-                const folders = remoteItems.reduce((result, item) => item.folderId ? ensureFolder({ folders: result }, item.folderId) : result, state.folders);
+                const localOnly = normalizeLegacyUncategorizedItems(state.items.filter((item) => !item.cloudAssetId || !remoteIds.has(item.cloudAssetId)));
+                const folders = remoteItems.reduce((result, item) => item.folderId ? ensureFolder({ folders: result }, item.folderId, item.folderName) : result, withoutLegacyUncategorizedFolder(state.folders));
                 return { folders, items: [...remoteItems, ...localOnly] };
             }),
             migrateLegacyItems: (assets) => set((state) => {
@@ -150,13 +179,15 @@ export const useMaterialLibraryStore = create<MaterialLibraryStore>()(
                         ? String((asset.data as Record<string, unknown> | undefined)?.dataUrl || asset.coverUrl || "")
                         : String((asset.data as Record<string, unknown> | undefined)?.url || "");
                     if (!url) return [];
-                    return [{ id, kind, title: typeof asset.title === "string" ? asset.title : "导入素材", url, mimeType: String((asset.data as Record<string, unknown> | undefined)?.mimeType || "application/octet-stream"), folderId: String(metadata.library_folder), createdAt: typeof asset.createdAt === "string" ? asset.createdAt : new Date().toISOString(), updatedAt: typeof asset.updatedAt === "string" ? asset.updatedAt : new Date().toISOString() } as MaterialItem];
+                    return [{ id, kind, title: typeof asset.title === "string" ? asset.title : "导入素材", url, mimeType: String((asset.data as Record<string, unknown> | undefined)?.mimeType || "application/octet-stream"), folderId: materialFolderId(metadata), folderName: typeof metadata.library_folder_name === "string" ? safeFolderName(metadata.library_folder_name) || undefined : undefined, createdAt: typeof asset.createdAt === "string" ? asset.createdAt : new Date().toISOString(), updatedAt: typeof asset.updatedAt === "string" ? asset.updatedAt : new Date().toISOString() } as MaterialItem];
                 });
-                if (!legacy.length) return state;
+                const existingFolders = withoutLegacyUncategorizedFolder(state.folders);
+                const existingItems = normalizeLegacyUncategorizedItems(state.items);
+                if (!legacy.length) return { folders: existingFolders, items: existingItems };
                 const legacyIds = new Set(legacy.map((item) => item.id));
-                const folders = legacy.reduce((result, item) => item.folderId ? ensureFolder({ folders: result }, item.folderId) : result, state.folders);
+                const folders = legacy.reduce((result, item) => item.folderId ? ensureFolder({ folders: result }, item.folderId, item.folderName) : result, existingFolders);
                 console.info("[material library legacy migration]", { migrated: legacy.length });
-                return { folders, items: [...legacy, ...state.items.filter((item) => !legacyIds.has(item.id))] };
+                return { folders, items: [...legacy, ...existingItems.filter((item) => !legacyIds.has(item.id))] };
             }),
         }),
         {

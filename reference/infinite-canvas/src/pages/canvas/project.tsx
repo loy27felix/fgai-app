@@ -56,6 +56,7 @@ import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { shouldIgnoreCanvasClipboardTarget } from "@/reference/infinite-canvas/src/lib/canvas/canvas-clipboard-target";
 import { shouldReportMissingImageBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-recovery";
+import { shouldReportMissingVideoBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-recovery";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
@@ -419,7 +420,7 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                     },
                 };
             }
-            if (node.type === CanvasNodeType.Video && !node.metadata?.content) {
+            if (shouldReportMissingVideoBackup(node)) {
                 console.warn("[canvas video hydration unavailable]", { nodeId: node.id, hasStorageKey: Boolean(node.metadata?.storageKey), hasCreatorTask: Boolean(creatorTaskId), hasCloudBackup: Boolean(path) });
                 return {
                     ...node,

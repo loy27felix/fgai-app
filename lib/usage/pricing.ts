@@ -77,7 +77,7 @@ export function estimateImagePrice(model: string, resolution: string): MediaPric
 }
 
 /**
- * Returns a price for the current Seedance catalog. Wetoken publishes the
+ * Returns a price for the supported video catalog. Wetoken publishes the
  * example as a five-second generation, therefore selected durations are
  * linearly prorated and clearly stored as estimates. The browser never calls
  * this a provider-confirmed charge.
@@ -105,8 +105,10 @@ export function estimateVideoPrice(input: {
   const resolution = normalizedResolution(input.resolution);
   const duration = Math.floor(Number(input.duration));
   const isSeedance25 = input.model === 'dreamina-seedance-2-5' || input.model === 'dreamina-seedance-2-5-filter-off';
+  const happyHorse = new Set(['happyhorse-1.1-i2v', 'happyhorse-1.1-r2v', 'happyhorse-1.1-t2v']);
   const maxDuration = isSeedance25 ? 30 : 15;
-  if (!Number.isFinite(duration) || duration < 4 || duration > maxDuration) return null;
+  const minDuration = happyHorse.has(input.model) ? 3 : 4;
+  if (!Number.isFinite(duration) || duration < minDuration || duration > maxDuration) return null;
 
   const normal = new Set(['doubao-seedance-2-0', 'doubao-seedance-2-0-filter-off']);
   const fast = new Set(['doubao-seedance-2-0-fast', 'doubao-seedance-2-0-fast-filter-off']);
@@ -115,6 +117,7 @@ export function estimateVideoPrice(input: {
     : fast.has(input.model) ? 4
       : mini.has(input.model) ? (4.97 * 3.5) / 7
         : isSeedance25 ? (4.97 * 10.7) / 7
+          : happyHorse.has(input.model) ? 0.14 * 5
           : null;
   if (reference720 === null) return null;
 
@@ -123,14 +126,14 @@ export function estimateVideoPrice(input: {
   const resolutionRatio: Record<string, number> = {
     '480p': normal.has(input.model) ? 2.31 / 4.97 : fast.has(input.model) ? 1.86 / 4 : 2.31 / 4.97,
     '720p': 1,
-    '1080p': normal.has(input.model) ? 7.7 / 7 : Number.NaN,
+    '1080p': happyHorse.has(input.model) ? 0.18 / 0.14 : normal.has(input.model) ? 7.7 / 7 : Number.NaN,
     '4k': normal.has(input.model) ? 4 / 7 : Number.NaN,
   };
   const ratio = resolutionRatio[resolution];
   const costAtFiveSeconds = Number.isFinite(ratio) ? Number((reference720 * ratio).toFixed(6)) : null;
   const anchor = costAtFiveSeconds === null
     ? null
-    : { seconds: 5, cost: costAtFiveSeconds, note: 'Wetoken published five-second Seedance price example; selected duration is prorated locally.' };
+    : { seconds: 5, cost: costAtFiveSeconds, note: happyHorse.has(input.model) ? 'Wetoken published HappyHorse per-second price; selected duration is calculated linearly.' : 'Wetoken published five-second Seedance price example; selected duration is prorated locally.' };
   if (!anchor) return null;
 
   if (duration === anchor.seconds) {

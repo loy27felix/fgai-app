@@ -80,6 +80,39 @@ export async function PATCH(request: Request) {
     const context = await creatorContext();
     if (!context) return errorResponse('请先登录', 'UNAUTHENTICATED', 401);
     const body = await request.json().catch(() => ({}));
+    if (body.action === 'renameFolder') {
+      const folderId = typeof body.folderId === 'string'
+        ? body.folderId.trim().replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48)
+        : '';
+      const folderName = typeof body.folderName === 'string' ? body.folderName.trim().replace(/\s+/g, ' ').slice(0, 48) : '';
+      if (!folderId || folderId === 'uncategorized') return errorResponse('文件夹标识无效', 'INVALID_FOLDER_ID', 400);
+      if (!folderName) return errorResponse('文件夹名称不能为空', 'INVALID_FOLDER_NAME', 400);
+
+      const found = await context.localClient
+        .from('creator_assets')
+        .select('id, metadata')
+        .eq('workspace_id', context.workspace.id)
+        .limit(500);
+      if (found.error) throw found.error;
+      const targets = (found.data || []).filter((asset: any) => {
+        const metadata = asset.metadata && typeof asset.metadata === 'object' && !Array.isArray(asset.metadata) ? asset.metadata as Record<string, unknown> : {};
+        const storedFolderId = typeof metadata.library_folder_id === 'string' ? metadata.library_folder_id : metadata.library_folder;
+        return (metadata.library_scope === 'material-library' || typeof metadata.library_folder === 'string') && storedFolderId === folderId;
+      });
+      const updates = await Promise.all(targets.map(async (asset: any) => {
+        const metadata = asset.metadata && typeof asset.metadata === 'object' && !Array.isArray(asset.metadata) ? asset.metadata as Record<string, unknown> : {};
+        const updated = await context.localClient
+          .from('creator_assets')
+          .update({ metadata: { ...metadata, library_scope: 'material-library', library_folder_id: folderId, library_folder_name: folderName } })
+          .eq('id', asset.id)
+          .eq('workspace_id', context.workspace.id);
+        return updated.error;
+      }));
+      const failed = updates.find(Boolean);
+      if (failed) throw failed;
+      logServerEvent('material_library_folder_renamed', { folderId, updated: targets.length });
+      return NextResponse.json({ renamed: true, updated: targets.length, folderId, folderName });
+    }
     const assetId = typeof body.assetId === 'string' ? body.assetId.trim() : '';
     if (!assetId) return errorResponse('素材标识无效', 'INVALID_ASSET_ID', 400);
     if (body.folderId !== null && typeof body.folderId !== 'undefined' && typeof body.folderId !== 'string') {
@@ -88,6 +121,7 @@ export async function PATCH(request: Request) {
     const folderId = typeof body.folderId === 'string'
       ? body.folderId.trim().replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48) || null
       : null;
+    const folderName = typeof body.folderName === 'string' ? body.folderName.trim().replace(/\s+/g, ' ').slice(0, 48) : '';
 
     const found = await context.localClient
       .from('creator_assets')
@@ -103,7 +137,7 @@ export async function PATCH(request: Request) {
 
     const updated = await context.localClient
       .from('creator_assets')
-      .update({ metadata: { ...metadata, library_scope: 'material-library', library_folder_id: folderId } })
+      .update({ metadata: { ...metadata, library_scope: 'material-library', library_folder_id: folderId, ...(folderId && folderName ? { library_folder_name: folderName } : {}) } })
       .eq('id', found.data.id)
       .eq('workspace_id', context.workspace.id);
     if (updated.error) throw updated.error;

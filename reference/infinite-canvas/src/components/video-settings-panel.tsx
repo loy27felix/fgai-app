@@ -117,7 +117,12 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
         : value >= (modelSpec?.minDuration || 4) && value <= (modelSpec?.maxDuration || 15));
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const watermark = boolConfig(config.videoWatermark, false);
-    const referenceMode = config.videoReferenceMode === "first_last" ? "first_last" : "reference";
+    const forcedImageRole = modelSpec?.imageRoles.length === 1 ? modelSpec.imageRoles[0] : null;
+    const referenceMode = forcedImageRole === "first_frame"
+        ? "first_last"
+        : forcedImageRole === "reference_image"
+            ? "reference"
+            : config.videoReferenceMode === "first_last" ? "first_last" : "reference";
     const requiresAdaptiveFrameRatio = referenceMode === "first_last" && Boolean(modelSpec?.requiresAdaptiveRatioForFrameMode);
     const ratio = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.size, modelSpec?.id);
     const allowedRatios = requiresAdaptiveFrameRatio
@@ -133,14 +138,16 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title="生成方式" color={theme.node.muted}>
-                    <div className="grid grid-cols-2 gap-2.5">
-                        <OptionPill selected={referenceMode === "reference"} theme={theme} onClick={() => onConfigChange("videoReferenceMode", "reference")}>全能参考</OptionPill>
-                        <OptionPill selected={referenceMode === "first_last"} theme={theme} onClick={() => {
-                            onConfigChange("videoReferenceMode", "first_last");
-                            if (modelSpec?.requiresAdaptiveRatioForFrameMode) onConfigChange("size", "adaptive");
-                        }}>首尾帧</OptionPill>
-                    </div>
-                    {referenceMode === "first_last" ? <div className="text-xs leading-5" style={{ color: theme.node.muted }}>首尾帧按连接顺序使用前两张图片；此模式不能混合视频或音频参考。{modelSpec?.requiresAdaptiveRatioForFrameMode ? " Seedance 2.5 会固定自适应画幅。" : ""}</div> : null}
+                    {forcedImageRole ? <div className="text-xs leading-5" style={{ color: theme.node.muted }}>{forcedImageRole === "first_frame" ? "当前模型只接受 1 张首帧图片；输出比例跟随首帧。" : "当前模型只接受参考图片；可连接的图片会按参考图发送。"}</div> : <>
+                        <div className="grid grid-cols-2 gap-2.5">
+                            <OptionPill selected={referenceMode === "reference"} theme={theme} onClick={() => onConfigChange("videoReferenceMode", "reference")}>全能参考</OptionPill>
+                            <OptionPill selected={referenceMode === "first_last"} theme={theme} onClick={() => {
+                                onConfigChange("videoReferenceMode", "first_last");
+                                if (modelSpec?.requiresAdaptiveRatioForFrameMode) onConfigChange("size", "adaptive");
+                            }}>首尾帧</OptionPill>
+                        </div>
+                        {referenceMode === "first_last" ? <div className="text-xs leading-5" style={{ color: theme.node.muted }}>首尾帧按连接顺序使用前两张图片；此模式不能混合视频或音频参考。{modelSpec?.requiresAdaptiveRatioForFrameMode ? " 当前模型会固定自适应画幅。" : ""}</div> : null}
+                    </>}
                 </SettingGroup>
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
@@ -192,7 +199,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
 
 export function videoResolutionLabel(value: string) {
     const normalized = normalizeVideoResolutionValue(value);
-    return normalized === "4K" ? "4K" : `${normalized}p`;
+    return normalized === "4K" || normalized === "2K" ? normalized : `${normalized}p`;
 }
 
 export function videoSizeLabel(value: string) {

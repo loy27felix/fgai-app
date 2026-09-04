@@ -1,10 +1,10 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { App, Empty, Input, Popconfirm } from "antd";
-import { ChevronRight, FileAudio, Folder, FolderOpen, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Check, ChevronRight, FileAudio, Folder, FolderOpen, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-react";
 
 import type { CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
-import { deleteMaterialLibraryAsset, moveMaterialLibraryAsset, uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
+import { deleteMaterialLibraryAsset, moveMaterialLibraryAsset, renameMaterialLibraryFolder, uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { MATERIAL_LIBRARY_DRAG_MIME, materialToInsertPayload, useMaterialLibraryStore, type MaterialFolder, type MaterialInsertPayload, type MaterialItem } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 
 const ROOT_ID = "__all_materials__";
@@ -14,6 +14,7 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
     const folders = useMaterialLibraryStore((state) => state.folders);
     const items = useMaterialLibraryStore((state) => state.items);
     const addFolder = useMaterialLibraryStore((state) => state.addFolder);
+    const renameFolder = useMaterialLibraryStore((state) => state.renameFolder);
     const addItem = useMaterialLibraryStore((state) => state.addItem);
     const updateItem = useMaterialLibraryStore((state) => state.updateItem);
     const removeItem = useMaterialLibraryStore((state) => state.removeItem);
@@ -49,8 +50,9 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
             for (const file of files) {
                 const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : null;
                 if (!kind) continue;
-                const stored = await uploadCanvasAsset(file, { kind, source: "upload", name: file.name, libraryScope: "material-library", folderId: selectedFolderId === ROOT_ID ? undefined : selectedFolderId });
-                addItem({ kind, title: file.name || "未命名素材", url: stored.contentUrl, mimeType: file.type || "application/octet-stream", storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId: selectedFolderId === ROOT_ID ? null : selectedFolderId });
+                const folder = folders.find((candidate) => candidate.id === selectedFolderId);
+                const stored = await uploadCanvasAsset(file, { kind, source: "upload", name: file.name, libraryScope: "material-library", folderId: selectedFolderId === ROOT_ID ? undefined : selectedFolderId, folderName: folder?.name });
+                addItem({ kind, title: file.name || "未命名素材", url: stored.contentUrl, mimeType: file.type || "application/octet-stream", storagePath: stored.storagePath, cloudAssetId: stored.assetId, folderId: selectedFolderId === ROOT_ID ? null : selectedFolderId, folderName: folder?.name });
                 added += 1;
             }
             if (added) message.success(`已上传 ${added} 个素材`);
@@ -82,13 +84,29 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
         if (item.folderId === folderId) return;
         const hide = message.loading("正在移动素材…", 0);
         try {
-            if (item.cloudAssetId) await moveMaterialLibraryAsset(item.cloudAssetId, folderId);
-            updateItem(item.id, { folderId });
+            const folderName = folderId ? folders.find((folder) => folder.id === folderId)?.name : undefined;
+            if (item.cloudAssetId) await moveMaterialLibraryAsset(item.cloudAssetId, folderId, folderName);
+            updateItem(item.id, { folderId, folderName });
             console.info("[material library item moved]", { materialId: item.id, folderId, cloud: Boolean(item.cloudAssetId) });
             message.success("素材已移动");
         } catch (error) {
             console.warn("[material library item move failed]", { materialId: item.id, folderId, error });
             message.error("移动素材失败，请重试");
+        } finally {
+            hide();
+        }
+    };
+    const renameFolderName = async (folder: MaterialFolder, folderName: string) => {
+        const normalized = folderName.trim().replace(/\s+/g, " ").slice(0, 48);
+        if (!normalized || normalized === folder.name) return;
+        const hide = message.loading("正在重命名文件夹…", 0);
+        try {
+            await renameMaterialLibraryFolder(folder.id, normalized);
+            renameFolder(folder.id, normalized);
+            message.success("文件夹已重命名");
+        } catch (error) {
+            console.warn("[material library folder rename failed]", { folderId: folder.id, error });
+            message.error("重命名失败，请重试");
         } finally {
             hide();
         }
@@ -105,7 +123,7 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             <div className="mb-2 border-b pb-2" style={{ borderColor: theme.toolbar.border }}>
                 <button type="button" onClick={() => setSelectedFolderId(ROOT_ID)} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium transition", selectedFolderId === ROOT_ID && "bg-black/10 dark:bg-white/10")}><FolderOpen className="size-3.5" />全部素材<span className="ml-auto opacity-45">{items.length}</span></button>
-                {rootFolders.map((folder) => <FolderBranch key={folder.id} folder={folder} folders={folders} items={items} selectedFolderId={selectedFolderId} collapsed={collapsed} onSelect={setSelectedFolderId} onToggle={(id) => setCollapsed((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} />)}
+                {rootFolders.map((folder) => <FolderBranch key={folder.id} folder={folder} folders={folders} items={items} selectedFolderId={selectedFolderId} collapsed={collapsed} onSelect={setSelectedFolderId} onRename={(target, name) => void renameFolderName(target, name)} onToggle={(id) => setCollapsed((current) => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; })} />)}
             </div>
             <div className="flex items-center justify-between px-1 pb-1"><span className="text-[11px] font-medium opacity-55">{selectedFolderId === ROOT_ID ? "全部素材" : folders.find((folder) => folder.id === selectedFolderId)?.name || "文件夹"}</span><span className="text-[11px] opacity-40">{visibleItems.length}</span></div>
             {visibleItems.length ? <div className="grid grid-cols-2 gap-2">{visibleItems.map((item) => <MaterialCard key={item.id} item={item} folders={folders} onInsert={() => onInsert(materialToInsertPayload(item))} onMove={(folderId) => void moveItem(item, folderId)} onRemove={() => void deleteItem(item)} />)}</div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没有素材" className="pt-10" />}
@@ -113,16 +131,23 @@ export const CanvasMaterialLibraryTab = memo(function CanvasMaterialLibraryTab({
     </div>;
 });
 
-function FolderBranch({ folder, folders, items, selectedFolderId, collapsed, onSelect, onToggle }: { folder: MaterialFolder; folders: MaterialFolder[]; items: MaterialItem[]; selectedFolderId: string; collapsed: Set<string>; onSelect: (id: string) => void; onToggle: (id: string) => void }) {
+function FolderBranch({ folder, folders, items, selectedFolderId, collapsed, onSelect, onRename, onToggle }: { folder: MaterialFolder; folders: MaterialFolder[]; items: MaterialItem[]; selectedFolderId: string; collapsed: Set<string>; onSelect: (id: string) => void; onRename: (folder: MaterialFolder, name: string) => void; onToggle: (id: string) => void }) {
     const children = folders.filter((candidate) => candidate.parentId === folder.id);
     const isCollapsed = collapsed.has(folder.id);
     const count = items.filter((item) => item.folderId === folder.id).length;
+    const [editing, setEditing] = useState(false);
+    const [draftName, setDraftName] = useState(folder.name);
+    const commitRename = () => {
+        const nextName = draftName.trim().replace(/\s+/g, " ").slice(0, 48);
+        setEditing(false);
+        if (nextName && nextName !== folder.name) onRename(folder, nextName);
+    };
     return <div role="treeitem" aria-expanded={children.length ? !isCollapsed : undefined}>
-        <div className={cn("flex items-center rounded-md transition", selectedFolderId === folder.id && "bg-black/10 dark:bg-white/10")}>
+        <div className={cn("group flex items-center rounded-md transition", selectedFolderId === folder.id && "bg-black/10 dark:bg-white/10")}>
             <button type="button" onClick={() => onToggle(folder.id)} className="grid size-6 place-items-center opacity-55" disabled={!children.length}>{children.length ? <ChevronRight className={cn("size-3.5 transition-transform", !isCollapsed && "rotate-90")} /> : null}</button>
-            <button type="button" onClick={() => onSelect(folder.id)} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-xs"><Folder className="size-3.5 shrink-0" /><span className="truncate">{folder.name}</span><span className="ml-auto pr-1 opacity-40">{count}</span></button>
+            {editing ? <div className="flex min-w-0 flex-1 items-center gap-1 py-0.5"><Input size="small" autoFocus value={draftName} maxLength={48} onChange={(event) => setDraftName(event.target.value)} onPressEnter={commitRename} onKeyDown={(event) => { if (event.key === "Escape") { setDraftName(folder.name); setEditing(false); } }} /><button type="button" aria-label="确认重命名" onClick={commitRename} className="grid size-6 shrink-0 place-items-center opacity-70 hover:opacity-100"><Check className="size-3.5" /></button><button type="button" aria-label="取消重命名" onClick={() => { setDraftName(folder.name); setEditing(false); }} className="grid size-6 shrink-0 place-items-center opacity-55 hover:opacity-100"><X className="size-3.5" /></button></div> : <><button type="button" onClick={() => onSelect(folder.id)} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-xs"><Folder className="size-3.5 shrink-0" /><span className="truncate">{folder.name}</span><span className="ml-auto pr-1 opacity-40">{count}</span></button><button type="button" aria-label={`重命名文件夹 ${folder.name}`} title="重命名文件夹" onClick={() => { setDraftName(folder.name); setEditing(true); }} className="mr-1 grid size-6 shrink-0 place-items-center rounded opacity-0 transition hover:bg-black/10 group-hover:opacity-75 focus:opacity-100 dark:hover:bg-white/10"><Pencil className="size-3" /></button></>}
         </div>
-        {!isCollapsed ? <div className="ml-3 border-l pl-1" style={{ borderColor: "rgba(148,163,184,.18)" }}>{children.map((child) => <FolderBranch key={child.id} folder={child} folders={folders} items={items} selectedFolderId={selectedFolderId} collapsed={collapsed} onSelect={onSelect} onToggle={onToggle} />)}</div> : null}
+        {!isCollapsed ? <div className="ml-3 border-l pl-1" style={{ borderColor: "rgba(148,163,184,.18)" }}>{children.map((child) => <FolderBranch key={child.id} folder={child} folders={folders} items={items} selectedFolderId={selectedFolderId} collapsed={collapsed} onSelect={onSelect} onRename={onRename} onToggle={onToggle} />)}</div> : null}
     </div>;
 }
 

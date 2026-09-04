@@ -82,6 +82,7 @@ export async function POST(req: Request) {
     const nodeId = String(form.get('nodeId') || '').slice(0, 128);
     const libraryScope = String(form.get('libraryScope') || '') === 'material-library';
     const folderId = String(form.get('folderId') || '').trim().replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48);
+    const folderName = String(form.get('folderName') || '').trim().replace(/\s+/g, ' ').slice(0, 48);
     const name = safeName(String(form.get('name') || file.name || 'asset'));
     const extension = extensionFor(file.type, name);
     const storagePath = context.user.id + '/canvas-assets/' + randomId() + '-' + name.replace(/\.[a-z0-9]{1,8}$/i, '') + '.' + extension;
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
           canvas_node_id: nodeId || null,
           original_name: file.name,
           bytes: file.size,
-          ...(libraryScope ? { library_scope: 'material-library', library_folder_id: folderId || null } : {}),
+          ...(libraryScope ? { library_scope: 'material-library', library_folder_id: folderId || null, ...(folderName ? { library_folder_name: folderName } : {}) } : {}),
         },
       })
       .select('id, storage_path')

@@ -13,7 +13,7 @@ export type StoredCanvasAsset = {
  * its temporary object URL.  The returned path is user-private and playback
  * always goes through the same-origin content proxy.
  */
-export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKind; source: "upload" | "generation" | "project_copy"; name?: string; nodeId?: string; libraryScope?: "material-library"; folderId?: string }): Promise<StoredCanvasAsset> {
+export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKind; source: "upload" | "generation" | "project_copy"; name?: string; nodeId?: string; libraryScope?: "material-library"; folderId?: string; folderName?: string }): Promise<StoredCanvasAsset> {
     const form = new FormData();
     form.set("file", file, file.name || input.name || "canvas-asset");
     form.set("kind", input.kind);
@@ -22,6 +22,7 @@ export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKi
     if (input.nodeId) form.set("nodeId", input.nodeId);
     if (input.libraryScope) form.set("libraryScope", input.libraryScope);
     if (input.folderId) form.set("folderId", input.folderId);
+    if (input.folderName) form.set("folderName", input.folderName);
 
     const response = await fetch("/api/creator/canvas-assets", { method: "POST", body: form });
     const payload = await response.json().catch(() => ({})) as { assetId?: unknown; storagePath?: unknown; error?: unknown; code?: unknown };
@@ -46,11 +47,11 @@ export async function deleteMaterialLibraryAsset(assetId: string) {
     console.info("[material library delete completed]", { assetId });
 }
 
-export async function moveMaterialLibraryAsset(assetId: string, folderId: string | null) {
+export async function moveMaterialLibraryAsset(assetId: string, folderId: string | null, folderName?: string) {
     const response = await fetch("/api/creator/assets", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assetId, folderId }),
+        body: JSON.stringify({ assetId, folderId, folderName }),
     });
     const payload = await response.json().catch(() => ({})) as { updated?: unknown; error?: unknown; code?: unknown };
     if (!response.ok || payload.updated !== true) {
@@ -59,4 +60,19 @@ export async function moveMaterialLibraryAsset(assetId: string, folderId: string
         throw new Error(`${message}（${code}）`);
     }
     console.info("[material library folder persisted]", { assetId, folderId });
+}
+
+export async function renameMaterialLibraryFolder(folderId: string, folderName: string) {
+    const response = await fetch("/api/creator/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "renameFolder", folderId, folderName }),
+    });
+    const payload = await response.json().catch(() => ({})) as { renamed?: unknown; error?: unknown; code?: unknown };
+    if (!response.ok || payload.renamed !== true) {
+        const message = typeof payload.error === "string" ? payload.error : "重命名文件夹失败";
+        const code = typeof payload.code === "string" ? payload.code : "UNKNOWN";
+        throw new Error(`${message}（${code}）`);
+    }
+    console.info("[material library folder renamed]", { folderId });
 }

@@ -5,6 +5,7 @@ import test, { afterEach } from 'node:test';
 import {
   VIDEO_MODELS,
   WETOKEN_VIDEO_SUBMIT_TIMEOUT_MS,
+  buildWetokenVideoRequest,
   buildSeedanceRequest,
   createWetokenVideoTask,
   getWetokenVideoTask,
@@ -24,7 +25,7 @@ afterEach(() => {
   else process.env.WETOKEN_BASE_URL = originalBase;
 });
 
-test('video catalog contains all normal and filter-off Seedance models', () => {
+test('video catalog contains Seedance plus the four documented Wetoken video models', () => {
   assert.deepEqual(VIDEO_MODELS.map((model) => model.id), [
     'doubao-seedance-2-0',
     'doubao-seedance-2-0-filter-off',
@@ -34,10 +35,103 @@ test('video catalog contains all normal and filter-off Seedance models', () => {
     'dreamina-seedance-2-0-mini-filter-off',
     'dreamina-seedance-2-5',
     'dreamina-seedance-2-5-filter-off',
+    'happyhorse-1.1-i2v',
+    'happyhorse-1.1-r2v',
+    'happyhorse-1.1-t2v',
+    'MiniMax-H3',
   ]);
   assert.deepEqual(VIDEO_MODELS.map((model) => model.filterOff), [
     false, true, false, true, false, true, false, true,
+    false, false, false, false,
   ]);
+});
+
+test('HappyHorse 1.1 image-to-video uses the DashScope first-frame contract', () => {
+  assert.deepEqual(buildWetokenVideoRequest({
+    model: 'happyhorse-1.1-i2v',
+    prompt: 'the cat turns toward camera',
+    references: [{ type: 'image', url: 'https://example.com/first.png', role: 'first_frame' }],
+    duration: 5,
+    ratio: 'adaptive',
+    resolution: '720p',
+    watermark: false,
+    generateAudio: false,
+  }), {
+    family: 'dashscope',
+    body: {
+      model: 'happyhorse-1.1-i2v',
+      input: {
+        prompt: 'the cat turns toward camera',
+        media: [{ type: 'first_frame', url: 'https://example.com/first.png' }],
+      },
+      parameters: {
+        resolution: '720P',
+        duration: 5,
+        prompt_extend: true,
+        watermark: false,
+      },
+    },
+  });
+});
+
+test('HappyHorse 1.1 reference-to-video sends each reference image to DashScope', () => {
+  assert.deepEqual(buildWetokenVideoRequest({
+    model: 'happyhorse-1.1-r2v',
+    prompt: 'combine the character and costume references',
+    references: [
+      { type: 'image', url: 'https://example.com/character.png', role: 'reference_image' },
+      { type: 'image', url: 'https://example.com/costume.png', role: 'reference_image' },
+    ],
+    duration: 6,
+    ratio: '9:16',
+    resolution: '1080p',
+    watermark: true,
+    generateAudio: false,
+  }), {
+    family: 'dashscope',
+    body: {
+      model: 'happyhorse-1.1-r2v',
+      input: {
+        prompt: 'combine the character and costume references',
+        media: [
+          { type: 'reference_image', url: 'https://example.com/character.png' },
+          { type: 'reference_image', url: 'https://example.com/costume.png' },
+        ],
+      },
+      parameters: {
+        resolution: '1080P',
+        ratio: '9:16',
+        duration: 6,
+        prompt_extend: true,
+        watermark: true,
+      },
+    },
+  });
+});
+
+test('MiniMax H3 uses the V2 content request contract', () => {
+  assert.deepEqual(buildWetokenVideoRequest({
+    model: 'MiniMax-H3',
+    prompt: 'cinematic train crossing a bridge at dawn',
+    references: [{ type: 'image', url: 'https://example.com/first.png', role: 'first_frame' }],
+    duration: 10,
+    ratio: 'adaptive',
+    resolution: '2K',
+    watermark: false,
+    generateAudio: true,
+  }), {
+    family: 'minimax-v2',
+    body: {
+      model: 'MiniMax-H3',
+      content: [
+        { type: 'text', text: 'cinematic train crossing a bridge at dawn' },
+        { type: 'image_url', image_url: { url: 'https://example.com/first.png' }, role: 'first_frame' },
+      ],
+      resolution: '2K',
+      duration: 10,
+      ratio: 'adaptive',
+    },
+  });
 });
 
 test('video model capability lists declare the ratios that the settings panel may offer', () => {
@@ -289,6 +383,50 @@ test('video client creates a task on the native Wetoken endpoint', async () => {
   assert.equal(observed?.authorization, 'Bearer test-key');
   assert.equal(observed?.body.model, 'dreamina-seedance-2-0-mini-filter-off');
   assert.deepEqual(result, { externalTaskId: 'task-123', status: 'queued', raw: { id: 'task-123', status: 'queued' } });
+});
+
+test('HappyHorse task submission uses DashScope async routing', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
+  let observed: { url: string; asyncHeader: string | null; body: unknown } | undefined;
+  const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
+    observed = {
+      url: String(input),
+      asyncHeader: new Headers(init?.headers).get('x-dashscope-async'),
+      body: JSON.parse(String(init?.body)),
+    };
+    return new Response(JSON.stringify({ output: { task_id: 'horse-task' } }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const result = await createWetokenVideoTask({
+    model: 'happyhorse-1.1-t2v', prompt: 'a fox running through snow', references: [],
+    duration: 3, ratio: '16:9', resolution: '720p', watermark: false, generateAudio: false,
+  }, { fetcher });
+  assert.equal(observed?.url, 'https://wetoken.example/dashscope/api/v1/services/aigc/video-generation/video-synthesis');
+  assert.equal(observed?.asyncHeader, 'enable');
+  assert.deepEqual(observed?.body, {
+    model: 'happyhorse-1.1-t2v',
+    input: { prompt: 'a fox running through snow' },
+    parameters: { resolution: '720P', duration: 3, prompt_extend: true, watermark: false, ratio: '16:9' },
+  });
+  assert.equal(result.externalTaskId, 'horse-task');
+});
+
+test('MiniMax H3 task polling uses V2 routing and task content', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
+  let observedUrl = '';
+  const fetcher = async (input: string | URL | Request) => {
+    observedUrl = String(input);
+    return new Response(JSON.stringify({
+      task: { task_id: 'h3-task', status: 'Success', content: { url: 'https://cdn.example.com/h3.mp4' } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  assert.deepEqual(await getWetokenVideoTask('h3-task', { model: 'MiniMax-H3', fetcher }), {
+    externalTaskId: 'h3-task', status: 'succeeded', videoUrl: 'https://cdn.example.com/h3.mp4', error: undefined, usage: undefined,
+  });
+  assert.equal(observedUrl, 'https://wetoken.example/v2/query/video_generation/h3-task');
 });
 
 

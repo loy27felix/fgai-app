@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@/lib/local/server';
 import {
-  buildSeedanceRequest,
+  buildWetokenVideoRequest,
   assertSeedanceInputTypes,
   createWetokenVideoTask,
   isDefinitiveWetokenVideoRejection,
@@ -192,7 +192,7 @@ export async function POST(req: Request) {
     const references = await Promise.all(input.references.map((reference) => providerReference(reference, user.id, projectId)));
     const providerInput = { ...input, references };
     try {
-      buildSeedanceRequest(providerInput);
+      buildWetokenVideoRequest(providerInput);
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : '视频参数无效' }, { status: 400 });
     }
