@@ -261,7 +261,7 @@ export async function claimNextVideoTask() {
          from creator_generation_tasks
         where kind = 'video'
           and (
-            status = 'queued'
+            (status = 'queued' and external_task_id is null)
             or (
               status = 'submitting'
               and submission_started_at < now() - interval '5 minutes'

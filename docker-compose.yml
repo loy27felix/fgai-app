@@ -73,24 +73,7 @@ services:
     depends_on:
       app:
         condition: service_healthy
-    command:
-      - sh
-      - -c
-      - |
-        set -u
-        while true; do
-          node -e '
-            const secret = process.env.FG_OBSERVABILITY_SECRET || process.env.SESSION_SECRET || "";
-            fetch("http://app:3000/api/internal/video-task-worker", {
-              method: "POST",
-              headers: { "x-fg-observability-secret": secret },
-            }).then(async (response) => {
-              await response.arrayBuffer();
-              if (!response.ok) process.exitCode = 1;
-            }).catch(() => { process.exitCode = 1; });
-          '
-          sleep 5
-        done
+    command: ["node", "scripts/video-task-worker.mjs"]
     networks:
       - fg
     logging: *default-logging
