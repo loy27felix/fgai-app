@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/local/server';
+import { getCurrentUser } from '@/lib/local/auth';
 import {
   observationFingerprint,
   recordObservationError,
@@ -93,18 +93,17 @@ export async function POST(request: Request) {
 
   const message = text(body.message, 1_000);
   if (!message) return new NextResponse(null, { status: 204 });
-  const localClient = createClient();
-  let user: { id: string } | null = null;
+  let user: Awaited<ReturnType<typeof getCurrentUser>> = null;
   try {
-    const result = await localClient.auth.getUser();
-    user = result.data.user ? { id: result.data.user.id } : null;
+    user = await getCurrentUser();
   } catch {
     // Client telemetry must remain anonymous when the session store is unavailable.
     // 会话存储异常时降级为匿名观测，不能让观测接口继续放大故障。
   }
   const service = text(body.apiPath, 240) ? 'browser-api' : 'browser';
-  const route = text(body.route, 240);
+  const pageRoute = text(body.route, 240);
   const apiPath = text(body.apiPath, 240);
+  const route = apiPath || pageRoute;
   const status = allowedStatus(body.httpStatus);
   const fingerprint = observationFingerprint({
     source: 'frontend',
@@ -127,12 +126,16 @@ export async function POST(request: Request) {
       stack: text(body.stack, 2_000) || null,
       traceId,
       userId: user?.id || null,
-      route: route || apiPath || null,
+      route: route || null,
       httpStatus: status,
       deploymentVersion: text(body.deploymentVersion, 160) || null,
       eventKey: text(body.eventId, 240) || null,
       metadata: {
+        actorId: user?.id || null,
+        actorEmail: user?.email || null,
         method: text(body.method, 16) || null,
+        apiPath: apiPath || null,
+        pageRoute: pageRoute || null,
         systemVersion: text(body.systemVersion, 80) || null,
         client: body.metadata || null,
       },

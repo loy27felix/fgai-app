@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import dayjs from 'dayjs';
 import { query as dbQuery } from '@/lib/local/db';
 
 export const LOG_SOURCES = ['audit', 'frontend', 'app', 'provider', 'infra', 'deploy', 'billing', 'data'] as const;
@@ -10,8 +11,8 @@ export type LogLevel = typeof LOG_LEVELS[number];
 export type LogLevelFilter = LogLevel | 'all';
 export type LogKind = 'audit' | 'error' | 'service' | 'log';
 
-const DEFAULT_RANGE_MS = 24 * 60 * 60 * 1_000;
-const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1_000;
+const DEFAULT_RANGE_MS = 15 * 60 * 1_000;
+const MAX_RANGE_MONTHS = 3;
 const MAX_LOG_LIMIT = 200;
 const MAX_LOG_OFFSET = 5_000;
 const MAX_QUERY_LENGTH = 512;
@@ -55,6 +56,7 @@ export type LogRecord = {
   requestId: string | null;
   taskId: string | null;
   userId: string | null;
+  actorEmail: string | null;
   route: string | null;
   httpStatus: number | null;
   durationMs: number | null;
@@ -109,6 +111,7 @@ type LogRow = {
   request_id: string | null;
   task_id: string | null;
   user_id: string | null;
+  actor_email: string | null;
   route: string | null;
   http_status: number | string | null;
   duration_ms: number | string | null;
@@ -145,7 +148,7 @@ type LogCursor = {
 // 将所有持久化观测流统一成同一 SQL 结构，确保筛选、统计和详情展示使用同一口径。
 const LOG_CTE = `with logs as (
   select
-    'audit:' || id::text as id,
+    'audit:' || audit_events.id::text as id,
     event_id::text as event_id,
     'audit'::text as kind,
     occurred_at,
@@ -163,11 +166,14 @@ const LOG_CTE = `with logs as (
     coalesce(data->>'requestId', metadata->>'requestId') as request_id,
     coalesce(data->>'taskId', resource_id) as task_id,
     actor_id::text as user_id,
+    actor_profile.email as actor_email,
     coalesce(data->>'route', metadata->>'route') as route,
     null::integer as http_status,
     duration_ms,
     jsonb_build_object(
       'eventId', event_id,
+      'actorId', actor_id,
+      'workspaceId', workspace_id,
       'feature', feature,
       'action', action,
       'resourceType', resource_type,
@@ -182,10 +188,11 @@ const LOG_CTE = `with logs as (
       'metadata', metadata
     ) as details,
     concat_ws(' ', event_id::text, feature, action, stage, outcome, resource_type, resource_id,
-      trace_id, actor_id::text, workspace_id::text, parameters::text, data::text,
+      trace_id, actor_id::text, actor_profile.email, workspace_id::text, parameters::text, data::text,
       error::text, metadata::text) as search_text,
-    id as sequence_id
+    audit_events.id as sequence_id
   from audit_events
+  left join profiles actor_profile on actor_profile.id = audit_events.actor_id
 
   union all
 
@@ -204,13 +211,15 @@ const LOG_CTE = `with logs as (
     log.request_id,
     log.task_id,
     log.user_id,
+    log_actor.email as actor_email,
     log.route,
     log.http_status,
     log.duration_ms,
     log.payload as details,
-    log.search_text,
+    concat_ws(' ', log.search_text, log_actor.email) as search_text,
     log.id as sequence_id
   from observability_log_events log
+  left join profiles log_actor on log_actor.id::text = log.user_id
   where not exists (
     select 1
       from audit_events audit
@@ -221,7 +230,7 @@ const LOG_CTE = `with logs as (
   union all
 
   select
-    'error:' || id::text as id,
+    'error:' || observability_error_events.id::text as id,
     event_key::text as event_id,
     'error'::text as kind,
     occurred_at,
@@ -235,6 +244,7 @@ const LOG_CTE = `with logs as (
     request_id,
     task_id,
     user_id::text,
+    error_actor.email as actor_email,
     route,
     http_status,
     null::integer as duration_ms,
@@ -250,9 +260,10 @@ const LOG_CTE = `with logs as (
     ) as details,
     concat_ws(' ', event_key, source, service, feature, action, severity, impact, fingerprint,
       code, message, stack, trace_id, request_id, task_id, user_id::text, route,
-      http_status::text, deployment_version, metadata::text) as search_text,
-    id as sequence_id
+      http_status::text, deployment_version, error_actor.email, metadata::text) as search_text,
+    observability_error_events.id as sequence_id
   from observability_error_events
+  left join profiles error_actor on error_actor.id = observability_error_events.user_id
 
   union all
 
@@ -271,6 +282,7 @@ const LOG_CTE = `with logs as (
     null::text as request_id,
     null::text as task_id,
     null::text as user_id,
+    null::text as actor_email,
     null::text as route,
     null::integer as http_status,
     duration_ms,
@@ -343,7 +355,7 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
     : dateValue(input.from);
   if (!from || !to) throw new LogQueryValidationError('时间格式无效');
   if (from >= to) throw new LogQueryValidationError('开始时间必须早于结束时间');
-  if (to.getTime() - from.getTime() > MAX_RANGE_MS) throw new LogQueryValidationError('时间范围不能超过 31 天');
+  if (to.getTime() > dayjs(from).add(MAX_RANGE_MONTHS, 'month').valueOf()) throw new LogQueryValidationError('时间范围不能超过 3 个月');
 
   const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
   if (rawQuery.length > MAX_QUERY_LENGTH) throw new LogQueryValidationError(`搜索词不能超过 ${MAX_QUERY_LENGTH} 个字符`);
@@ -433,6 +445,7 @@ function normalizeRecord(row: LogRow): LogRecord {
     requestId: row.request_id,
     taskId: row.task_id,
     userId: row.user_id,
+    actorEmail: row.actor_email,
     route: row.route,
     httpStatus: nullableNumber(row.http_status),
     durationMs: nullableNumber(row.duration_ms),
@@ -459,7 +472,7 @@ export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogEx
   const listResult = dbQuery<LogRow>(
     `${LOG_CTE}
      select id, event_id, kind, occurred_at, source, service, event_name, level, outcome,
-            message, trace_id, request_id, task_id, user_id, route, http_status,
+            message, trace_id, request_id, task_id, user_id, actor_email, route, http_status,
             duration_ms, details, sequence_id
        from logs
       ${scope.where}

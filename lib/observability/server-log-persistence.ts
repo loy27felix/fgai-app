@@ -164,11 +164,17 @@ async function flushServerLogQueue() {
       values,
     );
   } catch (error) {
-    // The already-emitted JSON line remains the recovery source when PostgreSQL is unavailable.
-    // 已经输出的 JSON Lines 是数据库不可用时的恢复旁路，不能因入库失败重试阻塞业务。
+    // Requeue the failed atomic batch so a transient database outage does not erase it.
+    // 失败批次重新排队，避免数据库短暂故障直接抹掉本批日志；请求仍不等待重试。
     reportLogPersistenceFailure(error, batch.length);
-    pendingServerLogs.splice(0, pendingServerLogs.length);
+    const available = Math.max(0, LOG_PERSISTENCE_QUEUE_LIMIT - pendingServerLogs.length);
+    if (available > 0) pendingServerLogs.unshift(...batch.slice(0, available));
+    if (available < batch.length) droppedServerLogs += batch.length - available;
     logPersistenceDisabledUntil = Date.now() + LOG_PERSISTENCE_COOLDOWN_MS;
+    const retryTimer = setTimeout(() => {
+      if (pendingServerLogs.length && Date.now() >= logPersistenceDisabledUntil) void flushServerLogQueue();
+    }, LOG_PERSISTENCE_COOLDOWN_MS + 10);
+    retryTimer.unref();
   } finally {
     logFlushRunning = false;
     if (pendingServerLogs.length && Date.now() >= logPersistenceDisabledUntil) {
@@ -178,7 +184,6 @@ async function flushServerLogQueue() {
 }
 
 export function queueServerLog(eventName: string, payload: Record<string, unknown>, level: ServerLogLevel) {
-  if (Date.now() < logPersistenceDisabledUntil) return;
   if (pendingServerLogs.length >= LOG_PERSISTENCE_QUEUE_LIMIT) {
     droppedServerLogs += 1;
     if (droppedServerLogs === 1 || droppedServerLogs % 100 === 0) {
@@ -196,6 +201,7 @@ export function queueServerLog(eventName: string, payload: Record<string, unknow
     return;
   }
   pendingServerLogs.push(buildPersistedServerLog(eventName, payload, level));
+  if (Date.now() < logPersistenceDisabledUntil) return;
   if (logFlushScheduled) return;
   logFlushScheduled = true;
   setImmediate(() => {

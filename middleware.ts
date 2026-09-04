@@ -1,8 +1,8 @@
-import { type NextRequest } from "next/server";
+import { type NextFetchEvent, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/local/middleware";
-import { logServerEvent, requestTraceId } from "@/lib/observability/server-log-edge";
+import { logServerEvent, queueEdgeRequestEvent, requestTraceId } from "@/lib/observability/server-log-edge";
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const traceId = requestTraceId(request);
   logServerEvent("http_request_received", {
     traceId,
@@ -11,6 +11,8 @@ export async function middleware(request: NextRequest) {
     userAgent: request.headers.get("user-agent") || undefined,
     cfRay: request.headers.get("cf-ray") || undefined,
   });
+  const requestEvent = queueEdgeRequestEvent(request, traceId);
+  if (requestEvent) event.waitUntil(requestEvent);
   return await updateSession(request, traceId);
 }
 

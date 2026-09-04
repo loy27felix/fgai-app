@@ -24,7 +24,7 @@ export default async function LogsPage({ searchParams }: { searchParams?: Record
   if (profile?.platform_role !== 'admin' && profile?.platform_role !== 'superadmin') redirect('/admin');
 
   const to = new Date();
-  const from = new Date(to.getTime() - 24 * 60 * 60 * 1_000);
+  const from = new Date(to.getTime() - 15 * 60 * 1_000);
   let initialData = null;
   let initialError = '';
   try {
@@ -35,7 +35,7 @@ export default async function LogsPage({ searchParams }: { searchParams?: Record
       source: valueOf(searchParams?.source) || 'all',
       level: valueOf(searchParams?.level) || 'all',
       offset: 0,
-      limit: 200,
+      limit: 50,
     });
   } catch (error) {
     logServerFailure('observability_log_page_read_failed', error);
@@ -43,7 +43,7 @@ export default async function LogsPage({ searchParams }: { searchParams?: Record
   }
 
   return (
-    <PageShell title="日志检索" email={user.email || ''}>
+    <PageShell title="日志检索" email={user.email || ''} mainClassName="observability-page-main">
       <ObservabilityLogExplorer initialData={initialData} initialError={initialError} />
     </PageShell>
   );

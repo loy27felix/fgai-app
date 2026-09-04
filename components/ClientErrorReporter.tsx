@@ -26,11 +26,8 @@ function eventId() {
 export default function ClientErrorReporter({ deploymentVersion, systemVersion }: ClientErrorReporterProps) {
   useEffect(() => {
     const originalFetch = window.fetch.bind(window);
-    let reporting = false;
 
     const report = (input: Record<string, unknown>) => {
-      if (reporting) return;
-      reporting = true;
       try {
         const body = JSON.stringify({
           ...input,
@@ -46,9 +43,10 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
           body,
           keepalive: true,
           signal: AbortSignal.timeout(3_000),
-        }).catch(() => undefined).finally(() => { reporting = false; });
+        }).catch(() => undefined);
       } catch {
-        reporting = false;
+        // Diagnostics must remain best-effort and never change the original browser event.
+        // 诊断上报只能尽力而为，不能改变原始浏览器事件的行为。
       }
     };
 

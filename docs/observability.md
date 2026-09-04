@@ -29,23 +29,23 @@ Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_
 
 ## 前端、主机和周期报表
 
-浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应；画布事件异常和必要的创作台诊断通过 `lib/observability/client-log.ts` 进入同一入口 `/api/observability/client-errors`。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本和 metadata 在入库前脱敏和截断。
+浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应；画布事件异常和必要的创作台诊断通过 `lib/observability/client-log.ts` 进入同一入口 `/api/observability/client-errors`。服务端从当前 `fg_session` 解析主体并写入 `user_id`，同时把权威 `actorId` / `actorEmail` 固化在 metadata，日志详情优先展示账户邮箱，其次展示用户 UUID；没有会话的历史浏览器错误明确显示为“浏览器会话 / 未关联账户”，不能根据时间猜测用户。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本和 metadata 在入库前脱敏和截断。
 
 实际 Docker 主机上的 `scripts/service-monitor.sh` 每轮把 Docker、NAS、App、PostgreSQL、Tunnel、磁盘和 App 错误检查写入 `observability_service_events` / `observability_error_events`。观测 HTTP 上报在独立后台进程中执行，网络或 App 不可用时不会拖慢本机健康检查。`scripts/report-scheduler.sh` 每 5 分钟调用一次内部 `/api/observability/report-runner`；每轮最多生成 4 份报表，scheduler 失败或历史补算未完成时下一轮继续重试。内部接口使用 `x-fg-observability-secret`，优先读取 `FG_OBSERVABILITY_SECRET`，兼容回退到 `SESSION_SECRET`。
 
 周期报表由 `lib/observability/reporting.ts` 生成并写入 `report_runs` 及三个快照表：
 
 - `report_account_summaries`：按账户汇总 AI 调用、成功/失败/处理中、Token、图片、视频、确认/估算/预留成本、未知成本调用和错误数。
-- `report_error_summaries`：合并前端、App、Provider、Infra、Deploy、Billing、Data 和任务状态错误，保留错误类型、首次/末次时间、发生次数及受影响账户/请求/任务数；`metadata.affectedAccountEmails` 保存报表时可关联的账户邮箱，供管理员定位具体影响对象。
+- `report_error_summaries`：合并前端、App、Provider、Infra、Deploy、Billing、Data 和任务状态错误，保留错误类型、首次/末次时间、发生次数及受影响账户/请求/任务数；`metadata.affectedAccountEmails` 保存报表时可关联的账户邮箱，`metadata.sample` 保存最新失败样本的主体、时间、功能、动作/阶段、Route、Trace/Request/Task、参数、业务数据、metadata、stack 和原始错误，报表可直接跳转 `/admin/logs` 做完整链路检索。
 - `report_service_summaries`：根据主机心跳和状态事件计算检查次数、事故次数、异常时长；观测断档时标记 `data_complete=false`，不伪造可用率。
 
 日报、周报和月报都按 `Asia/Shanghai` 计算。`revision=0` 是允许异步任务和供应商费用迟到的临时版，`revision=1` 是后续对账的最终版；任务使用数据库唯一键幂等，失败任务保留失败原因并可安全重试。管理员从 `/admin/reports` 查看报表，通知 webhook 失败不会改变报表成功状态。
 
 ## 日志检索工作台
 
-管理员从 `/admin/logs` 查看统一日志流。页面把 `audit_events`、`observability_log_events`、`observability_error_events` 和 `observability_service_events` 合并为同一条可检索事件流，支持近 15 分钟、1 小时、6 小时、24 小时、7 天和 31 天范围，按关键词、来源和级别筛选，并通过时间分布、事件列表和右侧完整事件 JSON 详情定位一次异常。默认只读取最近 24 小时，单次最多返回 200 条，继续加载时使用 keyset cursor 在同一组筛选条件下读取后续记录，不受旧 offset 上限影响；当前查询条件会同步到 URL，刷新后保持不变。
+管理员从 `/admin/logs` 查看统一日志流。页面把 `audit_events`、`observability_log_events`、`observability_error_events` 和 `observability_service_events` 合并为同一条可检索事件流，支持近 15 分钟、1 小时、6 小时、24 小时、7 天和 3 个月范围，也支持自定义开始/结束时间，单次查询最多 3 个月，按关键词、来源和级别筛选，并通过时间分布、事件列表和详情 inspector 定位一次异常。事件列表直接显示时间、来源、主体邮箱或 ID、事件和动作；选中事件后，详情按“谁、何时、做了什么”展示主体、时间、动作、功能、资源、工作区和状态变化，再展示 trace/request/task 链路、请求响应 headers/body、parameters/data/metadata 和完整事件 JSON。详情 inspector 固定在视口右侧并自带滚动，左侧事件流很长时无需回到页面顶部。默认只读取最近 15 分钟，默认每页 50 条，分页使用 keyset cursor 在同一组筛选条件下读取前后页，不受旧 offset 上限影响；当前查询条件会同步到 URL，刷新后保持不变。
 
-`logServerEvent` 先输出 JSON Lines，再把同一份已安全序列化的 payload 放入异步数据库队列；正常数据库可用时，普通服务日志会进入 `observability_log_events`，`recordAuditEvent` 的重复 raw 行会按 `eventId` 与 `audit_events` 合并显示。数据库或队列不可用时保留 Docker stdout 旁路并丢弃数据库副本，保证业务请求不等待观测写入；因此 Docker 日志轮转或 Edge middleware 的 `http_request_received` 仍需通过 `pnpm logs:app` 溯源，不能把它们误认为已进入工作台。事件详情沿用写入端的安全序列化结果，仅对管理员开放。
+`logServerEvent` 先输出 JSON Lines，再把同一份已安全序列化的 payload 放入异步数据库队列；正常数据库可用时，普通服务日志会进入 `observability_log_events`，`recordAuditEvent` 的重复 raw 行会按 `eventId` 与 `audit_events` 合并显示。API、管理员页面和所有非 GET 请求的 Edge middleware 元数据会通过内部 Node collector 异步进入同一日志表，collector 不等待业务响应，且不记录请求 body。数据库短暂不可用时，失败批次会在有界队列中等待冷却后重试，同时保留 Docker stdout 旁路；长时间故障超过队列容量、浏览器离线或 telemetry 入口触发保护性限流时，仍只能以旁路日志为恢复依据，不能把旁路数据误认为已进入工作台。事件详情沿用写入端的安全序列化结果，仅对管理员开放。
 
 ## 排查方式
 
