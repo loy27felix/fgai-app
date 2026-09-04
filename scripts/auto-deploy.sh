@@ -250,23 +250,29 @@ wait_for_healthy() {
 
 reload_nginx() {
   local nginx_container
+  local expected_config_hash
+  local mounted_config_hash
   local attempt
 
   nginx_container="$(compose ps -q nginx 2>/dev/null || true)"
   [[ -n "$nginx_container" ]] || return 0
+  expected_config_hash="$(shasum -a 256 "$PROJECT_ROOT/docker/nginx/default.conf" | awk '{print $1}')"
   # A bind-mounted Nginx config needs an explicit reload after a repository update.
   # bind-mounted Nginx 配置随仓库更新后不会自动生效，必须显式 reload。
   log "Auto deploy: validating and reloading Nginx"
-  for attempt in {1..5}; do
-    if compose exec -T nginx nginx -t >/dev/null && compose exec -T nginx nginx -s reload >/dev/null; then
+  for attempt in {1..15}; do
+    mounted_config_hash="$(compose exec -T nginx sha256sum /etc/nginx/conf.d/default.conf 2>/dev/null | awk '{print $1}' || true)"
+    if [[ "$mounted_config_hash" == "$expected_config_hash" ]] \
+      && compose exec -T nginx nginx -t >/dev/null \
+      && compose exec -T nginx nginx -s reload >/dev/null; then
       return 0
     fi
-    if ((attempt < 5)); then
-      log "Auto deploy: Nginx validation/reload attempt $attempt/5 failed; retrying"
+    if ((attempt < 15)); then
+      log "Auto deploy: Nginx mount validation/reload attempt $attempt/15 failed; retrying"
       sleep 2
     fi
   done
-  log "Auto deploy: Nginx validation/reload failed after 5 attempts"
+  log "Auto deploy: Nginx mount validation/reload failed after 15 attempts"
   return 1
 }
 
