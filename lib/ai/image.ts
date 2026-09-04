@@ -1,4 +1,4 @@
-import { getImageModel } from '../imageModels';
+import { getImageModel, imageOutputSizeForDimensions, imageOutputSizeOptionsFor } from '../imageModels';
 import { wetokenProviderDispatcher, type WetokenFetcher, type WetokenFetcherInit } from './wetoken-transport';
 import {
   logCreatorImageEvent,
@@ -138,7 +138,10 @@ export function sizeToAspectRatio(size: string) {
   });
 }
 
-export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' | 'size' | 'references'>) {
+export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' | 'size' | 'references'> & Pick<Partial<ImageGenerationInput>, 'model'>) {
+  const requestedTier = imageOutputSizeForDimensions(input.size);
+  const supportedTiers = imageOutputSizeOptionsFor(input.model || '');
+  const imageSize = supportedTiers.includes(requestedTier) ? requestedTier : supportedTiers[0];
   return {
     contents: [{
       role: 'user',
@@ -153,7 +156,7 @@ export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' 
       responseModalities: ['IMAGE'],
       imageConfig: {
         aspectRatio: sizeToAspectRatio(input.size),
-        imageSize: '1K',
+        imageSize,
         // Wetoken's Gemini image route currently accepts JPEG only. Omitting
         // this makes the three Gemini image models reject otherwise valid
         // generateContent requests, while GPT Image uses a separate API.

@@ -1,4 +1,7 @@
 export type ImageProvider = 'gpt-image' | 'gemini';
+export type ImageOutputSize = '1K' | '2K' | '4K';
+
+export const IMAGE_OUTPUT_SIZES: ImageOutputSize[] = ['1K', '2K', '4K'];
 
 export type ImageModelSpec = {
   id: string;
@@ -6,13 +9,15 @@ export type ImageModelSpec = {
   provider: ImageProvider;
   experimental: boolean;
   maxReferences: number;
+  /** Fixed output tiers the provider accepts; exact dimensions remain GPT-only. */
+  outputSizes: ImageOutputSize[];
 };
 
 export const IMG_MODELS: ImageModelSpec[] = [
-  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false, maxReferences: 8 },
-  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8 },
-  { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8 },
-  { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8 },
+  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
+  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
+  { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
+  { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: ['1K'] },
 ];
 
 export const RATIOS = [
@@ -72,9 +77,64 @@ export function getImageModel(model: string) {
 }
 
 /**
- * Gemini image endpoints only accept an aspect ratio plus their fixed 1K
- * output tier. Exact pixel dimensions are a GPT Image 2 capability, so the
- * UI must not promise Gemini 2K/4K output that the server will normalize.
+ * Resolution tiers are provider/model capabilities, not aspect-ratio presets.
+ * Unknown custom models deliberately expose the safe 1K tier instead of
+ * promising a resolution their API may reject.
+ */
+export function imageOutputSizeOptionsFor(model: string): string[] {
+  return [...(getImageModel(model)?.outputSizes || ['1K'])];
+}
+
+export function imageQualityForOutputSize(size: string) {
+  if (size === '4K') return 'high';
+  if (size === '2K') return 'medium';
+  return 'low';
+}
+
+export function imageOutputSizeForQuality(quality: string | undefined): ImageOutputSize | undefined {
+  const normalized = String(quality || '').trim().toLowerCase();
+  if (normalized === 'high' || normalized === '4k') return '4K';
+  if (normalized === 'medium' || normalized === 'hd' || normalized === '2k') return '2K';
+  if (normalized === 'low' || normalized === 'standard' || normalized === '1k') return '1K';
+  return undefined;
+}
+
+/**
+ * Convert a named aspect ratio plus the selected output tier to the bounded
+ * dimensions stored in a Creator draft. Gemini receives the derived tier,
+ * while GPT Image 2 may use the dimensions directly. Keeping this conversion
+ * here makes both request paths agree before a task is created.
+ */
+export function imageRequestSizeForModel(model: string, ratioOrSize: string, quality?: string) {
+  const value = ratioOrSize.trim();
+  if (/^\d+x\d+$/i.test(value)) return value;
+  const ratio = RATIOS.find((item) => item.key === value)
+    || (value.toLowerCase() === 'auto' ? RATIOS.find((item) => item.key === '1:1') : undefined);
+  const requested = imageOutputSizeForQuality(quality);
+  if (!ratio || !requested) return undefined;
+
+  const supported = imageOutputSizeOptionsFor(model) as ImageOutputSize[];
+  const tier = supported.includes(requested) ? requested : supported[0];
+  const base = tier === '4K' ? 2880 : tier === '2K' ? 2048 : 1024;
+  const [ratioWidth, ratioHeight] = ratio.key.split(':').map(Number);
+  const landscape = ratioWidth >= ratioHeight;
+  const longRatio = landscape ? ratioWidth / ratioHeight : ratioHeight / ratioWidth;
+  const longSide = Math.floor(Math.sqrt(base * base * longRatio) / 16) * 16;
+  const shortSide = Math.round(longSide / longRatio / 16) * 16;
+  return landscape ? `${longSide}x${shortSide}` : `${shortSide}x${longSide}`;
+}
+
+/** Infer Gemini's 1K/2K/4K tier from the Creator draft geometry. */
+export function imageOutputSizeForDimensions(value: string): ImageOutputSize {
+  const match = /^(\d+)x(\d+)$/i.exec(value.trim());
+  if (!match) return '1K';
+  const edge = Math.max(Number(match[1]), Number(match[2]));
+  return edge <= 1536 ? '1K' : edge <= 3072 ? '2K' : '4K';
+}
+
+/**
+ * Exact width/height is a GPT Image 2 control. Gemini receives an aspect
+ * ratio plus an inferred fixed 1K/2K/4K tier from the stored draft geometry.
  */
 export function supportsExactImageSize(model: string) {
   return getImageModel(model)?.provider === 'gpt-image';

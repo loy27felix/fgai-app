@@ -32,6 +32,19 @@ test('preserves a supported custom GPT Image 2 resolution instead of reducing it
   assert.equal(draft.size, '2048x1152');
 });
 
+test('preserves the requested Gemini output tier geometry instead of reducing it to 1K', () => {
+  const draft = validateImageDraftInput({
+    prompt: 'a cinematic bedroom',
+    model: 'gemini-3-pro-image-preview',
+    ratio: '16:9',
+    size: '2720x1536',
+    references: [],
+  });
+
+  assert.equal(draft.ratio, '16:9');
+  assert.equal(draft.size, '2720x1536');
+});
+
 test('rejects unsupported reference types', () => {
   assert.throws(() => validateImageDraftInput({
     prompt: 'x', model: 'gpt-image-2', ratio: '1:1', references: [{ name: 'x.gif', mimeType: 'image/gif', size: 10 }],

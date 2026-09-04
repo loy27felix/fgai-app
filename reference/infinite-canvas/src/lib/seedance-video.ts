@@ -30,6 +30,11 @@ export const seedanceRatioOptions = [
     { value: "adaptive", label: "自适应" },
 ] as const;
 
+export function seedanceRatioOptionsForModel(model?: string) {
+    const spec = model ? getVideoModel(model) : undefined;
+    return seedanceRatioOptions.filter((item) => !spec || spec.ratios.includes(item.value));
+}
+
 export const seedanceDurationOptions = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] as const;
 
 const seedancePixels = {
@@ -96,16 +101,18 @@ export function normalizeSeedanceDuration(value: string, model?: string) {
     return Math.max(spec?.minDuration || 4, Math.min(spec?.maxDuration || 15, seconds));
 }
 
-export function normalizeSeedanceRatio(value: string) {
-    if (!value || value === "auto" || value === "adaptive") return "adaptive";
-    if (seedanceRatioOptions.some((item) => item.value === value)) return value;
+export function normalizeSeedanceRatio(value: string, model?: string) {
+    const options = seedanceRatioOptionsForModel(model);
+    const fallback = options.find((item) => item.value === "adaptive")?.value || options[0]?.value || "16:9";
+    if (!value || value === "auto" || value === "adaptive") return options.some((item) => item.value === "adaptive") ? "adaptive" : fallback;
+    if (options.some((item) => item.value === value)) return value;
     const match = value.match(/^(\d+)x(\d+)$/);
-    if (!match) return "adaptive";
+    if (!match) return fallback;
     const width = Number(match[1]);
     const height = Number(match[2]);
-    if (!width || !height) return "adaptive";
+    if (!width || !height) return fallback;
     const ratio = width / height;
-    const options = [
+    const ratioCandidates = [
         ["16:9", 16 / 9],
         ["4:3", 4 / 3],
         ["1:1", 1],
@@ -113,7 +120,8 @@ export function normalizeSeedanceRatio(value: string) {
         ["9:16", 9 / 16],
         ["21:9", 21 / 9],
     ] as const;
-    return options.reduce((best, item) => (Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best), options[0])[0];
+    const candidate = ratioCandidates.reduce((best, item) => (Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best), ratioCandidates[0])[0];
+    return seedanceRatioOptionsForModel(model).some((item) => item.value === candidate) ? candidate : fallback;
 }
 
 export function seedancePixelLabel(resolution: string, ratio: string) {

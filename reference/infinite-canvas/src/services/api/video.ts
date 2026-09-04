@@ -142,7 +142,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     assertCreatorVideoReferenceFiles(files);
     const ratio = modelSpec?.requiresAdaptiveRatioForFrameMode && mode === "first_last"
         ? "adaptive"
-        : config.size === "adaptive" || config.size.includes(":") ? config.size : "16:9";
+        : normalizeSeedanceRatio(config.size, modelSpec?.id);
     const rawSeconds = Number(config.videoSeconds);
     const seconds = rawSeconds === -1 && modelSpec?.supportsAdaptiveDuration !== false
         ? -1
@@ -439,7 +439,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     const payload = {
         model: modelOptionName(model),
         content,
-        ratio: modelSpec?.requiresAdaptiveRatioForFrameMode && mode === "first_last" ? "adaptive" : normalizeSeedanceRatio(config.size),
+        ratio: modelSpec?.requiresAdaptiveRatioForFrameMode && mode === "first_last" ? "adaptive" : normalizeSeedanceRatio(config.size, modelId),
         resolution: normalizeSeedanceResolution(config.vquality, modelId),
         duration: normalizeSeedanceDuration(config.videoSeconds, modelId),
         ...(modelSpec?.supportsAudioGeneration === false ? {} : { generate_audio: boolConfig(config.videoGenerateAudio, true) }),

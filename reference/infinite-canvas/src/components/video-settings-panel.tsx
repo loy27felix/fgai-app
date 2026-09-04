@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/reference/infinite-canvas/src/components/image-settings-panel";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptionsForModel, seedanceResolutionOptions } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { modelOptionName, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { getVideoModel } from "@/lib/ai/video-models";
@@ -119,7 +119,10 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     const watermark = boolConfig(config.videoWatermark, false);
     const referenceMode = config.videoReferenceMode === "first_last" ? "first_last" : "reference";
     const requiresAdaptiveFrameRatio = referenceMode === "first_last" && Boolean(modelSpec?.requiresAdaptiveRatioForFrameMode);
-    const ratio = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.size);
+    const ratio = requiresAdaptiveFrameRatio ? "adaptive" : normalizeSeedanceRatio(config.size, modelSpec?.id);
+    const allowedRatios = requiresAdaptiveFrameRatio
+        ? seedanceRatioOptionsForModel(modelSpec?.id).filter((item) => item.value === "adaptive")
+        : seedanceRatioOptionsForModel(modelSpec?.id);
     const selectRatio = (value: string) => {
         console.info("[canvas video settings] ratio selected", { provider: "seedance", model: modelSpec?.id, ratio: value, referenceMode });
         onConfigChange("size", value);
@@ -150,11 +153,11 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 </SettingGroup>
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {seedanceRatioOptions.map((item) => (
+                        {allowedRatios.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
-                                disabled={requiresAdaptiveFrameRatio && item.value !== "adaptive"}
+                                disabled={false}
                                 className="flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35"
                                 style={{ borderColor: ratio === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                 onMouseDown={(event) => event.stopPropagation()}

@@ -14,8 +14,6 @@ const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const VIDEO_TYPES = new Set(["video/mp4", "video/quicktime"]);
 const AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/mp4", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm"]);
-const RATIOS = new Set(["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"]);
-
 export type CreatorVideoSkill = { name: string; content: string };
 export type VideoReferenceMode = "reference" | "first_last";
 export type VideoImageRole = "first_frame" | "last_frame" | "reference_image";
@@ -91,7 +89,7 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   if ((input.duration === -1 && !model.supportsAdaptiveDuration) || (input.duration !== -1 && (!Number.isInteger(input.duration) || input.duration < model.minDuration || input.duration > model.maxDuration))) {
     throw new Error(`视频时长必须为 ${model.minDuration} 到 ${model.maxDuration} 秒${model.supportsAdaptiveDuration ? '，或使用自适应' : ''}`);
   }
-  if (!RATIOS.has(input.ratio)) throw new Error("不支持的画幅");
+  if (!model.ratios.includes(input.ratio)) throw new Error("当前模型不支持这个画幅");
   if (!model.resolutions.includes(input.resolution)) throw new Error("当前模型不支持这个清晰度");
   if (input.references.length > MAX_CREATOR_VIDEO_TOTAL_REFERENCES) throw new Error("参考素材最多 15 个");
 

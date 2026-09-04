@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/reference/infinite-canvas/src/lib/image-utils";
@@ -10,7 +10,7 @@ import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image
 import { createClient } from "@/lib/local/client";
 import { CreatorImageClientError, createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
 import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
-import { imageDraftGeometry } from "@/lib/imageModels";
+import { imageDraftGeometry, imageOutputSizeForDimensions, imageOutputSizeForQuality, imageOutputSizeOptionsFor, imageRequestSizeForModel } from "@/lib/imageModels";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import type { CreatorImageAsset } from "@/lib/creator/types";
 import { assertCreatorImageReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
@@ -132,7 +132,6 @@ const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
 
 const GEMINI_SUPPORTED_RATIOS = ["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"];
-const GEMINI_IMAGE_SIZE_BY_QUALITY: Record<string, string> = { low: "1K", medium: "2K", high: "4K", standard: "1K", hd: "2K" };
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -217,9 +216,9 @@ function resolveGeminiImageConfig(config: AiConfig) {
     const dimensions = parseImageDimensions(value);
     const ratio = dimensions ? `${dimensions.width}:${dimensions.height}` : value;
     const aspectRatio = value && value.toLowerCase() !== "auto" ? closestGeminiAspectRatio(ratio) : undefined;
-    const imageSize = supportsGeminiImageSize(config.model) ? resolveGeminiImageSize(config.quality, dimensions) : undefined;
+    const imageSize = resolveGeminiImageSize(config.quality, dimensions, modelOptionName(config.model || config.imageModel));
     const image = { ...(aspectRatio ? { aspectRatio } : {}), ...(imageSize ? { imageSize } : {}) };
-    return Object.keys(image).length ? { responseFormat: { image } } : {};
+    return Object.keys(image).length ? { imageConfig: image } : {};
 }
 
 function closestGeminiAspectRatio(value: string) {
@@ -232,20 +231,13 @@ function closestGeminiAspectRatio(value: string) {
     });
 }
 
-function resolveGeminiImageSize(quality: string, dimensions: { width: number; height: number } | null) {
-    const normalizedQuality = normalizeQuality(quality);
-    if (normalizedQuality) return GEMINI_IMAGE_SIZE_BY_QUALITY[normalizedQuality];
+function resolveGeminiImageSize(quality: string, dimensions: { width: number; height: number } | null, model = "") {
+    const allowed = imageOutputSizeOptionsFor(model);
+    const explicitTier = imageOutputSizeForQuality(quality);
+    if (explicitTier) return allowed.includes(explicitTier) ? explicitTier : allowed[0];
     if (!dimensions) return undefined;
-    const edge = Math.max(dimensions.width, dimensions.height);
-    if (edge <= 768) return "512";
-    if (edge <= 1536) return "1K";
-    if (edge <= 3072) return "2K";
-    return "4K";
-}
-
-function supportsGeminiImageSize(model: string) {
-    const value = model.toLowerCase();
-    return value.includes("gemini-3") || value.includes("3.1") || value.includes("3-pro");
+    const requested = imageOutputSizeForDimensions(`${dimensions.width}x${dimensions.height}`);
+    return allowed.includes(requested) ? requested : allowed[0];
 }
 
 function resolveImageDataUrl(item: Record<string, unknown>) {
@@ -745,7 +737,8 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     const files = await Promise.all(references.map((image, index) => fgReferenceFile(image, index)));
     assertCreatorImageReferenceFiles(files);
     const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
-    const geometry = imageDraftGeometry(config.size);
+    const requestedSize = imageRequestSizeForModel(model, config.size, config.quality) || config.size;
+    const geometry = imageDraftGeometry(requestedSize);
     const localClient = createClient();
     const draft = await createImageDraft({ canvasId: null, nodeId: null, prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
     for (let index = 0; index < files.length; index += 1) {
