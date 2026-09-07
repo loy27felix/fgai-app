@@ -9,14 +9,18 @@ test('image catalog contains exactly the requested Wetoken models', () => {
     'gemini-3-pro-image-preview',
     'gemini-3.1-flash-image-preview',
     'gemini-3.1-flash-lite-image',
+    'seedream-5-0-lite-260128',
+    'dola-seedream-5-0-pro-260628',
   ]);
   assert.deepEqual(IMG_MODELS.map((model) => model.provider), [
     'gpt-image',
     'gemini',
     'gemini',
     'gemini',
+    'volcengine-image',
+    'volcengine-image',
   ]);
-  assert.deepEqual(IMG_MODELS.map((model) => model.experimental), [false, false, true, true]);
+  assert.deepEqual(IMG_MODELS.map((model) => model.experimental), [false, false, true, true, false, false]);
 });
 
 test('sizeFor keeps supported ratio dimensions stable', () => {
@@ -32,14 +36,15 @@ test('ratioForImageSize retains the ratio of exact 2K and 4K presets', () => {
   assert.deepEqual(imageDraftGeometry('16:9'), { ratio: '16:9', size: undefined });
 });
 
-test('all image models accept eight references', () => {
-  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8]);
+test('Seedream models use their documented single reference-image capability', () => {
+  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8, 1, 1]);
 });
 
 test('only GPT Image 2 exposes exact 2K and 4K image-size controls', () => {
   assert.equal(supportsExactImageSize('gpt-image-2'), true);
   assert.equal(supportsExactImageSize('gemini-3-pro-image-preview'), false);
   assert.equal(supportsExactImageSize('gemini-3.1-flash-image-preview'), false);
+  assert.equal(supportsExactImageSize('dola-seedream-5-0-pro-260628'), false);
 });
 
 test('image model capability lists expose only the resolution tiers each provider accepts', () => {
@@ -51,6 +56,8 @@ test('image model capability lists expose only the resolution tiers each provide
   assert.deepEqual(outputSizeOptionsFor?.('gpt-image-2'), ['1K', '2K', '4K']);
   assert.deepEqual(outputSizeOptionsFor?.('gemini-3-pro-image-preview'), ['1K', '2K', '4K']);
   assert.deepEqual(outputSizeOptionsFor?.('gemini-3.1-flash-lite-image'), ['1K']);
+  assert.deepEqual(outputSizeOptionsFor?.('seedream-5-0-lite-260128'), ['1K']);
+  assert.deepEqual(outputSizeOptionsFor?.('dola-seedream-5-0-pro-260628'), ['1K', '2K', '4K']);
 });
 
 test('image quality and ratio become a bounded draft size before the Creator request', () => {

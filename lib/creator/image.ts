@@ -25,7 +25,8 @@ export function validateImageDraftInput(input: ImageDraftInput) {
   const model = getImageModel(input.model);
   if (!prompt) throw new Error('提示词不能为空');
   if (!model) throw new Error('不支持的图片模型');
-  if (input.references.length > Math.min(MAX_CREATOR_IMAGE_REFERENCES, model.maxReferences)) throw new Error('最多 8 张参考图');
+  const maxReferences = Math.min(MAX_CREATOR_IMAGE_REFERENCES, model.maxReferences);
+  if (input.references.length > maxReferences) throw new Error(`最多 ${maxReferences} 张参考图`);
   let total = 0;
   if (!RATIOS.some((item) => item.key === input.ratio)) throw new Error('invalid image ratio');
   for (const reference of input.references) {

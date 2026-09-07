@@ -1,4 +1,4 @@
-export type ImageProvider = 'gpt-image' | 'gemini';
+export type ImageProvider = 'gpt-image' | 'gemini' | 'volcengine-image';
 export type ImageOutputSize = '1K' | '2K' | '4K';
 
 export const IMAGE_OUTPUT_SIZES: ImageOutputSize[] = ['1K', '2K', '4K'];
@@ -18,6 +18,10 @@ export const IMG_MODELS: ImageModelSpec[] = [
   { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
   { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
   { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: ['1K'] },
+  // Wetoken documents a single `image` field for Seedream image-to-image.
+  // Lite has no documented higher-resolution tier; Pro explicitly supports 4K.
+  { id: 'seedream-5-0-lite-260128', label: 'Seedream 5.0 Lite · 轻量生图', provider: 'volcengine-image', experimental: false, maxReferences: 1, outputSizes: ['1K'] },
+  { id: 'dola-seedream-5-0-pro-260628', label: 'Dola Seedream 5.0 Pro · 4K 专业', provider: 'volcengine-image', experimental: false, maxReferences: 1, outputSizes: IMAGE_OUTPUT_SIZES },
 ];
 
 export const RATIOS = [

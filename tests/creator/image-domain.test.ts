@@ -32,6 +32,12 @@ test('preserves a supported custom GPT Image 2 resolution instead of reducing it
   assert.equal(draft.size, '2048x1152');
 });
 
+test('Seedream draft rejects a second reference according to the selected model capability', () => {
+  assert.throws(() => validateImageDraftInput({
+    prompt: 'restyle', model: 'seedream-5-0-lite-260128', ratio: '1:1', references: [file(0), file(1)],
+  }), /最多 1 张参考图/);
+});
+
 test('preserves the requested Gemini output tier geometry instead of reducing it to 1K', () => {
   const draft = validateImageDraftInput({
     prompt: 'a cinematic bedroom',

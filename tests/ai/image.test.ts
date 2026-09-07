@@ -175,6 +175,68 @@ test('Gemini accepts Wetoken OpenAI-compatible URL results without another provi
   assert.equal(urls.length, 2);
 });
 
+test('Seedream generation uses the documented VolcEngine endpoint and payload', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1/';
+  let observed: { url: string; body: unknown; authorization: string | null } | undefined;
+  const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
+    observed = {
+      url: String(input),
+      body: JSON.parse(String(init?.body)),
+      authorization: new Headers(init?.headers).get('authorization'),
+    };
+    return new Response(JSON.stringify({ data: [{ b64_json: 'YWJj' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  const result = await generateWetokenImage({
+    model: 'seedream-5-0-lite-260128', prompt: 'fox', size: '1024x1024', references: [],
+  }, { fetcher });
+
+  assert.deepEqual(observed, {
+    url: 'https://wetoken.example/api/v3/images/generations',
+    authorization: 'Bearer test-key',
+    body: {
+      model: 'seedream-5-0-lite-260128',
+      prompt: 'fox',
+      size: '1024x1024',
+      response_format: 'url',
+      watermark: false,
+      optimize_prompt_options: { mode: 'auto' },
+    },
+  });
+  assert.deepEqual([...result.bytes], [97, 98, 99]);
+});
+
+test('Seedream image-to-image sends one data-url reference in the documented image field', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  let observed: unknown;
+  const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
+    observed = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ data: [{ b64_json: 'YWJj' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  await generateWetokenImage({
+    model: 'dola-seedream-5-0-pro-260628', prompt: 'restyle', size: '2048x2048',
+    references: [{ data: 'YWJj', mimeType: 'image/jpeg' }],
+  }, { fetcher });
+
+  assert.deepEqual(observed, {
+    model: 'dola-seedream-5-0-pro-260628',
+    prompt: 'restyle',
+    size: '2048x2048',
+    image: 'data:image/jpeg;base64,YWJj',
+    response_format: 'url',
+    watermark: false,
+    optimize_prompt_options: { mode: 'auto' },
+  });
+});
+
 test('Gemini request keeps the selected output tier and clamps models that only support 1K', () => {
   const pro = buildGeminiImageBody({
     model: 'gemini-3-pro-image-preview',
@@ -322,4 +384,15 @@ test('shared image generator accepts eight references and rejects the ninth', as
   const fetcher = async () => new Response(JSON.stringify({ data: [{ b64_json: 'YWJj' }] }), { status: 200 });
   await generateWetokenImage({ model: 'gpt-image-2', prompt: 'x', size: '1024x1024', references: Array(8).fill(reference) }, { fetcher });
   await assert.rejects(() => generateWetokenImage({ model: 'gpt-image-2', prompt: 'x', size: '1024x1024', references: Array(9).fill(reference) }, { fetcher }), /最多 8 张/);
+});
+
+test('Seedream rejects a second reference before making a provider request', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const reference = { data: 'YWJj', mimeType: 'image/png' };
+  await assert.rejects(
+    () => generateWetokenImage({
+      model: 'seedream-5-0-lite-260128', prompt: 'x', size: '1024x1024', references: [reference, reference],
+    }),
+    /最多 1 张/,
+  );
 });

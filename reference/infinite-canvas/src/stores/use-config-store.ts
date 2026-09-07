@@ -76,6 +76,8 @@ const FG_BUILTIN_MODELS: ChannelModel[] = [
     { name: "gemini-3-pro-image-preview", capability: "image" },
     { name: "gemini-3.1-flash-image-preview", capability: "image" },
     { name: "gemini-3.1-flash-lite-image", capability: "image" },
+    { name: "seedream-5-0-lite-260128", capability: "image" },
+    { name: "dola-seedream-5-0-pro-260628", capability: "image" },
     { name: "doubao-seedance-2-0", capability: "video" },
     { name: "doubao-seedance-2-0-filter-off", capability: "video" },
     { name: "doubao-seedance-2-0-fast", capability: "video" },

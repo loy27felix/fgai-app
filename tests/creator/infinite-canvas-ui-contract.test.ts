@@ -40,6 +40,16 @@ test('model picker preserves full model labels and responsive width', () => {
   assert.match(styles, /canvas-model-picker-node/);
 });
 
+test('canvas model catalog exposes the two Seedream 5.0 models with their single-reference limit', () => {
+  const configStore = read('reference/infinite-canvas/src/stores/use-config-store.ts');
+  const imageApi = read('reference/infinite-canvas/src/services/api/image.ts');
+
+  assert.match(configStore, /seedream-5-0-lite-260128/);
+  assert.match(configStore, /dola-seedream-5-0-pro-260628/);
+  assert.match(imageApi, /getImageModel/);
+  assert.match(imageApi, /最多支持 \$\{maxReferences\} 张参考图/);
+});
+
 test('canvas Agent is wired to the creator chat API with skills and reasoning', () => {
   const agent = read('reference/infinite-canvas/src/components/agent/local-agent-panel.tsx');
   const api = read('app/api/creator/chat/route.ts');

@@ -200,6 +200,25 @@ export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' 
   };
 }
 
+/**
+ * Wetoken exposes the two Seedream 5.0 models through its VolcEngine image
+ * endpoint. Its documented image-to-image parameter is a single `image`
+ * string, so pass the one allowed in-memory reference as a data URL instead
+ * of using OpenAI's multipart `image[]` edit protocol.
+ */
+export function buildVolcengineImageBody(input: Pick<ImageGenerationInput, 'model' | 'prompt' | 'size' | 'references'>) {
+  const reference = input.references[0];
+  return {
+    model: input.model,
+    prompt: input.prompt,
+    size: input.size,
+    ...(reference ? { image: `data:${reference.mimeType};base64,${reference.data}` } : {}),
+    response_format: 'url',
+    watermark: false,
+    optimize_prompt_options: { mode: 'auto' },
+  };
+}
+
 function extensionFor(mimeType: string) {
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType === 'image/webp') return 'webp';
@@ -631,7 +650,7 @@ export async function generateWetokenImage(
   const spec = getImageModel(input.model);
   if (!spec) throw new Error(`不支持的图片模型：${input.model}`);
   if (!input.prompt.trim()) throw new Error('图片提示词为空');
-  if (input.references.length > 8) throw new Error('参考图最多 8 张');
+  if (input.references.length > spec.maxReferences) throw new Error(`参考图最多 ${spec.maxReferences} 张`);
 
   const base = (process.env.WETOKEN_BASE_URL || 'https://wetoken.ai/v1').replace(/\/$/, '');
   const fetcher = dependencies.fetcher ?? fetch;
@@ -656,7 +675,9 @@ export async function generateWetokenImage(
   };
   const providerOperation = spec.provider === 'gemini'
     ? 'generateContent'
-    : input.references.length ? 'images.edits' : 'images.generations';
+    : spec.provider === 'volcengine-image'
+      ? 'volcengine.images.generations'
+      : input.references.length ? 'images.edits' : 'images.generations';
   logCreatorImageEvent('provider_request_started', {
     ...requestContext,
     operation: providerOperation,
@@ -669,6 +690,17 @@ export async function generateWetokenImage(
   if (spec.provider === 'gemini') {
     requestUrl = `${base}/content/models/${encodeURIComponent(input.model)}:generateContent`;
     requestBody = buildGeminiImageBody(input);
+    bodyEncoding = 'json';
+    requestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify(requestBody),
+      dispatcher: wetokenProviderDispatcher,
+      signal: timeoutSignal(IMAGE_PROVIDER_TIMEOUT_MS),
+    };
+  } else if (spec.provider === 'volcengine-image') {
+    requestUrl = `${new URL(base).origin}/api/v3/images/generations`;
+    requestBody = buildVolcengineImageBody(input);
     bodyEncoding = 'json';
     requestInit = {
       method: 'POST',

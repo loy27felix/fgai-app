@@ -10,7 +10,7 @@ import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image
 import { createClient } from "@/lib/local/client";
 import { CreatorImageClientError, createImageDraft, confirmImageTask, finalizeImageUploads, listImageTasks } from "@/lib/creator/image-client";
 import { notifyCreatorUsageUpdated } from "@/lib/creator/usage-events";
-import { imageDraftGeometry, imageOutputSizeForDimensions, imageOutputSizeForQuality, imageOutputSizeOptionsFor, imageRequestSizeForModel } from "@/lib/imageModels";
+import { getImageModel, imageDraftGeometry, imageOutputSizeForDimensions, imageOutputSizeForQuality, imageOutputSizeOptionsFor, imageRequestSizeForModel } from "@/lib/imageModels";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import type { CreatorImageAsset } from "@/lib/creator/types";
 import { assertCreatorImageReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
@@ -732,11 +732,13 @@ async function fgReferenceFile(image: ReferenceImage, index: number) {
 
 async function fgGenerateImage(config: AiConfig, prompt: string, references: ReferenceImage[], signal?: AbortSignal) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     // Do not silently drop references: the user needs to know exactly why a
     // selected source cannot reach the image model.
     const files = await Promise.all(references.map((image, index) => fgReferenceFile(image, index)));
+    const maxReferences = getImageModel(model)?.maxReferences ?? 8;
+    if (files.length > maxReferences) throw new Error(`${model} 最多支持 ${maxReferences} 张参考图，请移除多余图片后重试`);
     assertCreatorImageReferenceFiles(files);
-    const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     const requestedSize = imageRequestSizeForModel(model, config.size, config.quality) || config.size;
     const geometry = imageDraftGeometry(requestedSize);
     const localClient = createClient();

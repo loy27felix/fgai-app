@@ -64,7 +64,8 @@ export async function POST(req: Request) {
   const model = body.model || 'gpt-image-2';
   if (!projectId) return NextResponse.json({ error: '缺少 projectId' }, { status: 400 });
   if (!prompt) return NextResponse.json({ error: 'prompt 为空' }, { status: 400 });
-  if (!getImageModel(model)) return NextResponse.json({ error: `不支持的图片模型：${model}` }, { status: 400 });
+  const modelSpec = getImageModel(model);
+  if (!modelSpec) return NextResponse.json({ error: `不支持的图片模型：${model}` }, { status: 400 });
 
   const { data: membership } = await localClient.from('project_members')
     .select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle();
@@ -76,7 +77,10 @@ export async function POST(req: Request) {
   const refImages = Array.isArray(body.refImages) ? body.refImages : [];
   const refTypes = Array.isArray(body.refTypes) ? body.refTypes : [];
   const refUrls = Array.isArray(body.refUrls) ? body.refUrls : [];
-  if (refImages.length + refUrls.length > 4) return NextResponse.json({ error: '参考图最多 4 张' }, { status: 400 });
+  const maxReferences = Math.min(4, modelSpec.maxReferences);
+  if (refImages.length + refUrls.length > maxReferences) {
+    return NextResponse.json({ error: `参考图最多 ${maxReferences} 张` }, { status: 400 });
+  }
   if (refImages.some((data) => typeof data !== 'string') || refImages.reduce((sum, data) => sum + data.length, 0) > 3_000_000) {
     return NextResponse.json({ error: '内嵌参考图过大，请先上传到项目素材库' }, { status: 400 });
   }
