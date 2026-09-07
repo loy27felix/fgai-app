@@ -110,6 +110,9 @@ test('customizable production companion persists an avatar and hands off tasks t
   assert.match(companion, /MAX_AVATAR_BYTES/);
   assert.match(companion, /头像与偏好仅保存在此浏览器/);
   assert.match(companion, /开启完成提醒/);
+  assert.match(companion, /fg-generation-completed/);
+  assert.match(companion, /制作搭档设置/);
+  assert.match(companion, /data-state/);
   assert.match(switchboard, /AgentCompanion/);
   assert.match(switchboard, /fg-agent-companion-task/);
   assert.match(switchboard, /fg-generation-completed/);
