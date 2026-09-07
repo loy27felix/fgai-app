@@ -43,9 +43,12 @@ test('model picker preserves full model labels and responsive width', () => {
 test('canvas model catalog exposes the two Seedream 5.0 models with their single-reference limit', () => {
   const configStore = read('reference/infinite-canvas/src/stores/use-config-store.ts');
   const imageApi = read('reference/infinite-canvas/src/services/api/image.ts');
+  const imageModels = read('lib/imageModels.ts');
 
-  assert.match(configStore, /seedream-5-0-lite-260128/);
-  assert.match(configStore, /dola-seedream-5-0-pro-260628/);
+  assert.match(imageModels, /seedream-5-0-lite-260128/);
+  assert.match(imageModels, /dola-seedream-5-0-pro-260628/);
+  assert.match(configStore, /IMG_MODELS\.map/);
+  assert.match(configStore, /VIDEO_MODELS\.map/);
   assert.match(imageApi, /getImageModel/);
   assert.match(imageApi, /最多支持 \$\{maxReferences\} 张参考图/);
 });

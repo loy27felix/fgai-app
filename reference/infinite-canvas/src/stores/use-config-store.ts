@@ -4,6 +4,8 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VideoReferenceMode } from "@/lib/creator/video";
 import type { ReasoningEffort } from "@/lib/ai/reasoning";
+import { IMG_MODELS } from "@/lib/imageModels";
+import { VIDEO_MODELS } from "@/lib/ai/video-models";
 export type { ReasoningEffort } from "@/lib/ai/reasoning";
 
 export type ApiCallFormat = "openai" | "gemini" | "ark";
@@ -72,24 +74,8 @@ const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 const FG_BUILTIN_MODELS: ChannelModel[] = [
-    { name: "gpt-image-2", capability: "image" },
-    { name: "gemini-3-pro-image-preview", capability: "image" },
-    { name: "gemini-3.1-flash-image-preview", capability: "image" },
-    { name: "gemini-3.1-flash-lite-image", capability: "image" },
-    { name: "seedream-5-0-lite-260128", capability: "image" },
-    { name: "dola-seedream-5-0-pro-260628", capability: "image" },
-    { name: "doubao-seedance-2-0", capability: "video" },
-    { name: "doubao-seedance-2-0-filter-off", capability: "video" },
-    { name: "doubao-seedance-2-0-fast", capability: "video" },
-    { name: "doubao-seedance-2-0-fast-filter-off", capability: "video" },
-    { name: "dreamina-seedance-2-0-mini", capability: "video" },
-    { name: "dreamina-seedance-2-0-mini-filter-off", capability: "video" },
-    { name: "dreamina-seedance-2-5", capability: "video" },
-    { name: "dreamina-seedance-2-5-filter-off", capability: "video" },
-    { name: "happyhorse-1.1-i2v", capability: "video" },
-    { name: "happyhorse-1.1-r2v", capability: "video" },
-    { name: "happyhorse-1.1-t2v", capability: "video" },
-    { name: "MiniMax-H3", capability: "video" },
+    ...IMG_MODELS.map((model) => ({ name: model.id, capability: "image" as const })),
+    ...VIDEO_MODELS.map((model) => ({ name: model.id, capability: "video" as const })),
     { name: "gpt-5.6-luna-t1a", capability: "text" },
     { name: "gpt-5.6-terra-t1a", capability: "text" },
     { name: "claude-sonnet-5", capability: "text" },
