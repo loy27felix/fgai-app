@@ -184,6 +184,21 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             </OptionPill>
                         ))}
                     </div>
+                    <div className="mt-2.5 grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: theme.node.stroke }}>
+                        <input
+                            type="range"
+                            min={modelSpec?.minDuration || 4}
+                            max={modelSpec?.maxDuration || 15}
+                            step={1}
+                            value={duration === -1 ? modelSpec?.minDuration || 4 : duration}
+                            aria-label="视频时长"
+                            aria-valuetext={duration === -1 ? "智能时长" : `${duration} 秒`}
+                            className="w-full accent-stone-900 dark:accent-stone-100"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onChange={(event) => onConfigChange("videoSeconds", event.target.value)}
+                        />
+                        <span className="w-10 text-right text-xs tabular-nums" style={{ color: theme.node.muted }}>{duration === -1 ? "智能" : `${duration}s`}</span>
+                    </div>
                     <NumberInput value={String(duration)} min={modelSpec?.minDuration || 4} max={modelSpec?.maxDuration || 15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
                 </SettingGroup>
                 <SettingGroup title="输出" color={theme.node.muted}>

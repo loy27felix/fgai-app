@@ -50,6 +50,22 @@ test('canvas model catalog exposes the two Seedream 5.0 models with their single
   assert.match(imageApi, /最多支持 \$\{maxReferences\} 张参考图/);
 });
 
+test('creator image and video workbenches derive controls from the shared model capabilities', () => {
+  const imageWorkbench = read('components/creator/CreatorImageWorkspace.tsx');
+  const videoWorkbench = read('components/creator/CreatorVideoWorkspace.tsx');
+  const canvasVideoSettings = read('reference/infinite-canvas/src/components/video-settings-panel.tsx');
+
+  assert.match(imageWorkbench, /imageOutputSizeOptionsFor/);
+  assert.match(imageWorkbench, /imageRequestSizeForModel/);
+  assert.match(videoWorkbench, /const durationMin = activeModel\?\.minDuration \|\| 4/);
+  assert.match(videoWorkbench, /const durationMax = activeModel\?\.maxDuration \|\| 15/);
+  assert.match(videoWorkbench, /activeModel\?\.ratios \|\| BASE_RATIOS/);
+  assert.doesNotMatch(videoWorkbench, /const DURATION_MAX = 15/);
+  assert.match(canvasVideoSettings, /type="range"/);
+  assert.match(canvasVideoSettings, /min=\{modelSpec\?\.minDuration \|\| 4\}/);
+  assert.match(canvasVideoSettings, /max=\{modelSpec\?\.maxDuration \|\| 15\}/);
+});
+
 test('canvas Agent is wired to the creator chat API with skills and reasoning', () => {
   const agent = read('reference/infinite-canvas/src/components/agent/local-agent-panel.tsx');
   const api = read('app/api/creator/chat/route.ts');

@@ -19,13 +19,11 @@ type FileEntry = { file: File; kind: VideoReferenceKind; role: VideoReferenceRol
 const PANEL_MIN = 330;
 const PANEL_MAX = 590;
 const PANEL_DEFAULT = 430;
-const DURATION_MIN = 4;
-const DURATION_MAX = 15;
 const DEFAULT_DURATION = 5;
 const AUTO_POLL_STATUSES = new Set<CreatorVideoTask['status']>(['submitting', 'queued', 'running', 'unknown']);
 const REFRESHABLE_STATUSES = new Set<CreatorVideoTask['status']>([...AUTO_POLL_STATUSES, 'awaiting_reconciliation']);
 const MAX_AUTO_POLL_ATTEMPTS = 120;
-const RATIOS = ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+const BASE_RATIOS = ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
 const I = {
   chat: ["M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"],
   image: ["M4 4h16v16H4z", "m4 16 4-4 3 3 4-5 5 6", "M9 9h.01"],
@@ -124,7 +122,25 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
   const resizeRef = useRef<{ x: number; width: number } | null>(null);
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
   const activeModel = getVideoModel(model);
+  const durationMin = activeModel?.minDuration || 4;
+  const durationMax = activeModel?.maxDuration || 15;
+  const availableRatios = activeModel?.ratios || BASE_RATIOS;
+  const RATIOS = availableRatios;
+  const availableResolutions = activeModel?.resolutions || ["480p"];
+  const DURATION_MIN = durationMin;
+  const DURATION_MAX = durationMax;
   const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
+
+  useEffect(() => {
+    setDuration((current) => {
+      if (current === -1 && activeModel?.supportsAdaptiveDuration) return current;
+      const fallback = Math.min(durationMax, Math.max(durationMin, DEFAULT_DURATION));
+      return Math.min(durationMax, Math.max(durationMin, Number.isFinite(current) ? current : fallback));
+    });
+    setRatio((current) => availableRatios.includes(current) ? current : availableRatios[0] || "adaptive");
+    setResolution((current) => availableResolutions.includes(current) ? current : availableResolutions[0] || "480p");
+    if (activeModel?.supportsAudioGeneration === false) setGenerateAudio(false);
+  }, [activeModel?.id, activeModel?.supportsAdaptiveDuration, activeModel?.supportsAudioGeneration, availableRatios, availableResolutions, duration, durationMax, durationMin]);
 
   function checkFiles(next: FileEntry[]) {
     try {

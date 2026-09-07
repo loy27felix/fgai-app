@@ -33,7 +33,7 @@ import {
   finalizeImageUploads,
   listImageTasks,
 } from "@/lib/creator/image-client";
-import { IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
+import { getImageModel, imageOutputSizeForDimensions, imageOutputSizeOptionsFor, imageRequestSizeForModel, IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { createCreatorCanvas, deleteCreatorCanvas, listCreatorCanvases, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { randomId } from "@/lib/utils";
 
@@ -205,6 +205,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
   const [model, setModel] = useState(IMG_MODELS[0].id);
   const [ratio, setRatio] = useState(RATIOS[1].key);
+  const [outputSize, setOutputSize] = useState("1K");
   const [prompt, setPrompt] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<Array<{ file: File; url: string }>>([]);
@@ -235,10 +236,14 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const [notice, setNotice] = useState("");
 
   const selectedTask = tasks.find((item) => item.id === selectedTaskId) || null;
+  const imageOutputSizes = imageOutputSizeOptionsFor(model);
+  const selectedOutputSize = imageOutputSizes.includes(outputSize) ? outputSize : imageOutputSizes[0];
+  const selectedImageSize = imageRequestSizeForModel(model, ratio, selectedOutputSize) || sizeFor(model, ratio);
+  const imageReferenceLimit = Math.min(MAX_CREATOR_IMAGE_REFERENCES, getImageModel(model)?.maxReferences || MAX_CREATOR_IMAGE_REFERENCES);
   const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
 
   function localFileError(nextFiles: File[]) {
-    if (nextFiles.length > MAX_CREATOR_IMAGE_REFERENCES) return "最多 8 张参考图";
+    if (nextFiles.length > imageReferenceLimit) return `当前模型最多 ${imageReferenceLimit} 张参考图`;
     let total = 0;
     for (const file of nextFiles) {
       if (!ALLOWED_IMAGE_TYPES.has(file.type)) return "参考图仅支持 JPEG、PNG 或 WebP";
@@ -375,6 +380,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       nodeId: input?.nodeId || null,
       model,
       ratio,
+      outputSize: selectedOutputSize,
       skill: activeSkill,
       referenceKeys: selectedReferenceKeys,
       files: signatureFiles.map((file) => ({ name: file.name, type: file.type, size: file.size, lastModified: file.lastModified })),
@@ -577,6 +583,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
         prompt: draftPrompt,
         model,
         ratio,
+        size: selectedImageSize,
         references,
         skill: activeSkill,
         idempotencyKey: attemptKey,
@@ -667,7 +674,11 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   function reuseParameters() {
     if (!selectedTask) return;
     const request = asRecord(selectedTask.request);
-    if (typeof request.model === "string" && IMG_MODELS.some((item) => item.id === request.model)) setModel(request.model);
+    if (typeof request.model === "string" && IMG_MODELS.some((item) => item.id === request.model)) {
+      setModel(request.model);
+      const allowedOutputSizes = imageOutputSizeOptionsFor(request.model);
+      setOutputSize(allowedOutputSizes.includes(imageOutputSizeForDimensions(taskSize(selectedTask))) ? imageOutputSizeForDimensions(taskSize(selectedTask)) : allowedOutputSizes[0]);
+    }
     if (typeof request.ratio === "string" && RATIOS.some((item) => item.key === request.ratio)) setRatio(request.ratio);
     setPrompt(taskPrompt(selectedTask));
     setActiveSkill(taskSkill(selectedTask));
@@ -898,15 +909,17 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
 
         <button type="button" className="image-panel-resizer" role="separator" aria-orientation="vertical" aria-valuemin={IMAGE_PANEL_MIN_WIDTH} aria-valuemax={IMAGE_PANEL_MAX_WIDTH} aria-valuenow={controlPanelWidth} aria-valuetext={controlPanelWidth + "px"} onPointerDown={beginControlPanelResize} onKeyDown={onControlPanelResizeKeyDown} title="Resize control panel"><span /></button>
         <aside id="image-control-panel" className={"image-sidebar image-sidebar-right" + (mobileControlsOpen ? " mobile-open" : "")}>
-          <button type="button" className="image-mobile-controls-handle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}><span>参数面板</span><span>{mobileControlsOpen ? "收起" : "展开"}</span></button><div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><div className="image-control-heading-actions"><span className="image-dim-label">{sizeFor(model, ratio)}</span><button type="button" className="image-panel-reset" onClick={() => updateControlPanelWidth(IMAGE_PANEL_DEFAULT_WIDTH)} aria-label="Reset control panel width" title="Reset width"><Icon d={I.refresh} size={13} /></button></div></div>
+          <button type="button" className="image-mobile-controls-handle" aria-expanded={mobileControlsOpen} aria-controls="image-control-panel" onClick={() => setMobileControlsOpen((open) => !open)}><span>参数面板</span><span>{mobileControlsOpen ? "收起" : "展开"}</span></button><div className="image-control-heading"><div><div className="fg-mono image-kicker">CONTROL SURFACE</div><h2>生成参数</h2></div><div className="image-control-heading-actions"><span className="image-dim-label">{selectedImageSize}</span><button type="button" className="image-panel-reset" onClick={() => updateControlPanelWidth(IMAGE_PANEL_DEFAULT_WIDTH)} aria-label="Reset control panel width" title="Reset width"><Icon d={I.refresh} size={13} /></button></div></div>
           <div className="image-control-scroll">
             <label className="image-field-label" htmlFor="image-model">模型</label>
-            <select id="image-model" className="image-select" value={model} onChange={(event) => setModel(event.target.value)} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"}>{IMG_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}{item.experimental ? " · 实验" : ""}</option>)}</select>
+            <select id="image-model" className="image-select" value={model} onChange={(event) => { const nextModel = event.target.value; setModel(nextModel); setOutputSize((current) => imageOutputSizeOptionsFor(nextModel).includes(current) ? current : imageOutputSizeOptionsFor(nextModel)[0]); }} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"}>{IMG_MODELS.map((item) => <option key={item.id} value={item.id}>{item.label}{item.experimental ? " · 实验" : ""}</option>)}</select>
+            <div className="image-field-label">输出档位</div>
+            <div className="image-ratio-grid">{imageOutputSizes.map((item) => <button type="button" key={item} onClick={() => setOutputSize(item)} aria-pressed={item === selectedOutputSize} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} className={item === selectedOutputSize ? "active" : ""}>{item}</button>)}</div>
             <div className="image-field-label">比例 / 输出尺寸</div>
-            <div className="image-ratio-grid">{RATIOS.map((item) => <button type="button" key={item.key} onClick={() => setRatio(item.key)} aria-pressed={item.key === ratio} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} className={item.key === ratio ? "active" : ""}>{item.key}<small>{sizeFor(model, item.key)}</small></button>)}</div>
+            <div className="image-ratio-grid">{RATIOS.map((item) => <button type="button" key={item.key} onClick={() => setRatio(item.key)} aria-pressed={item.key === ratio} disabled={!!confirmTarget || phase === "preparing" || phase === "confirming"} className={item.key === ratio ? "active" : ""}>{item.key}<small>{imageRequestSizeForModel(model, item.key, selectedOutputSize) || sizeFor(model, item.key)}</small></button>)}</div>
 
-            <div className="image-field-label image-reference-label"><span>参考图</span><span>{files.length}/{MAX_CREATOR_IMAGE_REFERENCES}</span></div>
-            <label htmlFor="creator-image-files" className="image-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={onDrop} onKeyDown={onDropzoneKeyDown} tabIndex={0} role="button" aria-label="拖放或选择参考图"><Icon d={I.upload} size={20} /><strong>拖放或选择参考图</strong><span>JPEG / PNG / WebP · 单张 ≤ 7MB · 总计 ≤ 28MB</span><input ref={fileInputRef} id="creator-image-files" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFileChange} disabled={files.length >= MAX_CREATOR_IMAGE_REFERENCES || !!confirmTarget} /></label>
+            <div className="image-field-label image-reference-label"><span>参考图</span><span>{files.length}/{imageReferenceLimit}</span></div>
+            <label htmlFor="creator-image-files" className="image-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={onDrop} onKeyDown={onDropzoneKeyDown} tabIndex={0} role="button" aria-label="拖放或选择参考图"><Icon d={I.upload} size={20} /><strong>拖放或选择参考图</strong><span>JPEG / PNG / WebP · 单张 ≤ 7MB · 总计 ≤ 28MB</span><input ref={fileInputRef} id="creator-image-files" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onFileChange} disabled={files.length >= imageReferenceLimit || !!confirmTarget} /></label>
             {previews.length > 0 && <div className="image-reference-grid">{previews.map(({ file, url }, index) => <div className="image-reference-thumb" key={`${file.name}-${file.lastModified}-${index}`} draggable={!confirmTarget} role="group" aria-label={`Reference image ${index + 1}: ${file.name}`} style={{ opacity: dragIndex === index ? 0.65 : 1 }} onDragStart={(event) => onReferenceDragStart(event, index)} onDragEnd={onReferenceDragEnd} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onReferenceDrop(event, index)}><img src={url} alt={file.name} /><button type="button" aria-label={`删除参考图 ${file.name}`} disabled={!!confirmTarget} onClick={() => removeFile(index)}><Icon d={I.close} size={12} /></button><span>{index + 1}</span></div>)}</div>}
 
             <div className="image-picker-row"><SkillPicker active={activeSkill?.name || null} onApply={(name, content) => setActiveSkill({ name, content })} onClear={() => setActiveSkill(null)} /><PromptPicker onInsert={(text) => setPrompt((current) => current.trim() ? `${current.trimEnd()}\n${text}` : text)} /></div>
