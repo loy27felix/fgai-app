@@ -7,6 +7,7 @@ import { saveAs } from "file-saver";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/reference/infinite-canvas/src/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/reference/infinite-canvas/src/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/reference/infinite-canvas/src/services/api/video";
+import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { resolveImageUrl, storeGeneratedImage, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
@@ -3219,6 +3220,12 @@ function InfiniteCanvasPage() {
                         );
                         if (runController.signal.aborted) return;
                         if (hasFailure) message.error(hasSuccess ? "部分图片生成失败" : firstError || "生成失败");
+                        if (hasSuccess) notifyGenerationCompleted({
+                            kind: "image",
+                            id: `${nodeId}:${attemptIds.join(":")}`,
+                            title: "图片新版本已完成",
+                            body: "新版本已保存在同一图片节点中，可以切换对比后继续修改。",
+                        });
                         if (!hasSuccess)
                             setNodes((prev) =>
                                 prev.map((node) =>
@@ -3373,6 +3380,12 @@ function InfiniteCanvasPage() {
                     if (hasFailure) {
                         message.error(hasSuccess ? "部分图片生成失败" : firstError || "生成失败");
                     }
+                    if (hasSuccess) notifyGenerationCompleted({
+                        kind: "image",
+                        id: `${rootId}:${targetIds.join(":")}`,
+                        title: count > 1 ? `${count} 张图片已生成完成` : "图片已生成完成",
+                        body: count > 1 ? "图片已折叠在同一组节点中，可以展开挑选版本。" : "结果已在画布中就绪，可以继续修改或接入视频。",
+                    });
                     setNodes((prev) =>
                         prev.map((node) =>
                             node.id === nodeId && isConfigNode
@@ -3484,6 +3497,12 @@ function InfiniteCanvasPage() {
                                 };
                             }),
                         );
+                        notifyGenerationCompleted({
+                            kind: "video",
+                            id: creatorTaskIdForRun || `${videoId}:${videoAttemptId}`,
+                            title: "视频已生成完成",
+                            body: "结果已在画布节点中就绪，可以预览、切换版本或继续拼接。",
+                        });
                         void storeGeneratedVideo(readyVideo)
                             .then((stored) =>
                                 setNodes((prev) =>
@@ -3733,6 +3752,12 @@ function InfiniteCanvasPage() {
                             };
                         }),
                     );
+                    notifyGenerationCompleted({
+                        kind: "video",
+                        id: creatorTaskIdForRun || `${node.id}:${videoAttemptId}`,
+                        title: "视频新版本已完成",
+                        body: "新版本已保存在同一视频节点中，可以切换对比后继续修改。",
+                    });
                     void storeGeneratedVideo(readyVideo)
                         .then((stored) =>
                             setNodes((prev) =>
@@ -3790,6 +3815,12 @@ function InfiniteCanvasPage() {
                             : item,
                     ),
                 );
+                notifyGenerationCompleted({
+                    kind: "image",
+                    id: `${node.id}:retry:${Date.now()}`,
+                    title: "图片已生成完成",
+                    body: "结果已更新在当前画布节点中，可以继续局部修改或接入视频。",
+                });
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : "生成失败";

@@ -102,6 +102,64 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
   useEffect(() => { void loadSessions(); void loadProductions(); }, []);
 
   useEffect(() => {
+    const receiveCompanionTask = (event: Event) => {
+      const detail = (event as CustomEvent<{ prompt?: string; intent?: AgentMode; target?: "fg" | "codex" }>).detail;
+      if (detail?.target !== "fg" || !detail.prompt?.trim()) return;
+      setPrompt(detail.prompt.trim());
+      setError("");
+      if (detail.intent === "production") {
+        const companionDraft: CompanyProductionDraft = {
+          phase: "direction",
+          brief: detail.prompt.trim(),
+          subject: "",
+          visualDirection: "",
+          ratio: "16:9",
+          duration: 5,
+          segmentCount: 1,
+          videoModel: videoModelOptions[0]?.value || "doubao-seedance-2-0",
+          videoResolution: "720p",
+          storyboardModel: storyboardModelOptions[0]?.value || "gpt-image-2",
+          storyboardResolution: "1024x1024",
+          visualImageCount: 2,
+          visualModel: storyboardModelOptions[0]?.value || "gpt-image-2",
+          visualResolution: "1024x1024",
+          characterCount: 1,
+          styleCount: 1,
+          researchMode: "library",
+          assemble: false,
+          materialReferences: [],
+          directions: [],
+          selectedDirectionId: null,
+          customDirection: "",
+          plan: null,
+          quote: null,
+        };
+        setActiveProduction(null);
+        setProductionDraft(companionDraft);
+        setProductionHistoryOpen(false);
+        productionStageNodeIdsRef.current = {};
+        setProductionKey((current) => current + 1);
+        setMode("production");
+      }
+    };
+    window.addEventListener("fg-agent-companion-task", receiveCompanionTask);
+    return () => window.removeEventListener("fg-agent-companion-task", receiveCompanionTask);
+  }, [storyboardModelOptions, videoModelOptions]);
+
+  useEffect(() => {
+    const status = error
+      ? "需要你确认或重试一处问题，我已经把上下文保留好了。"
+      : busy
+        ? mode === "production" ? "正在整理制片方案与画布节点。" : "正在梳理你的要求并准备回复。"
+        : mode === "production" && activeProduction?.status === "rendering"
+          ? "制片队列正在生成，结果完成后我会提醒你挑选版本。"
+          : mode === "production" && activeProduction?.status === "assembling"
+            ? "视频正在服务端拼接，完成后会交付完整成片。"
+            : "等你确认创意方向，我会把下一步拆成可执行的选择。";
+    window.dispatchEvent(new CustomEvent("fg-agent-companion-status", { detail: { status } }));
+  }, [activeProduction?.status, busy, error, mode]);
+
+  useEffect(() => {
     if (!activeProduction || !productionDraft) return;
     const timer = window.setTimeout(() => { void saveProduction(activeProduction.id, productionDraft); }, 650);
     return () => window.clearTimeout(timer);

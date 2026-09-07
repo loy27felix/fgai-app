@@ -17,6 +17,7 @@ import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/reference/infinite-canvas/src/services/api/image";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/reference/infinite-canvas/src/stores/use-workbench-agent-store";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
@@ -207,7 +208,15 @@ export default function ImagePage() {
                     images: logImages,
                 }),
             );
-            successCount ? message.success("图片已生成") : message.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
+            if (successCount) {
+                message.success("图片已生成");
+                notifyGenerationCompleted({
+                    kind: "image",
+                    id: `workbench:${Math.round(batchStartedAt)}`,
+                    title: successCount > 1 ? `${successCount} 张图片已生成完成` : "图片已生成完成",
+                    body: "结果已在生图工作台中就绪，可以预览、下载或继续修改。",
+                });
+            } else message.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
         } finally {
             setRunning(false);
         }

@@ -36,6 +36,7 @@ import {
 import { getImageModel, imageOutputSizeForDimensions, imageOutputSizeOptionsFor, imageRequestSizeForModel, IMG_MODELS, RATIOS, sizeFor } from "@/lib/imageModels";
 import { createCreatorCanvas, deleteCreatorCanvas, listCreatorCanvases, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { randomId } from "@/lib/utils";
+import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 
 type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown" | "submitting";
@@ -44,6 +45,8 @@ const TASK_QUERY_MAX_LENGTH = 128;
 const IMAGE_PANEL_MIN_WIDTH = 320;
 const IMAGE_PANEL_MAX_WIDTH = 560;
 const IMAGE_PANEL_DEFAULT_WIDTH = 408;
+const IMAGE_AUTO_POLL_STATUSES = new Set<CreatorImageTask["status"]>(["submitting", "queued", "running"]);
+const MAX_IMAGE_AUTO_POLL_ATTEMPTS = 90;
 
 function clampImagePanelWidth(value: number) {
   return Math.min(IMAGE_PANEL_MAX_WIDTH, Math.max(IMAGE_PANEL_MIN_WIDTH, Math.round(value)));
@@ -522,7 +525,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       setCanvasDeleting(false);
     }
   }
-  async function refreshHistory(preferId?: string) {
+  async function refreshHistory(preferId?: string, announceCompletion = false) {
     setLoadingHistory(true);
     try {
       const response = await listImageTasks();
@@ -537,6 +540,15 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       setSelectedTaskId(nextId);
       setConfirmTarget(nextTask && isConfirmableDraft(nextTask) ? nextTask : null);
       replaceTaskQuery(nextId);
+      if (announceCompletion && nextTask?.status === "succeeded") {
+        notifyGenerationCompleted({
+          kind: "image",
+          id: nextTask.id,
+          title: "图片已生成完成",
+          body: "结果已在生图工作台中就绪，可以预览、下载或继续复用参数。",
+        });
+      }
+      return nextTask;
     } catch (loadError) {
       setError(publicError(loadError, "历史加载失败，请稍后重试"));
       setPhase("error");
@@ -624,7 +636,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       if (response.requiresReconciliation || response.ledgerStatus === "unknown") {
         setPhase("unknown");
         setNotice("任务已提交，但账本状态需要对账；刷新只读取任务列表，不会自动确认。请稍后查看状态。");
-        await refreshHistory(target.id);
+        await refreshHistory(target.id, true);
         return;
       }
       const nextStatus = response.task?.status;
@@ -637,23 +649,23 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       } else {
         setPhase("idle");
       }
-      await refreshHistory(target.id);
+      await refreshHistory(target.id, true);
     } catch (confirmError) {
       setConfirmTarget(null);
       if (confirmError instanceof CreatorImageClientError && confirmError.status === 503) {
         setPhase("unknown");
         setNotice("服务返回对账或状态未知（503）；这次不会重试确认。刷新只读取任务列表。");
-        await refreshHistory(target.id);
+        await refreshHistory(target.id, true);
       } else if (confirmError instanceof CreatorImageClientError && confirmError.code === "IDEMPOTENCY_CONFLICT") {
         setPhase("submitting");
         setNotice("任务已被其他请求提交；刷新只读取任务列表，不会重复确认。");
-        await refreshHistory(target.id);
+        await refreshHistory(target.id, true);
       } else if (confirmError instanceof CreatorImageClientError && (confirmError.status === 0 || confirmError.code === "GENERATION_TIMEOUT")) {
         setPhase("unknown");
         setNotice(confirmError.code === "GENERATION_TIMEOUT"
           ? "图片等待已超过当前安全时限；状态待确认，这次不会自动重试，避免重复扣费。请刷新任务历史后再决定。"
           : "确认请求可能未返回；这次不会自动重试，请刷新任务历史后再决定。");
-        await refreshHistory(target.id);
+        await refreshHistory(target.id, true);
       } else {
         setPhase("error");
         setError(publicError(confirmError, "图片确认失败，请稍后重试"));
@@ -787,6 +799,26 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       await refreshHistory(taskId || undefined);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!selectedTask || !IMAGE_AUTO_POLL_STATUSES.has(selectedTask.status)) return;
+    let cancelled = false;
+    let attempts = 0;
+    const taskId = selectedTask.id;
+    const poll = async () => {
+      while (!cancelled && attempts < MAX_IMAGE_AUTO_POLL_ATTEMPTS) {
+        const delay = Math.min(30_000, 4_000 * (2 ** Math.min(attempts, 3)));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+        if (cancelled) return;
+        attempts += 1;
+        const task = await refreshHistory(taskId, true);
+        if (!task || !IMAGE_AUTO_POLL_STATUSES.has(task.status)) return;
+      }
+      if (!cancelled) setNotice("图片状态自动刷新已停止；可从任务历史手动刷新，不会重复提交任务。");
+    };
+    void poll();
+    return () => { cancelled = true; };
+  }, [selectedTask?.id, selectedTask?.status]);
 
   const canvasRows = canvases.map((canvas) => (
     <div key={canvas.id} className={"image-canvas-row" + (selectedCanvasId === canvas.id ? " active" : "")}>

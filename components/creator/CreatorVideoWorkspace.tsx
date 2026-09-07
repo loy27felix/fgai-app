@@ -12,6 +12,7 @@ import { confirmVideoTask, createVideoDraft, deleteVideoTask, finalizeVideoUploa
 import { validateVideoDraftInput, type CreatorVideoSkill, type VideoReferenceKind, type VideoReferenceManifest, type VideoReferenceRole } from "@/lib/creator/video";
 import { VIDEO_MODELS, getVideoModel } from "@/lib/ai/video-models";
 import { randomId } from "@/lib/utils";
+import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 
 type Props = { userEmail: string };
 type Phase = "idle" | "preparing" | "confirming" | "error" | "unknown";
@@ -131,6 +132,16 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
   const DURATION_MAX = durationMax;
   const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
 
+  function announceVideoCompletion(task: CreatorVideoTask | CreatorVideoTaskView | null | undefined) {
+    if (task?.status !== "succeeded") return;
+    notifyGenerationCompleted({
+      kind: "video",
+      id: task.id,
+      title: "视频已生成完成",
+      body: "结果已在生视频工作台中就绪，可以预览、下载或继续复用参数。",
+    });
+  }
+
   useEffect(() => {
     setDuration((current) => {
       if (current === -1 && activeModel?.supportsAdaptiveDuration) return current;
@@ -237,12 +248,12 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
   async function confirmTask() {
     if (!confirmTarget || phase === "confirming") return;
     const target = confirmTarget; setPhase("confirming"); setError("");
-    try { const result = await confirmVideoTask(target.id); setConfirmTarget(null); if (result.task) setTasks((current) => [result.task as CreatorVideoTaskView, ...current.filter((item) => item.id !== target.id)]); setNotice("视频任务已提交，状态会自动轮询"); await loadHistory(target.id); }
+    try { const result = await confirmVideoTask(target.id); setConfirmTarget(null); if (result.task) { setTasks((current) => [result.task as CreatorVideoTaskView, ...current.filter((item) => item.id !== target.id)]); announceVideoCompletion(result.task); } setNotice(result.task?.status === "succeeded" ? "视频已完成" : "视频任务已提交，状态会自动轮询"); await loadHistory(target.id); }
     catch (value) { setConfirmTarget(null); if (value instanceof CreatorImageClientError && (value.status === 503 || value.status === 0)) { setPhase("unknown"); setNotice("提交结果可能未知；这次不会自动重试，请刷新状态"); await loadHistory(target.id); } else { setPhase("error"); setError(errorText(value, "视频确认失败")); } }
   }
   async function pollTask() {
     if (!selectedTask || !REFRESHABLE_STATUSES.has(selectedTask.status)) return;
-    try { const result = await getVideoTask(selectedTask.id); setTasks((current) => current.map((item) => item.id === result.task.id ? result.task : item)); if (["succeeded", "failed", "expired"].includes(result.task.status)) setPhase("idle"); }
+    try { const result = await getVideoTask(selectedTask.id); setTasks((current) => current.map((item) => item.id === result.task.id ? result.task : item)); announceVideoCompletion(result.task); if (["succeeded", "failed", "expired"].includes(result.task.status)) setPhase("idle"); }
     catch (value) { setNotice(errorText(value, "视频状态暂时读取失败")); }
   }
   async function reconcileSelectedTask() {
@@ -258,6 +269,7 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
       setTasks((current) => current.map((item) => item.id === result.task.id ? result.task : item));
       setSelectedTaskId(result.task.id);
       setPhase("idle");
+      announceVideoCompletion(result.task);
       setNotice(result.durable ? "视频已从 Wetoken 同步并归档到本地媒体库。" : result.warning || "视频已同步；请检查本地媒体存储。 ");
       await loadHistory(result.task.id);
     } catch (value) { setReconciliationError(errorText(value, "同步 Wetoken 已完成任务失败")); }
@@ -299,6 +311,7 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
           const result = await getVideoTask(taskId);
           if (cancelled) return;
           setTasks((current) => current.map((item) => item.id === result.task.id ? result.task : item));
+          announceVideoCompletion(result.task);
           if (!AUTO_POLL_STATUSES.has(result.task.status)) return;
         } catch (value) {
           if (!cancelled) setNotice(errorText(value, "视频状态暂时读取失败"));

@@ -16,6 +16,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/reference/infinite-canvas/src/services/api/video";
+import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/reference/infinite-canvas/src/stores/use-workbench-agent-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -371,6 +372,12 @@ export default function VideoPage() {
                     if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
                     await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
                     message.success("视频已生成");
+                    notifyGenerationCompleted({
+                        kind: "video",
+                        id: `workbench:${log.id}`,
+                        title: "视频已生成完成",
+                        body: "结果已在生视频工作台中就绪，可以预览、下载或继续修改。",
+                    });
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);

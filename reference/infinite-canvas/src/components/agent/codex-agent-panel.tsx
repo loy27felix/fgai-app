@@ -77,6 +77,16 @@ export function CodexAgentPanel({ embedded: _embedded }: { embedded?: boolean })
     const activeAttachments = useMemo(() => attachments.map(agentAttachmentToChatAttachment), [attachments]);
 
     useEffect(() => {
+        const receiveCompanionTask = (event: Event) => {
+            const detail = (event as CustomEvent<{ prompt?: string; target?: "fg" | "codex" }>).detail;
+            if (detail?.target !== "codex" || !detail.prompt?.trim()) return;
+            setAgentState({ prompt: detail.prompt.trim(), panelOpen: true, activeTab: "chat", activity: "制作搭档已准备好任务" });
+        };
+        window.addEventListener("fg-agent-companion-task", receiveCompanionTask);
+        return () => window.removeEventListener("fg-agent-companion-task", receiveCompanionTask);
+    }, [setAgentState]);
+
+    useEffect(() => {
         navigateRef.current = navigate;
     }, [navigate]);
 

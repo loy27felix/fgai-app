@@ -79,6 +79,44 @@ test('canvas Agent is wired to the creator chat API with skills and reasoning', 
   assert.match(api, /recordUsageBestEffort/);
 });
 
+test('generation completion uses browser notifications with task-level dedupe across canvas and workbenches', () => {
+  const notifications = read('reference/infinite-canvas/src/services/generation-notifications.ts');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const imageWorkbench = read('components/creator/CreatorImageWorkspace.tsx');
+  const videoWorkbench = read('components/creator/CreatorVideoWorkspace.tsx');
+  const imagePage = read('reference/infinite-canvas/src/pages/image/index.tsx');
+  const videoPage = read('reference/infinite-canvas/src/pages/video/index.tsx');
+
+  assert.match(notifications, /Notification\.requestPermission/);
+  assert.match(notifications, /new Notification\(title/);
+  assert.match(notifications, /recentlyNotified/);
+  assert.match(notifications, /fg-generation-completed/);
+  assert.match(project, /notifyGenerationCompleted/);
+  assert.match(imageWorkbench, /announceCompletion && nextTask\?\.status === "succeeded"/);
+  assert.match(imageWorkbench, /IMAGE_AUTO_POLL_STATUSES/);
+  assert.match(videoWorkbench, /announceVideoCompletion/);
+  assert.match(videoWorkbench, /AUTO_POLL_STATUSES/);
+  assert.match(imagePage, /notifyGenerationCompleted/);
+  assert.match(videoPage, /notifyGenerationCompleted/);
+});
+
+test('customizable production companion persists an avatar and hands off tasks to either Agent mode', () => {
+  const companion = read('reference/infinite-canvas/src/components/agent/agent-companion.tsx');
+  const switchboard = read('reference/infinite-canvas/src/components/agent/canvas-agent-switchboard.tsx');
+  const localAgent = read('reference/infinite-canvas/src/components/agent/local-agent-panel.tsx');
+  const codexAgent = read('reference/infinite-canvas/src/components/agent/codex-agent-panel.tsx');
+
+  assert.match(companion, /storeName: "agent_companion"/);
+  assert.match(companion, /MAX_AVATAR_BYTES/);
+  assert.match(companion, /头像与偏好仅保存在此浏览器/);
+  assert.match(companion, /开启完成提醒/);
+  assert.match(switchboard, /AgentCompanion/);
+  assert.match(switchboard, /fg-agent-companion-task/);
+  assert.match(switchboard, /fg-generation-completed/);
+  assert.match(localAgent, /fg-agent-companion-task/);
+  assert.match(codexAgent, /fg-agent-companion-task/);
+});
+
 test('company-model Skill video production stays in a user-confirmed canvas workflow', () => {
   const agent = read('reference/infinite-canvas/src/components/agent/local-agent-panel.tsx');
   const flow = read('reference/infinite-canvas/src/components/agent/company-video-skill-flow.tsx');
