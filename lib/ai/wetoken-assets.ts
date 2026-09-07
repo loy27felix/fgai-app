@@ -40,6 +40,8 @@ type AssetRequestDependencies = WetokenProviderLogContext & {
 };
 
 const ASSET_REQUEST_TIMEOUT_MS = 60_000;
+const ASSET_CREATE_MAX_ATTEMPTS = 2;
+const ASSET_CREATE_RETRY_DELAYS_MS = [2_000];
 const ASSET_READY_TIMEOUT_MS = 120_000;
 const ASSET_POLL_INTERVAL_MS = 1_000;
 
@@ -346,7 +348,7 @@ async function createAsset(
     throw new WetokenAssetError('素材 URL 必须是公网 HTTPS 地址', 400, 'invalid_asset_url');
   }
 
-  const data = await assetRequest('/v3/open/CreateAsset', {
+  const body = {
     // Asset and generation requests must use the exact same model identifier.
     // 素材创建与生成任务必须使用完全一致的 model，FILTER OFF 不能降级成基础模型。
     model,
@@ -354,20 +356,48 @@ async function createAsset(
     name: assetName(reference, index),
     AssetType: assetTypeFor(reference),
     ...(model.endsWith('-filter-off') ? { Moderation: { Strategy: 'Skip' } } : {}),
-  }, fetcher, context);
-  const root = asRecord(data);
-  const nested = asRecord(root.data);
-  const id = typeof root.id === 'string'
-    ? root.id
-    : typeof root.Id === 'string'
-      ? root.Id
-      : typeof nested.id === 'string'
-        ? nested.id
-        : typeof nested.Id === 'string' ? nested.Id : null;
-  if (!id || !/^asset-[a-z0-9_-]+$/i.test(id)) {
-    throw new WetokenAssetError('素材库响应缺少有效资产 ID', 502, 'asset_id_missing', { uncertain: true });
+  };
+  for (let attempt = 1; attempt <= ASSET_CREATE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const data = await assetRequest('/v3/open/CreateAsset', body, fetcher, context);
+      const root = asRecord(data);
+      const nested = asRecord(root.data);
+      const id = typeof root.id === 'string'
+        ? root.id
+        : typeof root.Id === 'string'
+          ? root.Id
+          : typeof nested.id === 'string'
+            ? nested.id
+            : typeof nested.Id === 'string' ? nested.Id : null;
+      if (!id || !/^asset-[a-z0-9_-]+$/i.test(id)) {
+        throw new WetokenAssetError('素材库响应缺少有效资产 ID', 502, 'asset_id_missing', { uncertain: true });
+      }
+      return { id, model } satisfies WetokenCreatedAsset;
+    } catch (error) {
+      const canRetry = Boolean(context.idempotencyKey)
+        && attempt < ASSET_CREATE_MAX_ATTEMPTS
+        && (error instanceof WetokenAssetTransportError
+          || error instanceof WetokenAssetError && error.retryable);
+      if (!canRetry) throw error;
+      const delayMs = ASSET_CREATE_RETRY_DELAYS_MS[attempt - 1] || ASSET_CREATE_RETRY_DELAYS_MS.at(-1) || 2_000;
+      logServerEvent('wetoken_asset_exchange', {
+        traceId: context.traceId,
+        taskId: context.taskId,
+        provider: 'wetoken',
+        feature: 'wetoken_asset',
+        operation: 'CreateAsset',
+        stage: 'asset_create_retry',
+        attempt,
+        nextAttempt: attempt + 1,
+        delayMs,
+        idempotencyEnabled: true,
+        retryable: true,
+        error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+      }, 'warn');
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
-  return { id, model } satisfies WetokenCreatedAsset;
+  throw new Error('Wetoken asset creation attempts exhausted');
 }
 
 async function assetStatus(asset: WetokenCreatedAsset, fetcher: Fetcher, context: WetokenProviderLogContext) {
@@ -473,6 +503,11 @@ export async function prepareWetokenAssetReferences<T extends WetokenAssetRefere
   dependencies: AssetRequestDependencies = {},
 ): Promise<WetokenPreparedAssetReferences<T>> {
   const fetcher = dependencies.fetcher ?? fetch;
+  // A persisted task ID is stable across a user retry, so use it as the fallback
+  // idempotency namespace when a caller does not provide a dedicated key.
+  // 持久化 task ID 在用户重试时保持不变，未提供专用 key 时用它建立幂等命名空间。
+  const baseIdempotencyKey = dependencies.idempotencyKey
+    || (dependencies.taskId ? `wetoken-asset:${dependencies.taskId}` : undefined);
   const prepared: T[] = [];
   const createdAssets: WetokenCreatedAsset[] = [];
   const assetsToCheck: WetokenCreatedAsset[] = [];
@@ -486,7 +521,7 @@ export async function prepareWetokenAssetReferences<T extends WetokenAssetRefere
       }
       const asset = await createAsset(model, reference, index, fetcher, {
         ...dependencies,
-        ...(dependencies.idempotencyKey ? { idempotencyKey: `${dependencies.idempotencyKey}:asset:${index}` } : {}),
+        ...(baseIdempotencyKey ? { idempotencyKey: `${baseIdempotencyKey}:asset:${index}` } : {}),
       });
       createdAssets.push(asset);
       assetsToCheck.push(asset);
