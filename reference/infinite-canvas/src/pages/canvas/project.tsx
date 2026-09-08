@@ -1087,6 +1087,11 @@ function InfiniteCanvasPage() {
     }, [nodes, selectedNodeIds]);
     const canGroupSelectedNodes = nodes.filter((node) => selectedNodeIds.has(node.id) && node.type !== CanvasNodeType.Group).length > 1;
     const canDissolveSelectedGroups = nodes.some((node) => selectedNodeIds.has(node.id) && node.type === CanvasNodeType.Group);
+    const selectionActionBounds = useMemo(() => {
+        if (selectedNodesBounds) return selectedNodesBounds;
+        const selectedGroup = nodes.find((node) => selectedNodeIds.has(node.id) && node.type === CanvasNodeType.Group);
+        return selectedGroup ? nodeBounds([selectedGroup]) : null;
+    }, [nodes, selectedNodeIds, selectedNodesBounds]);
     const activeNodeId = hasMultipleSelectedNodes ? null : hoveredNodeId || (selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null);
     const batchChildCountById = useMemo(() => {
         const map = new Map<string, number>();
@@ -1240,18 +1245,32 @@ function InfiniteCanvasPage() {
             return;
         }
         const childIds = nodesRef.current.filter((node) => node.metadata?.groupId && groupIds.has(node.metadata.groupId)).map((node) => node.id);
-        const outgoingConnections = connectionsRef.current.filter((connection) => groupIds.has(connection.fromNodeId) && !groupIds.has(connection.toNodeId));
+        const childIdsByGroupId = new Map<string, string[]>();
+        groupIds.forEach((groupId) => childIdsByGroupId.set(groupId, nodesRef.current.filter((node) => node.metadata?.groupId === groupId).map((node) => node.id)));
+        const groupConnections = connectionsRef.current.filter((connection) => groupIds.has(connection.fromNodeId) || groupIds.has(connection.toNodeId));
         setNodes((previous) => dissolveGroups(previous, groupIds));
         setConnections((previous) => {
             const next = previous.filter((connection) => !groupIds.has(connection.fromNodeId) && !groupIds.has(connection.toNodeId));
             const existing = new Set(next.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
-            outgoingConnections.forEach((connection) => {
-                childIds.forEach((childId) => {
-                    const key = `${childId}:${connection.toNodeId}`;
-                    if (existing.has(key)) return;
-                    existing.add(key);
-                    next.push({ id: nanoid(), fromNodeId: childId, toNodeId: connection.toNodeId });
-                });
+            const addConnection = (fromNodeId: string, toNodeId: string) => {
+                if (fromNodeId === toNodeId || groupIds.has(fromNodeId) || groupIds.has(toNodeId)) return;
+                const key = `${fromNodeId}:${toNodeId}`;
+                if (existing.has(key)) return;
+                existing.add(key);
+                next.push({ id: nanoid(), fromNodeId, toNodeId });
+            };
+            groupConnections.forEach((connection) => {
+                const sourceChildren = childIdsByGroupId.get(connection.fromNodeId);
+                const targetChildren = childIdsByGroupId.get(connection.toNodeId);
+                if (sourceChildren && targetChildren) {
+                    sourceChildren.forEach((sourceId) => targetChildren.forEach((targetId) => addConnection(sourceId, targetId)));
+                    return;
+                }
+                if (sourceChildren) {
+                    sourceChildren.forEach((sourceId) => addConnection(sourceId, connection.toNodeId));
+                    return;
+                }
+                if (targetChildren) targetChildren.forEach((targetId) => addConnection(connection.fromNodeId, targetId));
             });
             return next;
         });
@@ -3477,7 +3496,10 @@ function InfiniteCanvasPage() {
                     const videoNode: CanvasNodeData = {
                         id: videoId,
                         type: CanvasNodeType.Video,
-                        title: effectivePrompt.slice(0, 32) || "Generated Video",
+                        // A video node may have been manually renamed to match a
+                        // CapCut/剪映 sequence. Rerendering a version must never
+                        // replace that stable post-production label with the new prompt.
+                        title: isVideoNode ? sourceNode.title || effectivePrompt.slice(0, 32) || "Generated Video" : effectivePrompt.slice(0, 32) || "Generated Video",
                         position: isVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
                         width: isVideoNode ? sourceNode.width : spec.width,
                         height: isVideoNode ? sourceNode.height : spec.height,
@@ -4373,6 +4395,48 @@ function InfiniteCanvasPage() {
                                 borderColor: theme.canvas.selectionStroke,
                             }}
                         />
+                    ) : null}
+                    {!selectionBox && selectionActionBounds && (canGroupSelectedNodes || canDissolveSelectedGroups) ? (
+                        <div
+                            data-canvas-no-zoom
+                            data-canvas-selection-actions
+                            className="absolute z-[110] flex items-center gap-1.5 rounded-xl border px-2 py-1.5 shadow-xl backdrop-blur-md"
+                            style={{
+                                left: selectionActionBounds.left,
+                                top: selectionActionBounds.top - 48,
+                                background: `${theme.toolbar.panel}f2`,
+                                borderColor: theme.toolbar.border,
+                                color: theme.node.text,
+                            }}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                        >
+                            <span className="px-1 text-[11px] font-medium opacity-65">已选 {selectedNodeIds.size} 项</span>
+                            {canGroupSelectedNodes ? (
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition hover:bg-white/10"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        groupSelectedNodesIntoContainer();
+                                    }}
+                                >
+                                    <Group className="size-3.5" />打组
+                                </button>
+                            ) : null}
+                            {canDissolveSelectedGroups ? (
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition hover:bg-white/10"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        dissolveSelectedGroups();
+                                    }}
+                                >
+                                    解散组
+                                </button>
+                            ) : null}
+                        </div>
                     ) : null}
                     {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
                     {nodeCreatePosition ? (

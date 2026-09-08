@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
+import type { ClipboardEvent, CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { Image } from "antd";
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
@@ -142,6 +142,17 @@ export function CanvasPromptChipInput({ value, references, onChange, className, 
                 onInput={() => {
                     if (!composingRef.current) syncFromEditor();
                 }}
+                onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
+                    // Browser rich-text paste often becomes a stack of DIV/P
+                    // nodes.  textContent then loses their paragraph breaks,
+                    // which made a pasted storyboard appear as one long line.
+                    const plainText = event.clipboardData.getData("text/plain");
+                    if (!plainText) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    insertPlainTextAtSelection(plainText);
+                    requestAnimationFrame(syncFromEditor);
+                }}
                 onCompositionStart={() => {
                     composingRef.current = true;
                 }}
@@ -206,6 +217,26 @@ function insertLineBreak() {
     const caret = document.createTextNode("");
     range.insertNode(lineBreak);
     lineBreak.after(caret);
+    range.setStart(caret, 0);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function insertPlainTextAtSelection(value: string) {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const fragment = document.createDocumentFragment();
+    const lines = value.replace(/\r\n?/g, "\n").split("\n");
+    const caret = document.createTextNode("");
+    lines.forEach((line, index) => {
+        if (index) fragment.append(document.createElement("br"));
+        fragment.append(document.createTextNode(line));
+    });
+    fragment.append(caret);
+    range.deleteContents();
+    range.insertNode(fragment);
     range.setStart(caret, 0);
     range.collapse(true);
     selection.removeAllRanges();
@@ -322,15 +353,26 @@ function serializeEditor(editor: HTMLElement) {
 
 function serializeNodes(nodes: NodeListOf<ChildNode>) {
     let result = "";
-    nodes.forEach((node) => {
+    const children = Array.from(nodes);
+    children.forEach((node, index) => {
         if (node.nodeType === Node.TEXT_NODE) result += node.textContent || "";
         if (!(node instanceof HTMLElement)) return;
         const label = node.dataset.refLabel;
         if (label) result += label;
         else if (node.tagName === "BR") result += "\n";
-        else result += serializeNodes(node.childNodes);
+        else {
+            result += serializeNodes(node.childNodes);
+            // Keep paragraph separators produced by browsers on rich-text
+            // paste. The dedicated paste handler normally emits BRs, while
+            // this fallback preserves content from drag/drop and older drafts.
+            if (isBlockTextElement(node) && index < children.length - 1 && !result.endsWith("\n")) result += "\n";
+        }
     });
     return result;
+}
+
+function isBlockTextElement(node: HTMLElement) {
+    return ["ADDRESS", "ARTICLE", "BLOCKQUOTE", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "LI", "P", "PRE", "SECTION"].includes(node.tagName);
 }
 
 function removeActiveMention() {

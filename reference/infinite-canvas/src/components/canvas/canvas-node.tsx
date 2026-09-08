@@ -156,6 +156,9 @@ export const CanvasNode = React.memo(function CanvasNode({
     const forceInteractive = supportsInteractionToggle ? Boolean(definition?.forceInteractive?.(data)) : false;
     const contentInteractive = !supportsInteractionToggle || forceInteractive || !data.metadata?.content ? true : Boolean(data.metadata?.interactive);
     const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
+    const videoDimensions = hasVideoContent
+        ? `${Math.round(data.metadata?.naturalWidth || data.width)} × ${Math.round(data.metadata?.naturalHeight || data.height)}`
+        : "";
     // 透明背景节点(如 SVG):卡片背景/边框透明,直接融入画布;选中/关联态仍显示描边以便定位
     const transparentBg = Boolean(definition?.transparentBackground);
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
@@ -366,7 +369,45 @@ export const CanvasNode = React.memo(function CanvasNode({
             onMouseDownCapture={(event) => onSelectCapture?.(event, data.id)}
             onContextMenu={(event) => onContextMenu(event, data.id)}
         >
-            {(isSelected || hovered || isEditingTitle) && (
+            {hasVideoContent ? (
+                <div className="absolute inset-x-0 bottom-full z-[65] mb-1.5 flex min-w-0 items-center gap-3 px-1.5" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+                    {isEditingTitle ? (
+                        <input
+                            ref={titleInputRef}
+                            value={titleDraft}
+                            maxLength={64}
+                            className="h-6 min-w-0 flex-1 border-0 border-b border-dashed bg-transparent px-0 text-left text-xs font-medium outline-none"
+                            style={{ borderColor: theme.node.muted, color: theme.node.text }}
+                            onChange={(event) => setTitleDraft(event.target.value)}
+                            onBlur={finishTitleEditing}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") finishTitleEditing();
+                                if (event.key === "Escape") {
+                                    setTitleDraft(data.title || "");
+                                    setIsEditingTitle(false);
+                                }
+                            }}
+                        />
+                    ) : (
+                        <button
+                            type="button"
+                            className="min-w-0 flex-1 truncate border-b border-dashed border-transparent px-0 py-0.5 text-left text-xs font-medium opacity-85 transition hover:border-current hover:opacity-100"
+                            style={{ color: theme.node.text }}
+                            title="双击修改视频名称"
+                            onDoubleClick={(event) => {
+                                event.stopPropagation();
+                                setIsEditingTitle(true);
+                            }}
+                        >
+                            <span className="mr-1.5 opacity-65">▶</span>
+                            {data.title || "未命名视频"}
+                        </button>
+                    )}
+                    <span className="shrink-0 text-[11px] font-medium tabular-nums opacity-55" style={{ color: theme.node.text }}>
+                        {videoDimensions}
+                    </span>
+                </div>
+            ) : (isSelected || hovered || isEditingTitle) && (
                 <div className="absolute left-3 top-[-28px] z-[65] max-w-[calc(100%-24px)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
                     {isEditingTitle ? (
                         <input
@@ -493,8 +534,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                 <ResizeHandle corner="bottom-right" onMouseDown={handleResizeMouseDown} />
             </div>
 
-            {!isGroup ? <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} /> : null}
-            {!isGroup ? <ConnectionHandleDot side="right" visible={(definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onMouseDown={(event) => onConnectStart(event, data.id, "source")} /> : null}
+            <ConnectionHandleDot side="left" visible={hovered || isSelected || isConnecting} onMouseDown={(event) => onConnectStart(event, data.id, "target")} />
+            <ConnectionHandleDot side="right" visible={(definition?.hasSourceHandle ?? true) && data.type !== CanvasNodeType.Config && (hovered || isSelected || isConnecting)} onMouseDown={(event) => onConnectStart(event, data.id, "source")} />
 
             {showPanel && !isGroup && renderPanel ? <div className={`absolute left-1/2 top-full z-[70] max-w-[calc(100vw-40px)] -translate-x-1/2 pt-4 ${definition?.Panel ? "w-[min(960px,calc(100vw-40px))]" : "w-[min(720px,calc(100vw-40px))]"}`}>{renderPanel(data)}</div> : null}
         </div>
@@ -541,6 +582,7 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
                 </span>
             </div>
             <div className="mt-3 flex-1 rounded-2xl border border-dashed" style={{ borderColor: theme.node.stroke, background: `${theme.node.fill}55` }} />
+            <div className="mt-2 text-center text-[11px] font-medium opacity-55">左右圆点可连接整组素材</div>
         </div>
     );
 }
@@ -741,7 +783,6 @@ function VideoNodeContent({ node, theme, onVideoAlternativeChange, onVideoPlayba
                 src={activeContent}
                 controls
                 className="relative z-10 h-full w-full rounded-[18px] bg-black object-contain"
-                data-canvas-no-zoom
                 data-canvas-video-id={node.id}
                 onError={() => {
                     setPlaybackError(true);
@@ -816,7 +857,7 @@ function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
                 <Music2 className="size-4 shrink-0" />
                 <span className="truncate">音频</span>
             </div>
-            <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
+            <audio src={node.metadata.content} controls className="w-full" />
         </div>
     );
 }

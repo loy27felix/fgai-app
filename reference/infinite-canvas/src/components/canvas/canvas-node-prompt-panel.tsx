@@ -1,4 +1,4 @@
-import { type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Plus, Square, X } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
 
@@ -17,6 +17,8 @@ import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
+
+type PromptEditorResizeEdge = "right" | "bottom" | "corner";
 
 type CanvasNodePromptPanelProps = {
     node: CanvasNodeData;
@@ -48,6 +50,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
     const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
+    const [promptEditorSize, setPromptEditorSize] = useState({ width: 760, height: 520 });
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
     useEffect(() => {
@@ -65,6 +68,28 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         const text = prompt.trim();
         if (!text || isRunning) return;
         onGenerate(node.id, mode, text);
+    };
+
+    const startPromptEditorResize = (event: ReactPointerEvent<HTMLDivElement>, edge: PromptEditorResizeEdge) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const start = { x: event.clientX, y: event.clientY, ...promptEditorSize };
+        const handleMove = (moveEvent: PointerEvent) => {
+            const widthDelta = edge === "bottom" ? 0 : moveEvent.clientX - start.x;
+            const heightDelta = edge === "right" ? 0 : moveEvent.clientY - start.y;
+            setPromptEditorSize({
+                width: clampPromptEditorSize(start.width + widthDelta, 560, Math.max(560, window.innerWidth - 40)),
+                height: clampPromptEditorSize(start.height + heightDelta, 360, Math.max(360, window.innerHeight - 150)),
+            });
+        };
+        const stopResize = () => {
+            window.removeEventListener("pointermove", handleMove);
+            window.removeEventListener("pointerup", stopResize);
+            window.removeEventListener("pointercancel", stopResize);
+        };
+        window.addEventListener("pointermove", handleMove);
+        window.addEventListener("pointerup", stopResize);
+        window.addEventListener("pointercancel", stopResize);
     };
 
     return (
@@ -168,8 +193,17 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     </span>
                 </Button>
             </div>
-            <Modal title="编辑提示词" open={isPromptEditorOpen} centered width={760} footer={null} onCancel={() => setIsPromptEditorOpen(false)} destroyOnHidden>
-                <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
+            <Modal
+                title="编辑提示词"
+                open={isPromptEditorOpen}
+                centered
+                width={promptEditorSize.width}
+                styles={{ body: { height: promptEditorSize.height, minHeight: 360 } }}
+                footer={null}
+                onCancel={() => setIsPromptEditorOpen(false)}
+                destroyOnHidden
+            >
+                <div data-canvas-no-zoom className="relative h-full pt-2" onWheelCapture={(event) => event.stopPropagation()}>
                     <ReferenceStrip
                         nodeId={node.id}
                         references={mentionReferences}
@@ -186,14 +220,31 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         value={prompt}
                         references={mentionReferences}
                         onChange={updatePrompt}
-                        className="thin-scrollbar h-[52dvh] min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
-                        style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text }}
+                        className="thin-scrollbar min-h-80 w-full cursor-text overflow-y-auto rounded-xl border p-4 text-[15px] leading-6 outline-none"
+                        style={{ background: "transparent", borderColor: theme.toolbar.border, color: theme.node.text, height: Math.max(280, promptEditorSize.height - 78) }}
                         placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
                     />
+                    <PromptEditorResizeHandle edge="right" onPointerDown={(event) => startPromptEditorResize(event, "right")} />
+                    <PromptEditorResizeHandle edge="bottom" onPointerDown={(event) => startPromptEditorResize(event, "bottom")} />
+                    <PromptEditorResizeHandle edge="corner" onPointerDown={(event) => startPromptEditorResize(event, "corner")} />
                 </div>
             </Modal>
         </div>
     );
+}
+
+function PromptEditorResizeHandle({ edge, onPointerDown }: { edge: PromptEditorResizeEdge; onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void }) {
+    const className =
+        edge === "right"
+            ? "absolute right-[-12px] top-3 bottom-3 z-10 w-5 cursor-ew-resize"
+            : edge === "bottom"
+              ? "absolute bottom-[-12px] left-3 right-3 z-10 h-5 cursor-ns-resize"
+              : "absolute bottom-[-12px] right-[-12px] z-20 size-6 cursor-nwse-resize";
+    return <div className={className} role="separator" aria-label="调整提示词编辑器大小" onPointerDown={onPointerDown} />;
+}
+
+function clampPromptEditorSize(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), max);
 }
 
 function ReferenceStrip({

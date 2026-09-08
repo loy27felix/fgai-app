@@ -190,6 +190,25 @@ test('native node prompt workspaces expose a plugin hook without globally changi
   assert.doesNotMatch(promptInput, /onWheelCapture/);
 });
 
+test('canvas selection, media zoom, and prompt editing remain usable at production scale', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+  const promptInput = read('reference/infinite-canvas/src/components/canvas/canvas-prompt-chip-input.tsx');
+  const promptPanel = read('reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel.tsx');
+  const videoNode = node.slice(node.indexOf('<video'), node.indexOf('</video>'));
+
+  assert.match(project, /data-canvas-selection-actions/);
+  assert.match(project, /打组/);
+  assert.match(project, /解散组/);
+  assert.doesNotMatch(videoNode, /data-canvas-no-zoom/);
+  assert.match(node, /<ConnectionHandleDot side="left" visible=\{hovered \|\| isSelected \|\| isConnecting\}/);
+  assert.doesNotMatch(node, /\{!isGroup \? <ConnectionHandleDot/);
+  assert.match(promptInput, /onPaste=/);
+  assert.match(promptInput, /insertPlainTextAtSelection/);
+  assert.match(promptPanel, /promptEditorSize/);
+  assert.match(promptPanel, /调整提示词编辑器大小/);
+});
+
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const pasteStart = project.indexOf('const handlePaste');
@@ -255,6 +274,10 @@ test('video reruns stay in one node with selectable versions and keyboard deleti
   assert.match(project, /target\?\.closest\("\[contenteditable='true'\],\[data-canvas-shortcuts-ignore\]"\)/);
   assert.match(node, /第 \{index \+ 1\} 个视频版本/);
   assert.match(node, /onVideoAlternativeChange/);
+  assert.match(node, /const videoDimensions = hasVideoContent/);
+  assert.match(node, /双击修改视频名称/);
+  assert.match(node, /bottom-full z-\[65\]/);
+  assert.match(project, /title: isVideoNode \? sourceNode\.title \|\| effectivePrompt\.slice\(0, 32\)/);
   assert.match(menu, /w-\[360px\]/);
 });
 

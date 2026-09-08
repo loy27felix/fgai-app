@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { buildNodeMentionReferences, getGenerationResourceNodes, reconcileCanvasReferenceLabels } from "../reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../reference/infinite-canvas/src/types/canvas";
-import { dissolveGroups, groupSelectedNodes } from "../reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
+import { dissolveGroups, groupSelectedNodes, normalizeConnection } from "../reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import { buildNodeGenerationContext } from "../reference/infinite-canvas/src/components/canvas/canvas-node-generation";
 
 const position = { x: 0, y: 0 };
@@ -94,4 +94,15 @@ test("multi-selection can be wrapped and later dissolved without moving the sele
     assert.deepEqual(dissolved.map((item) => item.id), ["first", "second"]);
     assert.deepEqual(dissolved.map((item) => item.position), [first.position, second.position]);
     assert.deepEqual(dissolved.map((item) => item.metadata?.groupId), [undefined, undefined]);
+});
+
+test("group nodes can be connected as reusable input or output containers", () => {
+    const nodes = [
+        node("source", CanvasNodeType.Image, { content: "https://assets.example/source.png" }),
+        node("group", CanvasNodeType.Group),
+        node("target", CanvasNodeType.Video),
+    ];
+
+    assert.deepEqual(normalizeConnection("group", "target", nodes, "source"), { fromNodeId: "group", toNodeId: "target" });
+    assert.deepEqual(normalizeConnection("source", "group", nodes, "source"), { fromNodeId: "source", toNodeId: "group" });
 });
