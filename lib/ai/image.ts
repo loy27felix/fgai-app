@@ -215,7 +215,10 @@ export function buildVolcengineImageBody(input: Pick<ImageGenerationInput, 'mode
     ...(reference ? { image: `data:${reference.mimeType};base64,${reference.data}` } : {}),
     response_format: 'url',
     watermark: false,
-    optimize_prompt_options: { mode: 'auto' },
+    // `auto` belongs to Seedream's sequential-image feature, not to prompt
+    // optimization. Lite accepts only `standard`; keeping the common mode
+    // explicit also makes the same payload valid for Seedream 5.0 Pro.
+    optimize_prompt_options: { mode: 'standard' },
   };
 }
 

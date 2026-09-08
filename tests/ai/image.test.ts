@@ -204,7 +204,7 @@ test('Seedream generation uses the documented VolcEngine endpoint and payload', 
       size: '1024x1024',
       response_format: 'url',
       watermark: false,
-      optimize_prompt_options: { mode: 'auto' },
+      optimize_prompt_options: { mode: 'standard' },
     },
   });
   assert.deepEqual([...result.bytes], [97, 98, 99]);
@@ -233,7 +233,7 @@ test('Seedream image-to-image sends one data-url reference in the documented ima
     image: 'data:image/jpeg;base64,YWJj',
     response_format: 'url',
     watermark: false,
-    optimize_prompt_options: { mode: 'auto' },
+    optimize_prompt_options: { mode: 'standard' },
   });
 });
 
