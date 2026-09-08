@@ -12,6 +12,34 @@ export function nodeBounds(nodes: CanvasNodeData[]) {
     );
 }
 
+/** Wrap the current multi-selection in a real group node without moving it. */
+export function groupSelectedNodes(nodes: CanvasNodeData[], selectedIds: Set<string>, groupId: string) {
+    const children = nodes.filter((node) => selectedIds.has(node.id) && node.type !== CanvasNodeType.Group);
+    if (children.length < 2) return { nodes, group: null as CanvasNodeData | null };
+    const bounds = nodeBounds(children);
+    const padding = 32;
+    const group: CanvasNodeData = {
+        id: groupId,
+        type: CanvasNodeType.Group,
+        title: `组 · ${children.length} 项`,
+        position: { x: bounds.left - padding, y: bounds.top - padding },
+        width: bounds.right - bounds.left + padding * 2,
+        height: bounds.bottom - bounds.top + padding * 2,
+        metadata: {},
+    };
+    return {
+        nodes: [...nodes.map((node) => selectedIds.has(node.id) && node.type !== CanvasNodeType.Group ? { ...node, metadata: { ...node.metadata, groupId } } : node), group],
+        group,
+    };
+}
+
+/** Remove group containers while leaving their children in place. */
+export function dissolveGroups(nodes: CanvasNodeData[], groupIds: Set<string>) {
+    return nodes
+        .filter((node) => !groupIds.has(node.id))
+        .map((node) => node.metadata?.groupId && groupIds.has(node.metadata.groupId) ? { ...node, metadata: { ...node.metadata, groupId: undefined } } : node);
+}
+
 export function findGroupDropTarget(movedIds: Set<string>, nodes: CanvasNodeData[]) {
     if (nodes.some((node) => movedIds.has(node.id) && node.type === CanvasNodeType.Group)) return null;
     const movingNodes = nodes.filter((node) => movedIds.has(node.id) && node.type !== CanvasNodeType.Group);

@@ -348,7 +348,24 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                             <Select value={videoNodePreset.resolution} options={videoNodePreset.resolutionOptions} onChange={(value) => updateConfig("newVideoNodeResolution", value)} />
                                         </Form.Item>
                                         <Form.Item label="新建节点时长" extra={videoNodePreset.durationNote} className="mb-0">
-                                            <Select value={videoNodePreset.seconds} options={videoNodePreset.secondOptions} onChange={(value) => updateConfig("newVideoNodeSeconds", value)} />
+                                            {videoNodePreset.durationUsesSlider ? (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 dark:border-stone-700">
+                                                        <input
+                                                            type="range"
+                                                            min={videoNodePreset.durationMin}
+                                                            max={videoNodePreset.durationMax}
+                                                            step={1}
+                                                            value={videoNodePreset.seconds === "-1" ? videoNodePreset.durationMin : videoNodePreset.seconds}
+                                                            className="min-w-0 flex-1 accent-stone-900 dark:accent-stone-100"
+                                                            aria-label="新建视频节点时长"
+                                                            onChange={(event) => updateConfig("newVideoNodeSeconds", event.target.value)}
+                                                        />
+                                                        <span className="w-10 text-right text-xs tabular-nums">{videoNodePreset.seconds === "-1" ? "智能" : `${videoNodePreset.seconds} 秒`}</span>
+                                                    </div>
+                                                    {videoNodePreset.supportsSmartDuration ? <Button size="small" type={videoNodePreset.seconds === "-1" ? "primary" : "default"} onClick={() => updateConfig("newVideoNodeSeconds", "-1")}>智能时长</Button> : null}
+                                                </div>
+                                            ) : <Select value={videoNodePreset.seconds} options={videoNodePreset.secondOptions} onChange={(value) => updateConfig("newVideoNodeSeconds", value)} />}
                                         </Form.Item>
                                     </div>
                                 </section>
@@ -376,6 +393,10 @@ type VideoNodePreset = {
     sizeOptions: Array<{ value: string; label: string }>;
     resolutionOptions: Array<{ value: string; label: string }>;
     secondOptions: Array<{ value: string; label: string }>;
+    durationMin: number;
+    durationMax: number;
+    durationUsesSlider: boolean;
+    supportsSmartDuration: boolean;
     size: string;
     resolution: string;
     seconds: string;
@@ -398,6 +419,10 @@ function videoNodePresetFor(config: AiConfig): VideoNodePreset {
             sizeOptions: videoSizeOptions,
             resolutionOptions: videoResolutionOptions,
             secondOptions: videoSecondOptions.map((value) => ({ value, label: `${value} 秒` })),
+            durationMin: 4,
+            durationMax: 15,
+            durationUsesSlider: false,
+            supportsSmartDuration: false,
             size: videoSizeOptions.some((item) => item.value === normalizedSize) ? normalizedSize : videoSizeOptions[0].value,
             resolution: videoResolutionOptions.some((item) => item.value === normalizedResolution) ? normalizedResolution : videoResolutionOptions[0].value,
             seconds: normalizedSeconds,
@@ -429,6 +454,10 @@ function videoNodePresetFor(config: AiConfig): VideoNodePreset {
         sizeOptions: allowedRatios.map((item) => ({ value: item.value, label: item.label })),
         resolutionOptions: allowedResolutions.map((item) => ({ value: item.value, label: item.label })),
         secondOptions: allowedSeconds.map((value) => ({ value: String(value), label: value === -1 ? "智能" : `${value} 秒` })),
+        durationMin,
+        durationMax,
+        durationUsesSlider: true,
+        supportsSmartDuration: modelSpec?.supportsAdaptiveDuration !== false,
         size: allowedRatios.some((item) => item.value === normalizedSize) ? normalizedSize : allowedRatios[0].value,
         resolution: allowedResolutions.some((item) => item.value === normalizedResolution) ? normalizedResolution : allowedResolutions[0].value,
         seconds: allowedSeconds.some((value) => String(value) === normalizedSeconds) ? normalizedSeconds : String(allowedSeconds[0]),

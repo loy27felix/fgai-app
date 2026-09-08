@@ -4,13 +4,15 @@ import { seedanceReferenceLabel } from "@/reference/infinite-canvas/src/lib/seed
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/reference/infinite-canvas/src/types/canvas";
-import { getGenerationResourceNodes } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
+import { getCanvasResourceKind, getGenerationResourceNodes, labelResourceNodes } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
 export type NodeGenerationContext = {
     prompt: string;
     referenceImages: ReferenceImage[];
     referenceVideos: ReferenceVideo[];
     referenceAudios: ReferenceAudio[];
+    /** Stable labels keyed by resource node ID, shared with the @ mention UI. */
+    referenceLabelsById: Record<string, string>;
     textCount: number;
     imageCount: number;
     videoCount: number;
@@ -21,6 +23,7 @@ export type NodeGenerationInput = {
     nodeId: string;
     type: "text" | "image" | "video" | "audio";
     title: string;
+    label: string;
     text?: string;
     image?: ReferenceImage;
     video?: ReferenceVideo;
@@ -35,8 +38,8 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     }
 
     const upstreamText = inputs
-        .map((input) => input.text)
-        .filter(Boolean)
+        .filter((input) => Boolean(input.text))
+        .map((input) => `【${input.label}】\n${input.text || ""}`)
         .join("\n\n");
     const referenceImages = inputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = inputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
@@ -47,6 +50,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
         referenceImages,
         referenceVideos,
         referenceAudios,
+        referenceLabelsById: Object.fromEntries(inputs.map((input) => [input.nodeId, input.label])),
         textCount: inputs.filter((input) => input.type === "text").length,
         imageCount: referenceImages.length,
         videoCount: referenceVideos.length,
@@ -72,7 +76,8 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
         if (input) {
             let label = labelByNodeId.get(input.nodeId);
             if (!label) {
-                label = generationLabel(input.type, counts[input.type]++);
+                const index = counts[input.type]++;
+                label = input.label || generationLabel(input.type, index);
                 labelByNodeId.set(input.nodeId, label);
                 if (input.type === "text") textBlocks.push(`【${label}】\n${input.text || ""}`);
                 else selectedInputs.push(input);
@@ -94,6 +99,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
             referenceImages: [],
             referenceVideos: [],
             referenceAudios: [],
+            referenceLabelsById: {},
             textCount: 0,
             imageCount: 0,
             videoCount: 0,
@@ -106,6 +112,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
         referenceImages,
         referenceVideos,
         referenceAudios,
+        referenceLabelsById: Object.fromEntries(selectedInputs.map((input) => [input.nodeId, input.label])),
         textCount: counts.text,
         imageCount: referenceImages.length,
         videoCount: referenceVideos.length,
@@ -114,15 +121,19 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
 }
 
 export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationInput[] {
-    return getGenerationResourceNodes(nodeId, nodes, connections).flatMap((node): NodeGenerationInput[] => {
+    const sourceNode = nodes.find((node) => node.id === nodeId);
+    const resources = getGenerationResourceNodes(nodeId, nodes, connections);
+    const labels = new Map(labelResourceNodes(resources, true, sourceNode?.metadata?.referenceLabels).map((reference) => [reference.nodeId, reference.label]));
+    return resources.flatMap((node): NodeGenerationInput[] => {
+        const label = labels.get(node.id) || generationLabel(getCanvasResourceKind(node) || "text", 0);
         const image = readReferenceImage(node);
-        if (image) return [{ nodeId: node.id, type: "image" as const, title: node.title, image }];
+        if (image) return [{ nodeId: node.id, type: "image" as const, title: node.title, label, image }];
         const video = readReferenceVideo(node);
-        if (video) return [{ nodeId: node.id, type: "video" as const, title: node.title, video }];
+        if (video) return [{ nodeId: node.id, type: "video" as const, title: node.title, label, video }];
         const audio = readReferenceAudio(node);
-        if (audio) return [{ nodeId: node.id, type: "audio" as const, title: node.title, audio }];
+        if (audio) return [{ nodeId: node.id, type: "audio" as const, title: node.title, label, audio }];
         const text = readNodeTextInput(node);
-        if (text) return [{ nodeId: node.id, type: "text" as const, title: node.title, text }];
+        if (text) return [{ nodeId: node.id, type: "text" as const, title: node.title, label, text }];
         return [];
     });
 }

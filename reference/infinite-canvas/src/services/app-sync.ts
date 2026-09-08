@@ -12,7 +12,7 @@ import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/us
 type StoredLog = Record<string, unknown> & { id?: string };
 export type AppSyncDomainKey = "canvas" | "assets" | "image-workbench" | "video-workbench";
 type DomainKey = AppSyncDomainKey;
-type CanvasDomainData = { projects: CanvasProject[] };
+export type CanvasDomainData = { projects: CanvasProject[]; deletedProjectIds: string[] };
 type AssetDomainData = { assets: Asset[] };
 type LogDomainData = { logs: StoredLog[] };
 
@@ -25,7 +25,7 @@ type AppSyncFile = {
 
 type DomainManifest<T> = {
     app: "infinite-canvas";
-    version: 1;
+    version: 1 | 2;
     domain: DomainKey;
     exportedAt: string;
     data: T;
@@ -88,10 +88,10 @@ export async function syncAppDataToWebdav(config: WebdavSyncConfig, onProgress?:
         syncDomain<CanvasDomainData>(config, onProgress, {
             key: "canvas",
             label: "画布",
-            emptyData: { projects: [] },
-            localData: async () => ({ projects: useCanvasStore.getState().projects }),
-            mergeData: (local, remote) => ({ projects: mergeById(local.projects, remote.projects, "updatedAt") }),
-            applyData: async (data) => useCanvasStore.getState().replaceProjects(data.projects),
+            emptyData: { projects: [], deletedProjectIds: [] },
+            localData: async () => ({ projects: useCanvasStore.getState().projects, deletedProjectIds: useCanvasStore.getState().deletedProjectIds }),
+            mergeData: mergeCanvasDomainData,
+            applyData: async (data) => useCanvasStore.getState().replaceProjects(data.projects, data.deletedProjectIds),
         }),
         syncDomain<AssetDomainData>(config, onProgress, {
             key: "assets",
@@ -152,7 +152,7 @@ async function syncDomain<T>(config: WebdavSyncConfig, onProgress: AppSyncProgre
 
         emitProgress(onProgress, { domain: options.key, label: options.label, stage: "上传新增媒体", status: "active" });
         const uploaded = await uploadChangedFiles(config, options.key, mergedData, remoteManifest?.files || [], onProgress);
-        const manifest: DomainManifest<T> = { app: "infinite-canvas", version: 1, domain: options.key, exportedAt: new Date().toISOString(), data: mergedData, files: uploaded.files };
+        const manifest: DomainManifest<T> = { app: "infinite-canvas", version: 2, domain: options.key, exportedAt: new Date().toISOString(), data: mergedData, files: uploaded.files };
         const manifestFile = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
         emitProgress(onProgress, { domain: options.key, label: options.label, stage: `上传清单 ${formatBytes(manifestFile.size)}`, status: "active" });
         await uploadWebdavFile(config, domainPath(options.key, WEBDAV_MANIFEST_FILE_NAME), manifestFile, "application/json");
@@ -179,7 +179,7 @@ async function readDomainManifest<T>(config: WebdavSyncConfig, domain: DomainKey
     if (data.app !== "infinite-canvas" || data.domain !== domain) throw new Error(`${domain} 同步清单不是当前应用的数据`);
     return {
         app: "infinite-canvas",
-        version: 1,
+        version: data.version === 2 ? 2 : 1,
         domain,
         exportedAt: data.exportedAt || new Date().toISOString(),
         data: data.data || emptyData,
@@ -304,6 +304,16 @@ function mergeById<T extends { id?: string }>(local: T[], remote: T[], timeKey: 
         if (!current || getTime(item as Record<string, unknown>, timeKey) >= getTime(current as Record<string, unknown>, timeKey)) items.set(id, item);
     });
     return Array.from(items.values()).sort((a, b) => getTime(b as Record<string, unknown>, timeKey) - getTime(a as Record<string, unknown>, timeKey));
+}
+
+/** A deletion is authoritative across devices, even when an older manifest still contains the project. */
+export function mergeCanvasDomainData(local: CanvasDomainData, remote: CanvasDomainData): CanvasDomainData {
+    const deletedProjectIds = Array.from(new Set([...(local.deletedProjectIds || []), ...(remote.deletedProjectIds || [])]));
+    const deleted = new Set(deletedProjectIds);
+    return {
+        projects: mergeById(local.projects || [], remote.projects || [], "updatedAt").filter((project) => !deleted.has(project.id)),
+        deletedProjectIds,
+    };
 }
 
 function collectStorageKeys(value: unknown, keys = new Set<string>()) {

@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { App } from "antd";
 
-import { createModelChannel, useConfigStore } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { useConfigStore } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { mergeImportedChannel, normalizeImportedBaseUrl } from "@/reference/infinite-canvas/src/lib/channel-import";
 import { usePromptSourceScheduler } from "@/reference/infinite-canvas/src/hooks/use-prompt-source-scheduler";
 import { useAssetStore, type Asset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { materialFromCreatorAsset, useMaterialLibraryStore } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
@@ -98,34 +99,28 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (handledConfigParams.current) return;
         const searchParams = new URLSearchParams(window.location.search);
-        const baseUrl = searchParams.get("baseUrl") || searchParams.get("baseurl");
+        const requestedBaseUrl = searchParams.get("baseUrl") || searchParams.get("baseurl");
         const apiKey = searchParams.get("apiKey") || searchParams.get("apikey");
-        if (!baseUrl && !apiKey) return;
+        if (!requestedBaseUrl && !apiKey) return;
         handledConfigParams.current = true;
         searchParams.delete("baseUrl");
         searchParams.delete("baseurl");
         searchParams.delete("apiKey");
         searchParams.delete("apikey");
         window.history.replaceState(null, "", `${window.location.pathname}${searchParams.size ? `?${searchParams}` : ""}${window.location.hash}`);
-        const firstChannel = config.channels[0];
-        updateConfig(
-            "channels",
-            firstChannel
-                ? config.channels.map((channel, index) =>
-                      index === 0
-                          ? {
-                                ...channel,
-                                ...(baseUrl ? { baseUrl } : {}),
-                                ...(apiKey ? { apiKey } : {}),
-                            }
-                          : channel,
-                  )
-                : [createModelChannel({ id: "default", name: "默认渠道", baseUrl: baseUrl || undefined, apiKey: apiKey || "" })],
-        );
-        if (baseUrl) updateConfig("baseUrl", baseUrl);
-        if (apiKey) updateConfig("apiKey", apiKey);
+        const baseUrl = normalizeImportedBaseUrl(requestedBaseUrl);
+        if (!baseUrl) {
+            message.warning("导入配置需要有效的 HTTP(S) Base URL，现有渠道未修改");
+            return;
+        }
+        const channels = mergeImportedChannel(config.channels, baseUrl, apiKey);
+        if (!channels) {
+            message.warning("导入配置失败，现有渠道未修改");
+            return;
+        }
+        updateConfig("channels", channels);
         openConfigDialog(false);
-        message.success("已导入本地直连配置");
+        message.success("已导入渠道配置");
     }, [config.channels, message, openConfigDialog, updateConfig]);
 
     return <>{children}</>;

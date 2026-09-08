@@ -26,19 +26,21 @@ export type CanvasProject = {
 type CanvasStore = {
     hydrated: boolean;
     projects: CanvasProject[];
+    /** IDs deleted locally but still needed to stop WebDAV from resurrecting them. */
+    deletedProjectIds: string[];
     createProject: (title?: string) => string;
     duplicateProject: (id: string, title?: string) => string | null;
     importProject: (project: Partial<CanvasProject>) => string;
     openProject: (id: string) => CanvasProject | null;
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
-    replaceProjects: (projects: CanvasProject[]) => void;
+    replaceProjects: (projects: CanvasProject[], deletedProjectIds?: string[]) => void;
     updateProject: (id: string, patch: Partial<Pick<CanvasProject, "cloudCanvasId" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "appearance" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
 const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
-type PersistedCanvasState = Pick<CanvasStore, "projects">;
+type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjectIds">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
 
@@ -52,7 +54,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
     },
     setItem: (name, value) => {
         const nextState = value.state as PersistedCanvasState;
-        if (queuedPersistState && queuedPersistState.projects === nextState.projects) return;
+        if (queuedPersistState && queuedPersistState.projects === nextState.projects && queuedPersistState.deletedProjectIds === nextState.deletedProjectIds) return;
         queuedPersistState = nextState;
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
@@ -68,6 +70,7 @@ export const useCanvasStore = create<CanvasStore>()(
         (set, get) => ({
             hydrated: false,
             projects: [],
+            deletedProjectIds: [],
             createProject: (title = "未命名画布") => {
                 const now = new Date().toISOString();
                 const id = nanoid();
@@ -86,7 +89,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     showImageInfo: false,
                     viewport: initialViewport,
                 };
-                set((state) => ({ projects: [project, ...state.projects] }));
+                set((state) => ({ projects: [project, ...state.projects], deletedProjectIds: state.deletedProjectIds.filter((item) => item !== id) }));
                 return id;
             },
             duplicateProject: (id, title) => {
@@ -139,7 +142,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     appearance: normalizeCanvasAppearance(source.appearance),
                     viewport: { ...source.viewport },
                 };
-                set((state) => ({ projects: [project, ...state.projects] }));
+                set((state) => ({ projects: [project, ...state.projects], deletedProjectIds: state.deletedProjectIds.filter((item) => item !== project.id) }));
                 return project.id;
             },
             importProject: (source) => {
@@ -158,7 +161,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     showImageInfo: source.showImageInfo || false,
                     viewport: source.viewport || initialViewport,
                 };
-                set((state) => ({ projects: [project, ...state.projects] }));
+                set((state) => ({ projects: [project, ...state.projects], deletedProjectIds: state.deletedProjectIds.filter((item) => item !== project.id) }));
                 return project.id;
             },
             openProject: (id) => {
@@ -172,9 +175,9 @@ export const useCanvasStore = create<CanvasStore>()(
             deleteProjects: (ids) =>
                 set((state) => {
                     const projects = state.projects.filter((project) => !ids.includes(project.id));
-                    return { projects };
+                    return { projects, deletedProjectIds: Array.from(new Set([...state.deletedProjectIds, ...ids])) };
                 }),
-            replaceProjects: (projects) => set({ projects }),
+            replaceProjects: (projects, deletedProjectIds) => set((state) => ({ projects, ...(deletedProjectIds ? { deletedProjectIds: Array.from(new Set(deletedProjectIds)) } : { deletedProjectIds: state.deletedProjectIds }) })),
             updateProject: (id, patch) =>
                 set((state) => ({
                     projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
@@ -186,6 +189,7 @@ export const useCanvasStore = create<CanvasStore>()(
             partialize: (state) =>
                 ({
                     projects: state.projects,
+                    deletedProjectIds: state.deletedProjectIds,
                 }) as StorageValue<CanvasStore>["state"],
             onRehydrateStorage: () => () => {
                 useCanvasStore.setState({ hydrated: true });

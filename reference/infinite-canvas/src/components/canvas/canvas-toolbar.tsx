@@ -24,6 +24,10 @@ export function CanvasToolbar({
     onAddText,
     onAddConfig,
     onAddGroup,
+    canGroupSelection,
+    canUngroupSelection,
+    onGroupSelection,
+    onUngroupSelection,
     onAddExtensionNode,
     onUndo,
     onRedo,
@@ -52,6 +56,10 @@ export function CanvasToolbar({
     onAddText: () => void;
     onAddConfig: () => void;
     onAddGroup: () => void;
+    canGroupSelection: boolean;
+    canUngroupSelection: boolean;
+    onGroupSelection: () => void;
+    onUngroupSelection: () => void;
     onAddExtensionNode: (type: string) => void;
     onUndo: () => void;
     onRedo: () => void;
@@ -191,6 +199,12 @@ export function CanvasToolbar({
                 {selectedCount ? (
                     <>
                         <Divider theme={theme} />
+                        <ToolbarButton id="tool-group-selection" label="将所选节点打组" disabled={!canGroupSelection} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onGroupSelection}>
+                            <Group className="size-4.5" />
+                        </ToolbarButton>
+                        <ToolbarButton id="tool-ungroup-selection" label="解散所选组" disabled={!canUngroupSelection} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUngroupSelection}>
+                            <X className="size-4.5" />
+                        </ToolbarButton>
                         <ToolbarButton id="tool-delete" label="删除选中" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDelete} danger>
                             <Trash2 className="size-4.5" />
                         </ToolbarButton>
@@ -431,6 +445,8 @@ function toolLabel(id: string) {
     if (id === "tool-audio") return "音频";
     if (id === "tool-config") return "生成配置";
     if (id === "tool-group") return "组";
+    if (id === "tool-group-selection") return "将所选节点打组";
+    if (id === "tool-ungroup-selection") return "解散所选组";
     if (id === "tool-extensions") return "扩展节点";
     if (id === "tool-upload") return "上传资产";
     if (id === "tool-style") return "画布外观";

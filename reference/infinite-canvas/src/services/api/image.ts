@@ -98,7 +98,7 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; referenceLabelsById?: Record<string, string> };
 
 export type GeneratedImage = {
     id: string;
@@ -787,7 +787,7 @@ function creatorGeneratedImage(taskId: string, dataUrl: string, asset?: CreatorI
     };
 }
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
-    const requestPrompt = buildImageReferencePromptText(prompt, references);
+    const requestPrompt = buildImageReferencePromptText(prompt, references, options?.referenceLabelsById);
     return fgGenerateImage(config, requestPrompt, mask ? [...references, mask] : references, options?.signal);
 }
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {

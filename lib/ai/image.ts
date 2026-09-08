@@ -202,17 +202,20 @@ export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' 
 
 /**
  * Wetoken exposes the two Seedream 5.0 models through its VolcEngine image
- * endpoint. Its documented image-to-image parameter is a single `image`
- * string, so pass the one allowed in-memory reference as a data URL instead
- * of using OpenAI's multipart `image[]` edit protocol.
+ * endpoint.  Its `image` parameter accepts an ordered list of data URLs;
+ * keeping that list shape even for one source prevents the gateway from
+ * treating a PNG data URL as an invalid scalar input.  This is deliberately
+ * not OpenAI's multipart `image[]` edit protocol.
  */
 export function buildVolcengineImageBody(input: Pick<ImageGenerationInput, 'model' | 'prompt' | 'size' | 'references'>) {
-  const reference = input.references[0];
+  const references = input.references.map((reference) => (
+    `data:${normaliseReferenceMimeType(reference.mimeType)};base64,${reference.data}`
+  ));
   return {
     model: input.model,
     prompt: input.prompt,
     size: input.size,
-    ...(reference ? { image: `data:${reference.mimeType};base64,${reference.data}` } : {}),
+    ...(references.length ? { image: references } : {}),
     response_format: 'url',
     watermark: false,
     // `auto` belongs to Seedream's sequential-image feature, not to prompt
@@ -248,6 +251,12 @@ function normaliseImageMimeType(value: unknown, fallback = 'image/png') {
   const raw = typeof value === 'string' ? value.toLowerCase().split(';', 1)[0].trim() : '';
   const mimeType = raw === 'image/jpg' ? 'image/jpeg' : raw;
   return IMAGE_MIME_TYPES.has(mimeType) ? mimeType : fallback;
+}
+
+function normaliseReferenceMimeType(value: unknown) {
+  const mimeType = normaliseImageMimeType(value, '');
+  if (!mimeType) throw new Error('参考图格式仅支持 PNG、JPEG 或 WebP');
+  return mimeType;
 }
 
 function imageMimeTypeFromBytes(bytes: Uint8Array) {

@@ -8,6 +8,7 @@ import {
   WetokenImageRequestError,
   WetokenImageResultError,
 } from '../../lib/ai/image';
+import { imageRequestSizeForModel, RATIOS } from '../../lib/imageModels';
 
 const originalKey = process.env.WETOKEN_API_KEY;
 const originalBase = process.env.WETOKEN_BASE_URL;
@@ -210,7 +211,7 @@ test('Seedream generation uses the documented VolcEngine endpoint and payload', 
   assert.deepEqual([...result.bytes], [97, 98, 99]);
 });
 
-test('Seedream image-to-image sends one data-url reference in the documented image field', async () => {
+test('Seedream image-to-image sends PNG references as canonical data-url arrays', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   let observed: unknown;
   const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
@@ -223,14 +224,14 @@ test('Seedream image-to-image sends one data-url reference in the documented ima
 
   await generateWetokenImage({
     model: 'dola-seedream-5-0-pro-260628', prompt: 'restyle', size: '2048x2048',
-    references: [{ data: 'YWJj', mimeType: 'image/jpeg' }],
+    references: [{ data: 'iVBORw0KGgo=', mimeType: 'image/png' }],
   }, { fetcher });
 
   assert.deepEqual(observed, {
     model: 'dola-seedream-5-0-pro-260628',
     prompt: 'restyle',
     size: '2048x2048',
-    image: 'data:image/jpeg;base64,YWJj',
+    image: ['data:image/png;base64,iVBORw0KGgo='],
     response_format: 'url',
     watermark: false,
     optimize_prompt_options: { mode: 'standard' },
@@ -253,6 +254,20 @@ test('Gemini request keeps the selected output tier and clamps models that only 
 
   assert.equal(pro.generationConfig.imageConfig.imageSize, '2K');
   assert.equal(lite.generationConfig.imageConfig.imageSize, '1K');
+});
+
+test('image output tier and aspect ratio always resolve through the fixed draft-size table', () => {
+  const expected = {
+    low: ['768x1360', '1024x1024', '1360x768', '880x1168', '1168x880', '832x1248', '1248x832'],
+    medium: ['1536x2720', '2048x2048', '2720x1536', '1760x2352', '2352x1760', '1664x2496', '2496x1664'],
+    high: ['2160x3840', '2880x2880', '3840x2160', '2480x3312', '3312x2480', '2352x3520', '3520x2352'],
+  } as const;
+
+  (Object.entries(expected) as Array<[keyof typeof expected, readonly string[]]>).forEach(([quality, sizes]) => {
+    assert.deepEqual(RATIOS.map(({ key }) => imageRequestSizeForModel('gpt-image-2', key, quality)), sizes);
+  });
+  // Lite only accepts 1K, even if an old draft asks for 4K.
+  assert.equal(imageRequestSizeForModel('seedream-5-0-lite-260128', '16:9', 'high'), '1360x768');
 });
 
 test('Gemini accepts nested gateway envelopes and SSE result events', async () => {

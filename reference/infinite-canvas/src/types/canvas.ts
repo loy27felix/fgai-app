@@ -90,6 +90,12 @@ export type CanvasNodeMetadata = {
     generateAudio?: string;
     watermark?: string;
     videoReferenceMode?: "reference" | "first_last";
+    /**
+     * Per-target stable labels for connected prompt resources.  Labels are
+     * deliberately not derived from the current array index: removing the
+     * first reference must not make an existing `@图片2` point at 图片3.
+     */
+    referenceLabels?: Record<string, string>;
     audioVoice?: string;
     audioFormat?: string;
     audioSpeed?: string;

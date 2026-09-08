@@ -40,7 +40,9 @@ export function seedanceRatioOptionsForModel(model?: string) {
     return seedanceRatioOptions.filter((item) => !spec || spec.ratios.includes(item.value));
 }
 
-export const seedanceDurationOptions = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] as const;
+// Three seconds is used by HappyHorse, while Seedance begins at four. Keep
+// one canonical table and filter it through each model's declared range.
+export const seedanceDurationOptions = [-1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] as const;
 
 const seedancePixels = {
     "480p": {

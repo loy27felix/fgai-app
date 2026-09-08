@@ -35,6 +35,26 @@ export const RATIOS = [
 ];
 
 /**
+ * Stable draft geometry for each UI output tier.  This is intentionally a
+ * table instead of a formula: a saved 16:9 / 2K draft must create exactly the
+ * same request after reload, and every model sees the same ratio geometry.
+ */
+const IMAGE_REQUEST_SIZE_TABLE: Record<ImageOutputSize, Record<string, string>> = {
+  '1K': {
+    '9:16': '768x1360', '1:1': '1024x1024', '16:9': '1360x768',
+    '3:4': '880x1168', '4:3': '1168x880', '2:3': '832x1248', '3:2': '1248x832',
+  },
+  '2K': {
+    '9:16': '1536x2720', '1:1': '2048x2048', '16:9': '2720x1536',
+    '3:4': '1760x2352', '4:3': '2352x1760', '2:3': '1664x2496', '3:2': '2496x1664',
+  },
+  '4K': {
+    '9:16': '2160x3840', '1:1': '2880x2880', '16:9': '3840x2160',
+    '3:4': '2480x3312', '4:3': '3312x2480', '2:3': '2352x3520', '3:2': '3520x2352',
+  },
+};
+
+/**
  * Image settings may hold either a named ratio or an exact `WIDTHxHEIGHT`
  * value. Creator drafts still need a named ratio for metadata and legacy
  * model routes, so derive it from the selected dimensions rather than
@@ -104,10 +124,9 @@ export function imageOutputSizeForQuality(quality: string | undefined): ImageOut
 }
 
 /**
- * Convert a named aspect ratio plus the selected output tier to the bounded
- * dimensions stored in a Creator draft. Gemini receives the derived tier,
- * while GPT Image 2 may use the dimensions directly. Keeping this conversion
- * here makes both request paths agree before a task is created.
+ * Convert a named aspect ratio plus the selected output tier to a fixed,
+ * provider-neutral draft size. Gemini receives the inferred tier while GPT
+ * Image 2 may use dimensions directly; both start from the same table.
  */
 export function imageRequestSizeForModel(model: string, ratioOrSize: string, quality?: string) {
   const value = ratioOrSize.trim();
@@ -119,13 +138,7 @@ export function imageRequestSizeForModel(model: string, ratioOrSize: string, qua
 
   const supported = imageOutputSizeOptionsFor(model) as ImageOutputSize[];
   const tier = supported.includes(requested) ? requested : supported[0];
-  const base = tier === '4K' ? 2880 : tier === '2K' ? 2048 : 1024;
-  const [ratioWidth, ratioHeight] = ratio.key.split(':').map(Number);
-  const landscape = ratioWidth >= ratioHeight;
-  const longRatio = landscape ? ratioWidth / ratioHeight : ratioHeight / ratioWidth;
-  const longSide = Math.floor(Math.sqrt(base * base * longRatio) / 16) * 16;
-  const shortSide = Math.round(longSide / longRatio / 16) * 16;
-  return landscape ? `${longSide}x${shortSide}` : `${shortSide}x${longSide}`;
+  return IMAGE_REQUEST_SIZE_TABLE[tier][ratio.key];
 }
 
 /** Infer Gemini's 1K/2K/4K tier from the Creator draft geometry. */

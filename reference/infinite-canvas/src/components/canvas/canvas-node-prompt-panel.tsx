@@ -268,7 +268,7 @@ function ReferenceStrip({
                             draggable={canReorder}
                             className={`flex h-9 max-w-44 shrink-0 items-center gap-1.5 rounded-xl border px-1.5 transition hover:-translate-y-px hover:shadow-sm ${draggingReferenceId === reference.id ? "scale-95 opacity-45" : ""}`}
                             style={{ borderColor: draggingReferenceId === reference.id || replacingReferenceId === reference.id ? theme.node.activeStroke : theme.toolbar.border, background: replacingReferenceId === reference.id ? `${theme.node.activeStroke}18` : theme.toolbar.panel }}
-                            title={canReorder ? `按住并拖动 ${reference.label} 调整图号顺序；点击可替换素材` : onReplace ? `点击后在画布中替换 ${reference.label}` : reference.label + " · " + reference.title}
+                            title={canReorder ? `按住并拖动 ${reference.label} 调整发送顺序；@ 引用标签保持不变；点击可替换素材` : onReplace ? `点击后在画布中替换 ${reference.label}` : reference.label + " · " + reference.title}
                             role={onReplace ? "button" : undefined}
                             tabIndex={onReplace ? 0 : undefined}
                             onClick={(event) => {
@@ -303,7 +303,7 @@ function ReferenceStrip({
                             onDrop={(event) => handleDrop(event, reference)}
                             onDragEnd={finishDrag}
                             onMouseDown={(event) => event.stopPropagation()}
-                            aria-label={canReorder ? `${reference.label}，按住拖动调整参考顺序；也可按 Alt 加左右方向键排序` : onReplace ? `替换 ${reference.label}` : undefined}
+                            aria-label={canReorder ? `${reference.label}，按住拖动调整参考发送顺序；引用标签保持不变；也可按 Alt 加左右方向键排序` : onReplace ? `替换 ${reference.label}` : undefined}
                             aria-roledescription={canReorder ? "可拖拽参考素材" : undefined}
                         >
                             {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}

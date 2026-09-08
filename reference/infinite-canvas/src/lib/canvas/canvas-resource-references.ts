@@ -17,7 +17,28 @@ export type CanvasResourceReference = {
 };
 
 export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
+    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true, node.metadata?.referenceLabels);
+}
+
+/**
+ * Allocate labels once per prompt target and keep them in node metadata.
+ * Removed resource IDs stay in the map as tombstones so their old number is
+ * never reassigned to a later image in the same prompt.
+ */
+export function reconcileCanvasReferenceLabels(nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    return nodes.map((node) => {
+        const references = labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true, node.metadata?.referenceLabels);
+        if (!references.length) return node;
+        const current = node.metadata?.referenceLabels || {};
+        const next = { ...current };
+        let changed = false;
+        references.forEach((reference) => {
+            if (next[reference.nodeId] === reference.label) return;
+            next[reference.nodeId] = reference.label;
+            changed = true;
+        });
+        return changed ? { ...node, metadata: { ...node.metadata, referenceLabels: next } } : node;
+    });
 }
 
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
@@ -77,13 +98,16 @@ function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[]
     return getContextResourceNodes(configConnection.toNodeId, nodes, connections).filter((node) => node.id !== nodeId);
 }
 
-function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
+export function labelResourceNodes(nodes: CanvasNodeData[], active: boolean, persistedLabels: Record<string, string> = {}) {
     const counts: Record<CanvasResourceKind, number> = { image: 0, video: 0, audio: 0, text: 0 };
+    Object.values(persistedLabels).forEach((label) => {
+        const parsed = parseLabel(label);
+        if (parsed) counts[parsed.kind] = Math.max(counts[parsed.kind], parsed.index + 1);
+    });
     return nodes.flatMap((node): CanvasResourceReference[] => {
         const kind = getCanvasResourceKind(node);
         if (!kind) return [];
-        const index = counts[kind]++;
-        const label = labelForKind(kind, index);
+        const label = persistedLabels[node.id] || labelForKind(kind, counts[kind]++);
         return [
             {
                 id: node.id,
@@ -97,6 +121,14 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
             },
         ];
     });
+}
+
+function parseLabel(label: string): { kind: CanvasResourceKind; index: number } | null {
+    const match = /^(图片|视频|音频|文本)(\d+)$/.exec(label);
+    if (!match) return null;
+    const kind = match[1] === "图片" ? "image" : match[1] === "视频" ? "video" : match[1] === "音频" ? "audio" : "text";
+    const index = Number(match[2]) - 1;
+    return Number.isInteger(index) && index >= 0 ? { kind, index } : null;
 }
 
 function labelForKind(kind: CanvasResourceKind, index: number) {
