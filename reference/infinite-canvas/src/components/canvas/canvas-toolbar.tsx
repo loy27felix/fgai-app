@@ -201,9 +201,11 @@ export function CanvasToolbar({
                         <Divider theme={theme} />
                         <ToolbarButton id="tool-group-selection" label="将所选节点打组" disabled={!canGroupSelection} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onGroupSelection}>
                             <Group className="size-4.5" />
+                            <span className="text-xs font-medium">打组</span>
                         </ToolbarButton>
                         <ToolbarButton id="tool-ungroup-selection" label="解散所选组" disabled={!canUngroupSelection} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUngroupSelection}>
                             <X className="size-4.5" />
+                            <span className="text-xs font-medium">解散</span>
                         </ToolbarButton>
                         <ToolbarButton id="tool-delete" label="删除选中" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDelete} danger>
                             <Trash2 className="size-4.5" />

@@ -39,8 +39,10 @@ test('standalone video workspace exposes continuous duration and readable contro
     'utf8',
   );
 
-  assert.match(video, /const DURATION_MIN = 4/);
-  assert.match(video, /const DURATION_MAX = 15/);
+  assert.match(video, /const durationMin = activeModel\?\.minDuration \|\| 4/);
+  assert.match(video, /const durationMax = activeModel\?\.maxDuration \|\| 15/);
+  assert.match(video, /const DURATION_MIN = durationMin/);
+  assert.match(video, /const DURATION_MAX = durationMax/);
   assert.match(video, /type="range"/);
   assert.match(video, /min=\{DURATION_MIN\}/);
   assert.match(video, /max=\{DURATION_MAX\}/);

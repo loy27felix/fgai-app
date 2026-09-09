@@ -95,7 +95,10 @@ export function normalizeConnection(firstNodeId: string, secondNodeId: string, n
     const first = nodes.find((node) => node.id === firstNodeId);
     const second = nodes.find((node) => node.id === secondNodeId);
     if (!first || !second || first.id === second.id) return null;
-    if (first.type === CanvasNodeType.Group || second.type === CanvasNodeType.Group) return null;
+    // A group is a first-class routing container.  Its outgoing connection
+    // represents all of its member resources; incoming connections are kept
+    // so the visual graph remains usable and can be fanned back to members if
+    // the group is later dissolved.
     if (first.type === CanvasNodeType.Config && second.type === CanvasNodeType.Config) return null;
     if (second.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
     if (first.type === CanvasNodeType.Config && firstHandleType === "target") return { fromNodeId: second.id, toNodeId: first.id };
