@@ -149,6 +149,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const hasVideoAlternatives = data.type === CanvasNodeType.Video && readVideoAlternatives(data.metadata).length > 1;
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;
+    const usesSquareMediaCorners = Boolean(data.metadata?.isVideoFrameCapture);
     const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && batchCount > 1;
     // 支持「交互/移动」开关的节点:移动态(默认)内容不吃指针,拖动整块;交互态内容可操作。
     // forceInteractive(如编辑态)强制可交互;空态(无内容)始终可交互,避免上传/生成按钮点不动。
@@ -444,7 +445,7 @@ export const CanvasNode = React.memo(function CanvasNode({
             )}
 
             <div
-                className="relative h-full w-full overflow-visible rounded-3xl border-[3px]"
+                className={`relative h-full w-full overflow-visible border-[3px] ${usesSquareMediaCorners ? "rounded-none" : "rounded-3xl"}`}
                 style={{
                     background: isGroup ? `${theme.toolbar.panel}66` : hasImageContent || hasVideoContent || transparentBg ? "transparent" : theme.node.fill,
                     borderColor: isGroup ? (isGroupDropTarget || isActive ? selectionBlue : theme.node.stroke) : hasImageContent ? imageBorderColor : isActive ? selectionBlue : isRelated ? theme.node.muted : transparentBg ? "transparent" : theme.node.stroke,
@@ -582,7 +583,7 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
                 </span>
             </div>
             <div className="mt-3 flex-1 rounded-2xl border border-dashed" style={{ borderColor: theme.node.stroke, background: `${theme.node.fill}55` }} />
-            <div className="mt-2 text-center text-[11px] font-medium opacity-55">左右圆点可连接整组素材</div>
+            <div className="mt-2 text-center text-[11px] font-medium opacity-55">连线后会展开组内全部素材</div>
         </div>
     );
 }
@@ -907,7 +908,7 @@ function ImageContent({
                     ))}
                 </div>
             ) : null}
-            <div className="relative z-10 h-full w-full overflow-hidden rounded-3xl">
+            <div data-canvas-video-frame-capture={node.metadata?.isVideoFrameCapture ? "true" : undefined} className={`relative z-10 h-full w-full overflow-hidden ${node.metadata?.isVideoFrameCapture ? "rounded-none" : "rounded-3xl"}`}>
                 <img
                     src={activeContent}
                     alt={node.title}

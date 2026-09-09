@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { buildNodeMentionReferences, getGenerationResourceNodes, reconcileCanvasReferenceLabels } from "../reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../reference/infinite-canvas/src/types/canvas";
-import { dissolveGroups, groupSelectedNodes, normalizeConnection } from "../reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
+import { dissolveGroups, expandGroupConnection, groupSelectedNodes, normalizeConnection } from "../reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import { buildNodeGenerationContext } from "../reference/infinite-canvas/src/components/canvas/canvas-node-generation";
 
 const position = { x: 0, y: 0 };
@@ -105,4 +105,24 @@ test("group nodes can be connected as reusable input or output containers", () =
 
     assert.deepEqual(normalizeConnection("group", "target", nodes, "source"), { fromNodeId: "group", toNodeId: "target" });
     assert.deepEqual(normalizeConnection("source", "group", nodes, "source"), { fromNodeId: "source", toNodeId: "group" });
+});
+
+test("connecting a reference group to a video materializes one input edge per member", () => {
+    const nodes = [
+        node("group", CanvasNodeType.Group),
+        node("image-1", CanvasNodeType.Image, { content: "https://assets.example/image-1.png", groupId: "group" }),
+        node("image-2", CanvasNodeType.Image, { content: "https://assets.example/image-2.png", groupId: "group" }),
+        node("video", CanvasNodeType.Video),
+    ];
+    const connection = normalizeConnection("group", "video", nodes, "source");
+
+    assert.deepEqual(connection, { fromNodeId: "group", toNodeId: "video" });
+    assert.deepEqual(expandGroupConnection(connection!, nodes), [
+        { fromNodeId: "image-1", toNodeId: "video" },
+        { fromNodeId: "image-2", toNodeId: "video" },
+    ]);
+    assert.deepEqual(
+        getGenerationResourceNodes("video", nodes, expandGroupConnection(connection!, nodes).map((edge, index) => ({ id: `edge-${index}`, ...edge }))).map((item) => item.id),
+        ["image-1", "image-2"],
+    );
 });

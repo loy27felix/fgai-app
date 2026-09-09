@@ -61,7 +61,8 @@ import { shouldReportMissingVideoBackup } from "@/reference/infinite-canvas/src/
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
-import { dissolveGroups, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
+import { dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
+import { getCanvasEdgeAutoPanDelta } from "@/reference/infinite-canvas/src/lib/canvas/canvas-edge-auto-pan";
 import {
     audioExtension,
     buildAngleLabel,
@@ -485,6 +486,8 @@ function InfiniteCanvasPage() {
     const historyPausedRef = useRef(false);
     const didInitialCenterRef = useRef(false);
     const rafRef = useRef<number | null>(null);
+    const edgeAutoPanRef = useRef<{ clientX: number; clientY: number; active: boolean; frame: number | null }>({ clientX: 0, clientY: 0, active: false, frame: null });
+    const edgeAutoPanLoopRef = useRef<() => void>(() => {});
     const nodeDraggingRef = useRef(false);
     const dragRef = useRef<{
         isDraggingNode: boolean;
@@ -948,6 +951,11 @@ function InfiniteCanvasPage() {
         connectingParamsRef.current = next;
         setConnectingParams(next);
         if (!next) {
+            edgeAutoPanRef.current.active = false;
+            if (edgeAutoPanRef.current.frame !== null) {
+                cancelAnimationFrame(edgeAutoPanRef.current.frame);
+                edgeAutoPanRef.current.frame = null;
+            }
             connectionTargetNodeIdRef.current = null;
             setConnectionTargetNodeId(null);
         }
@@ -972,11 +980,14 @@ function InfiniteCanvasPage() {
                 message.warning("配置节点之间不能连接");
                 return;
             }
-            const { fromNodeId, toNodeId } = connection;
-            const exists = connectionsRef.current.some((conn) => conn.fromNodeId === fromNodeId && conn.toNodeId === toNodeId);
-            if (!exists) {
-                setConnections((prev) => [...prev, { id: `conn-${Date.now()}`, fromNodeId, toNodeId }]);
-            }
+            const expandedConnections = expandGroupConnection(connection, nodesRef.current);
+            setConnections((prev) => {
+                const existing = new Set(prev.map((item) => `${item.fromNodeId}:${item.toNodeId}`));
+                const additions = expandedConnections
+                    .filter((item) => !existing.has(`${item.fromNodeId}:${item.toNodeId}`))
+                    .map((item) => ({ id: nanoid(), ...item }));
+                return additions.length ? [...prev, ...additions] : prev;
+            });
             setContextMenu(null);
         },
         [message],
@@ -1001,8 +1012,15 @@ function InfiniteCanvasPage() {
                 message.warning("配置节点之间不能连接");
                 return;
             }
+            const expandedConnections = expandGroupConnection(connection, [...nodesRef.current, newNode]);
             setNodes((prev) => [...prev, newNode]);
-            setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
+            setConnections((prev) => {
+                const existing = new Set(prev.map((item) => `${item.fromNodeId}:${item.toNodeId}`));
+                const additions = expandedConnections
+                    .filter((item) => !existing.has(`${item.fromNodeId}:${item.toNodeId}`))
+                    .map((item) => ({ id: nanoid(), ...item }));
+                return additions.length ? [...prev, ...additions] : prev;
+            });
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
             if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
@@ -1053,6 +1071,94 @@ function InfiniteCanvasPage() {
         },
         [screenToCanvas],
     );
+
+    const stopCanvasEdgeAutoPan = useCallback(() => {
+        edgeAutoPanRef.current.active = false;
+        if (edgeAutoPanRef.current.frame !== null) {
+            cancelAnimationFrame(edgeAutoPanRef.current.frame);
+            edgeAutoPanRef.current.frame = null;
+        }
+    }, []);
+
+    const runCanvasEdgeAutoPan = useCallback(() => {
+        const edgePan = edgeAutoPanRef.current;
+        edgePan.frame = null;
+        const connection = connectingParamsRef.current;
+        const isDragging = dragRef.current.isDraggingNode;
+        if (!edgePan.active || (!isDragging && (!connection || pendingConnectionCreateRef.current))) {
+            edgePan.active = false;
+            return;
+        }
+
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) {
+            edgePan.active = false;
+            return;
+        }
+        const delta = getCanvasEdgeAutoPanDelta({ x: edgePan.clientX, y: edgePan.clientY }, rect);
+        if (!delta.x && !delta.y) {
+            edgePan.active = false;
+            return;
+        }
+
+        const nextViewport = { ...viewportRef.current, x: viewportRef.current.x + delta.x, y: viewportRef.current.y + delta.y };
+        viewportRef.current = nextViewport;
+        setViewport(nextViewport);
+
+        if (isDragging) {
+            // The node must stay under the pointer while the world slides
+            // beneath it. Moving the drag origin by the viewport delta keeps
+            // the same world-space calculation stable on every frame.
+            dragRef.current.startX += delta.x;
+            dragRef.current.startY += delta.y;
+            const dx = (edgePan.clientX - dragRef.current.startX) / nextViewport.k;
+            const dy = (edgePan.clientY - dragRef.current.startY) / nextViewport.k;
+            const initialPositions = dragRef.current.initialSelectedNodes;
+            const movedIds = new Set(initialPositions.map((item) => item.id));
+            const previewNodes = nodesRef.current.map((node) => {
+                const initial = initialPositions.find((item) => item.id === node.id);
+                return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
+            });
+            setDropTargetGroupId(findGroupDropTarget(movedIds, previewNodes)?.id || null);
+            setNodes((previous) =>
+                previous.map((node) => {
+                    const initial = initialPositions.find((item) => item.id === node.id);
+                    return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
+                }),
+            );
+        }
+
+        if (connection && !pendingConnectionCreateRef.current) {
+            const dropTarget = getConnectionDropTarget(edgePan.clientX, edgePan.clientY, connection);
+            connectionTargetNodeIdRef.current = dropTarget.nodeId;
+            setConnectionTargetNodeId(dropTarget.nodeId);
+            setMouseWorld(screenToCanvas(edgePan.clientX, edgePan.clientY));
+        }
+
+        edgePan.frame = requestAnimationFrame(edgeAutoPanLoopRef.current);
+    }, [getConnectionDropTarget, screenToCanvas]);
+
+    edgeAutoPanLoopRef.current = runCanvasEdgeAutoPan;
+
+    const updateCanvasEdgeAutoPan = useCallback((clientX: number, clientY: number) => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const delta = getCanvasEdgeAutoPanDelta({ x: clientX, y: clientY }, rect);
+        const edgePan = edgeAutoPanRef.current;
+        edgePan.clientX = clientX;
+        edgePan.clientY = clientY;
+        edgePan.active = Boolean(delta.x || delta.y);
+        if (!edgePan.active) {
+            if (edgePan.frame !== null) {
+                cancelAnimationFrame(edgePan.frame);
+                edgePan.frame = null;
+            }
+            return;
+        }
+        if (edgePan.frame === null) edgePan.frame = requestAnimationFrame(edgeAutoPanLoopRef.current);
+    }, []);
+
+    useEffect(() => () => stopCanvasEdgeAutoPan(), [stopCanvasEdgeAutoPan]);
 
     const visibleNodes = useMemo(() => {
         const padding = 280;
@@ -1891,6 +1997,7 @@ function InfiniteCanvasPage() {
     }, []);
 
     const finishNodeDrag = useCallback((clientX?: number, clientY?: number) => {
+        stopCanvasEdgeAutoPan();
         if (rafRef.current) {
             cancelAnimationFrame(rafRef.current);
             rafRef.current = null;
@@ -1941,11 +2048,14 @@ function InfiniteCanvasPage() {
                 setDialogNodeId(clickedNodeId);
             }
         }
-    }, []);
+    }, [stopCanvasEdgeAutoPan]);
 
     const handleGlobalMouseMove = useCallback(
         (event: MouseEvent) => {
             const currentViewport = viewportRef.current;
+            const isConnecting = Boolean(connectingParamsRef.current && !pendingConnectionCreateRef.current);
+            if (dragRef.current.isDraggingNode || isConnecting) updateCanvasEdgeAutoPan(event.clientX, event.clientY);
+            else stopCanvasEdgeAutoPan();
 
             if (dragRef.current.isDraggingNode) {
                 const dx = (event.clientX - dragRef.current.startX) / currentViewport.k;
@@ -1982,7 +2092,7 @@ function InfiniteCanvasPage() {
                 setMouseWorld(screenToCanvas(event.clientX, event.clientY));
             }
         },
-        [finishNodeDrag, getConnectionDropTarget, screenToCanvas],
+        [finishNodeDrag, getConnectionDropTarget, screenToCanvas, stopCanvasEdgeAutoPan, updateCanvasEdgeAutoPan],
     );
 
     const handleGlobalPointerMove = useCallback(
@@ -2021,6 +2131,7 @@ function InfiniteCanvasPage() {
 
     const handleGlobalMouseUp = useCallback(
         (event: MouseEvent) => {
+            stopCanvasEdgeAutoPan();
             finishNodeDrag(event.clientX, event.clientY);
 
             selectionBoxRef.current = null;
@@ -2042,12 +2153,18 @@ function InfiniteCanvasPage() {
                 }
             }
         },
-        [connectNodes, finishNodeDrag, getConnectionDropTarget, screenToCanvas, setConnecting],
+        [connectNodes, finishNodeDrag, getConnectionDropTarget, screenToCanvas, setConnecting, stopCanvasEdgeAutoPan],
     );
 
     useEffect(() => {
-        const handlePointerUp = (event: PointerEvent) => finishNodeDrag(event.clientX, event.clientY);
-        const cancelNodeDrag = () => finishNodeDrag();
+        const handlePointerUp = (event: PointerEvent) => {
+            stopCanvasEdgeAutoPan();
+            finishNodeDrag(event.clientX, event.clientY);
+        };
+        const cancelNodeDrag = () => {
+            stopCanvasEdgeAutoPan();
+            finishNodeDrag();
+        };
         window.addEventListener("mousemove", handleGlobalMouseMove);
         window.addEventListener("mouseup", handleGlobalMouseUp);
         window.addEventListener("pointerup", handlePointerUp);
@@ -2062,7 +2179,7 @@ function InfiniteCanvasPage() {
             window.removeEventListener("blur", cancelNodeDrag);
             window.removeEventListener("pointermove", handleGlobalPointerMove);
         };
-    }, [finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove]);
+    }, [finishNodeDrag, handleGlobalMouseMove, handleGlobalMouseUp, handleGlobalPointerMove, stopCanvasEdgeAutoPan]);
 
     const createImageFileNode = useCallback(async (file: File, position: Position) => {
         const image = await uploadImage(file);
@@ -4162,7 +4279,7 @@ function InfiniteCanvasPage() {
                     position: { x: sourceNode.position.x + sourceNode.width + 88, y: sourceNode.position.y + sourceNode.height / 2 - imageSize.height / 2 },
                     width: imageSize.width,
                     height: imageSize.height,
-                    metadata: { ...imageMetadata(image), prompt: `${sourceNode.title || "视频"}${labels[frame]}` },
+                    metadata: { ...imageMetadata(image), prompt: `${sourceNode.title || "视频"}${labels[frame]}`, isVideoFrameCapture: true },
                 };
                 setNodes((prev) => [...prev, imageNode]);
                 setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: imageNode.id }]);

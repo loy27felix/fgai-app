@@ -1,4 +1,4 @@
-import { CanvasNodeType, type CanvasNodeData, type ConnectionHandle } from "@/reference/infinite-canvas/src/types/canvas";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ConnectionHandle } from "@/reference/infinite-canvas/src/types/canvas";
 
 export function nodeBounds(nodes: CanvasNodeData[]) {
     return nodes.reduce(
@@ -104,6 +104,44 @@ export function normalizeConnection(firstNodeId: string, secondNodeId: string, n
     if (first.type === CanvasNodeType.Config && firstHandleType === "target") return { fromNodeId: second.id, toNodeId: first.id };
     if (first.type === CanvasNodeType.Config) return { fromNodeId: first.id, toNodeId: second.id };
     return { fromNodeId: first.id, toNodeId: second.id };
+}
+
+/**
+ * Turns a visual group-to-node link into one concrete edge per child. This
+ * keeps the graph readable and makes a grouped reference pack behave exactly
+ * like selecting every image/video/audio/text member as a generation input.
+ * Existing persisted group edges are intentionally still supported by the
+ * resource resolver for backwards compatibility.
+ */
+export function expandGroupConnection(connection: Pick<CanvasConnection, "fromNodeId" | "toNodeId">, nodes: CanvasNodeData[]) {
+    const expandEndpoint = (nodeId: string) => {
+        const node = nodes.find((candidate) => candidate.id === nodeId);
+        if (node?.type !== CanvasNodeType.Group) return [nodeId];
+
+        const descendants: string[] = [];
+        const visited = new Set<string>();
+        const visit = (groupId: string) => {
+            if (visited.has(groupId)) return;
+            visited.add(groupId);
+            nodes.filter((candidate) => candidate.metadata?.groupId === groupId).forEach((child) => {
+                if (child.type === CanvasNodeType.Group) visit(child.id);
+                else descendants.push(child.id);
+            });
+        };
+        visit(node.id);
+        return descendants.length ? descendants : [nodeId];
+    };
+
+    const seen = new Set<string>();
+    return expandEndpoint(connection.fromNodeId).flatMap((fromNodeId) =>
+        expandEndpoint(connection.toNodeId).flatMap((toNodeId) => {
+            if (fromNodeId === toNodeId) return [];
+            const key = `${fromNodeId}:${toNodeId}`;
+            if (seen.has(key)) return [];
+            seen.add(key);
+            return [{ fromNodeId, toNodeId }];
+        }),
+    );
 }
 
 export function isHiddenBatchChild(node: CanvasNodeData, nodes: CanvasNodeData[], collapsingBatchIds?: Set<string>) {
