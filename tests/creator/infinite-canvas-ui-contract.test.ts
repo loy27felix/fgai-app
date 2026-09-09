@@ -209,6 +209,15 @@ test('canvas selection, media zoom, and prompt editing remain usable at producti
   assert.match(promptPanel, /调整提示词编辑器大小/);
 });
 
+test('video frame captures remain square-corner source images on the canvas', () => {
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const node = read('reference/infinite-canvas/src/components/canvas/canvas-node.tsx');
+
+  assert.match(project, /isVideoFrameCapture: true/);
+  assert.match(node, /isVideoFrameCapture/);
+  assert.match(node, /rounded-none/);
+});
+
 test('canvas pastes externally copied images through the native HTTP-compatible clipboard event', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const pasteStart = project.indexOf('const handlePaste');

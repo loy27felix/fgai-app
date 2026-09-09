@@ -104,6 +104,8 @@ export type CanvasNodeMetadata = {
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;
+    /** A still extracted from a video should retain literal rectangular corners. */
+    isVideoFrameCapture?: boolean;
     isBatchRoot?: boolean;
     batchRootId?: string;
     batchChildIds?: string[];
