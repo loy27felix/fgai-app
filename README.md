@@ -124,7 +124,7 @@ scripts/install-auto-deploy.sh
 
 ### 服务监控与告警
 
-Docker 主机使用统一 LaunchAgent 每 30 秒检查 Docker、NAS、App HTTP、PostgreSQL、Cloudflare Tunnel、系统磁盘和 App 新增 `error/fail` 日志。App 异常由 NAS supervisor 重建，PostgreSQL 连续 3 次 unhealthy 后自动重启，Tunnel 连续 2 次未 ready 后自动重启 connector 并重新解析 Edge 地址；Docker Desktop 不可用时会请求 macOS 启动。所有容器使用 Docker `local` logging driver，单文件上限 20 MB、最多保留 10 个轮转文件。
+Docker 主机使用统一 LaunchAgent 每 30 秒检查 Docker、NAS、App HTTP、PostgreSQL、Cloudflare Tunnel、系统磁盘和 App 新增 `error/fail` 日志。Tunnel 监控同时检查本地 connector 和 `PROVIDER_MEDIA_URL` 公网媒体地址，避免把“进程存活”误判为“Wetoken 可下载素材”；连续 2 次失败后自动重启 connector，并在 5 分钟冷却窗口内抑制重复重启。App 异常由 NAS supervisor 重建，PostgreSQL 连续 3 次 unhealthy 后自动重启；Docker Desktop 不可用时会请求 macOS 启动。所有容器使用 Docker `local` logging driver，单文件上限 20 MB、最多保留 10 个轮转文件。
 
 在实际 Docker 主机执行：
 

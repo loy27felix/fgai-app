@@ -14,6 +14,9 @@ LOCK_DIR="$STATE_ROOT/lock"
 DISK_THRESHOLD="${FG_MONITOR_DISK_THRESHOLD:-90}"
 MAX_APP_ERROR_LINES_PER_RUN="${FG_MONITOR_MAX_APP_ERROR_LINES_PER_RUN:-200}"
 MAX_APP_ERROR_EVENTS_PER_RUN="${FG_MONITOR_MAX_APP_ERROR_EVENTS_PER_RUN:-20}"
+TUNNEL_FAILURE_THRESHOLD="${FG_MONITOR_TUNNEL_FAILURE_THRESHOLD:-2}"
+TUNNEL_RESTART_COOLDOWN_SECONDS="${FG_MONITOR_TUNNEL_RESTART_COOLDOWN_SECONDS:-300}"
+TUNNEL_PROBE_TIMEOUT_SECONDS="${FG_MONITOR_TUNNEL_PROBE_TIMEOUT_SECONDS:-8}"
 USER_DOMAIN="gui/$(id -u)"
 AUTO_DEPLOY_LABEL="com.fgstudio.auto-deploy"
 AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
@@ -360,19 +363,67 @@ check_postgres() {
 
 check_tunnel() {
   local container
+  local provider_url
+  local ready_state="not-ready"
+  local probe_status="not-run"
   local count
+  local now
+  local last_restart=0
+  local restart_elapsed
+
+  [[ "$TUNNEL_FAILURE_THRESHOLD" =~ ^[1-9][0-9]*$ ]] || TUNNEL_FAILURE_THRESHOLD=2
+  [[ "$TUNNEL_RESTART_COOLDOWN_SECONDS" =~ ^[1-9][0-9]*$ ]] || TUNNEL_RESTART_COOLDOWN_SECONDS=300
+  [[ "$TUNNEL_PROBE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || TUNNEL_PROBE_TIMEOUT_SECONDS=8
+
   container="$(container_id cloudflared)"
   if [[ -n "$container" ]] && docker exec "$container" cloudflared tunnel ready --metrics 127.0.0.1:20241 >/dev/null 2>&1; then
+    ready_state="ready"
+  fi
+
+  provider_url="$(read_env_value PROVIDER_MEDIA_URL)"
+  if [[ -n "$container" ]] && [[ -n "$provider_url" ]]; then
+    # `cloudflared tunnel ready` only verifies the local connector process. The
+    # public media URL must also answer, otherwise Wetoken cannot download a
+    # reference even while Docker reports the tunnel as healthy.
+    # `cloudflared tunnel ready` 只能证明本地进程存在；还必须探测公网媒体地址，
+    # 否则 Docker 显示 healthy 时，Wetoken 仍可能拿不到参考素材。
+    probe_status="$(/usr/bin/curl -ksS -o /dev/null -w '%{http_code}' \
+      --connect-timeout 3 --max-time "$TUNNEL_PROBE_TIMEOUT_SECONDS" \
+      "$provider_url" 2>/dev/null || true)"
+    if [[ "$probe_status" =~ ^[1-4][0-9]{2}$ ]]; then
+      clear_failures tunnel
+      update_state tunnel healthy "public media probe HTTP $probe_status; connector=$ready_state"
+      return
+    fi
+  elif [[ -n "$container" ]] && [[ "$ready_state" == "ready" ]]; then
     clear_failures tunnel
     update_state tunnel healthy "Cloudflare connector is ready"
     return
   fi
+
   count="$(failure_count tunnel)"
-  update_state tunnel unhealthy "Cloudflare connector is not ready; consecutive failures=$count"
-  if ((count >= 2)) && [[ -n "$container" ]]; then
-    log "Monitor: restarting disconnected Cloudflare connector"
-    compose restart cloudflared >/dev/null 2>&1 || true
+  update_state tunnel unhealthy "Cloudflare tunnel unavailable; connector=$ready_state; public media HTTP=$probe_status; consecutive failures=$count"
+  if ((count < TUNNEL_FAILURE_THRESHOLD)) || [[ -z "$container" ]]; then
+    return
+  fi
+
+  now="$(date '+%s')"
+  if [[ -f "$STATE_ROOT/tunnel.last-restart" ]]; then
+    last_restart="$(<"$STATE_ROOT/tunnel.last-restart")"
+  fi
+  [[ "$last_restart" =~ ^[0-9]+$ ]] || last_restart=0
+  restart_elapsed=$((now - last_restart))
+  if ((restart_elapsed < TUNNEL_RESTART_COOLDOWN_SECONDS)); then
+    log "Monitor: suppressing Cloudflare connector restart for $((TUNNEL_RESTART_COOLDOWN_SECONDS - restart_elapsed))s"
+    return
+  fi
+
+  log "Monitor: restarting disconnected Cloudflare connector"
+  if compose restart cloudflared >/dev/null 2>&1; then
+    printf '%s' "$now" > "$STATE_ROOT/tunnel.last-restart"
     clear_failures tunnel
+  else
+    log "Monitor: Cloudflare connector restart failed"
   fi
 }
 
