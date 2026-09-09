@@ -376,7 +376,7 @@ check_tunnel() {
   [[ "$TUNNEL_PROBE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || TUNNEL_PROBE_TIMEOUT_SECONDS=8
 
   container="$(container_id cloudflared)"
-  if [[ -n "$container" ]] && docker exec "$container" cloudflared tunnel ready --metrics 127.0.0.1:20241 >/dev/null 2>&1; then
+  if [[ -n "$container" ]] && docker exec "$container" cloudflared tunnel --metrics 127.0.0.1:20241 ready >/dev/null 2>&1; then
     ready_state="ready"
   fi
 
