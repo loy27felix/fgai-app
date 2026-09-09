@@ -39,7 +39,7 @@ type AssetRequestDependencies = WetokenProviderLogContext & {
   fetcher?: Fetcher;
 };
 
-const ASSET_REQUEST_TIMEOUT_MS = 60_000;
+const ASSET_REQUEST_TIMEOUT_MS = 120_000;
 const ASSET_CREATE_MAX_ATTEMPTS = 2;
 const ASSET_CREATE_RETRY_DELAYS_MS = [2_000];
 const ASSET_READY_TIMEOUT_MS = 120_000;
