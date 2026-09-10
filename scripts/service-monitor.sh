@@ -174,6 +174,8 @@ send_app_error_event() {
 }
 
 structured_app_error_lines() {
+  # A recoverable provider poll warning keeps its diagnostic stage name but is not an application error.
+  # 可恢复的供应商轮询告警会保留诊断 stage 名称，但不属于应用错误。
   if command -v node >/dev/null 2>&1; then
     node -e '
       const readline = require("node:readline");
@@ -189,7 +191,8 @@ structured_app_error_lines() {
           const outcome = String(value.outcome || "").toLowerCase();
           const event = String(value.event || "").toLowerCase();
           const message = String(value.message || "").toLowerCase();
-          if (["error", "critical"].includes(level) || ["failed", "error", "unknown"].includes(outcome) || /failed|error/.test(stage) || /\b(fatal|panic|exception)\b/.test(`${event} ${message}`)) console.log(line);
+          const recoverablePoll = stage === "provider_poll_failed" && outcome === "unknown";
+          if (!recoverablePoll && (["error", "critical"].includes(level) || ["failed", "error", "unknown"].includes(outcome) || /failed|error/.test(stage) || /\b(fatal|panic|exception)\b/.test(`${event} ${message}`))) console.log(line);
         } catch {
           if (/\b(error|failed|failure|fatal|panic|exception)\b/i.test(line)) console.log(line);
         }
@@ -207,8 +210,9 @@ structured_app_error_lines() {
       stage = value.fetch("stage", "").to_s.downcase
       outcome = value.fetch("outcome", "").to_s.downcase
       event_and_message = "#{value.fetch("event", "")} #{value.fetch("message", "")}".downcase
-      failed = %w[error critical].include?(level) || %w[failed error unknown].include?(outcome) ||
-        stage.match?(/failed|error/) || event_and_message.match?(/\b(fatal|panic|exception)\b/)
+      recoverable_poll = stage == "provider_poll_failed" && outcome == "unknown"
+      failed = !recoverable_poll && (%w[error critical].include?(level) || %w[failed error unknown].include?(outcome) ||
+        stage.match?(/failed|error/) || event_and_message.match?(/\b(fatal|panic|exception)\b/))
       puts line if failed
     rescue JSON::ParserError
       puts line if line.match?(/\b(error|failed|failure|fatal|panic|exception)\b/i)
@@ -402,10 +406,14 @@ check_tunnel() {
   fi
 
   count="$(failure_count tunnel)"
-  update_state tunnel unhealthy "Cloudflare tunnel unavailable; connector=$ready_state; public media HTTP=$probe_status; consecutive failures=$count"
-  if ((count < TUNNEL_FAILURE_THRESHOLD)) || [[ -z "$container" ]]; then
+  if ((count < TUNNEL_FAILURE_THRESHOLD)); then
+    # A single public probe timeout is inconclusive while the connector remains ready.
+    # Connector 仍就绪时，单次公网探测超时不足以判定 Tunnel 故障。
+    log "Monitor: tunnel probe pending - connector=$ready_state; public media HTTP=$probe_status; consecutive failures=$count"
     return
   fi
+  update_state tunnel unhealthy "Cloudflare tunnel unavailable; connector=$ready_state; public media HTTP=$probe_status; consecutive failures=$count"
+  [[ -n "$container" ]] || return
 
   now="$(date '+%s')"
   if [[ -f "$STATE_ROOT/tunnel.last-restart" ]]; then

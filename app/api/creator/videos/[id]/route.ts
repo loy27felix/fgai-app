@@ -168,7 +168,9 @@ async function pollTask(
     polled = await getWetokenVideoTask(currentTask.external_task_id, { model: currentTask.model, traceId, taskId: currentTask.id });
   } catch (error) {
     const checkedAt = new Date().toISOString();
-    logServerFailure('creator_video_poll', error, {
+    // Poll transport failures are recoverable; the task remains active and will be queried again.
+    // 轮询传输异常可恢复，任务保持活动状态并会在后续请求中继续查询。
+    logServerEvent('creator_video_poll', {
       taskId: currentTask.id,
       externalTaskId: currentTask.external_task_id,
       httpStatus: error instanceof WetokenVideoError ? error.status : undefined,
@@ -179,7 +181,8 @@ async function pollTask(
       causeCode: error instanceof WetokenVideoTransportError ? error.causeCode : undefined,
       causeMessage: error instanceof WetokenVideoTransportError ? error.causeMessage : undefined,
       providerMessage: providerErrorMessage(error),
-    });
+      error,
+    }, 'warn');
     await context.localClient.from('creator_generation_tasks').update({
       last_provider_checked_at: checkedAt,
     }).eq('id', currentTask.id).eq('workspace_id', context.workspace.id).eq('user_id', context.user.id).eq('kind', 'video');

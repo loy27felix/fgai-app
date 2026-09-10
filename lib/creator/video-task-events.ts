@@ -39,13 +39,17 @@ export async function recordVideoTaskEvent(
     });
   }
 
-  const outcome = event.includes('failed') || event.includes('error')
-    ? 'failed'
-    : event.includes('reconciliation')
-      ? 'unknown'
-      : event.includes('acknowledged') || event.includes('succeeded') || event.includes('settled')
-        ? 'succeeded'
-        : 'started';
+  // One provider poll can fail while the task remains active and later recovers.
+  // 单次供应商轮询失败不代表任务失败，任务仍会继续查询并可能成功。
+  const outcome = event === 'provider_poll_failed'
+    ? 'unknown'
+    : event.includes('failed') || event.includes('error')
+      ? 'failed'
+      : event.includes('reconciliation')
+        ? 'unknown'
+        : event.includes('acknowledged') || event.includes('succeeded') || event.includes('settled')
+          ? 'succeeded'
+          : 'started';
   try {
     await recordAuditEvent({
       traceId: context.traceId,
