@@ -874,7 +874,16 @@ export async function generateWetokenImage(
       bytes: parsed.bytes.byteLength,
       sourceUrlPresent: Boolean(parsed.sourceUrl),
     });
-    return { ...parsed, usage: data?.usage, providerDiagnostic: diagnostic };
+    // Gemini returns usageMetadata rather than OpenAI's usage field. Preserve
+    // the normalized diagnostic usage so the trusted ledger can settle the
+    // documented input-token component instead of leaving it as a fake unit
+    // price.
+    const diagnosticUsage = asRecord(diagnostic)?.usage;
+    return {
+      ...parsed,
+      usage: data?.usage || data?.usageMetadata || diagnosticUsage,
+      providerDiagnostic: diagnostic,
+    };
   } catch (error) {
     const normalized = error instanceof WetokenImageResultError
       ? error.diagnostic ? error : new WetokenImageResultError(error.publicMessage, diagnostic)

@@ -48,20 +48,42 @@ test('known successful media is priced immediately when the provider omits cost'
   });
   const video = withEligibleCatalogEstimate({
     status: 'succeeded', kind: 'video', model: 'doubao-seedance-2-0', resolution: '720p', video_seconds: 6,
-    reported_cost_usd: null, estimated_cost_usd: null,
+    reported_cost_usd: null, estimated_cost_usd: null, price_snapshot: { ratio: '16:9', input_video: 0 },
   });
   assert.equal(image.estimated_cost_usd, null);
-  assert.equal(video.estimated_cost_usd, 0.775658);
+  assert.equal(video.estimated_cost_usd, 0.7756580457);
 });
 
 test('historical known media receives the same price for a real-time dashboard total', () => {
   const rows = [
     { status: 'succeeded', kind: 'image', model: 'gpt-image-2', resolution: '1024x1024', reported_cost_usd: null, estimated_cost_usd: null },
-    { status: 'succeeded', kind: 'video', model: 'doubao-seedance-2-0', resolution: '720p', video_seconds: 6, reported_cost_usd: null, estimated_cost_usd: null },
+    { status: 'succeeded', kind: 'video', model: 'doubao-seedance-2-0', resolution: '720p', video_seconds: 6, reported_cost_usd: null, estimated_cost_usd: null, price_snapshot: { ratio: '16:9', input_video: 0 } },
   ].map(withEligibleCatalogEstimate);
   const summary = summarizeUsageRows(rows);
   assert.equal(summary.confirmedCostUsd, 0);
-  assert.equal(summary.estimatedCostUsd, 0.775658);
-  assert.equal(summary.quotaReservedUsd, 0.775658);
-  assert.equal(summary.successfulCostUsd, 0.775658);
+  assert.equal(summary.estimatedCostUsd, 0.7756580457);
+  assert.equal(summary.quotaReservedUsd, 0.7756580457);
+  assert.equal(summary.successfulCostUsd, 0.7756580457);
+});
+
+test('replaces legacy media estimates with the current verified catalog or marks them unpriced', () => {
+  const verifiedVideo = withEligibleCatalogEstimate({
+    status: 'succeeded', kind: 'video', model: 'dreamina-seedance-2-5', resolution: '720p', video_seconds: 30,
+    reported_cost_usd: null, estimated_cost_usd: 0.12, cost_source: 'estimated', price_snapshot: { ratio: '16:9', input_video: 0 },
+  });
+  const legacyImage = withEligibleCatalogEstimate({
+    status: 'succeeded', kind: 'image', model: 'gpt-image-2', resolution: '1024x1024',
+    reported_cost_usd: null, estimated_cost_usd: 0.14, cost_source: 'estimated',
+  });
+  const legacyVideoWithoutRatio = withEligibleCatalogEstimate({
+    status: 'succeeded', kind: 'video', model: 'dreamina-seedance-2-5', resolution: '720p', video_seconds: 30,
+    reported_cost_usd: null, estimated_cost_usd: 0.12, cost_source: 'estimated',
+  });
+
+  assert.equal(verifiedVideo.estimated_cost_usd, 5.901746);
+  assert.equal(verifiedVideo.cost_source, 'estimated');
+  assert.equal(legacyImage.estimated_cost_usd, null);
+  assert.equal(legacyImage.cost_source, 'unknown');
+  assert.equal(legacyVideoWithoutRatio.estimated_cost_usd, null);
+  assert.equal(legacyVideoWithoutRatio.cost_source, 'unknown');
 });

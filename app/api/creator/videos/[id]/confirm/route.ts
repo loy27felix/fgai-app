@@ -78,6 +78,7 @@ function normalizeReferences(value: unknown): VideoReferenceManifest[] {
       name: reference.name,
       mimeType: reference.mimeType,
       size: reference.size,
+      ...(typeof reference.durationMs === 'number' && Number.isFinite(reference.durationMs) && reference.durationMs >= 0 ? { durationMs: Math.floor(reference.durationMs) } : {}),
       kind: reference.kind as VideoReferenceManifest['kind'],
       role: reference.role as VideoReferenceManifest['role'],
     };
@@ -618,6 +619,8 @@ export async function POST(req: Request, { params }: RouteContext) {
       resolution: validated.resolution,
       ratio: validated.ratio,
       hasVideoReference: validated.references.some((reference) => reference.kind === 'video'),
+      imageReferenceCount: validated.references.filter((reference) => reference.kind === 'image').length,
+      videoReferenceSeconds: validated.references.reduce((total, reference) => total + (reference.kind === 'video' ? Math.max(0, reference.durationMs || 0) / 1000 : 0), 0),
     });
     const budget = await assertMonthlyBudgetAvailable({
       userId: context.user.id,

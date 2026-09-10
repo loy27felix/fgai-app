@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
 import { fxSnapshot, getUsdToCnyRate } from '@/lib/usage/fx';
-import { getMonthlyUsageSummary } from '@/lib/usage/budget';
+import { getMonthlyUsageSummary, monthRangeForKey, monthStartKey } from '@/lib/usage/budget';
 import { summarizeUsageRows, withEligibleCatalogEstimate } from '@/lib/usage/reporting';
 import { logServerFailure } from '@/lib/observability/server-log';
 
@@ -28,6 +28,7 @@ const USAGE_FIELDS = [
   'estimated_cost_usd',
   'currency',
   'cost_source',
+  'price_snapshot',
   'status',
   'possibly_charged',
   'created_at',
@@ -55,6 +56,7 @@ type UsageRecord = {
   estimated_cost_usd: number | null;
   currency: string;
   cost_source: 'reported' | 'estimated' | 'unknown';
+  price_snapshot: Record<string, unknown> | null;
   status: 'submitted' | 'succeeded' | 'failed' | 'unknown';
   possibly_charged: boolean;
   created_at: string;
@@ -94,6 +96,9 @@ function normalizeRecord(value: Record<string, unknown>): UsageRecord {
     estimated_cost_usd: nullableNumber(value.estimated_cost_usd),
     currency: String(value.currency || 'USD'),
     cost_source: value.cost_source === 'reported' || value.cost_source === 'estimated' ? value.cost_source : 'unknown',
+    price_snapshot: value.price_snapshot && typeof value.price_snapshot === 'object' && !Array.isArray(value.price_snapshot)
+      ? value.price_snapshot as Record<string, unknown>
+      : null,
     status: value.status === 'submitted' || value.status === 'succeeded' || value.status === 'failed' ? value.status : 'unknown',
     possibly_charged: value.possibly_charged === true,
     created_at: String(value.created_at || ''),
@@ -108,10 +113,14 @@ export async function GET(req: Request) {
 
   const rawLimit = Number(new URL(req.url).searchParams.get('limit') || 100);
   const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, Math.floor(rawLimit))) : 100;
+  const monthStart = monthStartKey();
+  const monthRange = monthRangeForKey(monthStart);
   const result = await localClient
     .from('ai_usage_ledger')
     .select(USAGE_FIELDS, { count: 'exact' })
     .eq('user_id', user.id)
+    .gte('created_at', monthRange.start)
+    .lt('created_at', monthRange.end)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (result.error) {
@@ -150,6 +159,7 @@ export async function GET(req: Request) {
       durationMs: totals.durationMs,
     },
     budget,
+    monthStart,
     fx: fxSnapshot(usdToCnyRate),
   });
 }

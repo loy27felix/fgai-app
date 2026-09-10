@@ -24,7 +24,7 @@ export type { VideoModelSpec } from './video-models';
 export type ImageReferenceRole = 'first_frame' | 'last_frame' | 'reference_image';
 export type VideoReference =
   | { type: 'image'; url: string; role: ImageReferenceRole }
-  | { type: 'video'; url: string; role: 'reference_video' }
+  | { type: 'video'; url: string; role: 'reference_video'; durationMs?: number }
   | { type: 'audio'; url: string; role: 'reference_audio' };
 
 export type SeedanceInput = {

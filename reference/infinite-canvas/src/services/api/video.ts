@@ -147,11 +147,14 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
         : Math.max(modelSpec?.minDuration || 4, Math.min(modelSpec?.maxDuration || 15, rawSeconds || 5));
     const resolution = normalizeSeedanceResolution(config.vquality, modelSpec?.id);
     let imageIndex = 0;
+    let videoIndex = 0;
+    let audioIndex = 0;
     const referencesManifest = files.map((file) => {
         const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image";
         const ordinaryRole = kind === "video" ? "reference_video" : kind === "audio" ? "reference_audio" : "reference_image";
         const role = kind === "image" ? imageRoles[imageIndex++] : ordinaryRole;
-        return { name: file.name, mimeType: file.type, size: file.size, kind, role };
+        const durationMs = kind === "video" ? videoInputs[videoIndex++]?.durationMs : kind === "audio" ? audioInputs[audioIndex++]?.durationMs : undefined;
+        return { name: file.name, mimeType: file.type, size: file.size, kind, role, ...(durationMs && durationMs > 0 ? { durationMs } : {}) };
     });
     let draft: Awaited<ReturnType<typeof createVideoDraft>>;
     try {

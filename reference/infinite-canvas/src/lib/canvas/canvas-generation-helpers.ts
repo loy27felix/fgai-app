@@ -85,6 +85,7 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
         textCount: inputs.filter((input) => input.type === "text").length,
         imageCount: inputs.filter((input) => input.type === "image").length,
         videoCount: inputs.filter((input) => input.type === "video").length,
+        videoReferenceSeconds: inputs.reduce((total, input) => total + (input.video ? Math.max(0, input.video.durationMs || 0) / 1000 : 0), 0),
         audioCount: inputs.filter((input) => input.type === "audio").length,
     };
 }

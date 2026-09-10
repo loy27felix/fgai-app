@@ -9,19 +9,9 @@ function source(relativePath: string) {
 
 test('legacy canvas config receives the complete FG model catalog', () => {
   const store = source('reference/infinite-canvas/src/stores/use-config-store.ts');
+  assert.match(store, /IMG_MODELS\.map\(\(model\) => \(\{ name: model\.id, capability: "image" as const \}\)\)/);
+  assert.match(store, /VIDEO_MODELS\.map\(\(model\) => \(\{ name: model\.id, capability: "video" as const \}\)\)/);
   for (const model of [
-    'gpt-image-2',
-    'gemini-3-pro-image-preview',
-    'gemini-3.1-flash-image-preview',
-    'gemini-3.1-flash-lite-image',
-    'doubao-seedance-2-0',
-    'doubao-seedance-2-0-filter-off',
-    'doubao-seedance-2-0-fast',
-    'doubao-seedance-2-0-fast-filter-off',
-    'dreamina-seedance-2-0-mini',
-    'dreamina-seedance-2-0-mini-filter-off',
-    'dreamina-seedance-2-5',
-    'dreamina-seedance-2-5-filter-off',
     'gpt-5.6-luna-t1a',
     'gpt-5.6-terra-t1a',
     'claude-sonnet-5',
@@ -39,6 +29,10 @@ test('creator usage API scopes ledger rows to the authenticated user', () => {
   assert.match(route, /localClient\.auth\.getUser\(\)/);
   assert.match(route, /\.from\('ai_usage_ledger'\)/);
   assert.match(route, /\.eq\('user_id', user\.id\)/);
+  assert.match(route, /monthRangeForKey\(monthStart\)/);
+  assert.match(route, /\.gte\('created_at', monthRange\.start\)/);
+  assert.match(route, /\.lt\('created_at', monthRange\.end\)/);
+  assert.match(route, /price_snapshot/);
   assert.match(route, /reported_cost_usd/);
   assert.match(route, /estimated_cost_usd/);
   assert.match(route, /totals/);
@@ -52,4 +46,6 @@ test('creator generation clients notify the in-canvas usage panel after confirma
   assert.match(video, /notifyCreatorUsageUpdated\(\)/);
   assert.match(chat, /notifyCreatorUsageUpdated\(\)/);
   assert.match(source('components/creator/InfiniteCanvasReferenceHost.tsx'), /<CreatorUsageLedger \/>/);
+  assert.match(source('components/creator/CreatorUsageLedger.tsx'), /仅显示当前账号/);
+  assert.match(source('components/creator/CreatorUsageLedger.tsx'), /实际已确认/);
 });

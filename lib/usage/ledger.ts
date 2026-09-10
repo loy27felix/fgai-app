@@ -1,11 +1,13 @@
 import { createAdminClient } from '@/lib/local/admin';
 import { randomId } from '@/lib/utils';
-import type { MediaPrice } from './pricing';
+import { estimateTextPrice, type MediaPrice } from './pricing';
 
 type TextUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  cached_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
 } | undefined;
 
 export type TextLedgerEntry = {
@@ -71,28 +73,6 @@ export type VideoLedgerEntry = {
   possibly_charged: true;
 };
 
-const DEEPSEEK_PRICES = {
-  'deepseek-flash': { input: 0.14, output: 0.28 },
-  'deepseek-pro': { input: 0.435, output: 0.87 },
-} as const;
-
-function deepseekEstimate(model: string, inputTokens: number, outputTokens: number) {
-  const price = DEEPSEEK_PRICES[model as keyof typeof DEEPSEEK_PRICES];
-  if (!price) return null;
-  const cost = Number(((inputTokens * price.input + outputTokens * price.output) / 1_000_000).toFixed(10));
-  return {
-    cost,
-    snapshot: {
-      currency: 'USD',
-      unit: '1M tokens',
-      input_per_million: price.input,
-      output_per_million: price.output,
-      assumption: 'cache_miss',
-      source: 'https://api-docs.deepseek.com/quick_start/pricing',
-    },
-  };
-}
-
 type LedgerUpsertOptions = { onConflict: 'request_id' };
 
 type LedgerWriter = {
@@ -139,9 +119,14 @@ export function buildTextLedgerEntry(input: {
 }): TextLedgerEntry {
   const inputTokens = tokenCount(input.usage?.prompt_tokens);
   const outputTokens = tokenCount(input.usage?.completion_tokens);
-  const estimate = input.provider === 'deepseek'
-    ? deepseekEstimate(input.model, inputTokens, outputTokens)
-    : null;
+  const cachedTokens = tokenCount(input.usage?.cached_tokens)
+    || tokenCount(input.usage?.prompt_tokens_details?.cached_tokens);
+  const estimate = estimateTextPrice({
+    model: input.model,
+    inputTokens,
+    outputTokens,
+    cachedInputTokens: cachedTokens,
+  });
   return {
     request_id: input.requestId || randomId(),
     user_id: input.userId,
@@ -154,7 +139,7 @@ export function buildTextLedgerEntry(input: {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     total_tokens: tokenCount(input.usage?.total_tokens) || inputTokens + outputTokens,
-    ...(estimate ? { estimated_cost_usd: estimate.cost } : {}),
+    ...(estimate ? { estimated_cost_usd: estimate.estimatedCostUsd } : {}),
     cost_source: estimate ? 'estimated' : 'unknown',
     price_snapshot: estimate?.snapshot || {},
     ...(Number.isFinite(input.durationMs) && (input.durationMs || 0) >= 0 ? { duration_ms: Math.floor(input.durationMs || 0) } : {}),
@@ -345,6 +330,7 @@ export async function updateImageUsageStatus(input: {
   completedAt?: string | null;
   reportedCostUsd?: number;
   priceSnapshot?: Record<string, string | number>;
+  pricing?: MediaPrice | null;
 }, dependency?: ImageStatusWriter): Promise<boolean> {
   const values: Record<string, unknown> = {
     status: input.status,
@@ -355,6 +341,10 @@ export async function updateImageUsageStatus(input: {
     values.reported_cost_usd = Math.abs(input.reportedCostUsd);
     values.cost_source = 'reported';
     values.price_snapshot = input.priceSnapshot || { currency: 'USD', source: 'provider_response' };
+  } else if (input.pricing) {
+    values.estimated_cost_usd = input.pricing.estimatedCostUsd;
+    values.cost_source = 'estimated';
+    values.price_snapshot = input.pricing.snapshot;
   }
   try {
     const result = dependency

@@ -69,6 +69,7 @@ type UsageResponse = {
     projects: number;
   };
   budget?: BudgetSummary | null;
+  monthStart?: string;
   fx?: { rate: number; source?: string };
 };
 
@@ -95,7 +96,15 @@ function costLabel(record: UsageRecord, usdToCnyRate: number) {
   if (record.status === 'failed') return '¥0.00';
   if (record.status !== 'succeeded') return '—';
   const usd = record.reported_cost_usd ?? record.estimated_cost_usd;
-  return usd === null ? '—' : `$${usd.toFixed(6)} · ¥${(usd * usdToCnyRate).toFixed(2)}`;
+  return usd === null ? '—' : `¥${(usd * usdToCnyRate).toFixed(2)}`;
+}
+
+function costStateLabel(record: UsageRecord) {
+  if (record.status === 'failed') return '失败不计费';
+  if (record.status !== 'succeeded') return '等待结果';
+  if (record.reported_cost_usd !== null) return '实际账单';
+  if (record.estimated_cost_usd !== null) return '合规暂估';
+  return '待对账';
 }
 
 function recordMeta(record: UsageRecord) {
@@ -159,18 +168,19 @@ export default function CreatorUsageLedger() {
   const usdToCnyRate = data.fx?.rate || 6.77;
   const summaryLabel = useMemo(() => {
     if (!data.totals.calls) return '暂无生成记录';
-    return `成功 ${data.totals.successfulCalls} · 失败 ${data.totals.failedCalls} · ¥${data.totals.successfulCostCny.toFixed(2)}`;
-  }, [data.totals.calls, data.totals.failedCalls, data.totals.successfulCalls, data.totals.successfulCostCny]);
+    const priced = data.totals.confirmedCostCny + data.totals.estimatedCostCny;
+    return `本月成功 ${data.totals.successfulCalls} · 待对账 ${data.totals.unpricedCalls} · ¥${priced.toFixed(2)}`;
+  }, [data.totals.calls, data.totals.confirmedCostCny, data.totals.estimatedCostCny, data.totals.successfulCalls, data.totals.unpricedCalls]);
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="查看自己的生成与费用记录"
+        title="查看自己的本月生成与费用记录"
         style={{ position: 'fixed', right: agentPanelVisible ? Math.max(20, agentPanelWidth + 20) : 20, bottom: 20, zIndex: 80, display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 11px', border: '1px solid var(--stroke-2, rgba(120,130,150,.3))', borderRadius: 999, background: 'var(--panel-solid, #fff)', color: 'var(--text, #111)', boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer', fontSize: 11, transition: 'right 220ms ease, opacity 160ms ease' }}
       >
         <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--accent, #4ade80)' }} />
-        用量记录
+        我的用量
         {(latest || data.budget) ? <span style={{ color: 'var(--text-3, #777)' }}>{summaryLabel}</span> : null}
       </button>
 
@@ -178,13 +188,15 @@ export default function CreatorUsageLedger() {
         <div role="presentation" onMouseDown={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(3,7,14,.62)', backdropFilter: 'blur(8px)' }}>
           <section role="dialog" aria-modal="true" aria-labelledby="fg-usage-title" onMouseDown={(event) => event.stopPropagation()} style={{ width: 'min(720px, 100%)', maxHeight: 'min(760px, 90vh)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--stroke-2, rgba(120,130,150,.35))', borderRadius: 18, background: 'var(--panel-solid, #fff)', color: 'var(--text, #111)', boxShadow: '0 30px 100px rgba(0,0,0,.35)' }}>
             <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 18px', borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
-              <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>生成记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>成功任务按当前模型价格计费；失败任务为 ¥0。人民币按 1 USD = ¥{usdToCnyRate.toFixed(4)} 换算。</div></div>
+              <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>我的生成记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>仅显示当前账号 {data.monthStart?.slice(0, 7) || '本月'} 的记录。费用统一展示为人民币；实际账单返回后会自动覆盖本次预估。</div></div>
               <div style={{ display: 'flex', gap: 7 }}><button type="button" onClick={() => void refresh()} disabled={loading} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>{loading ? '刷新中…' : '刷新'}</button><button type="button" onClick={() => setOpen(false)} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>关闭</button></div>
             </header>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8, padding: 14, borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
               <Summary label="成功" value={String(data.totals.successfulCalls)} />
               <Summary label="失败" value={String(data.totals.failedCalls)} />
-              <Summary label="本月费用" value={'¥' + data.totals.successfulCostCny.toFixed(2)} />
+              <Summary label="实际已确认" value={'¥' + data.totals.confirmedCostCny.toFixed(2)} />
+              <Summary label="合规暂估" value={'¥' + data.totals.estimatedCostCny.toFixed(2)} />
+              <Summary label="待对账" value={String(data.totals.unpricedCalls)} />
               <Summary label="成功图片 / 视频" value={data.totals.successfulImages + " / " + data.totals.successfulVideoSeconds + "s"} />
               <Summary label="月额度" value={data.budget?.limitUsd === null || data.budget?.limitUsd === undefined ? "不限额" : "¥" + (data.budget.limitUsd * usdToCnyRate).toFixed(2)} />
               <Summary label="可用额度" value={data.budget?.remainingUsd === null || data.budget?.remainingUsd === undefined ? "—" : "¥" + (data.budget.remainingUsd * usdToCnyRate).toFixed(2)} />
@@ -195,10 +207,10 @@ export default function CreatorUsageLedger() {
               {data.records.map((record) => <div key={record.id || record.request_id} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr) auto', gap: 10, alignItems: 'center', padding: '11px 4px', borderBottom: '1px solid var(--stroke, rgba(120,130,150,.16))' }}>
                 <div><div style={{ color: 'var(--accent, #4ade80)', fontSize: 11, fontWeight: 700 }}>{kindLabel(record.kind)}</div><div style={{ marginTop: 3, color: 'var(--text-3, #777)', fontSize: 10 }}>{timeLabel(record.created_at)}</div></div>
                 <div style={{ minWidth: 0 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{record.model}</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 10 }}>{recordMeta(record)} · {record.provider || 'provider'}</div></div>
-                <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.status === 'failed' ? '#ff9b85' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div></div>
+                <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.status === 'failed' ? '#ff9b85' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div><div style={{ marginTop: 2, color: 'var(--text-3, #777)', fontSize: 9.5 }}>{costStateLabel(record)}</div></div>
               </div>)}
             </div>
-             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>最近显示 {data.records.length} / {data.count} 条；成功按当前模型价格计费，失败不计费。</footer>
+             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>本月显示 {data.records.length} / {data.count} 条。实际账单优先；没有可核验价格的任务不会计入费用。</footer>
           </section>
         </div>
       ) : null}

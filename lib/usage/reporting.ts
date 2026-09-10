@@ -8,6 +8,8 @@ export type UsageReportingRow = {
   model?: string | null;
   resolution?: string | null;
   video_seconds?: number | string | null;
+  input_tokens?: number | string | null;
+  output_tokens?: number | string | null;
   total_tokens?: number | string | null;
   image_count?: number | string | null;
   duration_ms?: number | string | null;
@@ -16,6 +18,8 @@ export type UsageReportingRow = {
   reported_cost_usd?: number | string | null;
   estimated_cost_usd?: number | string | null;
   cost_source?: string | null;
+  /** Media estimates can only be refreshed when original parameters exist. */
+  price_snapshot?: Record<string, unknown> | null;
 };
 
 export type UsageSummary = {
@@ -49,32 +53,87 @@ function moneyValue(value: unknown) {
   return Number.isFinite(number) ? Math.abs(number) : null;
 }
 
-function eligibleForCatalogEstimate(row: UsageReportingRow) {
-  return row.status !== 'failed'
-    && moneyValue(row.reported_cost_usd) === null
-    && moneyValue(row.estimated_cost_usd) === null;
+function snapshotString(row: UsageReportingRow, key: string) {
+  const value = row.price_snapshot && typeof row.price_snapshot === 'object'
+    ? row.price_snapshot[key]
+    : undefined;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function snapshotNumber(row: UsageReportingRow, key: string) {
+  const value = row.price_snapshot && typeof row.price_snapshot === 'object'
+    ? row.price_snapshot[key]
+    : undefined;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function hasCurrentPricingSnapshot(row: UsageReportingRow) {
+  return snapshotString(row, 'pricing_version') === 'wetoken-account-2026-09-10';
+}
+
+function snapshotHasVideoInput(row: UsageReportingRow) {
+  const value = row.price_snapshot && typeof row.price_snapshot === 'object'
+    ? row.price_snapshot.input_video
+    : undefined;
+  return value === true || (typeof value === 'number' && value > 0) || value === 'true' || value === '1';
 }
 
 /**
- * Add an on-screen estimate only when a historical row has no stored price and
- * the provider did not reject the task. This is deliberately presentation-only:
- * it never writes a guessed amount back to the trusted ledger.
+ * Refresh ledger estimates using the current verified catalog.
+ * Provider-reported charges always win.  Historical media rows without a
+ * complete Seedance parameter snapshot become unpriced instead of carrying a
+ * legacy guess; this is presentation-only and never overwrites the ledger.
  */
 export function withEligibleCatalogEstimate<T extends UsageReportingRow>(row: T): T {
-  if (!eligibleForCatalogEstimate(row)) return row;
+  if (row.status === 'failed' || moneyValue(row.reported_cost_usd) !== null) return row;
   const kind = row.kind === 'image' || row.kind === 'video' ? row.kind : 'text';
-  const estimate = estimateLedgerPrice({
-    kind,
-    model: String(row.model || ''),
-    resolution: row.resolution,
-    videoSeconds: numberValue(row.video_seconds),
-  });
-  if (!estimate) return row;
-  return {
-    ...row,
-    estimated_cost_usd: estimate.estimatedCostUsd,
-    cost_source: 'estimated',
-  };
+  if (kind === 'text') {
+    const estimate = estimateLedgerPrice({
+      kind,
+      model: String(row.model || ''),
+      inputTokens: numberValue(row.input_tokens),
+      outputTokens: numberValue(row.output_tokens),
+    });
+    return estimate
+      ? { ...row, estimated_cost_usd: estimate.estimatedCostUsd, cost_source: 'estimated' }
+      : row;
+  }
+
+  // The video dimensions are part of Seedance's token formula. Do not invent
+  // a 16:9 default for legacy entries that never saved their ratio. Image
+  // reference count likewise must be persisted before re-pricing a task.
+  const ratio = snapshotString(row, 'ratio');
+  const imageReferenceCount = snapshotNumber(row, 'reference_images');
+  const estimate = kind === 'video' && ratio
+    ? estimateLedgerPrice({
+      kind,
+      model: String(row.model || ''),
+      resolution: row.resolution,
+      videoSeconds: numberValue(row.video_seconds),
+      ratio,
+      hasVideoReference: snapshotHasVideoInput(row),
+      imageReferenceCount,
+    })
+    : kind === 'image' && hasCurrentPricingSnapshot(row)
+      ? estimateLedgerPrice({
+        kind,
+        model: String(row.model || ''),
+        resolution: row.resolution,
+        imageReferenceCount,
+      })
+    : null;
+  if (estimate) {
+    return { ...row, estimated_cost_usd: estimate.estimatedCostUsd, cost_source: 'estimated' };
+  }
+
+  // Unsupported combinations remain awaiting reconciliation instead of
+  // carrying a legacy guess. This is presentation-only and never rewrites the
+  // source ledger.
+  if (moneyValue(row.estimated_cost_usd) !== null || row.cost_source === 'estimated') {
+    return { ...row, estimated_cost_usd: null, cost_source: 'unknown' };
+  }
+  return row;
 }
 
 export function billingStateFor(row: Pick<UsageReportingRow, 'status' | 'reported_cost_usd' | 'estimated_cost_usd'>): BillingState {

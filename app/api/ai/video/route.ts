@@ -193,6 +193,8 @@ export async function POST(req: Request) {
       resolution: input.resolution,
       ratio: input.ratio,
       hasVideoReference: input.references.some((reference) => reference.type === 'video'),
+      imageReferenceCount: input.references.filter((reference) => reference.type === 'image').length,
+      videoReferenceSeconds: input.references.reduce((total, reference) => total + (reference.type === 'video' ? Math.max(0, Number(reference.durationMs) || 0) / 1000 : 0), 0),
     });
     const budget = await assertMonthlyBudgetAvailable({ userId: user.id, estimatedCostUsd: pricing?.estimatedCostUsd });
     if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });

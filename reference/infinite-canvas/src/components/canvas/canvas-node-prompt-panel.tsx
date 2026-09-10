@@ -170,7 +170,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     )}
                 </div>
-                {mode === "image" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /> : mode === "video" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={mentionReferences.some((reference) => reference.kind === "video")} /> : null}
+                {mode === "image" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="image" model={config.model} size={config.size} imageQuality={config.quality} count={Number(config.count) || 1} imageReferenceCount={mentionReferences.filter((reference) => reference.kind === "image").length} /> : mode === "video" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={mentionReferences.some((reference) => reference.kind === "video")} imageReferenceCount={mentionReferences.filter((reference) => reference.kind === "image").length} videoReferenceSeconds={mentionReferences.reduce((total, reference) => total + (reference.kind === "video" ? Math.max(0, reference.durationMs || 0) / 1000 : 0), 0)} /> : null}
                 <Button
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"

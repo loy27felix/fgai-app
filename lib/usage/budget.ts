@@ -1,13 +1,10 @@
 import { createAdminClient } from '@/lib/local/admin';
-import { summarizeUsageRows } from './reporting';
+import { summarizeUsageRows, withEligibleCatalogEstimate } from './reporting';
+import { estimateTextPrice } from './pricing';
+import { getUsdToCnyRate } from './fx';
 
 export const MONTHLY_BUDGET_EXCEEDED = 'MONTHLY_BUDGET_EXCEEDED';
 export const MONTHLY_BUDGET_PRICE_UNKNOWN = 'MONTHLY_BUDGET_PRICE_UNKNOWN';
-
-const TEXT_PRICE_PER_MILLION: Record<string, { input: number; output: number }> = {
-  'deepseek-flash': { input: 0.14, output: 0.28 },
-  'deepseek-pro': { input: 0.27, output: 1.1 },
-};
 
 export type MonthlyUsageSummary = {
   monthStart: string;
@@ -26,6 +23,8 @@ export type MonthlyUsageSummary = {
 };
 
 type UsageRow = {
+  kind?: string | null;
+  model?: string | null;
   workspace_id?: string | null;
   project_id?: string | null;
   input_tokens?: number | string | null;
@@ -37,6 +36,9 @@ type UsageRow = {
   reported_cost_usd?: number | string | null;
   estimated_cost_usd?: number | string | null;
   cost_source?: string | null;
+  price_snapshot?: Record<string, unknown> | null;
+  resolution?: string | null;
+  status?: string | null;
 };
 
 type BudgetRow = { limit_usd?: number | string | null } | null;
@@ -100,13 +102,15 @@ export function estimateTextBudgetUsd(input: {
   inputTokens?: number;
   maxOutputTokens?: number;
 }) {
-  const price = TEXT_PRICE_PER_MILLION[input.model];
-  if (!price) return null;
   const inputTokens = Number.isFinite(input.inputTokens)
     ? Math.max(1, Math.ceil(input.inputTokens as number))
     : Math.max(1, Math.ceil((input.inputText || '').length / 4));
   const outputTokens = Math.max(1, Math.ceil(input.maxOutputTokens ?? 4000));
-  return Number(((inputTokens * price.input + outputTokens * price.output) / 1_000_000).toFixed(10));
+  return estimateTextPrice({
+    model: input.model,
+    inputTokens,
+    outputTokens,
+  })?.estimatedCostUsd ?? null;
 }
 
 export async function getMonthlyUsageSummary(userId: string, date = new Date()): Promise<MonthlyUsageSummary> {
@@ -116,7 +120,7 @@ export async function getMonthlyUsageSummary(userId: string, date = new Date()):
   const [budgetResult, usageResult] = await Promise.all([
     admin.from('ai_usage_budgets').select('limit_usd').eq('user_id', userId).eq('month_start', monthStart).maybeSingle(),
     admin.from('ai_usage_ledger')
-      .select('workspace_id,project_id,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,reported_cost_usd,estimated_cost_usd,cost_source,status')
+      .select('kind,model,workspace_id,project_id,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,reported_cost_usd,estimated_cost_usd,cost_source,price_snapshot,status')
       .eq('user_id', userId)
       .gte('created_at', range.start)
       .lt('created_at', range.end)
@@ -125,7 +129,7 @@ export async function getMonthlyUsageSummary(userId: string, date = new Date()):
   if (budgetResult.error) throw budgetResult.error;
   if (usageResult.error) throw usageResult.error;
 
-  const rows = (usageResult.data || []) as UsageRow[];
+  const rows = ((usageResult.data || []) as UsageRow[]).map((row) => withEligibleCatalogEstimate(row));
   const summary = summarizeUsageRows(rows);
   const inputTokens = rows.reduce((total, row) => total + numberValue(row.input_tokens), 0);
   const outputTokens = rows.reduce((total, row) => total + numberValue(row.output_tokens), 0);
@@ -164,10 +168,16 @@ export async function assertMonthlyBudgetAvailable(input: {
   }
   const requested = Math.max(0, input.estimatedCostUsd);
   if (summary.usedUsd + requested > summary.limitUsd + 1e-9) {
+    // Storage and provider settlement stay in USD, but this message is sent
+    // straight to the product UI, which is intentionally RMB-only.
+    const rate = getUsdToCnyRate();
+    const usedCny = summary.usedUsd * rate;
+    const limitCny = summary.limitUsd * rate;
+    const requestedCny = requested * rate;
     return {
       allowed: false as const,
       code: MONTHLY_BUDGET_EXCEEDED,
-      message: `已达到本月额度（已用 $${summary.usedUsd.toFixed(6)} / $${summary.limitUsd.toFixed(6)}），本次预计 $${requested.toFixed(6)}。`,
+      message: `已达到本月额度（已用 ¥${usedCny.toFixed(2)} / ¥${limitCny.toFixed(2)}），本次预计 ¥${requestedCny.toFixed(2)}。`,
       summary,
     };
   }

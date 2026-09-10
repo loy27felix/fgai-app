@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Check, Clapperboard, FileSearch, Film, ImagePlus, LoaderCircle, MessageCircleMore, ReceiptText, Search, Sparkles, UserRound, WandSparkles, X } from "lucide-react";
 import { getVideoModel } from "@/lib/ai/video-models";
 import { estimateCompanyVideoProduction } from "@/lib/creator/company-video-production";
+import { getUsdToCnyRate } from "@/lib/usage/fx";
 import type { CompanyProductionDirection } from "@/lib/creator/company-production-direction";
 import { MaterialLibraryPickerModal } from "@/reference/infinite-canvas/src/components/canvas/material-library-picker-modal";
 import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
@@ -67,7 +68,7 @@ const PHASES: Array<{ id: CompanyProductionPhase; label: string; icon: typeof Se
   { id: "render", label: "生成与交付", icon: Film },
 ];
 
-function price(value: number | null) { return value === null ? "待核价" : `$${value.toFixed(3)}`; }
+function price(value: number | null) { return value === null ? "价格配置缺失" : `¥${(value * getUsdToCnyRate()).toFixed(2)}`; }
 function modelName(value: string) { const index = value.indexOf("::"); return (index >= 0 ? value.slice(index + 2) : value).trim(); }
 function imageResolution(value: string) { return value.split(" · ")[0]; }
 function phaseIndex(phase: CompanyProductionPhase) { return PHASES.findIndex((item) => item.id === phase); }

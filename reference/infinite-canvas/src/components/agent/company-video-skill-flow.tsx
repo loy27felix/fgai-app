@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { ArrowLeft, Check, Clapperboard, FileVideo, ImagePlus, LoaderCircle, ReceiptText, Sparkles, X } from "lucide-react";
 import { getVideoModel } from "@/lib/ai/video-models";
+import { getUsdToCnyRate } from "@/lib/usage/fx";
 import type { MaterialInsertPayload } from "@/reference/infinite-canvas/src/stores/use-material-library-store";
 
 export type CompanyVideoSkill = { name: string; content: string };
@@ -77,7 +78,7 @@ function fileSize(file: File) {
 }
 
 function money(value: number | null) {
-  return value === null ? "待核价" : `$${value.toFixed(3)}`;
+  return value === null ? "价格配置缺失" : `¥${(value * getUsdToCnyRate()).toFixed(2)}`;
 }
 
 function modelName(value: string) {

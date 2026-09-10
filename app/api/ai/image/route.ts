@@ -8,7 +8,7 @@ import {
 import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
 import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
-import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
+import { estimateImagePrice, estimateImageUsagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { readLocalFile } from '@/lib/local/storage';
 import { logCreatorImageEvent, logCreatorImageFailure } from '@/lib/creator/image-logging';
@@ -114,7 +114,10 @@ export async function POST(req: Request) {
   const requestId = `image-api:${randomId()}`;
   let providerRequestId: string | undefined;
   try {
-    const pricing = estimateImagePrice(model, body.size || '1024x1024');
+    const pricing = estimateImagePrice(model, body.size || '1024x1024', {
+      prompt,
+      referenceCount: refImages.length + refUrls.length,
+    });
     const budget = await assertMonthlyBudgetAvailable({ userId: user.id, estimatedCostUsd: pricing?.estimatedCostUsd });
     if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });
     const startedAt = Date.now();
@@ -135,6 +138,13 @@ export async function POST(req: Request) {
       references,
       trace: { requestId, traceId },
     });
+    const settledPricing = estimateImageUsagePrice({
+      model,
+      resolution: body.size || '1024x1024',
+      prompt,
+      referenceCount: references.length,
+      usage: generated.usage,
+    }) || pricing;
     providerRequestId = providerRequestIdFromImageDiagnostic(generated.providerDiagnostic);
     const ledgerRecorded = await recordUsageBestEffort(buildImageLedgerEntry({
       requestId,
@@ -144,7 +154,7 @@ export async function POST(req: Request) {
       provider: 'wetoken',
       model,
       resolution: body.size || '1024x1024',
-      pricing,
+      pricing: settledPricing,
       durationMs: Date.now() - startedAt,
       reportedCostUsd: extractReportedCostUsd(generated.usage),
     }));

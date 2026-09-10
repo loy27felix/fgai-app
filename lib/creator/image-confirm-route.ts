@@ -28,7 +28,7 @@ import {
   WetokenImageTransportError,
   type ImageGenerationResult,
 } from '@/lib/ai/image';
-import { estimateImagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
+import { estimateImagePrice, estimateImageUsagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import {
   buildCreatorImageLedgerEntry,
@@ -310,12 +310,24 @@ export async function persistGeneratedImage(
     let ledgerStatusUpdated = false;
     let ledgerStatus: 'succeeded' | 'unknown' = 'succeeded';
     try {
+      const effectivePrompt = typeof input.task.request.effective_prompt === 'string'
+        ? input.task.request.effective_prompt
+        : typeof input.task.request.prompt === 'string' ? input.task.request.prompt : '';
+      const referenceCount = Array.isArray(input.task.request.references)
+        ? input.task.request.references.length : 0;
       ledgerStatusUpdated = await updateLedgerStatus({
         requestId: input.requestId,
         providerRequestId,
         status: 'succeeded',
         completedAt,
         reportedCostUsd: extractReportedCostUsd(input.generated.usage),
+        pricing: estimateImageUsagePrice({
+          model: input.task.model,
+          resolution: typeof input.task.request.size === 'string' ? input.task.request.size : '',
+          prompt: effectivePrompt,
+          referenceCount,
+          usage: input.generated.usage,
+        }),
       });
       if (!ledgerStatusUpdated) {
         ledgerStatus = 'unknown';
@@ -471,7 +483,12 @@ function productionDependencies(
     loadReferences: async () => [],
 recordAttempt: async ({ requestId, task }) => {
       const resolution = typeof task.request.size === 'string' ? task.request.size : '';
-      const pricing = estimateImagePrice(task.model, resolution);
+      const pricing = estimateImagePrice(task.model, resolution, {
+        prompt: typeof task.request.effective_prompt === 'string'
+          ? task.request.effective_prompt
+          : typeof task.request.prompt === 'string' ? task.request.prompt : '',
+        referenceCount: Array.isArray(task.request.references) ? task.request.references.length : 0,
+      });
       const budget = await assertMonthlyBudgetAvailable({
         userId,
         estimatedCostUsd: pricing?.estimatedCostUsd,

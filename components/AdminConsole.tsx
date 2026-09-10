@@ -34,7 +34,9 @@ const numeric = (value: number | string | null | undefined) => {
   const number = Number(value);
   return Number.isFinite(number) ? Math.abs(number) : 0;
 };
-const money = (usd: number, rate: number) => `$${usd.toFixed(4)} · ¥${(usd * rate).toFixed(2)}`;
+// Ledger storage remains USD for provider reconciliation, while the product
+// surface is intentionally RMB-only for the team.
+const money = (usd: number, rate: number) => `¥${(usd * rate).toFixed(2)}`;
 
 function buildGroup(rows: Usage[]) {
   return rows.reduce<UsageSummary>((summary, row) => addUsageToSummary(summary, row), emptyUsageSummary());
@@ -147,7 +149,9 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     ["成功生成", `${totals.successfulCalls} 次`],
     ["生成失败", `${totals.failedCalls} 次`],
     ["生成中", `${processingCalls} 次`],
-    ["本月费用", money(totals.successfulCostUsd, usdToCnyRate)],
+    ["实际已确认", money(totals.confirmedCostUsd, usdToCnyRate)],
+    ["合规暂估", money(totals.estimatedCostUsd, usdToCnyRate)],
+    ["待对账任务", `${totals.unpricedCalls} 次`],
     ["成功图片", `${totals.successfulImages} 张`],
     ["成功视频", `${totals.successfulVideoSeconds} 秒`],
   ];
@@ -155,10 +159,10 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   return <PageShell title="管理后台" email={email}>
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 30px 70px" }}>
       <header style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
-        <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>成功任务按当前模型价格计费；失败任务费用固定为 ¥0。生成提交时会临时锁定额度，失败后自动释放。</p></div>
+        <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>团队统计只对管理员开放；成员在画布内仅能查看自己的本月记录。实际账单优先，只有参数完整的 Seedance 任务按新公式暂估；其他任务等待对账。</p></div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><Link href="/admin/logs" style={reportLinkStyle}>日志检索</Link><Link href="/admin/reports" style={reportLinkStyle}>服务监控报表</Link><label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询月份<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={inputStyle} /></label></div>
       </header>
-      <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；1 USD = ¥{usdToCnyRate.toFixed(4)}。</p>
+      <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；所有费用按当前结算汇率统一展示为人民币。</p>
       <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>{tabButton("overview", "概览")}{tabButton("whitelist", `白名单${pendingWhitelist ? ` · ${pendingWhitelist} 待审` : ""}`)}{tabButton("users", `用户 · ${profiles.length}`)}</nav>
       {notice ? <div role="status" style={{ margin: "-8px 0 14px", padding: "9px 11px", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--bg-2)", color: notice.includes("失败") ? "#ff9a8a" : "var(--accent)", fontSize: 12.5 }}>{notice}</div> : null}
 

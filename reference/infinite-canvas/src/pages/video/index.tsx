@@ -569,7 +569,7 @@ export default function VideoPage() {
                         </div>
 
                         <div className="mt-auto flex flex-wrap items-center gap-3 pt-6">
-                            <GenerationPriceBadge kind="video" model={model} duration={normalizeVideoSeconds(effectiveConfig.videoSeconds)} resolution={effectiveConfig.vquality} ratio={effectiveConfig.size} hasVideoReference={videoReferences.length > 0} />
+                            <GenerationPriceBadge kind="video" model={model} duration={normalizeVideoSeconds(effectiveConfig.videoSeconds)} resolution={effectiveConfig.vquality} ratio={effectiveConfig.size} hasVideoReference={videoReferences.length > 0} imageReferenceCount={references.length} videoReferenceSeconds={videoReferences.reduce((total, reference) => total + Math.max(0, reference.durationMs || 0) / 1000, 0)} />
                             <Button type="primary" size="large" icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
                                 开始生成
                             </Button>

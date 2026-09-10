@@ -35,6 +35,8 @@ export type VideoReferenceManifest = {
   name: string;
   mimeType: string;
   size: number;
+  /** Browser-measured media duration, preserved for a transparent cost estimate. */
+  durationMs?: number;
   kind: VideoReferenceKind;
   role: VideoReferenceRole;
 };
@@ -114,6 +116,9 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
     if (!mimeAllowed(reference.kind, reference.mimeType)) throw new Error("参考素材格式不受支持");
     if (!Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > maxBytesFor(reference.kind)) {
       throw new Error(reference.kind === "image" ? "单张参考图不能超过 7MB" : reference.kind === "video" ? "单个参考视频不能超过 200MB" : "单个参考音频不能超过 15MB");
+    }
+    if (reference.durationMs !== undefined && (!Number.isFinite(reference.durationMs) || reference.durationMs < 0)) {
+      throw new Error("参考素材时长无效");
     }
     total += reference.size;
     if (reference.kind === "image") {

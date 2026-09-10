@@ -79,6 +79,7 @@ function normalizeReferences(value: unknown): VideoReferenceManifest[] {
       name: reference.name,
       mimeType: reference.mimeType,
       size: reference.size,
+      ...(typeof reference.durationMs === 'number' && Number.isFinite(reference.durationMs) && reference.durationMs >= 0 ? { durationMs: Math.floor(reference.durationMs) } : {}),
       kind: reference.kind as VideoReferenceManifest['kind'],
       role: reference.role as VideoReferenceRole,
     };

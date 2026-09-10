@@ -566,7 +566,7 @@ export default function ImagePage() {
                         </div>
 
                         <div className="mt-auto flex flex-wrap items-center gap-3 pt-6">
-                            <GenerationPriceBadge kind="image" model={model} size={effectiveConfig.size} count={generationCount} />
+                            <GenerationPriceBadge kind="image" model={model} size={effectiveConfig.size} imageQuality={effectiveConfig.quality} count={generationCount} imageReferenceCount={references.length} />
                             <Button type="primary" size="large" icon={<Sparkles className="size-4" />} loading={running} disabled={!canGenerate || running} onClick={() => void generate()}>
                                 开始生成
                             </Button>

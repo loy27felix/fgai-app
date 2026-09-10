@@ -10,9 +10,12 @@ test('admin usage dashboard reads the trusted ledger with simple success/failure
   assert.match(page, /from\(["']ai_usage_ledger["']\)/);
   assert.doesNotMatch(page, /from\(["']ai_usage["']\)/);
   assert.match(consoleSource, /estimated_cost_usd/);
+  assert.match(page, /price_snapshot/);
   assert.match(consoleSource, /成功生成/);
   assert.match(consoleSource, /生成失败/);
-  assert.match(consoleSource, /失败任务费用固定为 ¥0/);
+  assert.match(consoleSource, /实际已确认/);
+  assert.match(consoleSource, /合规暂估/);
+  assert.match(consoleSource, /待对账任务/);
   assert.match(consoleSource, /按用户/);
   assert.match(consoleSource, /用户 × 模型/);
   assert.match(consoleSource, /type="month"/);

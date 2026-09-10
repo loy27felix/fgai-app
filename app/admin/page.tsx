@@ -28,7 +28,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
     localClient.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     localClient.from("whitelist").select("*").order("requested_at", { ascending: false }),
     localClient.from("ai_usage_ledger")
-      .select("id,request_id,provider_request_id,user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,status,possibly_charged,created_at")
+      .select("id,request_id,provider_request_id,user_id,workspace_id,project_id,kind,provider,model,input_tokens,output_tokens,total_tokens,image_count,video_seconds,duration_ms,resolution,generate_audio,reported_cost_usd,estimated_cost_usd,cost_source,price_snapshot,status,possibly_charged,created_at")
       .gte("created_at", monthRange.start)
       .lt("created_at", monthRange.end)
       .order("created_at", { ascending: false })
