@@ -3,6 +3,7 @@ import { estimateImagePrice, estimateVideoPrice } from "@/lib/usage/pricing";
 export type CompanyVideoProductionInput = {
   videoModel: string;
   videoResolution: string;
+  videoRatio?: string;
   secondsPerSegment: number;
   segmentCount: number;
   storyboardModel: string;
@@ -57,6 +58,7 @@ export function estimateCompanyVideoProduction(input: CompanyVideoProductionInpu
     model: modelName(input.videoModel),
     duration: input.secondsPerSegment,
     resolution: input.videoResolution,
+    ratio: input.videoRatio || '16:9',
   });
   const visualCostUsd = perVisual
     ? Number((perVisual.estimatedCostUsd * visualImageCount).toFixed(6))

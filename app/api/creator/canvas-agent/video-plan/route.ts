@@ -308,7 +308,7 @@ export async function POST(req: Request) {
     const fallbackPrompt = `${brief}\n${subject}\n${visualDirection}`.trim();
     const plan = parseVideoPlan(result.content, fallbackPrompt, segmentCount, duration);
     const quote = estimateCompanyVideoProduction({
-      videoModel, videoResolution, secondsPerSegment: duration, segmentCount, storyboardModel, storyboardResolution,
+      videoModel, videoResolution, videoRatio: ratio, secondsPerSegment: duration, segmentCount, storyboardModel, storyboardResolution,
       visualImageCount, visualModel, visualResolution,
     });
 

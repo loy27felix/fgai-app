@@ -108,9 +108,9 @@ export function CompanyProductionFlow({ skills, planningModelLabel, videoModels,
   const videoResolutions = useMemo(() => getVideoModel(modelName(videoModel))?.resolutions || ["480p", "720p", "1080p", "4K"], [videoModel]);
   const skillNames = skills.map((skill) => skill.name);
   const liveQuote = useMemo(() => plan ? estimateCompanyVideoProduction({
-    videoModel, videoResolution, secondsPerSegment: duration, segmentCount,
+    videoModel, videoResolution, videoRatio: ratio, secondsPerSegment: duration, segmentCount,
     storyboardModel, storyboardResolution, visualImageCount, visualModel, visualResolution,
-  }) : quote, [duration, plan, quote, segmentCount, storyboardModel, storyboardResolution, videoModel, videoResolution, visualImageCount, visualModel, visualResolution]);
+  }) : quote, [duration, plan, quote, ratio, segmentCount, storyboardModel, storyboardResolution, videoModel, videoResolution, visualImageCount, visualModel, visualResolution]);
   const draft = (): CompanyProductionDraft => ({
     phase, brief: brief.trim(), subject: subject.trim(), visualDirection: visualDirection.trim(), ratio, duration, segmentCount,
     videoModel, videoResolution, storyboardModel, storyboardResolution, visualImageCount, visualModel, visualResolution,

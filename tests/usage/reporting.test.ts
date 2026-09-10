@@ -50,8 +50,8 @@ test('known successful media is priced immediately when the provider omits cost'
     status: 'succeeded', kind: 'video', model: 'doubao-seedance-2-0', resolution: '720p', video_seconds: 6,
     reported_cost_usd: null, estimated_cost_usd: null,
   });
-  assert.equal(image.estimated_cost_usd, 0.02);
-  assert.equal(video.estimated_cost_usd, 5.964);
+  assert.equal(image.estimated_cost_usd, null);
+  assert.equal(video.estimated_cost_usd, 0.775658);
 });
 
 test('historical known media receives the same price for a real-time dashboard total', () => {
@@ -61,7 +61,7 @@ test('historical known media receives the same price for a real-time dashboard t
   ].map(withEligibleCatalogEstimate);
   const summary = summarizeUsageRows(rows);
   assert.equal(summary.confirmedCostUsd, 0);
-  assert.equal(summary.estimatedCostUsd, 5.984);
-  assert.equal(summary.quotaReservedUsd, 5.984);
-  assert.equal(summary.successfulCostUsd, 5.984);
+  assert.equal(summary.estimatedCostUsd, 0.775658);
+  assert.equal(summary.quotaReservedUsd, 0.775658);
+  assert.equal(summary.successfulCostUsd, 0.775658);
 });

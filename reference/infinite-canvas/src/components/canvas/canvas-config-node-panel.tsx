@@ -117,7 +117,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                 )}
             </div>
 
-            {mode === "image" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /></div> : mode === "video" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} /></div> : null}
+            {mode === "image" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="image" model={config.model} size={config.size} count={Number(config.count) || 1} /></div> : mode === "video" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={inputSummary.videoCount > 0} /></div> : null}
             <Button
                 type="primary"
                 className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
