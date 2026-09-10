@@ -168,5 +168,3 @@ tests/                       类型、账本、API 和价格测试
 
 ## 开源许可与来源
 
-`reference/infinite-canvas/src/` 是基于
-[basketikun/infinite-canvas](https://github.com/basketikun/infinite-canvas) 的修改版本，适用 AGPL-3.0。修改内容和对应源码保留在本仓库中，详见 [NOTICE.md](NOTICE.md) 与应用内的 `/NOTICE.md`。FG Studio 自有的适配器、业务页面和配置也随仓库源码提供。
