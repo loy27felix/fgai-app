@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { estimateCompanyVideoProduction } from "../../lib/creator/company-video-production";
 
-test("company video production quotes every storyboard and video segment before confirmation", () => {
+test("company video production keeps token-priced storyboards unpriced before confirmation", () => {
   const quote = estimateCompanyVideoProduction({
     videoModel: "dreamina-seedance-2-0-mini",
     videoResolution: "720p",
@@ -15,10 +15,10 @@ test("company video production quotes every storyboard and video segment before 
 
   assert.equal(quote.storyboardCount, 3);
   assert.equal(quote.segmentCount, 3);
-  assert.equal(quote.videoCostUsd, 7.455);
-  assert.equal(quote.storyboardCostUsd, 0.06);
-  assert.equal(quote.totalCostUsd, 7.515);
-  assert.equal(quote.hasUnpricedItems, false);
+  assert.equal(quote.videoCostUsd, 0.387828);
+  assert.equal(quote.storyboardCostUsd, null);
+  assert.equal(quote.totalCostUsd, null);
+  assert.equal(quote.hasUnpricedItems, true);
 });
 
 test("company video production keeps a quote honest when a custom model has no published price", () => {
@@ -50,6 +50,6 @@ test("company video production includes confirmed character and style images in 
   });
 
   assert.equal(quote.visualImageCount, 5);
-  assert.equal(quote.visualCostUsd, 0.1);
-  assert.equal(quote.totalCostUsd, 2.605);
+  assert.equal(quote.visualCostUsd, null);
+  assert.equal(quote.totalCostUsd, null);
 });

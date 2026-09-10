@@ -187,7 +187,13 @@ export async function POST(req: Request) {
   let pendingTask: Record<string, any> | null = null;
   let pendingLedgerEntry: ReturnType<typeof buildVideoLedgerEntry> | null = null;
   try {
-    const pricing = estimateVideoPrice({ model: input.model, duration: input.duration, resolution: input.resolution });
+    const pricing = estimateVideoPrice({
+      model: input.model,
+      duration: input.duration,
+      resolution: input.resolution,
+      ratio: input.ratio,
+      hasVideoReference: input.references.some((reference) => reference.type === 'video'),
+    });
     const budget = await assertMonthlyBudgetAvailable({ userId: user.id, estimatedCostUsd: pricing?.estimatedCostUsd });
     if (!budget.allowed) return NextResponse.json({ error: budget.message, code: budget.code }, { status: 402 });
     const references = await Promise.all(input.references.map((reference) => providerReference(reference, user.id, projectId)));

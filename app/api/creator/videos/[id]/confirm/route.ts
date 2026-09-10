@@ -612,7 +612,13 @@ export async function POST(req: Request, { params }: RouteContext) {
       throw error;
     }
 
-    const pricing = estimateVideoPrice({ model: claimed.model, duration: validated.duration, resolution: validated.resolution });
+    const pricing = estimateVideoPrice({
+      model: claimed.model,
+      duration: validated.duration,
+      resolution: validated.resolution,
+      ratio: validated.ratio,
+      hasVideoReference: validated.references.some((reference) => reference.kind === 'video'),
+    });
     const budget = await assertMonthlyBudgetAvailable({
       userId: context.user.id,
       estimatedCostUsd: pricing?.estimatedCostUsd,
