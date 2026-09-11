@@ -3,8 +3,10 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/local/server";
 import { createAdminClient } from "@/lib/local/admin";
+import { withTransaction } from "@/lib/local/db";
 import { isMonthStartKey } from "@/lib/usage/budget";
 import { getUsdToCnyRate } from "@/lib/usage/fx";
+import { normalizeWetokenFeeAttributionDraft, type WetokenFeeAttributionDraft } from "@/lib/usage/wetoken-fee-attribution";
 import { recordAuditEvent } from "@/lib/observability/audit-event";
 import { logServerEvent, logServerFailure } from "@/lib/observability/server-log";
 
@@ -185,6 +187,140 @@ export async function reconcileUsageCost(ledgerId: string, reportedUsd: string) 
       price_snapshot: { ...existingSnapshot, reconciliation_source: "manual_wetoken_billing", reconciled_at: new Date().toISOString(), reconciled_by: access.userId },
     }).eq("id", ledgerId);
     if (error) return { error: error.message };
+    revalidatePath("/admin");
+    return { ok: true };
+  });
+}
+
+type StoredWetokenFeeException = {
+  id: string;
+  reference_id: string;
+  model: string;
+  occurred_at: string | null;
+  actual_cost_usd: number | string;
+  assignment_ledger_id: string | null;
+};
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Places one unresolved provider fee into either a verified user's history or
+ * company/shared cost. This is deliberately an explicit administrator action:
+ * no model/time heuristic may ever decide who pays an actual provider charge.
+ */
+export async function assignWetokenFeeAttribution(referenceId: string, draft: WetokenFeeAttributionDraft) {
+  return runAdminAction("wetoken_fee_attribution", "wetoken_fee_log_exception", referenceId, {
+    assignmentKind: draft.assignmentKind,
+    userId: draft.userId || null,
+  }, async (access) => {
+    const normalizedReferenceId = referenceId.trim();
+    if (!normalizedReferenceId || normalizedReferenceId.length > 300) return { error: "WeToken Reference ID 无效" };
+
+    let assignment;
+    try {
+      assignment = normalizeWetokenFeeAttributionDraft(draft);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "归属信息无效" };
+    }
+
+    try {
+      await withTransaction(async (client) => {
+        const exceptionResult = await client.query<StoredWetokenFeeException>(
+          `select id, reference_id, model, occurred_at, actual_cost_usd, assignment_ledger_id
+             from wetoken_fee_log_exceptions
+            where reference_id = $1
+            for update`,
+          [normalizedReferenceId],
+        );
+        const exception = exceptionResult.rows[0];
+        if (!exception) throw new Error("未找到这条待归属账单；请先重新导入对应月份的 WeToken CSV");
+        const actualCostUsd = Number(exception.actual_cost_usd);
+        if (!Number.isFinite(actualCostUsd) || actualCostUsd < 0) throw new Error("这条账单金额无效，无法归属");
+
+        if (assignment.assignmentKind === "user") {
+          if (!assignment.userId || !assignment.usageKind) throw new Error("归属用户或费用类型无效");
+          if (!UUID_PATTERN.test(assignment.userId)) throw new Error("归属用户无效");
+          const userResult = await client.query<{ id: string }>("select id from app_users where id = $1", [assignment.userId]);
+          if (!userResult.rows[0]) throw new Error("归属用户不存在");
+
+          const requestId = `wetoken-attribution:${exception.reference_id}`;
+          const ledgerResult = await client.query<{ id: string }>(
+            `insert into ai_usage_ledger (
+                request_id, provider_request_id, user_id, kind, provider, model,
+                image_count, video_seconds, reported_cost_usd, cost_source,
+                price_snapshot, status, possibly_charged, created_at, completed_at
+              ) values (
+                $1, $2, $3, $4, 'wetoken', $5,
+                $6, 0, $7, 'reported',
+                $8::jsonb, 'succeeded', true, coalesce($9::timestamptz, now()), coalesce($9::timestamptz, now())
+              )
+              on conflict (request_id) do update set
+                provider_request_id = excluded.provider_request_id,
+                user_id = excluded.user_id,
+                kind = excluded.kind,
+                model = excluded.model,
+                image_count = excluded.image_count,
+                reported_cost_usd = excluded.reported_cost_usd,
+                cost_source = 'reported',
+                price_snapshot = excluded.price_snapshot,
+                status = 'succeeded',
+                possibly_charged = true,
+                created_at = excluded.created_at,
+                completed_at = excluded.completed_at
+              returning id`,
+            [
+              requestId,
+              exception.reference_id,
+              assignment.userId,
+              assignment.usageKind,
+              exception.model || "历史 WeToken 费用",
+              assignment.usageKind === "image" ? 1 : 0,
+              Number(actualCostUsd.toFixed(10)),
+              JSON.stringify({
+                reconciliation_source: "manual_wetoken_fee_attribution",
+                wetoken_reference_id: exception.reference_id,
+                wetoken_model: exception.model,
+                attribution_note: assignment.note,
+                attributed_by: access.userId,
+                attributed_at: new Date().toISOString(),
+              }),
+              exception.occurred_at,
+            ],
+          );
+          const ledgerId = ledgerResult.rows[0]?.id;
+          if (!ledgerId) throw new Error("归属账本写入失败");
+          await client.query(
+            `update wetoken_fee_log_exceptions
+                set assignment_kind = 'user', assigned_user_id = $1, assigned_usage_kind = $2, assigned_by = $3,
+                    assigned_at = now(), assignment_note = $4, assignment_ledger_id = $5,
+                    updated_at = now()
+              where id = $6`,
+            [assignment.userId, assignment.usageKind, access.userId, assignment.note, ledgerId, exception.id],
+          );
+          return;
+        }
+
+        // Moving a prior user allocation to company/shared cost removes only
+        // the ledger line created by this manual-attribution workflow.
+        if (exception.assignment_ledger_id) {
+          await client.query(
+            "delete from ai_usage_ledger where id = $1 and request_id = $2",
+            [exception.assignment_ledger_id, `wetoken-attribution:${exception.reference_id}`],
+          );
+        }
+        await client.query(
+          `update wetoken_fee_log_exceptions
+              set assignment_kind = 'company', assigned_user_id = null, assigned_usage_kind = null, assigned_by = $1,
+                  assigned_at = now(), assignment_note = $2, assignment_ledger_id = null,
+                  updated_at = now()
+            where id = $3`,
+          [access.userId, assignment.note, exception.id],
+        );
+      });
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "费用归属保存失败" };
+    }
+
     revalidatePath("/admin");
     return { ok: true };
   });

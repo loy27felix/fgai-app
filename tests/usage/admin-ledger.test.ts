@@ -23,3 +23,18 @@ test('admin usage dashboard reads the trusted ledger with simple success/failure
   assert.doesNotMatch(consoleSource, /reconcileUsageCost/);
   assert.doesNotMatch(page, /withKnownMediaEstimate/);
 });
+
+test('admin gives unresolved WeToken lines an explicit user-or-company attribution workflow', () => {
+  const page = fs.readFileSync(path.join(process.cwd(), 'app/admin/page.tsx'), 'utf8');
+  const consoleSource = fs.readFileSync(path.join(process.cwd(), 'components/AdminConsole.tsx'), 'utf8');
+  const actions = fs.readFileSync(path.join(process.cwd(), 'app/admin/actions.ts'), 'utf8');
+  const migration = fs.readFileSync(path.join(process.cwd(), 'docker/initdb/010-wetoken-fee-attribution.sql'), 'utf8');
+
+  assert.match(page, /wetoken_fee_log_exceptions/);
+  assert.match(consoleSource, /费用归属/);
+  assert.match(consoleSource, /归属到用户/);
+  assert.match(consoleSource, /公司\s*\/\s*共享成本/);
+  assert.match(actions, /assignWetokenFeeAttribution/);
+  assert.match(migration, /assignment_kind/);
+  assert.match(migration, /assignment_ledger_id/);
+});

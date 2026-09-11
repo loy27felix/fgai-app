@@ -4,6 +4,7 @@ import {
   buildCreatorImageLedgerEntry,
   buildImageLedgerEntry,
   buildTextLedgerEntry,
+  requireProviderUsageReference,
   recordUsageBestEffort,
   recordUsageRequired,
   updateImageUsageStatus,
@@ -49,6 +50,18 @@ test('persists the Wetoken request ID for exact future fee-log reconciliation', 
     usage: undefined,
   });
   assert.equal(row.provider_request_id, '20260911023732712120112W');
+});
+
+test('rejects a successful Wetoken call that has no exact provider Reference ID for reconciliation', () => {
+  assert.throws(
+    () => requireProviderUsageReference('wetoken', undefined),
+    /Reference ID/,
+  );
+  assert.equal(
+    requireProviderUsageReference('wetoken', '  cgt-20260911-abc  '),
+    'cgt-20260911-abc',
+  );
+  assert.equal(requireProviderUsageReference('other-provider', undefined), undefined);
 });
 
 test('best-effort ledger persistence never hides a successful model response', async () => {

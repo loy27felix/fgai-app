@@ -8,7 +8,7 @@ import { estimateCompanyVideoProduction, normalizeCompanyVideoSegmentCount } fro
 import { parseCompanyProductionDirections } from "@/lib/creator/company-production-direction";
 import { ensureCreatorWorkspace } from "@/lib/creator/workspace";
 import { createClient } from "@/lib/local/server";
-import { buildTextLedgerEntry, recordUsageBestEffort } from "@/lib/usage/ledger";
+import { buildTextLedgerEntry, recordUsageRequired, requireProviderUsageReference } from "@/lib/usage/ledger";
 import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from "@/lib/usage/budget";
 import { attachTraceId, logServerEvent, logServerFailure, requestTraceId } from "@/lib/observability/server-log";
 import { recordAuditEvent } from "@/lib/observability/audit-event";
@@ -293,11 +293,19 @@ export async function POST(req: Request) {
       modelId: model, messages, thinking: reasoningEffort !== "auto", reasoningEffort, jsonOutput: true, maxTokens: maxOutputTokens,
       traceId,
     });
+    const providerRequestId = requireProviderUsageReference(spec.provider, result.providerRequestId);
+    await recordUsageRequired(buildTextLedgerEntry({
+      userId: user.id,
+      workspaceId,
+      provider: spec.provider,
+      model: spec.id,
+      usage: result.usage,
+      providerRequestId,
+      durationMs: Date.now() - startedAt,
+    }));
+    const ledgerRecorded = true;
     if (mode === "directions") {
       const directions = parseCompanyProductionDirections(result.content, brief);
-      const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
-        userId: user.id, workspaceId, provider: spec.provider, model: spec.id, usage: result.usage, durationMs: Date.now() - startedAt,
-      }));
       logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "completed", actorId: user.id, workspaceId, model: spec.id, mode, directionCount: directions.length, durationMs: Date.now() - startedAt, ledgerRecorded });
       await recordAuditEvent({
         traceId, actorId: user.id, workspaceId, feature: "canvas_skill_video", action: "explore_direction", resourceType: "canvas_skill", resourceId: skills.map((skill) => skill.name).join(", "), stage: "completed", outcome: "succeeded", durationMs: Date.now() - startedAt,
@@ -312,9 +320,6 @@ export async function POST(req: Request) {
       visualImageCount, visualModel, visualResolution,
     });
 
-    const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
-      userId: user.id, workspaceId, provider: spec.provider, model: spec.id, usage: result.usage, durationMs: Date.now() - startedAt,
-    }));
     logServerEvent("canvas_skill_video", { traceId, feature: "canvas_skill_video", stage: "completed", actorId: user.id, workspaceId, model: spec.id, durationMs: Date.now() - startedAt, referenceCount: referenceNames.length, segmentCount, ledgerRecorded });
     await recordAuditEvent({
       traceId, actorId: user.id, workspaceId, feature: "canvas_skill_video", action: "plan_video", resourceType: "canvas_skill", resourceId: skills.map((skill) => skill.name).join(", "), stage: "completed", outcome: "succeeded", durationMs: Date.now() - startedAt,

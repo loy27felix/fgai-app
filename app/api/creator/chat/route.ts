@@ -6,7 +6,7 @@ import { buildCreatorContextMessages, titleFromPrompt } from '@/lib/creator/chat
 import { normalizeCreatorMessages } from '@/lib/creator/session-read';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
-import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
+import { buildTextLedgerEntry, recordUsageRequired, requireProviderUsageReference } from '@/lib/usage/ledger';
 import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from '@/lib/usage/budget';
 import {
   attachTraceId,
@@ -163,6 +163,18 @@ export async function POST(req: Request) {
       sessionId: activeSession.id,
     });
 
+    const providerRequestId = requireProviderUsageReference(spec.provider, result.providerRequestId);
+    await recordUsageRequired(buildTextLedgerEntry({
+      userId: user.id,
+      workspaceId: workspace.id,
+      provider: spec.provider,
+      model: spec.id,
+      usage: result.usage,
+      providerRequestId,
+      durationMs: Date.now() - startedAt,
+    }));
+    const ledgerRecorded = true;
+
     const insertedAssistant = await localClient.from('creator_messages').insert({
       session_id: activeSession.id,
       role: 'assistant',
@@ -182,15 +194,6 @@ export async function POST(req: Request) {
     } else {
       logServerEvent('creator_chat', { traceId, feature: 'creator_chat', stage: 'session_touched', actorId: user.id, workspaceId: workspace.id, sessionId: activeSession.id, titleUpdated: Boolean(update.title) });
     }
-
-    const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
-      userId: user.id,
-      workspaceId: workspace.id,
-      provider: spec.provider,
-      model: spec.id,
-      usage: result.usage,
-      durationMs: Date.now() - startedAt,
-    }));
 
     logServerEvent('creator_chat', {
       traceId,

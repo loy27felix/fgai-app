@@ -4,7 +4,7 @@ import { chatWithTextModel } from '@/lib/ai/text';
 import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import type { ChatMessage } from '@/lib/deepseek';
 import { createClient } from '@/lib/local/server';
-import { buildTextLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
+import { buildTextLedgerEntry, recordUsageRequired, requireProviderUsageReference } from '@/lib/usage/ledger';
 import { assertMonthlyBudgetAvailable, estimateTextBudgetUsd } from '@/lib/usage/budget';
 import {
   attachTraceId,
@@ -93,6 +93,18 @@ export async function POST(req: Request) {
       traceId,
     });
 
+    const providerRequestId = requireProviderUsageReference(spec.provider, result.providerRequestId);
+    await recordUsageRequired(buildTextLedgerEntry({
+      userId: user.id,
+      projectId: body.projectId ?? null,
+      provider: spec.provider,
+      model: spec.id,
+      usage: result.usage,
+      providerRequestId,
+      durationMs: Date.now() - startedAt,
+    }));
+    const ledgerRecorded = true;
+
     try {
       const usage = result.usage;
       await localClient.from('ai_usage').insert({
@@ -107,16 +119,6 @@ export async function POST(req: Request) {
       // Usage accounting must not hide a successful model response.
       logServerFailure('ai_chat', error, { traceId, feature: 'ai_chat', stage: 'usage_write_failed', actorId: user.id, model: spec.id });
     }
-
-    const ledgerRecorded = await recordUsageBestEffort(buildTextLedgerEntry({
-      userId: user.id,
-      projectId: body.projectId ?? null,
-      provider: spec.provider,
-      model: spec.id,
-      usage: result.usage,
-      providerRequestId: result.providerRequestId,
-      durationMs: Date.now() - startedAt,
-    }));
 
     logServerEvent('ai_chat', {
       traceId,

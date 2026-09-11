@@ -83,6 +83,19 @@ type LedgerWriter = {
   ): Promise<unknown>;
 };
 
+/**
+ * A WeToken CSV can only be settled safely through its Reference ID.  Do not
+ * report a provider success as fully accounted when that durable join key is
+ * absent; model and timestamp are deliberately not safe substitutes.
+ */
+export function requireProviderUsageReference(provider: string, providerRequestId?: string | null) {
+  const reference = typeof providerRequestId === 'string' ? providerRequestId.trim() : '';
+  if (provider === 'wetoken' && !reference) {
+    throw new Error('WeToken 未返回可对账的 Reference ID，已阻止完成本次生成以避免费用无法归属');
+  }
+  return reference || undefined;
+}
+
 function tokenCount(value: number | undefined): number {
   return Number.isSafeInteger(value) && (value ?? 0) >= 0 ? value! : 0;
 }
@@ -312,7 +325,7 @@ function hasUpdatedLedgerRow(result: unknown, requestId: string): boolean {
 }
 
 export async function recordUsageRequired(
-  row: ImageLedgerEntry | VideoLedgerEntry,
+  row: TextLedgerEntry | ImageLedgerEntry | VideoLedgerEntry,
   dependency?: LedgerWriter,
 ): Promise<void> {
   const options: LedgerUpsertOptions = { onConflict: 'request_id' };

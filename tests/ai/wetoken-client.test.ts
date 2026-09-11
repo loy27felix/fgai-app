@@ -54,6 +54,21 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
   });
 });
 
+test('Wetoken client retains the response header Reference ID when the JSON body omits it', async () => {
+  process.env.WETOKEN_API_KEY = 'test-wetoken-key';
+  const result = await wetokenChat({
+    model: 'gpt-5.6-luna-t1a',
+    messages: [{ role: 'user', content: 'hello' }],
+  }, {
+    fetcher: async () => new Response(
+      JSON.stringify({ choices: [{ message: { content: 'world' } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json', 'x-wetoken-request-id': 'cgt-header-reference' } },
+    ),
+  });
+
+  assert.equal(result.providerRequestId, 'cgt-header-reference');
+});
+
 test('Wetoken JSON mode always gives the provider a lowercase json instruction', async () => {
   process.env.WETOKEN_API_KEY = 'test-wetoken-key';
   let requestBody: { messages?: Array<{ content?: unknown }> } | undefined;

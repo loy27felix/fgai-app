@@ -136,7 +136,14 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     const message = String(data?.error?.message || data?.message || response.statusText || "request failed").slice(0, 300);
     throw new Error(`Wetoken ${response.status}: ${message}`);
   }
-  const providerRequestId = [data?.id, data?.request_id, data?.requestId]
+  const providerRequestId = [
+    data?.id,
+    data?.request_id,
+    data?.requestId,
+    response.headers.get('x-request-id'),
+    response.headers.get('request-id'),
+    response.headers.get('x-wetoken-request-id'),
+  ]
     .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
   return {
     content: data?.choices?.[0]?.message?.content ?? "",

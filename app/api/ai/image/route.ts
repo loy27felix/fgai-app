@@ -7,7 +7,7 @@ import {
 } from '@/lib/ai/image';
 import { getImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
-import { buildImageLedgerEntry, recordUsageBestEffort } from '@/lib/usage/ledger';
+import { buildImageLedgerEntry, recordUsageRequired, requireProviderUsageReference } from '@/lib/usage/ledger';
 import { estimateImagePrice, estimateImageUsagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
 import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { readLocalFile } from '@/lib/local/storage';
@@ -145,8 +145,11 @@ export async function POST(req: Request) {
       referenceCount: references.length,
       usage: generated.usage,
     }) || pricing;
-    providerRequestId = providerRequestIdFromImageDiagnostic(generated.providerDiagnostic);
-    const ledgerRecorded = await recordUsageBestEffort(buildImageLedgerEntry({
+    providerRequestId = requireProviderUsageReference(
+      'wetoken',
+      providerRequestIdFromImageDiagnostic(generated.providerDiagnostic),
+    );
+    await recordUsageRequired(buildImageLedgerEntry({
       requestId,
       providerRequestId,
       userId: user.id,
@@ -158,6 +161,7 @@ export async function POST(req: Request) {
       durationMs: Date.now() - startedAt,
       reportedCostUsd: extractReportedCostUsd(generated.usage),
     }));
+    const ledgerRecorded = true;
     logCreatorImageEvent(
       ledgerRecorded ? 'legacy_ledger_recorded' : 'legacy_ledger_record_failed',
       {

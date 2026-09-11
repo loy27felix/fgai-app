@@ -11,6 +11,7 @@ const migrationNames = [
   "007-observability-integrity.sql",
   "008-video-worker-rollback.sql",
   "009-wetoken-fee-reconciliation.sql",
+  "010-wetoken-fee-attribution.sql",
 ];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";

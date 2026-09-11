@@ -24,7 +24,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
   const requestedMonthStart = rawMonth ? `${rawMonth}-01` : monthStartKey();
   const monthStart = isMonthStartKey(requestedMonthStart) ? requestedMonthStart : monthStartKey();
   const monthRange = monthRangeForKey(monthStart);
-  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: budgets }, { data: feeImports }] = await Promise.all([
+  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: budgets }, { data: feeImports }, { data: feeExceptions }] = await Promise.all([
     localClient.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     localClient.from("whitelist").select("*").order("requested_at", { ascending: false }),
     localClient.from("ai_usage_ledger")
@@ -39,10 +39,15 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
       .eq("month_start", monthStart)
       .order("created_at", { ascending: false })
       .limit(1),
+    localClient.from("wetoken_fee_log_exceptions")
+      .select("id,reference_id,model,occurred_at,actual_cost_usd,classification,assignment_kind,assigned_user_id,assigned_usage_kind,assignment_note,assigned_by,assigned_at,assignment_ledger_id")
+      .eq("month_start", monthStart)
+      .order("occurred_at", { ascending: false })
+      .limit(5000),
   ]);
   const usdToCnyRate = getUsdToCnyRate();
 
   return (
-    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row: any) => withEligibleCatalogEstimate(row))} budgets={budgets || []} latestFeeImport={(feeImports || [])[0] || null} monthStart={monthStart} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
+    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row: any) => withEligibleCatalogEstimate(row))} budgets={budgets || []} latestFeeImport={(feeImports || [])[0] || null} feeExceptions={feeExceptions || []} monthStart={monthStart} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
   );
 }
