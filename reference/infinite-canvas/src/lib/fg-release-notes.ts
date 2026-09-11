@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.0.5";
+export const CURRENT_RELEASE_VERSION = "1.0.6";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,15 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月11日",
+        items: [
+            { type: "修复", content: "WeToken 实际账单对账现在会对每一笔消费说明去向：先精确匹配本地账本，再按同一任务 ID 补回历史任务；不再只显示笼统的“未匹配笔数”。" },
+            { type: "新增", content: "找不到本地任务或出现同一任务 ID 冲突的费用会作为“无本地归属 / 任务 ID 冲突”单独保存、按模型展示，并且绝不计入任何用户消费。" },
+            { type: "调整", content: "导入账单时必须选择对应月份，系统会拒绝跨月 CSV；升级后重新导入该月 CSV，即可使用新规则重新核对历史费用。" },
+        ],
+    },
+    {
+        version: "1.0.5",
         date: "2026年9月11日",
         items: [
             { type: "优化", content: "右上角“更新内容”改为按系统版本维护：当前版本只展示本次面向用户的中文更新，旧版本保留在下方，不再把历史内容误显示成最新更新。" },

@@ -24,7 +24,7 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
   const requestedMonthStart = rawMonth ? `${rawMonth}-01` : monthStartKey();
   const monthStart = isMonthStartKey(requestedMonthStart) ? requestedMonthStart : monthStartKey();
   const monthRange = monthRangeForKey(monthStart);
-  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: budgets }] = await Promise.all([
+  const [{ data: profiles }, { data: whitelist }, { data: usage }, { data: budgets }, { data: feeImports }] = await Promise.all([
     localClient.from("profiles").select("id,email,platform_role,created_at").order("created_at", { ascending: true }),
     localClient.from("whitelist").select("*").order("requested_at", { ascending: false }),
     localClient.from("ai_usage_ledger")
@@ -34,10 +34,15 @@ export default async function AdminPage({ searchParams }: { searchParams?: { mon
       .order("created_at", { ascending: false })
       .limit(5000),
     localClient.from("ai_usage_budgets").select("user_id,month_start,limit_usd").eq("month_start", monthStart),
+    localClient.from("wetoken_fee_log_imports")
+      .select("imported_count,imported_cost_usd,ledger_matched_count,ledger_matched_cost_usd,creator_recovered_count,creator_recovered_cost_usd,project_recovered_count,project_recovered_cost_usd,unallocated_count,unallocated_cost_usd,ambiguous_count,ambiguous_cost_usd,breakdown,created_at")
+      .eq("month_start", monthStart)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
   const usdToCnyRate = getUsdToCnyRate();
 
   return (
-    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row: any) => withEligibleCatalogEstimate(row))} budgets={budgets || []} monthStart={monthStart} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
+    <AdminConsole meId={user.id} isSuperadmin={myRole === "superadmin"} profiles={profiles || []} whitelist={whitelist || []} usage={(usage || []).map((row: any) => withEligibleCatalogEstimate(row))} budgets={budgets || []} latestFeeImport={(feeImports || [])[0] || null} monthStart={monthStart} usdToCnyRate={usdToCnyRate} email={user.email || ""} />
   );
 }

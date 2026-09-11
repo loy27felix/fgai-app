@@ -11,6 +11,22 @@ import { addUsageToSummary, emptyUsageSummary, type UsageSummary } from "@/lib/u
 type Profile = { id: string; email: string; platform_role: string; created_at: string };
 type Whitelist = { id: string; email: string; status: string; requested_at: string };
 type Budget = { user_id: string; month_start: string; limit_usd: number | string };
+type FeeImport = {
+  imported_count: number | string;
+  imported_cost_usd: number | string;
+  ledger_matched_count: number | string;
+  ledger_matched_cost_usd: number | string;
+  creator_recovered_count: number | string;
+  creator_recovered_cost_usd: number | string;
+  project_recovered_count: number | string;
+  project_recovered_cost_usd: number | string;
+  unallocated_count: number | string;
+  unallocated_cost_usd: number | string;
+  ambiguous_count: number | string;
+  ambiguous_cost_usd: number | string;
+  breakdown: unknown;
+  created_at: string;
+};
 type Usage = {
   id: string;
   request_id: string | null;
@@ -53,13 +69,34 @@ function statusLabel(status: string) {
 }
 
 function rowCost(row: Usage, rate: number) {
-  if (row.status === "failed") return "¥0.00";
   const reported = numeric(row.reported_cost_usd);
-  if (reported > 0) return money(reported, rate);
+  if (row.reported_cost_usd !== null && row.reported_cost_usd !== undefined) return money(reported, rate);
+  if (row.status === "failed") return "¥0.00";
   return numeric(row.estimated_cost_usd) > 0 ? "待导入实际账单" : "待对账";
 }
 
-export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, usdToCnyRate, budgets, monthStart, email }: {
+function feeBreakdown(value: unknown, key: "unallocatedByModel" | "ambiguousByModel") {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const rows = Array.isArray(input[key]) ? input[key] : [];
+  return rows
+    .map((row) => row && typeof row === "object" && !Array.isArray(row) ? row as Record<string, unknown> : {})
+    .map((row) => ({ model: typeof row.model === "string" && row.model ? row.model : "未提供模型名", count: numeric(row.count as number | string), costUsd: numeric(row.actualCostUsd as number | string) }))
+    .filter((row) => row.count > 0 || row.costUsd > 0)
+    .slice(0, 6);
+}
+
+function reconciliationNotice(payload: Record<string, unknown>, rate: number) {
+  const imported = money(numeric(payload.totalCostUsd as number | string), rate);
+  const direct = numeric(payload.ledgerMatchedCostUsd as number | string);
+  const creator = numeric(payload.creatorRecoveredCostUsd as number | string);
+  const project = numeric(payload.projectRecoveredCostUsd as number | string);
+  const assigned = money(direct + creator + project, rate);
+  const unallocated = numeric(payload.unallocatedCostUsd as number | string);
+  const ambiguous = numeric(payload.ambiguousCostUsd as number | string);
+  return `账单消费 ${imported}；已归属用户 ${assigned}（账本直接匹配 ${numeric(payload.ledgerMatchedCount as number | string)} 笔，历史任务补回 ${numeric(payload.creatorRecoveredCount as number | string) + numeric(payload.projectRecoveredCount as number | string)} 笔）${unallocated ? `；无本地归属 ${money(unallocated, rate)}（${numeric(payload.unallocatedCount as number | string)} 笔）` : ""}${ambiguous ? `；任务冲突 ${money(ambiguous, rate)}（${numeric(payload.ambiguousCount as number | string)} 笔）` : ""}。`;
+}
+
+export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, usdToCnyRate, budgets, latestFeeImport, monthStart, email }: {
   meId: string;
   isSuperadmin: boolean;
   profiles: Profile[];
@@ -67,6 +104,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   usage: Usage[];
   usdToCnyRate: number;
   budgets: Budget[];
+  latestFeeImport: FeeImport | null;
   monthStart: string;
   email?: string;
 }) {
@@ -149,12 +187,11 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     try {
       const form = new FormData();
       form.set("file", file);
+      form.set("month", monthStart);
       const response = await fetch("/api/admin/usage/wetoken-fee-log", { method: "POST", body: form });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || "导入实际账单失败");
-      const importedCost = money(numeric(payload.importedCostUsd), usdToCnyRate);
-      const matchedCost = money(numeric(payload.matchedCostUsd), usdToCnyRate);
-      setNotice(`账单消费 ${importedCost}；精确匹配并结算 ${payload.settled} 笔（${matchedCost}）${payload.unmatched ? `，${payload.unmatched} 笔未匹配到本地任务` : ""}${payload.ambiguous ? `，${payload.ambiguous} 笔任务号重复，已跳过` : ""}。`);
+      setNotice(reconciliationNotice(payload, usdToCnyRate));
       router.refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "导入实际账单失败");
@@ -179,18 +216,42 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   return <PageShell title="管理后台" email={email}>
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 30px 70px" }}>
       <header style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
-        <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>团队统计只对管理员开放；成员在画布内仅能查看自己的本月记录。实际费用仅来自已匹配的 WeToken 费用流水；暂估和待对账任务不会混入实付。</p></div>
+        <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>团队统计只对管理员开放；成员在画布内仅能查看自己的本月记录。实际费用只会归属到具有同一 WeToken Reference ID 的本地任务；无本地归属的账单会单独展示，绝不分摊给任何用户。</p></div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><input ref={feeLogInputRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importWetokenFeeLog(file); }} /><button type="button" disabled={reconciling} onClick={() => feeLogInputRef.current?.click()} style={{ ...reportLinkStyle, cursor: reconciling ? "wait" : "pointer", opacity: reconciling ? .65 : 1 }}>{reconciling ? "正在导入实际账单…" : "导入 WeToken 实际账单 CSV"}</button><Link href="/admin/logs" style={reportLinkStyle}>日志检索</Link><Link href="/admin/reports" style={reportLinkStyle}>服务监控报表</Link><label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询月份<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={inputStyle} /></label></div>
       </header>
       <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；所有费用按当前结算汇率统一展示为人民币。</p>
       <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>{tabButton("overview", "概览")}{tabButton("whitelist", `白名单${pendingWhitelist ? ` · ${pendingWhitelist} 待审` : ""}`)}{tabButton("users", `用户 · ${profiles.length}`)}</nav>
       {notice ? <div role="status" style={{ margin: "-8px 0 14px", padding: "9px 11px", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--bg-2)", color: notice.includes("失败") ? "#ff9a8a" : "var(--accent)", fontSize: 12.5 }}>{notice}</div> : null}
+      {latestFeeImport ? <FeeImportSummary value={latestFeeImport} rate={usdToCnyRate} /> : null}
 
       {tab === "overview" ? <Overview cards={cards} byModel={byModel} byUserModel={byUserModel} profileById={profileById} rate={usdToCnyRate} usage={usage} chip={chip} /> : null}
       {tab === "whitelist" ? <WhitelistPanel whitelist={whitelist} emailDraft={emailDraft} setEmailDraft={setEmailDraft} run={run} busy={busy} chip={chip} /> : null}
       {tab === "users" ? <UsersPanel profiles={profiles} byUser={byUser} budgetByUser={budgetByUser} budgetDrafts={budgetDrafts} setBudgetDrafts={setBudgetDrafts} monthStart={monthStart} rate={usdToCnyRate} run={run} busy={busy} meId={meId} isSuperadmin={isSuperadmin} /> : null}
     </main>
   </PageShell>;
+}
+
+function FeeImportSummary({ value, rate }: { value: FeeImport; rate: number }) {
+  const directUsd = numeric(value.ledger_matched_cost_usd);
+  const creatorUsd = numeric(value.creator_recovered_cost_usd);
+  const projectUsd = numeric(value.project_recovered_cost_usd);
+  const assignedUsd = directUsd + creatorUsd + projectUsd;
+  const unallocatedUsd = numeric(value.unallocated_cost_usd);
+  const ambiguousUsd = numeric(value.ambiguous_cost_usd);
+  const unallocatedBreakdown = feeBreakdown(value.breakdown, "unallocatedByModel");
+  const ambiguousBreakdown = feeBreakdown(value.breakdown, "ambiguousByModel");
+  return <section style={{ ...panelStyle, marginBottom: 16, borderColor: unallocatedUsd || ambiguousUsd ? "#a77d42" : "var(--stroke)" }}>
+    <div className="fg-mono" style={sectionTitleStyle}>本月 WeToken 实际账单对账</div>
+    <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 9 }}>
+      <div><small style={cardLabelStyle}>账单总消费</small><strong className="fg-mono" style={{ display: "block", marginTop: 4 }}>{money(numeric(value.imported_cost_usd), rate)}</strong><small style={{ color: "var(--text-3)" }}>{numeric(value.imported_count)} 笔</small></div>
+      <div><small style={cardLabelStyle}>已归属用户</small><strong className="fg-mono" style={{ display: "block", marginTop: 4, color: "var(--accent)" }}>{money(assignedUsd, rate)}</strong><small style={{ color: "var(--text-3)" }}>直接 {numeric(value.ledger_matched_count)} · 补回 {numeric(value.creator_recovered_count) + numeric(value.project_recovered_count)}</small></div>
+      <div><small style={cardLabelStyle}>无本地归属</small><strong className="fg-mono" style={{ display: "block", marginTop: 4, color: unallocatedUsd ? "#e6b85c" : "var(--text)" }}>{money(unallocatedUsd, rate)}</strong><small style={{ color: "var(--text-3)" }}>{numeric(value.unallocated_count)} 笔，不计入任一用户</small></div>
+      <div><small style={cardLabelStyle}>任务 ID 冲突</small><strong className="fg-mono" style={{ display: "block", marginTop: 4, color: ambiguousUsd ? "#ff9a8a" : "var(--text)" }}>{money(ambiguousUsd, rate)}</strong><small style={{ color: "var(--text-3)" }}>{numeric(value.ambiguous_count)} 笔，需管理员处理</small></div>
+    </div>
+    {unallocatedBreakdown.length ? <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--stroke)", color: "var(--text-2)", fontSize: 12 }}>无本地归属按模型：{unallocatedBreakdown.map((row) => `${row.model} ${row.count} 笔 ${money(row.costUsd, rate)}`).join("；")}</div> : null}
+    {ambiguousBreakdown.length ? <div style={{ marginTop: 8, color: "#ff9a8a", fontSize: 12 }}>任务 ID 冲突按模型：{ambiguousBreakdown.map((row) => `${row.model} ${row.count} 笔 ${money(row.costUsd, rate)}`).join("；")}</div> : null}
+    <div style={{ marginTop: 9, color: "var(--text-3)", fontSize: 11 }}>最后导入：{new Date(value.created_at).toLocaleString("zh-CN")}。账单总额 = 已归属用户 + 无本地归属 + 任务 ID 冲突。</div>
+  </section>;
 }
 
 function Overview({ cards, byModel, byUserModel, profileById, rate, usage, chip }: { cards: string[][]; byModel: Record<string, UsageSummary>; byUserModel: UserModelGroup[]; profileById: Map<string, Profile>; rate: number; usage: Usage[]; chip: (label: string, color?: string) => JSX.Element }) {
