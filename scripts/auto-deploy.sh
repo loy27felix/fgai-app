@@ -293,14 +293,14 @@ fetch_main() {
   local attempt
   local fetch_output
 
-  for attempt in {1..3}; do
+  for attempt in {1..10}; do
     # GitHub access can briefly fail during TLS negotiation on the LAN host.
     # 局域网主机访问 GitHub 时可能短暂发生 TLS 握手失败，因此在本轮内重试。
     if fetch_output="$(git -C "$PROJECT_ROOT" fetch --prune "$REMOTE" "$BRANCH" 2>&1)"; then
       return 0
     fi
-    if ((attempt < 3)); then
-      log "Auto deploy: fetch attempt $attempt/3 failed: $fetch_output; retrying"
+    if ((attempt < 10)); then
+      log "Auto deploy: fetch attempt $attempt/10 failed: $fetch_output; retrying"
       sleep 5
     else
       log "Auto deploy: failed to fetch $REMOTE/$BRANCH: $fetch_output"
