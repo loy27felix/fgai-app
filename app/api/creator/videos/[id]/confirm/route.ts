@@ -11,6 +11,7 @@ import {
   isProviderReachableAssetSourceUrl,
   isWetokenAssetUrl,
   prepareWetokenAssetReferences,
+  describeWetokenAssetError,
   WetokenAssetError,
   type WetokenCreatedAsset,
 } from '@/lib/ai/wetoken-assets';
@@ -117,7 +118,7 @@ function providerFailureStatus(error: unknown): 'failed' | 'awaiting_reconciliat
 
 function providerFailureMessage(error: unknown) {
   if (error instanceof WetokenVideoTransportError) return ERRORS.SUBMIT_STATUS_UNKNOWN;
-  if (error instanceof WetokenAssetError) return ERRORS.REFERENCES_UPLOAD_FAILED;
+  if (error instanceof WetokenAssetError) return describeWetokenAssetError(error).message;
   return safeErrorMessage(error, ERRORS.SUBMIT_FAILED);
 }
 
@@ -303,6 +304,14 @@ function publicError(error: unknown) {
   if (message === ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE) return { message, code: 'REFERENCES_TEMPORARILY_UNAVAILABLE', status: 503 };
   if (message === ERRORS.INVALID_DRAFT) return { message, code: 'INVALID_DRAFT', status: 409 };
   if (message === ERRORS.USAGE_RECORD_FAILED) return { message, code: 'USAGE_RECORD_FAILED', status: 409 };
+  if (error instanceof WetokenAssetError) {
+    const failure = describeWetokenAssetError(error);
+    return {
+      message: failure.message,
+      code: failure.code,
+      status: error.retryable ? 503 : 400,
+    };
+  }
   if (error instanceof WetokenVideoError) {
     const rejected = !error.retryable;
     return {
@@ -647,6 +656,10 @@ export async function POST(req: Request, { params }: RouteContext) {
         model: claimed.model,
       });
     } catch (error) {
+      const assetFailure = error instanceof WetokenAssetError ? describeWetokenAssetError(error) : null;
+      const errorMessage = assetFailure?.message || ERRORS.REFERENCES_UPLOAD_FAILED;
+      const errorCode = assetFailure?.code || 'REFERENCES_UPLOAD_FAILED';
+      const errorStatus = error instanceof WetokenAssetError && error.retryable ? 503 : error instanceof WetokenAssetError ? 400 : 502;
       await cleanupWetokenAssets(createdAssets, { traceId, taskId: claimed.id });
       logServerFailure('creator_video', error, {
         feature: 'creator_video',
@@ -662,18 +675,19 @@ export async function POST(req: Request, { params }: RouteContext) {
         status: 'draft',
         confirmed_at: null,
         submission_started_at: null,
-        error: ERRORS.REFERENCES_UPLOAD_FAILED,
+        error: errorMessage,
       }).eq('id', claimed.id).eq('status', 'submitting');
       await recordVideoTaskEvent(claimed.id, 'provider_asset_upload_failed', 'draft', {
         provider: 'wetoken',
         referenceCount: references.length,
+        errorCode,
       }, {
         traceId,
         actorId: context.user.id,
         workspaceId: context.workspace.id,
         error,
       });
-      return response(ERRORS.REFERENCES_UPLOAD_FAILED, 'REFERENCES_UPLOAD_FAILED', 502);
+      return response(errorMessage, errorCode, errorStatus);
     }
 
     try {

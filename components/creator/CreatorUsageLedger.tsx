@@ -103,7 +103,7 @@ function costStateLabel(record: UsageRecord) {
   if (record.status === 'failed') return '失败不计费';
   if (record.status !== 'succeeded') return '等待结果';
   if (record.reported_cost_usd !== null) return '实际账单';
-  if (record.estimated_cost_usd !== null) return '合规暂估';
+  if (record.estimated_cost_usd !== null) return '预计消费';
   return '待对账';
 }
 
@@ -168,8 +168,7 @@ export default function CreatorUsageLedger() {
   const usdToCnyRate = data.fx?.rate || 6.77;
   const summaryLabel = useMemo(() => {
     if (!data.totals.calls) return '暂无生成记录';
-    const priced = data.totals.confirmedCostCny + data.totals.estimatedCostCny;
-    return `本月成功 ${data.totals.successfulCalls} · 待对账 ${data.totals.unpricedCalls} · ¥${priced.toFixed(2)}`;
+    return `本月成功 ${data.totals.successfulCalls} · 实际 ¥${data.totals.confirmedCostCny.toFixed(2)} · 预计 ¥${data.totals.estimatedCostCny.toFixed(2)} · 待对账 ${data.totals.unpricedCalls}`;
   }, [data.totals.calls, data.totals.confirmedCostCny, data.totals.estimatedCostCny, data.totals.successfulCalls, data.totals.unpricedCalls]);
   return (
     <>
@@ -188,14 +187,14 @@ export default function CreatorUsageLedger() {
         <div role="presentation" onMouseDown={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(3,7,14,.62)', backdropFilter: 'blur(8px)' }}>
           <section role="dialog" aria-modal="true" aria-labelledby="fg-usage-title" onMouseDown={(event) => event.stopPropagation()} style={{ width: 'min(720px, 100%)', maxHeight: 'min(760px, 90vh)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--stroke-2, rgba(120,130,150,.35))', borderRadius: 18, background: 'var(--panel-solid, #fff)', color: 'var(--text, #111)', boxShadow: '0 30px 100px rgba(0,0,0,.35)' }}>
             <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '16px 18px', borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
-              <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>我的生成记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>仅显示当前账号 {data.monthStart?.slice(0, 7) || '本月'} 的记录。费用统一展示为人民币；实际账单返回后会自动覆盖本次预估。</div></div>
+              <div><div id="fg-usage-title" style={{ fontSize: 15, fontWeight: 700 }}>我的生成记录</div><div style={{ marginTop: 4, color: 'var(--text-3, #777)', fontSize: 11 }}>仅显示当前账号 {data.monthStart?.slice(0, 7) || '本月'} 的记录。生成前后的预计费用会立即显示；管理员导入 WeToken 账单后会自动替换为实际费用。</div></div>
               <div style={{ display: 'flex', gap: 7 }}><button type="button" onClick={() => void refresh()} disabled={loading} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>{loading ? '刷新中…' : '刷新'}</button><button type="button" onClick={() => setOpen(false)} style={{ height: 30, padding: '0 10px', border: '1px solid var(--stroke, rgba(120,130,150,.25))', borderRadius: 8, background: 'transparent', color: 'var(--text-2, #555)', cursor: 'pointer', fontSize: 11 }}>关闭</button></div>
             </header>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 8, padding: 14, borderBottom: '1px solid var(--stroke, rgba(120,130,150,.2))' }}>
               <Summary label="成功" value={String(data.totals.successfulCalls)} />
               <Summary label="失败" value={String(data.totals.failedCalls)} />
               <Summary label="实际已确认" value={'¥' + data.totals.confirmedCostCny.toFixed(2)} />
-              <Summary label="合规暂估" value={'¥' + data.totals.estimatedCostCny.toFixed(2)} />
+              <Summary label="预计消费" value={'¥' + data.totals.estimatedCostCny.toFixed(2)} />
               <Summary label="待对账" value={String(data.totals.unpricedCalls)} />
               <Summary label="成功图片 / 视频" value={data.totals.successfulImages + " / " + data.totals.successfulVideoSeconds + "s"} />
               <Summary label="月额度" value={data.budget?.limitUsd === null || data.budget?.limitUsd === undefined ? "不限额" : "¥" + (data.budget.limitUsd * usdToCnyRate).toFixed(2)} />
@@ -210,7 +209,7 @@ export default function CreatorUsageLedger() {
                 <div style={{ textAlign: 'right' }}><div style={{ color: statusColor(record.status), fontSize: 11 }}>{statusLabel(record.status)}</div><div style={{ marginTop: 3, color: record.status === 'failed' ? '#ff9b85' : 'var(--text-2, #555)', fontSize: 10 }}>{costLabel(record, usdToCnyRate)}</div><div style={{ marginTop: 2, color: 'var(--text-3, #777)', fontSize: 9.5 }}>{costStateLabel(record)}</div></div>
               </div>)}
             </div>
-             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>本月显示 {data.records.length} / {data.count} 条。实际账单优先；没有可核验价格的任务不会计入费用。</footer>
+             <footer style={{ padding: '10px 16px', borderTop: '1px solid var(--stroke, rgba(120,130,150,.2))', color: 'var(--text-3, #777)', fontSize: 10 }}>本月显示 {data.records.length} / {data.count} 条。每条任务均标明“实际费用”或“预计消费”；没有可核验价格的任务不会计入费用。</footer>
           </section>
         </div>
       ) : null}

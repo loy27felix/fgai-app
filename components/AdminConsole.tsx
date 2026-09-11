@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { addWhitelist, deleteWhitelist, setMonthlyBudget, setUserRole, setWhitelistStatus } from "@/app/admin/actions";
@@ -54,11 +54,9 @@ function statusLabel(status: string) {
 
 function rowCost(row: Usage, rate: number) {
   if (row.status === "failed") return "¥0.00";
-  if (row.status !== "succeeded") return "—";
-  const usd = row.reported_cost_usd === null || row.reported_cost_usd === undefined
-    ? numeric(row.estimated_cost_usd)
-    : numeric(row.reported_cost_usd);
-  return usd > 0 ? money(usd, rate) : "—";
+  const reported = numeric(row.reported_cost_usd);
+  if (reported > 0) return money(reported, rate);
+  return numeric(row.estimated_cost_usd) > 0 ? "待导入实际账单" : "待对账";
 }
 
 export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, usage, usdToCnyRate, budgets, monthStart, email }: {
@@ -77,8 +75,10 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   const [emailDraft, setEmailDraft] = useState("");
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [notice, setNotice] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(monthStart.slice(0, 7));
+  const feeLogInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setSelectedMonth(monthStart.slice(0, 7)), [monthStart]);
   useEffect(() => {
@@ -143,6 +143,26 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     router.push(`/admin?month=${value}`);
   }
 
+  async function importWetokenFeeLog(file: File) {
+    setReconciling(true);
+    setNotice("");
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/admin/usage/wetoken-fee-log", { method: "POST", body: form });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "导入实际账单失败");
+      const importedCost = money(numeric(payload.importedCostUsd), usdToCnyRate);
+      const matchedCost = money(numeric(payload.matchedCostUsd), usdToCnyRate);
+      setNotice(`账单消费 ${importedCost}；精确匹配并结算 ${payload.settled} 笔（${matchedCost}）${payload.unmatched ? `，${payload.unmatched} 笔未匹配到本地任务` : ""}${payload.ambiguous ? `，${payload.ambiguous} 笔任务号重复，已跳过` : ""}。`);
+      router.refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "导入实际账单失败");
+    } finally {
+      setReconciling(false);
+    }
+  }
+
   const tabButton = (key: typeof tab, label: string) => <button key={key} onClick={() => setTab(key)} className="fg-mono" style={{ padding: "8px 15px", borderRadius: 999, cursor: "pointer", fontSize: 12, letterSpacing: .5, color: tab === key ? "var(--accent-ink)" : "var(--text-2)", background: tab === key ? "var(--accent)" : "var(--panel)", border: `1px solid ${tab === key ? "transparent" : "var(--stroke)"}` }}>{label}</button>;
   const chip = (label: string, color?: string) => <span style={{ padding: "2px 8px", borderRadius: 7, border: "1px solid var(--stroke)", background: "var(--bg-2)", color: color || "var(--text-2)", fontSize: 11 }}>{label}</span>;
   const cards = [
@@ -159,8 +179,8 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   return <PageShell title="管理后台" email={email}>
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 30px 70px" }}>
       <header style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
-        <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>团队统计只对管理员开放；成员在画布内仅能查看自己的本月记录。实际账单优先，只有参数完整的 Seedance 任务按新公式暂估；其他任务等待对账。</p></div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><Link href="/admin/logs" style={reportLinkStyle}>日志检索</Link><Link href="/admin/reports" style={reportLinkStyle}>服务监控报表</Link><label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询月份<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={inputStyle} /></label></div>
+        <div><h1 style={{ margin: 0, fontSize: 26, letterSpacing: "-.5px" }}>管理后台</h1><p style={{ margin: "6px 0 0", color: "var(--text-3)", fontSize: 12.5 }}>团队统计只对管理员开放；成员在画布内仅能查看自己的本月记录。实际费用仅来自已匹配的 WeToken 费用流水；暂估和待对账任务不会混入实付。</p></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><input ref={feeLogInputRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void importWetokenFeeLog(file); }} /><button type="button" disabled={reconciling} onClick={() => feeLogInputRef.current?.click()} style={{ ...reportLinkStyle, cursor: reconciling ? "wait" : "pointer", opacity: reconciling ? .65 : 1 }}>{reconciling ? "正在导入实际账单…" : "导入 WeToken 实际账单 CSV"}</button><Link href="/admin/logs" style={reportLinkStyle}>日志检索</Link><Link href="/admin/reports" style={reportLinkStyle}>服务监控报表</Link><label className="fg-mono" style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--text-3)", fontSize: 11.5 }}>查询月份<input type="month" value={selectedMonth} onChange={(event) => selectMonth(event.target.value)} style={inputStyle} /></label></div>
       </header>
       <p style={{ margin: "0 0 16px", color: "var(--text-3)", fontSize: 12.5 }}>当前展示 {monthStart.slice(0, 7)}（上海账期）；所有费用按当前结算汇率统一展示为人民币。</p>
       <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>{tabButton("overview", "概览")}{tabButton("whitelist", `白名单${pendingWhitelist ? ` · ${pendingWhitelist} 待审` : ""}`)}{tabButton("users", `用户 · ${profiles.length}`)}</nav>
@@ -176,14 +196,14 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
 function Overview({ cards, byModel, byUserModel, profileById, rate, usage, chip }: { cards: string[][]; byModel: Record<string, UsageSummary>; byUserModel: UserModelGroup[]; profileById: Map<string, Profile>; rate: number; usage: Usage[]; chip: (label: string, color?: string) => JSX.Element }) {
   return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(185px,1fr))", gap: 14 }}>
     {cards.map(([label, value]) => <section key={label} style={cardStyle}><div className="fg-mono" style={cardLabelStyle}>{label}</div><div className="fg-mono" style={{ marginTop: 7, fontSize: 18, fontWeight: 600 }}>{value}</div></section>)}
-    <section style={{ ...panelStyle, gridColumn: "1 / -1" }}><div className="fg-mono" style={sectionTitleStyle}>按模型</div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))", gap: 9 }}>{Object.keys(byModel).length === 0 ? <p style={{ color: "var(--text-3)", margin: 0 }}>本月暂无调用</p> : Object.entries(byModel).map(([model, group]) => <div key={model} style={{ padding: "12px", borderRadius: 11, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}><strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>{model}</strong><div className="fg-mono" style={{ marginTop: 6, color: "var(--text-3)", fontSize: 11 }}>{group.successfulCalls} 成功 · {group.failedCalls} 失败 · {group.successfulImages} 图 · {group.successfulVideoSeconds} 秒</div><div className="fg-mono" style={{ marginTop: 6, fontSize: 12 }}>{money(group.successfulCostUsd, rate)}</div></div>)}</div></section>
+    <section style={{ ...panelStyle, gridColumn: "1 / -1" }}><div className="fg-mono" style={sectionTitleStyle}>按模型</div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))", gap: 9 }}>{Object.keys(byModel).length === 0 ? <p style={{ color: "var(--text-3)", margin: 0 }}>本月暂无调用</p> : Object.entries(byModel).map(([model, group]) => <div key={model} style={{ padding: "12px", borderRadius: 11, background: "var(--bg-2)", border: "1px solid var(--stroke)" }}><strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>{model}</strong><div className="fg-mono" style={{ marginTop: 6, color: "var(--text-3)", fontSize: 11 }}>{group.successfulCalls} 成功 · {group.failedCalls} 失败 · {group.successfulImages} 图 · {group.successfulVideoSeconds} 秒</div><div className="fg-mono" style={{ marginTop: 6, fontSize: 12 }}>实际 {money(group.confirmedCostUsd, rate)}</div></div>)}</div></section>
     <UsageGroups groups={byUserModel} profileById={profileById} rate={rate} />
     <section style={{ ...panelStyle, gridColumn: "1 / -1", overflow: "hidden", padding: 0 }}><div className="fg-mono" style={{ ...sectionTitleStyle, padding: "14px 18px", borderBottom: "1px solid var(--stroke)" }}>本月生成记录</div><div style={{ overflowX: "auto" }}><div className="fg-mono" style={tableHeaderStyle}><div>状态</div><div>模型 / 任务</div><div>用量</div><div>费用</div><div>时间</div></div>{usage.length === 0 ? <div style={{ padding: 16, color: "var(--text-3)" }}>本月暂无生成记录</div> : usage.slice(0, 100).map((row) => <div key={row.id} style={tableRowStyle}><div>{chip(statusLabel(row.status), row.status === "failed" ? "#ff9a8a" : row.status === "succeeded" ? "var(--accent)" : "#e6b85c")}</div><div style={{ minWidth: 0 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.model || "未知模型"}</div><div className="fg-mono" style={{ color: "var(--text-3)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 3 }}>{row.provider_request_id || row.request_id || row.id}</div></div><div className="fg-mono" style={{ color: "var(--text-2)", fontSize: 11 }}>{unitLabel(row)}</div><div className="fg-mono" style={{ color: row.status === "failed" ? "#ff9a8a" : "var(--text)", fontSize: 11 }}>{rowCost(row, rate)}</div><div className="fg-mono" style={{ color: "var(--text-3)", fontSize: 10.5 }}>{new Date(row.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</div></div>)}</div></section>
   </div>;
 }
 
 function UsageGroups({ groups, profileById, rate }: { groups: UserModelGroup[]; profileById: Map<string, Profile>; rate: number }) {
-  return <section style={{ ...panelStyle, gridColumn: "1 / -1", overflow: "hidden", padding: 0 }}><div className="fg-mono" style={{ ...sectionTitleStyle, padding: "14px 18px", borderBottom: "1px solid var(--stroke)" }}>按用户 × 模型</div><div style={{ overflowX: "auto" }}><div className="fg-mono" style={{ ...tableHeaderStyle, minWidth: 880, gridTemplateColumns: "1.7fr 1.6fr .8fr 1fr 1fr" }}><div>用户</div><div>模型</div><div>成功 / 失败</div><div>图片 / 视频</div><div>费用</div></div>{groups.length === 0 ? <div style={{ padding: 16, color: "var(--text-3)" }}>本月暂无用量</div> : groups.map(({ userId, model, group }) => <div key={`${userId}:${model}`} style={{ ...tableRowStyle, minWidth: 880, gridTemplateColumns: "1.7fr 1.6fr .8fr 1fr 1fr" }}><div>{profileById.get(userId)?.email || userId}</div><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{model}</div><div>{group.successfulCalls} / {group.failedCalls}</div><div>{group.successfulImages} 图 · {group.successfulVideoSeconds} 秒</div><div className="fg-mono">{money(group.successfulCostUsd, rate)}</div></div>)}</div></section>;
+  return <section style={{ ...panelStyle, gridColumn: "1 / -1", overflow: "hidden", padding: 0 }}><div className="fg-mono" style={{ ...sectionTitleStyle, padding: "14px 18px", borderBottom: "1px solid var(--stroke)" }}>按用户 × 模型</div><div style={{ overflowX: "auto" }}><div className="fg-mono" style={{ ...tableHeaderStyle, minWidth: 880, gridTemplateColumns: "1.7fr 1.6fr .8fr 1fr 1fr" }}><div>用户</div><div>模型</div><div>成功 / 失败</div><div>图片 / 视频</div><div>实际费用</div></div>{groups.length === 0 ? <div style={{ padding: 16, color: "var(--text-3)" }}>本月暂无用量</div> : groups.map(({ userId, model, group }) => <div key={`${userId}:${model}`} style={{ ...tableRowStyle, minWidth: 880, gridTemplateColumns: "1.7fr 1.6fr .8fr 1fr 1fr" }}><div>{profileById.get(userId)?.email || userId}</div><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{model}</div><div>{group.successfulCalls} / {group.failedCalls}</div><div>{group.successfulImages} 图 · {group.successfulVideoSeconds} 秒</div><div className="fg-mono">{money(group.confirmedCostUsd, rate)}</div></div>)}</div></section>;
 }
 
 function WhitelistPanel({ whitelist, emailDraft, setEmailDraft, run, busy, chip }: { whitelist: Whitelist[]; emailDraft: string; setEmailDraft: (value: string) => void; run: (action: () => Promise<unknown>, success?: string) => Promise<void>; busy: boolean; chip: (label: string, color?: string) => JSX.Element }) {
@@ -191,7 +211,7 @@ function WhitelistPanel({ whitelist, emailDraft, setEmailDraft, run, busy, chip 
 }
 
 function UsersPanel({ profiles, byUser, budgetByUser, budgetDrafts, setBudgetDrafts, monthStart, rate, run, busy, meId, isSuperadmin }: { profiles: Profile[]; byUser: Record<string, UsageSummary>; budgetByUser: Map<string, Budget>; budgetDrafts: Record<string, string>; setBudgetDrafts: (value: Record<string, string> | ((current: Record<string, string>) => Record<string, string>)) => void; monthStart: string; rate: number; run: (action: () => Promise<unknown>, success?: string) => Promise<void>; busy: boolean; meId: string; isSuperadmin: boolean }) {
-  return <div><p style={{ margin: "0 0 12px", color: "var(--text-3)", fontSize: 12.5 }}>月额度使用人民币设置。成功任务会计入已用；提交生成时系统会先临时锁定额度，失败后自动释放。</p><section style={{ ...panelStyle, overflow: "hidden", padding: 0 }}><div style={{ overflowX: "auto" }}><div className="fg-mono" style={{ ...tableHeaderStyle, minWidth: 1060, gridTemplateColumns: "2fr 1fr 1.25fr 1.8fr 1fr" }}><div>用户</div><div>成功 / 失败</div><div>本月费用</div><div>月额度（人民币）</div><div>平台角色</div></div>{profiles.map((profile) => { const group = byUser[profile.id] || emptyUsageSummary(); const budget = budgetByUser.get(profile.id); const limitCny = budget ? numeric(budget.limit_usd) * rate : null; return <div key={profile.id} style={{ ...tableRowStyle, minWidth: 1060, gridTemplateColumns: "2fr 1fr 1.25fr 1.8fr 1fr", alignItems: "center" }}><div>{profile.email}{profile.id === meId ? <small style={{ marginLeft: 7, color: "var(--accent)" }}>你</small> : null}</div><div>{group.successfulCalls} / {group.failedCalls}</div><div className="fg-mono">{money(group.successfulCostUsd, rate)}</div><div style={{ display: "flex", gap: 7, alignItems: "center" }}><input value={budgetDrafts[profile.id] ?? ""} onChange={(event) => setBudgetDrafts((current) => ({ ...current, [profile.id]: event.target.value }))} inputMode="decimal" placeholder="不限额" disabled={busy} style={{ ...inputStyle, width: 100 }} /><button disabled={busy} onClick={() => run(() => setMonthlyBudget(profile.id, monthStart, budgetDrafts[profile.id] ?? ""))} style={{ height: 34, padding: "0 10px", borderRadius: 9, border: "none", color: "var(--accent-ink)", background: "var(--accent)", cursor: "pointer", opacity: busy ? .5 : 1 }}>保存</button><span style={{ fontSize: 10.5, color: "var(--text-3)" }}>{limitCny === null ? "不限额" : `上限 ¥${limitCny.toFixed(2)}`}</span></div><select defaultValue={profile.platform_role} disabled={busy || profile.id === meId || (!isSuperadmin && profile.platform_role === "superadmin")} onChange={(event) => run(() => setUserRole(profile.id, event.target.value as "user" | "admin" | "superadmin"))} style={{ borderRadius: 8, border: "1px solid var(--stroke)", background: "var(--panel-solid)", color: "var(--text)", padding: "6px 8px" }}><option value="user">user</option><option value="admin">admin</option>{isSuperadmin ? <option value="superadmin">superadmin</option> : null}</select></div>; })}</div></section></div>;
+  return <div><p style={{ margin: "0 0 12px", color: "var(--text-3)", fontSize: 12.5 }}>月额度使用人民币设置。实际费用只统计已匹配的 WeToken 费用流水；提交生成时系统会先临时锁定额度，失败后自动释放。</p><section style={{ ...panelStyle, overflow: "hidden", padding: 0 }}><div style={{ overflowX: "auto" }}><div className="fg-mono" style={{ ...tableHeaderStyle, minWidth: 1060, gridTemplateColumns: "2fr 1fr 1.25fr 1.8fr 1fr" }}><div>用户</div><div>成功 / 失败</div><div>实际费用</div><div>月额度（人民币）</div><div>平台角色</div></div>{profiles.map((profile) => { const group = byUser[profile.id] || emptyUsageSummary(); const budget = budgetByUser.get(profile.id); const limitCny = budget ? numeric(budget.limit_usd) * rate : null; return <div key={profile.id} style={{ ...tableRowStyle, minWidth: 1060, gridTemplateColumns: "2fr 1fr 1.25fr 1.8fr 1fr", alignItems: "center" }}><div>{profile.email}{profile.id === meId ? <small style={{ marginLeft: 7, color: "var(--accent)" }}>你</small> : null}</div><div>{group.successfulCalls} / {group.failedCalls}</div><div className="fg-mono">{money(group.confirmedCostUsd, rate)}</div><div style={{ display: "flex", gap: 7, alignItems: "center" }}><input value={budgetDrafts[profile.id] ?? ""} onChange={(event) => setBudgetDrafts((current) => ({ ...current, [profile.id]: event.target.value }))} inputMode="decimal" placeholder="不限额" disabled={busy} style={{ ...inputStyle, width: 100 }} /><button disabled={busy} onClick={() => run(() => setMonthlyBudget(profile.id, monthStart, budgetDrafts[profile.id] ?? ""))} style={{ height: 34, padding: "0 10px", borderRadius: 9, border: "none", color: "var(--accent-ink)", background: "var(--accent)", cursor: "pointer", opacity: busy ? .5 : 1 }}>保存</button><span style={{ fontSize: 10.5, color: "var(--text-3)" }}>{limitCny === null ? "不限额" : `上限 ¥${limitCny.toFixed(2)}`}</span></div><select defaultValue={profile.platform_role} disabled={busy || profile.id === meId || (!isSuperadmin && profile.platform_role === "superadmin")} onChange={(event) => run(() => setUserRole(profile.id, event.target.value as "user" | "admin" | "superadmin"))} style={{ borderRadius: 8, border: "1px solid var(--stroke)", background: "var(--panel-solid)", color: "var(--text)", padding: "6px 8px" }}><option value="user">user</option><option value="admin">admin</option>{isSuperadmin ? <option value="superadmin">superadmin</option> : null}</select></div>; })}</div></section></div>;
 }
 
 const cardStyle = { padding: "16px 18px", borderRadius: 16, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset)" } as const;

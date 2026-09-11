@@ -16,6 +16,8 @@ export interface ChatOptions {
 
 export interface ChatResult {
   content: string;
+  /** Provider request/task identifier used for exact external-bill matching. */
+  providerRequestId?: string;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;

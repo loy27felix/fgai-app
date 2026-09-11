@@ -12,6 +12,7 @@ type TextUsage = {
 
 export type TextLedgerEntry = {
   request_id: string;
+  provider_request_id?: string;
   user_id: string;
   workspace_id: string | null;
   project_id: string | null;
@@ -109,6 +110,7 @@ function mediaCostFields(input: MediaLedgerPricing) {
 }
 export function buildTextLedgerEntry(input: {
   requestId?: string;
+  providerRequestId?: string;
   userId: string;
   workspaceId?: string | null;
   projectId?: string | null;
@@ -129,6 +131,7 @@ export function buildTextLedgerEntry(input: {
   });
   return {
     request_id: input.requestId || randomId(),
+    ...(input.providerRequestId ? { provider_request_id: input.providerRequestId } : {}),
     user_id: input.userId,
     workspace_id: input.workspaceId ?? null,
     project_id: input.projectId ?? null,

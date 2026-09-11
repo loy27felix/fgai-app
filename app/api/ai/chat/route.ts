@@ -114,6 +114,7 @@ export async function POST(req: Request) {
       provider: spec.provider,
       model: spec.id,
       usage: result.usage,
+      providerRequestId: result.providerRequestId,
       durationMs: Date.now() - startedAt,
     }));
 

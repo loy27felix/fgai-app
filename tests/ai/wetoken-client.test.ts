@@ -23,6 +23,7 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
       body: JSON.parse(String(init?.body)),
     };
     return new Response(JSON.stringify({
+      id: '20260911023732712120112W',
       choices: [{ message: { content: 'world' } }],
       usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -48,6 +49,7 @@ test('Wetoken client sends an OpenAI-compatible request and normalizes the resul
   });
   assert.deepEqual(result, {
     content: 'world',
+    providerRequestId: '20260911023732712120112W',
     usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
   });
 });

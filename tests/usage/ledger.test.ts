@@ -39,6 +39,18 @@ test('maps text model usage into an unknown-cost ledger entry', () => {
   });
 });
 
+test('persists the Wetoken request ID for exact future fee-log reconciliation', () => {
+  const row = buildTextLedgerEntry({
+    requestId: 'local-request',
+    providerRequestId: '20260911023732712120112W',
+    userId: 'user-1',
+    provider: 'wetoken',
+    model: 'gpt-5.6-luna',
+    usage: undefined,
+  });
+  assert.equal(row.provider_request_id, '20260911023732712120112W');
+});
+
 test('best-effort ledger persistence never hides a successful model response', async () => {
   const saved = await recordUsageBestEffort(
     buildTextLedgerEntry({

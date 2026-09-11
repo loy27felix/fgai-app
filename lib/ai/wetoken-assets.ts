@@ -61,6 +61,78 @@ export class WetokenAssetError extends Error {
   }
 }
 
+export type WetokenAssetFailure = {
+  /** A stable, user-safe reason for the canvas and API clients. */
+  code:
+    | 'REFERENCE_DIMENSION_INVALID'
+    | 'REFERENCE_DURATION_INVALID'
+    | 'REFERENCE_FORMAT_UNSUPPORTED'
+    | 'REFERENCE_FILE_TOO_LARGE'
+    | 'REFERENCE_SOURCE_UNAVAILABLE'
+    | 'REFERENCE_PROVIDER_UNAVAILABLE'
+    | 'REFERENCE_PROVIDER_REJECTED';
+  message: string;
+};
+
+function safeAssetDetail(value: string) {
+  return value
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
+    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer [已隐藏]')
+    .replace(/([?&](?:token|key|signature|sig)=)[^&\s]+/gi, '$1***')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+}
+
+/**
+ * Provider asset errors occur before a video task exists.  Do not flatten a
+ * definitive 400 into “upload failed”: users need to know whether to resize,
+ * trim, transcode, or simply retry their exact reference material.
+ */
+export function describeWetokenAssetError(error: WetokenAssetError): WetokenAssetFailure {
+  const detail = safeAssetDetail(error.message.replace(/^Wetoken asset request failed \(\d+\):\s*/i, ''));
+  if (/(?:width|height)\s+must\s+be\s+between\s*300\s*px\s+and\s*6000\s*px/i.test(detail)) {
+    return {
+      code: 'REFERENCE_DIMENSION_INVALID',
+      message: '参考图或参考视频的宽和高均需在 300–6000px 之间。请裁剪、缩放或更换该素材后重试。',
+    };
+  }
+  if (/duration\s+must\s+be\s+between\s*1\.8\s*s\s+and\s*30\.2\s*s/i.test(detail)) {
+    return {
+      code: 'REFERENCE_DURATION_INVALID',
+      message: '参考视频时长需在 1.8–30.2 秒之间。请裁剪后重新上传该视频。',
+    };
+  }
+  if (/(?:unsupported|invalid).*(?:codec|format|mime|file\s*type)|(?:codec|format|mime|file\s*type).*not\s+supported/i.test(detail)) {
+    return {
+      code: 'REFERENCE_FORMAT_UNSUPPORTED',
+      message: '参考素材的格式或编码不受支持。图片请使用 JPG、PNG 或 WebP；视频请使用 MP4 或 MOV 后重试。',
+    };
+  }
+  if (/(?:file\s*size|size).*(?:too\s*large|exceed|limit)|too\s*large/i.test(detail)) {
+    return {
+      code: 'REFERENCE_FILE_TOO_LARGE',
+      message: '参考素材文件过大，未能通过 Wetoken 校验。请压缩或裁剪该素材后重试。',
+    };
+  }
+  if (/(?:url|download|fetch|access|permission|forbidden|not\s+found)/i.test(detail)) {
+    return {
+      code: 'REFERENCE_SOURCE_UNAVAILABLE',
+      message: '参考素材地址无法被 Wetoken 读取。请重新上传该素材，确认其可访问后再试。',
+    };
+  }
+  if (error.retryable) {
+    return {
+      code: 'REFERENCE_PROVIDER_UNAVAILABLE',
+      message: 'Wetoken 素材服务暂时不可用，参考素材尚未提交。请稍后重试。',
+    };
+  }
+  return {
+    code: 'REFERENCE_PROVIDER_REJECTED',
+    message: '参考素材未通过 Wetoken 校验。请检查素材的格式、宽高和时长后重试。',
+  };
+}
+
 /**
  * A transport failure after an asset side effect may have been accepted.
  * 素材副作用可能已经被 provider 接受后才发生传输失败，必须保留资产并等待对账。
