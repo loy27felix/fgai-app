@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.0.7";
+export const CURRENT_RELEASE_VERSION = "1.0.8";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,15 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月11日",
+        items: [
+            { type: "修复", content: "导入 WeToken CSV 的无时区时间统一按上海时间保存和展示，修复历史账单在页面上整体晚 8 小时的问题。" },
+            { type: "调整", content: "“无本地归属”的历史 WeToken 费用统一明确归为公司 / 共享成本，保留参考任务号、金额与归属备注，不会再误分摊给个人用户。" },
+            { type: "修复", content: "后台账单归属操作与界面选择统一限制为每批最多 100 笔；仍可一次查看 300 笔，但不会再出现勾选 300 笔后提交才报错的情况。" },
+        ],
+    },
+    {
+        version: "1.0.7",
         date: "2026年9月11日",
         items: [
             { type: "优化", content: "已按主分支真实功能提交重新整理 1.0.3 历史更新，将画布打组、多参考图连线、模型能力统一、生成通知等用户可见改动归档到对应版本。" },

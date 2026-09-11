@@ -46,6 +46,7 @@ COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/008-video-worker-ro
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/004-company-productions.sql ./docker/initdb/004-company-productions.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/009-wetoken-fee-reconciliation.sql ./docker/initdb/009-wetoken-fee-reconciliation.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/010-wetoken-fee-attribution.sql ./docker/initdb/010-wetoken-fee-attribution.sql
+COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/011-wetoken-fee-timezone-and-company-backfill.sql ./docker/initdb/011-wetoken-fee-timezone-and-company-backfill.sql
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

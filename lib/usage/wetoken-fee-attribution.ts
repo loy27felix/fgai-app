@@ -34,6 +34,39 @@ export type NormalizedWetokenFeeAttributionDraft = {
   note: string;
 };
 
+export const MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS = 100;
+
+export type WetokenFeeSelectionResult = {
+  selection: Set<string>;
+  skippedCount: number;
+  limitReached: boolean;
+};
+
+/**
+ * Keep the interface selection aligned with the server-side batch boundary.
+ * A 101st row is never selected silently and therefore can never make a
+ * seemingly valid batch fail only after the administrator presses Save.
+ */
+export function selectWetokenFeeAttributions(current: Iterable<string>, referenceIds: Iterable<string>): WetokenFeeSelectionResult {
+  const selection = new Set(current);
+  let skippedCount = 0;
+  for (const referenceId of referenceIds) {
+    if (selection.has(referenceId)) continue;
+    if (selection.size >= MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS) {
+      skippedCount += 1;
+      continue;
+    }
+    selection.add(referenceId);
+  }
+  return { selection, skippedCount, limitReached: skippedCount > 0 };
+}
+
+export function toggleWetokenFeeAttributionSelection(current: Iterable<string>, referenceId: string): WetokenFeeSelectionResult {
+  const selection = new Set(current);
+  if (selection.delete(referenceId)) return { selection, skippedCount: 0, limitReached: false };
+  return selectWetokenFeeAttributions(selection, [referenceId]);
+}
+
 function rounded(value: number) {
   return Number(value.toFixed(10));
 }

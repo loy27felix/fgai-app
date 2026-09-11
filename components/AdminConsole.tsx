@@ -7,7 +7,7 @@ import { addWhitelist, assignWetokenFeeAttribution, deleteWhitelist, setMonthlyB
 import PageShell from "@/components/studio/PageShell";
 import { Hov } from "@/components/studio/ui";
 import { addUsageToSummary, emptyUsageSummary, type UsageSummary } from "@/lib/usage/reporting";
-import { summarizeWetokenFeeAttributions, type WetokenFeeAssignmentKind, type WetokenFeeUsageKind } from "@/lib/usage/wetoken-fee-attribution";
+import { MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS, selectWetokenFeeAttributions, summarizeWetokenFeeAttributions, toggleWetokenFeeAttributionSelection, type WetokenFeeAssignmentKind, type WetokenFeeUsageKind } from "@/lib/usage/wetoken-fee-attribution";
 
 type Profile = { id: string; email: string; platform_role: string; created_at: string };
 type Whitelist = { id: string; email: string; status: string; requested_at: string };
@@ -69,6 +69,20 @@ const numeric = (value: number | string | null | undefined) => {
 // Ledger storage remains USD for provider reconciliation, while the product
 // surface is intentionally RMB-only for the team.
 const money = (usd: number, rate: number) => `¥${(usd * rate).toFixed(2)}`;
+
+function shanghaiDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "账单未提供时间";
+  return date.toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 function buildGroup(rows: Usage[]) {
   return rows.reduce<UsageSummary>((summary, row) => addUsageToSummary(summary, row), emptyUsageSummary());
@@ -285,7 +299,7 @@ function FeeImportSummary({ value, exceptions, rate }: { value: FeeImport; excep
       <div><small style={cardLabelStyle}>待归属</small><strong className="fg-mono" style={{ display: "block", marginTop: 4, color: attribution.pendingCostUsd ? "#e6b85c" : "var(--text)" }}>{money(attribution.pendingCostUsd, rate)}</strong><small style={{ color: "var(--text-3)" }}>{attribution.pendingCount} 笔{attribution.pendingConflictCount ? `，其中冲突 ${attribution.pendingConflictCount} 笔` : ""}</small></div>
     </div>
     {unallocatedBreakdown.length ? <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--stroke)", color: "var(--text-2)", fontSize: 12 }}>待归属按模型：{unallocatedBreakdown.map((row) => `${row.model} ${row.count} 笔 ${money(row.costUsd, rate)}`).join("；")}</div> : null}
-    <div style={{ marginTop: 9, color: varianceUsd > .0000001 ? "#ff9a8a" : "var(--text-3)", fontSize: 11 }}>最后导入：{new Date(value.created_at).toLocaleString("zh-CN")}。账单总额 = 用户归属 + 公司 / 共享成本 + 待归属{varianceUsd > .0000001 ? `；当前差额 ${money(varianceUsd, rate)}，请重新导入该月账单。` : "。"}</div>
+    <div style={{ marginTop: 9, color: varianceUsd > .0000001 ? "#ff9a8a" : "var(--text-3)", fontSize: 11 }}>最后导入：{shanghaiDateTime(value.created_at)}。账单总额 = 用户归属 + 公司 / 共享成本 + 待归属{varianceUsd > .0000001 ? `；当前差额 ${money(varianceUsd, rate)}，请重新导入该月账单。` : "。"}</div>
   </section>;
 }
 
@@ -299,6 +313,7 @@ function FeeAttributionPanel({ exceptions, profiles, rate, run, busy }: { except
   const [batchUserId, setBatchUserId] = useState("");
   const [batchUsageKind, setBatchUsageKind] = useState<"" | WetokenFeeUsageKind>("");
   const [batchNote, setBatchNote] = useState("");
+  const [selectionNotice, setSelectionNotice] = useState("");
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return exceptions.filter((row) => {
@@ -316,26 +331,26 @@ function FeeAttributionPanel({ exceptions, profiles, rate, run, busy }: { except
     assignmentKind: feeExceptionAssignmentKind(row),
   }))), [exceptions]);
 
+  useEffect(() => {
+    setSelected(new Set());
+    setSelectionNotice("");
+  }, [filter, query]);
+
   function toggle(referenceId: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(referenceId)) next.delete(referenceId);
-      else next.add(referenceId);
-      return next;
-    });
+    const result = toggleWetokenFeeAttributionSelection(selected, referenceId);
+    setSelected(result.selection);
+    setSelectionNotice(result.limitReached ? `单次最多勾选 ${MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS} 笔；请保存后继续下一批。` : "");
   }
 
   function selectVisible() {
-    setSelected((current) => {
-      const next = new Set(current);
-      for (const row of visible) next.add(row.reference_id);
-      return next;
-    });
+    const result = selectWetokenFeeAttributions(selected, visible.map((row) => row.reference_id));
+    setSelected(result.selection);
+    setSelectionNotice(result.limitReached ? `当前列表超过 ${MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS} 笔，已勾选前 ${MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS} 笔；保存后可继续下一批。` : "");
   }
 
   async function applyBatch() {
     if (!selectedVisible.length) return { error: "请先勾选待归属账单" };
-    if (selectedVisible.length > 100) return { error: "每次最多批量归属 100 笔；请缩小筛选范围后分批处理" };
+    if (selectedVisible.length > MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS) return { error: `每次最多批量归属 ${MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS} 笔；请缩小筛选范围后分批处理` };
     const results = await Promise.all(selectedVisible.map((row) => assignWetokenFeeAttribution(row.reference_id, {
       assignmentKind: batchKind,
       userId: batchUserId,
@@ -368,6 +383,7 @@ function FeeAttributionPanel({ exceptions, profiles, rate, run, busy }: { except
         <input value={batchNote} onChange={(event) => setBatchNote(event.target.value)} disabled={busy} placeholder="归属依据 / 备注（必填）" style={{ ...inputStyle, minWidth: 230, flex: 1 }} />
         <button disabled={busy || !selectedVisible.length} onClick={() => void run(applyBatch, "已批量保存费用归属")} style={{ height: 36, padding: "0 14px", borderRadius: 10, border: "none", cursor: "pointer", color: "var(--accent-ink)", background: "var(--accent)", opacity: busy || !selectedVisible.length ? .5 : 1 }}>批量保存</button>
       </div>
+      {selectionNotice ? <div role="status" style={{ marginTop: 8, color: "#e6b85c", fontSize: 12 }}>{selectionNotice}</div> : null}
     </section>
 
     <section style={{ ...panelStyle, overflow: "hidden", padding: 0 }}>
@@ -375,7 +391,7 @@ function FeeAttributionPanel({ exceptions, profiles, rate, run, busy }: { except
         <strong className="fg-mono" style={sectionTitleStyle}>逐笔归属</strong>
         <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)} style={inputStyle}><option value="pending">仅待归属</option><option value="user">已归属用户</option><option value="company">公司 / 共享</option><option value="all">全部</option></select>
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Reference ID、模型或备注" style={{ ...inputStyle, minWidth: 250, flex: 1 }} />
-        <button onClick={selectVisible} disabled={!visible.length} style={{ ...plainButton("var(--accent)"), opacity: visible.length ? 1 : .5 }}>勾选当前 {visible.length} 笔</button>
+        <button onClick={selectVisible} disabled={!visible.length} style={{ ...plainButton("var(--accent)"), opacity: visible.length ? 1 : .5 }}>勾选当前最多 {Math.min(visible.length, MAX_WETOKEN_FEE_BATCH_ASSIGNMENTS)} 笔</button>
       </div>
       {filtered.length > visible.length ? <div style={{ padding: "9px 16px", color: "#e6b85c", fontSize: 12 }}>筛选结果有 {filtered.length} 笔；当前仅渲染前 {visible.length} 笔，请用搜索或状态缩小范围后处理。</div> : null}
       <div style={{ overflowX: "auto" }}>
@@ -396,7 +412,7 @@ function FeeAttributionRow({ exception, profiles, rate, selected, onToggle, run,
   const classificationColor = exception.classification === "ambiguous" ? "#ff9a8a" : currentAssignment === "pending" ? "#e6b85c" : currentAssignment === "user" ? "var(--accent)" : "#8fc8ff";
   return <div style={{ ...tableRowStyle, minWidth: 1120, gridTemplateColumns: ".38fr 1.4fr 1.55fr .72fr 1.45fr", alignItems: "start" }}>
     <div><input type="checkbox" checked={selected} onChange={onToggle} aria-label={`选择 ${exception.reference_id}`} /></div>
-    <div style={{ minWidth: 0 }}><div className="fg-mono" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exception.reference_id}</div><div style={{ color: "var(--text-3)", fontSize: 10.5, marginTop: 4 }}>{exception.occurred_at ? new Date(exception.occurred_at).toLocaleString("zh-CN") : "账单未提供时间"}</div></div>
+    <div style={{ minWidth: 0 }}><div className="fg-mono" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exception.reference_id}</div><div style={{ color: "var(--text-3)", fontSize: 10.5, marginTop: 4 }}>{exception.occurred_at ? shanghaiDateTime(exception.occurred_at) : "账单未提供时间"}</div></div>
     <div style={{ minWidth: 0 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exception.model || "未提供模型名"}</div><div className="fg-mono" style={{ marginTop: 4 }}>{money(numeric(exception.actual_cost_usd), rate)}</div></div>
     <div>{<span style={{ color: classificationColor, fontSize: 11 }}>{classificationLabel}</span>}</div>
     <div style={{ display: "grid", gap: 7 }}>

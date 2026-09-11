@@ -9,6 +9,31 @@ export type WetokenFeeLogEntry = {
 
 type CsvRecord = Record<string, string>;
 
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * WeToken exports its fee-log `Time` column as an Asia/Shanghai wall-clock
+ * timestamp without an offset. PostgreSQL timestamptz must receive a real UTC
+ * instant, otherwise a UTC database plus a Shanghai browser displays it +8h.
+ */
+export function wetokenFeeOccurredAtUtc(value: string) {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw] = match;
+  const [year, month, day, hour, minute, second] = [yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw].map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  const check = new Date(localAsUtc);
+  if (
+    check.getUTCFullYear() !== year
+    || check.getUTCMonth() !== month - 1
+    || check.getUTCDate() !== day
+    || check.getUTCHours() !== hour
+    || check.getUTCMinutes() !== minute
+    || check.getUTCSeconds() !== second
+  ) return null;
+  return new Date(localAsUtc - SHANGHAI_OFFSET_MS).toISOString();
+}
+
 function parseCsv(input: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];

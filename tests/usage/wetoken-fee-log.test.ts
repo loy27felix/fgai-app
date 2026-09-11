@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseWetokenFeeLogCsv } from '../../lib/usage/wetoken-fee-log';
+import { parseWetokenFeeLogCsv, wetokenFeeOccurredAtUtc } from '../../lib/usage/wetoken-fee-log';
+
+test('interprets WeToken CSV timestamps as Shanghai local time before saving a timestamptz', () => {
+  assert.equal(
+    wetokenFeeOccurredAtUtc('2026-09-11 11:02:59'),
+    '2026-09-11T03:02:59.000Z',
+  );
+  assert.equal(wetokenFeeOccurredAtUtc('not a timestamp'), null);
+});
 
 test('parses successful WeToken consumption rows as exact positive USD costs', () => {
   const rows = parseWetokenFeeLogCsv([

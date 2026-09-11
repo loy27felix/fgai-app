@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
 import { isMonthStartKey } from '@/lib/usage/budget';
-import { parseWetokenFeeLogCsv, type WetokenFeeLogEntry } from '@/lib/usage/wetoken-fee-log';
+import { parseWetokenFeeLogCsv, wetokenFeeOccurredAtUtc, type WetokenFeeLogEntry } from '@/lib/usage/wetoken-fee-log';
 import {
   resolveWetokenFeeEntry,
   summarizeWetokenFeeResolutions,
@@ -64,6 +64,13 @@ function requestDuration(request: Record<string, unknown>) {
   return numberValue(request.duration || request.video_seconds);
 }
 
+function storedOccurredAt(entry: WetokenFeeLogEntry) {
+  if (!entry.occurredAt) return null;
+  const timestamp = wetokenFeeOccurredAtUtc(entry.occurredAt);
+  if (!timestamp) throw new Error(`Reference ID ${entry.referenceId} 的 WeToken 时间格式无效，已停止导入以避免时区错账。`);
+  return timestamp;
+}
+
 function reconciliationSnapshot(entry: WetokenFeeLogEntry, source: string, request: Record<string, unknown>) {
   return {
     ...request,
@@ -97,7 +104,7 @@ function creatorLedgerRow(entry: WetokenFeeLogEntry, task: FeeCreatorTaskMatch) 
     price_snapshot: reconciliationSnapshot(entry, 'creator_task_backfill', task.request),
     status: usageStatus(task.status),
     possibly_charged: true,
-    created_at: entry.occurredAt || task.createdAt,
+    created_at: storedOccurredAt(entry) || task.createdAt,
   };
 }
 
@@ -121,7 +128,7 @@ function projectLedgerRow(entry: WetokenFeeLogEntry, task: FeeProjectTaskMatch) 
     price_snapshot: reconciliationSnapshot(entry, 'project_task_backfill', task.request),
     status: usageStatus(task.status),
     possibly_charged: true,
-    created_at: entry.occurredAt || task.createdAt,
+    created_at: storedOccurredAt(entry) || task.createdAt,
   };
 }
 
@@ -189,10 +196,13 @@ async function writeException(
     month_start: monthStart,
     reference_id: resolution.entry.referenceId,
     model: resolution.entry.model,
-    occurred_at: resolution.entry.occurredAt || null,
+    occurred_at: storedOccurredAt(resolution.entry),
     actual_cost_usd: Number(resolution.entry.actualCostUsd.toFixed(10)),
     classification: resolution.state,
-    details: resolution.state === 'ambiguous' ? { reason: resolution.reason } : {},
+    details: {
+      ...(resolution.state === 'ambiguous' ? { reason: resolution.reason } : {}),
+      occurred_at_timezone: 'Asia/Shanghai',
+    },
     updated_at: new Date().toISOString(),
   }, { onConflict: 'reference_id' });
   if (error) throw error;
