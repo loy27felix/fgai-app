@@ -8,10 +8,40 @@ import type { ReleaseInfo } from "@/reference/infinite-canvas/src/lib/release";
  */
 export const CURRENT_RELEASE_LABEL = "更新内容";
 
+/**
+ * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
+ * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
+ */
+export const CURRENT_RELEASE_VERSION = "1.0.5";
+
+if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
+    throw new Error(
+        `更新内容版本（${CURRENT_RELEASE_VERSION}）与系统版本（${SYSTEM_VERSION}）不一致。发布前请补齐中文更新说明。`,
+    );
+}
+
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
-        version: SYSTEM_VERSION,
-        date: "当前系统版本",
+        version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月11日",
+        items: [
+            { type: "优化", content: "右上角“更新内容”改为按系统版本维护：当前版本只展示本次面向用户的中文更新，旧版本保留在下方，不再把历史内容误显示成最新更新。" },
+            { type: "文档", content: "每次发布会同时校验系统版本与更新说明版本；若只改版本号却没有补充中文说明，构建将直接失败，防止更新记录遗漏。" },
+        ],
+    },
+    {
+        version: "1.0.4",
+        date: "2026年9月11日",
+        items: [
+            { type: "新增", content: "管理后台支持导入 WeToken 费用流水 CSV，可按供应商任务号将账单中的实际人民币消费回填到对应用户和对应任务；充值记录不会被算作用户消费。" },
+            { type: "调整", content: "“我的生成记录”和管理后台将“实际费用”“合规预估”“待对账”分开显示，避免把模型预估价误当作实际扣费。" },
+            { type: "优化", content: "后续文本、图片和视频任务会保存供应商任务号；导入月度账单后，每条记录、每位用户和管理后台汇总可使用同一笔实际账单对账。" },
+            { type: "修复", content: "视频参考素材上传失败会明确提示具体限制，例如图片宽高需在 300–6000px、参考视频时长需在 1.8–30.2 秒，便于按原因处理。" },
+        ],
+    },
+    {
+        version: "1.0.3",
+        date: "2026年9月10日及以前",
         items: [
             { type: "新增", content: "在原有“资产”页旁新增独立“素材库”：可新建文件夹、上传图片/视频/音频，拖入任意画布，或从节点右键菜单保存到素材库；原资产页保持不变。" },
             { type: "新增", content: "节点参考素材的“添加”支持从素材库选择；所选素材会插入当前画布并自动连为参考，提示词中的 @ 引用同步更新。" },

@@ -480,6 +480,9 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
 
   assert.match(version, /SYSTEM_VERSION/);
   assert.match(release, /更新内容/);
+  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.0\.5"/);
+  assert.match(release, /费用流水 CSV/);
+  assert.match(release, /实际费用/);
   assert.match(release, /生成前确认/);
   assert.match(release, /AI 对话历史/);
   assert.doesNotMatch(versionCheck, /basketikun\/infinite-canvas/);
