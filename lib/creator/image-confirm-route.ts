@@ -168,6 +168,7 @@ export async function persistGeneratedImage(
     task: ConfirmImageTask;
     requestId: string;
     generated: ImageGenerationResult;
+    providerRequestId: string;
     userId: string;
     workspaceId: string;
   },
@@ -177,7 +178,7 @@ export async function persistGeneratedImage(
   const updateLedgerStatus = options.updateUsageStatus ?? updateImageUsageStatus;
   const resultPath = `${input.userId}/image-tasks/${input.task.id}/result.${extensionFor(input.generated.mimeType)}`;
   assertOwnedResultPath(resultPath, input.userId, input.task.id);
-  const providerRequestId = providerRequestIdFromImageDiagnostic(input.generated.providerDiagnostic);
+  const providerRequestId = input.providerRequestId;
   const persistenceContext = {
     taskId: input.task.id,
     requestId: input.requestId,
@@ -250,6 +251,7 @@ export async function persistGeneratedImage(
           size: input.task.request.size,
           references: Array.isArray(input.task.request.reference_paths)
             ? input.task.request.reference_paths.length : 0,
+          wetoken_reference_id: providerRequestId,
         },
       })
       .select('*')
@@ -278,6 +280,7 @@ export async function persistGeneratedImage(
     const output = {
       ...asRecord(input.task.output),
       asset_id: asset.id,
+      wetoken_reference_id: providerRequestId,
       ...(input.generated.providerDiagnostic
         ? { provider_diagnostic: input.generated.providerDiagnostic }
         : {}),
@@ -506,10 +509,10 @@ recordAttempt: async ({ requestId, task }) => {
     },
     generate: generateWetokenImage,
     validateGenerated: validateGeneratedImage,
-    persistSuccess: ({ task, requestId, generated }) => (
+    persistSuccess: ({ task, requestId, generated, providerRequestId }) => (
       persistGeneratedImage(
         localClient,
-        { task, requestId, generated, userId, workspaceId },
+        { task, requestId, generated, providerRequestId, userId, workspaceId },
       )
     ),
     settleFailure: async ({ task, requestId, status, error, details }) => {

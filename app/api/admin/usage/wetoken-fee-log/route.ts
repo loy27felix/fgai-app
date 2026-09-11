@@ -3,6 +3,7 @@ import { createClient } from '@/lib/local/server';
 import { createAdminClient } from '@/lib/local/admin';
 import { isMonthStartKey } from '@/lib/usage/budget';
 import { parseWetokenFeeLogCsv, wetokenFeeOccurredAtUtc, type WetokenFeeLogEntry } from '@/lib/usage/wetoken-fee-log';
+import { wetokenReferenceIdsFromPersistedTask } from '@/lib/usage/wetoken-reference';
 import {
   resolveWetokenFeeEntry,
   summarizeWetokenFeeResolutions,
@@ -17,6 +18,7 @@ export const runtime = 'nodejs';
 
 const MAX_IMPORT_BYTES = 15_000_000;
 const QUERY_BATCH_SIZE = 500;
+const EXACT_REFERENCE_TASK_SCAN_LIMIT = 10_000;
 
 type LocalLedger = FeeLedgerMatch & { priceSnapshot: unknown };
 
@@ -169,6 +171,42 @@ function appendMap<T>(map: Map<string, T[]>, key: string | null | undefined, val
   map.set(key, values);
 }
 
+function appendUniqueTask<T extends { id: string }>(map: Map<string, T[]>, key: string | null | undefined, value: T) {
+  if (!key) return;
+  const values = map.get(key) || [];
+  if (!values.some((candidate) => candidate.id === value.id)) values.push(value);
+  map.set(key, values);
+}
+
+function taskSearchWindow(monthStart: string) {
+  const [year, month] = monthStart.split('-').map(Number);
+  const day = 24 * 60 * 60 * 1000;
+  const start = new Date(Date.UTC(year, month - 1, 1) - (7 * day));
+  const end = new Date(Date.UTC(year, month, 1) + (7 * day));
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+async function listTasksForExactReferenceRecovery(
+  admin: ReturnType<typeof createAdminClient>,
+  table: 'creator_generation_tasks' | 'generation_tasks',
+  fields: string,
+  window: { start: string; end: string },
+) {
+  const result = await admin
+    .from(table)
+    .select(fields)
+    .gte('created_at', window.start)
+    .lt('created_at', window.end)
+    .order('created_at', { ascending: true })
+    .limit(EXACT_REFERENCE_TASK_SCAN_LIMIT);
+  if (result.error) throw result.error;
+  const rows = (result.data || []) as Record<string, unknown>[];
+  if (rows.length >= EXACT_REFERENCE_TASK_SCAN_LIMIT) {
+    throw new Error(`待对账任务超过 ${EXACT_REFERENCE_TASK_SCAN_LIMIT} 笔，已停止导入以避免遗漏精确 Reference ID 归属。请联系管理员扩展对账扫描范围后重试。`);
+  }
+  return rows;
+}
+
 async function updateMatchedLedger(
   admin: ReturnType<typeof createAdminClient>,
   ledger: LocalLedger,
@@ -256,8 +294,8 @@ export async function POST(request: Request) {
     for (const group of batches(references, QUERY_BATCH_SIZE)) {
       const [ledgerResult, creatorTaskResult, projectTaskResult] = await Promise.all([
         admin.from('ai_usage_ledger').select('id,provider_request_id,creator_task_id,price_snapshot').in('provider_request_id', group),
-        admin.from('creator_generation_tasks').select('id,user_id,workspace_id,kind,provider,model,status,request,created_at,external_task_id').in('external_task_id', group),
-        admin.from('generation_tasks').select('id,user_id,project_id,kind,provider,model,status,request,created_at,external_task_id').in('external_task_id', group),
+        admin.from('creator_generation_tasks').select('id,user_id,workspace_id,kind,provider,model,status,request,output,created_at,external_task_id').in('external_task_id', group),
+        admin.from('generation_tasks').select('id,user_id,project_id,kind,provider,model,status,request,output,created_at,external_task_id').in('external_task_id', group),
       ]);
       if (ledgerResult.error) throw ledgerResult.error;
       if (creatorTaskResult.error) throw creatorTaskResult.error;
@@ -268,15 +306,44 @@ export async function POST(request: Request) {
       }
       for (const row of creatorTaskResult.data || []) {
         const task = asCreatorTask(row as Record<string, unknown>);
-        const reference = typeof (row as { external_task_id?: unknown }).external_task_id === 'string'
-          ? (row as { external_task_id: string }).external_task_id : null;
-        if (task) appendMap(creatorTasksByReference, reference, task);
+        if (task) {
+          for (const reference of wetokenReferenceIdsFromPersistedTask(row)) {
+            appendUniqueTask(creatorTasksByReference, reference, task);
+          }
+        }
       }
       for (const row of projectTaskResult.data || []) {
         const task = asProjectTask(row as Record<string, unknown>);
-        const reference = typeof (row as { external_task_id?: unknown }).external_task_id === 'string'
-          ? (row as { external_task_id: string }).external_task_id : null;
-        if (task) appendMap(projectTasksByReference, reference, task);
+        if (task) {
+          for (const reference of wetokenReferenceIdsFromPersistedTask(row)) {
+            appendUniqueTask(projectTasksByReference, reference, task);
+          }
+        }
+      }
+    }
+
+    // Older Creator images saved a safe provider diagnostic in task output but
+    // did not copy its Reference ID into the ledger. Scan a bounded billing
+    // window, then still accept only exact Reference-ID equality below.
+    const creatorTaskFields = 'id,user_id,workspace_id,kind,provider,model,status,request,output,created_at,external_task_id';
+    const projectTaskFields = 'id,user_id,project_id,kind,provider,model,status,request,output,created_at,external_task_id';
+    const window = taskSearchWindow(monthStart);
+    const [creatorTaskRows, projectTaskRows] = await Promise.all([
+      listTasksForExactReferenceRecovery(admin, 'creator_generation_tasks', creatorTaskFields, window),
+      listTasksForExactReferenceRecovery(admin, 'generation_tasks', projectTaskFields, window),
+    ]);
+    for (const row of creatorTaskRows) {
+      const task = asCreatorTask(row);
+      if (!task) continue;
+      for (const reference of wetokenReferenceIdsFromPersistedTask(row)) {
+        if (entriesByReference.has(reference)) appendUniqueTask(creatorTasksByReference, reference, task);
+      }
+    }
+    for (const row of projectTaskRows) {
+      const task = asProjectTask(row);
+      if (!task) continue;
+      for (const reference of wetokenReferenceIdsFromPersistedTask(row)) {
+        if (entriesByReference.has(reference)) appendUniqueTask(projectTasksByReference, reference, task);
       }
     }
 

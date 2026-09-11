@@ -1,4 +1,5 @@
 import {
+  providerRequestIdFromImageDiagnostic,
   WetokenImageTransportError,
   WetokenImageResultError,
   type ImageGenerationResult,
@@ -25,6 +26,7 @@ export const IMAGE_CONFIRM_PUBLIC_ERRORS = {
   RESULT_PERSIST_FAILED: '\u56fe\u7247\u7ed3\u679c\u4fdd\u5b58\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5',
   RESULT_RECONCILIATION_REQUIRED: '\u56fe\u7247\u7ed3\u679c\u5199\u5165\u72b6\u6001\u672a\u77e5\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u5bf9\u8d26',
   LEDGER_RECONCILIATION_REQUIRED: '\u56fe\u7247\u5df2\u751f\u6210\uff0c\u4f46\u7528\u91cf\u8d26\u672c\u5f85\u5bf9\u8d26\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458',
+  PROVIDER_REFERENCE_MISSING: '\u56fe\u7247\u5df2\u751f\u6210\uff0c\u4f46 WeToken \u672a\u8fd4\u56de\u53ef\u5bf9\u8d26 Reference ID\uff1b\u4efb\u52a1\u5df2\u6807\u8bb0\u5f85\u5bf9\u8d26\uff0c\u8bf7\u52ff\u91cd\u590d\u63d0\u4ea4',
 } as const;
 
 export type ImageConfirmErrorCode = keyof typeof IMAGE_CONFIRM_PUBLIC_ERRORS;
@@ -86,6 +88,8 @@ export type PersistImageSuccessInput = {
   task: ConfirmImageTask;
   requestId: string;
   generated: ImageGenerationResult;
+  /** Exact WeToken fee-log Reference ID required before a task can succeed. */
+  providerRequestId: string;
 };
 
 export type SettleImageFailureInput = {
@@ -373,7 +377,11 @@ export async function confirmCreatorImage(
       ...taskContext,
       ...generatedLogContext(generated),
     });
-    const result = await deps.persistSuccess({ task, requestId, generated });
+    const providerRequestId = providerRequestIdFromImageDiagnostic(generated.providerDiagnostic);
+    if (!providerRequestId) {
+      throw new CreatorImageConfirmError('PROVIDER_REFERENCE_MISSING', generated.providerDiagnostic);
+    }
+    const result = await deps.persistSuccess({ task, requestId, generated, providerRequestId });
     logCreatorImageEvent('generation_completed', {
       ...taskContext,
       assetId: typeof result.assetId === 'string' ? result.assetId : undefined,
@@ -396,11 +404,15 @@ export async function confirmCreatorImage(
     // model failed. Treat it like a timeout so it stays recoverable instead
     // of encouraging another paid retry from the same task.
     const providerResultMissing = error instanceof WetokenImageResultError;
-    const status = timeout || transportUncertain || providerResultMissing ? 'unknown' : 'failed';
+    const providerReferenceMissing = error instanceof CreatorImageConfirmError
+      && error.code === 'PROVIDER_REFERENCE_MISSING';
+    const status = timeout || transportUncertain || providerResultMissing || providerReferenceMissing ? 'unknown' : 'failed';
     const code: ImageConfirmErrorCode = timeout
       ? 'GENERATION_TIMEOUT'
       : transportUncertain
         ? 'GENERATION_STATUS_UNKNOWN'
+        : providerReferenceMissing
+          ? 'PROVIDER_REFERENCE_MISSING'
         : 'GENERATION_FAILED';
     logCreatorImageFailure('generation_failed', error, {
       ...taskContext,

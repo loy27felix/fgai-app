@@ -13,6 +13,7 @@ import {
   redactProviderUrl,
   safeProviderHeaders,
 } from '../observability/server-log';
+import { wetokenReferenceIdsFromProviderDiagnostic } from '../usage/wetoken-reference';
 
 export type ImageReference = { data: string; mimeType: string };
 export type ImageGenerationTrace = {
@@ -334,11 +335,7 @@ function asRecord(value: unknown): Record<string, any> | null {
 }
 
 export function providerRequestIdFromImageDiagnostic(diagnostic: unknown) {
-  const value = asRecord(diagnostic);
-  if (!value) return undefined;
-  return ['providerRequestId', 'providerResponseId', 'requestId']
-    .map((key) => value[key])
-    .find((item): item is string => typeof item === 'string' && item.length > 0);
+  return wetokenReferenceIdsFromProviderDiagnostic(diagnostic)[0];
 }
 
 function diagnosticText(value: unknown) {
@@ -398,8 +395,8 @@ function providerResponseMetadata(data: unknown) {
     const base = asRecord(payload.base_resp) || asRecord(payload.baseResp);
     const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
     const usage = asRecord(payload.usageMetadata) || asRecord(payload.usage_metadata);
-    providerRequestId ||= diagnosticText(firstValue(payload, ['requestId', 'request_id']));
-    providerResponseId ||= diagnosticText(firstValue(payload, ['responseId', 'response_id']));
+    providerRequestId ||= diagnosticText(firstValue(payload, ['referenceId', 'reference_id', 'requestId', 'request_id']));
+    providerResponseId ||= diagnosticText(firstValue(payload, ['providerResponseId', 'provider_response_id', 'responseId', 'response_id']));
     const statusCode = firstValue(base || {}, ['status_code', 'statusCode', 'code']);
     const statusMessage = diagnosticText(firstValue(base || {}, ['status_msg', 'statusMessage', 'message']));
     if (baseResponse.statusCode === undefined && typeof statusCode === 'number') {
@@ -630,7 +627,10 @@ async function readProviderPayload(response: Response, providerCallId: string) {
   const requestId = diagnosticText(
     response.headers.get('x-request-id')
       || response.headers.get('request-id')
-      || response.headers.get('x-wetoken-request-id'),
+      || response.headers.get('x-wetoken-request-id')
+      || response.headers.get('x-wetoken-reference-id')
+      || response.headers.get('x-reference-id')
+      || response.headers.get('reference-id'),
   );
   const diagnostic: WetokenImageResultDiagnostic = {
     providerCallId,

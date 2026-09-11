@@ -24,7 +24,17 @@ const task: ConfirmImageTask = {
     uploads_complete: true,
   },
 };
-const generated = { bytes: new Uint8Array([1]), mimeType: 'image/png' };
+const generated = {
+  bytes: new Uint8Array([1]),
+  mimeType: 'image/png',
+  providerDiagnostic: {
+    requestId: 'wetoken-reference-1',
+    status: 200,
+    contentType: 'application/json',
+    responseBytes: 64,
+    payloadShape: [],
+  },
+};
 
 function deps(overrides: Partial<ConfirmImageDependencies> = {}) {
   const events: string[] = [];
@@ -48,6 +58,29 @@ test('a claimed draft records usage before one provider call', async () => {
   const result = await confirmCreatorImage(input, value);
   assert.deepEqual(events, ['ledger', 'provider']);
   assert.equal(result.assetId, 'a1');
+});
+
+test('does not complete a Creator image when WeToken omits its exact Reference ID', async () => {
+  let persisted = 0;
+  const { value, settlements } = deps({
+    generate: async () => ({ bytes: new Uint8Array([1]), mimeType: 'image/png' }),
+    persistSuccess: async () => {
+      persisted += 1;
+      return { assetId: 'must-not-persist' };
+    },
+  });
+
+  await assert.rejects(
+    () => confirmCreatorImage(input, value),
+    (error: unknown) => error instanceof CreatorImageConfirmError
+      && error.code === 'PROVIDER_REFERENCE_MISSING'
+      && error.publicMessage === '图片已生成，但 WeToken 未返回可对账 Reference ID；任务已标记待对账，请勿重复提交',
+  );
+  assert.equal(persisted, 0);
+  assert.deepEqual(settlements, [{
+    status: 'unknown',
+    error: '图片已生成，但 WeToken 未返回可对账 Reference ID；任务已标记待对账，请勿重复提交',
+  }]);
 });
 
 test('duplicate confirmation never reaches ledger or provider', async () => {
@@ -237,6 +270,7 @@ const persistInput = {
   task: persistenceTask(),
   requestId: 'creator-image:t1',
   generated,
+  providerRequestId: 'wetoken-reference-1',
   userId: 'u1',
   workspaceId: 'w1',
 };
@@ -256,6 +290,32 @@ const persistedAsset = {
   metadata: {},
   created_at: 'now',
 };
+
+test('successful persistence writes the exact WeToken Reference ID onto the task', async () => {
+  const fake = fakePersistenceLocalClient({
+    assetResult: { data: persistedAsset, error: null },
+    taskResult: { data: { id: 't1', status: 'succeeded' }, error: null },
+  });
+  await persistGeneratedImage(
+    fake.value as never,
+    persistInput,
+    { updateUsageStatus: async () => true },
+  );
+
+  const update = fake.updates[0] as {
+    table: string;
+    value: { output: Record<string, unknown>; status: string; completed_at: string; error: null };
+  };
+  assert.equal(update.table, 'creator_generation_tasks');
+  assert.equal(update.value.status, 'succeeded');
+  assert.equal(update.value.error, null);
+  assert.match(update.value.completed_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(update.value.output, {
+    asset_id: 'a1',
+    wetoken_reference_id: 'wetoken-reference-1',
+    provider_diagnostic: generated.providerDiagnostic,
+  });
+});
 
 test('asset insert failure removes the exact uploaded result and never updates the task', async () => {
   const fake = fakePersistenceLocalClient({
