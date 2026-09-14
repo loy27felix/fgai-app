@@ -75,6 +75,34 @@ export function safeProviderHeaders(headers: HeadersInit | undefined) {
   return safe;
 }
 
+function sanitiseLogText(value: string) {
+  let result = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0) continue;
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += value[index] + value[index + 1];
+        index += 1;
+        continue;
+      }
+      // Replace lone high surrogates before PostgreSQL JSONB insertion.
+      // PostgreSQL 无法解析未配对的 Unicode 高代理项，统一替换避免整批日志回滚。
+      result += '\ufffd';
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      // Replace lone low surrogates before PostgreSQL JSONB insertion.
+      // PostgreSQL 无法解析未配对的 Unicode 低代理项，统一替换避免整批日志回滚。
+      result += '\ufffd';
+      continue;
+    }
+    result += value[index];
+  }
+  return result;
+}
+
 function serialiseFullLogValue(value: unknown, depth = 0, seen = new WeakSet<object>()): SafeLogValue {
   if (value === null || typeof value === 'number' || typeof value === 'boolean' || value === undefined) return value;
   if (typeof value === 'string') return redactServerLogText(value, FULL_LOG_STRING_LENGTH);
@@ -186,7 +214,7 @@ function fitFullLogValue(value: SafeLogValue, budget: FullLogBudget): SafeLogVal
 }
 
 export function redactServerLogText(value: unknown, maxLength = 500) {
-  return String(value ?? '')
+  return sanitiseLogText(String(value ?? ''))
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[redacted]')
     .replace(/data:[^;,\s]+(?:;[^,\s]+)*,\S{32,}/gi, 'data:[redacted]')
