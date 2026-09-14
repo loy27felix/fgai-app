@@ -60,27 +60,27 @@ test('a claimed draft records usage before one provider call', async () => {
   assert.equal(result.assetId, 'a1');
 });
 
-test('does not complete a Creator image when WeToken omits its exact Reference ID', async () => {
-  let persisted = 0;
+test('persists a valid Creator image and keeps its ledger pending when WeToken omits its Reference ID', async () => {
+  let persisted: { providerRequestId?: string } | undefined;
   const { value, settlements } = deps({
     generate: async () => ({ bytes: new Uint8Array([1]), mimeType: 'image/png' }),
-    persistSuccess: async () => {
-      persisted += 1;
-      return { assetId: 'must-not-persist' };
+    persistSuccess: async (persistInput) => {
+      persisted = persistInput;
+      return {
+        assetId: 'saved-while-pending-ledger-reconciliation',
+        ledgerStatus: 'unknown',
+        requiresReconciliation: true,
+      };
     },
   });
 
-  await assert.rejects(
-    () => confirmCreatorImage(input, value),
-    (error: unknown) => error instanceof CreatorImageConfirmError
-      && error.code === 'PROVIDER_REFERENCE_MISSING'
-      && error.publicMessage === '图片已生成，但 WeToken 未返回可对账 Reference ID；任务已标记待对账，请勿重复提交',
-  );
-  assert.equal(persisted, 0);
-  assert.deepEqual(settlements, [{
-    status: 'unknown',
-    error: '图片已生成，但 WeToken 未返回可对账 Reference ID；任务已标记待对账，请勿重复提交',
-  }]);
+  const result = await confirmCreatorImage(input, value);
+
+  assert.equal(persisted?.providerRequestId, undefined);
+  assert.equal(result.assetId, 'saved-while-pending-ledger-reconciliation');
+  assert.equal(result.ledgerStatus, 'unknown');
+  assert.equal(result.requiresReconciliation, true);
+  assert.deepEqual(settlements, []);
 });
 
 test('duplicate confirmation never reaches ledger or provider', async () => {
@@ -315,6 +315,42 @@ test('successful persistence writes the exact WeToken Reference ID onto the task
     wetoken_reference_id: 'wetoken-reference-1',
     provider_diagnostic: generated.providerDiagnostic,
   });
+});
+
+test('valid image persistence keeps the result visible when a Reference ID is absent', async () => {
+  const fake = fakePersistenceLocalClient({
+    assetResult: { data: persistedAsset, error: null },
+    taskResult: { data: { id: 't1', status: 'succeeded' }, error: null },
+  });
+  let ledgerUpdate: { status?: string; providerRequestId?: string } | undefined;
+  const result = await persistGeneratedImage(
+    fake.value as never,
+    { ...persistInput, providerRequestId: undefined },
+    {
+      updateUsageStatus: async (value) => {
+        ledgerUpdate = value;
+        return true;
+      },
+    },
+  );
+
+  assert.equal(result.assetId, 'a1');
+  assert.equal(result.resultUrl, 'signed');
+  assert.equal(result.ledgerStatus, 'unknown');
+  assert.equal(result.requiresReconciliation, true);
+  assert.deepEqual(ledgerUpdate && {
+    status: ledgerUpdate.status,
+    providerRequestId: ledgerUpdate.providerRequestId,
+  }, { status: 'unknown', providerRequestId: undefined });
+  assert.deepEqual((fake.updates[0] as { value: { output: Record<string, unknown> } }).value.output, {
+    asset_id: 'a1',
+    ledger_status: 'unknown',
+    requires_reconciliation: true,
+    reconciliation_reason: 'provider_reference_missing',
+    provider_diagnostic: generated.providerDiagnostic,
+  });
+  assert.equal((fake.updates[1] as { value: { output: Record<string, unknown> } })
+    .value.output.reconciliation_reason, 'provider_reference_missing');
 });
 
 test('asset insert failure removes the exact uploaded result and never updates the task', async () => {

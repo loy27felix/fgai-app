@@ -76,7 +76,9 @@ test('canvas Agent is wired to the creator chat API with skills and reasoning', 
   assert.match(agent, /\/api\/creator\/chat/);
   assert.match(agent, /thinking/);
   assert.match(agent, /skill/);
-  assert.match(api, /recordUsageBestEffort/);
+  assert.match(api, /recordUsageRequired/);
+  assert.match(api, /requireProviderUsageReference/);
+  assert.doesNotMatch(api, /recordUsageBestEffort/);
 });
 
 test('generation completion uses browser notifications with task-level dedupe across canvas and workbenches', () => {
@@ -480,7 +482,7 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
 
   assert.match(version, /SYSTEM_VERSION/);
   assert.match(release, /更新内容/);
-  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.0\.7"/);
+  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.0\.9"/);
   assert.match(release, /费用流水 CSV/);
   assert.match(release, /实际费用/);
   assert.match(release, /2026年9月4日–10日/);

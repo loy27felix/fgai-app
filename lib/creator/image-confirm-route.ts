@@ -168,7 +168,7 @@ export async function persistGeneratedImage(
     task: ConfirmImageTask;
     requestId: string;
     generated: ImageGenerationResult;
-    providerRequestId: string;
+    providerRequestId?: string;
     userId: string;
     workspaceId: string;
   },
@@ -251,7 +251,7 @@ export async function persistGeneratedImage(
           size: input.task.request.size,
           references: Array.isArray(input.task.request.reference_paths)
             ? input.task.request.reference_paths.length : 0,
-          wetoken_reference_id: providerRequestId,
+          ...(providerRequestId ? { wetoken_reference_id: providerRequestId } : {}),
         },
       })
       .select('*')
@@ -277,10 +277,16 @@ export async function persistGeneratedImage(
 
     persistencePhase = 'task_update';
     const completedAt = new Date().toISOString();
+    const requiresReconciliation = !providerRequestId;
     const output = {
       ...asRecord(input.task.output),
       asset_id: asset.id,
-      wetoken_reference_id: providerRequestId,
+      ...(providerRequestId ? { wetoken_reference_id: providerRequestId } : {}),
+      ...(requiresReconciliation ? {
+        ledger_status: 'unknown',
+        requires_reconciliation: true,
+        reconciliation_reason: 'provider_reference_missing',
+      } : {}),
       ...(input.generated.providerDiagnostic
         ? { provider_diagnostic: input.generated.providerDiagnostic }
         : {}),
@@ -311,7 +317,7 @@ export async function persistGeneratedImage(
 
     persistencePhase = 'ledger_update';
     let ledgerStatusUpdated = false;
-    let ledgerStatus: 'succeeded' | 'unknown' = 'succeeded';
+    let ledgerStatus: 'succeeded' | 'unknown' = requiresReconciliation ? 'unknown' : 'succeeded';
     try {
       const effectivePrompt = typeof input.task.request.effective_prompt === 'string'
         ? input.task.request.effective_prompt
@@ -321,7 +327,7 @@ export async function persistGeneratedImage(
       ledgerStatusUpdated = await updateLedgerStatus({
         requestId: input.requestId,
         providerRequestId,
-        status: 'succeeded',
+        status: ledgerStatus,
         completedAt,
         reportedCostUsd: extractReportedCostUsd(input.generated.usage),
         pricing: estimateImageUsagePrice({
@@ -336,7 +342,7 @@ export async function persistGeneratedImage(
         ledgerStatus = 'unknown';
         logCreatorImageEvent('ledger_settlement_unknown', {
           ...persistenceContext,
-          status: 'succeeded',
+          status: ledgerStatus,
           possiblyCharged: true,
         }, 'warn');
       }
@@ -344,21 +350,24 @@ export async function persistGeneratedImage(
       ledgerStatus = 'unknown';
       logCreatorImageFailure('ledger_settlement_failed', error, {
         ...persistenceContext,
-        status: 'succeeded',
+        status: ledgerStatus,
         possiblyCharged: true,
       });
     }
     if (ledgerStatusUpdated) {
       logCreatorImageEvent('ledger_settled', {
         ...persistenceContext,
-        status: 'succeeded',
+        status: ledgerStatus,
         possiblyCharged: true,
       });
     }
 
     if (ledgerStatus === 'unknown') {
       try {
-        const currentOutput = asRecord(asRecord(persistedTask).output);
+        const currentOutput = {
+          ...output,
+          ...asRecord(asRecord(persistedTask).output),
+        };
         const marked = await localClient
           .from('creator_generation_tasks')
           .update({
@@ -366,6 +375,9 @@ export async function persistGeneratedImage(
               ...currentOutput,
               ledger_status: 'unknown',
               requires_reconciliation: true,
+              reconciliation_reason: providerRequestId
+                ? 'ledger_status_update_failed'
+                : 'provider_reference_missing',
             },
           })
           .eq('id', input.task.id)
@@ -630,12 +642,12 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         const currentTask = result.task;
         if (currentTask && taskNeedsLedgerReconciliation(currentTask)) {
           return attachTraceId(NextResponse.json({
-            error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
-            code: 'LEDGER_RECONCILIATION_REQUIRED',
+            duplicate: true,
             task: currentTask,
             ledgerStatus: 'unknown',
             requiresReconciliation: true,
-          }, { status: 503 }), traceId);
+            reconciliationWarning: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
+          }), traceId);
         }
         if (currentTask) return attachTraceId(NextResponse.json({ duplicate: true, task: currentTask }), traceId);
         const current = await findOwnedTask(context, params.id);
@@ -643,12 +655,12 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
         if (!current.data) return response('\u56fe\u7247\u4efb\u52a1\u4e0d\u5b58\u5728', 'IMAGE_TASK_NOT_FOUND', 404, traceId);
         if (taskNeedsLedgerReconciliation(current.data)) {
           return attachTraceId(NextResponse.json({
-            error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
-            code: 'LEDGER_RECONCILIATION_REQUIRED',
+            duplicate: true,
             task: current.data,
             ledgerStatus: 'unknown',
             requiresReconciliation: true,
-          }, { status: 503 }), traceId);
+            reconciliationWarning: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
+          }), traceId);
         }
         return attachTraceId(NextResponse.json({ duplicate: true, task: current.data }), traceId);
       }
@@ -658,14 +670,13 @@ export function createImageConfirmHandlers(deps: ConfirmImageRouteDeps) {
           ledgerStatus: result.ledgerStatus,
         }, 'warn');
         return attachTraceId(NextResponse.json({
-          error: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
-          code: 'LEDGER_RECONCILIATION_REQUIRED',
           task: result.task,
           asset: result.asset,
           resultUrl: result.resultUrl ?? null,
           ledgerStatus: 'unknown',
           requiresReconciliation: true,
-        }, { status: 503 }), traceId);
+          reconciliationWarning: IMAGE_CONFIRM_PUBLIC_ERRORS.LEDGER_RECONCILIATION_REQUIRED,
+        }), traceId);
       }
       logCreatorImageEvent('http_completed', {
         taskId: params.id,

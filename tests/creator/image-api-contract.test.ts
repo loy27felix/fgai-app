@@ -371,16 +371,17 @@ test('confirm factory claim uses an atomic owner-scoped draft filter', async () 
   assertConfirmLookupFilters(localClient.queries[1]);
 });
 
-test('confirm factory duplicate reconciliation state never replays as a normal duplicate', async () => {
+test('confirm factory returns a completed duplicate even when its ledger needs reconciliation', async () => {
   const { handlers, localClient } = confirmFixture(
     async () => ({ duplicate: true }),
     { data: { id: 't1', status: 'succeeded', output: { requires_reconciliation: true } }, error: null },
   );
   const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
   const payload = await result.json();
-  assert.equal(result.status, 503);
-  assert.equal(payload.code, 'LEDGER_RECONCILIATION_REQUIRED');
+  assert.equal(result.status, 200);
+  assert.equal(payload.duplicate, true);
   assert.equal(payload.requiresReconciliation, true);
+  assert.match(payload.reconciliationWarning, /待对账/);
   assertConfirmLookupFilters(localClient.queries[0]);
 });
 
@@ -437,7 +438,7 @@ test('confirm factory rejects unauthenticated requests before invoking the servi
 });
 
 
-test('confirm factory returns 503 reconciliation state after a successful task with unknown ledger status', async () => {
+test('confirm factory returns the successful result when its ledger needs reconciliation', async () => {
   const { handlers } = confirmFixture(async () => ({
     task: { id: 't1', status: 'succeeded' },
     asset: { id: 'a1' },
@@ -447,9 +448,11 @@ test('confirm factory returns 503 reconciliation state after a successful task w
   }));
   const result = await handlers.POST(new Request('http://local/api/creator/images/t1/confirm'), { params: { id: 't1' } });
   const payload = await result.json();
-  assert.equal(result.status, 503);
-  assert.equal(payload.code, 'LEDGER_RECONCILIATION_REQUIRED');
+  assert.equal(result.status, 200);
+  assert.deepEqual(payload.asset, { id: 'a1' });
+  assert.equal(payload.resultUrl, 'signed');
   assert.equal(payload.ledgerStatus, 'unknown');
   assert.equal(payload.requiresReconciliation, true);
+  assert.match(payload.reconciliationWarning, /待对账/);
   assert.doesNotMatch(JSON.stringify(payload), /secret/);
 });

@@ -627,6 +627,9 @@ async function readProviderPayload(response: Response, providerCallId: string) {
   const requestId = diagnosticText(
     response.headers.get('x-request-id')
       || response.headers.get('request-id')
+      // OneAPI exposes its fee-log Reference ID under this header. WeToken's
+      // console displays the same value, so it is the authoritative ledger key.
+      || response.headers.get('x-oneapi-request-id')
       || response.headers.get('x-wetoken-request-id')
       || response.headers.get('x-wetoken-reference-id')
       || response.headers.get('x-reference-id')

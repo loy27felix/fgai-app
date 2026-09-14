@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.0.8";
+export const CURRENT_RELEASE_VERSION = "1.0.9";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,14 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月14日",
+        items: [
+            { type: "修复", content: "图片生成现会读取 WeToken 返回的精确 Reference ID，并将实际费用准确关联到对应用户和任务。" },
+            { type: "修复", content: "图片已生成但账单暂未返回 Reference ID 时，结果仍会保存、展示和下载；仅费用会标记为待对账，不会再丢失已扣费的图片。" },
+        ],
+    },
+    {
+        version: "1.0.8",
         date: "2026年9月11日",
         items: [
             { type: "修复", content: "导入 WeToken CSV 的无时区时间统一按上海时间保存和展示，修复历史账单在页面上整体晚 8 小时的问题。" },

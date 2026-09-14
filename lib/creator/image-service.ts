@@ -88,8 +88,12 @@ export type PersistImageSuccessInput = {
   task: ConfirmImageTask;
   requestId: string;
   generated: ImageGenerationResult;
-  /** Exact WeToken fee-log Reference ID required before a task can succeed. */
-  providerRequestId: string;
+  /**
+   * Exact WeToken fee-log Reference ID when the provider returned one.
+   * A valid image must still be saved without it; its ledger remains pending
+   * reconciliation instead of discarding an already billed result.
+   */
+  providerRequestId?: string;
 };
 
 export type SettleImageFailureInput = {
@@ -378,9 +382,6 @@ export async function confirmCreatorImage(
       ...generatedLogContext(generated),
     });
     const providerRequestId = providerRequestIdFromImageDiagnostic(generated.providerDiagnostic);
-    if (!providerRequestId) {
-      throw new CreatorImageConfirmError('PROVIDER_REFERENCE_MISSING', generated.providerDiagnostic);
-    }
     const result = await deps.persistSuccess({ task, requestId, generated, providerRequestId });
     logCreatorImageEvent('generation_completed', {
       ...taskContext,

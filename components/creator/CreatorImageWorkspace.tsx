@@ -634,8 +634,13 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
       const response = await confirmImageTask(target.id);
       setConfirmTarget(null);
       if (response.requiresReconciliation || response.ledgerStatus === "unknown") {
-        setPhase("unknown");
-        setNotice("任务已提交，但账本状态需要对账；刷新只读取任务列表，不会自动确认。请稍后查看状态。");
+        if (response.task?.status === "succeeded" || response.resultUrl) {
+          setPhase("idle");
+          setNotice("图片已完成并保存；费用正在与 WeToken 账单核对，不会影响查看或下载结果。");
+        } else {
+          setPhase("unknown");
+          setNotice("任务已提交，但账本状态需要对账；刷新只读取任务列表，不会自动确认。请稍后查看状态。");
+        }
         await refreshHistory(target.id, true);
         return;
       }

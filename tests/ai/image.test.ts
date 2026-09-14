@@ -109,6 +109,23 @@ test('image success preserves the WeToken Reference ID from its response header'
   assert.equal(result.providerDiagnostic?.requestId, 'wetoken-fee-reference-123');
 });
 
+test('image success treats the OneAPI request header as the WeToken Reference ID', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const result = await generateWetokenImage({
+    model: 'gpt-image-2', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({ data: [{ b64_json: 'YWJj' }] }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-oneapi-request-id': '20260914014505657205383PA05Wqo6',
+      },
+    }),
+  });
+
+  assert.equal(result.providerDiagnostic?.requestId, '20260914014505657205383PA05Wqo6');
+});
+
 test('GPT image edit sends repeated image fields for multiple references', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   let entries: Array<[string, string]> = [];
