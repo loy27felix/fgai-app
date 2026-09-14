@@ -87,7 +87,10 @@ export async function GET(req: Request, { params }: RouteContext) {
   headers.set('Content-Type', contentType);
   headers.set('Content-Disposition', 'inline; filename="recovered-video.mp4"');
   headers.set('Accept-Ranges', 'bytes');
-  headers.set('Cache-Control', 'private, max-age=300');
+  // A video element can cache a prior proxy failure under this same task URL.
+  // Playback recovery deliberately gets a cache-busting attempt URL, and the
+  // response itself must not reintroduce a five-minute stale copy.
+  headers.set('Cache-Control', 'private, no-store, max-age=0');
   for (const name of ['content-length', 'content-range', 'last-modified', 'etag']) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);

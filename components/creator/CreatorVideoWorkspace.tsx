@@ -198,8 +198,10 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
   function onGraphChange(next: CreatorVideoCanvasGraph) {
     const persisted = saveGraph(next); setGraph(persisted);
     if (!selectedCanvasId) return;
+    const canvas = canvases.find((item) => item.id === selectedCanvasId);
+    if (!canvas) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => void updateCreatorCanvas(selectedCanvasId, { graph: persisted }).then((result) => setCanvases((current) => current.map((item) => item.id === result.canvas.id ? result.canvas : item))).catch(() => setNotice("画布已在本地更新，云端保存稍后重试")), 700);
+    saveTimerRef.current = window.setTimeout(() => void updateCreatorCanvas(selectedCanvasId, { graph: persisted, expectedVersion: canvas.version }).then((result) => setCanvases((current) => current.map((item) => item.id === result.canvas.id ? result.canvas : item))).catch(() => setNotice("画布已在本地更新，云端保存稍后重试")), 700);
   }
   async function removeCanvas() {
     if (!canvasDeleteTarget || canvasDeleting) return;

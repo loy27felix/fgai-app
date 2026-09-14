@@ -2,8 +2,9 @@ import axios from "axios";
 import { nanoid } from "nanoid";
 
 import { dataUrlToFile } from "@/reference/infinite-canvas/src/lib/image-utils";
-import { deleteStoredMedia, getMediaBlob, uploadMediaFile, type UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import { getMediaBlob, type UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { imageToDataUrl } from "@/reference/infinite-canvas/src/services/image-storage";
+import { persistGeneratedCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { getVideoModel, VIDEO_MODELS } from "@/lib/ai/video-models";
@@ -13,7 +14,6 @@ import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas
 import { createClient } from "@/lib/local/client";
 import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, creatorVideoContentUrl, finalizeVideoUploads, getVideoTask, uploadVideoReference } from "@/lib/creator/video-client";
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
-import { assertPlayableVideoUrl } from "@/lib/creator/video-recovery";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import { assertCreatorVideoReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
 
@@ -35,7 +35,21 @@ type RequestOptions = {
     onCreatorTaskCreated?: (taskId: string) => void;
 };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; fallbackUrl?: string; mimeType?: string; width?: number; height?: number; storagePath?: string; assetId?: string; externalTaskId?: string };
+export type VideoGenerationResult = {
+    blob?: Blob;
+    url?: string;
+    fallbackUrl?: string;
+    mimeType?: string;
+    width?: number;
+    height?: number;
+    storagePath?: string;
+    assetId?: string;
+    externalTaskId?: string;
+    /** Local creator task used for durable NAS archival and recovery. */
+    creatorTaskId?: string;
+    /** The provider preview exists, but its server-side archival retry is still running. */
+    durableArchivePending?: boolean;
+};
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
@@ -52,17 +66,20 @@ const FG_VIDEO_MODELS = new Set(VIDEO_MODELS.map((model) => model.id));
  * result instead of waiting for a full browser-side blob download.
  */
 function creatorVideoTaskResult(taskId: string, task?: {
-    output?: { video_storage_path?: unknown; video_asset_id?: unknown } | null;
+    output?: { video_storage_path?: unknown; video_asset_id?: unknown; video_archive_status?: unknown } | null;
     external_task_id?: unknown;
 } | null): VideoGenerationResult {
     const proxyUrl = creatorVideoContentUrl(taskId);
+    const storagePath = typeof task?.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined;
     return {
         url: proxyUrl,
         fallbackUrl: proxyUrl,
         mimeType: "video/mp4",
-        storagePath: typeof task?.output?.video_storage_path === "string" ? task.output.video_storage_path : undefined,
+        storagePath,
         assetId: typeof task?.output?.video_asset_id === "string" ? task.output.video_asset_id : undefined,
         externalTaskId: typeof task?.external_task_id === "string" ? task.external_task_id : undefined,
+        creatorTaskId: taskId,
+        durableArchivePending: !storagePath,
     };
 }
 
@@ -330,53 +347,71 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
-    const withCloudMetadata = (stored: UploadedFile): UploadedFile => ({
-        ...stored,
-        ...(result.storagePath ? { cloudStoragePath: result.storagePath } : {}),
-        ...(result.assetId ? { cloudAssetId: result.assetId } : {}),
-        ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
-    });
-    const store = async (input: Blob | string) => {
-        const stored = withCloudMetadata(await uploadMediaFile(input, "video"));
-        const mimeType = stored.mimeType || "";
-        if (mimeType && mimeType !== "application/octet-stream" && !mimeType.startsWith("video/")) {
-            if (stored.storageKey) await deleteStoredMedia([stored.storageKey]).catch(() => undefined);
-            throw new Error("视频接口返回的不是视频文件");
-        }
-        return { ...stored, mimeType: mimeType || result.mimeType || "video/mp4" };
-    };
-    const fallbackUrl = result.fallbackUrl || (result.storagePath ? creatorCanvasAssetContentUrl(result.storagePath) : result.url);
-    const remoteFallback = fallbackUrl ? withCloudMetadata({
-        url: fallbackUrl,
-        storageKey: "",
-        bytes: 0,
-        mimeType: result.mimeType || "video/mp4",
-    }) : null;
-    try {
-        if (result.blob) return await store(result.blob);
-        const candidates = Array.from(new Set([
-            result.fallbackUrl,
-            result.storagePath ? creatorCanvasAssetContentUrl(result.storagePath) : "",
-            result.url,
-        ].filter((value): value is string => Boolean(value))));
-        let lastError: unknown = null;
-        for (const candidate of candidates) {
-            try {
-                return await store(candidate);
-            } catch (error) {
-                lastError = error;
-            }
-        }
-        const detail = lastError instanceof Error ? `：${lastError.message}` : "";
-        throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
-    } catch (error) {
-        if (remoteFallback) {
-            await assertPlayableVideoUrl(remoteFallback.url);
-            return remoteFallback;
-        }
-        const detail = error instanceof Error ? `：${error.message}` : "";
-        throw new Error(`视频已生成，但无法保存到当前浏览器，请检查本地存储权限后重试${detail}`);
+    // Creator tasks own their archive on the server. Never download their
+    // result into IndexedDB just to call it "saved". If the first server-side
+    // archive attempt is still pending, keep the task proxy as a preview; task
+    // polling will continue the server retry until it has a storage path.
+    if (result.storagePath) {
+        return {
+            url: creatorCanvasAssetContentUrl(result.storagePath),
+            storageKey: "",
+            bytes: 0,
+            mimeType: result.mimeType || "video/mp4",
+            cloudStoragePath: result.storagePath,
+            ...(result.assetId ? { cloudAssetId: result.assetId } : {}),
+            ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
+            ...(result.creatorTaskId ? { creatorTaskId: result.creatorTaskId } : {}),
+        };
     }
+    if (result.creatorTaskId) {
+        const previewUrl = result.url || result.fallbackUrl;
+        if (!previewUrl) throw new Error("视频已生成，但尚未收到可播放预览");
+        return {
+            url: previewUrl,
+            storageKey: "",
+            bytes: 0,
+            mimeType: result.mimeType || "video/mp4",
+            ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
+            creatorTaskId: result.creatorTaskId,
+            durableArchivePending: true,
+        };
+    }
+
+    const candidates = Array.from(new Set([result.fallbackUrl, result.url].filter((value): value is string => Boolean(value))));
+    let source: Blob | string | undefined = result.blob;
+    let lastError: unknown = null;
+    for (const candidate of source ? [] : candidates) {
+        try {
+            const response = await fetch(candidate);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            await assertVideoBlob(blob);
+            source = blob;
+            break;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    if (!source) {
+        const detail = lastError instanceof Error ? `：${lastError.message}` : "";
+        throw new Error(`视频已生成，但无法读取供云端保存的文件${detail}`);
+    }
+    if (source instanceof Blob) await assertVideoBlob(source);
+    const stored = await persistGeneratedCanvasAsset(source, {
+        kind: "video",
+        name: "generated-video.mp4",
+        mimeType: result.mimeType || "video/mp4",
+    });
+    return {
+        url: stored.contentUrl,
+        storageKey: "",
+        bytes: stored.bytes,
+        mimeType: stored.mimeType,
+        cloudStoragePath: stored.storagePath,
+        cloudAssetId: stored.assetId,
+        ...(result.externalTaskId ? { externalTaskId: result.externalTaskId } : {}),
+        ...(result.creatorTaskId ? { creatorTaskId: result.creatorTaskId } : {}),
+    };
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {

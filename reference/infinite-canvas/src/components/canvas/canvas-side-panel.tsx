@@ -11,10 +11,9 @@ import { cn } from "@/reference/infinite-canvas/src/lib/utils";
 import { PromptDetailDialog } from "@/reference/infinite-canvas/src/pages/prompts/components/prompt-detail-dialog";
 import { PromptImagePreview } from "@/reference/infinite-canvas/src/pages/prompts/components/prompt-image-preview";
 import { fetchSourcePrompts, type Prompt } from "@/reference/infinite-canvas/src/services/api/prompts";
-import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
-import { uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
-import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { persistCanvasMedia } from "@/reference/infinite-canvas/src/services/file-storage";
+import { persistCanvasImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { useAssetStore, type Asset, type AssetKind } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { usePromptSourceStore } from "@/reference/infinite-canvas/src/stores/use-prompt-source-store";
 import { CANVAS_SIDE_PANEL_MAX_WIDTH, CANVAS_SIDE_PANEL_MIN_WIDTH, CANVAS_SIDE_PANEL_MOTION_MS, useCanvasSidePanelStore } from "@/reference/infinite-canvas/src/stores/use-canvas-side-panel-store";
@@ -462,23 +461,11 @@ const LegacyMergedMaterialTab = memo(function LegacyMergedMaterialTab({ onInsert
         try {
             for (const file of files) {
                 if (file.type.startsWith("image/")) {
-                    const image = await uploadImage(file);
-                    let durable: Awaited<ReturnType<typeof uploadCanvasAsset>> | null = null;
-                    try {
-                        durable = await uploadCanvasAsset(file, { kind: "image", source: "upload", name: file.name, folderId: uploadFolderId });
-                    } catch (error) {
-                        console.warn("[material library durable copy failed]", { kind: "image", name: file.name, folderId: uploadFolderId, error });
-                    }
-                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: durable?.contentUrl || image.url, tags: [], folderId: uploadFolderId, data: { dataUrl: durable?.contentUrl || image.url, storageKey: image.storageKey, cloudStoragePath: durable?.storagePath, cloudAssetId: durable?.assetId || undefined, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType }, metadata: { library_folder: uploadFolderId, durable: Boolean(durable) } });
+                    const image = await persistCanvasImage(file, { name: file.name, folderId: uploadFolderId, libraryScope: "material-library" });
+                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: image.url, tags: [], folderId: uploadFolderId, data: { dataUrl: image.url, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType }, metadata: { library_folder: uploadFolderId, durable: true } });
                     added += 1;
                 } else if (file.type.startsWith("video/")) {
-                    const media = await uploadMediaFile(file, "video");
-                    let durable: Awaited<ReturnType<typeof uploadCanvasAsset>> | null = null;
-                    try {
-                        durable = await uploadCanvasAsset(file, { kind: "video", source: "upload", name: file.name, folderId: uploadFolderId });
-                    } catch (error) {
-                        console.warn("[material library durable copy failed]", { kind: "video", name: file.name, folderId: uploadFolderId, error });
-                    }
+                    const media = await persistCanvasMedia(file, { kind: "video", name: file.name, folderId: uploadFolderId, libraryScope: "material-library" });
                     addAsset({
                         kind: "video",
                         title: file.name || "视频",
@@ -486,29 +473,20 @@ const LegacyMergedMaterialTab = memo(function LegacyMergedMaterialTab({ onInsert
                         tags: [],
                         folderId: uploadFolderId,
                         data: {
-                            url: durable?.contentUrl || media.url,
-                            storageKey: media.storageKey,
-                            cloudStoragePath: durable?.storagePath,
-                            cloudAssetId: durable?.assetId || undefined,
+                            url: media.url,
+                            cloudStoragePath: media.cloudStoragePath,
+                            cloudAssetId: media.cloudAssetId,
                             width: media.width || 0,
                             height: media.height || 0,
                             bytes: media.bytes,
                             mimeType: media.mimeType,
                         },
-                        metadata: durable ? { durable: true, library_folder: uploadFolderId } : { durable: false, library_folder: uploadFolderId, durableUploadError: "云端备份失败，当前视频仅保存在本机浏览器" },
+                        metadata: { durable: true, library_folder: uploadFolderId },
                     });
-                    if (!durable) message.warning(`${file.name || "视频"} 已添加，但云端备份失败；请保持本浏览器缓存可用后重试上传`);
                     added += 1;
                 } else if (file.type.startsWith("audio/")) {
-                    const audio = await uploadMediaFile(file, "audio");
-                    let durable: Awaited<ReturnType<typeof uploadCanvasAsset>> | null = null;
-                    try {
-                        durable = await uploadCanvasAsset(file, { kind: "audio", source: "upload", name: file.name, folderId: uploadFolderId });
-                    } catch (error) {
-                        console.warn("[material library durable copy failed]", { kind: "audio", name: file.name, folderId: uploadFolderId, error });
-                    }
-                    addAsset({ kind: "audio", title: file.name || "音频", coverUrl: "", tags: [], folderId: uploadFolderId, data: { url: durable?.contentUrl || audio.url, storageKey: audio.storageKey, cloudStoragePath: durable?.storagePath, cloudAssetId: durable?.assetId || undefined, bytes: audio.bytes, mimeType: audio.mimeType, durationMs: audio.durationMs }, metadata: { durable: Boolean(durable), library_folder: uploadFolderId } });
-                    if (!durable) message.warning(`${file.name || "音频"} 已添加，但云端备份失败；请保持本浏览器缓存可用后重试上传`);
+                    const audio = await persistCanvasMedia(file, { kind: "audio", name: file.name, folderId: uploadFolderId, libraryScope: "material-library" });
+                    addAsset({ kind: "audio", title: file.name || "音频", coverUrl: "", tags: [], folderId: uploadFolderId, data: { url: audio.url, cloudStoragePath: audio.cloudStoragePath, cloudAssetId: audio.cloudAssetId, bytes: audio.bytes, mimeType: audio.mimeType, durationMs: audio.durationMs }, metadata: { durable: true, library_folder: uploadFolderId } });
                     added += 1;
                 }
             }

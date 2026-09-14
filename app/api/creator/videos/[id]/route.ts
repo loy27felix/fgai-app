@@ -242,32 +242,26 @@ async function pollTask(
   const providerUpdatedTask = update.data as CreatorVideoTask;
   if (polled.status !== 'succeeded') return providerUpdatedTask;
 
-  // The provider URL is already playable here.  NAS/object-store archival can
-  // take minutes for a large video, so it must never hold the task read open:
-  // otherwise the canvas keeps rendering “生成中” until the browser refreshes.
-  // Keep the durable copy best-effort and observable in the background.
+  // A provider URL is temporary.  Do the first durable-copy attempt before
+  // returning the completed task, so the canvas does not promote a transient
+  // playback URL to the only copy of a paid result.  The persistence helper
+  // records a pending marker on transient failure; later reads then retry.
   logServerEvent('creator_video_output_ready', {
     taskId: providerUpdatedTask.id,
     externalTaskId: providerUpdatedTask.external_task_id,
     hasProviderUrl: typeof output.video_url === 'string',
     storagePending: typeof output.video_storage_path !== 'string',
   });
-  void ensureVideoOutputStored(context, providerUpdatedTask)
-    .then((storedTask) => {
-      const storedOutput = asRecord(storedTask.output);
-      logServerEvent('creator_video_archive_completed', {
-        taskId: providerUpdatedTask.id,
-        externalTaskId: providerUpdatedTask.external_task_id,
-        persisted: typeof storedOutput.video_storage_path === 'string',
-      });
-    })
-    .catch((error) => {
-      logServerFailure('creator_video_archive_failed', error, {
-        taskId: providerUpdatedTask.id,
-        externalTaskId: providerUpdatedTask.external_task_id,
-      });
-    });
-  return providerUpdatedTask;
+  const storedTask = await ensureVideoOutputStored(context, providerUpdatedTask);
+  const storedOutput = asRecord(storedTask.output);
+  const persisted = typeof storedOutput.video_storage_path === 'string';
+  logServerEvent(persisted ? 'creator_video_archive_completed' : 'creator_video_archive_pending', {
+    taskId: providerUpdatedTask.id,
+    externalTaskId: providerUpdatedTask.external_task_id,
+    persisted,
+    archiveStatus: storedOutput.video_archive_status,
+  }, persisted ? 'info' : 'warn');
+  return storedTask;
 }
 
 export async function POST(req: Request, { params }: RouteContext) {

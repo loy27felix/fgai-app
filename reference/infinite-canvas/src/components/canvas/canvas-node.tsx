@@ -11,6 +11,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/reference/infinite-canvas/src/types/canvas";
 import { readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { readVideoAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
+import { isFailedCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/canvas/canvas-upload-durability";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/reference/infinite-canvas/src/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
@@ -54,6 +55,7 @@ type CanvasNodeProps = {
     onImageAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoPlaybackError?: (node: CanvasNodeData, failedUrl: string) => void;
+    onRecoverVideoPlayback?: (node: CanvasNodeData) => void;
     onTitleChange: (nodeId: string, title: string) => void;
     onToggleBatch?: (nodeId: string) => void;
     onSetBatchPrimary?: (node: CanvasNodeData) => void;
@@ -81,6 +83,7 @@ type NodeContentRendererProps = {
     onImageAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoAlternativeChange?: (nodeId: string, alternativeIndex: number) => void;
     onVideoPlaybackError?: (node: CanvasNodeData, failedUrl: string) => void;
+    onRecoverVideoPlayback?: (node: CanvasNodeData) => void;
     onStopEditing: () => void;
     mentionReferences: CanvasResourceReference[];
     onRetry?: (node: CanvasNodeData) => void;
@@ -127,6 +130,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     onImageAlternativeChange,
     onVideoAlternativeChange,
     onVideoPlaybackError,
+    onRecoverVideoPlayback,
     onTitleChange,
     onToggleBatch,
     onSetBatchPrimary,
@@ -515,6 +519,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onImageAlternativeChange={onImageAlternativeChange}
                         onVideoAlternativeChange={onVideoAlternativeChange}
                         onVideoPlaybackError={onVideoPlaybackError}
+                        onRecoverVideoPlayback={onRecoverVideoPlayback}
                         onStopEditing={() => setIsEditingContent(false)}
                         onRetry={onRetry}
                         onOpenPrompt={onOpenPrompt}
@@ -547,7 +552,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
-    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onOpenPrompt={props.onOpenPrompt} />;
+    if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onRecoverVideoPlayback={props.onRecoverVideoPlayback} onOpenPrompt={props.onOpenPrompt} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
     if (Renderer) return <Renderer {...props} />;
@@ -597,8 +602,12 @@ function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
     );
 }
 
-function ErrorContent({ node, theme, onRetry, onOpenPrompt }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry" | "onOpenPrompt">) {
+function ErrorContent({ node, theme, onRetry, onRecoverVideoPlayback, onOpenPrompt }: Pick<NodeContentRendererProps, "node" | "theme" | "onRetry" | "onRecoverVideoPlayback" | "onOpenPrompt">) {
     const detail = node.metadata?.errorDetails || "生成失败";
+    const needsReupload = isFailedCanvasMediaUpload(node);
+    const canRecoverVideoPlayback = node.type === CanvasNodeType.Video
+        && Boolean(onRecoverVideoPlayback)
+        && Boolean(node.metadata?.creatorTaskId || node.metadata?.cloudStoragePath);
     return (
         <div className="flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-center gap-3 overflow-hidden px-3 py-3 text-center">
             <div
@@ -607,7 +616,7 @@ function ErrorContent({ node, theme, onRetry, onOpenPrompt }: Pick<NodeContentRe
             >
                 {detail}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
+            {!needsReupload ? <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
                 <button
                     type="button"
                     className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
@@ -621,20 +630,36 @@ function ErrorContent({ node, theme, onRetry, onOpenPrompt }: Pick<NodeContentRe
                     <PencilLine className="size-3.5" />
                     修改提示词
                 </button>
-                <button
-                    type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
-                    style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onRetry?.(node);
-                    }}
-                    onMouseDown={(event) => event.stopPropagation()}
-                >
-                    <RefreshCw className="size-3.5" />
-                    重试
-                </button>
-            </div>
+                {canRecoverVideoPlayback ? (
+                    <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                        style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onRecoverVideoPlayback?.(node);
+                        }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                    >
+                        <RefreshCw className="size-3.5" />
+                        恢复视频
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition hover:scale-[1.02]"
+                        style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onRetry?.(node);
+                        }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                    >
+                        <RefreshCw className="size-3.5" />
+                        重试
+                    </button>
+                )}
+            </div> : null}
         </div>
     );
 }

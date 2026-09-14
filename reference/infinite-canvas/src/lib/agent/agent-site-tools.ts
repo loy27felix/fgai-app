@@ -1,7 +1,7 @@
 import type { NavigateFunction } from "react-router-dom";
 
 import { fetchPrompts } from "@/reference/infinite-canvas/src/services/api/prompts";
-import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { persistCanvasImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { imageAspectOptions, imageQualityOptions } from "@/reference/infinite-canvas/src/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/reference/infinite-canvas/src/components/video-settings-panel";
 import { boolConfig } from "@/reference/infinite-canvas/src/lib/seedance-video";
@@ -12,7 +12,7 @@ import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectabl
 import { useWorkbenchAgentStore } from "@/reference/infinite-canvas/src/stores/use-workbench-agent-store";
 
 // 在网页端执行 Agent 的「站点级」工具（画布列表、工作台生成、提示词搜索、资产增删查等）。
-// 这些工具的数据都在浏览器本地（localforage / zustand），因此由本模块直接读写对应 store 后返回结果。
+// UI 状态仍由浏览器 store 管理；所有新媒体文件在写入状态前已保存到用户私有 creator-assets。
 
 export const SITE_TOOL_NAMES = [
     "canvas_list_projects",
@@ -296,11 +296,14 @@ async function addAsset(input: SiteToolInput) {
         if (!imageUrl) throw new Error("kind=image 时需要提供 imageUrl（图片地址或 dataURL）");
         let stored;
         try {
-            stored = await uploadImage(imageUrl);
+            stored = await persistCanvasImage(await fetch(imageUrl).then(async (response) => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.blob();
+            }), { name: title });
         } catch {
             throw new Error("无法读取该图片地址，请改用 dataURL 或可跨域访问的图片链接");
         }
-        const id = store.addAsset({ kind: "image", title, coverUrl: stored.url, tags, source, note, data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType } });
+        const id = store.addAsset({ kind: "image", title, coverUrl: stored.url, tags, source, note, data: { dataUrl: stored.url, storageKey: stored.storageKey, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType } });
         return { ok: true, id, kind: "image" };
     }
     throw new Error("assets_add 仅支持 kind=text 或 kind=image");

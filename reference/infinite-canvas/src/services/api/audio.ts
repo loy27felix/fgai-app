@@ -1,7 +1,8 @@
 import axios from "axios";
 
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/reference/infinite-canvas/src/lib/audio-generation";
-import { uploadMediaFile, type UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import type { UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import { persistGeneratedCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 
@@ -80,7 +81,19 @@ async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
 
 export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<UploadedFile> {
     const audio = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
-    return uploadMediaFile(audio, "audio");
+    const stored = await persistGeneratedCanvasAsset(audio, {
+        kind: "audio",
+        name: `generated-audio.${format === "wav" ? "wav" : "mp3"}`,
+        mimeType: audio.type || audioMimeType(format),
+    });
+    return {
+        url: stored.contentUrl,
+        storageKey: "",
+        bytes: stored.bytes,
+        mimeType: stored.mimeType,
+        cloudStoragePath: stored.storagePath,
+        cloudAssetId: stored.assetId,
+    };
 }
 
 function assertAudioConfig(config: AiConfig, model: string) {

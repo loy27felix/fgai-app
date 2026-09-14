@@ -13,8 +13,8 @@ import PromptPicker from "@/components/PromptPicker";
 import { CanvasNodeType } from "@/reference/infinite-canvas/src/types/canvas";
 import { type CanvasAgentOp } from "@/reference/infinite-canvas/src/lib/canvas/canvas-agent-ops";
 import { imageMetadata, videoMetadata, audioMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
-import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
-import { uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
+import { persistCanvasImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { persistCanvasMedia } from "@/reference/infinite-canvas/src/services/file-storage";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
 import { modelOptionLabel, selectableModelsByCapability, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { type CompanyVideoPlan, type CompanyVideoQuote, type CompanyVideoSkillFlowInput } from "./company-video-skill-flow";
@@ -565,15 +565,15 @@ export function LocalAgentPanel({ embedded: _embedded }: Props) {
       const position = { x: referenceX, y: referenceY + index * 260 };
       const title = file.name.slice(0, 72) || `参考素材 ${index + 1}`;
       if (file.type.startsWith("image/")) {
-        const uploaded = await uploadImage(file);
+        const uploaded = await persistCanvasImage(file, { name: title, nodeId: id });
         return { id, nodeType: CanvasNodeType.Image, title, position, metadata: imageMetadata(uploaded) };
       }
       if (file.type.startsWith("video/")) {
-        const uploaded = await uploadMediaFile(file, "video");
+        const uploaded = await persistCanvasMedia(file, { kind: "video", name: title, nodeId: id });
         return { id, nodeType: CanvasNodeType.Video, title, position, metadata: videoMetadata(uploaded) };
       }
       if (file.type.startsWith("audio/")) {
-        const uploaded = await uploadMediaFile(file, "audio");
+        const uploaded = await persistCanvasMedia(file, { kind: "audio", name: title, nodeId: id });
         return { id, nodeType: CanvasNodeType.Audio, title, position, metadata: audioMetadata(uploaded) };
       }
       throw new Error(`暂不支持 ${file.name} 的文件类型`);

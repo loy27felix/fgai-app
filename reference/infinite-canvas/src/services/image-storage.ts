@@ -2,6 +2,8 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
+import { persistGeneratedCanvasAsset, uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
+import { creatorCanvasAssetContentUrl } from "@/lib/creator/video-client";
 
 export type UploadedImage = {
     url: string;
@@ -10,6 +12,8 @@ export type UploadedImage = {
     height: number;
     bytes: number;
     mimeType: string;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
 };
 
 export type StoredImage = Omit<UploadedImage, "storageKey"> & {
@@ -74,25 +78,85 @@ export async function setImageBlob(storageKey: string, blob: Blob) {
 }
 
 /**
- * Wetoken-generated images already have a private server-side asset and task
- * record. Do not make display of that paid result depend on IndexedDB: its
- * signed URL is safe for the current session and the canvas will renew it
- * from creatorTaskId after a reload. Other image sources retain the local
- * cache behaviour used for uploads and edits without a durable task.
+ * A generated image may be previewed from a provider URL, but its final owner
+ * must always be creator-assets.  Browser IndexedDB is deliberately excluded
+ * here: it is a cache, not a cross-device or long-term media store.
  */
 export async function storeGeneratedImage(image: GeneratedImageSource): Promise<StoredImage> {
-    if (!image.creatorTaskId && !image.cloudStoragePath) return uploadImage(image.dataUrl);
+    if (image.cloudStoragePath) {
+        return {
+            url: creatorCanvasAssetContentUrl(image.cloudStoragePath),
+            width: image.width || 1024,
+            height: image.height || 1024,
+            bytes: 0,
+            mimeType: image.mimeType || "image/png",
+            ...(image.creatorTaskId ? { creatorTaskId: image.creatorTaskId } : {}),
+            cloudStoragePath: image.cloudStoragePath,
+            ...(image.cloudAssetId ? { cloudAssetId: image.cloudAssetId } : {}),
+        };
+    }
+
     const meta = await readImageMeta(image.dataUrl);
+
+    const stored = await persistGeneratedCanvasAsset(image.dataUrl, {
+        kind: "image",
+        name: `generated-image.${image.mimeType?.includes("jpeg") ? "jpg" : "png"}`,
+        mimeType: image.mimeType || meta.mimeType,
+    });
     return {
-        url: image.dataUrl,
+        url: stored.contentUrl,
         width: image.width || meta.width,
         height: image.height || meta.height,
-        bytes: 0,
-        mimeType: image.mimeType || meta.mimeType,
+        bytes: stored.bytes,
+        mimeType: stored.mimeType,
         ...(image.creatorTaskId ? { creatorTaskId: image.creatorTaskId } : {}),
-        ...(image.cloudStoragePath ? { cloudStoragePath: image.cloudStoragePath } : {}),
-        ...(image.cloudAssetId ? { cloudAssetId: image.cloudAssetId } : {}),
+        cloudStoragePath: stored.storagePath,
+        cloudAssetId: stored.assetId,
     };
+}
+
+/** A short-lived object URL for upload progress; unlike uploadImage this never writes IndexedDB. */
+export async function previewImage(input: Blob): Promise<UploadedImage> {
+    if (!(input instanceof Blob) || input.size === 0) throw new Error("无法读取图片文件");
+    const url = URL.createObjectURL(input);
+    const meta = await readImageMeta(url);
+    return { url, storageKey: "", width: meta.width, height: meta.height, bytes: input.size, mimeType: input.type || meta.mimeType };
+}
+
+/**
+ * Saves a user-supplied image to creator-assets before returning it to any
+ * canvas/workbench state.  The object URL used to read dimensions is only a
+ * short-lived preview and is revoked before the function resolves.
+ */
+export async function persistCanvasImage(
+    input: Blob,
+    options: { name?: string; source?: "upload" | "generation" | "project_copy"; nodeId?: string; folderId?: string; libraryScope?: "material-library" } = {},
+): Promise<UploadedImage> {
+    if (!(input instanceof Blob) || input.size === 0) throw new Error("无法读取图片文件");
+    const preview = await previewImage(input);
+    try {
+        const name = options.name || "canvas-image.png";
+        const file = input instanceof File && input.name
+            ? input
+            : new File([input], name, { type: input.type || preview.mimeType || "image/png" });
+        const stored = await uploadCanvasAsset(file, {
+            kind: "image",
+            source: options.source || "upload",
+            name,
+            nodeId: options.nodeId,
+            folderId: options.folderId,
+            libraryScope: options.libraryScope,
+        });
+        return {
+            ...preview,
+            url: stored.contentUrl,
+            storageKey: "",
+            cloudStoragePath: stored.storagePath,
+            cloudAssetId: stored.assetId,
+        };
+    } finally {
+        URL.revokeObjectURL(preview.url);
+    }
 }
 
 export async function imageToDataUrl(image: { url?: string; dataUrl?: string; storageKey?: string }) {

@@ -1,7 +1,8 @@
 import localforage from "localforage";
 import { nanoid } from "nanoid";
+import { uploadCanvasAsset, type CanvasAssetKind } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 
-export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number; cloudStoragePath?: string; cloudAssetId?: string; externalTaskId?: string };
+export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number; cloudStoragePath?: string; cloudAssetId?: string; externalTaskId?: string; creatorTaskId?: string; durableArchivePending?: boolean };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
@@ -19,6 +20,51 @@ export async function uploadMediaFile(input: string | Blob, prefix = "file"): Pr
     objectUrls.set(storageKey, url);
     const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
     return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
+}
+
+/** A short-lived object URL for upload progress; it intentionally avoids IndexedDB. */
+export async function previewMediaFile(input: Blob): Promise<UploadedFile> {
+    if (!(input instanceof Blob) || input.size === 0) throw new Error("无法读取媒体文件");
+    const url = URL.createObjectURL(input);
+    const meta = input.type.startsWith("video/") ? await readVideoMeta(url) : input.type.startsWith("audio/") ? await readAudioMeta(url) : {};
+    return { url, storageKey: "", bytes: input.size, mimeType: input.type || "application/octet-stream", ...meta };
+}
+
+/**
+ * Stores a user-supplied video or audio object in creator-assets. Browser
+ * object URLs are used only long enough to read metadata; they are never
+ * persisted as the media owner's fallback.
+ */
+export async function persistCanvasMedia(
+    input: Blob,
+    options: { kind: Extract<CanvasAssetKind, "video" | "audio">; name?: string; source?: "upload" | "generation" | "project_copy"; nodeId?: string; folderId?: string; libraryScope?: "material-library" },
+): Promise<UploadedFile> {
+    if (!(input instanceof Blob) || input.size === 0) throw new Error("无法读取媒体文件");
+    const preview = await previewMediaFile(input);
+    try {
+        const fallbackName = options.kind === "video" ? "canvas-video.mp4" : "canvas-audio.mp3";
+        const name = options.name || fallbackName;
+        const file = input instanceof File && input.name
+            ? input
+            : new File([input], name, { type: input.type || preview.mimeType || (options.kind === "video" ? "video/mp4" : "audio/mpeg") });
+        const stored = await uploadCanvasAsset(file, {
+            kind: options.kind,
+            source: options.source || "upload",
+            name,
+            nodeId: options.nodeId,
+            folderId: options.folderId,
+            libraryScope: options.libraryScope,
+        });
+        return {
+            ...preview,
+            url: stored.contentUrl,
+            storageKey: "",
+            cloudStoragePath: stored.storagePath,
+            cloudAssetId: stored.assetId,
+        };
+    } finally {
+        URL.revokeObjectURL(preview.url);
+    }
 }
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {

@@ -3,9 +3,8 @@ import { App, Empty, Input, Popconfirm, Tag } from "antd";
 import { ChevronRight, FileText, Image as ImageIcon, Plus, Search, Trash2, Video } from "lucide-react";
 
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
-import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
-import { uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
-import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { persistCanvasMedia } from "@/reference/infinite-canvas/src/services/file-storage";
+import { persistCanvasImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { useAssetStore, type Asset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import type { CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 
@@ -26,7 +25,7 @@ function isStandardAsset(asset: Asset): asset is StandardAsset {
 function toInsertPayload(asset: StandardAsset): InsertAssetPayload {
     if (asset.kind === "text") return { kind: "text", content: asset.data.content, title: asset.title };
     if (asset.kind === "video") return { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, cloudStoragePath: asset.data.cloudStoragePath, cloudAssetId: asset.data.cloudAssetId, creatorTaskId: asset.data.creatorTaskId, title: asset.title, width: asset.data.width, height: asset.data.height };
-    return { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title };
+    return { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, cloudStoragePath: asset.data.cloudStoragePath, cloudAssetId: asset.data.cloudAssetId, title: asset.title };
 }
 
 export const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
@@ -55,16 +54,12 @@ export const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }
             let added = 0;
             for (const file of files) {
                 if (file.type.startsWith("image/")) {
-                    const image = await uploadImage(file);
-                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: image.url, tags: [], data: { dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType } });
+                    const image = await persistCanvasImage(file, { name: file.name });
+                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: image.url, tags: [], data: { dataUrl: image.url, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType } });
                     added += 1;
                 } else if (file.type.startsWith("video/")) {
-                    const media = await uploadMediaFile(file, "video");
-                    const durable = await uploadCanvasAsset(file, { kind: "video", source: "upload", name: file.name }).catch((error) => {
-                        console.warn("[canvas asset durable copy failed]", { kind: "video", name: file.name, error });
-                        return null;
-                    });
-                    addAsset({ kind: "video", title: file.name || "视频", coverUrl: "", tags: [], data: { url: durable?.contentUrl || media.url, storageKey: media.storageKey, cloudStoragePath: durable?.storagePath, cloudAssetId: durable?.assetId || undefined, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType }, metadata: durable ? { durable: true } : { durable: false } });
+                    const media = await persistCanvasMedia(file, { kind: "video", name: file.name });
+                    addAsset({ kind: "video", title: file.name || "视频", coverUrl: "", tags: [], data: { url: media.url, cloudStoragePath: media.cloudStoragePath, cloudAssetId: media.cloudAssetId, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType }, metadata: { durable: true } });
                     added += 1;
                 }
             }

@@ -109,7 +109,11 @@ export default function CanvasPage() {
                     // `projects` value is stale while importProject/updateProject
                     // are mutating the store during this loop.
                     const currentProjects = useCanvasStore.getState().projects;
-                    if (currentProjects.some((project) => project.cloudCanvasId === canvas.id)) continue;
+                    const existingLocal = currentProjects.find((project) => project.cloudCanvasId === canvas.id);
+                    if (existingLocal) {
+                        if (existingLocal.cloudCanvasVersion !== canvas.version) updateProject(existingLocal.id, { cloudCanvasVersion: canvas.version });
+                        continue;
+                    }
 
                     const graph = canvas.graph && typeof canvas.graph === "object" ? canvas.graph as Record<string, unknown> : {};
                     const nodes = Array.isArray(graph.nodes) ? graph.nodes as any[] : [];
@@ -121,7 +125,7 @@ export default function CanvasPage() {
                         // Older local projects were created before cloudCanvasId
                         // existed. Adopt the matching project instead of importing
                         // a second copy on every visit.
-                        updateProject(matchingLocal.id, { cloudCanvasId: canvas.id });
+                        updateProject(matchingLocal.id, { cloudCanvasId: canvas.id, cloudCanvasVersion: canvas.version });
                         continue;
                     }
 
@@ -139,7 +143,7 @@ export default function CanvasPage() {
                             k: typeof viewport.zoom === "number" ? viewport.zoom : typeof viewport.k === "number" ? viewport.k : 1,
                         },
                     });
-                    updateProject(localId, { cloudCanvasId: canvas.id });
+                    updateProject(localId, { cloudCanvasId: canvas.id, cloudCanvasVersion: canvas.version });
                 }
             } catch {
                 // Unauthenticated/private deployments continue with localForage.

@@ -107,14 +107,20 @@ export function reconcileVideoTask(taskId: string, externalTaskId: string) {
   });
 }
 
-/** Stable same-origin playback URL for a creator video task. */
-export function creatorVideoContentUrl(taskId: string) {
-  return '/api/creator/videos/' + encodeURIComponent(taskId) + '/content';
+/** Stable same-origin playback URL for a creator video task.
+ *
+ * A non-empty attempt key intentionally produces a new browser media request
+ * after a transient proxy or signed-url failure.
+ */
+export function creatorVideoContentUrl(taskId: string, attempt?: string) {
+  const url = '/api/creator/videos/' + encodeURIComponent(taskId) + '/content';
+  return attempt ? url + '?attempt=' + encodeURIComponent(attempt) : url;
 }
 
 /** Stable same-origin playback URL for a private canvas asset. */
-export function creatorCanvasAssetContentUrl(storagePath: string) {
-  return '/api/creator/canvas-assets/content?path=' + encodeURIComponent(storagePath);
+export function creatorCanvasAssetContentUrl(storagePath: string, attempt?: string) {
+  const url = '/api/creator/canvas-assets/content?path=' + encodeURIComponent(storagePath);
+  return attempt ? url + '&attempt=' + encodeURIComponent(attempt) : url;
 }
 
 export function deleteVideoTask(taskId: string) {

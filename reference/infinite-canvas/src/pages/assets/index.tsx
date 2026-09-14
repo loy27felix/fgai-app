@@ -4,8 +4,8 @@ import { App, Button, Card, Drawer, Empty, Form, Image, Input, Modal, Pagination
 import { saveAs } from "file-saver";
 
 import { useCopyText } from "@/reference/infinite-canvas/src/hooks/use-copy-text";
-import { formatBytes, readFileAsDataUrl } from "@/reference/infinite-canvas/src/lib/image-utils";
-import { uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { formatBytes } from "@/reference/infinite-canvas/src/lib/image-utils";
+import { persistCanvasImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
 import { useAssetStore, type Asset, type AssetKind, type ImageAsset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { exportAssets, readAssetPackage } from "./asset-transfer";
@@ -127,15 +127,15 @@ export default function AssetsPage() {
     };
 
     const readCoverFile = async (file?: File) => {
-        if (!file) return;
-        const dataUrl = await readFileAsDataUrl(file);
-        form.setFieldValue("coverUrl", dataUrl);
+        if (!file || !file.type.startsWith("image/")) return;
+        const image = await persistCanvasImage(file, { name: file.name || "asset-cover.png" });
+        form.setFieldValue("coverUrl", image.url);
     };
 
     const readImageFile = async (file?: File) => {
         if (!file || !file.type.startsWith("image/")) return;
-        const image = await uploadImage(file);
-        const draft = { dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType };
+        const image = await persistCanvasImage(file, { name: file.name });
+        const draft = { dataUrl: image.url, storageKey: image.storageKey, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType };
         setImageDraft(draft);
         if (!form.getFieldValue("coverUrl")) form.setFieldValue("coverUrl", draft.dataUrl);
         if (!form.getFieldValue("title")) form.setFieldValue("title", file.name);

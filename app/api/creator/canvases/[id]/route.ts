@@ -81,21 +81,37 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const context = await creatorContext();
     if (!context) return errorResponse('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
     const body = asRecord(await req.json().catch(() => ({})));
+    const expectedVersion = typeof body.expectedVersion === 'number' && Number.isInteger(body.expectedVersion) && body.expectedVersion >= 0
+      ? body.expectedVersion
+      : null;
+    if (expectedVersion === null) return errorResponse('画布版本缺失，请刷新后重试', 'CANVAS_VERSION_REQUIRED', 409);
     const changes: Record<string, unknown> = {};
     if (typeof body.title === 'string' && body.title.trim()) changes.title = body.title.trim().slice(0, 80);
     if (typeof body.graph !== 'undefined') {
       try { changes.graph = normalizeGraph(body.graph); } catch { return NextResponse.json({ error: '画布数据无效' }, { status: 400 }); }
     }
     if (!Object.keys(changes).length) return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 });
+    changes.version = expectedVersion + 1;
     const { data, error } = await context.localClient
       .from('creator_canvases')
       .update(changes)
       .eq('id', params.id)
       .eq('workspace_id', context.workspace.id)
+      .eq('version', expectedVersion)
       .select('*')
       .maybeSingle();
     if (error) throw error;
-    if (!data) return NextResponse.json({ error: '画布不存在' }, { status: 404 });
+    if (!data) {
+      const { data: current, error: currentError } = await context.localClient
+        .from('creator_canvases')
+        .select('*')
+        .eq('id', params.id)
+        .eq('workspace_id', context.workspace.id)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      if (!current) return NextResponse.json({ error: '画布不存在' }, { status: 404 });
+      return NextResponse.json({ error: '画布已在其他位置更新，正在合并最新内容', code: 'CANVAS_VERSION_CONFLICT', canvas: current }, { status: 409 });
+    }
     return NextResponse.json({ canvas: data });
   } catch (error: unknown) {
     return serverError(error, 'CANVAS_FAILED', '\u753b\u5e03\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5');

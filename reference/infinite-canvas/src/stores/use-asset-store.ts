@@ -3,8 +3,8 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/reference/infinite-canvas/src/lib/localforage-storage";
-import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
-import { cleanupUnusedMedia, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
+import { cleanupUnusedImages, resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { cleanupUnusedMedia, persistCanvasMedia, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { readGenerationLogStorageSnapshot } from "@/reference/infinite-canvas/src/services/generation-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
 
@@ -61,7 +61,14 @@ const assetStorage: PersistStorage<AssetStore> = {
                     }
                     if (asset.data.storageKey) {
                         const localUrl = await resolveMediaUrl(asset.data.storageKey, "");
-                        if (localUrl) return { ...asset, data: { ...asset.data, url: localUrl } };
+                        if (localUrl) {
+                            try {
+                                const stored = await persistCanvasMedia(await fetch(localUrl).then((response) => response.blob()), { kind: "video", name: asset.title || "legacy-video.mp4", source: "project_copy" });
+                                return { ...asset, data: { ...asset.data, url: stored.url, storageKey: undefined, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, bytes: stored.bytes, mimeType: stored.mimeType, width: stored.width || asset.data.width, height: stored.height || asset.data.height } };
+                            } catch {
+                                return { ...asset, data: { ...asset.data, url: localUrl } };
+                            }
+                        }
                     }
                     if (asset.data.url.startsWith("blob:")) {
                         console.warn("[material library asset hydration unavailable]", { assetId: asset.id, kind: asset.kind, hasStorageKey: Boolean(asset.data.storageKey) });
@@ -77,7 +84,14 @@ const assetStorage: PersistStorage<AssetStore> = {
                     }
                     if (asset.data.storageKey) {
                         const localUrl = await resolveMediaUrl(asset.data.storageKey, "");
-                        if (localUrl) return { ...asset, data: { ...asset.data, url: localUrl } };
+                        if (localUrl) {
+                            try {
+                                const stored = await persistCanvasMedia(await fetch(localUrl).then((response) => response.blob()), { kind: "audio", name: asset.title || "legacy-audio.mp3", source: "project_copy" });
+                                return { ...asset, data: { ...asset.data, url: stored.url, storageKey: undefined, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, bytes: stored.bytes, mimeType: stored.mimeType, durationMs: stored.durationMs || asset.data.durationMs } };
+                            } catch {
+                                return { ...asset, data: { ...asset.data, url: localUrl } };
+                            }
+                        }
                     }
                     if (asset.data.url.startsWith("blob:")) {
                         console.warn("[material library asset hydration unavailable]", { assetId: asset.id, kind: asset.kind, hasStorageKey: Boolean(asset.data.storageKey) });
@@ -91,15 +105,19 @@ const assetStorage: PersistStorage<AssetStore> = {
                     console.info("[material library image hydrated]", { assetId: asset.id, source: "canvas-asset" });
                     return { ...asset, coverUrl: durableUrl, data: { ...asset.data, dataUrl: durableUrl, storageKey: undefined } };
                 }
-                if (asset.data.storageKey)
-                    return {
-                        ...asset,
-                        coverUrl: asset.coverUrl.startsWith("blob:") ? await resolveImageUrl(asset.data.storageKey, asset.coverUrl) : asset.coverUrl,
-                        data: { ...asset.data, dataUrl: await resolveImageUrl(asset.data.storageKey, asset.data.dataUrl) },
-                    };
+                if (asset.data.storageKey) {
+                    const localUrl = await resolveImageUrl(asset.data.storageKey, asset.data.dataUrl);
+                    if (!localUrl) return asset;
+                    try {
+                        const image = await storeGeneratedImage({ dataUrl: localUrl, mimeType: asset.data.mimeType, width: asset.data.width, height: asset.data.height });
+                        return { ...asset, coverUrl: image.url, data: { ...asset.data, dataUrl: image.url, storageKey: undefined, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId, bytes: image.bytes, mimeType: image.mimeType, width: image.width, height: image.height } };
+                    } catch {
+                        return { ...asset, coverUrl: asset.coverUrl.startsWith("blob:") ? localUrl : asset.coverUrl, data: { ...asset.data, dataUrl: localUrl } };
+                    }
+                }
                 if (!asset.data.dataUrl.startsWith("data:image/")) return asset;
-                const image = await uploadImage(asset.data.dataUrl);
-                return { ...asset, coverUrl: asset.coverUrl.startsWith("data:image/") ? image.url : asset.coverUrl, data: { ...asset.data, dataUrl: image.url, storageKey: image.storageKey, bytes: image.bytes, mimeType: image.mimeType } };
+                const image = await storeGeneratedImage({ dataUrl: asset.data.dataUrl, mimeType: asset.data.mimeType, width: asset.data.width, height: asset.data.height });
+                return { ...asset, coverUrl: image.url, data: { ...asset.data, dataUrl: image.url, storageKey: undefined, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId, bytes: image.bytes, mimeType: image.mimeType, width: image.width, height: image.height } };
             }),
         );
         return parsed;

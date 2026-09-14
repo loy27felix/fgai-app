@@ -486,9 +486,11 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
     setCanvasGraph(nextGraph);
     const canvasId = selectedCanvasId;
     if (!canvasId) return;
+    const canvas = canvases.find((item) => item.id === canvasId);
+    if (!canvas) return;
     if (canvasSaveTimerRef.current) window.clearTimeout(canvasSaveTimerRef.current);
     canvasSaveTimerRef.current = window.setTimeout(() => {
-      void updateCreatorCanvas(canvasId, { graph: nextGraph })
+      void updateCreatorCanvas(canvasId, { graph: nextGraph, expectedVersion: canvas.version })
         .then((response) => {
           setCanvases((current) => current.map((canvas) => canvas.id === response.canvas.id ? response.canvas : canvas));
         })

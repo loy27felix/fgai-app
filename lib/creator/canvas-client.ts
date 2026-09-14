@@ -9,6 +9,10 @@ export function listCreatorCanvases(kind: CreatorCanvasKind = 'image') {
   return requestJson<CreatorCanvasListResponse>('/api/creator/canvases?kind=' + kind, { method: 'GET' });
 }
 
+export function getCreatorCanvas(id: string) {
+  return requestJson<CreatorCanvasResponse>('/api/creator/canvases/' + encodeURIComponent(id), { method: 'GET' });
+}
+
 export function createCreatorCanvas(payload: { title?: string; graph?: CreatorCanvasGraph }, kind: CreatorCanvasKind = 'image') {
   return requestJson<CreatorCanvasResponse>('/api/creator/canvases', {
     method: 'POST',
@@ -16,7 +20,7 @@ export function createCreatorCanvas(payload: { title?: string; graph?: CreatorCa
   });
 }
 
-export function updateCreatorCanvas(id: string, payload: { title?: string; graph?: CreatorCanvasGraph }) {
+export function updateCreatorCanvas(id: string, payload: { title?: string; graph?: CreatorCanvasGraph; expectedVersion: number }) {
   return requestJson<CreatorCanvasResponse>('/api/creator/canvases/' + encodeURIComponent(id), {
     method: 'PATCH',
     body: JSON.stringify(payload),

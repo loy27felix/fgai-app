@@ -47,7 +47,9 @@ export function imageMetadata(image: ImageMetadataSource): CanvasNodeMetadata {
     };
 }
 
-type CreatorImageRecoveryTask = Pick<CreatorImageTaskView, "id" | "model" | "status" | "request" | "resultUrl">;
+type CreatorImageRecoveryTask = Pick<CreatorImageTaskView, "id" | "model" | "status" | "request" | "resultUrl"> & {
+    asset?: CreatorImageTaskView["asset"];
+};
 
 /**
  * Pre-durable canvas nodes stored only a browser cache key. A cache can be
@@ -91,7 +93,16 @@ export function videoMetadata(video: VideoMetadataSource): CanvasNodeMetadata {
 }
 
 export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
+    return {
+        content: audio.url,
+        ...(audio.storageKey ? { storageKey: audio.storageKey } : {}),
+        ...(audio.cloudStoragePath ? { cloudStoragePath: audio.cloudStoragePath } : {}),
+        ...(audio.cloudAssetId ? { cloudAssetId: audio.cloudAssetId } : {}),
+        status: "success",
+        bytes: audio.bytes,
+        mimeType: audio.mimeType || "audio/mpeg",
+        durationMs: audio.durationMs,
+    };
 }
 
 export function referenceUrl(image: ReferenceImage) {

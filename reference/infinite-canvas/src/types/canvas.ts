@@ -120,8 +120,18 @@ export type CanvasNodeMetadata = {
     interactive?: boolean; // 插件节点「交互 ⇄ 移动」开关状态(见 CanvasNodeDefinition.interactionToggle)
     cloudStoragePath?: string; // Local creator-assets 中的持久化副本
     cloudAssetId?: string;
+    /** Local preview is visible, but the source file is not yet durable. */
+    durableUploadPending?: boolean;
+    /** Durable upload failed; this must be re-uploaded, not re-generated. */
+    durableUploadFailed?: boolean;
+    /** A provider preview is available while the server keeps copying it to creator-assets. */
+    durableArchivePending?: boolean;
     externalTaskId?: string; // Wetoken reference ID，用于视频任务恢复
     creatorTaskId?: string; // 本机 creator_generation_tasks ID，用于长视频任务续查
+    /** Guards a reused video node from an older request writing it back to loading. */
+    generationAttemptId?: string;
+    /** Consecutive playback recovery attempts; this never starts a new generation. */
+    playbackRecoveryAttempt?: number;
 };
 
 export type CanvasNodeData = {

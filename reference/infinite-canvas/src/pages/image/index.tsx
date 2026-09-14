@@ -14,9 +14,9 @@ import { imageReferenceLabel } from "@/reference/infinite-canvas/src/lib/image-r
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
 import { nanoid } from "nanoid";
-import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
+import { formatBytes, formatDuration } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/reference/infinite-canvas/src/services/api/image";
-import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { deleteStoredImages, persistCanvasImage, resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/reference/infinite-canvas/src/stores/use-workbench-agent-store";
@@ -31,6 +31,8 @@ type GeneratedImage = {
     height: number;
     bytes: number;
     mimeType?: string;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
 };
 
 type GenerationResult = {
@@ -120,8 +122,8 @@ export default function ImagePage() {
         const imageFiles = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
         const nextReferences = await Promise.all(
             imageFiles.map(async (file) => {
-                const image = await uploadImage(file);
-                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                const image = await persistCanvasImage(file, { name: file.name });
+                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
             }),
         );
         setReferences((value) => [...value, ...nextReferences]);
@@ -137,8 +139,8 @@ export default function ImagePage() {
             }
             const nextReferences = await Promise.all(
                 blobs.map(async (blob, index) => {
-                    const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    const image = await persistCanvasImage(blob, { name: `clipboard-${index + 1}.png` });
+                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
                 }),
             );
             setReferences((value) => [...value, ...nextReferences]);
@@ -191,8 +193,8 @@ export default function ImagePage() {
         try {
             const logImages = await Promise.all(
                 successImages.map(async (image) => {
-                    const stored = await uploadImage(image.dataUrl);
-                    return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+                    const stored = await storeGeneratedImage(image);
+                    return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
                 }),
             );
             saveLog(
@@ -249,20 +251,20 @@ export default function ImagePage() {
     };
 
     const addResultToReferences = async (image: GeneratedImage, index: number) => {
-        const stored = await uploadImage(image.dataUrl);
-        setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+        const stored = await storeGeneratedImage(image);
+        setReferences((value) => [...value, { id: nanoid(), name: `result-${index + 1}.png`, type: stored.mimeType, dataUrl: stored.url, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId }]);
         message.success("已加入参考图");
     };
 
     const saveResultToAssets = async (image: GeneratedImage, index: number) => {
-        const stored = await uploadImage(image.dataUrl);
+        const stored = await storeGeneratedImage(image);
         addAsset({
             kind: "image",
             title: `生成结果 ${index + 1}`,
             coverUrl: stored.url,
             tags: [],
             source: "生图工作台",
-            data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType },
+            data: { dataUrl: stored.url, storageKey: stored.storageKey, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType },
             metadata: { source: "image-page", prompt },
         });
         message.success("已加入我的资产");
@@ -272,8 +274,12 @@ export default function ImagePage() {
         if (payload.kind === "text") {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
-            const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }]);
+            if (payload.cloudStoragePath) {
+                setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "image/png", dataUrl: payload.dataUrl, cloudStoragePath: payload.cloudStoragePath, cloudAssetId: payload.cloudAssetId }]);
+            } else {
+                const stored = await persistCanvasImage(await fetch(payload.dataUrl).then((response) => response.blob()), { name: payload.title });
+                setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId }]);
+            }
         } else {
             message.warning("生图工作台只能使用文本或图片资产");
         }
@@ -340,11 +346,13 @@ export default function ImagePage() {
         const file = Array.from(files || []).find((item) => item.type.startsWith("image/"));
         if (index === null || !file) return;
         try {
-            const stored = await uploadImage(file);
+            const stored = await persistCanvasImage(file, { name: file.name || `recovered-${index + 1}.png` });
             const recovered: GeneratedImage = {
                 id: nanoid(),
                 dataUrl: stored.url,
                 storageKey: stored.storageKey,
+                cloudStoragePath: stored.cloudStoragePath,
+                cloudAssetId: stored.cloudAssetId,
                 durationMs: 0,
                 width: stored.width,
                 height: stored.height,
@@ -397,14 +405,14 @@ export default function ImagePage() {
         return { text, config: { ...effectiveConfig, model, count: "1" }, references: [...references] };
     };
 
-    const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }) => {
+    const runGenerationSlot = async (index: number, snapshot: { text: string; config: AiConfig; references: ReferenceImage[] }): Promise<GeneratedImage> => {
         const itemStartedAt = performance.now();
         try {
             const result = snapshot.references.length ? await requestEdit(snapshot.config, snapshot.text, snapshot.references) : await requestGeneration(snapshot.config, snapshot.text);
             const image = result[0];
             if (!image) throw new Error("接口没有返回图片");
-            const meta = await readImageMeta(image.dataUrl);
-            const nextImage = { id: image.id, dataUrl: image.dataUrl, durationMs: performance.now() - itemStartedAt, width: meta.width, height: meta.height, bytes: getDataUrlByteSize(image.dataUrl) };
+            const stored = await storeGeneratedImage(image);
+            const nextImage = { id: image.id, dataUrl: stored.url, storageKey: stored.storageKey, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, durationMs: performance.now() - itemStartedAt, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
             setResults((value) => updateResultAt(value, index, { status: "success", image: nextImage }));
             return nextImage;
         } catch (error) {
@@ -421,9 +429,9 @@ export default function ImagePage() {
         const retryStartedAt = performance.now();
         try {
             const image = await runGenerationSlot(index, snapshot);
-            const stored = await uploadImage(image.dataUrl);
-            const logImage = { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
-            setResults((value) => updateResultAt(value, index, { image: { ...image, dataUrl: stored.url, storageKey: stored.storageKey } }));
+            const stored = await storeGeneratedImage(image);
+            const logImage = { ...image, dataUrl: stored.url, storageKey: stored.storageKey, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+            setResults((value) => updateResultAt(value, index, { image: { ...image, dataUrl: stored.url, storageKey: stored.storageKey, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId } }));
             saveLog(
                 buildLog({
                     prompt: snapshot.text,
@@ -910,20 +918,24 @@ function serializeLog(log: GenerationLog): GenerationLog {
     };
 }
 
-async function localizeImage<T extends { dataUrl: string; storageKey?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>(item: T) {
-    if (item.storageKey) {
-        const localUrl = await resolveImageUrl(item.storageKey, "");
-        if (localUrl) return { ...item, dataUrl: localUrl };
+async function localizeImage<T extends { dataUrl: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string; width?: number; height?: number; bytes?: number; mimeType?: string }>(item: T) {
+    if (item.cloudStoragePath) return item;
+    const source = item.storageKey ? await resolveImageUrl(item.storageKey, "") : item.dataUrl;
+    if (!source) return item;
+    try {
+        const stored = await storeGeneratedImage({
+            dataUrl: source,
+            mimeType: item.mimeType,
+            width: item.width,
+            height: item.height,
+        });
+        return { ...item, dataUrl: stored.url, storageKey: "", cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
+    } catch {
+        // An expired provider URL or a cleared old browser cache cannot be
+        // recreated. Preserve the historical record without mislabeling it as
+        // durable media.
+        return item;
     }
-    if (!item.storageKey && item.dataUrl) {
-        try {
-            const stored = await uploadImage(item.dataUrl);
-            return { ...item, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
-        } catch {
-            // Keep the original URL when local migration is not possible.
-        }
-    }
-    return item;
 }
 function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
     return {

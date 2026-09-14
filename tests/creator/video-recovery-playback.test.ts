@@ -9,6 +9,7 @@ test('video generation has a durable same-origin playback fallback', () => {
   const video = read('reference/infinite-canvas/src/services/api/video.ts');
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const contentRoute = read('app/api/creator/videos/[id]/content/route.ts');
+  const taskRoute = read('app/api/creator/videos/[id]/route.ts');
 
   assert.match(video, /fallbackUrl\?: string/);
   assert.match(video, /result\.fallbackUrl/);
@@ -17,9 +18,16 @@ test('video generation has a durable same-origin playback fallback', () => {
   // polling.
   assert.match(video, /creatorVideoContentUrl\(taskId\)/);
   assert.match(contentRoute, /Accept-Ranges/);
+  assert.match(contentRoute, /Cache-Control', 'private, no-store, max-age=0'/);
   assert.match(contentRoute, /video_storage_path/);
   assert.match(contentRoute, /createAdminClient/);
-  assert.match(video, /mimeType && mimeType !== "application\/octet-stream"/);
-  assert.match(video, /assertPlayableVideoUrl\(remoteFallback\.url\)/);
+  assert.match(video, /creatorTaskId\?: string/);
+  assert.match(video, /durableArchivePending\?: boolean/);
+  assert.match(video, /persistGeneratedCanvasAsset\(source/);
+  assert.doesNotMatch(video, /uploadMediaFile\(input, "video"\)/);
   assert.match(project, /status: NODE_STATUS_ERROR/);
+  assert.match(project, /logClientEvent\("canvas_video_playback_error"/);
+  assert.match(project, /logClientEvent\("canvas_video_playback_recovered"/);
+  assert.match(taskRoute, /await ensureVideoOutputStored\(context, providerUpdatedTask\)/);
+  assert.doesNotMatch(taskRoute, /void ensureVideoOutputStored\(context, providerUpdatedTask\)/);
 });

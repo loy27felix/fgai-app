@@ -4,6 +4,7 @@ import type { CreatorVideoTask } from '@/lib/creator/types';
 import { logServerFailure } from '@/lib/observability/server-log';
 
 const MAX_VIDEO_BYTES = 320 * 1024 * 1024;
+const INITIAL_ARCHIVE_ATTEMPTS = 3;
 
 type VideoStorageContext = {
   localClient: ReturnType<typeof createClient>;
@@ -67,17 +68,39 @@ export async function persistVideoOutput(
       if (inserted.error) throw inserted.error;
       assetId = inserted.data?.id || null;
     }
-    return { ...output, video_storage_path: storagePath, video_asset_id: assetId };
+    return {
+      ...output,
+      video_storage_path: storagePath,
+      video_asset_id: assetId,
+      video_archive_status: 'stored',
+      video_archive_last_error: null,
+    };
   } catch (error) {
     // Keep the provider URL as a fallback; a transient download failure must
-    // not turn a successful generation into a failed task.
+    // not turn a successful generation into a failed task.  Persist an
+    // explicit pending marker though, so each later task read can retry the
+    // durable copy instead of silently treating a temporary URL as permanent.
     logServerFailure('creator_video_durable_persistence', error, { taskId: task.id });
-    return output;
+    return {
+      ...output,
+      video_archive_status: 'pending',
+      video_archive_last_error: 'durable_copy_failed',
+    };
   }
 }
 
 export async function ensureVideoOutputStored(context: VideoStorageContext, task: CreatorVideoTask) {
-  const nextOutput = await persistVideoOutput(context, task, asRecord(task.output));
+  let nextOutput = asRecord(task.output);
+  // The provider link is short-lived. Give the server a few immediate retries
+  // before returning a completed task with only a temporary preview URL. Later
+  // task reads keep retrying the same persistent-copy operation.
+  for (let attempt = 0; attempt < INITIAL_ARCHIVE_ATTEMPTS; attempt += 1) {
+    nextOutput = await persistVideoOutput(context, task, nextOutput);
+    if (typeof nextOutput.video_storage_path === 'string') break;
+    if (attempt < INITIAL_ARCHIVE_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    }
+  }
   if (nextOutput === task.output || JSON.stringify(nextOutput) === JSON.stringify(task.output)) return task;
   const values = { output: nextOutput };
   let update = await context.localClient

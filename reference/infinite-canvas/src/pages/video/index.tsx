@@ -13,8 +13,8 @@ import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/reference/infinite-canvas/src/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceReferenceLimits, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/reference/infinite-canvas/src/lib/seedance-video";
-import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/reference/infinite-canvas/src/services/file-storage";
-import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { deleteStoredMedia, persistCanvasMedia, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
+import { persistCanvasImage, resolveImageUrl } from "@/reference/infinite-canvas/src/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/reference/infinite-canvas/src/services/api/video";
 import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 import { useAssetStore } from "@/reference/infinite-canvas/src/stores/use-asset-store";
@@ -34,6 +34,10 @@ type GeneratedVideo = {
     height: number;
     bytes: number;
     mimeType: string;
+    cloudStoragePath?: string;
+    cloudAssetId?: string;
+    creatorTaskId?: string;
+    durableArchivePending?: boolean;
 };
 
 type GenerationResult = {
@@ -133,22 +137,22 @@ export default function VideoPage() {
         if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
         const nextReferences = await Promise.all(
             imageFiles.map(async (file) => {
-                const image = await uploadImage(file);
-                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                const image = await persistCanvasImage(file, { name: file.name });
+                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
             }),
         );
         const nextVideoReferences = await Promise.all(
             videoFiles.map(async (file) => {
-                const video = await uploadMediaFile(file, "video-reference");
-                return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
+                const video = await persistCanvasMedia(file, { kind: "video", name: file.name });
+                return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, cloudStoragePath: video.cloudStoragePath, cloudAssetId: video.cloudAssetId, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
             }),
         );
         const nextAudioReferences = filterAudioReferencesByDuration(
             audioReferences,
             await Promise.all(
                 audioFiles.map(async (file) => {
-                    const audio = await uploadMediaFile(file, "audio-reference");
-                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+                    const audio = await persistCanvasMedia(file, { kind: "audio", name: file.name });
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, cloudStoragePath: audio.cloudStoragePath, cloudAssetId: audio.cloudAssetId, durationMs: audio.durationMs };
                 }),
             ),
             message.warning,
@@ -188,8 +192,8 @@ export default function VideoPage() {
             }
             const nextReferences = await Promise.all(
                 blobs.slice(0, referenceLimits.images - references.length).map(async (blob, index) => {
-                    const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    const image = await persistCanvasImage(blob, { name: `clipboard-${index + 1}.png` });
+                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
                 }),
             );
             setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.images));
@@ -284,7 +288,7 @@ export default function VideoPage() {
             coverUrl: "",
             tags: [],
             source: "视频创作台",
-            data: { url: video.url, storageKey: video.storageKey, width: video.width, height: video.height, bytes: video.bytes, mimeType: video.mimeType },
+            data: { url: video.url, storageKey: video.storageKey, cloudStoragePath: video.cloudStoragePath, cloudAssetId: video.cloudAssetId, creatorTaskId: video.creatorTaskId, width: video.width, height: video.height, bytes: video.bytes, mimeType: video.mimeType },
             metadata: { source: "video-page", prompt },
         });
         message.success("已加入我的资产");
@@ -294,10 +298,14 @@ export default function VideoPage() {
         if (payload.kind === "text") {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
-            const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, referenceLimits.images));
+            if (payload.cloudStoragePath) {
+                setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "image/png", dataUrl: payload.dataUrl, cloudStoragePath: payload.cloudStoragePath, cloudAssetId: payload.cloudAssetId }].slice(0, referenceLimits.images));
+            } else {
+                const stored = await persistCanvasImage(await fetch(payload.dataUrl).then((response) => response.blob()), { name: payload.title });
+                setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId }].slice(0, referenceLimits.images));
+            }
         } else if (payload.kind === "video") {
-            setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, referenceLimits.videos));
+            setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, cloudStoragePath: payload.cloudStoragePath, cloudAssetId: payload.cloudAssetId, width: payload.width, height: payload.height }].slice(0, referenceLimits.videos));
         }
         setAssetPickerOpen(false);
     };
@@ -367,6 +375,10 @@ export default function VideoPage() {
                         height: stored.height || 720,
                         bytes: stored.bytes,
                         mimeType: stored.mimeType,
+                        cloudStoragePath: stored.cloudStoragePath,
+                        cloudAssetId: stored.cloudAssetId,
+                        creatorTaskId: stored.creatorTaskId,
+                        durableArchivePending: stored.durableArchivePending,
                     };
                     setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
                     if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
@@ -816,68 +828,77 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
 
 async function localizeVideo(video?: GeneratedVideo) {
     if (!video) return video;
-    if (video.storageKey) {
-        const localUrl = await resolveMediaUrl(video.storageKey, "");
-        if (localUrl) return { ...video, url: localUrl };
+    if (video.cloudStoragePath) return video;
+    const source = video.storageKey ? await resolveMediaUrl(video.storageKey, "") : video.url;
+    if (!source) return video;
+    try {
+        const stored = await persistCanvasMedia(await fetch(source).then(async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.blob();
+        }), { kind: "video", name: "video-history.mp4", source: "project_copy" });
+        return {
+            ...video,
+            url: stored.url,
+            storageKey: "",
+            cloudStoragePath: stored.cloudStoragePath,
+            cloudAssetId: stored.cloudAssetId,
+            bytes: stored.bytes,
+            mimeType: stored.mimeType,
+            width: stored.width || video.width,
+            height: stored.height || video.height,
+            durationMs: stored.durationMs || video.durationMs,
+        };
+    } catch {
+        // Expired provider URLs and already-cleared legacy caches cannot be
+        // reconstructed. Keep the historical record visible without claiming
+        // that it is a durable copy.
+        return video;
     }
-    if (!video.storageKey && video.url) {
-        try {
-            const stored = await uploadMediaFile(video.url, "video-history");
-            return { ...video, url: stored.url, storageKey: stored.storageKey, bytes: stored.bytes, mimeType: stored.mimeType, width: stored.width || video.width, height: stored.height || video.height, durationMs: stored.durationMs || video.durationMs };
-        } catch {
-            // The provider URL may already be expired or blocked by CORS. Keep
-            // it as a last-resort fallback so the log remains inspectable.
-        }
-    }
-    return video;
 }
 
 async function localizeVideoReference(item: ReferenceVideo) {
-    if (item.storageKey) {
-        const localUrl = await resolveMediaUrl(item.storageKey, "");
-        if (localUrl) return { ...item, url: localUrl };
+    if (item.cloudStoragePath) return item;
+    const source = item.storageKey ? await resolveMediaUrl(item.storageKey, "") : item.url;
+    if (!source) return item;
+    try {
+        const stored = await persistCanvasMedia(await fetch(source).then(async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.blob();
+        }), { kind: "video", name: item.name || "video-history-reference.mp4", source: "project_copy" });
+        return { ...item, url: stored.url, storageKey: "", cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, bytes: stored.bytes, width: stored.width || item.width, height: stored.height || item.height, durationMs: stored.durationMs || item.durationMs, type: stored.mimeType };
+    } catch {
+        return item;
     }
-    if (!item.storageKey && item.url) {
-        try {
-            const stored = await uploadMediaFile(item.url, "video-history-reference");
-            return { ...item, url: stored.url, storageKey: stored.storageKey, bytes: stored.bytes, mimeType: stored.mimeType };
-        } catch {
-            // Keep the original URL when local migration is not possible.
-        }
-    }
-    return item;
 }
 
 async function localizeAudioReference(item: ReferenceAudio) {
-    if (item.storageKey) {
-        const localUrl = await resolveMediaUrl(item.storageKey, "");
-        if (localUrl) return { ...item, url: localUrl };
+    if (item.cloudStoragePath) return item;
+    const source = item.storageKey ? await resolveMediaUrl(item.storageKey, "") : item.url;
+    if (!source) return item;
+    try {
+        const stored = await persistCanvasMedia(await fetch(source).then(async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.blob();
+        }), { kind: "audio", name: item.name || "audio-history-reference.mp3", source: "project_copy" });
+        return { ...item, url: stored.url, storageKey: "", cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, durationMs: stored.durationMs || item.durationMs, type: stored.mimeType };
+    } catch {
+        return item;
     }
-    if (!item.storageKey && item.url) {
-        try {
-            const stored = await uploadMediaFile(item.url, "audio-history-reference");
-            return { ...item, url: stored.url, storageKey: stored.storageKey, durationMs: stored.durationMs };
-        } catch {
-            // Keep the original URL when local migration is not possible.
-        }
-    }
-    return item;
 }
 
 async function localizeImageReference(item: ReferenceImage) {
-    if (item.storageKey) {
-        const localUrl = await resolveImageUrl(item.storageKey, "");
-        if (localUrl) return { ...item, dataUrl: localUrl };
+    if (item.cloudStoragePath) return item;
+    const source = item.storageKey ? await resolveImageUrl(item.storageKey, "") : item.dataUrl;
+    if (!source) return item;
+    try {
+        const stored = await persistCanvasImage(await fetch(source).then(async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.blob();
+        }), { name: item.name || "image-history-reference.png", source: "project_copy" });
+        return { ...item, dataUrl: stored.url, storageKey: "", cloudStoragePath: stored.cloudStoragePath, cloudAssetId: stored.cloudAssetId, type: stored.mimeType };
+    } catch {
+        return item;
     }
-    if (!item.storageKey && item.dataUrl) {
-        try {
-            const stored = await uploadImage(item.dataUrl);
-            return { ...item, dataUrl: stored.url, storageKey: stored.storageKey };
-        } catch {
-            // Keep the original URL when local migration is not possible.
-        }
-    }
-    return item;
 }
 function serializeLog(log: GenerationLog): GenerationLog {
     return {

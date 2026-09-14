@@ -1,5 +1,5 @@
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
-import { resolveImageUrl, uploadImage } from "@/reference/infinite-canvas/src/services/image-storage";
+import { resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { imageMetadata, referenceUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import type { NodeGenerationInput } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-generation";
@@ -47,19 +47,37 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
             const content = node.metadata?.content;
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
             if (node.type !== CanvasNodeType.Image || !content) return node;
-            if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
+            if (node.metadata?.storageKey) {
+                const localUrl = await resolveImageUrl(node.metadata.storageKey, content);
+                if (!localUrl) return node;
+                try {
+                    return { ...node, metadata: { ...node.metadata, ...imageMetadata(await storeGeneratedImage({ dataUrl: localUrl, mimeType: node.metadata.mimeType, width: node.metadata.naturalWidth, height: node.metadata.naturalHeight })) } };
+                } catch {
+                    return { ...node, metadata: { ...node.metadata, content: localUrl } };
+                }
+            }
             if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await uploadImage(content)) } };
+            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await storeGeneratedImage({ dataUrl: content, mimeType: node.metadata?.mimeType, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight })) } };
         }),
     );
 }
 
 export async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
-    const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
-        if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
+    const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string }>(item: T) => {
+        if (item.cloudStoragePath) return item;
+        if (item.storageKey) {
+            const localUrl = await resolveImageUrl(item.storageKey, item.dataUrl);
+            if (!localUrl) return item;
+            try {
+                const image = await storeGeneratedImage({ dataUrl: localUrl });
+                return { ...item, dataUrl: image.url, storageKey: "", cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
+            } catch {
+                return { ...item, dataUrl: localUrl };
+            }
+        }
         if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await uploadImage(item.dataUrl);
-            return { ...item, dataUrl: image.url, storageKey: image.storageKey };
+            const image = await storeGeneratedImage({ dataUrl: item.dataUrl });
+            return { ...item, dataUrl: image.url, storageKey: "", cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
         }
         return item;
     };

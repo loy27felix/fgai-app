@@ -8,6 +8,11 @@ export type StoredCanvasAsset = {
     contentUrl: string;
 };
 
+export type PersistedCanvasAsset = StoredCanvasAsset & {
+    bytes: number;
+    mimeType: string;
+};
+
 /**
  * Persist a browser-uploaded canvas file before the graph serialiser removes
  * its temporary object URL.  The returned path is user-private and playback
@@ -34,6 +39,54 @@ export async function uploadCanvasAsset(file: File, input: { kind: CanvasAssetKi
     const assetId = typeof payload.assetId === "string" ? payload.assetId : "";
     console.info("[canvas asset persisted]", { kind: input.kind, assetId, nodeId: input.nodeId || null, scope: input.libraryScope || "asset", folderId: input.folderId || null, storagePath: payload.storagePath });
     return { assetId, storagePath: payload.storagePath, contentUrl: creatorCanvasAssetContentUrl(payload.storagePath) };
+}
+
+/**
+ * A provider URL or a browser Blob is allowed to be a short-lived preview,
+ * never the durable owner of a generated result.  Copy it into creator-assets
+ * before callers mark the result as saved in a canvas, workbench, or asset.
+ */
+export async function persistGeneratedCanvasAsset(
+    input: Blob | string,
+    options: { kind: CanvasAssetKind; name?: string; nodeId?: string; mimeType?: string },
+): Promise<PersistedCanvasAsset> {
+    const blob = typeof input === "string"
+        ? await fetch(input).then(async (response) => {
+            if (!response.ok) throw new Error(`生成结果读取失败（HTTP ${response.status}）`);
+            return response.blob();
+        })
+        : input;
+    if (!(blob instanceof Blob) || blob.size <= 0) throw new Error("生成结果为空，无法保存到云端");
+
+    const mimeType = blob.type || options.mimeType || fallbackMimeType(options.kind);
+    const file = new File([blob], options.name || `generated-${options.kind}.${extensionFor(mimeType, options.kind)}`, { type: mimeType });
+    const stored = await uploadCanvasAsset(file, {
+        kind: options.kind,
+        source: "generation",
+        name: file.name,
+        nodeId: options.nodeId,
+    });
+    return { ...stored, bytes: file.size, mimeType };
+}
+
+function fallbackMimeType(kind: CanvasAssetKind) {
+    if (kind === "image") return "image/png";
+    if (kind === "video") return "video/mp4";
+    if (kind === "audio") return "audio/mpeg";
+    return "application/octet-stream";
+}
+
+function extensionFor(mimeType: string, kind: CanvasAssetKind) {
+    if (mimeType.includes("webm")) return "webm";
+    if (mimeType.includes("quicktime")) return "mov";
+    if (mimeType.includes("wav")) return "wav";
+    if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
+    if (mimeType.includes("jpeg")) return "jpg";
+    if (mimeType.includes("webp")) return "webp";
+    if (mimeType.includes("gif")) return "gif";
+    if (kind === "image") return "png";
+    if (kind === "video") return "mp4";
+    return "bin";
 }
 
 export async function deleteMaterialLibraryAsset(assetId: string) {
