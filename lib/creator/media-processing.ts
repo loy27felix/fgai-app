@@ -83,7 +83,7 @@ export function validateMediaJobInput(input: CreateMediaJobInput): MediaJobSpec 
   const maskAssetId = nullableText(input.maskAssetId, "遮罩素材");
   const modelProfile = requiredText(input.modelProfile, "模型配置", 128);
   const idempotencyKey = requiredText(input.idempotencyKey, "幂等键", 128);
-  const targetResolution = input.targetResolution === undefined || input.targetResolution === null || input.targetResolution === ""
+  const targetResolution = input.targetResolution === undefined || input.targetResolution === null || (input.targetResolution as unknown) === ""
     ? null
     : input.targetResolution;
 
@@ -142,4 +142,3 @@ export function workerSupportsJob(
 
   return true;
 }
-
