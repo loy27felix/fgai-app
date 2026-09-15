@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fg-studio-worker"
+version = "0.1.0"
+description = "FG Studio local GPU media processing worker"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "keyring>=25",
+  "platformdirs>=4",
+  "psutil>=6",
+  "pydantic>=2",
+]
+
+[project.optional-dependencies]
+gpu = ["torch>=2.4"]
+
+[project.scripts]
+fg-worker = "fg_worker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
