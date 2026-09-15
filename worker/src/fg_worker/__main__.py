@@ -8,7 +8,7 @@ import sys
 from .capabilities import detect_capabilities
 from .client import WorkerClient
 from .credentials import CredentialStoreUnavailable, load_token, save_token
-from .queue_loop import WorkerLoop
+from .queue_loop import WorkerLoop, default_operation_runner
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             if not WorkerLoop.can_start(token):
                 print("Worker 尚未配对，请先运行 fg-worker pair", file=sys.stderr)
                 return 3
-            WorkerLoop(WorkerClient(args.server, token), capabilities).run_forever()
+            WorkerLoop(WorkerClient(args.server, token), capabilities, runner=default_operation_runner).run_forever()
         except KeyboardInterrupt:
             return 0
         except Exception as error:
@@ -65,4 +65,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

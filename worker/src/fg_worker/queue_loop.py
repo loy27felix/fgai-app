@@ -12,6 +12,15 @@ from .client import WorkerApiError, WorkerClient
 OperationRunner = Callable[[str, str, dict[str, Any], Callable[[float, str | None], None]], None]
 
 
+def default_operation_runner(input_path: str, output_path: str, request: dict[str, Any], progress: Callable[[float, str | None], None]) -> None:
+    from .operations.registry import get_operation
+
+    operation = request.get("operation")
+    if not isinstance(operation, str):
+        raise WorkerApiError("任务没有操作类型", code="INVALID_MEDIA_JOB")
+    get_operation(operation).run(input_path, output_path, request, progress)
+
+
 class WorkerLoop:
     HEARTBEAT_SECONDS = 20
     POLL_SECONDS = 3
@@ -88,4 +97,3 @@ class WorkerLoop:
             worked = self.run_once()
             if not worked:
                 time.sleep(self.POLL_SECONDS)
-
