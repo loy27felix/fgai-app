@@ -64,7 +64,7 @@ import { mergeCanvasCloudGraphs } from "@/reference/infinite-canvas/src/lib/canv
 import { isPendingCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/canvas/canvas-upload-durability";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
-import { appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
+import { activeVideoAlternativeIndex, appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import { getCanvasEdgeAutoPanDelta } from "@/reference/infinite-canvas/src/lib/canvas/canvas-edge-auto-pan";
 import {
@@ -165,6 +165,16 @@ const NODE_STATUS_ERROR = "error" as const;
 function referenceKindLabel(kind: CanvasResourceReference["kind"]) {
     return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本";
 }
+
+function replaceCanvasReferenceLabel(value: string | undefined, previousLabel: string, nextLabel: string) {
+    if (!value || previousLabel === nextLabel) return value;
+    // Labels are numeric (图片1/图片10, 视频1/视频10, ...). Do not let a
+    // replacement for 图片1 accidentally rewrite the 图片10 token that may
+    // sit next to it in a serialized prompt.
+    const escaped = previousLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return value.replace(new RegExp(`${escaped}(?!\\d)`, "g"), nextLabel);
+}
+
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
@@ -458,6 +468,12 @@ function InfiniteCanvasPage() {
     const imageInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetRef = useRef<{ nodeId?: string; position?: Position } | null>(null);
     const clipboardRef = useRef<CanvasClipboard | null>(null);
+    // Keep the last pointer position in screen coordinates so paste follows
+    // the user's cursor instead of always landing at the viewport center.
+    // Convert it to world coordinates only when pasting: zooming or panning
+    // between pointer movement and paste must not make the anchor stale. It
+    // is deliberately a ref so pointer movement does not rerender the canvas.
+    const lastCanvasPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
     const historyRef = useRef<{ past: CanvasHistoryEntry[]; future: CanvasHistoryEntry[] }>({ past: [], future: [] });
     const lastHistoryRef = useRef<CanvasHistoryEntry | null>(null);
     const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -556,6 +572,7 @@ function InfiniteCanvasPage() {
     // existing connection slot is reused so its prompt label (for example
     // @图片1) keeps pointing at the newly selected resource.
     const [referenceReplacement, setReferenceReplacement] = useState<CanvasReferenceReplacement | null>(null);
+    const [referenceReplacementRevision, setReferenceReplacementRevision] = useState(0);
 
     const nodesRef = useRef(nodes);
     const connectionsRef = useRef(connections);
@@ -984,6 +1001,20 @@ function InfiniteCanvasPage() {
         const rect = containerRef.current?.getBoundingClientRect();
         return screenToCanvas((rect?.left || 0) + (rect?.width || size.width) / 2, (rect?.top || 0) + (rect?.height || size.height) / 2);
     }, [screenToCanvas, size.height, size.width]);
+
+    const getCanvasPastePosition = useCallback(() => {
+        const pointer = lastCanvasPointerRef.current;
+        return pointer ? screenToCanvas(pointer.clientX, pointer.clientY) : getCanvasCenter();
+    }, [getCanvasCenter, screenToCanvas]);
+
+    const rememberCanvasPointer = useCallback(
+        (clientX: number, clientY: number) => {
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return;
+            lastCanvasPointerRef.current = { clientX, clientY };
+        },
+        [],
+    );
 
     const setConnecting = useCallback((next: ConnectionHandle | null) => {
         connectingParamsRef.current = next;
@@ -1511,40 +1542,89 @@ function InfiniteCanvasPage() {
         const source = sourceNodes.find((node) => node.id === nodeId);
         if (!source) return;
 
-        const copyId = `${source.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const copy: CanvasNodeData = {
-            ...source,
-            id: copyId,
-            title: `${source.title || "未命名节点"} 副本`,
-            position: { x: source.position.x + 48, y: source.position.y + 48 },
-            metadata: source.metadata
-                ? {
-                      ...source.metadata,
-                      status: source.metadata.status === NODE_STATUS_LOADING ? NODE_STATUS_IDLE : source.metadata.status,
-                      errorDetails: undefined,
-                      // The copied node remains linked to the same sources.
-                      // Only visual batch ownership is local to a node tree.
-                      batchRootId: undefined,
-                      batchChildIds: undefined,
-                      isBatchRoot: undefined,
-                      imageBatchExpanded: undefined,
-                      primaryImageId: undefined,
-                      imageAlternatives: source.metadata.imageAlternatives?.map((alternative) => ({ ...alternative })),
-                      videoAlternatives: source.metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
-                  }
-                : undefined,
-        };
-        const referenceConnections = sourceConnections
-            .filter((connection) => connection.toNodeId === nodeId)
-            .map((connection) => ({ ...connection, id: nanoid(), toNodeId: copyId }));
+        // “创建副本” deliberately clones the complete upstream graph, while
+        // the native copy/paste path below only clones the selected nodes.
+        // Include group containers and their children so a referenced pack
+        // remains a self-contained, reusable copy instead of pointing back to
+        // the original canvas.
+        const includedIds = new Set<string>();
+        const pendingIds = [nodeId];
+        while (pendingIds.length) {
+            const currentId = pendingIds.pop();
+            if (!currentId || includedIds.has(currentId)) continue;
+            const current = sourceNodes.find((node) => node.id === currentId);
+            if (!current) continue;
+            includedIds.add(currentId);
 
-        setNodes((prev) => [...prev, copy]);
+            sourceConnections.forEach((connection) => {
+                if (connection.toNodeId === currentId && !includedIds.has(connection.fromNodeId)) pendingIds.push(connection.fromNodeId);
+            });
+
+            const groupId = current.metadata?.groupId;
+            if (groupId && !includedIds.has(groupId)) pendingIds.push(groupId);
+            if (current.type === CanvasNodeType.Group) {
+                sourceNodes.filter((node) => node.metadata?.groupId === current.id).forEach((child) => pendingIds.push(child.id));
+            }
+        }
+
+        const idMap = new Map<string, string>();
+        includedIds.forEach((id) => {
+            const node = sourceNodes.find((item) => item.id === id);
+            idMap.set(id, `${node?.type || "node"}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+        });
+        const remapId = (value?: string) => (value ? idMap.get(value) : undefined);
+        const remapText = (value?: string) => {
+            if (!value) return value;
+            let next = value;
+            idMap.forEach((nextId, previousId) => {
+                next = next.replaceAll(previousId, nextId);
+            });
+            return next;
+        };
+        const copyNodes = sourceNodes
+            .filter((node) => includedIds.has(node.id))
+            .map((node) => {
+                const metadata = node.metadata;
+                const referenceLabels = metadata?.referenceLabels
+                    ? Object.fromEntries(Object.entries(metadata.referenceLabels).map(([referenceId, label]) => [remapId(referenceId) || referenceId, label]))
+                    : undefined;
+                return {
+                    ...node,
+                    id: idMap.get(node.id) || node.id,
+                    title: `${node.title || "未命名节点"} 副本`,
+                    position: { x: node.position.x + 48, y: node.position.y + 48 },
+                    metadata: metadata
+                        ? {
+                              ...metadata,
+                              status: metadata.status === NODE_STATUS_LOADING ? NODE_STATUS_IDLE : metadata.status,
+                              errorDetails: undefined,
+                              composerContent: remapText(metadata.composerContent),
+                              groupId: remapId(metadata.groupId),
+                              batchRootId: remapId(metadata.batchRootId),
+                              batchChildIds: metadata.batchChildIds?.map((childId) => remapId(childId) || childId),
+                              primaryImageId: remapId(metadata.primaryImageId),
+                              isBatchRoot: metadata.isBatchRoot && Boolean(metadata.batchChildIds?.some((childId) => idMap.has(childId))),
+                              imageBatchExpanded: metadata.isBatchRoot && Boolean(metadata.batchChildIds?.some((childId) => idMap.has(childId))) ? metadata.imageBatchExpanded : undefined,
+                              referenceLabels,
+                              imageAlternatives: metadata.imageAlternatives?.map((alternative) => ({ ...alternative })),
+                              videoAlternatives: metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
+                          }
+                        : undefined,
+                } satisfies CanvasNodeData;
+            });
+        const referenceConnections = sourceConnections
+            .filter((connection) => includedIds.has(connection.fromNodeId) && includedIds.has(connection.toNodeId))
+            .map((connection) => ({ ...connection, id: nanoid(), fromNodeId: idMap.get(connection.fromNodeId) || connection.fromNodeId, toNodeId: idMap.get(connection.toNodeId) || connection.toNodeId }));
+        const copyId = idMap.get(nodeId);
+        if (!copyId || !copyNodes.length) return;
+
+        setNodes((prev) => [...prev, ...copyNodes]);
         setConnections((prev) => [...prev, ...referenceConnections]);
         setSelectedNodeIds(new Set([copyId]));
         setSelectedConnectionId(null);
         setContextMenu(null);
-        console.info("[canvas node duplicate]", { sourceNodeId: nodeId, copyNodeId: copyId, referenceConnectionCount: referenceConnections.length });
-        if (copy.type !== CanvasNodeType.Group) setDialogNodeId(copyId);
+        console.info("[canvas node duplicate]", { sourceNodeId: nodeId, copyNodeId: copyId, copiedNodeCount: copyNodes.length, referenceConnectionCount: referenceConnections.length });
+        if (source.type !== CanvasNodeType.Group) setDialogNodeId(copyId);
     }, []);
 
     const copySelectedNodes = useCallback(() => {
@@ -1552,22 +1632,11 @@ function InfiniteCanvasPage() {
         if (!selectedIds.size) return;
         const sourceNodes = nodesRef.current;
         const sourceConnections = connectionsRef.current;
-        const includedIds = new Set(selectedIds);
-        let changed = true;
-        while (changed) {
-            changed = false;
-            sourceConnections.forEach((connection) => {
-                if (!includedIds.has(connection.toNodeId) || includedIds.has(connection.fromNodeId)) return;
-                if (!sourceNodes.some((node) => node.id === connection.fromNodeId)) return;
-                includedIds.add(connection.fromNodeId);
-                changed = true;
-            });
-        }
-        const copiedNodes = sourceNodes.filter((node) => includedIds.has(node.id)).map((node) => ({ ...node, position: { ...node.position }, metadata: node.metadata ? { ...node.metadata, batchChildIds: node.metadata.batchChildIds ? [...node.metadata.batchChildIds] : undefined } : undefined }));
+        const copiedNodes = sourceNodes.filter((node) => selectedIds.has(node.id)).map((node) => ({ ...node, position: { ...node.position }, metadata: node.metadata ? { ...node.metadata, batchChildIds: node.metadata.batchChildIds ? [...node.metadata.batchChildIds] : undefined } : undefined }));
         if (!copiedNodes.length) return;
         clipboardRef.current = {
             nodes: copiedNodes,
-            connections: sourceConnections.filter((connection) => includedIds.has(connection.fromNodeId) && includedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
+            connections: sourceConnections.filter((connection) => selectedIds.has(connection.fromNodeId) && selectedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
     }, []);
 
@@ -1575,7 +1644,7 @@ function InfiniteCanvasPage() {
         const clipboard = clipboardRef.current;
         if (!clipboard?.nodes.length) return false;
 
-        const center = getCanvasCenter();
+        const anchor = getCanvasPastePosition();
         const bounds = clipboard.nodes.reduce(
             (acc, node) => ({
                 left: Math.min(acc.left, node.position.x),
@@ -1585,8 +1654,8 @@ function InfiniteCanvasPage() {
             }),
             { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity },
         );
-        const dx = center.x - (bounds.left + bounds.right) / 2;
-        const dy = center.y - (bounds.top + bounds.bottom) / 2;
+        const dx = anchor.x - (bounds.left + bounds.right) / 2;
+        const dy = anchor.y - (bounds.top + bounds.bottom) / 2;
         const idMap = new Map<string, string>();
         const nextNodes = clipboard.nodes.map((node, index) => {
             const id = `${node.type}-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1599,13 +1668,26 @@ function InfiniteCanvasPage() {
                     x: node.position.x + dx,
                     y: node.position.y + dy,
                 },
-                metadata: node.metadata ? { ...node.metadata } : undefined,
+                metadata: node.metadata
+                    ? {
+                          ...node.metadata,
+                          referenceLabels: node.metadata.referenceLabels ? { ...node.metadata.referenceLabels } : undefined,
+                          imageAlternatives: node.metadata.imageAlternatives?.map((alternative) => ({ ...alternative })),
+                          videoAlternatives: node.metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
+                      }
+                    : undefined,
             };
         });
 
         const pastedNodes = nextNodes.map((node) => {
             if (!node.metadata) return node;
             const batchChildIds = node.metadata.batchChildIds?.map((id) => idMap.get(id)).filter((id): id is string => Boolean(id));
+            const referenceLabels = node.metadata.referenceLabels
+                ? Object.fromEntries(Object.entries(node.metadata.referenceLabels).flatMap(([referenceId, label]) => {
+                      const mappedReferenceId = idMap.get(referenceId);
+                      return mappedReferenceId ? [[mappedReferenceId, label]] : [];
+                  }))
+                : undefined;
             return {
                 ...node,
                 metadata: {
@@ -1616,6 +1698,7 @@ function InfiniteCanvasPage() {
                     batchChildIds,
                     isBatchRoot: node.metadata.isBatchRoot && Boolean(batchChildIds?.length),
                     imageBatchExpanded: node.metadata.isBatchRoot && Boolean(batchChildIds?.length) ? node.metadata.imageBatchExpanded : undefined,
+                    referenceLabels,
                 },
             };
         });
@@ -1641,7 +1724,7 @@ function InfiniteCanvasPage() {
         setContextMenu(null);
         setDialogNodeId(pastedNodes[0]?.type === CanvasNodeType.Group ? null : pastedNodes[0]?.id || null);
         return true;
-    }, [getCanvasCenter]);
+    }, [getCanvasPastePosition]);
 
     const resetViewport = useCallback(() => {
         setViewport({ x: size.width / 2, y: size.height / 2, k: 1 });
@@ -1777,6 +1860,7 @@ function InfiniteCanvasPage() {
 
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
+            rememberCanvasPointer(event.clientX, event.clientY);
             setContextMenu(null);
             setNodeCreatePosition(null);
             if (pendingConnectionCreateRef.current) cancelPendingConnectionCreate();
@@ -1799,7 +1883,7 @@ function InfiniteCanvasPage() {
 
             setSelectedConnectionId(null);
         },
-        [cancelPendingConnectionCreate, screenToCanvas],
+        [cancelPendingConnectionCreate, rememberCanvasPointer, screenToCanvas],
     );
 
     // 仅处理「选中」的纯逻辑,供 body 冒泡拖拽入口与外层 capture 入口共用。
@@ -1924,6 +2008,7 @@ function InfiniteCanvasPage() {
     const handleNodeSelectCapture = useCallback(
         (event: ReactMouseEvent, nodeId: string) => {
             if (event.button !== 0) return;
+            rememberCanvasPointer(event.clientX, event.clientY);
             const replacement = referenceReplacement;
             if (replacement) {
                 if (replacement.targetNodeId === nodeId) {
@@ -1951,11 +2036,43 @@ function InfiniteCanvasPage() {
                 }
 
                 const hasCandidateBinding = connectionsRef.current.some((connection) => connection.fromNodeId === nodeId && connection.toNodeId === replacement.targetNodeId);
+                // A prompt stores the visible label (for example 图片1), not
+                // the source node id. When a new node replaces the old one,
+                // transfer that stable label to the candidate so existing
+                // chips keep their identity. If the candidate is already in
+                // the reference list, rewrite the old label to its existing
+                // label instead of giving one node two competing labels.
+                const targetNode = nodesRef.current.find((node) => node.id === replacement.targetNodeId);
+                const currentReferences = targetNode ? buildNodeMentionReferences(targetNode, nodesRef.current, connectionsRef.current) : [];
+                const candidateReference = currentReferences.find((reference) => reference.nodeId === nodeId);
+                const nextReferenceLabel = candidateReference?.label || replacement.referenceLabel;
                 setConnections((prev) =>
                     hasCandidateBinding
                         ? prev.filter((connection) => connection.fromNodeId !== replacement.referenceNodeId || connection.toNodeId !== replacement.targetNodeId)
                         : prev.map((connection) => (connection.fromNodeId === replacement.referenceNodeId && connection.toNodeId === replacement.targetNodeId ? { ...connection, fromNodeId: nodeId } : connection)),
                 );
+                setNodes((prev) => prev.map((node) => {
+                    if (node.id !== replacement.targetNodeId) return node;
+                    const metadata = node.metadata;
+                    if (!metadata) return node;
+                    const referenceLabels = { ...(metadata.referenceLabels || {}) };
+                    if (!candidateReference) referenceLabels[nodeId] = replacement.referenceLabel;
+                    const prompt = candidateReference ? replaceCanvasReferenceLabel(metadata.prompt, replacement.referenceLabel, nextReferenceLabel) : metadata.prompt;
+                    const composerContent = candidateReference ? replaceCanvasReferenceLabel(metadata.composerContent, replacement.referenceLabel, nextReferenceLabel) : metadata.composerContent;
+                    return {
+                        ...node,
+                        metadata: {
+                            ...metadata,
+                            referenceLabels,
+                            prompt,
+                            composerContent,
+                        },
+                    };
+                }));
+                // CanvasNodePromptPanel intentionally keeps its local editor
+                // state while a user is typing. Bump a separate revision so
+                // an external replacement updates the visible chip text too.
+                setReferenceReplacementRevision((revision) => revision + 1);
                 setReferenceReplacement(null);
                 console.info("[canvas reference replaced]", {
                     targetNodeId: replacement.targetNodeId,
@@ -1963,6 +2080,7 @@ function InfiniteCanvasPage() {
                     nextReferenceNodeId: nodeId,
                     referenceKind: replacement.referenceKind,
                     promptMention: `@${replacement.referenceLabel}`,
+                    nextReferenceLabel,
                     reusedExistingBinding: hasCandidateBinding,
                 });
                 message.success(`已替换 ${replacement.referenceLabel}，提示词中的 @ 引用已同步`);
@@ -2003,10 +2121,11 @@ function InfiniteCanvasPage() {
             const { nextSelected } = selectNodeByEvent(event, nodeId);
             pendingSelectionRef.current = nextSelected;
         },
-        [message, referenceReplacement, referenceSelectionTargetId, selectNodeByEvent],
+        [message, referenceReplacement, referenceSelectionTargetId, rememberCanvasPointer, selectNodeByEvent],
     );
 
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
+        rememberCanvasPointer(event.clientX, event.clientY);
         event.stopPropagation();
         // 选中已由 capture 阶段完成;这里只负责建立拖拽。若因故没走 capture,则兜底再选一次。
         const currentNodes = nodesRef.current;
@@ -2032,7 +2151,7 @@ function InfiniteCanvasPage() {
         historyPausedRef.current = true;
         nodeDraggingRef.current = true;
         setIsNodeDragging(true);
-    }, []);
+    }, [rememberCanvasPointer, selectNodeByEvent]);
 
     const finishNodeDrag = useCallback((clientX?: number, clientY?: number) => {
         stopCanvasEdgeAutoPan();
@@ -2090,6 +2209,7 @@ function InfiniteCanvasPage() {
 
     const handleGlobalMouseMove = useCallback(
         (event: MouseEvent) => {
+            rememberCanvasPointer(event.clientX, event.clientY);
             const currentViewport = viewportRef.current;
             const isConnecting = Boolean(connectingParamsRef.current && !pendingConnectionCreateRef.current);
             if (dragRef.current.isDraggingNode || isConnecting) updateCanvasEdgeAutoPan(event.clientX, event.clientY);
@@ -2130,11 +2250,12 @@ function InfiniteCanvasPage() {
                 setMouseWorld(screenToCanvas(event.clientX, event.clientY));
             }
         },
-        [finishNodeDrag, getConnectionDropTarget, screenToCanvas, stopCanvasEdgeAutoPan, updateCanvasEdgeAutoPan],
+        [finishNodeDrag, getConnectionDropTarget, rememberCanvasPointer, screenToCanvas, stopCanvasEdgeAutoPan, updateCanvasEdgeAutoPan],
     );
 
     const handleGlobalPointerMove = useCallback(
         (event: PointerEvent) => {
+            rememberCanvasPointer(event.clientX, event.clientY);
             const currentSelection = selectionBoxRef.current;
             if (!currentSelection) return;
 
@@ -2164,7 +2285,7 @@ function InfiniteCanvasPage() {
             setSelectionBox(nextSelectionBox);
             setSelectedNodeIds(nextSelected);
         },
-        [screenToCanvas],
+        [rememberCanvasPointer, screenToCanvas],
     );
 
     const handleGlobalMouseUp = useCallback(
@@ -2334,7 +2455,7 @@ function InfiniteCanvasPage() {
             if (!trimmed) return false;
 
             const node = {
-                ...createCanvasNode(CanvasNodeType.Text, getCanvasCenter(), { content: trimmed, status: NODE_STATUS_SUCCESS }),
+                ...createCanvasNode(CanvasNodeType.Text, getCanvasPastePosition(), { content: trimmed, status: NODE_STATUS_SUCCESS }),
                 title: trimmed.slice(0, 32) || "剪切板文本",
             };
 
@@ -2345,7 +2466,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId(node.id);
             return true;
         },
-        [getCanvasCenter],
+        [getCanvasPastePosition],
     );
 
     const handleCopy = useCallback((event: ClipboardEvent) => {
@@ -2380,9 +2501,9 @@ function InfiniteCanvasPage() {
             : Array.from(clipboardData?.files || []).filter(isImageFile);
         if (files.length) {
             event.preventDefault();
-            const center = getCanvasCenter();
+            const anchor = getCanvasPastePosition();
             files.forEach((file, index) => {
-                const position = { x: center.x + index * 40, y: center.y + index * 40 };
+                const position = { x: anchor.x + index * 40, y: anchor.y + index * 40 };
                 void createImageFileNode(file, position).catch((error) => {
                     const detail = error instanceof Error ? error.message : "未知错误";
                     message.error(`从剪切板添加图片失败：${detail}`);
@@ -2403,7 +2524,7 @@ function InfiniteCanvasPage() {
             event.preventDefault();
             message.success("已从剪切板添加文本");
         }
-    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, pasteCopiedNodes]);
+    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasPastePosition, message, pasteCopiedNodes]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -2781,12 +2902,28 @@ function InfiniteCanvasPage() {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
     }, []);
 
-    const downloadNodeImage = useCallback((node: CanvasNodeData) => {
+    const downloadNodeImage = useCallback(async (node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
+        const content = node.type === CanvasNodeType.Video
+            ? readVideoAlternatives(node.metadata)[activeVideoAlternativeIndex(node.metadata)]?.content || node.metadata.content
+            : node.metadata.content;
         const fileName = node.type === CanvasNodeType.Video
             ? videoAlternativeFileName(node.title, node.metadata)
             : `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`;
-        saveAs(node.metadata.content, fileName);
+        try {
+            // Fetching first makes the filename deterministic even when the
+            // provider/proxy returns a temporary URL such as
+            // `recovered-video.mp4`; passing a Blob to file-saver prevents the
+            // browser from replacing our versioned name with the URL basename.
+            const response = await fetch(content);
+            if (!response.ok) throw new Error(`download-${response.status}`);
+            saveAs(await response.blob(), fileName);
+        } catch (error) {
+            // Cross-origin provider URLs may not expose CORS. Keep the
+            // existing URL fallback so the download remains possible there.
+            console.warn("[canvas media download fallback]", { nodeId: node.id, content, fileName, error });
+            saveAs(content, fileName);
+        }
     }, []);
 
     const saveNodeAsset = useCallback(
@@ -4495,6 +4632,7 @@ function InfiniteCanvasPage() {
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
                     onStop={confirmStopGeneration}
+                    promptSyncRevision={referenceReplacementRevision}
                     modeOverride={getNodeDefinition(panelNode.type)?.useBuiltinPanel?.mode}
                     onImageSettingsOpenChange={(open) => {
                         setNodeImageSettingsOpen(open);
@@ -4502,7 +4640,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceLibrarySelection, handleReferenceRemove, handleReferenceReorder, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, handleReferenceLibrarySelection, handleReferenceRemove, handleReferenceReorder, handleReferenceReplacementStart, handleReferenceSelectionToggle, mentionReferencesByNodeId, referenceReplacement, referenceReplacementRevision, referenceSelectionTargetId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(
