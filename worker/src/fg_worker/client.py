@@ -87,6 +87,16 @@ class WorkerClient:
             raise WorkerApiError("读取媒体输入失败", status=status)
         return body
 
+    def download_mask(self, job_id: str, lease_token: str) -> bytes:
+        status, _headers, body = self.request("GET", f"/api/creator/worker/jobs/{job_id}/mask", headers={"x-fg-media-lease-token": lease_token})
+        if status >= 400:
+            raise WorkerApiError("读取去水印遮罩失败", status=status)
+        return body
+
+    def heartbeat_job(self, job_id: str, lease_token: str) -> dict[str, Any]:
+        status, _headers, body = self.request("POST", f"/api/creator/worker/jobs/{job_id}/heartbeat", payload={"leaseToken": lease_token})
+        return self._json(status, body)
+
     def init_upload(self, job_id: str, lease_token: str, *, expected_bytes: int, mime_type: str, file_name: str, sha256: str | None) -> dict[str, Any]:
         status, _headers, body = self.request("POST", f"/api/creator/worker/jobs/{job_id}/output/init", payload={"expectedBytes": expected_bytes, "mimeType": mime_type, "fileName": file_name, "sha256": sha256}, headers={"x-fg-media-lease-token": lease_token})
         return self._json(status, body)
@@ -106,4 +116,3 @@ class WorkerClient:
     def fail(self, job_id: str, lease_token: str, *, retryable: bool, error_code: str, message: str) -> dict[str, Any]:
         status, _headers, body = self.request("POST", f"/api/creator/worker/jobs/{job_id}/fail", payload={"leaseToken": lease_token, "retryable": retryable, "errorCode": error_code, "message": message})
         return self._json(status, body)
-

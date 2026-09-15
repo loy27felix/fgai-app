@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateWorker, MediaWorkerAuthError, markWorkerHeartbeat, mediaWorkerEnabled } from "@/lib/creator/media-worker-auth";
+import { logServerEvent } from "@/lib/observability/server-log";
 
 export const runtime = "nodejs";
 
@@ -9,10 +10,10 @@ export async function POST(request: Request) {
     const worker = await authenticateWorker(request);
     const body = await request.json().catch(() => ({}));
     const capabilities = await markWorkerHeartbeat(worker, body.capabilities);
+    logServerEvent("media_worker_online", { workerId: worker.workerId, backendCount: capabilities.backends.length, operationCount: capabilities.operations.length });
     return NextResponse.json({ ok: true, workerId: worker.workerId, capabilities, serverTime: new Date().toISOString() });
   } catch (error) {
     if (error instanceof MediaWorkerAuthError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     return NextResponse.json({ error: "Worker 心跳失败，请稍后重试", code: "WORKER_HEARTBEAT_FAILED" }, { status: 500 });
   }
 }
-

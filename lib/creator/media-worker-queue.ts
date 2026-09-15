@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import { query, withTransaction } from "@/lib/local/db";
 import { validateMediaJobInput, type MediaProcessingValidationError } from "@/lib/creator/media-processing";
+import { logServerEvent } from "@/lib/observability/server-log";
 import type { CreateMediaJobInput, MediaJobSpec, MediaJobStatus, WorkerCapability } from "@/types/media-worker";
 
 export const MEDIA_WORKER_LEASE_SECONDS = 120;
@@ -54,6 +55,10 @@ function safeEventDetails(details: Record<string, unknown> = {}) {
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, value] of Object.entries(details).slice(0, 20)) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key)) continue;
+    // Event details are copied to the structured server log.  Keep storage
+    // paths, URLs, prompts and credentials out even if a future caller passes
+    // an overly broad details object.
+    if (/(?:token|secret|password|prompt|storage|path|url|content|body)/i.test(key)) continue;
     if (typeof value === "string") result[key] = safeText(value, 256);
     else if (typeof value === "number" && Number.isFinite(value)) result[key] = value;
     else if (typeof value === "boolean" || value === null) result[key] = value;
@@ -61,12 +66,38 @@ function safeEventDetails(details: Record<string, unknown> = {}) {
   return result;
 }
 
+const WORKER_REQUEST_KEYS = [
+  "operation", "sourceAssetId", "maskAssetId", "targetResolution", "modelProfile",
+  "idempotencyKey", "sourceMimeType", "sourceWidth", "sourceHeight", "sourceDurationMs",
+  "sourceBytes", "outputPixels",
+] as const;
+
+function workerSafeRequest(request: Record<string, unknown>) {
+  const safe: Record<string, unknown> = {};
+  for (const key of WORKER_REQUEST_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(request, key)) safe[key] = request[key];
+  }
+  return safe;
+}
+
+function rowToWorker(row: MediaJobRow): PublicMediaJob {
+  const publicRow = rowToPublic(row);
+  // The normalized database column is authoritative if an older row contains
+  // a stale or tampered operation value in its JSON request.
+  return { ...publicRow, request: { ...workerSafeRequest(row.request), operation: row.operation }, output: {} };
+}
+
 async function insertJobEvent(client: { query: (text: string, values?: unknown[]) => Promise<unknown> }, jobId: string, event: string, status: string | null, details: Record<string, unknown> = {}) {
+  const safeDetails = safeEventDetails(details);
   await client.query(
     `insert into creator_media_processing_job_events (job_id, event, status, details)
      values ($1, $2, $3, $4::jsonb)`,
-    [jobId, safeText(event, 96), status, JSON.stringify(safeEventDetails(details))],
+    [jobId, safeText(event, 96), status, JSON.stringify(safeDetails)],
   );
+  // Keep the existing structured observability stream in sync with the durable
+  // job event. Never include prompts, signed URLs, bearer tokens, local paths,
+  // or media contents in this log.
+  logServerEvent(event, { jobId, status, ...safeDetails });
 }
 
 function rowToPublic(row: MediaJobRow): PublicMediaJob {
@@ -140,8 +171,8 @@ export async function createMediaJob(userId: string, workspaceId: string, input:
     );
     const sourceAsset = source.rows[0];
     if (!sourceAsset) throw new MediaWorkerQueueError("源素材不存在或不属于当前空间", "SOURCE_ASSET_FORBIDDEN", 403);
-    if (spec.operation === "video_super_resolution" && sourceAsset.kind !== "video") {
-      throw new MediaWorkerQueueError("视频超分只能处理视频素材", "SOURCE_NOT_VIDEO", 400);
+    if (["video_super_resolution", "watermark_removal"].includes(spec.operation) && sourceAsset.kind !== "video") {
+      throw new MediaWorkerQueueError("该媒体处理操作只能处理视频素材", "SOURCE_NOT_VIDEO", 400);
     }
 
     let maskAsset: { id: string; kind: string; storage_path: string } | null = null;
@@ -161,6 +192,7 @@ export async function createMediaJob(userId: string, workspaceId: string, input:
       : spec.targetResolution === "2k" ? 2560 * 1440
         : spec.targetResolution === "4k" ? 3840 * 2160 : null;
     const request = {
+      operation: spec.operation,
       sourceAssetId: spec.sourceAssetId,
       maskAssetId: spec.maskAssetId,
       targetResolution: spec.targetResolution,
@@ -287,7 +319,10 @@ export async function claimNextMediaJob(worker: QueueWorkerIdentity) {
     const job = claimed.rows[0];
     if (!job) return null;
     await insertJobEvent(client, job.id, "media_job_claimed", job.status, { workerId: worker.workerId, attempt: job.attempt_count });
-    return { job, leaseToken };
+    // The Worker receives only IDs and processing parameters.  NAS paths and
+    // provider URLs remain server-side and are accessed through lease-bound
+    // input/mask endpoints.
+    return { job: rowToWorker(job), leaseToken };
   });
 }
 
@@ -324,6 +359,7 @@ export async function reportMediaProgress(worker: QueueWorkerIdentity, jobId: st
      values ($1, 'media_job_progress', $2, $3::jsonb)`,
     [jobId, job.status, JSON.stringify({ progress: safeProgress, phase: safeText(phase, 128) || null })],
   );
+  logServerEvent("media_job_progress", { jobId, status: job.status, progress: safeProgress, phase: safeText(phase, 128) || null });
   return rowToPublic(job);
 }
 

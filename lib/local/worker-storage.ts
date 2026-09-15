@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { query, withTransaction } from "@/lib/local/db";
 import { localStorage, localFileSize } from "@/lib/local/storage";
 import type { AuthenticatedWorker } from "@/lib/creator/media-worker-auth";
+import { logServerEvent } from "@/lib/observability/server-log";
 
 export const WORKER_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 export const WORKER_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -86,6 +87,32 @@ export async function openWorkerInput(worker: AuthenticatedWorker, jobId: string
   if (!row) throw new WorkerStorageError("任务租约无效或已过期", "MEDIA_JOB_LEASE_INVALID", 409);
   const size = await localFileSize("creator-assets", row.storage_path);
   return { bucket: "creator-assets", storagePath: row.storage_path, mimeType: row.mime_type || "application/octet-stream", name: row.name, size };
+}
+
+/**
+ * Read a user-drawn watermark mask through the same lease-bound channel as the
+ * source video.  The NAS path is returned only to the server route, never in
+ * the Worker job payload or response.
+ */
+export async function openWorkerMask(worker: AuthenticatedWorker, jobId: string, leaseToken: string) {
+  safeId(jobId, "任务");
+  const result = await query<{
+    storage_path: string;
+    mime_type: string | null;
+    name: string;
+  }>(
+    `select a.storage_path, a.mime_type, a.name
+     from creator_media_processing_jobs j
+     join creator_assets a on a.id = j.mask_asset_id and a.workspace_id = j.workspace_id
+     where j.id = $1 and j.user_id = $2 and j.worker_id = $3 and j.lease_token = $4
+       and j.mask_asset_id is not null and a.kind = 'image'
+       and j.status in ('leased','processing','uploading') and j.lease_expires_at > now()` ,
+    [jobId, worker.userId, worker.workerId, leaseToken],
+  );
+  const row = result.rows[0];
+  if (!row) throw new WorkerStorageError("任务遮罩不存在或租约无效", "MEDIA_MASK_NOT_FOUND", 404);
+  const size = await localFileSize("creator-assets", row.storage_path);
+  return { bucket: "creator-assets", storagePath: row.storage_path, mimeType: row.mime_type || "image/png", name: row.name, size };
 }
 
 export async function initWorkerUpload(worker: AuthenticatedWorker, jobId: string, leaseToken: string, input: { expectedBytes: number; mimeType: string; fileName?: string; sha256?: string | null }) {
@@ -216,9 +243,15 @@ export async function completeWorkerUpload(worker: AuthenticatedWorker, uploadId
       );
       await client.query(
         `update creator_media_processing_jobs set status = 'retryable', worker_id = null, lease_token = null, lease_expires_at = null,
-                error_code = 'UPLOAD_VERIFY_FAILED', error_message = '输出文件校验失败，请重试' where id = $1`,
+                error_code = 'UPLOAD_VERIFY_FAILED', error_message = '输出文件校验失败，请重试', phase = 'retryable', updated_at = now() where id = $1`,
         [row.job_id],
       );
+      await client.query(
+        `insert into creator_media_processing_job_events (job_id, event, status, details)
+         values ($1, 'media_job_retryable', 'retryable', $2::jsonb)`,
+        [row.job_id, JSON.stringify({ reason: "UPLOAD_VERIFY_FAILED" })],
+      );
+      logServerEvent("media_job_retryable", { jobId: row.job_id, reason: "UPLOAD_VERIFY_FAILED" }, "warn");
       throw new WorkerStorageError("输出文件校验失败，任务已重新排队", "UPLOAD_VERIFY_FAILED", 422);
     }
 
@@ -251,6 +284,7 @@ export async function completeWorkerUpload(worker: AuthenticatedWorker, uploadId
        values ($1, 'media_job_upload_verified', 'succeeded', $2::jsonb)`,
       [row.job_id, JSON.stringify({ assetId, bytes: size, sha256: digest.data })],
     );
+    logServerEvent("media_job_upload_verified", { jobId: row.job_id, assetId, bytes: size });
     return { jobId: row.job_id, assetId, bytes: size, sha256: digest.data, mimeType: row.mime_type };
   });
 }

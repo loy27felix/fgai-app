@@ -89,9 +89,20 @@ def detect_capabilities() -> dict[str, Any]:
 
     operations: list[str] = []
     profiles: list[str] = []
+    # A GPU alone is not enough to claim a job.  Only advertise a profile when
+    # its verified local runner is configured; otherwise the queue would lease
+    # work that can only fail with MODEL_NOT_INSTALLED.
     if cuda or mps:
-        operations.extend(["video_super_resolution", "watermark_removal"])
-        profiles.extend(VIDEO_PROFILES + WATERMARK_PROFILES)
+        if os.environ.get("FG_WORKER_BASICVSRPP_COMMAND"):
+            operations.append("video_super_resolution")
+            profiles.append(VIDEO_PROFILES[0])
+        if os.environ.get("FG_WORKER_REALESRGAN_COMMAND"):
+            if "video_super_resolution" not in operations:
+                operations.append("video_super_resolution")
+            profiles.append(VIDEO_PROFILES[1])
+        if os.environ.get("FG_WORKER_PROPAINTER_COMMAND"):
+            operations.append("watermark_removal")
+            profiles.extend(WATERMARK_PROFILES)
 
     # 2 GiB input and 4K output are the server-side admission ceilings. A
     # real benchmark can lower these values before the Worker is paired.
@@ -108,4 +119,3 @@ def detect_capabilities() -> dict[str, Any]:
         "maxOutputPixels": 3840 * 2160,
         "ffmpegVersion": _ffmpeg_version(),
     }
-

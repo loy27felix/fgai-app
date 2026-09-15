@@ -53,6 +53,10 @@ export function listMediaWorkers() {
     return requestJson<{ enabled: boolean; workers: MediaWorkerSummary[] }>("/api/creator/workers", { method: "GET" });
 }
 
+export function createMediaWorkerPairingCode() {
+    return requestJson<{ code: string; expiresAt: string }>("/api/creator/workers/pairing", { method: "POST" });
+}
+
 export function createMediaJob(input: MediaJobCreateInput) {
     return requestJson<{ job: MediaWorkerJob; replayed: boolean }>("/api/creator/media/jobs", {
         method: "POST",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -40,37 +41,60 @@ class WorkerLoop:
             raise WorkerApiError("没有安装媒体处理模型", code="MODEL_NOT_INSTALLED")
         job_id = str(job.get("id") or "")
         request = job.get("request") if isinstance(job.get("request"), dict) else {}
-        with tempfile.TemporaryDirectory(prefix="fg-worker-") as directory:
-            input_path = str(Path(directory) / "input.bin")
-            output_path = str(Path(directory) / "output.bin")
-            Path(input_path).write_bytes(self.client.download_input(job_id, lease_token))
-            self.client.progress(job_id, lease_token, 1, "downloading")
-            self.runner(input_path, output_path, request, lambda value, phase=None: self.client.progress(job_id, lease_token, value, phase))
-            output = Path(output_path)
-            if not output.is_file() or output.stat().st_size <= 0:
-                raise WorkerApiError("媒体处理没有产生输出文件", code="OUTPUT_MISSING")
-            total = output.stat().st_size
-            digest = hashlib.sha256()
-            with output.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(self.CHUNK_BYTES), b""):
-                    digest.update(chunk)
-            file_name = "result.mp4" if str(request.get("operation")) == "video_super_resolution" else "result.bin"
-            mime_type = "video/mp4" if file_name.endswith(".mp4") else "application/octet-stream"
-            upload = self.client.init_upload(job_id, lease_token, expected_bytes=total, mime_type=mime_type, file_name=file_name, sha256=digest.hexdigest())
-            upload_id = str(upload.get("uploadId") or "")
-            if not upload_id:
-                raise WorkerApiError("上传初始化没有返回 uploadId", code="UPLOAD_INIT_INVALID")
-            sent = 0
-            with output.open("rb") as stream:
-                while sent < total:
-                    chunk = stream.read(self.CHUNK_BYTES)
-                    if not chunk:
-                        break
-                    end = sent + len(chunk) - 1
-                    self.client.upload_chunk(upload_id, lease_token, start=sent, end=end, total=total, body=chunk)
-                    sent = end + 1
-                    self.client.progress(job_id, lease_token, min(99, sent * 100 / total), "uploading")
-            self.client.complete_upload(upload_id, lease_token, file_name)
+        stop_heartbeat = threading.Event()
+
+        def keep_lease_alive() -> None:
+            while not stop_heartbeat.wait(self.HEARTBEAT_SECONDS):
+                try:
+                    self.client.heartbeat_job(job_id, lease_token)
+                except Exception:
+                    # A later heartbeat may recover from a transient network
+                    # failure.  The server-side lease recovery remains the
+                    # final authority if this worker really goes offline.
+                    continue
+
+        heartbeat_thread = threading.Thread(target=keep_lease_alive, name=f"fg-worker-lease-{job_id[:8]}", daemon=True)
+        heartbeat_thread.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix="fg-worker-") as directory:
+                input_path = str(Path(directory) / "input.bin")
+                output_path = str(Path(directory) / "output.bin")
+                Path(input_path).write_bytes(self.client.download_input(job_id, lease_token))
+                self.client.progress(job_id, lease_token, 1, "downloading")
+                if request.get("maskAssetId"):
+                    mask_path = Path(directory) / "mask.png"
+                    mask_path.write_bytes(self.client.download_mask(job_id, lease_token))
+                    request = {**request, "maskPath": str(mask_path)}
+                self.runner(input_path, output_path, request, lambda value, phase=None: self.client.progress(job_id, lease_token, value, phase))
+                output = Path(output_path)
+                if not output.is_file() or output.stat().st_size <= 0:
+                    raise WorkerApiError("媒体处理没有产生输出文件", code="OUTPUT_MISSING")
+                total = output.stat().st_size
+                digest = hashlib.sha256()
+                with output.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(self.CHUNK_BYTES), b""):
+                        digest.update(chunk)
+                is_video = str(request.get("operation")) in {"video_super_resolution", "watermark_removal"}
+                file_name = "result.mp4" if is_video else "result.bin"
+                mime_type = "video/mp4" if is_video else "application/octet-stream"
+                upload = self.client.init_upload(job_id, lease_token, expected_bytes=total, mime_type=mime_type, file_name=file_name, sha256=digest.hexdigest())
+                upload_id = str(upload.get("uploadId") or "")
+                if not upload_id:
+                    raise WorkerApiError("上传初始化没有返回 uploadId", code="UPLOAD_INIT_INVALID")
+                sent = 0
+                with output.open("rb") as stream:
+                    while sent < total:
+                        chunk = stream.read(self.CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        end = sent + len(chunk) - 1
+                        self.client.upload_chunk(upload_id, lease_token, start=sent, end=end, total=total, body=chunk)
+                        sent = end + 1
+                        self.client.progress(job_id, lease_token, min(99, sent * 100 / total), "uploading")
+                self.client.complete_upload(upload_id, lease_token, file_name)
+        finally:
+            stop_heartbeat.set()
+            heartbeat_thread.join(timeout=2)
 
     def run_once(self) -> bool:
         self.client.heartbeat(self.capabilities)
@@ -83,7 +107,14 @@ class WorkerLoop:
         try:
             self._run_job(job, lease_token)
         except Exception as error:
-            retryable = not isinstance(error, WorkerApiError) or error.code not in {"MODEL_NOT_INSTALLED", "UNSUPPORTED_BACKEND", "INVALID_MEDIA_JOB"}
+            operation_retryable = getattr(error, "retryable", None)
+            if isinstance(operation_retryable, bool):
+                retryable = operation_retryable
+            else:
+                retryable = not isinstance(error, WorkerApiError) or error.code not in {
+                    "MODEL_NOT_INSTALLED", "UNSUPPORTED_BACKEND", "INVALID_MEDIA_JOB", "MODEL_PROFILE_UNSUPPORTED",
+                    "INVALID_TARGET_RESOLUTION", "MASK_REQUIRED", "MASK_NOT_FOUND", "OPERATION_UNSUPPORTED",
+                }
             try:
                 self.client.fail(job_id, lease_token, retryable=retryable, error_code=getattr(error, "code", None) or "WORKER_PROCESSING_FAILED", message=str(error))
             except Exception:

@@ -54,18 +54,15 @@ class VideoSuperResolutionAdapter(OperationAdapter):
             assert_valid_output(output_path, expected_width=width, expected_height=height, input_metadata=input_metadata)
             progress(100, "completed")
 
-        # The fallback keeps a deterministic, non-sharpening path available for
-        # a canary. It is explicitly named fallback, never advertised as AI
-        # quality, and still preserves the source audio stream.
+        # The sequence fallback is still an explicit GPU runner contract. Do
+        # not silently substitute FFmpeg scaling: that would look like a
+        # successful super-resolution job while providing the wrong quality.
         if profile == "realesrgan-sequence-fallback":
+            command = os.environ.get("FG_WORKER_REALESRGAN_COMMAND")
+            if not command:
+                raise OperationError("Real-ESRGAN 模型尚未安装", code="MODEL_NOT_INSTALLED")
             progress(5, "decoding")
-            run([
-                "ffmpeg", "-y", "-v", "error", "-i", input_path,
-                "-map", "0:v:0", "-map", "0:a?",
-                "-vf", f"scale={width}:{height}:flags=lanczos",
-                "-c:v", "libx264", "-preset", "medium", "-crf", "16",
-                "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", output_path,
-            ], timeout=6 * 60 * 60)
+            run(shlex.split(command, posix=False) + ["--input", input_path, "--output", output_path, "--target", target], timeout=6 * 60 * 60)
             progress(95, "validating")
             assert_valid_output(output_path, expected_width=width, expected_height=height, input_metadata=input_metadata)
             progress(100, "completed")

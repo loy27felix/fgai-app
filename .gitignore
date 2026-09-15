@@ -12,3 +12,5 @@ next-env.d.ts
 __pycache__/
 *.py[cod]
 .pytest_cache/
+worker/pytest-cache-files-*/
+worker/test-tmp/

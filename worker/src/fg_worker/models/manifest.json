@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "models": [
+    {
+      "profile": "basicvsrpp-quality",
+      "name": "BasicVSR++",
+      "operation": "video_super_resolution",
+      "artifact": "models/basicvsrpp-quality",
+      "sha256": null,
+      "supportedBackends": ["cuda", "mps"],
+      "requiredMemoryBytes": 8589934592,
+      "status": "not-bundled"
+    },
+    {
+      "profile": "realesrgan-sequence-fallback",
+      "name": "Real-ESRGAN sequence fallback",
+      "operation": "video_super_resolution",
+      "artifact": "models/realesrgan-sequence-fallback",
+      "sha256": null,
+      "supportedBackends": ["cuda", "mps"],
+      "requiredMemoryBytes": 4294967296,
+      "status": "runner-required"
+    },
+    {
+      "profile": "propainter-mask",
+      "name": "ProPainter masked inpainting",
+      "operation": "watermark_removal",
+      "artifact": "models/propainter-mask",
+      "sha256": null,
+      "supportedBackends": ["cuda", "mps"],
+      "requiredMemoryBytes": 8589934592,
+      "status": "runner-required"
+    }
+  ]
+}
