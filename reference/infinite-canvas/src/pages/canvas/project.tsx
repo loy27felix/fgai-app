@@ -65,7 +65,7 @@ import { isPendingCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { activeVideoAlternativeIndex, appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
-import { dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
+import { cloneCanvasNodeForDuplicate, dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import { getCanvasEdgeAutoPanDelta } from "@/reference/infinite-canvas/src/lib/canvas/canvas-edge-auto-pan";
 import {
     audioExtension,
@@ -1542,88 +1542,16 @@ function InfiniteCanvasPage() {
         const source = sourceNodes.find((node) => node.id === nodeId);
         if (!source) return;
 
-        // “创建副本” deliberately clones the complete upstream graph, while
-        // the native copy/paste path below only clones the selected nodes.
-        // Include group containers and their children so a referenced pack
-        // remains a self-contained, reusable copy instead of pointing back to
-        // the original canvas.
-        const includedIds = new Set<string>();
-        const pendingIds = [nodeId];
-        while (pendingIds.length) {
-            const currentId = pendingIds.pop();
-            if (!currentId || includedIds.has(currentId)) continue;
-            const current = sourceNodes.find((node) => node.id === currentId);
-            if (!current) continue;
-            includedIds.add(currentId);
+        const copyId = `${source.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const { node: copyNode, connections: copiedEndpoints } = cloneCanvasNodeForDuplicate(source, copyId, sourceNodes, sourceConnections);
+        const copiedConnections = copiedEndpoints.map((connection) => ({ ...connection, id: nanoid() }));
 
-            sourceConnections.forEach((connection) => {
-                if (connection.toNodeId === currentId && !includedIds.has(connection.fromNodeId)) pendingIds.push(connection.fromNodeId);
-            });
-
-            const groupId = current.metadata?.groupId;
-            if (groupId && !includedIds.has(groupId)) pendingIds.push(groupId);
-            if (current.type === CanvasNodeType.Group) {
-                sourceNodes.filter((node) => node.metadata?.groupId === current.id).forEach((child) => pendingIds.push(child.id));
-            }
-        }
-
-        const idMap = new Map<string, string>();
-        includedIds.forEach((id) => {
-            const node = sourceNodes.find((item) => item.id === id);
-            idMap.set(id, `${node?.type || "node"}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
-        });
-        const remapId = (value?: string) => (value ? idMap.get(value) : undefined);
-        const remapText = (value?: string) => {
-            if (!value) return value;
-            let next = value;
-            idMap.forEach((nextId, previousId) => {
-                next = next.replaceAll(previousId, nextId);
-            });
-            return next;
-        };
-        const copyNodes = sourceNodes
-            .filter((node) => includedIds.has(node.id))
-            .map((node) => {
-                const metadata = node.metadata;
-                const referenceLabels = metadata?.referenceLabels
-                    ? Object.fromEntries(Object.entries(metadata.referenceLabels).map(([referenceId, label]) => [remapId(referenceId) || referenceId, label]))
-                    : undefined;
-                return {
-                    ...node,
-                    id: idMap.get(node.id) || node.id,
-                    title: `${node.title || "未命名节点"} 副本`,
-                    position: { x: node.position.x + 48, y: node.position.y + 48 },
-                    metadata: metadata
-                        ? {
-                              ...metadata,
-                              status: metadata.status === NODE_STATUS_LOADING ? NODE_STATUS_IDLE : metadata.status,
-                              errorDetails: undefined,
-                              composerContent: remapText(metadata.composerContent),
-                              groupId: remapId(metadata.groupId),
-                              batchRootId: remapId(metadata.batchRootId),
-                              batchChildIds: metadata.batchChildIds?.map((childId) => remapId(childId) || childId),
-                              primaryImageId: remapId(metadata.primaryImageId),
-                              isBatchRoot: metadata.isBatchRoot && Boolean(metadata.batchChildIds?.some((childId) => idMap.has(childId))),
-                              imageBatchExpanded: metadata.isBatchRoot && Boolean(metadata.batchChildIds?.some((childId) => idMap.has(childId))) ? metadata.imageBatchExpanded : undefined,
-                              referenceLabels,
-                              imageAlternatives: metadata.imageAlternatives?.map((alternative) => ({ ...alternative })),
-                              videoAlternatives: metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
-                          }
-                        : undefined,
-                } satisfies CanvasNodeData;
-            });
-        const referenceConnections = sourceConnections
-            .filter((connection) => includedIds.has(connection.fromNodeId) && includedIds.has(connection.toNodeId))
-            .map((connection) => ({ ...connection, id: nanoid(), fromNodeId: idMap.get(connection.fromNodeId) || connection.fromNodeId, toNodeId: idMap.get(connection.toNodeId) || connection.toNodeId }));
-        const copyId = idMap.get(nodeId);
-        if (!copyId || !copyNodes.length) return;
-
-        setNodes((prev) => [...prev, ...copyNodes]);
-        setConnections((prev) => [...prev, ...referenceConnections]);
+        setNodes((prev) => [...prev, copyNode]);
+        setConnections((prev) => [...prev, ...copiedConnections]);
         setSelectedNodeIds(new Set([copyId]));
         setSelectedConnectionId(null);
         setContextMenu(null);
-        console.info("[canvas node duplicate]", { sourceNodeId: nodeId, copyNodeId: copyId, copiedNodeCount: copyNodes.length, referenceConnectionCount: referenceConnections.length });
+        console.info("[canvas node duplicate]", { sourceNodeId: nodeId, copyNodeId: copyId, copiedNodeCount: 1, referenceConnectionCount: copiedConnections.length });
         if (source.type !== CanvasNodeType.Group) setDialogNodeId(copyId);
     }, []);
 
