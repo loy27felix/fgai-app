@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { mkdir, open, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = () => path.resolve(process.env.NAS_MEDIA_PATH || "/data/media");
@@ -99,6 +100,71 @@ export class LocalStorageBucket {
   async remove(names: string[]) {
     try { await assertNasReady(); await Promise.all(names.map((name) => rm(safePath(this.bucket, name), { force: true }))); return { data: names.map((name) => ({ name })), error: null }; }
     catch (error) { return { data: null, error: storageError(error) }; }
+  }
+
+  /** Write one contiguous chunk to an existing or newly-created NAS object. */
+  async writeChunk(name: string, start: number, body: Blob | Buffer | Uint8Array) {
+    try {
+      await assertNasReady();
+      if (!Number.isSafeInteger(start) || start < 0) throw new Error("非法上传偏移");
+      const destination = safePath(this.bucket, name);
+      const bytes = Buffer.isBuffer(body) ? body : body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(await body.arrayBuffer());
+      if (bytes.byteLength === 0 || bytes.byteLength > 8 * 1024 * 1024) throw new Error("上传分片不能超过 8MiB");
+      await mkdir(path.dirname(destination), { recursive: true });
+      let handle;
+      try { handle = await open(destination, "r+"); }
+      catch { handle = await open(destination, "w+"); }
+      try {
+        const current = (await handle.stat()).size;
+        if (current !== start) throw new Error("上传分片必须连续");
+        await handle.write(bytes, 0, bytes.length, start);
+      } finally {
+        await handle.close();
+      }
+      return { data: { path: name, receivedBytes: start + bytes.byteLength }, error: null };
+    } catch (error) { return { data: null, error: storageError(error) }; }
+  }
+
+  /** Move a verified temporary object to its immutable server-derived path. */
+  async move(source: string, destination: string) {
+    try {
+      await assertNasReady();
+      const sourcePath = safePath(this.bucket, source);
+      const destinationPath = safePath(this.bucket, destination);
+      await mkdir(path.dirname(destinationPath), { recursive: true });
+      await rename(sourcePath, destinationPath);
+      return { data: { path: destination }, error: null };
+    } catch (error) { return { data: null, error: storageError(error) }; }
+  }
+
+  async sha256(name: string) {
+    try {
+      await assertNasReady();
+      const filePath = safePath(this.bucket, name);
+      const hash = createHash("sha256");
+      await new Promise<void>((resolve, reject) => {
+        const stream = createReadStream(filePath);
+        stream.on("data", (chunk) => hash.update(chunk));
+        stream.once("error", reject);
+        stream.once("end", () => resolve());
+      });
+      return { data: hash.digest("hex"), error: null };
+    } catch (error) { return { data: null, error: storageError(error) }; }
+  }
+
+  async readPrefix(name: string, length = 32) {
+    try {
+      await assertNasReady();
+      const size = Math.max(1, Math.min(1024, Math.floor(length)));
+      const handle = await open(safePath(this.bucket, name), "r");
+      try {
+        const buffer = Buffer.alloc(size);
+        const result = await handle.read(buffer, 0, size, 0);
+        return { data: buffer.subarray(0, result.bytesRead), error: null };
+      } finally {
+        await handle.close();
+      }
+    } catch (error) { return { data: null, error: storageError(error) }; }
   }
 
   async list(prefix = "", options?: { limit?: number; offset?: number }) {
