@@ -105,6 +105,45 @@ export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
     };
 }
 
+/**
+ * Build metadata for a verified local Worker result. Only the durable
+ * same-origin content URL is accepted here; browser data/blob URLs are never
+ * copied into a derived node.
+ */
+export function derivedMediaMetadata(input: {
+    operation: CanvasNodeMetadata["processingOperation"];
+    jobId: string;
+    sourceNodeId: string;
+    outputAssetId: string;
+    storagePath: string;
+    contentUrl: string;
+    mimeType?: string;
+    bytes?: number;
+    width?: number;
+    height?: number;
+    durationMs?: number;
+}): CanvasNodeMetadata {
+    return {
+        content: input.contentUrl,
+        storageKey: undefined,
+        cloudStoragePath: input.storagePath,
+        cloudAssetId: input.outputAssetId,
+        mimeType: input.mimeType,
+        bytes: input.bytes,
+        naturalWidth: input.width,
+        naturalHeight: input.height,
+        durationMs: input.durationMs,
+        status: "success",
+        mediaProcessingJobId: input.jobId,
+        processingOperation: input.operation,
+        derivedFromNodeId: input.sourceNodeId,
+        outputAssetId: input.outputAssetId,
+        durableArchivePending: undefined,
+        durableUploadPending: undefined,
+        errorDetails: undefined,
+    };
+}
+
 export function referenceUrl(image: ReferenceImage) {
     return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
 }

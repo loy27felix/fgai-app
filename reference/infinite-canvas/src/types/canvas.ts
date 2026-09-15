@@ -132,6 +132,14 @@ export type CanvasNodeMetadata = {
     generationAttemptId?: string;
     /** Consecutive playback recovery attempts; this never starts a new generation. */
     playbackRecoveryAttempt?: number;
+    /** Durable local Worker processing task attached to this node. */
+    mediaProcessingJobId?: string;
+    /** Operation that produced this derived node (for example video super-resolution). */
+    processingOperation?: "video_super_resolution" | "watermark_removal" | "audio_separation" | "subtitle_removal" | "subject_removal";
+    /** Source node ID for a non-destructive local processing result. */
+    derivedFromNodeId?: string;
+    /** creator_assets ID for the verified Worker output. */
+    outputAssetId?: string;
 };
 
 export type CanvasNodeData = {

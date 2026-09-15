@@ -13,6 +13,7 @@ import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/i
 import { previewImage, resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { previewMediaFile, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTask } from "@/lib/creator/video-client";
+import { getMediaJob, type MediaWorkerJob } from "@/reference/infinite-canvas/src/services/api/media-worker";
 import { listImageTasks } from "@/lib/creator/image-client";
 import type { CreatorCanvasGraph, CreatorImageTaskView } from "@/lib/creator/types";
 import { logClientEvent } from "@/lib/observability/client-log";
@@ -62,7 +63,7 @@ import { shouldReportMissingVideoBackup } from "@/reference/infinite-canvas/src/
 import { nextVideoPlaybackRecoveryAttempt } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-playback-retry";
 import { mergeCanvasCloudGraphs } from "@/reference/infinite-canvas/src/lib/canvas/canvas-cloud-merge";
 import { isPendingCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/canvas/canvas-upload-durability";
-import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
+import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, derivedMediaMetadata, findLegacyCreatorImageTask, imageMetadata, videoMetadata } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { activeVideoAlternativeIndex, appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
@@ -90,6 +91,8 @@ import { registerBuiltinNodes } from "@/reference/infinite-canvas/src/components
 import { CanvasPluginManagerModal } from "@/reference/infinite-canvas/src/components/canvas/canvas-plugin-manager-modal";
 import { CanvasRefreshShell } from "@/reference/infinite-canvas/src/components/canvas/canvas-refresh-shell";
 import { CanvasTopBar } from "@/reference/infinite-canvas/src/components/canvas/canvas-top-bar";
+import { LocalWorkerStatus } from "@/reference/infinite-canvas/src/components/canvas/local-worker-status";
+import { MediaProcessingDialog } from "@/reference/infinite-canvas/src/components/canvas/media-processing-dialog";
 import { ConnectionCreateMenu, NodeCreateMenu, type PendingConnectionCreate } from "@/reference/infinite-canvas/src/components/canvas/canvas-create-menus";
 import {
     CanvasNodeType,
@@ -595,6 +598,8 @@ function InfiniteCanvasPage() {
     const cloudCreateInFlightRef = useRef(false);
     const cloudProjectIdRef = useRef<string | null>(null);
     const creatorVideoRecoveryInFlightRef = useRef(new Set<string>());
+    const mediaJobPollInFlightRef = useRef(new Set<string>());
+    const mediaJobHandledRef = useRef(new Set<string>());
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -808,6 +813,96 @@ function InfiniteCanvasPage() {
             window.clearInterval(interval);
         };
     }, [projectLoaded]);
+
+    const handleMediaJobCreated = useCallback((job: MediaWorkerJob, operation: "video_super_resolution" | "watermark_removal") => {
+        const sourceNodeId = superResolveNodeId;
+        if (!sourceNodeId) return;
+        mediaJobHandledRef.current.delete(job.id);
+        setNodes((previous) => previous.map((node) => node.id === sourceNodeId
+            ? { ...node, metadata: { ...node.metadata, mediaProcessingJobId: job.id, processingOperation: operation, derivedFromNodeId: undefined, outputAssetId: undefined, status: NODE_STATUS_LOADING, errorDetails: "等待本机 Worker 处理…" } }
+            : node));
+        setSuperResolveNodeId(null);
+        message.success(operation === "video_super_resolution" ? "超分任务已入队，结果会以新节点写回画布" : "去水印任务已入队，结果会以新节点写回画布");
+    }, [message, superResolveNodeId]);
+
+    // Local processing is a durable server job, not a browser promise. Keep
+    // polling the database while this canvas is open so a Worker restart or a
+    // page refresh never turns a completed NAS result into a lost node.
+    useEffect(() => {
+        if (!projectLoaded) return;
+        let disposed = false;
+        const poll = async () => {
+            const pending = nodesRef.current.filter((node) => {
+                const jobId = node.metadata?.mediaProcessingJobId;
+                // A derived result also retains the job ID for traceability, but
+                // only the source node owns the polling lifecycle. This avoids
+                // creating a second-generation result after a page refresh.
+                return Boolean(jobId && !node.metadata?.derivedFromNodeId && !mediaJobHandledRef.current.has(jobId));
+            });
+            await Promise.all(pending.map(async (sourceNode) => {
+                const jobId = sourceNode.metadata?.mediaProcessingJobId;
+                if (!jobId || mediaJobPollInFlightRef.current.has(jobId)) return;
+                mediaJobPollInFlightRef.current.add(jobId);
+                try {
+                    const { job } = await getMediaJob(jobId);
+                    if (disposed) return;
+                    if (job.status === "succeeded") {
+                        mediaJobHandledRef.current.add(job.id);
+                        const output = job.output && typeof job.output === "object" ? job.output : {};
+                        const storagePath = typeof output.storagePath === "string" ? output.storagePath : "";
+                        const outputAssetId = job.output_asset_id || (typeof output.assetId === "string" ? output.assetId : "");
+                        if (!storagePath || !outputAssetId) {
+                            setNodes((previous) => previous.map((node) => node.id === sourceNode.id ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: "本机处理已完成，但 NAS 结果记录不完整，请联系管理员查看任务日志" } } : node));
+                            message.error("本机处理完成，但没有找到 NAS 结果记录");
+                            return;
+                        }
+                        const operation = sourceNode.metadata?.processingOperation || "video_super_resolution";
+                        const requestedTarget = typeof job.request?.targetResolution === "string" ? job.request.targetResolution : "1080p";
+                        const targetSize = requestedTarget === "4k" ? { width: 3840, height: 2160 } : requestedTarget === "2k" ? { width: 2560, height: 1440 } : { width: 1920, height: 1080 };
+                        const width = operation === "video_super_resolution" ? targetSize.width : sourceNode.metadata?.naturalWidth || sourceNode.width;
+                        const height = operation === "video_super_resolution" ? targetSize.height : sourceNode.metadata?.naturalHeight || sourceNode.height;
+                        const sourceStillExists = nodesRef.current.find((node) => node.id === sourceNode.id);
+                        const alreadyDerived = nodesRef.current.some((node) => node.metadata?.mediaProcessingJobId === job.id && node.metadata?.derivedFromNodeId === sourceNode.id);
+                        if (!sourceStillExists || alreadyDerived) return;
+                        const outputBytes = typeof output.bytes === "number" ? output.bytes : undefined;
+                        const outputMimeType = typeof output.mimeType === "string" ? output.mimeType : sourceNode.metadata?.mimeType || "video/mp4";
+                        const outputDuration = typeof sourceNode.metadata?.durationMs === "number" ? sourceNode.metadata.durationMs : undefined;
+                        const outputUrl = creatorCanvasAssetContentUrl(storagePath);
+                        const center = { x: sourceNode.position.x + sourceNode.width + 120 + sourceNode.width / 2, y: sourceNode.position.y + sourceNode.height / 2 };
+                        const metadata = derivedMediaMetadata({ operation, jobId: job.id, sourceNodeId: sourceNode.id, outputAssetId, storagePath, contentUrl: outputUrl, mimeType: outputMimeType, bytes: outputBytes, width, height, durationMs: outputDuration });
+                        const derivedNode = createCanvasNode(sourceNode.type, center, { ...metadata, prompt: sourceNode.metadata?.prompt, model: sourceNode.metadata?.model });
+                        const fitted = fitNodeSize(width, height, sourceNode.type === CanvasNodeType.Video ? VIDEO_NODE_MAX_WIDTH : 520, sourceNode.type === CanvasNodeType.Video ? VIDEO_NODE_MAX_HEIGHT : 520);
+                        const positionedNode = { ...derivedNode, title: `${sourceNode.title || "媒体"} · ${operation === "video_super_resolution" ? `${requestedTarget.toUpperCase()} 超分` : "去水印"}`, width: fitted.width, height: fitted.height, position: { x: center.x - fitted.width / 2, y: center.y - fitted.height / 2 } };
+                        setNodes((previous) => previous.some((node) => node.metadata?.mediaProcessingJobId === job.id && node.metadata?.derivedFromNodeId === sourceNode.id) ? previous : [...previous, positionedNode]);
+                        setNodes((previous) => previous.map((node) => node.id === sourceNode.id ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node));
+                        setConnections((previous) => previous.some((connection) => connection.fromNodeId === sourceNode.id && connection.toNodeId === positionedNode.id) ? previous : [...previous, { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: positionedNode.id }]);
+                        message.success("本机处理完成，NAS 结果已添加为新的派生节点");
+                    } else if (job.status === "failed" || job.status === "cancelled") {
+                        mediaJobHandledRef.current.add(job.id);
+                        const detail = job.error_message || (job.status === "cancelled" ? "任务已取消" : "本机处理失败，请检查 Worker 日志");
+                        setNodes((previous) => previous.map((node) => node.id === sourceNode.id ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: detail } } : node));
+                        message.error(detail);
+                    } else {
+                        const progress = Number(job.progress);
+                        const phase = job.phase === "uploading" ? "正在把结果写回 NAS" : job.status === "processing" ? "本机 GPU 处理中" : "等待本机 Worker";
+                        setNodes((previous) => previous.map((node) => node.id === sourceNode.id ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_LOADING, errorDetails: Number.isFinite(progress) && progress > 0 ? `${phase}（${Math.round(progress)}%）` : `${phase}…` } } : node));
+                    }
+                } catch (error) {
+                    // A transient network failure is not a processing failure;
+                    // the next poll retries without touching the source node.
+                    console.warn("[canvas media job poll]", { jobId, error });
+                } finally {
+                    mediaJobPollInFlightRef.current.delete(jobId);
+                }
+            }));
+        };
+        void poll();
+        const timer = window.setInterval(() => void poll(), 2_000);
+        return () => {
+            disposed = true;
+            window.clearInterval(timer);
+        };
+    }, [message, projectLoaded]);
 
     useEffect(() => {
         if (!projectLoaded || !["new", "recent", "choose"].includes(searchParams.get("mode") || "")) return;
@@ -4691,6 +4786,9 @@ function InfiniteCanvasPage() {
                     compactAgentStatus={{ connected: localAgentConnected, enabled: localAgentEnabled, activity: localAgentActivity }}
                     onToggleAgent={toggleAgentPanel}
                 />
+                <div className="pointer-events-none absolute right-4 top-[68px] z-[80]">
+                    <LocalWorkerStatus />
+                </div>
 
                 <InfiniteCanvas
                     containerRef={containerRef}
@@ -5005,9 +5103,7 @@ function InfiniteCanvasPage() {
                     <CanvasNodeUpscaleDialog dataUrl={upscaleNode.metadata.content} open={Boolean(upscaleNode)} onClose={() => setUpscaleNodeId(null)} onConfirm={(params) => void upscaleImageNode(upscaleNode!, params)} />
                 ) : null}
 
-                <Modal title="AI 超分" open={Boolean(superResolveNode?.metadata?.content)} centered footer={null} onCancel={() => setSuperResolveNodeId(null)}>
-                    <div className="py-8 text-center text-base font-medium">暂未实现</div>
-                </Modal>
+                <MediaProcessingDialog node={superResolveNode} open={Boolean(superResolveNode?.metadata?.content)} onClose={() => setSuperResolveNodeId(null)} onJobCreated={handleMediaJobCreated} />
 
                 {angleNode?.metadata?.content ? <CanvasNodeAngleDialog dataUrl={angleNode.metadata.content} open={Boolean(angleNode)} onClose={() => setAngleNodeId(null)} onConfirm={(params) => void generateAngleNode(angleNode!, params)} /> : null}
 
