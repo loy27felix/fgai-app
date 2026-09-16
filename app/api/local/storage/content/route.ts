@@ -18,38 +18,22 @@ export async function GET(request: Request) {
   const name = url.searchParams.get("path") || "";
   const range = request.headers.get("range");
   const cfRay = request.headers.get("cf-ray");
-  // Log only the path and auth outcome; never log signed tokens or cookies.
-  // 只记录路径和鉴权结果，禁止记录 signed token 或 Cookie。
-  logServerEvent("local_media_request", {
-    bucket,
-    path: name,
-    hasRange: Boolean(range),
-    cfRay: cfRay || undefined,
-  });
   if (!allowedBuckets.has(bucket) || !name) {
     logServerEvent("local_media_rejected", { bucket, path: name, reason: "invalid_path", cfRay: cfRay || undefined }, "warn");
     return new NextResponse("媒体路径无效", { status: 400 });
   }
   const signedAccess = verifyLocalSignedUrl(bucket, name, url.searchParams.get("expires"), url.searchParams.get("token"));
-  logServerEvent("local_media_auth", {
-    bucket,
-    path: name,
-    signedAccess,
-    authenticated: Boolean(user),
-    cfRay: cfRay || undefined,
-  });
-  if (!user && !signedAccess) return new NextResponse("未登录", { status: 401 });
-  if (user && !signedAccess && !await canAccessStoragePath(user.id, bucket, name)) return new NextResponse("无权访问该媒体路径", { status: 403 });
+  if (!user && !signedAccess) {
+    logServerEvent("local_media_rejected", { bucket, path: name, reason: "unauthenticated", cfRay: cfRay || undefined }, "warn");
+    return new NextResponse("未登录", { status: 401 });
+  }
+  if (user && !signedAccess && !await canAccessStoragePath(user.id, bucket, name)) {
+    logServerEvent("local_media_rejected", { bucket, path: name, reason: "forbidden", cfRay: cfRay || undefined }, "warn");
+    return new NextResponse("无权访问该媒体路径", { status: 403 });
+  }
   try {
     const size = await localFileSize(bucket, name);
     const headers = { "Accept-Ranges": "bytes", "Content-Type": contentType(name), "Cache-Control": "private, max-age=300" };
-    logServerEvent("local_media_file", {
-      bucket,
-      path: name,
-      size,
-      hasRange: Boolean(range),
-      cfRay: cfRay || undefined,
-    });
     if (!range) return new NextResponse(await readLocalFile(bucket, name), { headers: { ...headers, "Content-Length": String(size) } });
     const match = /^bytes=(\d*)-(\d*)$/.exec(range);
     if (!match) return new NextResponse("Range 不支持", { status: 416, headers: { "Content-Range": `bytes */${size}` } });

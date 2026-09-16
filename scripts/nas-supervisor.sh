@@ -107,6 +107,18 @@ probe_running_container() {
   [[ "$health" == "healthy" || "$health" == "starting" ]]
 }
 
+probe_running_container_reliably() {
+  local container="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    if probe_running_container "$container"; then
+      return 0
+    fi
+    ((attempt < 3)) && sleep 1
+  done
+  return 1
+}
+
 probe_new_mount() {
   local image="$1"
   local marker_path="$APP_CONTAINER_PATH/$MARKER_NAME"
@@ -185,18 +197,16 @@ if [[ -z "$NAS_PATH" || "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTE
   exit 1
 fi
 
-if ! run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
-  stop_app
-  set_state "nas-offline" "NAS supervisor: SMB server is unreachable; app stopped"
-  exit 0
-fi
-
 # Read the mount table before touching the network path so a stale SMB session cannot block the supervisor.
 # 先读取挂载表再访问网络目录，避免失效的 SMB 会话永久阻塞守护进程。
 MOUNT_LINE="$(/sbin/mount | awk -v host="$EXPECTED_HOST" -v share="/$EXPECTED_SHARE on " 'index($0, host) && index($0, share) { print; exit }')"
 MOUNT_POINT="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$MOUNT_LINE")"
 if [[ -z "$MOUNT_LINE" || -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
   stop_app
+  if ! run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
+    set_state "nas-offline" "NAS supervisor: SMB server is unreachable; app stopped"
+    exit 0
+  fi
   if request_mount "$MOUNT_URL" "$SMB_USER"; then
     set_state "mount-requested" "NAS supervisor: non-interactive SMB mount requested; app stopped until ready"
   else
@@ -212,7 +222,9 @@ fi
 
 APP_CONTAINER="$(find_app_container 2>/dev/null || true)"
 if [[ -n "$APP_CONTAINER" ]] && [[ "$(docker inspect --format '{{.State.Running}}' "$APP_CONTAINER" 2>/dev/null || true)" == "true" ]]; then
-  if probe_running_container "$APP_CONTAINER"; then
+  # The mounted volume is authoritative while App is running; a transient TCP/445 miss must not stop healthy traffic.
+  # App 运行时以容器内的实际读写为准；单次 TCP/445 抖动不得停止健康流量。
+  if probe_running_container_reliably "$APP_CONTAINER"; then
     set_state "ready" "NAS supervisor: NAS and app are healthy"
     exit 0
   fi
