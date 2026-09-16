@@ -56,13 +56,10 @@ function allowReport(key: string, limit: number) {
 
 export async function POST(request: Request) {
   const transportTraceId = requestTraceId(request);
-  if (!allowReport('global', MAX_GLOBAL_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
-
   const source = request.headers.get('cf-connecting-ip')
     || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     || request.headers.get('user-agent')
     || 'anonymous';
-  if (!allowReport(`source:${source.slice(0, 240)}`, MAX_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
 
   let body: ClientExchangeBody;
   try {
@@ -74,6 +71,12 @@ export async function POST(request: Request) {
   } catch {
     return new NextResponse(null, { status: 204 });
   }
+
+  // Read the legitimate bounded body before rate limiting. Returning while
+  // Nginx is still streaming it can reset the upstream connection.
+  // 先读完合法且有界的请求体再限流，避免 Nginx 仍在转发时上游提前断开。
+  if (!allowReport('global', MAX_GLOBAL_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
+  if (!allowReport(`source:${source.slice(0, 240)}`, MAX_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
 
   const bodyTraceId = text(body.traceId, 128);
   const traceId = TRACE_ID.test(bodyTraceId) ? bodyTraceId : transportTraceId;

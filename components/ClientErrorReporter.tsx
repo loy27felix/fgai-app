@@ -189,14 +189,14 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
           const response = await originalFetch(input, init);
           const shouldReportResponse = requestUrl
             && requestUrl.pathname.startsWith("/api/")
-            && requestUrl.pathname !== "/api/observability/client-errors"
+            && !requestUrl.pathname.startsWith("/api/observability/")
             && (response.status >= 500 || response.status === 429);
           if (!response.ok && shouldReportResponse && requestUrl) {
             report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: requestUrl.pathname, method, httpStatus: response.status, traceId: response.headers.get("x-fg-trace-id") || undefined, requestId: response.headers.get("x-request-id") || undefined, impact: response.status >= 500 ? "blocked" : "degraded" });
           }
           return response;
         } catch (error) {
-          if (requestUrl && requestUrl.pathname.startsWith("/api/") && requestUrl.pathname !== "/api/observability/client-errors") {
+          if (requestUrl && requestUrl.pathname.startsWith("/api/") && !requestUrl.pathname.startsWith("/api/observability/")) {
             const details = errorDetails(error);
             report({ name: text(details.name, 160) || "NetworkError", message: text(details.message, 1_000), stack: text(details.stack, 2_000), apiPath: requestUrl.pathname, method, impact: "degraded" });
           }
@@ -229,38 +229,40 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
       const startedAt = Date.now();
       try {
         const response = await originalFetch(request);
-        const responseSnapshot = (() => {
-          try {
-            return bodySnapshot(response.clone(), response.headers.get("content-type"));
-          } catch {
-            return Promise.resolve<BodySnapshot>({ encoding: "unavailable" });
-          }
-        })();
-        void Promise.all([requestSnapshot, responseSnapshot]).then(([requestBody, responseBody]) => {
-          reportExchange({
-            traceId,
-            exchangeId: eventId(),
-            route: exchangeUrl.pathname,
-            method: request.method,
-            userAgent: navigator.userAgent,
-            requestId: response.headers.get("x-request-id") || request.headers.get("x-request-id") || undefined,
-            httpStatus: response.status,
-            durationMs: Date.now() - startedAt,
-            outcome: response.ok ? "succeeded" : "failed",
-            request: {
+        if (!response.ok) {
+          const responseSnapshot = (() => {
+            try {
+              return bodySnapshot(response.clone(), response.headers.get("content-type"));
+            } catch {
+              return Promise.resolve<BodySnapshot>({ encoding: "unavailable" });
+            }
+          })();
+          void Promise.all([requestSnapshot, responseSnapshot]).then(([requestBody, responseBody]) => {
+            reportExchange({
+              traceId,
+              exchangeId: eventId(),
+              route: exchangeUrl.pathname,
               method: request.method,
-              url: exchangeUrl.href,
-              headers: headerSnapshot(request.headers),
-              ...requestBody,
-            },
-            response: {
-              status: response.status,
-              statusText: response.statusText,
-              headers: headerSnapshot(response.headers),
-              ...responseBody,
-            },
-          });
-        }).catch(() => undefined);
+              userAgent: navigator.userAgent,
+              requestId: response.headers.get("x-request-id") || request.headers.get("x-request-id") || undefined,
+              httpStatus: response.status,
+              durationMs: Date.now() - startedAt,
+              outcome: "failed",
+              request: {
+                method: request.method,
+                url: exchangeUrl.href,
+                headers: headerSnapshot(request.headers),
+                ...requestBody,
+              },
+              response: {
+                status: response.status,
+                statusText: response.statusText,
+                headers: headerSnapshot(response.headers),
+                ...responseBody,
+              },
+            });
+          }).catch(() => undefined);
+        }
         if (!response.ok && (response.status >= 500 || response.status === 429)) {
           report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: exchangeUrl.pathname, method, httpStatus: response.status, traceId, requestId: response.headers.get("x-request-id") || undefined, impact: response.status >= 500 ? "blocked" : "degraded" });
         }

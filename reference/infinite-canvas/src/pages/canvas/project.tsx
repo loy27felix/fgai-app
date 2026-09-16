@@ -513,6 +513,7 @@ function InfiniteCanvasPage() {
     const renameProject = useCanvasStore((state) => state.renameProject);
     const deleteProjects = useCanvasStore((state) => state.deleteProjects);
     const currentProject = useCanvasStore((state) => state.projects.find((project) => project.id === projectId));
+    const currentProjectTitle = currentProject?.title;
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
     const [connections, setConnections] = useState<CanvasConnection[]>([]);
@@ -855,7 +856,7 @@ function InfiniteCanvasPage() {
     }, [activeChatId, appearance, backgroundMode, chatSessions, connections, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
 
     useEffect(() => {
-        if (!projectLoaded || !currentProject) return;
+        if (!projectLoaded || currentProjectTitle === undefined) return;
         if (cloudProjectIdRef.current !== projectId) return;
         if (!cloudCanvasIdRef.current && cloudCreateInFlightRef.current) return;
         if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
@@ -867,7 +868,7 @@ function InfiniteCanvasPage() {
             const sync = async () => {
                 try {
                     if (!cloudId) {
-                        const result = await createCreatorCanvas({ title: currentProject.title, graph: graph as CreatorCanvasGraph }, kind);
+                        const result = await createCreatorCanvas({ title: currentProjectTitle, graph: graph as CreatorCanvasGraph }, kind);
                         if (cloudProjectIdRef.current !== projectId) return;
                         const nextId = result.canvas?.id;
                         if (!nextId) return;
@@ -893,7 +894,7 @@ function InfiniteCanvasPage() {
 
                     for (let attempt = 0; attempt < 2; attempt += 1) {
                         try {
-                            const result = await updateCreatorCanvas(cloudId, { title: currentProject.title, graph: graphToSave, expectedVersion });
+                            const result = await updateCreatorCanvas(cloudId, { title: currentProjectTitle, graph: graphToSave, expectedVersion });
                             if (cloudProjectIdRef.current !== projectId) return;
                             cloudCanvasVersionRef.current = result.canvas.version;
                             cloudMergeBaseRef.current = graphToSave;
@@ -924,7 +925,7 @@ function InfiniteCanvasPage() {
         return () => {
             if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         };
-    }, [appearance, backgroundMode, connections, currentProject, nodes, projectId, projectLoaded, updateProject, viewport]);
+    }, [appearance, backgroundMode, connections, currentProjectTitle, nodes, projectId, projectLoaded, updateProject, viewport]);
     useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);
