@@ -214,7 +214,7 @@ function fitFullLogValue(value: SafeLogValue, budget: FullLogBudget): SafeLogVal
 }
 
 export function redactServerLogText(value: unknown, maxLength = 500) {
-  return sanitiseLogText(String(value ?? ''))
+  return String(value ?? '')
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[redacted]')
     .replace(/data:[^;,\s]+(?:;[^,\s]+)*,\S{32,}/gi, 'data:[redacted]')
