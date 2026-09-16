@@ -36,10 +36,12 @@ type CanvasNodePromptPanelProps = {
     onRemoveReference?: (nodeId: string, referenceId: string) => void;
     onReorderReference?: (nodeId: string, draggedReferenceId: string, anchorReferenceId: string, placement: "before" | "after") => void;
     onImageSettingsOpenChange?: (open: boolean) => void;
+    /** Incremented by the canvas when a reference chip is replaced externally. */
+    promptSyncRevision?: number;
     modeOverride?: CanvasNodeGenerationMode; // 插件节点用 useBuiltinPanel.mode 指定生成类型
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceLibrarySelection, onBeginReferenceReplacement, onRemoveReference, onReorderReference, onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], isSelectingReferences = false, replacingReferenceId = null, onBeginReferenceSelection, onBeginReferenceLibrarySelection, onBeginReferenceReplacement, onRemoveReference, onReorderReference, onImageSettingsOpenChange, promptSyncRevision = 0, modeOverride }: CanvasNodePromptPanelProps) {
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -52,11 +54,11 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
     const [promptEditorSize, setPromptEditorSize] = useState({ width: 760, height: 520 });
 
-    // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
+    // 仅在切换到其它节点或画布明确要求同步时恢复对应提示词;同一节点生成完成后继续保留当前输入。
     useEffect(() => {
         setPrompt(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [node.id]);
+    }, [node.id, promptSyncRevision]);
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
