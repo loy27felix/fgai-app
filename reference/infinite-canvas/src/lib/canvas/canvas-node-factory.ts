@@ -5,6 +5,7 @@ import type { UploadedImage } from "@/reference/infinite-canvas/src/services/ima
 import type { UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { CreatorImageTaskView } from "@/lib/creator/types";
+import { creatorCanvasAssetContentUrl } from "@/lib/creator/video-client";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/reference/infinite-canvas/src/types/canvas";
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
@@ -106,7 +107,10 @@ export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
 }
 
 export function referenceUrl(image: ReferenceImage) {
-    return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
+    return image.storageKey
+        || (image.cloudStoragePath ? creatorCanvasAssetContentUrl(image.cloudStoragePath) : undefined)
+        || image.url
+        || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
 }
 
 export function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {
