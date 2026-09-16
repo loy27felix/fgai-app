@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isDeepStrictEqual } from 'node:util';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import type { CreatorCanvasGraph } from '@/lib/creator/types';
 import { createClient } from '@/lib/local/server';
@@ -91,6 +92,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       try { changes.graph = normalizeGraph(body.graph); } catch { return NextResponse.json({ error: '画布数据无效' }, { status: 400 }); }
     }
     if (!Object.keys(changes).length) return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 });
+    const { data: current, error: currentError } = await context.localClient
+      .from('creator_canvases')
+      .select('*')
+      .eq('id', params.id)
+      .eq('workspace_id', context.workspace.id)
+      .maybeSingle();
+    if (currentError) throw currentError;
+    if (!current) return NextResponse.json({ error: '画布不存在' }, { status: 404 });
+    if (current.version !== expectedVersion) {
+      return NextResponse.json({ error: '画布已在其他位置更新，正在合并最新内容', code: 'CANVAS_VERSION_CONFLICT', canvas: current }, { status: 409 });
+    }
+    const titleUnchanged = typeof changes.title === 'undefined' || changes.title === current.title;
+    const graphUnchanged = typeof changes.graph === 'undefined' || isDeepStrictEqual(changes.graph, current.graph);
+    // A 204 stops stale clients from advancing the local version and scheduling
+    // the same save again, while preserving the already-saved cloud graph.
+    // 返回 204 可阻止旧客户端推进本地版本并再次保存，同时保留已落库的画布。
+    if (titleUnchanged && graphUnchanged) return new NextResponse(null, { status: 204 });
     changes.version = expectedVersion + 1;
     const { data, error } = await context.localClient
       .from('creator_canvases')
@@ -102,15 +120,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       .maybeSingle();
     if (error) throw error;
     if (!data) {
-      const { data: current, error: currentError } = await context.localClient
+      const { data: latest, error: latestError } = await context.localClient
         .from('creator_canvases')
         .select('*')
         .eq('id', params.id)
         .eq('workspace_id', context.workspace.id)
         .maybeSingle();
-      if (currentError) throw currentError;
-      if (!current) return NextResponse.json({ error: '画布不存在' }, { status: 404 });
-      return NextResponse.json({ error: '画布已在其他位置更新，正在合并最新内容', code: 'CANVAS_VERSION_CONFLICT', canvas: current }, { status: 409 });
+      if (latestError) throw latestError;
+      if (!latest) return NextResponse.json({ error: '画布不存在' }, { status: 404 });
+      return NextResponse.json({ error: '画布已在其他位置更新，正在合并最新内容', code: 'CANVAS_VERSION_CONFLICT', canvas: latest }, { status: 409 });
     }
     return NextResponse.json({ canvas: data });
   } catch (error: unknown) {

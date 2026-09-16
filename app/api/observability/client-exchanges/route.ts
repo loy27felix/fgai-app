@@ -72,6 +72,14 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 204 });
   }
 
+  const httpStatus = number(body.httpStatus, 100, 599);
+  const durationMs = number(body.durationMs, 0, 86_400_000);
+  const hasError = body.error !== null && body.error !== undefined;
+  const failed = hasError || (httpStatus !== null && httpStatus >= 400);
+  // Old browser tabs can keep running a previous reporter after deployment.
+  // 服务端只保留失败交换，避免旧页面继续写入成功请求并放大日志量。
+  if (!failed) return new NextResponse(null, { status: 204 });
+
   // Read the legitimate bounded body before rate limiting. Returning while
   // Nginx is still streaming it can reset the upstream connection.
   // 先读完合法且有界的请求体再限流，避免 Nginx 仍在转发时上游提前断开。
@@ -92,10 +100,6 @@ export async function POST(request: Request) {
     // 会话存储异常时仍保留匿名交换记录，不能反向影响业务请求。
   }
 
-  const httpStatus = number(body.httpStatus, 100, 599);
-  const durationMs = number(body.durationMs, 0, 86_400_000);
-  const hasError = body.error !== null && body.error !== undefined;
-  const failed = hasError || (httpStatus !== null && httpStatus >= 400);
   const level = hasError || (httpStatus !== null && httpStatus >= 500)
     ? 'error'
     : failed ? 'warn' : 'info';
