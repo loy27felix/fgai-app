@@ -219,17 +219,20 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
         return originalFetch(input, init);
       }
       const exchangeUrl = new URL(request.url, window.location.origin);
-      const requestSnapshot = (() => {
+      const auditRequest = (() => {
         try {
-          return bodySnapshot(request.clone(), request.headers.get("content-type"));
+          return request.clone();
         } catch {
-          return Promise.resolve<BodySnapshot>({ encoding: "unavailable" });
+          return null;
         }
       })();
       const startedAt = Date.now();
       try {
         const response = await originalFetch(request);
         if (!response.ok) {
+          const requestSnapshot = auditRequest
+            ? bodySnapshot(auditRequest, auditRequest.headers.get("content-type"))
+            : Promise.resolve<BodySnapshot>({ encoding: "unavailable" });
           const responseSnapshot = (() => {
             try {
               return bodySnapshot(response.clone(), response.headers.get("content-type"));
@@ -262,6 +265,20 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
               },
             });
           }).catch(() => undefined);
+        } else {
+          // Successful exchanges retain route, status, and timing; full bodies are reserved for failures.
+          // 成功交换保留路径、状态和耗时；完整响应体仅保留给失败交换。
+          reportExchange({
+            traceId,
+            exchangeId: eventId(),
+            route: exchangeUrl.pathname,
+            method: request.method,
+            userAgent: navigator.userAgent,
+            requestId: response.headers.get("x-request-id") || undefined,
+            httpStatus: response.status,
+            durationMs: Date.now() - startedAt,
+            outcome: "succeeded",
+          });
         }
         if (!response.ok && (response.status >= 500 || response.status === 429)) {
           report({ name: "ApiResponseError", message: `API 请求失败（HTTP ${response.status}）`, apiPath: exchangeUrl.pathname, method, httpStatus: response.status, traceId, requestId: response.headers.get("x-request-id") || undefined, impact: response.status >= 500 ? "blocked" : "degraded" });
@@ -269,6 +286,9 @@ export default function ClientErrorReporter({ deploymentVersion, systemVersion }
         return response;
       } catch (error) {
         const details = errorDetails(error);
+        const requestSnapshot = auditRequest
+          ? bodySnapshot(auditRequest, auditRequest.headers.get("content-type"))
+          : Promise.resolve<BodySnapshot>({ encoding: "unavailable" });
         void requestSnapshot.then((requestBody) => {
           reportExchange({
             traceId,

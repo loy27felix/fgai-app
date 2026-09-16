@@ -5,10 +5,6 @@ import { fullLogPayload, logServerFailure, logServerEvent, requestTraceId } from
 export const runtime = 'nodejs';
 
 const MAX_BODY_BYTES = 256 * 1024;
-const MAX_EVENTS_PER_WINDOW = 240;
-const MAX_GLOBAL_EVENTS_PER_WINDOW = 600;
-const RATE_WINDOW_MS = 60_000;
-const recentReports = new Map<string, number[]>();
 const TRACE_ID = /^[A-Za-z0-9._:-]{8,128}$/;
 
 type ClientExchangeBody = {
@@ -37,29 +33,8 @@ function number(value: unknown, min: number, max: number) {
   return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : null;
 }
 
-function allowReport(key: string, limit: number) {
-  const now = Date.now();
-  const current = (recentReports.get(key) || []).filter((timestamp) => now - timestamp < RATE_WINDOW_MS);
-  if (current.length >= limit) {
-    recentReports.set(key, current);
-    return false;
-  }
-  current.push(now);
-  recentReports.set(key, current);
-  if (recentReports.size > 1_000) {
-    for (const [candidate, timestamps] of recentReports) {
-      if (!timestamps.some((timestamp) => now - timestamp < RATE_WINDOW_MS)) recentReports.delete(candidate);
-    }
-  }
-  return true;
-}
-
 export async function POST(request: Request) {
   const transportTraceId = requestTraceId(request);
-  const source = request.headers.get('cf-connecting-ip')
-    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || request.headers.get('user-agent')
-    || 'anonymous';
 
   let body: ClientExchangeBody;
   try {
@@ -76,15 +51,6 @@ export async function POST(request: Request) {
   const durationMs = number(body.durationMs, 0, 86_400_000);
   const hasError = body.error !== null && body.error !== undefined;
   const failed = hasError || (httpStatus !== null && httpStatus >= 400);
-  // Old browser tabs can keep running a previous reporter after deployment.
-  // 服务端只保留失败交换，避免旧页面继续写入成功请求并放大日志量。
-  if (!failed) return new NextResponse(null, { status: 204 });
-
-  // Read the legitimate bounded body before rate limiting. Returning while
-  // Nginx is still streaming it can reset the upstream connection.
-  // 先读完合法且有界的请求体再限流，避免 Nginx 仍在转发时上游提前断开。
-  if (!allowReport('global', MAX_GLOBAL_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
-  if (!allowReport(`source:${source.slice(0, 240)}`, MAX_EVENTS_PER_WINDOW)) return new NextResponse(null, { status: 204 });
 
   const bodyTraceId = text(body.traceId, 128);
   const traceId = TRACE_ID.test(bodyTraceId) ? bodyTraceId : transportTraceId;
@@ -125,9 +91,12 @@ export async function POST(request: Request) {
       stage: 'completed',
       outcome,
       message: `HTTP ${method} ${route} → ${statusLabel}`,
-      request: fullLogPayload(body.request ?? null),
-      response: fullLogPayload(body.response ?? null),
-      error: hasError ? fullLogPayload(body.error) : undefined,
+      auditDetail: failed ? 'full_failure_context' : 'summary',
+      ...(failed ? {
+        request: fullLogPayload(body.request ?? null),
+        response: fullLogPayload(body.response ?? null),
+        error: hasError ? fullLogPayload(body.error) : undefined,
+      } : {}),
       metadata: fullLogPayload({
         host: request.headers.get('host') || null,
         origin: request.headers.get('origin') || null,

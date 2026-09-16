@@ -32,15 +32,12 @@ const logPersistencePool = new Pool({
 const LOG_PERSISTENCE_QUEUE_LIMIT = 2_000;
 const LOG_PERSISTENCE_BATCH_SIZE = 40;
 const LOG_PERSISTENCE_COOLDOWN_MS = 10_000;
-const LOG_PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
-const LOG_PRUNE_BATCH_SIZE = 5_000;
 const LOG_SOURCES: readonly LogSource[] = ['audit', 'frontend', 'app', 'provider', 'infra', 'deploy', 'billing', 'data'];
 const pendingServerLogs: PersistedServerLog[] = [];
 let logFlushScheduled = false;
 let logFlushRunning = false;
 let droppedServerLogs = 0;
 let logPersistenceDisabledUntil = 0;
-let nextLogPruneAt = 0;
 
 logPersistencePool.on('error', () => undefined);
 
@@ -129,35 +126,6 @@ function reportLogPersistenceFailure(error: unknown, batchSize: number) {
   }
 }
 
-async function pruneExpiredServerLogs() {
-  if (Date.now() < nextLogPruneAt) return;
-  nextLogPruneAt = Date.now() + LOG_PRUNE_INTERVAL_MS;
-  try {
-    await logPersistencePool.query(`
-      delete from observability_log_events
-      where id in (
-        select id
-        from observability_log_events
-        where (level = 'info' and event_name in (
-                 'http_request_received',
-                 'http_exchange_completed',
-                 'local_media_request',
-                 'local_media_auth',
-                 'local_media_file'
-               ))
-           or (level = 'info' and occurred_at < now() - interval '30 days')
-           or (level <> 'info' and occurred_at < now() - interval '90 days')
-        order by id
-        limit $1
-      )
-    `, [LOG_PRUNE_BATCH_SIZE]);
-  } catch (error) {
-    // Retention is best-effort and must never block or retry the business log batch.
-    // 保留策略只做尽力清理，禁止阻断或重试业务日志批次。
-    reportLogPersistenceFailure(error, 0);
-  }
-}
-
 async function flushServerLogQueue() {
   if (logFlushRunning || !pendingServerLogs.length) return;
   logFlushRunning = true;
@@ -195,7 +163,6 @@ async function flushServerLogQueue() {
       `insert into observability_log_events (${columns.join(', ')}) values ${tuples}`,
       values,
     );
-    void pruneExpiredServerLogs();
   } catch (error) {
     // Requeue the failed atomic batch so a transient database outage does not erase it.
     // 失败批次重新排队，避免数据库短暂故障直接抹掉本批日志；请求仍不等待重试。

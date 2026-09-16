@@ -34,6 +34,15 @@ export async function GET(request: Request) {
   try {
     const size = await localFileSize(bucket, name);
     const headers = { "Accept-Ranges": "bytes", "Content-Type": contentType(name), "Cache-Control": "private, max-age=300" };
+    // One compact success record keeps the exact media object traceable without three duplicate events.
+    // 一条紧凑成功记录保留精确媒体对象可追溯，不再生成三条重复事件。
+    logServerEvent("local_media_served", {
+      bucket,
+      path: name,
+      size,
+      hasRange: Boolean(range),
+      cfRay: cfRay || undefined,
+    });
     if (!range) return new NextResponse(await readLocalFile(bucket, name), { headers: { ...headers, "Content-Length": String(size) } });
     const match = /^bytes=(\d*)-(\d*)$/.exec(range);
     if (!match) return new NextResponse("Range 不支持", { status: 416, headers: { "Content-Range": `bytes */${size}` } });

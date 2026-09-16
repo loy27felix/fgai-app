@@ -1,9 +1,15 @@
-import { type NextRequest } from "next/server";
+import { type NextFetchEvent, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/local/middleware";
-import { requestTraceId } from "@/lib/observability/server-log-edge";
+import { queueEdgeRequestEvent, requestTraceId } from "@/lib/observability/server-log-edge";
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const traceId = requestTraceId(request);
+  // Every business request needs a compact, trace-correlated audit start record.
+  // 每个业务请求都需要保留紧凑的、可按 trace 关联的审计起始记录。
+  if (!request.nextUrl.pathname.startsWith("/api/observability/")) {
+    const requestEvent = queueEdgeRequestEvent(request, traceId);
+    if (requestEvent) event.waitUntil(requestEvent);
+  }
   return await updateSession(request, traceId);
 }
 

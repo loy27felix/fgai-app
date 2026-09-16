@@ -388,26 +388,26 @@ async function providerJson(response: Response, context: ProviderJsonContext) {
   } catch {
     responseBodyEncoding = 'text';
   }
-  // Successful poll payloads repeat until status changes; the task event records that transition.
-  // 轮询成功响应会在状态变化前重复出现，状态变化由任务事件单独记录。
-  if (context.operation === 'submit' || !response.ok) {
-    logServerEvent('wetoken_video_exchange', {
-      traceId: context.traceId,
-      taskId: context.taskId,
-      provider: 'wetoken',
-      feature: 'wetoken_video',
-      operation: context.operation,
-      exchangeId: context.exchangeId,
-      stage: 'response_received',
-      durationMs: Date.now() - context.startedAt,
-      responseStatus: response.status,
-      responseStatusText: response.statusText,
+  const detailedResponse = context.operation === 'submit' || !response.ok;
+  logServerEvent('wetoken_video_exchange', {
+    traceId: context.traceId,
+    taskId: context.taskId,
+    provider: 'wetoken',
+    feature: 'wetoken_video',
+    operation: context.operation,
+    exchangeId: context.exchangeId,
+    stage: 'response_received',
+    durationMs: Date.now() - context.startedAt,
+    responseStatus: response.status,
+    responseStatusText: response.statusText,
+    auditDetail: detailedResponse ? 'full_context' : 'summary',
+    ...(detailedResponse ? {
       responseHeaders: safeProviderHeaders(response.headers),
       responseBodyEncoding,
       responseBody: fullLogPayload(data),
       ...(responseBodyEncoding === 'text' ? { responseBodyText: fullLogPayload(responseText) } : {}),
-    }, response.ok ? 'info' : 'warn');
-  }
+    } : {}),
+  }, response.ok ? 'info' : 'warn');
 
   if (!response.ok) {
     const parsedError = readProviderError(data);
@@ -431,18 +431,19 @@ async function providerFetch(
     headers: safeProviderHeaders(init.headers),
     body: fullLogPayload(context.requestBody),
   };
-  if (operation === 'submit') {
-    logServerEvent('wetoken_video_exchange', {
-      traceId: context.traceId,
-      taskId: context.taskId,
-      provider: 'wetoken',
-      feature: 'wetoken_video',
-      operation,
-      exchangeId,
-      stage: 'request_sent',
-      request,
-    });
-  }
+  logServerEvent('wetoken_video_exchange', {
+    traceId: context.traceId,
+    taskId: context.taskId,
+    provider: 'wetoken',
+    feature: 'wetoken_video',
+    operation,
+    exchangeId,
+    stage: 'request_sent',
+    auditDetail: operation === 'submit' ? 'full_context' : 'summary',
+    request: operation === 'submit'
+      ? request
+      : { method: request.method, url: request.url },
+  });
   try {
     const response = await fetcher(input, init);
     return { response, exchangeId, startedAt };
