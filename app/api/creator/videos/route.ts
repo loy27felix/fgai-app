@@ -140,6 +140,7 @@ async function taskViews(
 type CreateDraftBody = {
   canvasId?: unknown;
   nodeId?: unknown;
+  source?: unknown;
   prompt?: unknown;
   model?: unknown;
   references?: unknown;
@@ -203,13 +204,23 @@ export async function POST(req: Request) {
 
     const nodeId = typeof body.nodeId === 'string' && body.nodeId.trim() ? body.nodeId.trim().slice(0, 128) : null;
     const canvasId = typeof body.canvasId === 'string' && body.canvasId.trim() ? body.canvasId.trim() : null;
+    const source = body.source === undefined
+      ? (canvasId || nodeId ? 'canvas' : 'standalone')
+      : body.source === 'canvas'
+        ? 'canvas'
+        : body.source === 'standalone'
+          ? 'standalone'
+          : null;
+    if (!source) return response('生成来源无效，请刷新后重试', 'INVALID_GENERATION_SOURCE', 400);
+    if ((source === 'canvas' && (!canvasId || !nodeId)) || (source === 'standalone' && (canvasId || nodeId))) {
+      return response('画布尚未完成云端保存，已阻止生成，请稍后重试', 'CANVAS_BINDING_REQUIRED', 409);
+    }
     if (canvasId) {
       const ownedCanvas = await context.localClient
         .from('creator_canvases')
         .select('id')
         .eq('id', canvasId)
         .eq('workspace_id', context.workspace.id)
-        .eq('kind', 'video')
         .maybeSingle();
       if (ownedCanvas.error) throw ownedCanvas.error;
       if (!ownedCanvas.data) return response('视频画布不存在', 'INVALID_CANVAS', 400);
@@ -230,6 +241,7 @@ export async function POST(req: Request) {
         idempotency_key: idempotencyKey,
         status: 'draft',
         request: {
+          source,
           prompt: input.prompt,
           effective_prompt: input.effectivePrompt,
           skill: input.skill,
@@ -266,6 +278,13 @@ export async function POST(req: Request) {
 
     if (task.workspace_id !== context.workspace.id || task.user_id !== context.user.id || task.kind !== 'video') {
       return response('幂等键冲突', 'IDEMPOTENCY_CONFLICT', 409);
+    }
+
+    // An idempotency key must replay the same durable canvas binding.  Without
+    // this check a retried request could silently receive an older task that
+    // belongs to a different node (or an unbound legacy task).
+    if ((task.canvas_id || null) !== canvasId || (task.node_id || null) !== nodeId) {
+      return response('幂等键已用于其他画布任务，请重新提交', 'IDEMPOTENCY_CONFLICT', 409);
     }
 
     const request = asRecord(task.request);

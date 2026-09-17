@@ -99,7 +99,13 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal; referenceLabelsById?: Record<string, string> };
+type RequestOptions = {
+    signal?: AbortSignal;
+    canvasId?: string | null;
+    nodeId?: string | null;
+    source?: "canvas" | "standalone";
+    referenceLabelsById?: Record<string, string>;
+};
 
 export type GeneratedImage = {
     id: string;
@@ -728,7 +734,8 @@ async function fgReferenceFile(image: ReferenceImage, index: number) {
     return new File([blob], image.name || `reference-${index + 1}.${extension}`, { type: blob.type || image.type || "image/png" });
 }
 
-async function fgGenerateImage(config: AiConfig, prompt: string, references: ReferenceImage[], signal?: AbortSignal) {
+async function fgGenerateImage(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
+    const signal = options?.signal;
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     // Do not silently drop references: the user needs to know exactly why a
@@ -740,7 +747,7 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     const requestedSize = imageRequestSizeForModel(model, config.size, config.quality) || config.size;
     const geometry = imageDraftGeometry(requestedSize);
     const localClient = createClient();
-    const draft = await createImageDraft({ canvasId: null, nodeId: null, prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
+    const draft = await createImageDraft({ canvasId: options?.canvasId ?? null, nodeId: options?.nodeId ?? null, source: options?.source ?? "standalone", prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
     for (let index = 0; index < files.length; index += 1) {
         const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
         if (upload.error) throw new Error(normalizeProviderErrorMessage(upload.error, { subject: "reference", fallback: "参考素材上传失败，请检查网络后重试" }));
@@ -790,7 +797,7 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     }
     throw new Error("图片生成超时，请稍后重试");
 }export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
-    return fgGenerateImage(config, prompt, [], options?.signal);
+    return fgGenerateImage(config, prompt, [], options);
 }
 
 function creatorGeneratedImage(taskId: string, dataUrl: string, asset?: CreatorImageAsset | null): GeneratedImage {
@@ -807,7 +814,7 @@ function creatorGeneratedImage(taskId: string, dataUrl: string, asset?: CreatorI
 }
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestPrompt = buildImageReferencePromptText(prompt, references, options?.referenceLabelsById);
-    return fgGenerateImage(config, requestPrompt, mask ? [...references, mask] : references, options?.signal);
+    return fgGenerateImage(config, requestPrompt, mask ? [...references, mask] : references, options);
 }
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");

@@ -423,6 +423,32 @@ test('video persistence keeps a cloud URL when browser media storage is unavaila
   assert.match(project, /cloudStoragePath/);
 });
 
+test('canvas creator tasks always carry a durable canvas and node binding', () => {
+  const video = read('reference/infinite-canvas/src/services/api/video.ts');
+  const image = read('reference/infinite-canvas/src/services/api/image.ts');
+  const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
+  const pluginHost = read('reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host.tsx');
+  const videoRoute = read('app/api/creator/videos/route.ts');
+  const imageRoute = read('app/api/creator/images/route.ts');
+
+  assert.match(video, /canvasId\?: string \| null/);
+  assert.match(video, /nodeId\?: string \| null/);
+  assert.match(video, /canvasId: options\?\.canvasId \?\? null/);
+  assert.match(video, /nodeId: options\?\.nodeId \?\? null/);
+  assert.match(image, /canvasId\?: string \| null/);
+  assert.match(image, /nodeId\?: string \| null/);
+  assert.match(image, /canvasId: options\?\.canvasId \?\? null/);
+  assert.match(image, /nodeId: options\?\.nodeId \?\? null/);
+  assert.match(project, /ensureCloudCanvas/);
+  assert.match(project, /source: "canvas"/);
+  assert.match(pluginHost, /getAiForNode/);
+  assert.match(pluginHost, /options\?\.canvasId/);
+  assert.match(pluginHost, /options\?\.nodeId/);
+  assert.match(pluginHost, /source: "canvas"/);
+  assert.match(videoRoute, /source === 'canvas'/);
+  assert.match(imageRoute, /source === 'canvas'/);
+});
+
 test('canvas video assets retain a durable playback path and surface a recoverable playback state', () => {
   const assetClient = read('reference/infinite-canvas/src/services/api/canvas-assets.ts');
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');

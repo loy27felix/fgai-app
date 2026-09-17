@@ -11,6 +11,7 @@ import type {
 export type CreateImageDraftPayload = {
   canvasId?: string | null;
   nodeId?: string | null;
+  source?: 'canvas' | 'standalone';
   prompt: string;
   model: string;
   ratio: string;

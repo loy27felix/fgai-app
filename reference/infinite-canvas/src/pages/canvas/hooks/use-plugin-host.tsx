@@ -19,6 +19,7 @@ type PluginHostParams = {
     effectiveConfig: AiConfig;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (open: boolean) => void;
+    ensureCloudCanvas: () => Promise<string | null>;
     theme: CanvasTheme;
     nodesRef: MutableRefObject<CanvasNodeData[]>;
     connectionsRef: MutableRefObject<CanvasConnection[]>;
@@ -33,7 +34,7 @@ type PluginHostParams = {
  * 并在挂载时加载已安装的远程插件。返回给画布用于渲染插件面板与工具条。
  */
 export function usePluginHost(params: PluginHostParams) {
-    const { effectiveConfig, isAiConfigReady, openConfigDialog, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
+    const { effectiveConfig, isAiConfigReady, openConfigDialog, ensureCloudCanvas, theme, nodesRef, connectionsRef, viewportRef, setNodes, setDialogNodeId, applyAgentOps } = params;
 
     // 提供给插件节点的宿主能力(节点无关,方法接收 nodeId)
     const pluginAi = useMemo<CanvasPluginAi>(() => {
@@ -51,7 +52,8 @@ export function usePluginHost(params: PluginHostParams) {
                 const config = { ...buildGenerationConfig(effectiveConfig, undefined, "image"), count: String(options?.count || 1), ...(options?.model ? { model: options.model } : {}), ...(options?.size ? { size: options.size } : {}) };
                 ensureReady(config);
                 const references = toReferences(options?.references);
-                const items = references.length ? await requestEdit(config, prompt, references, undefined, { signal: options?.signal }) : await requestGeneration(config, prompt, { signal: options?.signal });
+                const requestOptions = { signal: options?.signal, canvasId: options?.canvasId, nodeId: options?.nodeId, source: options?.source };
+                const items = references.length ? await requestEdit(config, prompt, references, undefined, requestOptions) : await requestGeneration(config, prompt, requestOptions);
                 return { images: items.map((item) => item.dataUrl) };
             },
             generateVideo: async (prompt, options) => {
@@ -62,7 +64,7 @@ export function usePluginHost(params: PluginHostParams) {
                     ...(options?.seconds ? { videoSeconds: options.seconds } : {}),
                 };
                 ensureReady(config);
-                const file = await storeGeneratedVideo(await requestVideoGeneration(config, prompt, toReferences(options?.references), [], [], { signal: options?.signal }));
+                const file = await storeGeneratedVideo(await requestVideoGeneration(config, prompt, toReferences(options?.references), [], [], { signal: options?.signal, canvasId: options?.canvasId, nodeId: options?.nodeId, source: options?.source }));
                 return { url: file.url, mimeType: file.mimeType, width: file.width, height: file.height, durationMs: file.durationMs };
             },
             generateText: async (prompt, options) => {
@@ -77,6 +79,20 @@ export function usePluginHost(params: PluginHostParams) {
             defaultModel: (capability) => buildGenerationConfig(effectiveConfig, undefined, capability).model,
         };
     }, [effectiveConfig, isAiConfigReady, openConfigDialog]);
+
+    const getAiForNode = useCallback((nodeId: string): CanvasPluginAi => ({
+        ...pluginAi,
+        generateImage: async (prompt, options) => {
+            const canvasId = await ensureCloudCanvas();
+            if (!canvasId) throw new Error("云端画布尚未准备好，已阻止生成，请稍后重试");
+            return pluginAi.generateImage(prompt, { ...options, canvasId, nodeId, source: "canvas" });
+        },
+        generateVideo: async (prompt, options) => {
+            const canvasId = await ensureCloudCanvas();
+            if (!canvasId) throw new Error("云端画布尚未准备好，已阻止生成，请稍后重试");
+            return pluginAi.generateVideo(prompt, { ...options, canvasId, nodeId, source: "canvas" });
+        },
+    }), [ensureCloudCanvas, pluginAi]);
 
     const pluginHost = useMemo<CanvasPluginHost>(
         () => ({
@@ -97,10 +113,11 @@ export function usePluginHost(params: PluginHostParams) {
             updateMetadata: (nodeId, patch) => setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...patch } } : node))),
             applyOps: (ops) => applyAgentOps(ops),
             ai: pluginAi,
+            getAiForNode,
             openPanel: (nodeId) => setDialogNodeId(nodeId),
             closePanel: () => setDialogNodeId(null),
         }),
-        [applyAgentOps, pluginAi],
+        [applyAgentOps, getAiForNode, pluginAi],
     );
 
     const renderPluginPanel = useCallback(

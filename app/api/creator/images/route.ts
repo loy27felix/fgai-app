@@ -31,6 +31,7 @@ function serverError(error: unknown, code: string, message: string) {
 type CreateDraftBody = {
   canvasId?: unknown;
   nodeId?: unknown;
+  source?: unknown;
   prompt?: unknown;
   model?: unknown;
   ratio?: unknown;
@@ -179,6 +180,17 @@ export async function POST(req: Request) {
     const canvasId = typeof body.canvasId === 'string' && body.canvasId.trim()
       ? body.canvasId.trim()
       : null;
+    const source = body.source === undefined
+      ? (canvasId || nodeId ? 'canvas' : 'standalone')
+      : body.source === 'canvas'
+        ? 'canvas'
+        : body.source === 'standalone'
+          ? 'standalone'
+          : null;
+    if (!source) return response('生成来源无效，请刷新后重试', 'INVALID_GENERATION_SOURCE', 400);
+    if ((source === 'canvas' && (!canvasId || !nodeId)) || (source === 'standalone' && (canvasId || nodeId))) {
+      return response('画布尚未完成云端保存，已阻止生成，请稍后重试', 'CANVAS_BINDING_REQUIRED', 409);
+    }
     try {
       const rawKey = normalizeImageIdempotencyKey(body.idempotencyKey);
       idempotencyKey = scopedImageIdempotencyKey(context.user.id, context.workspace.id, rawKey);
@@ -202,7 +214,6 @@ export async function POST(req: Request) {
         .select('id')
         .eq('id', canvasId)
         .eq('workspace_id', context.workspace.id)
-        .eq('kind', 'image')
         .maybeSingle();
       if (ownedCanvas.error) throw ownedCanvas.error;
       if (!ownedCanvas.data) return response('\u753b\u5e03\u4e0d\u5b58\u5728', 'INVALID_CANVAS', 400);
@@ -220,6 +231,7 @@ export async function POST(req: Request) {
         idempotency_key: idempotencyKey,
         status: 'draft',
         request: {
+          source,
           prompt: input.prompt,
           effective_prompt: input.effectivePrompt,
           skill: input.skill,
@@ -259,6 +271,13 @@ export async function POST(req: Request) {
       || task.kind !== 'image'
     ) {
       return response('\u5e42\u7b49\u952e\u51b2\u7a81', 'IDEMPOTENCY_CONFLICT', 409);
+    }
+
+    // Keep idempotent retries tied to the same durable canvas node.  This
+    // prevents a reused key from replaying an orphaned or differently-bound
+    // task when the original request carried canvas metadata.
+    if ((task.canvas_id || null) !== canvasId || (task.node_id || null) !== nodeId) {
+      return response('\u5e42\u7b49\u952e\u5df2\u7528\u4e8e\u5176\u4ed6\u753b\u5e03\u4efb\u52a1\uff0c\u8bf7\u91cd\u65b0\u63d0\u4ea4', 'IDEMPOTENCY_CONFLICT', 409);
     }
 
     const request = asRecord(task.request);

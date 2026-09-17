@@ -9,7 +9,15 @@ import type { CanvasResourceKind } from "@/reference/infinite-canvas/src/lib/can
 export type CanvasNodeResource = { kind: CanvasResourceKind; text?: string; url?: string };
 
 // --- AI 生成能力(生图/生视频/生文本),由宿主注入,复用宿主模型/密钥配置 ---
-export type GenerateOptions = { signal?: AbortSignal; references?: string[]; model?: string };
+export type GenerateOptions = {
+    signal?: AbortSignal;
+    references?: string[];
+    model?: string;
+    /** Internal host binding fields; the canvas injects these for plugin nodes. */
+    canvasId?: string | null;
+    nodeId?: string | null;
+    source?: "canvas" | "standalone";
+};
 export type GenerateImageOptions = GenerateOptions & { count?: number; size?: string };
 export type GenerateImageResult = { images: string[] };
 export type GenerateVideoOptions = GenerateOptions & { size?: string; seconds?: string };
@@ -85,6 +93,8 @@ export type CanvasPluginHost = {
     applyOps: (ops: CanvasAgentOp[]) => void;
     // AI 生成能力,复用画布页面当前的模型/密钥配置
     ai: CanvasPluginAi;
+    // 节点上下文使用的、带云画布/节点归属的 AI 能力
+    getAiForNode?: (nodeId: string) => CanvasPluginAi;
     // 打开/关闭指定节点下方的自定义 Panel
     openPanel: (nodeId: string) => void;
     closePanel: () => void;

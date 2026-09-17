@@ -641,6 +641,7 @@ function InfiniteCanvasPage() {
     const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
     const cloudMergeBaseRef = useRef<CreatorCanvasGraph | null>(null);
     const cloudCreateInFlightRef = useRef(false);
+    const cloudCreatePromiseRef = useRef<Promise<string | null> | null>(null);
     const cloudProjectIdRef = useRef<string | null>(null);
     // Keys are task-scoped so duplicated canvas nodes share one status read.
     // A node-scoped fallback is used only for media that has no creator task.
@@ -661,6 +662,41 @@ function InfiniteCanvasPage() {
         }),
         [activeChatId, appearance, backgroundMode, chatSessions, showImageInfo],
     );
+
+    // A paid creator task must never be created before the current local
+    // project has an owned cloud canvas. Share one in-flight create request
+    // between the debounced graph sync and generation handlers so they cannot
+    // race and produce duplicate canvases.
+    const ensureCloudCanvas = useCallback(async (): Promise<string | null> => {
+        if (!currentProject || cloudProjectIdRef.current !== projectId) return null;
+        if (cloudCanvasIdRef.current) return cloudCanvasIdRef.current;
+        if (cloudCreatePromiseRef.current) return cloudCreatePromiseRef.current;
+
+        const graph = toCloudGraph(nodesRef.current, connectionsRef.current, viewportRef.current, backgroundMode, appearance);
+        const kind = nodesRef.current.some((node) => node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) ? "video" : "image";
+        let request: Promise<string | null>;
+        request = createCreatorCanvas({ title: currentProject.title, graph: graph as CreatorCanvasGraph }, kind)
+            .then((result) => {
+                if (cloudProjectIdRef.current !== projectId) return null;
+                const nextId = result.canvas?.id;
+                if (!nextId) throw new Error("云端画布创建未返回 ID");
+                cloudCanvasIdRef.current = nextId;
+                cloudCanvasVersionRef.current = typeof result.canvas.version === "number" ? result.canvas.version : null;
+                cloudMergeBaseRef.current = graph as CreatorCanvasGraph;
+                updateProject(projectId, {
+                    cloudCanvasId: nextId,
+                    ...(typeof result.canvas.version === "number" ? { cloudCanvasVersion: result.canvas.version } : {}),
+                });
+                return nextId;
+            })
+            .finally(() => {
+                if (cloudCreatePromiseRef.current === request) cloudCreatePromiseRef.current = null;
+                if (cloudProjectIdRef.current === projectId) cloudCreateInFlightRef.current = false;
+            });
+        cloudCreatePromiseRef.current = request;
+        cloudCreateInFlightRef.current = true;
+        return request;
+    }, [appearance, backgroundMode, currentProject, projectId, updateProject, viewport]);
 
     const cleanupCanvasFiles = useCallback(
         (extra?: unknown) => {
@@ -722,6 +758,7 @@ function InfiniteCanvasPage() {
             cloudCanvasIdRef.current = project.cloudCanvasId || null;
             cloudCanvasVersionRef.current = typeof project.cloudCanvasVersion === "number" ? project.cloudCanvasVersion : null;
             cloudCreateInFlightRef.current = false;
+            cloudCreatePromiseRef.current = null;
             cloudProjectIdRef.current = projectId;
             cloudMergeBaseRef.current = null;
             if (cloudCanvasIdRef.current && cloudCanvasVersionRef.current === null) {
@@ -1018,24 +1055,14 @@ function InfiniteCanvasPage() {
     useEffect(() => {
         if (!projectLoaded || !currentProject) return;
         if (cloudProjectIdRef.current !== projectId) return;
-        if (!cloudCanvasIdRef.current && cloudCreateInFlightRef.current) return;
         if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         cloudSyncTimerRef.current = setTimeout(() => {
             const graph = toCloudGraph(nodes, connections, viewport, backgroundMode, appearance);
             const cloudId = cloudCanvasIdRef.current;
-            const kind = nodes.some((node) => node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) ? "video" : "image";
-            if (!cloudId) cloudCreateInFlightRef.current = true;
             const sync = async () => {
                 try {
                     if (!cloudId) {
-                        const result = await createCreatorCanvas({ title: currentProject.title, graph: graph as CreatorCanvasGraph }, kind);
-                        if (cloudProjectIdRef.current !== projectId) return;
-                        const nextId = result.canvas?.id;
-                        if (!nextId) return;
-                        cloudCanvasIdRef.current = nextId;
-                        cloudCanvasVersionRef.current = result.canvas.version;
-                        cloudMergeBaseRef.current = graph as CreatorCanvasGraph;
-                        updateProject(projectId, { cloudCanvasId: nextId, cloudCanvasVersion: result.canvas.version });
+                        await ensureCloudCanvas();
                         return;
                     }
 
@@ -1075,8 +1102,6 @@ function InfiniteCanvasPage() {
                     // The local copy stays available. A later edit retries the
                     // queued save instead of allowing an older request to win.
                     console.warn("[canvas cloud sync]", error);
-                } finally {
-                    if (!cloudId && cloudProjectIdRef.current === projectId) cloudCreateInFlightRef.current = false;
                 }
             };
             cloudSyncQueueRef.current = cloudSyncQueueRef.current.catch(() => undefined).then(sync);
@@ -1085,7 +1110,7 @@ function InfiniteCanvasPage() {
         return () => {
             if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         };
-    }, [appearance, backgroundMode, connections, currentProject, nodes, projectId, projectLoaded, updateProject, viewport]);
+    }, [appearance, backgroundMode, connections, currentProject, ensureCloudCanvas, nodes, projectId, projectLoaded, updateProject, viewport]);
     useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);
@@ -1523,6 +1548,7 @@ function InfiniteCanvasPage() {
         effectiveConfig,
         isAiConfigReady,
         openConfigDialog,
+        ensureCloudCanvas,
         theme,
         nodesRef,
         connectionsRef,
@@ -3193,6 +3219,16 @@ function InfiniteCanvasPage() {
                 openConfigDialog(true);
                 return;
             }
+            let canvasIdForGeneration: string | null = null;
+            try {
+                canvasIdForGeneration = await ensureCloudCanvas();
+            } catch (error) {
+                console.warn("[canvas mask edit cloud binding]", { nodeId: node.id, error });
+            }
+            if (!canvasIdForGeneration) {
+                message.error("云端画布尚未准备好，已阻止生成，请稍后重试");
+                return;
+            }
             const userPrompt = payload.prompt.trim();
             const prompt = `只修改蒙版透明区域，其他区域保持不变。${userPrompt}`;
             const childId = nanoid();
@@ -3218,7 +3254,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId(childId);
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
-                const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal }).then((items) => items[0]);
+                const image = await requestEdit(generationConfig, prompt, [source], { id: `${node.id}-mask`, name: "mask.png", type: "image/png", dataUrl: payload.maskDataUrl }, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: childId, source: "canvas" }).then((items) => items[0]);
                 const uploaded = await storeGeneratedImage(image);
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
@@ -3232,7 +3268,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, ensureCloudCanvas, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
     const upscaleImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageUpscaleParams) => {
@@ -3268,6 +3304,16 @@ function InfiniteCanvasPage() {
                 openConfigDialog(true);
                 return;
             }
+            let canvasIdForGeneration: string | null = null;
+            try {
+                canvasIdForGeneration = await ensureCloudCanvas();
+            } catch (error) {
+                console.warn("[canvas angle edit cloud binding]", { nodeId: node.id, error });
+            }
+            if (!canvasIdForGeneration) {
+                message.error("云端画布尚未准备好，已阻止生成，请稍后重试");
+                return;
+            }
             const childId = nanoid();
             const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
             const title = buildAngleLabel(params);
@@ -3299,7 +3345,7 @@ function InfiniteCanvasPage() {
                     prompt,
                     [{ id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey }],
                     undefined,
-                    { signal: controller.signal },
+                    { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: childId, source: "canvas" },
                 ).then((items) => items[0]);
                 const uploaded = await storeGeneratedImage(image);
                 const size = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
@@ -3313,7 +3359,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, ensureCloudCanvas, finishGenerationRequest, message, openConfigDialog, startGenerationRequest],
     );
 
     const handleFontSizeChange = useCallback((nodeId: string, fontSize: number) => {
@@ -3665,6 +3711,21 @@ function InfiniteCanvasPage() {
                 pendingGenerationConfirmationsRef.current.delete(nodeId);
             }
 
+            let canvasIdForGeneration: string | null = null;
+            if (mode === "image" || mode === "video") {
+                try {
+                    canvasIdForGeneration = await ensureCloudCanvas();
+                } catch (error) {
+                    console.warn("[canvas generation cloud binding]", { nodeId, error });
+                    message.error("云端画布暂时无法保存，已阻止生成，请稍后重试");
+                    return;
+                }
+                if (!canvasIdForGeneration) {
+                    message.error("云端画布尚未准备好，已阻止生成，请稍后重试");
+                    return;
+                }
+            }
+
             // 插件节点声明了 useBuiltinPanel.writeBackToSelf:复用内置面板生成,但结果写回节点自身。
             // 目前支持 image 模式(全景等展示型节点),前缀由 useBuiltinPanel.promptPrefix 指定。
             const builtinPanel = sourceNode ? getNodeDefinition(sourceNode.type)?.useBuiltinPanel : undefined;
@@ -3687,8 +3748,8 @@ function InfiniteCanvasPage() {
                             : [],
                     );
                     const image = refs.length
-                        ? await requestEdit({ ...generationConfig, count: "1" }, fullPrompt, refs, undefined, { signal: controller.signal }).then((items) => items[0])
-                        : await requestGeneration({ ...generationConfig, count: "1" }, fullPrompt, { signal: controller.signal }).then((items) => items[0]);
+                        ? await requestEdit({ ...generationConfig, count: "1" }, fullPrompt, refs, undefined, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId, source: "canvas" }).then((items) => items[0])
+                        : await requestGeneration({ ...generationConfig, count: "1" }, fullPrompt, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId, source: "canvas" }).then((items) => items[0]);
                     const uploaded = await storeGeneratedImage(image);
                     setNodes((prev) =>
                         prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...imageMetadata(uploaded), prompt: scene, model: generationConfig.model, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)),
@@ -3782,8 +3843,8 @@ function InfiniteCanvasPage() {
                             attemptIds.map(async (attemptId) => {
                                 try {
                                     const image = referenceImages.length
-                                        ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: runController.signal, referenceLabelsById: generationContext.referenceLabelsById }).then((items) => items[0])
-                                        : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: runController.signal }).then((items) => items[0]);
+                                        ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: runController.signal, canvasId: canvasIdForGeneration, nodeId, source: "canvas", referenceLabelsById: generationContext.referenceLabelsById }).then((items) => items[0])
+                                        : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: runController.signal, canvasId: canvasIdForGeneration, nodeId, source: "canvas" }).then((items) => items[0]);
                                     const uploaded = await storeGeneratedImage(image);
                                     const imageSize = fitNodeSize(uploaded.width, uploaded.height, sourceNode.width, sourceNode.height);
                                     setNodes((prev) =>
@@ -3929,8 +3990,8 @@ function InfiniteCanvasPage() {
                         targetIds.map(async (targetId) => {
                             try {
                                 const image = referenceImages.length
-                                    ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal, referenceLabelsById: generationContext.referenceLabelsById }).then((items) => items[0])
-                                    : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
+                                    ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: targetId, source: "canvas", referenceLabelsById: generationContext.referenceLabelsById }).then((items) => items[0])
+                                    : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: targetId, source: "canvas" }).then((items) => items[0]);
                                 const uploaded = await storeGeneratedImage(image);
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                                 setNodes((prev) => {
@@ -4072,6 +4133,9 @@ function InfiniteCanvasPage() {
                     try {
                         const video = await requestVideoGeneration(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, {
                             signal: controller.signal,
+                            canvasId: canvasIdForGeneration,
+                            nodeId: videoId,
+                            source: "canvas",
                             onCreatorTaskCreated: (creatorTaskId) => {
                                 creatorTaskIdForRun = creatorTaskId;
                                 console.info("[canvas video task created]", { nodeId: videoId, creatorTaskId, reusedVideoNode: isVideoNode });
@@ -4247,7 +4311,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, ensureCloudCanvas, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
@@ -4291,6 +4355,18 @@ function InfiniteCanvasPage() {
                 return;
             }
             const retryImages = retryReferenceImages || [];
+            let canvasIdForGeneration: string | null = null;
+            if (node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video) {
+                try {
+                    canvasIdForGeneration = await ensureCloudCanvas();
+                } catch (error) {
+                    console.warn("[canvas retry cloud binding]", { nodeId: node.id, error });
+                }
+                if (!canvasIdForGeneration) {
+                    message.error("云端画布尚未准备好，已阻止生成，请稍后重试");
+                    return;
+                }
+            }
 
             setRunningNodeId(node.id);
             const retryVideoAttemptId = node.type === CanvasNodeType.Video ? nanoid() : undefined;
@@ -4327,6 +4403,9 @@ function InfiniteCanvasPage() {
                     let creatorTaskIdForRun: string | undefined;
                     const video = await requestVideoGeneration(generationConfig, prompt, retryImages, context?.referenceVideos || [], context?.referenceAudios || [], {
                         signal: controller.signal,
+                        canvasId: canvasIdForGeneration,
+                        nodeId: node.id,
+                        source: "canvas",
                         onCreatorTaskCreated: (creatorTaskId) => {
                             creatorTaskIdForRun = creatorTaskId;
                             console.info("[canvas video retry task created]", { nodeId: node.id, creatorTaskId });
@@ -4385,8 +4464,8 @@ function InfiniteCanvasPage() {
                 }
 
                 const image = useReferenceImages
-                    ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal }).then((items) => items[0])
-                    : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
+                    ? await requestEdit(generationConfig, prompt, retryImages, undefined, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: node.id, source: "canvas" }).then((items) => items[0])
+                    : await requestGeneration(generationConfig, prompt, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: node.id, source: "canvas" }).then((items) => items[0]);
                 const uploadedImage = await storeGeneratedImage(image);
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                 const imageSize = fitNodeSize(uploadedImage.width, uploadedImage.height, imageConfig.width, imageConfig.height);
@@ -4437,7 +4516,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
+        [effectiveConfig, ensureCloudCanvas, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest],
     );
 
     const generateImageFromTextNode = useCallback(

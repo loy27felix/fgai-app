@@ -32,6 +32,9 @@ type SeedanceTask = {
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
 type RequestOptions = {
     signal?: AbortSignal;
+    canvasId?: string | null;
+    nodeId?: string | null;
+    source?: "canvas" | "standalone";
     /** Called after the local task is confirmed, before a long Wetoken render finishes. */
     onCreatorTaskCreated?: (taskId: string) => void;
 };
@@ -176,7 +179,7 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     });
     let draft: Awaited<ReturnType<typeof createVideoDraft>>;
     try {
-        draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: boolConfig(config.videoWatermark, false), generateAudio: boolConfig(config.videoGenerateAudio, true), skill: null, idempotencyKey: randomId() });
+        draft = await createVideoDraft({ canvasId: options?.canvasId ?? null, nodeId: options?.nodeId ?? null, source: options?.source ?? "standalone", prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: boolConfig(config.videoWatermark, false), generateAudio: boolConfig(config.videoGenerateAudio, true), skill: null, idempotencyKey: randomId() });
     } catch (error) {
         throw new Error(`视频草稿创建失败：${normalizeProviderErrorMessage(error, { subject: "video", fallback: "网络请求失败" })}`);
     }

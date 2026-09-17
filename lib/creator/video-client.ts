@@ -9,6 +9,7 @@ export { CreatorImageClientError };
 export type CreateVideoDraftPayload = {
   canvasId?: string | null;
   nodeId?: string | null;
+  source?: 'canvas' | 'standalone';
   prompt: string;
   model: string;
   references: VideoReferenceManifest[];
