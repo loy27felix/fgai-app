@@ -37,6 +37,7 @@ RUNNER_ENV = {
     "realesrgan-sequence-fallback": "FG_WORKER_REALESRGAN_COMMAND",
     "propainter-mask": "FG_WORKER_PROPAINTER_COMMAND",
 }
+PORTABLE_REALESRGAN_NAMES = {"realesrgan-ncnn-vulkan", "realesrgan-ncnn-vulkan.exe"}
 
 
 class RuntimeConfigError(ValueError):
@@ -202,8 +203,16 @@ def runner_available(profile: str) -> bool:
         return False
     executable = Path(parts[0]).expanduser()
     if executable.is_absolute() or executable.parent != Path("."):
-        return executable.is_file()
-    return shutil.which(parts[0]) is not None
+        resolved = executable if executable.is_absolute() else Path(shutil.which(str(executable)) or executable)
+    else:
+        resolved = Path(shutil.which(parts[0]) or "")
+    if not resolved.is_file():
+        return False
+    if profile == "realesrgan-sequence-fallback" and resolved.name.lower() in PORTABLE_REALESRGAN_NAMES:
+        model_roots = (resolved.parent / "models", resolved.parent.parent / "models")
+        required = [f"realesr-animevideov3-x{scale}{suffix}" for scale in (2, 3, 4) for suffix in (".param", ".bin")]
+        return any(all((root / file_name).is_file() for file_name in required) for root in model_roots)
+    return True
 
 
 def ffmpeg_dir() -> Path | None:

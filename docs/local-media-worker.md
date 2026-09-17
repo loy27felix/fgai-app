@@ -12,8 +12,9 @@ PostgreSQL、WeToken 调用、费用账本、任务队列和 NAS；本地 Worker
 1. 在画布右上角点击“下载一键安装包”，再点击“生成一次性配对码”。
 2. 双击安装包，把配对码粘贴进去并确认。
 
-安装包自己携带 Python runtime、FFmpeg、CUDA/MPS Runner、BasicVSR++、
-Real-ESRGAN、ProPainter 及已经审核的模型权重。用户不需要知道 Python、
+安装包自己携带 Python runtime、FFmpeg、GPU Runner 及清单中已经审核的模型权重。
+首轮 Windows/NVIDIA canary 先发布官方便携式 Real-ESRGAN；BasicVSR++、
+ProPainter 要等各自做成同样的自包含 Runner 并通过真实 canary 后再加入清单。用户不需要知道 Python、
 FFmpeg、PyTorch、CUDA、模型路径，也不需要打开终端；安装程序会检测 GPU 和
 磁盘、下载对应平台的运行包、校验 SHA-256、写入系统钥匙串并启动后台 Worker。
 安装失败只清理 staging，不覆盖此前可用版本。

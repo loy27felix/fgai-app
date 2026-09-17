@@ -15,9 +15,27 @@ STAGE="$OUTPUT_DIR/runtime-macos-arm64"
 command -v pyinstaller >/dev/null || { echo "维护者构建机缺少 PyInstaller；最终用户不需要安装它。" >&2; exit 1; }
 test -d "$RUNNER_DIR" || { echo "Runner 目录不存在：$RUNNER_DIR" >&2; exit 1; }
 test -d "$FFMPEG_DIR" || { echo "FFmpeg 目录不存在：$FFMPEG_DIR" >&2; exit 1; }
-for runner in basicvsrpp realesrgan propainter; do
-  test -f "$RUNNER_DIR/$runner" || { echo "Required packaged Runner is missing: $runner" >&2; exit 1; }
+runner_found=0
+for runner in basicvsrpp realesrgan realesrgan-ncnn-vulkan propainter; do
+  if [[ -f "$RUNNER_DIR/$runner" ]]; then
+    runner_found=1
+    break
+  fi
 done
+if [[ $runner_found -eq 0 ]]; then
+  echo "Runner 目录中没有已审核的模型 Runner，至少提供一个可执行文件。" >&2
+  exit 1
+fi
+if [[ -f "$RUNNER_DIR/realesrgan-ncnn-vulkan" ]]; then
+  for scale in 2 3 4; do
+    for suffix in .param .bin; do
+      test -f "$RUNNER_DIR/models/realesr-animevideov3-x${scale}${suffix}" || {
+        echo "便携式 Real-ESRGAN 缺少模型：models/realesr-animevideov3-x${scale}${suffix}" >&2
+        exit 1
+      }
+    done
+  done
+fi
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$STAGE"
 cd "$WORKER_ROOT"

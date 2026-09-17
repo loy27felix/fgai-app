@@ -19,6 +19,7 @@ def test_cpu_capability_never_advertises_gpu(monkeypatch):
         backends = FakeBackends()
 
     monkeypatch.setattr(capabilities, "_torch_module", lambda: FakeTorch())
+    monkeypatch.setattr(capabilities, "_nvidia_device", lambda: (None, 0))
     capability = capabilities.detect_capabilities()
     assert capability["backends"] == ["cpu"]
     assert capability["operations"] == []
@@ -54,6 +55,7 @@ def test_gpu_only_advertises_configured_model_runners(monkeypatch):
     assert capabilities.detect_capabilities()["operations"] == []
 
     monkeypatch.setenv("FG_WORKER_BASICVSRPP_COMMAND", "basicvsrpp-runner")
+    monkeypatch.setattr(capabilities, "runner_available", lambda profile: profile == "basicvsrpp-quality")
     capability = capabilities.detect_capabilities()
     assert capability["operations"] == ["video_super_resolution"]
     assert capability["modelProfiles"] == ["basicvsrpp-quality"]

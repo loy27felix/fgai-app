@@ -19,8 +19,41 @@ if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
 }
 if (-not (Test-Path -LiteralPath $RunnerDir -PathType Container)) { throw "Runner directory does not exist: $RunnerDir" }
 if (-not (Test-Path -LiteralPath $FfmpegDir -PathType Container)) { throw "FFmpeg directory does not exist: $FfmpegDir" }
-foreach ($runner in @("basicvsrpp.exe", "realesrgan.exe", "propainter.exe")) {
-  if (-not (Test-Path -LiteralPath (Join-Path $RunnerDir $runner) -PathType Leaf)) { throw "Required packaged Runner is missing: $runner" }
+$runnerCommands = [ordered]@{}
+$basicRunner = Join-Path $RunnerDir "basicvsrpp.exe"
+if (Test-Path -LiteralPath $basicRunner -PathType Leaf) {
+  $runnerCommands["basicvsrpp-quality"] = "runners/basicvsrpp.exe"
+}
+$realesrganRunner = Join-Path $RunnerDir "realesrgan.exe"
+if (-not (Test-Path -LiteralPath $realesrganRunner -PathType Leaf)) {
+  $realesrganRunner = Join-Path $RunnerDir "realesrgan-ncnn-vulkan.exe"
+  if (Test-Path -LiteralPath $realesrganRunner -PathType Leaf) {
+    $runnerCommands["realesrgan-sequence-fallback"] = "runners/realesrgan-ncnn-vulkan.exe"
+  }
+} else {
+  $runnerCommands["realesrgan-sequence-fallback"] = "runners/realesrgan.exe"
+}
+$propainterRunner = Join-Path $RunnerDir "propainter.exe"
+if (Test-Path -LiteralPath $propainterRunner -PathType Leaf) {
+  $runnerCommands["propainter-mask"] = "runners/propainter.exe"
+}
+if ($runnerCommands.Count -eq 0) {
+  throw "Runner directory contains no approved model Runner. Add at least one verified Runner executable."
+}
+$portableRunner = Join-Path $RunnerDir "realesrgan-ncnn-vulkan.exe"
+if (Test-Path -LiteralPath $portableRunner -PathType Leaf) {
+  if (-not (Test-Path -LiteralPath (Join-Path $RunnerDir "vcomp140.dll") -PathType Leaf)) {
+    throw "Portable Real-ESRGAN is missing vcomp140.dll"
+  }
+  $modelRoot = Join-Path $RunnerDir "models"
+  foreach ($scale in @(2, 3, 4)) {
+    foreach ($suffix in @(".param", ".bin")) {
+      $model = Join-Path $modelRoot ("realesr-animevideov3-x{0}{1}" -f $scale, $suffix)
+      if (-not (Test-Path -LiteralPath $model -PathType Leaf)) {
+        throw "Portable Real-ESRGAN model is missing: $model"
+      }
+    }
+  }
 }
 
 Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue
@@ -65,11 +98,7 @@ $manifest = [ordered]@{
       version = $Version
       requiredDiskBytes = [int64]($runtime.bytes + 2GB)
       artifacts = @($installer, $runtime)
-      runnerCommands = [ordered]@{
-        "basicvsrpp-quality" = "runners/basicvsrpp.exe"
-        "realesrgan-sequence-fallback" = "runners/realesrgan.exe"
-        "propainter-mask" = "runners/propainter.exe"
-      }
+      runnerCommands = $runnerCommands
       ffmpegDir = "ffmpeg"
       workerExecutable = "fg-worker.exe"
     }

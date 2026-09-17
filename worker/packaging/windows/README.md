@@ -8,7 +8,9 @@ Python、PyTorch、FFmpeg 或命令行工具。
 ## 维护者构建
 
 构建机需要 Python、PyInstaller、NVIDIA/CUDA Runner 和 FFmpeg 文件。模型权重
-必须放在 Runner 目录或 Runner 明确引用的目录，不能提交到 Git：
+必须放在 Runner 目录或 Runner 明确引用的目录，不能提交到 Git。脚本会根据实际
+存在的 Runner 生成能力清单，不会为尚未打包的模型伪造入口；因此可以先只发布
+已经通过验收的 Real-ESRGAN：
 
 ```powershell
 .\build-release.ps1 `
@@ -17,6 +19,12 @@ Python、PyTorch、FFmpeg 或命令行工具。
   -FfmpegDir D:\approved-runners\ffmpeg `
   -ServerUrl https://fg.example.internal
 ```
+
+官方 NCNN 便携包可直接放入 Runner 目录，文件名为
+`realesrgan-ncnn-vulkan.exe`，并保留同目录的 `models/`、运行库 DLL 和
+`realesr-animevideov3-x2/x3/x4` 权重。最终用户不需要安装 Vulkan、CUDA、Python
+或 PyTorch；Worker 会把视频解码成帧，调用这个 GPU 二进制，再把原音频封装回
+输出视频。
 
 脚本生成 setup、runtime ZIP 和带 SHA-256/字节数的 manifest。将 artifact 上传
 到 manifest 中的 NAS 路径后，再把完整 manifest 放到 NAS，并在 App 容器设置：

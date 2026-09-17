@@ -16,7 +16,7 @@ def test_config_round_trip_uses_user_data_override(monkeypatch, tmp_path):
             server="https://fg.example.internal",
             install_root_value=home / "releases" / "0.1.0",
             release_version="0.1.0",
-            runner_commands={"basicvsrpp-quality": "{installRoot}/runners/basicvsrpp.exe"},
+            runner_commands={"basicvsrpp-quality": '"{installRoot}/runners/basicvsrpp.exe"'},
             ffmpeg_dir_value="{installRoot}/ffmpeg",
         )
     )
@@ -36,6 +36,21 @@ def test_environment_runner_override_supports_paths_with_spaces(monkeypatch, tmp
     command = f'"{executable}" --mode quality'
     monkeypatch.setenv("FG_WORKER_REALESRGAN_COMMAND", command)
     assert runner_args("realesrgan-sequence-fallback") == [str(executable), "--mode", "quality"]
+
+
+def test_portable_realesrgan_is_not_ready_without_all_video_models(monkeypatch, tmp_path):
+    root = tmp_path / "portable"
+    executable = root / "realesrgan-ncnn-vulkan.exe"
+    models = root / "models"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"runner")
+    monkeypatch.setenv("FG_WORKER_REALESRGAN_COMMAND", f'"{executable}"')
+    assert runner_available("realesrgan-sequence-fallback") is False
+    models.mkdir()
+    for scale in (2, 3, 4):
+        for suffix in (".param", ".bin"):
+            (models / f"realesr-animevideov3-x{scale}{suffix}").write_bytes(b"model")
+    assert runner_available("realesrgan-sequence-fallback") is True
 
 
 def test_invalid_server_and_unknown_profile_are_rejected(monkeypatch, tmp_path):
