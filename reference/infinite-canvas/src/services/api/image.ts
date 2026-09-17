@@ -14,6 +14,7 @@ import { getImageModel, imageDraftGeometry, imageOutputSizeForDimensions, imageO
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import type { CreatorImageAsset } from "@/lib/creator/types";
 import { assertCreatorImageReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
+import { normalizeProviderErrorMessage } from "@/lib/creator/provider-error-message";
 
 export type AiTextMessage = {
     role: "system" | "user" | "assistant";
@@ -314,24 +315,17 @@ function readAxiosError(error: unknown, fallback: string) {
         const responseData = error.response?.data;
         // 优先从响应体提取业务错误
         const apiMsg = readApiErrorMessage(responseData);
-        if (apiMsg) return apiMsg;
-        // 响应体无法提取时用 HTTP 状态推断
-        const statusMsg = readStatusError(error.response?.status, fallback);
-        if (statusMsg) return statusMsg;
-        // 最后用 axios 自身的错误文本
-        return error.message || fallback;
+        return normalizeProviderErrorMessage(apiMsg || error.message, {
+            status: error.response?.status,
+            subject: "image",
+            fallback,
+        });
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
-    return error instanceof Error ? readApiErrorMessage(error.message) || error.message : fallback;
-}
-
-function readStatusError(status: number | undefined, fallback: string) {
-    if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
-    if (status === 429) return "请求被限流或额度不足，请稍后重试";
-    if (status === 404) return "接口地址不存在（404），请检查 Base URL 和模型选择";
-    if (status === 502) return "网关错误（502），接口服务暂时不可用，请稍后重试";
-    if (status === 503) return "服务繁忙（503），请稍后重试";
-    return status ? `请求失败（HTTP ${status}），请检查 Base URL 和 API Key 是否正确` : fallback;
+    return normalizeProviderErrorMessage(error instanceof Error ? readApiErrorMessage(error.message) || error.message : error, {
+        subject: "image",
+        fallback,
+    });
 }
 
 function withSystemPrompt(config: AiConfig, prompt: string) {
@@ -450,10 +444,14 @@ async function readFetchError(response: Response, fallback: string) {
     const text = await response.text();
     if (!text) return readStatusError(response.status, fallback);
     try {
-        return responseErrorMessage(JSON.parse(text)) || readStatusError(response.status, fallback);
+        return normalizeProviderErrorMessage(responseErrorMessage(JSON.parse(text)) || text, { status: response.status, subject: "image", fallback });
     } catch {
-        return text.slice(0, 300) || readStatusError(response.status, fallback);
+        return normalizeProviderErrorMessage(text.slice(0, 300), { status: response.status, subject: "image", fallback });
     }
+}
+
+function readStatusError(status: number | undefined, fallback: string) {
+    return normalizeProviderErrorMessage("", { status, subject: "image", fallback }) || fallback;
 }
 
 function consumeResponseStreamBlock(block: string, state: ResponseStreamState, onDelta?: (text: string) => void) {
@@ -745,7 +743,7 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     const draft = await createImageDraft({ canvasId: null, nodeId: null, prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
     for (let index = 0; index < files.length; index += 1) {
         const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
-        if (upload.error) throw upload.error;
+        if (upload.error) throw new Error(normalizeProviderErrorMessage(upload.error, { subject: "reference", fallback: "参考素材上传失败，请检查网络后重试" }));
     }
     await finalizeImageUploads(draft.task.id, draft.uploadPaths);
     // The provider can return 2xx and still omit its image payload. The server
@@ -759,14 +757,35 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
         if (!(error instanceof CreatorImageClientError) || error.code !== "WETOKEN_IMAGE_RESULT_INVALID") throw error;
     }
     if (immediate?.resultUrl) return [creatorGeneratedImage(draft.task.id, immediate.resultUrl, immediate.asset)];
+    let consecutiveStatusReadFailures = 0;
     for (let attempt = 0; attempt < 40; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const task = (await listImageTasks()).tasks.find((item) => item.id === draft.task.id);
+        let statusResponse: Awaited<ReturnType<typeof listImageTasks>>;
+        try {
+            statusResponse = await listImageTasks();
+            consecutiveStatusReadFailures = 0;
+        } catch (error) {
+            // A transient tunnel/network failure must not turn a paid image
+            // task into a permanent canvas error on the first missed poll.
+            consecutiveStatusReadFailures += 1;
+            if (consecutiveStatusReadFailures >= 5) throw error;
+            await new Promise((resolve) => setTimeout(resolve, Math.min(15_000, 2_500 * consecutiveStatusReadFailures)));
+            continue;
+        }
+        const task = statusResponse.tasks.find((item) => item.id === draft.task.id);
         if (task?.resultUrl) return [creatorGeneratedImage(task.id, task.resultUrl, task.asset)];
         if (task?.status === "unknown") {
-            throw new Error(task.error || "图片模型已返回结果，但本地未收到可保存的图片数据。请从 Wetoken 下载后，在该次生成记录中点击“导入已下载图”。");
+            throw new Error(normalizeProviderErrorMessage(task.error, {
+                subject: "image",
+                fallback: "图片模型已返回结果，但本地未收到可保存的图片数据。请从 Wetoken 下载后，在该次生成记录中点击“导入已下载图”。",
+            }));
         }
-        if (task?.status === "failed" || task?.status === "expired") throw new Error("图片生成失败，请查看历史任务");
+        if (task?.status === "failed" || task?.status === "expired") {
+            throw new Error(normalizeProviderErrorMessage(task.error, {
+                subject: "image",
+                fallback: "图片生成失败，请查看历史任务",
+            }));
+        }
         await new Promise((resolve) => setTimeout(resolve, 2500));
     }
     throw new Error("图片生成超时，请稍后重试");

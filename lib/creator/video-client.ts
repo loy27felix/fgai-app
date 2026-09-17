@@ -2,6 +2,7 @@ import type { CreatorVideoSkill, VideoReferenceManifest } from '@/lib/creator/vi
 import type { CreatorVideoTask, CreatorVideoTaskView, CreatorWorkspace } from '@/lib/creator/types';
 import { requestJson, CreatorImageClientError } from './image-client';
 import { notifyCreatorUsageUpdated } from '@/lib/creator/usage-events';
+import { normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
 
 export { CreatorImageClientError };
 
@@ -54,12 +55,16 @@ export async function uploadVideoReference(taskId: string, path: string, file: F
   try {
     response = await fetch('/api/creator/videos/' + encodeURIComponent(taskId), { method: 'POST', body });
   } catch (error) {
-    throw new CreatorImageClientError(error instanceof Error ? error.message : '参考素材上传网络请求失败', 0);
+    throw new CreatorImageClientError(normalizeProviderErrorMessage(error, { subject: 'reference', fallback: '参考素材上传网络请求失败' }), 0);
   }
   let payload: Record<string, unknown> = {};
   try { payload = await response.json() as Record<string, unknown>; } catch { /* stable error below */ }
   if (!response.ok) {
-    const message = typeof payload.error === 'string' ? payload.error : '参考素材上传失败';
+    const message = normalizeProviderErrorMessage(typeof payload.error === 'string' ? payload.error : payload, {
+      status: response.status,
+      subject: 'reference',
+      fallback: '参考素材上传失败，请稍后重试',
+    });
     const code = typeof payload.code === 'string' ? payload.code : null;
     throw new CreatorImageClientError(message, response.status, code);
   }

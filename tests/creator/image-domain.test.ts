@@ -8,7 +8,7 @@ import {
   validateImageDraftInput,
 } from '../../lib/creator/image';
 
-const file = (index: number) => ({ name: `ref-${index}.png`, mimeType: 'image/png', size: 1024 });
+const file = (index: number) => ({ name: `ref-${index}.png`, mimeType: 'image/png', size: 300_000 });
 
 test('accepts eight references and rejects the ninth', () => {
   assert.equal(validateImageDraftInput({

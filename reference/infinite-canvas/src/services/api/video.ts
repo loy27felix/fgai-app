@@ -16,6 +16,7 @@ import { createVideoDraft, confirmVideoTask, creatorCanvasAssetContentUrl, creat
 import { videoImageRoles, type VideoReferenceMode } from "@/lib/creator/video";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import { assertCreatorVideoReferenceFiles } from "@/reference/infinite-canvas/src/lib/canvas/reference-file-limits";
+import { normalizeProviderErrorMessage } from "@/lib/creator/provider-error-message";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -177,27 +178,27 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
     try {
         draft = await createVideoDraft({ canvasId: null, nodeId: null, prompt, model, references: referencesManifest as any, duration: seconds, ratio, resolution, watermark: boolConfig(config.videoWatermark, false), generateAudio: boolConfig(config.videoGenerateAudio, true), skill: null, idempotencyKey: randomId() });
     } catch (error) {
-        throw new Error(`视频草稿创建失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+        throw new Error(`视频草稿创建失败：${normalizeProviderErrorMessage(error, { subject: "video", fallback: "网络请求失败" })}`);
     }
     for (let index = 0; index < files.length; index += 1) {
         try {
             const upload = await localUploadVideoReference(draft.task.id, draft.uploadPaths[index], files[index]);
             if (upload.error) throw upload.error;
         } catch (error) {
-            const detail = error instanceof Error ? error.message : "网络请求失败";
+            const detail = normalizeProviderErrorMessage(error, { subject: "reference", fallback: "参考素材上传失败，请检查网络后重试" });
             throw new Error(`参考素材上传失败（${files[index].name}）：${detail}`);
         }
     }
     try {
         await finalizeVideoUploads(draft.task.id, draft.uploadPaths);
     } catch (error) {
-        throw new Error(`参考素材确认失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+        throw new Error(`参考素材确认失败：${normalizeProviderErrorMessage(error, { subject: "reference", fallback: "网络请求失败" })}`);
     }
     let immediate: Awaited<ReturnType<typeof confirmVideoTask>>;
     try {
         immediate = await confirmVideoTask(draft.task.id);
     } catch (error) {
-        throw new Error(`视频任务提交失败：${error instanceof Error ? error.message : "网络请求失败"}`);
+        throw new Error(`视频任务提交失败：${normalizeProviderErrorMessage(error, { subject: "video", fallback: "网络请求失败" })}`);
     }
     // The provider can take an hour before exposing its external ID. Persist our
     // own task ID immediately so a canvas refresh can resume polling instead of
@@ -238,9 +239,12 @@ async function fgGenerateVideo(config: AiConfig, prompt: string, references: Ref
             || task.status === "expired"
             || task.status === "awaiting_reconciliation"
             || (task.status === "unknown" && !task.external_task_id)
-        ) throw new Error(task.error || (task.status === "awaiting_reconciliation"
-            ? "视频提交状态未知，已停止自动等待；请先核对供应商任务后再手动重试"
-            : "视频任务提交状态不明确，请在生成记录中确认后再重试"));
+        ) throw new Error(normalizeProviderErrorMessage(task.error, {
+            subject: "video",
+            fallback: task.status === "awaiting_reconciliation"
+                ? "视频提交状态未知，已停止自动等待；请先核对供应商任务后再手动重试"
+                : "视频任务提交状态不明确，请在生成记录中确认后再重试",
+        }));
         await new Promise((resolve) => setTimeout(resolve, 4000));
     }
 }
@@ -658,16 +662,17 @@ function readAxiosError(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; message?: string; code?: number | string }>(error)) {
         const responseData = error.response?.data;
-        return readApiErrorMessage(responseData) || statusMessage(error.response?.status, fallback);
+        return normalizeProviderErrorMessage(readApiErrorMessage(responseData) || error.message, {
+            status: error.response?.status,
+            subject: "video",
+            fallback,
+        });
     }
     if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
-    return error instanceof Error ? readApiErrorMessage(error.message) || error.message : fallback;
-}
-
-function statusMessage(status: number | undefined, fallback: string) {
-    if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
-    if (status === 429) return "请求被限流或额度不足，请稍后重试";
-    return status ? `${fallback}（${status}）` : fallback;
+    return normalizeProviderErrorMessage(error instanceof Error ? readApiErrorMessage(error.message) || error.message : error, {
+        subject: "video",
+        fallback,
+    });
 }
 
 async function assertVideoBlob(blob: Blob) {

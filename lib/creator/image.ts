@@ -2,6 +2,7 @@ import { getImageModel, RATIOS, sizeFor } from '@/lib/imageModels';
 import type { CreatorTaskStatus } from './types';
 
 export const MAX_CREATOR_IMAGE_REFERENCES = 8;
+export const MIN_CREATOR_IMAGE_FILE_BYTES = 300_000;
 export const MAX_CREATOR_IMAGE_FILE_BYTES = 7_000_000;
 export const MAX_CREATOR_IMAGE_TOTAL_BYTES = 28_000_000;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -28,13 +29,18 @@ export function validateImageDraftInput(input: ImageDraftInput) {
   const maxReferences = Math.min(MAX_CREATOR_IMAGE_REFERENCES, model.maxReferences);
   if (input.references.length > maxReferences) throw new Error(`最多 ${maxReferences} 张参考图`);
   let total = 0;
-  if (!RATIOS.some((item) => item.key === input.ratio)) throw new Error('invalid image ratio');
+  let tooSmallReference = false;
+  if (!RATIOS.some((item) => item.key === input.ratio)) throw new Error('图片画幅不受支持');
   for (const reference of input.references) {
     if (!ALLOWED_IMAGE_TYPES.has(reference.mimeType)) throw new Error('参考图仅支持 JPEG、PNG 或 WebP');
-    if (!Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > MAX_CREATOR_IMAGE_FILE_BYTES) throw new Error('单张参考图不能超过 7MB');
+    if (!Number.isSafeInteger(reference.size) || reference.size < MIN_CREATOR_IMAGE_FILE_BYTES) {
+      tooSmallReference = true;
+    }
+    if (reference.size > MAX_CREATOR_IMAGE_FILE_BYTES) throw new Error('单张参考图不能超过 7MB');
     total += reference.size;
   }
   if (total > MAX_CREATOR_IMAGE_TOTAL_BYTES) throw new Error('参考图总大小不能超过 28MB');
+  if (tooSmallReference) throw new Error('单张参考图不能小于 300KB');
   return {
     prompt,
     effectivePrompt,

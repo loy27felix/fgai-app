@@ -1,8 +1,11 @@
 type ReferenceFile = Pick<File, "name" | "size" | "type">;
 
 export const CREATOR_IMAGE_REFERENCE_MAX_COUNT = 8;
+/** Provider accepts creator reference images from 300KB through 7MB. */
+export const CREATOR_IMAGE_REFERENCE_MIN_BYTES = 300_000;
 export const CREATOR_IMAGE_REFERENCE_MAX_BYTES = 7_000_000;
 export const CREATOR_IMAGE_REFERENCE_TOTAL_MAX_BYTES = 28_000_000;
+export const CREATOR_VIDEO_REFERENCE_MIN_IMAGE_BYTES = 300_000;
 export const CREATOR_VIDEO_REFERENCE_MAX_IMAGE_BYTES = 7_000_000;
 export const CREATOR_VIDEO_REFERENCE_MAX_VIDEO_BYTES = 200_000_000;
 export const CREATOR_VIDEO_REFERENCE_MAX_AUDIO_BYTES = 15_000_000;
@@ -14,6 +17,10 @@ function labelForFile(file: ReferenceFile, fallback: string) {
 
 function mb(bytes: number) {
     return (bytes / 1_000_000).toFixed(1).replace(/\.0$/, "");
+}
+
+function kb(bytes: number) {
+    return Math.round(bytes / 1_000);
 }
 
 function assertPositiveSize(file: ReferenceFile, fallback: string) {
@@ -33,6 +40,9 @@ export function assertCreatorImageReferenceFiles(files: ReferenceFile[]) {
     files.forEach((file, index) => {
         const name = labelForFile(file, `参考图 ${index + 1}`);
         assertPositiveSize(file, `参考图 ${index + 1}`);
+        if (file.size < CREATOR_IMAGE_REFERENCE_MIN_BYTES) {
+            throw new Error(`参考图「${name}」为 ${kb(file.size)}KB，单张不能小于 300KB。请使用更清晰的原图或重新导出后重试`);
+        }
         if (file.size > CREATOR_IMAGE_REFERENCE_MAX_BYTES) {
             throw new Error(`参考图「${name}」为 ${mb(file.size)}MB，单张不能超过 7MB。请压缩或更换图片后重试`);
         }
@@ -53,6 +63,9 @@ export function assertCreatorVideoReferenceFiles(files: ReferenceFile[]) {
         const limitLabel = kind === "video" ? "200MB" : kind === "audio" ? "15MB" : "7MB";
         const name = labelForFile(file, `${prefix} ${index + 1}`);
         assertPositiveSize(file, `${prefix} ${index + 1}`);
+        if (kind === "image" && file.size < CREATOR_VIDEO_REFERENCE_MIN_IMAGE_BYTES) {
+            throw new Error(`参考图「${name}」为 ${kb(file.size)}KB，单张不能小于 300KB。请使用更清晰的原图或重新导出后重试`);
+        }
         if (file.size > limit) {
             const unit = kind === "image" ? "单张" : "单个";
             throw new Error(`${prefix}「${name}」为 ${mb(file.size)}MB，${unit}不能超过 ${limitLabel}。请压缩或更换素材后重试`);

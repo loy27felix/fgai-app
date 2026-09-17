@@ -14,6 +14,7 @@ import {
   safeProviderHeaders,
 } from '../observability/server-log';
 import { wetokenReferenceIdsFromProviderDiagnostic } from '../usage/wetoken-reference';
+import { normalizeProviderErrorMessage } from '../creator/provider-error-message';
 
 export type ImageReference = { data: string; mimeType: string };
 export type ImageGenerationTrace = {
@@ -53,7 +54,11 @@ export class WetokenImageRequestError extends Error {
   readonly publicMessage: string;
 
   constructor(status: number, message: string) {
-    const publicMessage = `图片模型请求失败（HTTP ${status}）：${sanitizeProviderMessage(message)}`;
+    const publicMessage = normalizeProviderErrorMessage(message, {
+      status,
+      subject: 'image',
+      fallback: `图片模型请求失败（HTTP ${status}）`,
+    });
     super(publicMessage);
     this.name = 'WetokenImageRequestError';
     this.status = status;
@@ -111,9 +116,13 @@ export class WetokenImageResultError extends Error {
   readonly diagnostic?: WetokenImageResultDiagnostic;
 
   constructor(message: string, diagnostic?: WetokenImageResultDiagnostic) {
-    super(message);
+    const publicMessage = normalizeProviderErrorMessage(message, {
+      subject: 'image',
+      fallback: '图片模型返回了无法保存的结果，请稍后从生成记录恢复',
+    });
+    super(publicMessage);
     this.name = 'WetokenImageResultError';
-    this.publicMessage = message;
+    this.publicMessage = publicMessage;
     this.diagnostic = diagnostic;
   }
 }
@@ -230,15 +239,6 @@ function extensionFor(mimeType: string) {
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType === 'image/webp') return 'webp';
   return 'png';
-}
-
-function sanitizeProviderMessage(value: unknown) {
-  return String(value || '请求被模型服务拒绝')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [已隐藏]')
-    .replace(/sk-[A-Za-z0-9_-]{8,}/gi, '[已隐藏]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 300) || '请求被模型服务拒绝';
 }
 
 function providerError(status: number, statusText: string, data: any) {

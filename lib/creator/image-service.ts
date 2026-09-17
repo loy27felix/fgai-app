@@ -1,5 +1,6 @@
 import {
   providerRequestIdFromImageDiagnostic,
+  WetokenImageRequestError,
   WetokenImageTransportError,
   WetokenImageResultError,
   type ImageGenerationResult,
@@ -153,6 +154,7 @@ function isTransportUncertainty(error: unknown) {
 function publicErrorFor(error: unknown, fallback: ImageConfirmErrorCode) {
   if (error instanceof CreatorImageConfirmError) return error.publicMessage;
   if (error instanceof WetokenImageResultError) return error.publicMessage;
+  if (error instanceof WetokenImageRequestError) return error.publicMessage;
   if (error instanceof WetokenImageTransportError) return IMAGE_CONFIRM_PUBLIC_ERRORS.GENERATION_STATUS_UNKNOWN;
   return IMAGE_CONFIRM_PUBLIC_ERRORS[fallback];
 }

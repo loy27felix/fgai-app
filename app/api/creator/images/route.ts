@@ -13,6 +13,7 @@ import type { CreatorImageAsset, CreatorImageTask } from '@/lib/creator/types';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { logServerFailure } from '@/lib/observability/server-log';
+import { normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
 
 export const runtime = 'nodejs';
 
@@ -24,7 +25,7 @@ function response(error: string, code: string, status: number) {
 
 function serverError(error: unknown, code: string, message: string) {
   logServerFailure('creator_image_collection', error);
-  return response(message, code, 500);
+  return response(normalizeProviderErrorMessage(error, { subject: 'image', fallback: message }), code, 500);
 }
 
 type CreateDraftBody = {
@@ -191,8 +192,8 @@ export async function POST(req: Request) {
       });
     } catch (error: unknown) {
       logServerFailure('creator_image_draft_validation', error);
-      const message = error instanceof Error ? error.message.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
-      return response(message || '\u56fe\u7247\u4efb\u52a1\u53c2\u6570\u65e0\u6548', 'INVALID_IMAGE_DRAFT', 400);
+      const message = normalizeProviderErrorMessage(error, { subject: 'image', fallback: '图片任务参数无效，请检查提示词、画幅、尺寸和参考图后重试' });
+      return response(message, 'INVALID_IMAGE_DRAFT', 400);
     }
 
     if (canvasId) {

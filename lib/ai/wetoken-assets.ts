@@ -67,7 +67,9 @@ export type WetokenAssetFailure = {
     | 'REFERENCE_DIMENSION_INVALID'
     | 'REFERENCE_DURATION_INVALID'
     | 'REFERENCE_FORMAT_UNSUPPORTED'
+    | 'REFERENCE_FILE_TOO_SMALL'
     | 'REFERENCE_FILE_TOO_LARGE'
+    | 'REFERENCE_POLICY_REJECTED'
     | 'REFERENCE_SOURCE_UNAVAILABLE'
     | 'REFERENCE_PROVIDER_UNAVAILABLE'
     | 'REFERENCE_PROVIDER_REJECTED';
@@ -107,6 +109,24 @@ export function describeWetokenAssetError(error: WetokenAssetError): WetokenAsse
     return {
       code: 'REFERENCE_FORMAT_UNSUPPORTED',
       message: '参考素材的格式或编码不受支持。图片请使用 JPG、PNG 或 WebP；视频请使用 MP4 或 MOV 后重试。',
+    };
+  }
+  if (/(?:copyright|copy\s*right|content\s*(?:policy|safety|moderation)|safety\s*(?:policy|filter)|policy\s*(?:violation|reject)|moderation|rights?\s*(?:check|restriction)|版权|著作权|内容安全|安全审核|违规内容)/i.test(detail)) {
+    return {
+      code: 'REFERENCE_POLICY_REJECTED',
+      message: '参考素材触发了供应商版权或内容安全限制，请更换素材或确认已获得授权后重试。',
+    };
+  }
+  if (/(?:failed\s*to\s*fetch|load\s*failed|network|err[_ -]?network|econnreset|etimedout|enotfound|dns\s*(?:error|failure)|connection\s*(?:reset|closed|timed\s*out)|gateway\s*timeout|upstream\s*(?:timeout|unavailable))/i.test(detail)) {
+    return {
+      code: 'REFERENCE_PROVIDER_UNAVAILABLE',
+      message: '网络出现波动，Wetoken 素材服务暂时无法访问；请稍后重试。',
+    };
+  }
+  if (/(?:file\s*size|size).*(?:too\s*small|at\s*least\s*\d+\s*(?:kb|mb)|minimum)/i.test(detail)) {
+    return {
+      code: 'REFERENCE_FILE_TOO_SMALL',
+      message: '参考图片大小不能小于 300KB，请使用更清晰的原图或重新导出后重试。',
     };
   }
   if (/(?:file\s*size|size).*(?:too\s*large|exceed|limit)|too\s*large/i.test(detail)) {

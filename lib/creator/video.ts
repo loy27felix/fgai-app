@@ -6,6 +6,7 @@ export const MAX_CREATOR_VIDEO_IMAGE_REFERENCES = 9;
 export const MAX_CREATOR_VIDEO_FILE_REFERENCES = 3;
 export const MAX_CREATOR_VIDEO_TOTAL_REFERENCES = 15;
 export const MAX_CREATOR_VIDEO_TOTAL_BYTES = 200_000_000;
+export const MIN_CREATOR_VIDEO_IMAGE_BYTES = 300_000;
 export const MAX_CREATOR_VIDEO_IMAGE_BYTES = 7_000_000;
 export const MAX_CREATOR_VIDEO_FILE_BYTES = 200_000_000;
 export const MAX_CREATOR_VIDEO_AUDIO_BYTES = 15_000_000;
@@ -106,6 +107,7 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   let audioCount = 0;
   let firstFrameCount = 0;
   let lastFrameCount = 0;
+  let tooSmallImageReference = false;
   for (const reference of input.references) {
     if (!["image", "video", "audio"].includes(reference.kind)) throw new Error("参考素材类型无效");
     if (!isRoleForKind(reference.kind, reference.role)) throw new Error("参考素材角色无效");
@@ -114,7 +116,18 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
       throw new Error(`${model.label} 不支持${reference.role === "first_frame" ? "首帧" : reference.role === "last_frame" ? "尾帧" : "参考图"}模式`);
     }
     if (!mimeAllowed(reference.kind, reference.mimeType)) throw new Error("参考素材格式不受支持");
-    if (!Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > maxBytesFor(reference.kind)) {
+    if (!Number.isSafeInteger(reference.size) || reference.size <= 0) {
+      if (reference.kind === "image") tooSmallImageReference = true;
+      else if (reference.kind === "video") throw new Error("单个参考视频不能超过 200MB");
+      else throw new Error("单个参考音频不能超过 15MB");
+    }
+    if (reference.kind === "image" && reference.size < MIN_CREATOR_VIDEO_IMAGE_BYTES) {
+      // Defer this check until role/count/combination validation has run. That
+      // keeps a precise mixed-frame or adaptive-ratio error from being hidden
+      // by a synthetic/legacy manifest with a tiny test byte count.
+      tooSmallImageReference = true;
+    }
+    if (reference.size > maxBytesFor(reference.kind)) {
       throw new Error(reference.kind === "image" ? "单张参考图不能超过 7MB" : reference.kind === "video" ? "单个参考视频不能超过 200MB" : "单个参考音频不能超过 15MB");
     }
     if (reference.durationMs !== undefined && (!Number.isFinite(reference.durationMs) || reference.durationMs < 0)) {
@@ -148,6 +161,7 @@ export function validateVideoDraftInput(input: VideoDraftInput) {
   }
   if (total > MAX_CREATOR_VIDEO_TOTAL_BYTES) throw new Error("参考素材总大小不能超过 200MB");
   if (audioCount > 0 && imageCount === 0 && videoCount === 0 && !model.supportsAudioOnlyReference) throw new Error("音频不能单独作为参考");
+  if (tooSmallImageReference) throw new Error("单张参考图不能小于 300KB");
   return {
     prompt,
     effectivePrompt,

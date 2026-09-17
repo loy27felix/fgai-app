@@ -12,6 +12,88 @@ export function nodeBounds(nodes: CanvasNodeData[]) {
     );
 }
 
+/**
+ * Create the canvas-level duplicate for one node.
+ *
+ * A node duplicate is intentionally not a graph clone.  The resources that
+ * feed the source node stay where they are; only their edges are copied with
+ * the new node as the target.  Config nodes are the one exception: an
+ * outgoing source -> config edge is copied so a prompt/configuration node
+ * continues to provide the same references to the duplicate.
+ */
+export function cloneCanvasNodeForDuplicate(
+    source: CanvasNodeData,
+    copyId: string,
+    nodes: CanvasNodeData[],
+    connections: CanvasConnection[],
+    offset = 48,
+) {
+    const metadata = source.metadata;
+    const copyMetadata = metadata
+        ? {
+              ...metadata,
+              // A duplicate is ready for a new action. Keep successful media
+              // state, but never carry a stale error/loading marker into it.
+              status: metadata.status === "loading" || metadata.status === "error" ? "idle" as const : metadata.status,
+              errorDetails: undefined,
+              // Group and batch relationships belong to the original node;
+              // retaining them would hide the copy or make it point at the
+              // original batch children/root.
+              groupId: undefined,
+              isBatchRoot: undefined,
+              batchRootId: undefined,
+              batchChildIds: undefined,
+              batchUsesReferenceImages: undefined,
+              primaryImageId: undefined,
+              imageBatchExpanded: undefined,
+              // This guards an in-flight generation attempt. Provider/task
+              // IDs remain as durable provenance/recovery handles, while a
+              // fresh generation attempt must start with a new guard.
+              generationAttemptId: undefined,
+              playbackRecoveryAttempt: undefined,
+              // Keep reference labels keyed by the original resource IDs so
+              // deleting/reordering a source never changes an @ mention.
+              referenceLabels: metadata.referenceLabels ? { ...metadata.referenceLabels } : undefined,
+              references: metadata.references ? [...metadata.references] : undefined,
+              textAlternatives: metadata.textAlternatives ? [...metadata.textAlternatives] : undefined,
+              imageAlternatives: metadata.imageAlternatives?.map((alternative) => ({ ...alternative })),
+              videoAlternatives: metadata.videoAlternatives?.map((alternative) => ({ ...alternative })),
+          }
+        : undefined;
+
+    const configIds = new Set(nodes.filter((node) => node.type === CanvasNodeType.Config).map((node) => node.id));
+    const copiedEndpoints = new Set<string>();
+    const copiedConnections = connections.flatMap((connection) => {
+        let fromNodeId: string;
+        let toNodeId: string;
+        if (connection.toNodeId === source.id && connection.fromNodeId !== source.id) {
+            fromNodeId = connection.fromNodeId;
+            toNodeId = copyId;
+        } else if (connection.fromNodeId === source.id && configIds.has(connection.toNodeId)) {
+            fromNodeId = copyId;
+            toNodeId = connection.toNodeId;
+        } else {
+            return [];
+        }
+
+        const endpointKey = `${fromNodeId}\u0000${toNodeId}`;
+        if (copiedEndpoints.has(endpointKey)) return [];
+        copiedEndpoints.add(endpointKey);
+        return [{ fromNodeId, toNodeId }];
+    });
+
+    return {
+        node: {
+            ...source,
+            id: copyId,
+            title: `${source.title || "未命名节点"} 副本`,
+            position: { x: source.position.x + offset, y: source.position.y + offset },
+            metadata: copyMetadata,
+        } satisfies CanvasNodeData,
+        connections: copiedConnections,
+    };
+}
+
 /** Wrap the current multi-selection in a real group node without moving it. */
 export function groupSelectedNodes(nodes: CanvasNodeData[], selectedIds: Set<string>, groupId: string) {
     const children = nodes.filter((node) => selectedIds.has(node.id) && node.type !== CanvasNodeType.Group);
