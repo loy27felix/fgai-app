@@ -1,5 +1,6 @@
 import type { CreatorImageSkill, ImageReferenceManifest } from '@/lib/creator/image';
 import { notifyCreatorUsageUpdated } from '@/lib/creator/usage-events';
+import { extractProviderErrorMessage, normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
 import type {
   CreatorImageAsset,
   CreatorImageTask,
@@ -69,10 +70,7 @@ function asRecord(value: unknown): JsonRecord {
 }
 
 function serverMessage(payload: unknown) {
-  const value = asRecord(payload).error;
-  return typeof value === 'string' && value.trim()
-    ? value.trim()
-    : '图片请求失败，请稍后重试';
+  return extractProviderErrorMessage(payload) || '图片请求失败，请稍后重试';
 }
 
 function serverCode(payload: unknown) {
@@ -94,8 +92,15 @@ export async function requestJson<T>(url: string, init: RequestInit = {}): Promi
         ...(init.headers || {}),
       },
     });
-  } catch {
-    throw new CreatorImageClientError('网络请求失败，请稍后重试', 0);
+  } catch (error) {
+    const subject = url.includes('/videos') ? 'video' : 'image';
+    throw new CreatorImageClientError(
+      normalizeProviderErrorMessage(error, {
+        subject,
+        fallback: subject === 'video' ? '视频请求失败，请稍后重试' : '图片请求失败，请稍后重试',
+      }),
+      0,
+    );
   }
 
   let payload: unknown = null;
@@ -106,8 +111,14 @@ export async function requestJson<T>(url: string, init: RequestInit = {}): Promi
   }
 
   if (!response.ok) {
+    const rawMessage = serverMessage(payload);
+    const subject = url.includes('/videos') ? 'video' : 'image';
     throw new CreatorImageClientError(
-      serverMessage(payload),
+      normalizeProviderErrorMessage(rawMessage, {
+        status: response.status,
+        subject,
+        fallback: subject === 'video' ? '视频请求失败，请稍后重试' : '图片请求失败，请稍后重试',
+      }),
       response.status,
       serverCode(payload),
     );

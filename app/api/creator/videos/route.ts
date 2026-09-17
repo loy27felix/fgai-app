@@ -16,6 +16,7 @@ import { createClient } from '@/lib/local/server';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
 import { logServerFailure } from '@/lib/observability/server-log';
+import { normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
 
 export const runtime = 'nodejs';
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -26,12 +27,11 @@ function response(error: string, code: string, status: number) {
 
 function serverError(error: unknown, code: string, message: string) {
   logServerFailure('creator_video_collection', error);
-  return response(message, code, 500);
+  return response(normalizeProviderErrorMessage(error, { subject: 'video', fallback: message }), code, 500);
 }
 
 function clientValidationMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : '';
-  return message.replace(/\s+/g, ' ').trim().slice(0, 300) || '视频任务参数无效';
+  return normalizeProviderErrorMessage(error, { subject: 'video', fallback: '视频任务参数无效，请检查提示词、画幅、清晰度和参考素材后重试' });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

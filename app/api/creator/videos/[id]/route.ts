@@ -22,6 +22,7 @@ import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
 import { markStaleVideoSubmission } from '@/lib/creator/video-task-reconciliation';
 import { KnownVideoTaskRecoveryError, reconcileKnownWetokenVideoTask } from '@/lib/creator/video-recovery';
 import { logServerEvent, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
+import { normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -36,7 +37,7 @@ function response(error: string, code: string, status: number) {
 
 function serverError(error: unknown, code: string, message: string) {
   logServerFailure('creator_video_item', error);
-  return response(message, code, 500);
+  return response(normalizeProviderErrorMessage(error, { subject: 'video', fallback: message }), code, 500);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -158,11 +159,15 @@ async function pollTask(
   traceId: string,
 ) {
   const currentTask = await markStaleVideoSubmission(task);
+  // A succeeded task may still only contain a temporary provider URL. Try the
+  // durable copy before polling Wetoken again so a refresh can preserve the
+  // result even when the provider link is close to expiry.
+  if (currentTask.status === 'succeeded') {
+    if (typeof asRecord(currentTask.output).video_storage_path === 'string') return currentTask;
+    const archived = await ensureVideoOutputStored(context, currentTask);
+    if (typeof asRecord(archived.output).video_storage_path === 'string') return archived;
+  }
   if (!currentTask.external_task_id || ['failed', 'expired'].includes(currentTask.status)) return currentTask;
-  // A succeeded task may still only contain a temporary provider URL. Poll
-  // Wetoken once more on an explicit task read so a fresh URL can be copied
-  // into durable storage after the old URL has expired.
-  if (currentTask.status === 'succeeded' && typeof asRecord(currentTask.output).video_storage_path === 'string') return currentTask;
   let polled;
   const pollStartedAt = Date.now();
   try {
@@ -291,7 +296,13 @@ export async function POST(req: Request, { params }: RouteContext) {
         logServerFailure('creator_video_server_upload', error, { taskId: params.id });
       }
     }
-    if (upload.error) return response('参考素材上传失败，请稍后重试', 'VIDEO_REFERENCE_UPLOAD_FAILED', 502);
+    if (upload.error) {
+      return response(
+        normalizeProviderErrorMessage(upload.error, { subject: 'reference', fallback: '参考素材上传失败，请稍后重试' }),
+        'VIDEO_REFERENCE_UPLOAD_FAILED',
+        502,
+      );
+    }
     return NextResponse.json({ ok: true, path });
   } catch (error: unknown) {
     return serverError(error, 'VIDEO_REFERENCE_UPLOAD_FAILED', '参考素材上传失败，请稍后重试');

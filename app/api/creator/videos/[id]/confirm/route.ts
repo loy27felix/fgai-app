@@ -34,6 +34,7 @@ import { assertMonthlyBudgetAvailable } from '@/lib/usage/budget';
 import { ensureVideoOutputStored, signedVideoOutputUrl } from '@/lib/creator/video-persistence';
 import { recordVideoTaskEvent } from '@/lib/creator/video-task-events';
 import { logServerEvent, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
+import { normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
 
 export const runtime = 'nodejs';
 export const maxDuration = 1800;
@@ -43,6 +44,13 @@ const REFERENCE_PREFLIGHT_ATTEMPTS = 3;
 const REFERENCE_PREFLIGHT_RETRY_DELAYS_MS = [500, 1500];
 
 type RouteContext = { params: { id: string } };
+
+class VideoDraftValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VideoDraftValidationError';
+  }
+}
 
 const ERRORS = {
   REFERENCES_NOT_READY: '参考素材尚未上传完成',
@@ -119,6 +127,8 @@ function providerFailureStatus(error: unknown): 'failed' | 'awaiting_reconciliat
 function providerFailureMessage(error: unknown) {
   if (error instanceof WetokenVideoTransportError) return ERRORS.SUBMIT_STATUS_UNKNOWN;
   if (error instanceof WetokenAssetError) return describeWetokenAssetError(error).message;
+  if (error instanceof WetokenVideoError) return error.publicMessage;
+  if (error instanceof Error) return normalizeProviderErrorMessage(error.message, { subject: 'video', fallback: ERRORS.SUBMIT_FAILED });
   return safeErrorMessage(error, ERRORS.SUBMIT_FAILED);
 }
 
@@ -303,6 +313,7 @@ function publicError(error: unknown) {
   if (message === ERRORS.REFERENCES_NOT_REACHABLE) return { message, code: 'REFERENCES_NOT_REACHABLE', status: 409 };
   if (message === ERRORS.REFERENCES_TEMPORARILY_UNAVAILABLE) return { message, code: 'REFERENCES_TEMPORARILY_UNAVAILABLE', status: 503 };
   if (message === ERRORS.INVALID_DRAFT) return { message, code: 'INVALID_DRAFT', status: 409 };
+  if (error instanceof VideoDraftValidationError) return { message, code: 'INVALID_DRAFT', status: 409 };
   if (message === ERRORS.USAGE_RECORD_FAILED) return { message, code: 'USAGE_RECORD_FAILED', status: 409 };
   if (error instanceof WetokenAssetError) {
     const failure = describeWetokenAssetError(error);
@@ -315,7 +326,7 @@ function publicError(error: unknown) {
   if (error instanceof WetokenVideoError) {
     const rejected = !error.retryable;
     return {
-      message: `Wetoken: ${safeErrorMessage(error, ERRORS.SUBMIT_FAILED)}`,
+      message: error.publicMessage,
       code: rejected ? 'VIDEO_PROVIDER_REJECTED' : 'VIDEO_CONFIRM_FAILED',
       status: rejected ? 400 : 502,
     };
@@ -585,7 +596,15 @@ export async function POST(req: Request, { params }: RouteContext) {
       validated = validateStoredVideoDraftRequest(claimed.model, claimed.request);
       if (asRecord(claimed.request).uploads_complete !== true) throw new Error(ERRORS.REFERENCES_NOT_READY);
     } catch (error) {
-      const normalized = new Error(ERRORS.INVALID_DRAFT);
+      const detail = error instanceof Error && error.message === ERRORS.REFERENCES_NOT_READY
+        ? ERRORS.REFERENCES_NOT_READY
+        : normalizeProviderErrorMessage(error, {
+          subject: 'video',
+          fallback: ERRORS.INVALID_DRAFT,
+        });
+      const normalized = detail === ERRORS.REFERENCES_NOT_READY
+        ? new Error(detail)
+        : new VideoDraftValidationError(detail);
       await context.localClient.from('creator_generation_tasks').update({ status: 'draft', confirmed_at: null, error: normalized.message }).eq('id', claimed.id).eq('status', 'submitting');
       throw normalized;
     }

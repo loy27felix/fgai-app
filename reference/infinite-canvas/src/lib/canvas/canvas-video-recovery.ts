@@ -29,3 +29,23 @@ export function shouldReportMissingVideoBackup(node: CanvasNodeData) {
     // backup error.
     return !hasValue(node.metadata?.creatorTaskId) && !hasValue(node.metadata?.externalTaskId);
 }
+
+/**
+ * Run recovery work with a small, explicit concurrency cap. A canvas can hold
+ * hundreds of video nodes; launching one request per node in Promise.all
+ * overloads the local API and makes a temporary network hiccup look like
+ * missing videos.
+ */
+export async function runWithConcurrency<T>(items: readonly T[], concurrency: number, worker: (item: T, index: number) => Promise<void>) {
+    if (!items.length) return;
+    const limit = Math.max(1, Math.min(items.length, Math.floor(concurrency) || 1));
+    let nextIndex = 0;
+    const run = async () => {
+        for (;;) {
+            const index = nextIndex++;
+            if (index >= items.length) return;
+            await worker(items[index]!, index);
+        }
+    };
+    await Promise.all(Array.from({ length: limit }, () => run()));
+}

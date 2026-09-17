@@ -13,8 +13,9 @@ import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/i
 import { previewImage, resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { previewMediaFile, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTask } from "@/lib/creator/video-client";
+import { normalizeProviderErrorMessage } from "@/lib/creator/provider-error-message";
 import { listImageTasks } from "@/lib/creator/image-client";
-import type { CreatorCanvasGraph, CreatorImageTaskView } from "@/lib/creator/types";
+import type { CreatorCanvasGraph, CreatorImageTaskView, CreatorVideoTaskView } from "@/lib/creator/types";
 import { logClientEvent } from "@/lib/observability/client-log";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/reference/infinite-canvas/src/lib/image-utils";
@@ -58,7 +59,7 @@ import { requestCanvasGenerationConfirmation } from "@/reference/infinite-canvas
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { shouldIgnoreCanvasClipboardTarget } from "@/reference/infinite-canvas/src/lib/canvas/canvas-clipboard-target";
 import { shouldReportMissingImageBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-recovery";
-import { shouldReportMissingVideoBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-recovery";
+import { runWithConcurrency, shouldReportMissingVideoBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-recovery";
 import { nextVideoPlaybackRecoveryAttempt } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-playback-retry";
 import { mergeCanvasCloudGraphs } from "@/reference/infinite-canvas/src/lib/canvas/canvas-cloud-merge";
 import { isPendingCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/canvas/canvas-upload-durability";
@@ -264,6 +265,30 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                 return new Map<string, CreatorImageTaskView>();
             })
         : new Map<string, CreatorImageTaskView>();
+    // One task can be represented by several duplicated nodes. Fetch each
+    // task once and cap concurrent reads so reopening a large canvas does not
+    // generate a request storm against the local API/tunnel.
+    const videoTaskIds = Array.from(new Set(
+        nodes
+            .filter((node) => node.type === CanvasNodeType.Video
+                && typeof node.metadata?.creatorTaskId === "string"
+                && !node.metadata?.cloudStoragePath
+                && (node.metadata?.status === NODE_STATUS_LOADING
+                    || node.metadata?.status === NODE_STATUS_SUCCESS
+                    || !node.metadata?.content
+                    || node.metadata?.durableArchivePending === true))
+            .map((node) => node.metadata!.creatorTaskId as string),
+    ));
+    const videoTasks = new Map<string, CreatorVideoTaskView>();
+    await runWithConcurrency(videoTaskIds, 4, async (taskId) => {
+        try {
+            videoTasks.set(taskId, (await getVideoTask(taskId)).task);
+        } catch (error) {
+            // Keep the node's current content/status. The periodic recovery
+            // effect will retry after a temporary tunnel or provider outage.
+            console.warn("[canvas video recovery task lookup failed]", { taskId, error });
+        }
+    });
     return Promise.all(
         nodes.map(async (node) => {
             // A long Wetoken render can still be running when this page is
@@ -293,7 +318,14 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                 if (task?.status === "failed" || task?.status === "expired") {
                     return {
                         ...node,
-                        metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails: task.error || "图片生成失败，请从生成记录查看详情" },
+                        metadata: {
+                            ...node.metadata,
+                            status: NODE_STATUS_ERROR,
+                            errorDetails: normalizeProviderErrorMessage(task.error, {
+                                subject: "image",
+                                fallback: "图片生成失败，请从生成记录查看详情",
+                            }),
+                        },
                     };
                 }
             }
@@ -321,8 +353,8 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
             // graph from reopening with an expired provider URL.
             if (node.type === CanvasNodeType.Video && creatorTaskId) {
                 try {
-                    const task = (await getVideoTask(creatorTaskId)).task;
-                    if (task.videoUrl) {
+                    const task = videoTasks.get(creatorTaskId);
+                    if (task?.videoUrl) {
                         const taskOutput = task.output && typeof task.output === "object" ? task.output : {};
                         const storagePath = typeof taskOutput.video_storage_path === "string" ? taskOutput.video_storage_path : undefined;
                         const readyVideo = {
@@ -349,21 +381,34 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
                             },
                         };
                     }
-                    if (
+                    if (task && (
                         task.status === "failed"
                         || task.status === "expired"
                         || task.status === "awaiting_reconciliation"
                         || (task.status === "unknown" && !task.external_task_id)
-                    ) {
+                    )) {
                         return {
                             ...node,
                             metadata: {
                                 ...node.metadata,
                                 creatorTaskId,
                                 status: NODE_STATUS_ERROR,
-                                errorDetails: task.error || (task.status === "awaiting_reconciliation"
-                                    ? "视频提交状态未知，已停止自动等待；请核对供应商任务后再手动重试"
-                                    : "视频任务失败"),
+                                errorDetails: normalizeProviderErrorMessage(task.error, {
+                                    subject: "video",
+                                    fallback: task.status === "awaiting_reconciliation"
+                                        ? "视频提交状态未知，已停止自动等待；请核对供应商任务后再手动重试"
+                                        : "视频任务失败",
+                                }),
+                            },
+                        };
+                    }
+                    if (!task && !existingContent && node.metadata?.status === NODE_STATUS_SUCCESS) {
+                        return {
+                            ...node,
+                            metadata: {
+                                ...node.metadata,
+                                durableArchivePending: true,
+                                errorDetails: "视频任务正在恢复，网络恢复后会自动重新连接；不会重复生成或计费",
                             },
                         };
                     }
@@ -594,7 +639,10 @@ function InfiniteCanvasPage() {
     const cloudMergeBaseRef = useRef<CreatorCanvasGraph | null>(null);
     const cloudCreateInFlightRef = useRef(false);
     const cloudProjectIdRef = useRef<string | null>(null);
+    // Keys are task-scoped so duplicated canvas nodes share one status read.
+    // A node-scoped fallback is used only for media that has no creator task.
     const creatorVideoRecoveryInFlightRef = useRef(new Set<string>());
+    const creatorVideoRecoveryRunningRef = useRef(false);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -723,16 +771,28 @@ function InfiniteCanvasPage() {
         let disposed = false;
 
         const resumePendingCreatorVideos = async () => {
-            const pending = nodesRef.current.filter(
-                (node) => node.type === CanvasNodeType.Video
-                    && Boolean(node.metadata?.creatorTaskId)
-                    && ((node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content) || node.metadata?.durableArchivePending === true),
-            );
-            await Promise.all(
-                pending.map(async (node) => {
-                    const taskId = node.metadata?.creatorTaskId;
-                    if (!taskId || creatorVideoRecoveryInFlightRef.current.has(node.id)) return;
-                    creatorVideoRecoveryInFlightRef.current.add(node.id);
+            if (creatorVideoRecoveryRunningRef.current) return;
+            creatorVideoRecoveryRunningRef.current = true;
+            try {
+                const pendingByTask = new Map<string, Set<string>>();
+                nodesRef.current
+                    .filter(
+                        (node) => node.type === CanvasNodeType.Video
+                            && Boolean(node.metadata?.creatorTaskId)
+                            && ((node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content) || node.metadata?.durableArchivePending === true),
+                    )
+                    .forEach((node) => {
+                        const taskId = node.metadata?.creatorTaskId;
+                        if (!taskId) return;
+                        const nodeIds = pendingByTask.get(taskId) || new Set<string>();
+                        nodeIds.add(node.id);
+                        pendingByTask.set(taskId, nodeIds);
+                    });
+                const entries = Array.from(pendingByTask.entries());
+                await runWithConcurrency(entries, 4, async ([taskId, nodeIds]) => {
+                    const recoveryKey = `task:${taskId}`;
+                    if (creatorVideoRecoveryInFlightRef.current.has(recoveryKey)) return;
+                    creatorVideoRecoveryInFlightRef.current.add(recoveryKey);
                     try {
                         const task = (await getVideoTask(taskId)).task;
                         if (task.videoUrl) {
@@ -749,7 +809,7 @@ function InfiniteCanvasPage() {
                             if (disposed) return;
                             setNodes((prev) =>
                                 prev.map((item) => {
-                                    if (item.id !== node.id || item.metadata?.creatorTaskId !== taskId) return item;
+                                    if (!nodeIds.has(item.id) || item.metadata?.creatorTaskId !== taskId) return item;
                                     const alternativeState = appendVideoAlternative(item.metadata, { ...videoMetadata(readyVideo), creatorTaskId: taskId });
                                     console.info("[canvas video recovered]", { nodeId: item.id, creatorTaskId: taskId, alternatives: alternativeState.alternatives.length });
                                     return {
@@ -776,16 +836,19 @@ function InfiniteCanvasPage() {
                             if (disposed) return;
                             setNodes((prev) =>
                                 prev.map((item) =>
-                                    item.id === node.id && item.metadata?.creatorTaskId === taskId
+                                    nodeIds.has(item.id) && item.metadata?.creatorTaskId === taskId
                                         ? {
                                             ...item,
                                             metadata: {
                                                 ...item.metadata,
                                                 creatorTaskId: taskId,
                                                 status: NODE_STATUS_ERROR,
-                                                errorDetails: task.error || (task.status === "awaiting_reconciliation"
-                                                    ? "视频提交状态未知，已停止自动等待；请核对供应商任务后再手动重试"
-                                                    : "视频任务失败"),
+                                                errorDetails: normalizeProviderErrorMessage(task.error, {
+                                                    subject: "video",
+                                                    fallback: task.status === "awaiting_reconciliation"
+                                                        ? "视频提交状态未知，已停止自动等待；请核对供应商任务后再手动重试"
+                                                        : "视频任务失败",
+                                                }),
                                             },
                                         }
                                         : item,
@@ -795,16 +858,19 @@ function InfiniteCanvasPage() {
                     } catch (error) {
                         console.warn("[creator video resume]", error);
                     } finally {
-                        creatorVideoRecoveryInFlightRef.current.delete(node.id);
+                        creatorVideoRecoveryInFlightRef.current.delete(recoveryKey);
                     }
-                }),
-            );
+                });
+            } finally {
+                creatorVideoRecoveryRunningRef.current = false;
+            }
         };
 
         void resumePendingCreatorVideos();
         const interval = window.setInterval(() => void resumePendingCreatorVideos(), 10_000);
         return () => {
             disposed = true;
+            creatorVideoRecoveryRunningRef.current = false;
             window.clearInterval(interval);
         };
     }, [projectLoaded]);
@@ -1312,6 +1378,18 @@ function InfiniteCanvasPage() {
 
         return { nodeIds, connectionIds };
     }, [activeNodeId, connections]);
+
+    // Edges are much cheaper to draw when neither endpoint is on screen. Keep
+    // a selected/related edge visible so keyboard and hover actions still
+    // provide context while panning through a large graph.
+    const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
+    const visibleConnections = useMemo(
+        () => connections.filter((connection) => visibleNodeIds.has(connection.fromNodeId)
+            || visibleNodeIds.has(connection.toNodeId)
+            || selectedConnectionId === connection.id
+            || relatedHighlight.connectionIds.has(connection.id)),
+        [connections, relatedHighlight.connectionIds, selectedConnectionId, visibleNodeIds],
+    );
 
     const configInputsById = useMemo(() => {
         const map = new Map<string, NodeGenerationInput[]>();
@@ -2650,7 +2728,8 @@ function InfiniteCanvasPage() {
     const handleVideoPlaybackError = useCallback(async (node: CanvasNodeData, failedUrl: string, manual = false) => {
         const current = nodesRef.current.find((item) => item.id === node.id && item.type === CanvasNodeType.Video);
         if (!current?.metadata) return;
-        if (creatorVideoRecoveryInFlightRef.current.has(current.id)) return;
+        const recoveryKey = current.metadata.creatorTaskId ? `task:${current.metadata.creatorTaskId}` : `node:${current.id}`;
+        if (creatorVideoRecoveryInFlightRef.current.has(recoveryKey)) return;
         const recoveryAttempt = nextVideoPlaybackRecoveryAttempt(current.metadata.playbackRecoveryAttempt, { manual });
         logClientEvent("canvas_video_playback_error", {
             nodeId: current.id,
@@ -2672,7 +2751,7 @@ function InfiniteCanvasPage() {
             }, "error");
             return;
         }
-        creatorVideoRecoveryInFlightRef.current.add(current.id);
+        creatorVideoRecoveryInFlightRef.current.add(recoveryKey);
         const { creatorTaskId, cloudStoragePath } = current.metadata;
         let recoveredCloudStoragePath = cloudStoragePath;
         let recoveryUrl = "";
@@ -2748,7 +2827,7 @@ function InfiniteCanvasPage() {
                 recoveryAttempt,
             }, "error");
         } finally {
-            creatorVideoRecoveryInFlightRef.current.delete(current.id);
+            creatorVideoRecoveryInFlightRef.current.delete(recoveryKey);
         }
     }, []);
 
@@ -3050,7 +3129,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "局部修改失败";
+                const errorDetails = normalizeProviderErrorMessage(error, { subject: "image", fallback: "局部修改失败" });
                 message.error(errorDetails);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
             } finally {
@@ -3132,7 +3211,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                const errorDetails = normalizeProviderErrorMessage(error, { subject: "image", fallback: "局部修改失败" });
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item)));
             } finally {
                 finishGenerationRequest(childId, controller);
@@ -3522,7 +3601,7 @@ function InfiniteCanvasPage() {
                     setDialogNodeId(null);
                 } catch (error) {
                     if (!isGenerationCanceled(error)) {
-                        const errorDetails = error instanceof Error ? error.message : "生成失败";
+                        const errorDetails = normalizeProviderErrorMessage(error, { subject: "image", fallback: "图片生成失败" });
                         message.error(errorDetails);
                         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
                     }
@@ -3638,7 +3717,7 @@ function InfiniteCanvasPage() {
                                     hasSuccess = true;
                                 } catch (error) {
                                     if (isGenerationCanceled(error)) return;
-                                    const errorDetails = error instanceof Error ? error.message : "生成失败";
+                                    const errorDetails = normalizeProviderErrorMessage(error, { subject: "image", fallback: "图片生成失败" });
                                     if (!firstError) firstError = errorDetails;
                                     hasFailure = true;
                                 }
@@ -3788,7 +3867,7 @@ function InfiniteCanvasPage() {
                                 return true;
                             } catch (error) {
                                 if (isGenerationCanceled(error)) return false;
-                                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                                const errorDetails = normalizeProviderErrorMessage(error, { subject: "image", fallback: "图片生成失败" });
                                 if (!firstError) firstError = errorDetails;
                                 hasFailure = true;
                                 setNodes((prev) => prev.map((node) => (node.id === targetId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } } : node)));
@@ -4059,7 +4138,10 @@ function InfiniteCanvasPage() {
                 );
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                const errorDetails = normalizeProviderErrorMessage(error, {
+                    subject: mode === "video" ? "video" : mode === "image" ? "image" : undefined,
+                    fallback: mode === "video" ? "视频生成失败" : mode === "image" ? "图片生成失败" : "生成失败",
+                });
                 message.error(errorDetails);
                 setNodes((prev) =>
                     prev.map((node) => (node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } }) : node)),
@@ -4245,7 +4327,10 @@ function InfiniteCanvasPage() {
                 });
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
-                const errorDetails = error instanceof Error ? error.message : "生成失败";
+                const errorDetails = normalizeProviderErrorMessage(error, {
+                    subject: node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Image ? "image" : undefined,
+                    fallback: node.type === CanvasNodeType.Video ? "视频生成失败" : node.type === CanvasNodeType.Image ? "图片生成失败" : "生成失败",
+                });
                 message.error(errorDetails);
                 setNodes((prev) => prev.map((item) => (
                     item.id === node.id && (!retryVideoAttemptId || item.metadata?.generationAttemptId === retryVideoAttemptId)
@@ -4642,7 +4727,7 @@ function InfiniteCanvasPage() {
                     onDrop={handleDrop}
                 >
                     <svg className="absolute left-0 top-0 h-[10000px] w-[10000px] overflow-visible" style={{ pointerEvents: "none", transform: "translateZ(0)", zIndex: 0 }}>
-                        {connections
+                        {visibleConnections
                             .filter((connection) => {
                                 const from = nodeById.get(connection.fromNodeId);
                                 const to = nodeById.get(connection.toNodeId);

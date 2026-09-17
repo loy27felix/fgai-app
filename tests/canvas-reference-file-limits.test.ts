@@ -51,5 +51,16 @@ test("creator draft clients keep all selected references for validation and retu
     assert.doesNotMatch(imageClient, /references\.slice\(0, 8\)\.map\(\(image, index\) => fgReferenceFile/);
     assert.match(fgVideo, /assertCreatorVideoReferenceFiles\(files\)/);
     assert.doesNotMatch(fgVideo, /const imageInputs = references\.slice\(0, modelSpec/);
-    assert.match(imageRoute, /error instanceof Error \? error\.message/);
+    assert.match(imageRoute, /normalizeProviderErrorMessage\(error/);
+});
+
+test("image preflight names an undersized reference at the creator contract boundary", () => {
+    assert.throws(
+        () => assertCreatorImageReferenceFiles([file("thumbnail.png", 299_999)]),
+        /参考图「thumbnail\.png」.*单张不能小于 300KB/,
+    );
+    assert.throws(
+        () => assertCreatorVideoReferenceFiles([file("start-frame.png", 299_999)]),
+        /参考图「start-frame\.png」.*单张不能小于 300KB/,
+    );
 });

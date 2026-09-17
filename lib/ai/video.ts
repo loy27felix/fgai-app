@@ -17,6 +17,7 @@ import {
   redactProviderUrl,
   safeProviderHeaders,
 } from '../observability/server-log';
+import { normalizeProviderErrorMessage } from '../creator/provider-error-message';
 
 export { VIDEO_MODELS, getVideoModel } from './video-models';
 export type { VideoModelSpec } from './video-models';
@@ -64,13 +65,20 @@ export class WetokenVideoError extends Error {
   readonly status: number;
   readonly providerCode: string | null;
   readonly retryable: boolean;
+  readonly publicMessage: string;
 
   constructor(message: string, status: number, providerCode?: string | null) {
-    super(`Wetoken video request failed (${status}): ${message}`);
+    const publicMessage = normalizeProviderErrorMessage(message, {
+      status,
+      subject: 'video',
+      fallback: `视频模型请求失败（HTTP ${status}）`,
+    });
+    super(publicMessage);
     this.name = 'WetokenVideoError';
     this.status = status;
     this.providerCode = providerCode || null;
     this.retryable = status === 408 || status === 429 || (status >= 500 && providerCode !== 'model_not_found');
+    this.publicMessage = publicMessage;
   }
 }
 
