@@ -111,7 +111,10 @@ def _run_portable_realesrgan_video(
     scale = _portable_scale(source_video, width, height)
     model_root = _portable_model_path(command, scale)
     ffmpeg = executable("ffmpeg")
-    fps = _frame_rate(source_video.get("avg_frame_rate") or source_video.get("r_frame_rate"))
+    rate_value = source_video.get("avg_frame_rate")
+    if not rate_value or str(rate_value).strip() in {"0", "0/0"}:
+        rate_value = source_video.get("r_frame_rate")
+    fps = _frame_rate(rate_value)
     with tempfile.TemporaryDirectory(prefix="fg-worker-realesrgan-") as directory:
         root = Path(directory)
         input_frames = root / "input"
