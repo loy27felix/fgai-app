@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Tooltip } from "antd";
 import { Cpu, RefreshCw, ShieldCheck } from "lucide-react";
 
-import { createMediaWorkerPairingCode, listMediaWorkers, mediaWorkerBackendLabel, type MediaWorkerSummary } from "@/reference/infinite-canvas/src/services/api/media-worker";
+import { createMediaWorkerPairingCode, listMediaWorkers, mediaWorkerBackendLabel, workerInstallerUrl, type MediaWorkerSummary } from "@/reference/infinite-canvas/src/services/api/media-worker";
 
 function relativeHeartbeat(value: string | null) {
     if (!value) return "从未心跳";
@@ -59,10 +59,10 @@ export function LocalWorkerStatus() {
             </div>
             {enabled === false ? <div className="mt-2 text-xs text-amber-300">功能未启用（管理员可开启 MEDIA_WORKER_ENABLED）</div> : null}
             {error ? <Alert className="mt-2" type="error" showIcon message={error} /> : null}
-            {!error && enabled !== false && !workers.length ? <div className="mt-2 text-xs opacity-65">尚未配对 Worker。先生成一次性配对码，再在运行 Worker 的电脑执行配对命令。</div> : null}
+            {!error && enabled !== false && !workers.length ? <div className="mt-2 text-xs opacity-65">尚未配对 Worker。下载一键安装包后，双击并粘贴一次性配对码即可；不用安装 Python、FFmpeg、PyTorch 或模型。</div> : null}
             {enabled === true ? (
                 <div className="mt-2 rounded-lg border border-white/10 p-2">
-                    <Button size="small" type="primary" onClick={() => void createPairing()}>生成一次性配对码</Button>
+                    <div className="flex flex-wrap gap-1.5"><Button size="small" type="primary" onClick={() => void createPairing()}>生成一次性配对码</Button><Button size="small" onClick={() => window.open(workerInstallerUrl(), "_blank", "noopener,noreferrer")}>下载一键安装包</Button></div>
                     {pairingCode ? <div className="mt-2 space-y-1 text-xs"><div className="font-mono text-base tracking-[0.2em] text-emerald-300">{pairingCode.code}</div><div className="opacity-60">10 分钟内有效，只显示在当前页面；不要发到群里。</div><Button size="small" onClick={() => void navigator.clipboard?.writeText(pairingCode.code)}>复制配对码</Button></div> : null}
                 </div>
             ) : null}

@@ -12,7 +12,7 @@ FG Studio 是一个面向个人创作与小团队协作的 AI 视觉工作台：
 - 用量账本：记录 token、图片/视频调用、供应商实际扣费或已确认的价格估算，并同时显示 USD/CNY。
 - 管理后台：按用户、模型、媒体类型查看调用次数、token、费用和待定价记录。
 - 服务监控报表：按日、周、月汇总服务健康、前后端错误、账户活跃度、Token、媒体用量和成本。
-- 本地 GPU 后处理（默认关闭）：视频超分和遮罩去水印由用户电脑上的 Worker 执行，结果经 SHA-256 校验后归档到 NAS；安装、配对、撤销和 canary 见 [`docs/local-media-worker.md`](docs/local-media-worker.md)。
+- 本地 GPU 后处理（默认关闭）：视频超分和遮罩去水印由用户电脑上的 Worker 执行，结果经 SHA-256 校验后归档到 NAS；用户只需下载一键安装包并粘贴配对码，不安装 Python/FFmpeg/PyTorch/模型。安装、配对、撤销和 canary 见 [`docs/local-media-worker.md`](docs/local-media-worker.md)。
 
 ## 本地开发
 

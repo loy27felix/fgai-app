@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from .base import OperationError
+from ..runtime_config import ffmpeg_dir, runtime_environment
 
 
 def executable(name: str) -> str:
-    path = shutil.which(name)
+    directory = ffmpeg_dir()
+    candidates = [name]
+    if directory:
+        candidates.insert(0, str(Path(directory) / (name + (".exe" if os.name == "nt" else ""))))
+    path = next((candidate for candidate in candidates if Path(candidate).is_file()), None) or shutil.which(name)
     if not path:
-        raise OperationError(f"未找到 {name}，请先安装 FFmpeg", code="FFMPEG_NOT_INSTALLED")
+        raise OperationError(f"未找到 {name}，请重新运行 FG Studio Worker 安装", code="FFMPEG_NOT_INSTALLED")
     return path
 
 
@@ -25,6 +31,7 @@ def probe(path: str) -> dict[str, Any]:
             text=True,
             timeout=30,
             check=False,
+            env=runtime_environment(),
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise OperationError(f"读取媒体信息失败：{error}", code="MEDIA_PROBE_FAILED", retryable=True) from error
@@ -41,7 +48,7 @@ def probe(path: str) -> dict[str, Any]:
 
 def run(args: list[str], *, timeout: float | None = None) -> None:
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False, env=runtime_environment())
     except (OSError, subprocess.SubprocessError) as error:
         raise OperationError(f"媒体处理进程失败：{error}", code="FFMPEG_FAILED", retryable=True) from error
     if result.returncode != 0:
@@ -82,4 +89,3 @@ def assert_valid_output(path: str, *, expected_width: int, expected_height: int,
         raise OperationError("输出时长校验失败", code="OUTPUT_METADATA_INVALID")
     if not Path(path).is_file() or Path(path).stat().st_size <= 0:
         raise OperationError("输出文件为空", code="OUTPUT_METADATA_INVALID")
-

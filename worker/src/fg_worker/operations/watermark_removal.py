@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
-import shlex
 from pathlib import Path
 from typing import Any
 
 from .base import OperationAdapter, OperationError, ProgressCallback
+from ..runtime_config import runner_args
 
 
 class WatermarkRemovalAdapter(OperationAdapter):
@@ -25,13 +24,13 @@ class WatermarkRemovalAdapter(OperationAdapter):
 
     def run(self, input_path: str, output_path: str, request: dict[str, Any], progress: ProgressCallback) -> None:
         self.validate(request)
-        command = os.environ.get("FG_WORKER_PROPAINTER_COMMAND")
+        command = runner_args("propainter-mask")
         if not command:
             raise OperationError("ProPainter 模型尚未安装", code="MODEL_NOT_INSTALLED")
         # The packaged runner receives explicit paths as positional arguments;
         # it must write a new output and never mutate the original input.
         progress(5, "preparing")
-        args = shlex.split(command, posix=False) + ["--input", input_path, "--mask", str(request["maskPath"]), "--output", output_path]
+        args = command + ["--input", input_path, "--mask", str(request["maskPath"]), "--output", output_path]
         from .ffmpeg import run
 
         run(args, timeout=6 * 60 * 60)
@@ -41,4 +40,3 @@ class WatermarkRemovalAdapter(OperationAdapter):
 
 
 ADAPTER = WatermarkRemovalAdapter()
-

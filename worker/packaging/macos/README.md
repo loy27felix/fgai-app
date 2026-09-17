@@ -1,25 +1,17 @@
-# macOS Apple Silicon Worker
+# FG Studio Worker：Apple Silicon 发布说明
 
-在 Apple Silicon Mac 上安装 Python 3.11/3.12、FFmpeg 和当前 PyTorch MPS 支持，然后在仓库 `worker` 目录执行：
+这是维护者发布文档。最终用户不安装 Python、PyTorch、FFmpeg、MPS 依赖或模型
+权重，只下载对应的 `FGStudioWorkerSetup` 安装包、双击并粘贴一次性配对码。
 
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-pip install torch
-fg-worker capabilities
-```
-
-安装并验证 MPS 模型 runner 后，再设置对应的
-`FG_WORKER_BASICVSRPP_COMMAND`、`FG_WORKER_REALESRGAN_COMMAND` 或
-`FG_WORKER_PROPAINTER_COMMAND`。没有 runner 的能力不会上报，避免领取后才
-失败。
-
-生成一次性配对码后运行：
+维护者在 Apple Silicon 构建机准备已经通过 MPS canary 的 Runner 和 FFmpeg，执行：
 
 ```bash
-fg-worker pair --server https://fg.example.internal --code 配对码 --name "Apple Silicon GPU"
-fg-worker run --server https://fg.example.internal
+FG_STUDIO_SERVER_URL=https://fg.example.internal \
+  ./build-release.sh 0.1.0 /Volumes/approved-runners/macos-arm64 /Volumes/approved-runners/ffmpeg
 ```
 
-`capabilities` 没有上报 `mps` 时不会领取 GPU 任务。BasicVSR++/ProPainter 的 MPS runner 通过 canary 验证后才能启用；现有 Mac mini 的 FG Studio、WeToken、PostgreSQL、NAS 和费用功能不受这个 Worker 安装影响。
+把生成的 setup/runtime artifact 按 manifest 上传到 NAS，manifest 路径通过
+`FG_WORKER_RELEASE_MANIFEST_PATH` 提供给 App。没有实际通过 MPS canary 的模型
+不要写入 macos-arm64 的 `runnerCommands`，避免 Worker 领取后才失败。Mac mini
+继续运行 FG Studio、数据库、WeToken、队列和 NAS，不会被这个用户 Worker 安装
+替换。

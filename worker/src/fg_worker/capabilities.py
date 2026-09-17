@@ -4,7 +4,10 @@ import os
 import platform
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
+
+from .runtime_config import ffmpeg_dir, runner_available
 
 
 VIDEO_PROFILES = ["basicvsrpp-quality", "realesrgan-sequence-fallback"]
@@ -42,7 +45,9 @@ def _system_memory_bytes() -> int:
 
 
 def _ffmpeg_version() -> str | None:
-    executable = shutil.which("ffmpeg")
+    directory = ffmpeg_dir()
+    configured = Path(directory) / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg") if directory else None
+    executable = str(configured) if configured and configured.is_file() else shutil.which("ffmpeg")
     if not executable:
         return None
     try:
@@ -51,6 +56,38 @@ def _ffmpeg_version() -> str | None:
         return first[:160] or None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def _nvidia_device() -> tuple[str | None, int]:
+    """Detect an NVIDIA device without requiring a locally installed Torch.
+
+    The packaged Worker can ship a CUDA runner separately from Torch.  In that
+    case ``nvidia-smi`` is the reliable preflight signal and still lets the
+    server avoid leasing a CUDA job to a machine with no NVIDIA driver.
+    """
+
+    executable = shutil.which("nvidia-smi")
+    if not executable:
+        return None, 0
+    try:
+        result = subprocess.run(
+            [executable, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None, 0
+    if result.returncode != 0 or not result.stdout.strip():
+        return None, 0
+    first = result.stdout.splitlines()[0].strip()
+    name, _, memory = first.partition(",")
+    try:
+        vram_bytes = int(float(memory.strip()) * 1024 * 1024) if memory.strip() else 0
+    except ValueError:
+        vram_bytes = 0
+    return name.strip() or "NVIDIA GPU", vram_bytes
 
 
 def detect_capabilities() -> dict[str, Any]:
@@ -80,6 +117,17 @@ def detect_capabilities() -> dict[str, Any]:
         elif mps:
             gpu_name = "Apple Silicon GPU"
 
+    # Keep the Torch result authoritative when CUDA is available, but permit a
+    # packaged external runner to advertise CUDA when only the driver is
+    # present.  The runner allowlist below is still required before any job is
+    # claimed.
+    if not cuda:
+        nvidia_name, nvidia_vram = _nvidia_device()
+        if nvidia_name:
+            cuda = True
+            gpu_name = gpu_name or nvidia_name
+            vram_bytes = vram_bytes or nvidia_vram
+
     backends: list[str] = []
     if cuda:
         backends.append("cuda")
@@ -93,14 +141,14 @@ def detect_capabilities() -> dict[str, Any]:
     # its verified local runner is configured; otherwise the queue would lease
     # work that can only fail with MODEL_NOT_INSTALLED.
     if cuda or mps:
-        if os.environ.get("FG_WORKER_BASICVSRPP_COMMAND"):
+        if runner_available("basicvsrpp-quality"):
             operations.append("video_super_resolution")
             profiles.append(VIDEO_PROFILES[0])
-        if os.environ.get("FG_WORKER_REALESRGAN_COMMAND"):
+        if runner_available("realesrgan-sequence-fallback"):
             if "video_super_resolution" not in operations:
                 operations.append("video_super_resolution")
             profiles.append(VIDEO_PROFILES[1])
-        if os.environ.get("FG_WORKER_PROPAINTER_COMMAND"):
+        if runner_available("propainter-mask"):
             operations.append("watermark_removal")
             profiles.extend(WATERMARK_PROFILES)
 

@@ -14,3 +14,4 @@ __pycache__/
 .pytest_cache/
 worker/pytest-cache-files-*/
 worker/test-tmp/
+worker/test-tmp-*/

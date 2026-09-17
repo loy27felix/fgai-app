@@ -57,6 +57,19 @@ export function createMediaWorkerPairingCode() {
     return requestJson<{ code: string; expiresAt: string }>("/api/creator/workers/pairing", { method: "POST" });
 }
 
+/** Choose only release targets that the packaged Worker can support. */
+export function workerInstallerPlatform() {
+    if (typeof navigator === "undefined") return "windows-amd64";
+    const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string; architecture?: string } }).userAgentData;
+    const platform = `${userAgentData?.platform || navigator.platform || ""} ${navigator.userAgent || ""}`.toLowerCase();
+    if (platform.includes("mac") || platform.includes("iphone") || platform.includes("ipad")) return "macos-arm64";
+    return "windows-amd64";
+}
+
+export function workerInstallerUrl(platform = workerInstallerPlatform()) {
+    return `/api/creator/worker/bootstrap/installer?platform=${encodeURIComponent(platform)}`;
+}
+
 export function createMediaJob(input: MediaJobCreateInput) {
     return requestJson<{ job: MediaWorkerJob; replayed: boolean }>("/api/creator/media/jobs", {
         method: "POST",

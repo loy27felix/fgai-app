@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import os
-import shlex
-from pathlib import Path
 from typing import Any
 
 from .base import OperationAdapter, OperationError, ProgressCallback
 from .ffmpeg import assert_valid_output, probe, run, video_stream
+from ..runtime_config import runner_args
 
 
 TARGETS: dict[str, tuple[int, int]] = {
@@ -45,11 +43,11 @@ class VideoSuperResolutionAdapter(OperationAdapter):
         if profile == "basicvsrpp-quality":
             # BasicVSR++ is intentionally invoked only when the packaged model
             # runner is present. No silent CPU/FFmpeg downgrade is allowed.
-            command = os.environ.get("FG_WORKER_BASICVSRPP_COMMAND")
+            command = runner_args("basicvsrpp-quality")
             if not command:
                 raise OperationError("BasicVSR++ 模型尚未安装", code="MODEL_NOT_INSTALLED")
             progress(5, "decoding")
-            run(shlex.split(command, posix=False) + ["--input", input_path, "--output", output_path, "--target", target], timeout=6 * 60 * 60)
+            run(command + ["--input", input_path, "--output", output_path, "--target", target], timeout=6 * 60 * 60)
             progress(95, "validating")
             assert_valid_output(output_path, expected_width=width, expected_height=height, input_metadata=input_metadata)
             progress(100, "completed")
@@ -58,11 +56,11 @@ class VideoSuperResolutionAdapter(OperationAdapter):
         # not silently substitute FFmpeg scaling: that would look like a
         # successful super-resolution job while providing the wrong quality.
         if profile == "realesrgan-sequence-fallback":
-            command = os.environ.get("FG_WORKER_REALESRGAN_COMMAND")
+            command = runner_args("realesrgan-sequence-fallback")
             if not command:
                 raise OperationError("Real-ESRGAN 模型尚未安装", code="MODEL_NOT_INSTALLED")
             progress(5, "decoding")
-            run(shlex.split(command, posix=False) + ["--input", input_path, "--output", output_path, "--target", target], timeout=6 * 60 * 60)
+            run(command + ["--input", input_path, "--output", output_path, "--target", target], timeout=6 * 60 * 60)
             progress(95, "validating")
             assert_valid_output(output_path, expected_width=width, expected_height=height, input_metadata=input_metadata)
             progress(100, "completed")
