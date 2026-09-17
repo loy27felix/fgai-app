@@ -280,7 +280,8 @@ test('video reruns stay in one node with selectable versions and keyboard deleti
   assert.match(project, /const videoId = isVideoNode \? nodeId : nanoid\(\)/);
   assert.match(project, /appendVideoAlternative/);
   assert.match(project, /\[canvas video alternative selected\]/);
-  assert.match(project, /const referenceConnections = sourceConnections/);
+  assert.match(project, /cloneCanvasNodeForDuplicate\(source, copyId/);
+  assert.match(project, /const copiedConnections = copiedEndpoints/);
   assert.match(project, /\[canvas keyboard delete\]/);
   assert.match(project, /target\?\.closest\("\[contenteditable='true'\],\[data-canvas-shortcuts-ignore\]"\)/);
   assert.match(node, /第 \{index \+ 1\} 个视频版本/);

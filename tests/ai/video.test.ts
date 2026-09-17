@@ -470,7 +470,7 @@ test('video client unwraps a gateway status and content envelope', async () => {
     usage: undefined,
   });
 });
-test('video client surfaces the useful message from a Wetoken gateway error envelope', async () => {
+test('video client maps a Wetoken gateway ratio error to a useful Chinese message', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
   const fetcher = async () => new Response(JSON.stringify({
@@ -493,7 +493,8 @@ test('video client surfaces the useful message from a Wetoken gateway error enve
       generateAudio: false,
     }, { fetcher }),
     (error: unknown) => {
-      assert.match(String(error), /the ratio is not valid/);
+      assert.match(String(error), /视频画幅比例不受支持/);
+      assert.doesNotMatch(String(error), /the ratio is not valid/);
       assert.doesNotMatch(String(error), /"param":"ratio"/);
       return true;
     },

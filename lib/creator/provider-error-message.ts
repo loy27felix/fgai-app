@@ -117,6 +117,9 @@ export function normalizeProviderErrorMessage(value: unknown, options: ProviderE
     // while the surrounding guidance remains understandable to users.
     return "图片模型参数 imageConfig.outputMIMEType 不完整或不受支持，请检查模型配置后重试";
   }
+  if (/(?:aspect\s*)?ratio.*(?:not\s+valid|invalid|unsupported)|(?:not\s+valid|invalid|unsupported).*(?:aspect\s*)?ratio|画幅比例|视频比例.*(?:无效|不支持)/i.test(source)) {
+    return "视频画幅比例不受支持，请选择模型支持的比例后重试";
+  }
   if (/(?:url|download|fetch|access|permission|forbidden|not\s*found).*(?:reference|asset|source|素材)?/i.test(source) && options.subject === "reference") {
     return "参考素材地址暂时无法读取，请重新上传素材并稍后重试";
   }

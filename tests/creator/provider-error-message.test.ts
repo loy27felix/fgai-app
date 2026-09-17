@@ -33,6 +33,12 @@ test('maps reference byte limits without confusing them with provider output siz
   );
 });
 
+test('maps provider video ratio diagnostics to an actionable Chinese message', () => {
+  const message = normalizeProviderErrorMessage('the ratio is not valid', { status: 400, subject: 'video' });
+  assert.equal(message, '视频画幅比例不受支持，请选择模型支持的比例后重试');
+  assert.doesNotMatch(message, /ratio|invalid/i);
+});
+
 test('never exposes an unmapped English provider paragraph to the canvas', () => {
   assert.equal(
     normalizeProviderErrorMessage('Internal upstream parameter exploded with opaque details', { status: 500, subject: 'image' }),
