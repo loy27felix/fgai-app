@@ -416,9 +416,9 @@ test('video persistence keeps a cloud URL when browser media storage is unavaila
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
 
   assert.match(video, /return \{ blob: response\.data, url, mimeType:/);
-  assert.match(video, /const fallbackUrl = result\.fallbackUrl/);
+  assert.match(video, /const previewUrl = result\.url \|\| result\.fallbackUrl/);
   assert.match(video, /storageKey: ""/);
-  assert.match(video, /return remoteFallback;/);
+  assert.match(video, /durableArchivePending: true/);
   assert.match(project, /cloudStoragePath/);
 });
 
@@ -452,7 +452,7 @@ test('replacing a canvas video creates a fresh cloud backup instead of retaining
 test('uploaded and replaced canvas images receive their own durable cloud asset', () => {
   const project = read('reference/infinite-canvas/src/pages/canvas/project.tsx');
   const imageCreation = project.slice(project.indexOf('const createImageFileNode'), project.indexOf('const createVideoFileNode'));
-  const imageReplacementStart = project.indexOf('const image = await uploadImage(first);');
+  const imageReplacementStart = project.indexOf('const image = await previewImage(first);');
   const imageReplacement = project.slice(imageReplacementStart, project.indexOf('// 剩余文件', imageReplacementStart));
 
   assert.match(imageCreation, /uploadCanvasAsset\(file, \{ kind: "image"/);
@@ -482,7 +482,10 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
 
   assert.match(version, /SYSTEM_VERSION/);
   assert.match(release, /更新内容/);
-  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.0\.9"/);
+  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.1\.0"/);
+  assert.match(release, /本机 GPU 媒体处理队列/);
+  assert.match(release, /一键安装与一次性配对流程/);
+  assert.match(release, /Real-ESRGAN/);
   assert.match(release, /费用流水 CSV/);
   assert.match(release, /实际费用/);
   assert.match(release, /2026年9月4日–10日/);

@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.0.9";
+export const CURRENT_RELEASE_VERSION = "1.1.0";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,21 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月17日",
+        items: [
+            { type: "新增", content: "新增本机 GPU 媒体处理队列：视频超分和遮罩去水印可提交到已配对的 Windows/NVIDIA 或 macOS/Apple Silicon Worker，Mac mini 继续负责应用、队列、账本和 NAS。" },
+            { type: "新增", content: "新增视频超分目标分辨率选择，可选 1080p、2K 或 4K；原视频不被覆盖，处理结果写回云端并作为派生节点保存，方便继续预览和对比。" },
+            { type: "新增", content: "新增一键安装与一次性配对流程：安装包会按平台准备运行环境、FFmpeg、已审核的 Runner 和模型清单，普通用户不需要安装 Python、PyTorch、CUDA 或手动配置模型路径。" },
+            { type: "新增", content: "本地 Worker 支持心跳、能力检查、租约、断线重试、分块上传和 SHA-256 校验；只有具备对应 GPU、Runner 和资源上限的电脑才会领取任务。" },
+            { type: "修复", content: "参考图、视频、音频和生成结果会先保存为云端资产；画布不再把浏览器临时链接或本地缓存当作唯一副本，刷新、关闭浏览器或临时地址失效后仍可按任务恢复。" },
+            { type: "修复", content: "视频处理和生成完成后会继续使用稳定的任务代理或 NAS 地址，避免结果播放一段时间后消失、重新变成生成中或刷新后找不到节点。" },
+            { type: "调整", content: "本地 Worker 默认关闭，管理员发布对应平台的完整运行包并完成真实机器验证后再开启；缺少 Runner、模型或云端资产时会明确提示，不会让任务进入必然失败的队列。" },
+            { type: "优化", content: "Windows/NVIDIA 首轮已用便携式 Real-ESRGAN 完成 480p→1080p 视频超分验证，保留原音频并校验输出尺寸；BasicVSR++ 与 ProPainter 待各自完成自包含运行包和真实验证后再加入可用清单。" },
+            { type: "修复", content: "补齐本地媒体任务的失败、重试和归档日志，失败时保留原素材并显示可处理原因，便于用户和管理员定位问题。" },
+        ],
+    },
+    {
+        version: "1.0.9",
         date: "2026年9月14日",
         items: [
             { type: "修复", content: "图片生成现会读取 WeToken 返回的精确 Reference ID，并将实际费用准确关联到对应用户和任务。" },

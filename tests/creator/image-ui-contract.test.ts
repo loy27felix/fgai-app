@@ -21,7 +21,7 @@ test('creator exposes standalone image mode with explicit confirmation', () => {
   assert.match(ui, /生成 1 张/);
   assert.match(ui, /确认并生成/);
   assert.match(ui, /实际费用以 Wetoken 账单为准/);
-  assert.match(ui, /最多 8 张/);
+  assert.match(ui, /最多 \$\{imageReferenceLimit\} 张参考图/);
   assert.match(ui, /下载原图/);
   assert.match(ui, /复用参数/);
   assert.match(ui, /删除结果/);
@@ -50,7 +50,7 @@ test('standalone image workspace keeps the confirm call behind the confirmation 
 test('a timed-out image confirmation is reconciled as unknown instead of remaining in progress', () => {
   assert.match(ui, /confirmError\.code === "GENERATION_TIMEOUT"/);
   assert.match(ui, /setPhase\("unknown"\)/);
-  assert.match(ui, /await refreshHistory\(target\.id\)/);
+  assert.match(ui, /await refreshHistory\(target\.id, true\)/);
   assert.match(ui, /这次不会自动重试/);
 });
 

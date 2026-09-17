@@ -430,7 +430,16 @@ test('ledger success write failure preserves the succeeded task and requires rec
   assert.equal(result.assetId, 'a1');
   assert.deepEqual(fake.updates[1], {
     table: 'creator_generation_tasks',
-    value: { output: { ledger_status: 'unknown', requires_reconciliation: true } },
+    value: {
+      output: {
+        asset_id: 'a1',
+        wetoken_reference_id: 'wetoken-reference-1',
+        provider_diagnostic: generated.providerDiagnostic,
+        ledger_status: 'unknown',
+        requires_reconciliation: true,
+        reconciliation_reason: 'ledger_status_update_failed',
+      },
+    },
   });
   assert.deepEqual(fake.events, [
     'storage.upload',
