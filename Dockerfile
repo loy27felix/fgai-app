@@ -37,19 +37,7 @@ COPY --from=deps --chown=nextjs:nextjs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/local-db-migrate.mjs ./scripts/local-db-migrate.mjs
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/002-local-upgrade.sql ./docker/initdb/002-local-upgrade.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/003-local-observability.sql ./docker/initdb/003-local-observability.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/005-observability-reporting.sql ./docker/initdb/005-observability-reporting.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/006-observability-log-stream.sql ./docker/initdb/006-observability-log-stream.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/007-observability-integrity.sql ./docker/initdb/007-observability-integrity.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/008-video-worker-rollback.sql ./docker/initdb/008-video-worker-rollback.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/004-company-productions.sql ./docker/initdb/004-company-productions.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/009-wetoken-fee-reconciliation.sql ./docker/initdb/009-wetoken-fee-reconciliation.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/010-wetoken-fee-attribution.sql ./docker/initdb/010-wetoken-fee-attribution.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/011-wetoken-fee-timezone-and-company-backfill.sql ./docker/initdb/011-wetoken-fee-timezone-and-company-backfill.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/012-wetoken-ledger-reference-required.sql ./docker/initdb/012-wetoken-ledger-reference-required.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/013-local-media-workers.sql ./docker/initdb/013-local-media-workers.sql
-COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/014-wetoken-provider-reference-guard.sql ./docker/initdb/014-wetoken-provider-reference-guard.sql
+COPY --exclude=001-local.sql --from=builder --chown=nextjs:nextjs /app/docker/initdb/ ./docker/initdb/
 
 USER nextjs
 EXPOSE 3000
