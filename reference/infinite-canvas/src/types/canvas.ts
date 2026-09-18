@@ -128,6 +128,8 @@ export type CanvasNodeMetadata = {
     durableArchivePending?: boolean;
     externalTaskId?: string; // Wetoken reference ID，用于视频任务恢复
     creatorTaskId?: string; // 本机 creator_generation_tasks ID，用于长视频任务续查
+    /** All image task IDs created by this node, retained for reconciliation. */
+    creatorTaskIds?: string[];
     /** Guards a reused video node from an older request writing it back to loading. */
     generationAttemptId?: string;
     /** Consecutive playback recovery attempts; this never starts a new generation. */

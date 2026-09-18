@@ -735,35 +735,45 @@ async function fgReferenceFile(image: ReferenceImage, index: number) {
     return new File([blob], image.name || `reference-${index + 1}.${extension}`, { type: blob.type || image.type || "image/png" });
 }
 
+function throwIfImageRequestAborted(signal?: AbortSignal) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+}
+
 async function fgGenerateImage(config: AiConfig, prompt: string, references: ReferenceImage[], options?: RequestOptions) {
     const signal = options?.signal;
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    throwIfImageRequestAborted(signal);
     const model = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     // Do not silently drop references: the user needs to know exactly why a
     // selected source cannot reach the image model.
     const files = await Promise.all(references.map((image, index) => fgReferenceFile(image, index)));
+    // Cancellation must stop queued work before it creates or confirms a paid task.
+    // 取消必须在创建或确认付费任务前拦截后续队列工作。
+    throwIfImageRequestAborted(signal);
     const maxReferences = getImageModel(model)?.maxReferences ?? 8;
     if (files.length > maxReferences) throw new Error(`${model} 最多支持 ${maxReferences} 张参考图，请移除多余图片后重试`);
     assertCreatorImageReferenceFiles(files);
     const requestedSize = imageRequestSizeForModel(model, config.size, config.quality) || config.size;
     const geometry = imageDraftGeometry(requestedSize);
     const localClient = createClient();
-    const draft = await createImageDraft({ canvasId: options?.canvasId ?? null, nodeId: options?.nodeId ?? null, source: options?.source ?? "standalone", prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
+    const draft = await createImageDraft({ canvasId: options?.canvasId ?? null, nodeId: options?.nodeId ?? null, source: options?.source ?? "standalone", prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() }, signal);
     // Bind the task before provider submission so unknown outcomes can be reconciled safely.
     // 在 Provider 提交前先绑定 task，状态未知时才能查询并阻止重复扣费。
     await options?.onCreatorTaskCreated?.(draft.task.id);
+    throwIfImageRequestAborted(signal);
     for (let index = 0; index < files.length; index += 1) {
         const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
         if (upload.error) throw new Error(normalizeProviderErrorMessage(upload.error, { subject: "reference", fallback: "参考素材上传失败，请检查网络后重试" }));
     }
-    await finalizeImageUploads(draft.task.id, draft.uploadPaths);
+    throwIfImageRequestAborted(signal);
+    await finalizeImageUploads(draft.task.id, draft.uploadPaths, signal);
     // The provider can return 2xx and still omit its image payload. The server
     // records that as an unknown paid result; keep polling so the UI can show a
     // clear recovery action instead of treating it like a normal retryable
     // generation failure.
     let immediate: Awaited<ReturnType<typeof confirmImageTask>> | undefined;
     try {
-        immediate = await confirmImageTask(draft.task.id);
+        throwIfImageRequestAborted(signal);
+        immediate = await confirmImageTask(draft.task.id, signal);
     } catch (error) {
         if (!(error instanceof CreatorImageClientError) || error.code !== "WETOKEN_IMAGE_RESULT_INVALID") throw error;
     }

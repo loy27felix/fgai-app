@@ -251,9 +251,11 @@ function toCloudGraph(nodes: CanvasNodeData[], connections: CanvasConnection[], 
 
 async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
     const imageTaskIds = new Set(
-        nodes
-            .filter((node) => node.type === CanvasNodeType.Image && typeof node.metadata?.creatorTaskId === "string")
-            .map((node) => node.metadata!.creatorTaskId as string),
+        nodes.flatMap((node) => {
+            if (node.type !== CanvasNodeType.Image) return [];
+            const taskIds = node.metadata?.creatorTaskIds || [];
+            return [...taskIds, node.metadata?.creatorTaskId].filter((taskId): taskId is string => typeof taskId === "string");
+        }),
     );
     const hasLegacyImageRecoveryCandidate = nodes.some((node) => node.type === CanvasNodeType.Image
         && !node.metadata?.creatorTaskId
@@ -298,9 +300,16 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
             // reopened. Our local task ID is enough to query the task route;
             // that route persists a completed result to NAS before it returns.
             const creatorTaskId = node.metadata?.creatorTaskId;
+            const creatorTaskIds = Array.from(new Set([
+                ...(node.metadata?.creatorTaskIds || []),
+                ...(creatorTaskId ? [creatorTaskId] : []),
+            ]));
             const existingContent = node.metadata?.content || "";
             if (node.type === CanvasNodeType.Image && creatorTaskId) {
-                const task = imageTasks.get(creatorTaskId);
+                const task = creatorTaskIds
+                    .map((taskId) => imageTasks.get(taskId))
+                    .find((candidate) => candidate?.resultUrl)
+                    || imageTasks.get(creatorTaskId);
                 if (task?.resultUrl) {
                     const recovered = {
                         url: task.asset?.storage_path ? creatorCanvasAssetContentUrl(task.asset.storage_path) : task.resultUrl,
@@ -3759,7 +3768,18 @@ function InfiniteCanvasPage() {
             const rememberImageTask = (targetNodeId: string, creatorTaskId: string) => {
                 setNodes((prev) => prev.map((node) => (
                     node.id === targetNodeId
-                        ? { ...node, metadata: { ...node.metadata, creatorTaskId, status: NODE_STATUS_LOADING, errorDetails: undefined } }
+                        ? {
+                              ...node,
+                              metadata: {
+                                  ...node.metadata,
+                                  creatorTaskId,
+                                  // Keep every task for recovery; a rerun can produce multiple versions in one node.
+                                  // 同一节点可产生多个版本，必须保留全部 task ID 供恢复与对账。
+                                  creatorTaskIds: Array.from(new Set([...(node.metadata?.creatorTaskIds || []), creatorTaskId])),
+                                  status: NODE_STATUS_LOADING,
+                                  errorDetails: undefined,
+                              },
+                          }
                         : node
                 )));
             };
@@ -3874,8 +3894,11 @@ function InfiniteCanvasPage() {
                                     : node,
                             ),
                         );
-                        await Promise.all(
-                            attemptIds.map(async (attemptId) => {
+                        // Reference edits resend every selected asset per output. Keep them
+                        // serial so a batch never uploads the same large input concurrently.
+                        // 图生图的每个结果都会重传全部参考素材，批量结果必须串行提交，避免大请求并发。
+                        await runWithConcurrency(attemptIds, referenceImages.length ? 1 : attemptIds.length, async (attemptId) => {
+                                if (runController.signal.aborted) return;
                                 try {
                                     const image = referenceImages.length
                                         ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: runController.signal, canvasId: canvasIdForGeneration, nodeId, source: "canvas", referenceLabelsById: generationContext.referenceLabelsById, onCreatorTaskCreated: (creatorTaskId) => rememberImageTask(nodeId, creatorTaskId) }).then((items) => items[0])
@@ -3912,7 +3935,7 @@ function InfiniteCanvasPage() {
                                     if (!firstError) firstError = errorDetails;
                                     hasFailure = true;
                                 }
-                            }),
+                            },
                         );
                         if (runController.signal.aborted) return;
                         if (hasFailure) message.error(hasSuccess ? "部分图片生成失败" : firstError || "生成失败");
@@ -4021,8 +4044,14 @@ function InfiniteCanvasPage() {
                     let hasSuccess = false;
                     let hasFailure = false;
                     let firstError = "";
-                    await Promise.all(
-                        targetIds.map(async (targetId) => {
+                    // Reference edits resend every selected asset per output. Keep them
+                    // serial so a batch never uploads the same large input concurrently.
+                    // 图生图的每个结果都会重传全部参考素材，批量结果必须串行提交，避免大请求并发。
+                    await runWithConcurrency(targetIds, referenceImages.length ? 1 : targetIds.length, async (targetId) => {
+                            if (controller.signal.aborted) {
+                                finishGenerationRequest(targetId, controller);
+                                return;
+                            }
                             try {
                                 const image = referenceImages.length
                                     ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, undefined, { signal: controller.signal, canvasId: canvasIdForGeneration, nodeId: targetId, source: "canvas", referenceLabelsById: generationContext.referenceLabelsById, onCreatorTaskCreated: (creatorTaskId) => rememberImageTask(targetId, creatorTaskId) }).then((items) => items[0])
@@ -4055,9 +4084,9 @@ function InfiniteCanvasPage() {
                                 });
                                 hasSuccess = true;
                                 if (isConfigNode) setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS, errorDetails: undefined } } : node)));
-                                return true;
+                                return;
                             } catch (error) {
-                                if (isGenerationCanceled(error)) return false;
+                                if (isGenerationCanceled(error)) return;
                                 const errorDetails = normalizeProviderErrorMessage(error, { subject: "image", fallback: "图片生成失败" });
                                 if (!firstError) firstError = errorDetails;
                                 hasFailure = true;
@@ -4065,8 +4094,8 @@ function InfiniteCanvasPage() {
                             } finally {
                                 finishGenerationRequest(targetId, controller);
                             }
-                            return false;
-                        }),
+                            return;
+                        },
                     );
                     if (count > 1) finishGenerationRequest(rootId, controller);
                     if (controller.signal.aborted) {

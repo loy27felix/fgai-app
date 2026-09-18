@@ -106,6 +106,7 @@ export async function requestJson<T>(url: string, init: RequestInit = {}): Promi
       },
     });
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     const subject = url.includes('/videos') ? 'video' : 'image';
     throw new CreatorImageClientError(
       normalizeProviderErrorMessage(error, {
@@ -144,24 +145,26 @@ export async function requestJson<T>(url: string, init: RequestInit = {}): Promi
   return payload as T;
 }
 
-export function createImageDraft(payload: CreateImageDraftPayload) {
+export function createImageDraft(payload: CreateImageDraftPayload, signal?: AbortSignal) {
   return requestJson<CreateImageDraftResponse>('/api/creator/images', {
     method: 'POST',
     body: JSON.stringify(payload),
+    signal,
   });
 }
 
-export function finalizeImageUploads(taskId: string, referencePaths: string[]) {
+export function finalizeImageUploads(taskId: string, referencePaths: string[], signal?: AbortSignal) {
   return requestJson<FinalizeImageUploadsResponse>(`/api/creator/images/${encodeURIComponent(taskId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ referencePaths }),
+    signal,
   });
 }
 
-export async function confirmImageTask(taskId: string) {
+export async function confirmImageTask(taskId: string, signal?: AbortSignal) {
   const result = await requestJson<ConfirmImageTaskResponse>(
     '/api/creator/images/' + encodeURIComponent(taskId) + '/confirm',
-    { method: 'POST' },
+    { method: 'POST', signal },
   );
   notifyCreatorUsageUpdated();
   return result;
