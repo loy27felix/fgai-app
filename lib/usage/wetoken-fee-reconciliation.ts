@@ -71,7 +71,19 @@ export function resolveWetokenFeeEntry(
     if (taskLedgers.length === 1) {
       const ledger = taskLedgers[0];
       if (ledger.providerRequestId && ledger.providerRequestId !== entry.referenceId) {
-        return { state: 'ambiguous', entry, reason: '本地任务账本已绑定到另一个 Reference ID' };
+        // Older image responses could persist a generic gateway request ID in
+        // the ledger while the task diagnostic retained the authoritative
+        // OneAPI fee reference.  If that stale ID is not another fee line in
+        // this import, the task is still an exact owner and it is safe for the
+        // importer to rewrite the ledger to the CSV Reference ID.  Never do
+        // this when the old ID is itself an imported charge: that would move
+        // one fee away from its original owner.
+        const conflictingImportedLedger = sources.ledgerByReference
+          .get(ledger.providerRequestId)
+          ?.some((candidate) => candidate.id === ledger.id);
+        if (conflictingImportedLedger) {
+          return { state: 'ambiguous', entry, reason: '本地任务账本已绑定到另一个 Reference ID' };
+        }
       }
       return { state: 'creator_ledger_recovered', entry, ledger, task };
     }

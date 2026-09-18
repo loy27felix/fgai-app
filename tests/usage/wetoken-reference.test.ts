@@ -12,6 +12,18 @@ test('keeps an exact WeToken Reference ID from the successful image response', (
   );
 });
 
+test('prioritizes the authoritative fee reference over secondary provider IDs', () => {
+  assert.deepEqual(
+    wetokenReferenceIdsFromProviderDiagnostic({
+      feeReferenceId: 'fee-reference',
+      requestId: 'fee-reference',
+      referenceId: 'body-reference',
+      providerRequestId: 'body-request',
+    }),
+    ['fee-reference', 'body-reference', 'body-request'],
+  );
+});
+
 test('recovers only persisted exact IDs from Creator task output', () => {
   assert.deepEqual(
     wetokenReferenceIdsFromPersistedTask({

@@ -24,3 +24,14 @@ test('a succeeded WeToken ledger row requires an exact provider Reference ID', (
   assert.match(sql, /provider <> 'wetoken'\s+or status <> 'succeeded'/);
   assert.match(sql, /nullif\(btrim\(provider_request_id\), ''\) is not null/);
 });
+
+test('the ledger blocks new duplicate WeToken provider references', () => {
+  const sql = fs.readFileSync(
+    path.join(process.cwd(), 'docker/initdb/014-wetoken-provider-reference-guard.sql'),
+    'utf8',
+  );
+  assert.match(sql, /prevent_duplicate_wetoken_provider_reference/);
+  assert.match(sql, /pg_advisory_xact_lock\(hashtextextended\('wetoken:' \|\| normalized_reference, 0\)\)/);
+  assert.match(sql, /errcode = '23505'/);
+  assert.match(sql, /ai_usage_ledger_wetoken_provider_reference_guard/);
+});

@@ -15,6 +15,7 @@ const migrationNames = [
   "011-wetoken-fee-timezone-and-company-backfill.sql",
   "012-wetoken-ledger-reference-required.sql",
   "013-local-media-workers.sql",
+  "014-wetoken-provider-reference-guard.sql",
 ];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";

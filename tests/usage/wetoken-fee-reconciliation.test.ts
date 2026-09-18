@@ -65,6 +65,58 @@ test('recovers an older creator task when its ledger was saved before the provid
   assert.equal(summary.unallocatedCostUsd, 0);
 });
 
+test('repairs a creator ledger bound to a stale non-billing request ID', () => {
+  const resolution = resolveWetokenFeeEntry(entry, {
+    ledgerByReference: new Map(),
+    creatorTasksByReference: new Map([[entry.referenceId, [{
+      id: 'creator-task-stale-reference',
+      userId: 'user-1',
+      workspaceId: 'workspace-1',
+      kind: 'image',
+      provider: 'wetoken',
+      model: entry.model,
+      status: 'succeeded',
+      request: {},
+      createdAt: entry.occurredAt,
+    }]]]),
+    creatorLedgersByTaskId: new Map([['creator-task-stale-reference', [{
+      id: 'ledger-stale-reference',
+      providerRequestId: 'gateway-request-id',
+    }]]]),
+    projectTasksByReference: new Map(),
+  });
+
+  assert.equal(resolution.state, 'creator_ledger_recovered');
+});
+
+test('does not repair a task ledger when its old Reference ID is another imported fee', () => {
+  const staleReference = 'another-imported-reference';
+  const resolution = resolveWetokenFeeEntry(entry, {
+    ledgerByReference: new Map([[staleReference, [{
+      id: 'ledger-stale-reference',
+      providerRequestId: staleReference,
+    }]]]),
+    creatorTasksByReference: new Map([[entry.referenceId, [{
+      id: 'creator-task-conflict',
+      userId: 'user-1',
+      workspaceId: 'workspace-1',
+      kind: 'image',
+      provider: 'wetoken',
+      model: entry.model,
+      status: 'succeeded',
+      request: {},
+      createdAt: entry.occurredAt,
+    }]]]),
+    creatorLedgersByTaskId: new Map([['creator-task-conflict', [{
+      id: 'ledger-stale-reference',
+      providerRequestId: staleReference,
+    }]]]),
+    projectTasksByReference: new Map(),
+  });
+
+  assert.equal(resolution.state, 'ambiguous');
+});
+
 test('keeps a provider charge without any local task visible as unallocated instead of assigning it by model or time', () => {
   const resolution = resolveWetokenFeeEntry(entry, {
     ledgerByReference: new Map(),

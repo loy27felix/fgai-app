@@ -13,7 +13,7 @@ import {
   redactProviderUrl,
   safeProviderHeaders,
 } from '../observability/server-log';
-import { wetokenReferenceIdsFromProviderDiagnostic } from '../usage/wetoken-reference';
+import { primaryWetokenReferenceIdFromProviderDiagnostic } from '../usage/wetoken-reference';
 import { normalizeProviderErrorMessage } from '../creator/provider-error-message';
 
 export type ImageReference = { data: string; mimeType: string };
@@ -132,6 +132,8 @@ export type WetokenImageResultDiagnostic = {
   status: number;
   contentType: string | null;
   responseBytes: number;
+  /** The fee-log key returned by OneAPI/WeToken response headers. */
+  feeReferenceId?: string;
   requestId?: string;
   providerRequestId?: string;
   providerResponseId?: string;
@@ -335,7 +337,7 @@ function asRecord(value: unknown): Record<string, any> | null {
 }
 
 export function providerRequestIdFromImageDiagnostic(diagnostic: unknown) {
-  return wetokenReferenceIdsFromProviderDiagnostic(diagnostic)[0];
+  return primaryWetokenReferenceIdFromProviderDiagnostic(diagnostic);
 }
 
 function diagnosticText(value: unknown) {
@@ -395,7 +397,12 @@ function providerResponseMetadata(data: unknown) {
     const base = asRecord(payload.base_resp) || asRecord(payload.baseResp);
     const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
     const usage = asRecord(payload.usageMetadata) || asRecord(payload.usage_metadata);
-    providerRequestId ||= diagnosticText(firstValue(payload, ['referenceId', 'reference_id', 'requestId', 'request_id']));
+    // Only explicit provider reference fields are candidates here.  A generic
+    // body requestId belongs to transport diagnostics and is not guaranteed to
+    // be the Reference ID shown in the WeToken fee log.
+    providerRequestId ||= diagnosticText(firstValue(payload, [
+      'referenceId', 'reference_id', 'providerRequestId', 'provider_request_id',
+    ]));
     providerResponseId ||= diagnosticText(firstValue(payload, ['providerResponseId', 'provider_response_id', 'responseId', 'response_id']));
     const statusCode = firstValue(base || {}, ['status_code', 'statusCode', 'code']);
     const statusMessage = diagnosticText(firstValue(base || {}, ['status_msg', 'statusMessage', 'message']));
@@ -624,24 +631,32 @@ async function readProviderPayload(response: Response, providerCallId: string) {
     ? { data: {}, encoding: contentType ? 'binary' as const : 'json' as const, text: '' }
     : parseResponsePayload(bytes);
   const data = parsed.data;
-  const requestId = diagnosticText(
-    response.headers.get('x-request-id')
-      || response.headers.get('request-id')
-      // OneAPI exposes its fee-log Reference ID under this header. WeToken's
-      // console displays the same value, so it is the authoritative ledger key.
-      || response.headers.get('x-oneapi-request-id')
-      || response.headers.get('x-wetoken-request-id')
+  // OneAPI exposes its fee-log Reference ID under x-oneapi-request-id.
+  // Prefer provider fee headers over generic transport request IDs and body
+  // request IDs; only the former is guaranteed to join the WeToken CSV.
+  const feeReferenceId = diagnosticText(
+    response.headers.get('x-oneapi-request-id')
       || response.headers.get('x-wetoken-reference-id')
+      || response.headers.get('x-wetoken-request-id')
       || response.headers.get('x-reference-id')
       || response.headers.get('reference-id'),
   );
+  const requestId = feeReferenceId || diagnosticText(
+    response.headers.get('x-request-id')
+      || response.headers.get('request-id'),
+  );
+  const responseMetadata = providerResponseMetadata(data);
+  const providerRequestId = feeReferenceId || responseMetadata.providerRequestId;
   const diagnostic: WetokenImageResultDiagnostic = {
     providerCallId,
     status: response.status,
     contentType: rawContentType,
     responseBytes: bytes.byteLength,
+    ...(feeReferenceId ? { feeReferenceId: feeReferenceId.slice(0, 160) } : {}),
     ...(requestId ? { requestId: requestId.slice(0, 160) } : {}),
-    ...providerResponseMetadata(data),
+    ...responseMetadata,
+    // Never allow body metadata to overwrite the authoritative fee header.
+    ...(providerRequestId ? { providerRequestId: providerRequestId.slice(0, 160) } : {}),
     payloadShape: describePayloadShape(data),
   };
   return {

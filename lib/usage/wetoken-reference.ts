@@ -27,15 +27,37 @@ function valuesFor(value: Record<string, unknown>, keys: string[]) {
 export function wetokenReferenceIdsFromProviderDiagnostic(diagnostic: unknown) {
   const value = record(diagnostic);
   return unique(valuesFor(value, [
+    'feeReferenceId',
+    'requestId',
+    'request_id',
     'referenceId',
     'reference_id',
     'providerRequestId',
     'provider_request_id',
     'providerResponseId',
     'provider_response_id',
+  ]));
+}
+
+/**
+ * Select the single safest provider fee key from an image diagnostic.
+ *
+ * New diagnostics mark the response-header value as feeReferenceId.  The
+ * requestId fallback keeps older persisted diagnostics recoverable because the
+ * image transport used that field for the provider response header before the
+ * explicit marker was added.  Generic body request IDs are deliberately last.
+ */
+export function primaryWetokenReferenceIdFromProviderDiagnostic(diagnostic: unknown) {
+  const value = record(diagnostic);
+  return unique(valuesFor(value, [
+    'feeReferenceId',
     'requestId',
     'request_id',
-  ]));
+    'referenceId',
+    'reference_id',
+    'providerRequestId',
+    'provider_request_id',
+  ]))[0];
 }
 
 /**

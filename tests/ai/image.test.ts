@@ -4,6 +4,7 @@ import {
   buildGeminiImageBody,
   IMAGE_PROVIDER_TIMEOUT_MS,
   generateWetokenImage,
+  providerRequestIdFromImageDiagnostic,
   sizeToAspectRatio,
   WetokenImageRequestError,
   WetokenImageResultError,
@@ -124,6 +125,31 @@ test('image success treats the OneAPI request header as the WeToken Reference ID
   });
 
   assert.equal(result.providerDiagnostic?.requestId, '20260914014505657205383PA05Wqo6');
+});
+
+test('image fee reconciliation prefers the OneAPI header over body and generic request IDs', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  const result = await generateWetokenImage({
+    model: 'gpt-image-2', prompt: 'fox', size: '1024x1024', references: [],
+  }, {
+    fetcher: async () => new Response(JSON.stringify({
+      // These IDs are gateway diagnostics, not the WeToken fee-log key.
+      referenceId: 'body-reference-id',
+      requestId: 'body-request-id',
+      data: [{ b64_json: 'YWJj' }],
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-request-id': 'generic-transport-id',
+        'x-oneapi-request-id': 'fee-reference-authoritative',
+      },
+    }),
+  });
+
+  assert.equal(result.providerDiagnostic?.feeReferenceId, 'fee-reference-authoritative');
+  assert.equal(result.providerDiagnostic?.providerRequestId, 'fee-reference-authoritative');
+  assert.equal(providerRequestIdFromImageDiagnostic(result.providerDiagnostic), 'fee-reference-authoritative');
 });
 
 test('GPT image edit sends repeated image fields for multiple references', async () => {
