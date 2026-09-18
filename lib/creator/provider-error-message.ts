@@ -83,7 +83,7 @@ export function normalizeProviderErrorMessage(value: unknown, options: ProviderE
     return "网络出现波动，模型服务暂时无法访问；任务可能仍在处理中，请稍后查看记录或重试";
   }
 
-  if (/(copyright(?:ed)?|copy\s*right|content\s*(?:policy|safety|moderation|filter)|safety\s*(?:policy|filter)|policy\s*(?:violation|reject|block)|moderation|rights?\s*(?:check|restriction|violation)|sensitive\s*content|content[_ -]?filter|risk\s*control|blocked\s+for\s+safety|illegal\s+content|版权|著作权|内容安全|安全审核|违规内容|风险控制)/i.test(source)) {
+  if (/(copyright(?:ed)?|copy\s*right|content\s*(?:policy|safety|moderation|filter)|safety\s*(?:system|policy|filter)|policy\s*(?:violation|reject|block)|moderation|rights?\s*(?:check|restriction|violation)|sensitive\s*content|content[_ -]?filter|risk\s*control|blocked\s+for\s+safety|illegal\s+content|版权|著作权|内容安全|安全审核|违规内容|风险控制)/i.test(source)) {
     return options.subject === "reference"
       ? "参考素材触发了供应商版权或内容安全限制，请更换素材或确认已获得授权后重试"
       : "提示词或参考素材触发了供应商版权或内容安全限制，请修改提示词、更换素材或确认已获得授权后重试";
