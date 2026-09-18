@@ -49,6 +49,8 @@ COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/010-wetoken-fee-att
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/011-wetoken-fee-timezone-and-company-backfill.sql ./docker/initdb/011-wetoken-fee-timezone-and-company-backfill.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/012-wetoken-ledger-reference-required.sql ./docker/initdb/012-wetoken-ledger-reference-required.sql
 COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/013-local-media-workers.sql ./docker/initdb/013-local-media-workers.sql
+COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/014-wetoken-provider-reference-guard.sql ./docker/initdb/014-wetoken-provider-reference-guard.sql
+
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
