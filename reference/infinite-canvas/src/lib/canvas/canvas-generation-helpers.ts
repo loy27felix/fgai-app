@@ -1,7 +1,7 @@
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
-import { imageMetadata, referenceUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
+import { imageMetadata, isDurableImageReferenceUrl, readReferenceImage, referenceUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import type { NodeGenerationInput } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel";
 import type { CanvasImageAngleParams } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-angle-dialog";
@@ -34,8 +34,16 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
     if (!metadata.references?.length) return null;
     const references = await Promise.all(
         metadata.references.map(async (url, index) => {
-            const dataUrl = url.startsWith("image:") ? await resolveImageUrl(url, "") : url;
-            return dataUrl ? { id: `${index}`, name: `reference-${index}.png`, type: "image/png", dataUrl, storageKey: url.startsWith("image:") ? url : undefined } : null;
+            const dataUrl = isDurableImageReferenceUrl(url) ? url : "";
+            return dataUrl
+                ? {
+                      id: `${index}`,
+                      name: `reference-${index}.png`,
+                      type: "image/png",
+                      dataUrl,
+                      ...(url.startsWith("image:") ? { storageKey: url } : { url }),
+                  }
+                : null;
         }),
     );
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
@@ -157,16 +165,8 @@ export function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], con
 }
 
 export function sourceNodeReferenceImages(node: CanvasNodeData | null) {
-    if (!node || node.type !== CanvasNodeType.Image || !node.metadata?.content) return [];
-    return [
-        {
-            id: node.id,
-            name: `${node.title || node.id}.png`,
-            type: node.metadata.mimeType || "image/png",
-            dataUrl: node.metadata.content,
-            storageKey: node.metadata.storageKey,
-        },
-    ];
+    const reference = node ? readReferenceImage(node) : null;
+    return reference ? [reference] : [];
 }
 
 export function isAudioFile(file: File) {

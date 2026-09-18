@@ -79,6 +79,18 @@ function serverCode(payload: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+const SAFE_RECONCILIATION_MESSAGES: Record<string, string> = {
+  GENERATION_STATUS_UNKNOWN: '图片生成请求状态未知，可能已产生费用，系统正在等待对账，请勿重复提交',
+  GENERATION_TIMEOUT: '图片生成超时，可能已经产生费用，请查看任务状态',
+  RESULT_RECONCILIATION_REQUIRED: '图片结果写入状态未知，请联系管理员对账',
+  LEDGER_RECONCILIATION_REQUIRED: '图片已生成，但用量账本待对账，请联系管理员',
+  PROVIDER_REFERENCE_MISSING: '图片已生成，但 WeToken 未返回可对账 Reference ID；任务已标记待对账，请勿重复提交',
+};
+
+function safeReconciliationMessage(code: string | null) {
+  return code ? SAFE_RECONCILIATION_MESSAGES[code] : undefined;
+}
+
 /**
  * Fetch a JSON API and expose only the server's client-safe error message.
  * Dependency response bodies are intentionally not copied into the thrown Error.
@@ -113,15 +125,19 @@ export async function requestJson<T>(url: string, init: RequestInit = {}): Promi
 
   if (!response.ok) {
     const rawMessage = serverMessage(payload);
+    const code = serverCode(payload);
     const subject = url.includes('/videos') ? 'video' : 'image';
+    const reconciliationMessage = safeReconciliationMessage(code);
     throw new CreatorImageClientError(
-      normalizeProviderErrorMessage(rawMessage, {
-        status: response.status,
-        subject,
-        fallback: subject === 'video' ? '视频请求失败，请稍后重试' : '图片请求失败，请稍后重试',
-      }),
+      reconciliationMessage
+        ? reconciliationMessage
+        : normalizeProviderErrorMessage(rawMessage, {
+            status: response.status,
+            subject,
+            fallback: subject === 'video' ? '视频请求失败，请稍后重试' : '图片请求失败，请稍后重试',
+          }),
       response.status,
-      serverCode(payload),
+      code,
     );
   }
 
@@ -151,8 +167,14 @@ export async function confirmImageTask(taskId: string) {
   return result;
 }
 
-export function listImageTasks() {
-  return requestJson<ListImageTasksResponse>('/api/creator/images', { method: 'GET' });
+export function listImageTasks(filters: { taskId?: string; canvasId?: string; nodeId?: string; pending?: boolean } = {}) {
+  const searchParams = new URLSearchParams();
+  if (filters.taskId) searchParams.set('taskId', filters.taskId);
+  if (filters.canvasId) searchParams.set('canvasId', filters.canvasId);
+  if (filters.nodeId) searchParams.set('nodeId', filters.nodeId);
+  if (filters.pending) searchParams.set('pending', '1');
+  const query = searchParams.toString();
+  return requestJson<ListImageTasksResponse>(`/api/creator/images${query ? `?${query}` : ''}`, { method: 'GET' });
 }
 
 export function deleteImageTask(taskId: string) {

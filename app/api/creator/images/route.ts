@@ -95,17 +95,28 @@ async function creatorContext() {
   return { localClient, user, workspace };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const context = await creatorContext();
     if (!context) return response('\u8bf7\u5148\u767b\u5f55', 'UNAUTHENTICATED', 401);
 
-    const { data, error } = await context.localClient
+    const searchParams = new URL(req.url).searchParams;
+    const taskId = searchParams.get('taskId')?.trim();
+    const canvasId = searchParams.get('canvasId')?.trim();
+    const nodeId = searchParams.get('nodeId')?.trim();
+    let query = context.localClient
       .from('creator_generation_tasks')
       .select('*')
       .eq('workspace_id', context.workspace.id)
       .eq('user_id', context.user.id)
-      .eq('kind', 'image')
+      .eq('kind', 'image');
+    if (taskId) query = query.eq('id', taskId);
+    if (canvasId) query = query.eq('canvas_id', canvasId);
+    if (nodeId) query = query.eq('node_id', nodeId);
+    if (searchParams.get('pending') === '1') {
+      query = query.in('status', ['submitting', 'queued', 'running', 'unknown']);
+    }
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) throw error;

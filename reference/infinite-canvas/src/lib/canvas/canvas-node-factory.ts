@@ -5,6 +5,7 @@ import type { UploadedImage } from "@/reference/infinite-canvas/src/services/ima
 import type { UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { CreatorImageTaskView } from "@/lib/creator/types";
+import { creatorCanvasAssetContentUrl } from "@/lib/creator/video-client";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/reference/infinite-canvas/src/types/canvas";
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
@@ -144,8 +145,37 @@ export function derivedMediaMetadata(input: {
     };
 }
 
+export function isDurableImageReferenceUrl(value?: string) {
+    if (!value || /^(?:data|blob|object|image):/i.test(value)) return false;
+    return /^(?:https?:\/\/[^/]+)?\/api\/creator\/canvas-assets\/content\?path=/i.test(value);
+}
+
 export function referenceUrl(image: ReferenceImage) {
-    return image.storageKey || image.url || (!image.dataUrl.startsWith("data:") ? image.dataUrl : undefined);
+    if (image.cloudStoragePath) return creatorCanvasAssetContentUrl(image.cloudStoragePath);
+    if (isDurableImageReferenceUrl(image.url)) return image.url;
+    return isDurableImageReferenceUrl(image.dataUrl) ? image.dataUrl : undefined;
+}
+
+export function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
+    if (node.type !== CanvasNodeType.Image || !node.metadata?.content) return null;
+    const content = node.metadata.content;
+    const reference: ReferenceImage = {
+        id: node.id,
+        name: `${node.title || node.id}.png`,
+        type: node.metadata.mimeType || "image/png",
+        dataUrl: content,
+        ...(node.metadata.storageKey ? { storageKey: node.metadata.storageKey } : {}),
+        ...(node.metadata.cloudStoragePath ? { cloudStoragePath: node.metadata.cloudStoragePath } : {}),
+        ...(node.metadata.cloudAssetId ? { cloudAssetId: node.metadata.cloudAssetId } : {}),
+    };
+    const durableUrl = referenceUrl(reference);
+    return {
+        ...reference,
+        // Hydration must prefer the durable URL over browser-session content.
+        // Hydration 必须优先读取持久地址，不能被浏览器会话级 content 覆盖。
+        dataUrl: durableUrl || content,
+        ...(durableUrl ? { url: durableUrl } : {}),
+    };
 }
 
 export function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: AiConfig, count: number, references: ReferenceImage[]): CanvasNodeMetadata {

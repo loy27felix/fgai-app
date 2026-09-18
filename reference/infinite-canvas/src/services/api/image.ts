@@ -105,6 +105,7 @@ type RequestOptions = {
     nodeId?: string | null;
     source?: "canvas" | "standalone";
     referenceLabelsById?: Record<string, string>;
+    onCreatorTaskCreated?: (taskId: string) => void | Promise<void>;
 };
 
 export type GeneratedImage = {
@@ -748,6 +749,9 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     const geometry = imageDraftGeometry(requestedSize);
     const localClient = createClient();
     const draft = await createImageDraft({ canvasId: options?.canvasId ?? null, nodeId: options?.nodeId ?? null, source: options?.source ?? "standalone", prompt, model, ratio: geometry.ratio, size: geometry.size, references: files.map((file) => ({ name: file.name, mimeType: file.type, size: file.size })), skill: null, idempotencyKey: randomId() });
+    // Bind the task before provider submission so unknown outcomes can be reconciled safely.
+    // 在 Provider 提交前先绑定 task，状态未知时才能查询并阻止重复扣费。
+    await options?.onCreatorTaskCreated?.(draft.task.id);
     for (let index = 0; index < files.length; index += 1) {
         const upload = await localClient.storage.from("creator-assets").upload(draft.uploadPaths[index], files[index], { upsert: false, contentType: files[index].type });
         if (upload.error) throw new Error(normalizeProviderErrorMessage(upload.error, { subject: "reference", fallback: "参考素材上传失败，请检查网络后重试" }));

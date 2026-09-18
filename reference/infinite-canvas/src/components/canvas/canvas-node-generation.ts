@@ -3,6 +3,7 @@ import { imageReferenceLabel } from "@/reference/infinite-canvas/src/lib/image-r
 import { seedanceReferenceLabel } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import type { ReferenceImage } from "@/reference/infinite-canvas/src/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/reference/infinite-canvas/src/types/media";
+import { readReferenceImage } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/reference/infinite-canvas/src/types/canvas";
 import { getCanvasResourceKind, getGenerationResourceNodes, labelResourceNodes } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
@@ -166,17 +167,6 @@ function generationLabel(type: NodeGenerationInput["type"], index: number) {
     if (type === "video") return seedanceReferenceLabel("video", index);
     if (type === "audio") return seedanceReferenceLabel("audio", index);
     return `文本${index + 1}`;
-}
-
-function readReferenceImage(node: CanvasNodeData): ReferenceImage | null {
-    if (node.type !== CanvasNodeType.Image || !node.metadata?.content) return null;
-    return {
-        id: node.id,
-        name: `${node.title || node.id}.png`,
-        type: node.metadata.mimeType || "image/png",
-        dataUrl: node.metadata.content,
-        storageKey: node.metadata.storageKey,
-    };
 }
 
 function readReferenceVideo(node: CanvasNodeData): ReferenceVideo | null {
