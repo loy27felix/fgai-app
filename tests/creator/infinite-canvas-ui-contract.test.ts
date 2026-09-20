@@ -509,7 +509,8 @@ test('canvas release notes and prompt sources are owned by FG Studio', () => {
 
   assert.match(version, /SYSTEM_VERSION/);
   assert.match(release, /更新内容/);
-  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.1\.0"/);
+  assert.match(release, /CURRENT_RELEASE_VERSION = "1\.1\.1"/);
+  assert.match(release, /version: "1\.1\.0"/);
   assert.match(release, /本机 GPU 媒体处理队列/);
   assert.match(release, /一键安装与一次性配对流程/);
   assert.match(release, /Real-ESRGAN/);

@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.1.0";
+export const CURRENT_RELEASE_VERSION = "1.1.1";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,14 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月20日",
+        items: [
+            { type: "优化", content: "超级画布打开大型项目时会分批恢复视频任务、素材和本机处理状态，避免大量请求同时发出导致页面卡顿或暂时无法加载。" },
+            { type: "调整", content: "画布可保存的节点、连线和内容容量已提升；接近容量时仍会明确提示，避免保存结果与画面内容不一致。" },
+        ],
+    },
+    {
+        version: "1.1.0",
         date: "2026年9月17日",
         items: [
             { type: "新增", content: "新增本机 GPU 媒体处理队列：视频超分和遮罩去水印可提交到已配对的 Windows/NVIDIA 或 macOS/Apple Silicon Worker，Mac mini 继续负责应用、队列、账本和 NAS。" },
