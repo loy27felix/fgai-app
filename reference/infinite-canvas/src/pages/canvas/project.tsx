@@ -653,6 +653,7 @@ function InfiniteCanvasPage() {
     const cloudCreateInFlightRef = useRef(false);
     const cloudCreatePromiseRef = useRef<Promise<string | null> | null>(null);
     const cloudProjectIdRef = useRef<string | null>(null);
+    const canvasLimitWarningRef = useRef<string | null>(null);
     // Keys are task-scoped so duplicated canvas nodes share one status read.
     // A node-scoped fallback is used only for media that has no creator task.
     const creatorVideoRecoveryInFlightRef = useRef(new Set<string>());
@@ -770,6 +771,7 @@ function InfiniteCanvasPage() {
             cloudCreateInFlightRef.current = false;
             cloudCreatePromiseRef.current = null;
             cloudProjectIdRef.current = projectId;
+            canvasLimitWarningRef.current = null;
             cloudMergeBaseRef.current = null;
             if (cloudCanvasIdRef.current && cloudCanvasVersionRef.current === null) {
                 try {
@@ -1095,6 +1097,7 @@ function InfiniteCanvasPage() {
                             if (cloudProjectIdRef.current !== projectId) return;
                             cloudCanvasVersionRef.current = result.canvas.version;
                             cloudMergeBaseRef.current = graphToSave;
+                            canvasLimitWarningRef.current = null;
                             updateProject(projectId, { cloudCanvasVersion: result.canvas.version });
                             return;
                         } catch (error) {
@@ -1109,6 +1112,16 @@ function InfiniteCanvasPage() {
                         }
                     }
                 } catch (error) {
+                    const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";
+                    if (code === "CANVAS_GRAPH_LIMIT_EXCEEDED") {
+                        const detail = error instanceof Error ? error.message : "画布已超过云端保存限制";
+                        if (canvasLimitWarningRef.current !== detail) {
+                            canvasLimitWarningRef.current = detail;
+                            message.error({ content: `云端保存已暂停：${detail}。本地内容仍保留，请删除部分内容或拆分画布。`, duration: 8 });
+                        }
+                    } else {
+                        canvasLimitWarningRef.current = null;
+                    }
                     // The local copy stays available. A later edit retries the
                     // queued save instead of allowing an older request to win.
                     console.warn("[canvas cloud sync]", error);
@@ -1120,7 +1133,7 @@ function InfiniteCanvasPage() {
         return () => {
             if (cloudSyncTimerRef.current) clearTimeout(cloudSyncTimerRef.current);
         };
-    }, [appearance, backgroundMode, connections, currentProject, ensureCloudCanvas, nodes, projectId, projectLoaded, updateProject, viewport]);
+    }, [appearance, backgroundMode, connections, currentProject, ensureCloudCanvas, message, nodes, projectId, projectLoaded, updateProject, viewport]);
     useEffect(() => {
         if (!dialogNodeId) setNodeImageSettingsOpen(false);
     }, [dialogNodeId]);

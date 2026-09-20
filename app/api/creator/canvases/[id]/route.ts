@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
-import type { CreatorCanvasGraph } from '@/lib/creator/types';
+import { CanvasGraphLimitError, normalizeCreatorCanvasGraph } from '@/lib/creator/canvas-graph';
 import { createClient } from '@/lib/local/server';
 import { logServerFailure } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
-const MAX_GRAPH_BYTES = 900_000;
 
 function errorResponse(error: string, code: string, status: number) {
   return NextResponse.json({ error, code }, { status });
@@ -18,34 +17,6 @@ function serverError(error: unknown, code: string, message: string) {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function normalizeGraph(value: unknown): CreatorCanvasGraph {
-  const record = asRecord(value);
-  const nodes = Array.isArray(record.nodes) ? record.nodes.slice(0, 500).map(asRecord) : [];
-  const edges = Array.isArray(record.edges)
-    ? record.edges.map(asRecord).filter((edge) => typeof edge.from === 'string' && typeof edge.to === 'string').slice(0, 1_000).map((edge) => ({ from: edge.from as string, to: edge.to as string }))
-    : [];
-  const viewportRecord = asRecord(record.viewport);
-  const x = typeof viewportRecord.x === 'number' && Number.isFinite(viewportRecord.x) ? Math.max(-10000, Math.min(10000, viewportRecord.x)) : 0;
-  const y = typeof viewportRecord.y === 'number' && Number.isFinite(viewportRecord.y) ? Math.max(-10000, Math.min(10000, viewportRecord.y)) : 0;
-  const zoomValue = typeof viewportRecord.zoom === 'number' ? viewportRecord.zoom : viewportRecord.k;
-  const zoom = typeof zoomValue === 'number' && Number.isFinite(zoomValue) ? Math.max(0.35, Math.min(2.4, zoomValue)) : 1;
-  const background: 'grid' | 'dots' | 'blank' = record.background === 'dots' || record.background === 'blank' ? record.background : 'grid';
-  const appearanceRecord = asRecord(record.appearance);
-  const backgroundImagePath = typeof appearanceRecord.backgroundImagePath === 'string' && appearanceRecord.backgroundImagePath.trim() && appearanceRecord.backgroundImagePath.length <= 1024
-    ? appearanceRecord.backgroundImagePath.trim()
-    : undefined;
-  const backgroundImageOpacity = typeof appearanceRecord.backgroundImageOpacity === 'number' && Number.isFinite(appearanceRecord.backgroundImageOpacity)
-    ? Math.max(0, Math.min(1, appearanceRecord.backgroundImageOpacity))
-    : 0.72;
-  const gridOpacity = typeof appearanceRecord.gridOpacity === 'number' && Number.isFinite(appearanceRecord.gridOpacity)
-    ? Math.max(0, Math.min(1, appearanceRecord.gridOpacity))
-    : 0.4;
-  const appearance = { ...(backgroundImagePath ? { backgroundImagePath } : {}), backgroundImageOpacity, gridOpacity };
-  const graph = { nodes, edges, viewport: { x, y, zoom, k: zoom }, background, appearance };
-  if (JSON.stringify(graph).length > MAX_GRAPH_BYTES) throw new Error('canvas graph is too large');
-  return graph;
 }
 
 async function creatorContext() {
@@ -88,7 +59,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const changes: Record<string, unknown> = {};
     if (typeof body.title === 'string' && body.title.trim()) changes.title = body.title.trim().slice(0, 80);
     if (typeof body.graph !== 'undefined') {
-      try { changes.graph = normalizeGraph(body.graph); } catch { return NextResponse.json({ error: '画布数据无效' }, { status: 400 }); }
+      try {
+        changes.graph = normalizeCreatorCanvasGraph(body.graph);
+      } catch (error) {
+        if (error instanceof CanvasGraphLimitError) {
+          return NextResponse.json({ error: error.message, code: error.code, resource: error.resource, count: error.count, limit: error.limit }, { status: 413 });
+        }
+        return NextResponse.json({ error: '画布数据无效' }, { status: 400 });
+      }
     }
     if (!Object.keys(changes).length) return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 });
     changes.version = expectedVersion + 1;
