@@ -61,6 +61,7 @@ import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas
 import { shouldIgnoreCanvasClipboardTarget } from "@/reference/infinite-canvas/src/lib/canvas/canvas-clipboard-target";
 import { shouldReportMissingImageBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-recovery";
 import { runWithConcurrency, shouldReportMissingVideoBackup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-recovery";
+import { runCanvasRequest } from "@/reference/infinite-canvas/src/lib/canvas/canvas-request-pool";
 import { nextVideoPlaybackRecoveryAttempt } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-playback-retry";
 import { mergeCanvasCloudGraphs } from "@/reference/infinite-canvas/src/lib/canvas/canvas-cloud-merge";
 import { isPendingCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/canvas/canvas-upload-durability";
@@ -285,9 +286,9 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
             .map((node) => node.metadata!.creatorTaskId as string),
     ));
     const videoTasks = new Map<string, CreatorVideoTaskView>();
-    await runWithConcurrency(videoTaskIds, 4, async (taskId) => {
+    await runWithConcurrency(videoTaskIds, 6, async (taskId) => {
         try {
-            videoTasks.set(taskId, (await getVideoTask(taskId)).task);
+            videoTasks.set(taskId, (await runCanvasRequest("video", () => getVideoTask(taskId))).task);
         } catch (error) {
             // Keep the node's current content/status. The periodic recovery
             // effect will retry after a temporary tunnel or provider outage.
@@ -432,9 +433,9 @@ async function hydrateCloudNodeUrls(nodes: CanvasNodeData[]) {
             }
 
             if (node.metadata?.storageKey && !node.metadata?.cloudStoragePath) {
-                const localUrl = node.type === CanvasNodeType.Image
-                    ? await resolveImageUrl(node.metadata.storageKey, "")
-                    : await resolveMediaUrl(node.metadata.storageKey, "");
+                const localUrl = await runCanvasRequest("image", () => node.type === CanvasNodeType.Image
+                    ? resolveImageUrl(node.metadata!.storageKey!, "")
+                    : resolveMediaUrl(node.metadata!.storageKey!, ""));
                 if (localUrl) return { ...node, metadata: { ...node.metadata, content: localUrl } };
             }
 
@@ -843,12 +844,12 @@ function InfiniteCanvasPage() {
                         pendingByTask.set(taskId, nodeIds);
                     });
                 const entries = Array.from(pendingByTask.entries());
-                await runWithConcurrency(entries, 4, async ([taskId, nodeIds]) => {
+                await runWithConcurrency(entries, 6, async ([taskId, nodeIds]) => {
                     const recoveryKey = `task:${taskId}`;
                     if (creatorVideoRecoveryInFlightRef.current.has(recoveryKey)) return;
                     creatorVideoRecoveryInFlightRef.current.add(recoveryKey);
                     try {
-                        const task = (await getVideoTask(taskId)).task;
+                        const task = (await runCanvasRequest("video", () => getVideoTask(taskId))).task;
                         if (task.videoUrl) {
                             const taskOutput = task.output && typeof task.output === "object" ? task.output : {};
                             const storagePath = typeof taskOutput.video_storage_path === "string" ? taskOutput.video_storage_path : undefined;
@@ -954,12 +955,13 @@ function InfiniteCanvasPage() {
                 // creating a second-generation result after a page refresh.
                 return Boolean(jobId && !node.metadata?.derivedFromNodeId && !mediaJobHandledRef.current.has(jobId));
             });
-            await Promise.all(pending.map(async (sourceNode) => {
+            const pendingByJobId = new Map(pending.map((sourceNode) => [sourceNode.metadata?.mediaProcessingJobId, sourceNode]));
+            await runWithConcurrency(Array.from(pendingByJobId.values()), 16, async (sourceNode) => {
                 const jobId = sourceNode.metadata?.mediaProcessingJobId;
                 if (!jobId || mediaJobPollInFlightRef.current.has(jobId)) return;
                 mediaJobPollInFlightRef.current.add(jobId);
                 try {
-                    const { job } = await getMediaJob(jobId);
+                    const { job } = await runCanvasRequest("mediaJob", () => getMediaJob(jobId));
                     if (disposed) return;
                     if (job.status === "succeeded") {
                         mediaJobHandledRef.current.add(job.id);
@@ -1009,7 +1011,7 @@ function InfiniteCanvasPage() {
                 } finally {
                     mediaJobPollInFlightRef.current.delete(jobId);
                 }
-            }));
+            });
         };
         void poll();
         const timer = window.setInterval(() => void poll(), 2_000);
@@ -2905,7 +2907,7 @@ function InfiniteCanvasPage() {
             const recoveryKey = `recovery-${recoveryAttempt}-${Date.now()}`;
             if (creatorTaskId) {
                 try {
-                    const task = (await getVideoTask(creatorTaskId)).task;
+                    const task = (await runCanvasRequest("video", () => getVideoTask(creatorTaskId))).task;
                     if (task.videoUrl) {
                         const taskOutput = task.output && typeof task.output === "object" ? task.output : {};
                         if (typeof taskOutput.video_storage_path === "string") recoveredCloudStoragePath = taskOutput.video_storage_path;

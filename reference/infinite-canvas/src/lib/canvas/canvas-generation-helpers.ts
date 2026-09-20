@@ -2,6 +2,7 @@ import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/refer
 import { resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { imageMetadata, isDurableImageReferenceUrl, readReferenceImage, referenceUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
+import { runCanvasRequest } from "@/reference/infinite-canvas/src/lib/canvas/canvas-request-pool";
 import type { NodeGenerationInput } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-generation";
 import type { CanvasNodeGenerationMode } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-prompt-panel";
 import type { CanvasImageAngleParams } from "@/reference/infinite-canvas/src/components/canvas/canvas-node-angle-dialog";
@@ -53,19 +54,24 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
             const content = node.metadata?.content;
-            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
+            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) {
+                const resolvedContent = await runCanvasRequest("image", () => resolveMediaUrl(node.metadata!.storageKey!, content));
+                return { ...node, metadata: { ...node.metadata, content: resolvedContent } };
+            }
             if (node.type !== CanvasNodeType.Image || !content) return node;
             if (node.metadata?.storageKey) {
-                const localUrl = await resolveImageUrl(node.metadata.storageKey, content);
-                if (!localUrl) return node;
-                try {
-                    return { ...node, metadata: { ...node.metadata, ...imageMetadata(await storeGeneratedImage({ dataUrl: localUrl, mimeType: node.metadata.mimeType, width: node.metadata.naturalWidth, height: node.metadata.naturalHeight })) } };
-                } catch {
-                    return { ...node, metadata: { ...node.metadata, content: localUrl } };
-                }
+                return runCanvasRequest("image", async () => {
+                    const localUrl = await resolveImageUrl(node.metadata!.storageKey!, content);
+                    if (!localUrl) return node;
+                    try {
+                        return { ...node, metadata: { ...node.metadata, ...imageMetadata(await storeGeneratedImage({ dataUrl: localUrl, mimeType: node.metadata!.mimeType, width: node.metadata!.naturalWidth, height: node.metadata!.naturalHeight })) } };
+                    } catch {
+                        return { ...node, metadata: { ...node.metadata, content: localUrl } };
+                    }
+                });
             }
             if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await storeGeneratedImage({ dataUrl: content, mimeType: node.metadata?.mimeType, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight })) } };
+            return runCanvasRequest("image", async () => ({ ...node, metadata: { ...node.metadata, ...imageMetadata(await storeGeneratedImage({ dataUrl: content, mimeType: node.metadata?.mimeType, width: node.metadata?.naturalWidth, height: node.metadata?.naturalHeight })) } }));
         }),
     );
 }
@@ -74,18 +80,22 @@ export async function hydrateAssistantImages(sessions: CanvasAssistantSession[])
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string; cloudStoragePath?: string; cloudAssetId?: string }>(item: T) => {
         if (item.cloudStoragePath) return item;
         if (item.storageKey) {
-            const localUrl = await resolveImageUrl(item.storageKey, item.dataUrl);
-            if (!localUrl) return item;
-            try {
-                const image = await storeGeneratedImage({ dataUrl: localUrl });
-                return { ...item, dataUrl: image.url, storageKey: "", cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
-            } catch {
-                return { ...item, dataUrl: localUrl };
-            }
+            return runCanvasRequest("image", async () => {
+                const localUrl = await resolveImageUrl(item.storageKey, item.dataUrl);
+                if (!localUrl) return item;
+                try {
+                    const image = await storeGeneratedImage({ dataUrl: localUrl });
+                    return { ...item, dataUrl: image.url, storageKey: "", cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
+                } catch {
+                    return { ...item, dataUrl: localUrl };
+                }
+            });
         }
         if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await storeGeneratedImage({ dataUrl: item.dataUrl });
-            return { ...item, dataUrl: image.url, storageKey: "", cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
+            return runCanvasRequest("image", async () => {
+                const image = await storeGeneratedImage({ dataUrl: item.dataUrl! });
+                return { ...item, dataUrl: image.url, storageKey: "", cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId };
+            });
         }
         return item;
     };

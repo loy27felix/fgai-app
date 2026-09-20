@@ -7,6 +7,7 @@ import { cleanupUnusedImages, resolveImageUrl, storeGeneratedImage } from "@/ref
 import { cleanupUnusedMedia, persistCanvasMedia, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { readGenerationLogStorageSnapshot } from "@/reference/infinite-canvas/src/services/generation-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl } from "@/lib/creator/video-client";
+import { runCanvasRequest } from "@/reference/infinite-canvas/src/lib/canvas/canvas-request-pool";
 
 export type AssetKind = "text" | "image" | "video" | "audio";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
@@ -48,7 +49,7 @@ const assetStorage: PersistStorage<AssetStore> = {
         if (!value) return null;
         const parsed = JSON.parse(value) as StorageValue<AssetStore>;
         parsed.state.assets = await Promise.all(
-            parsed.state.assets.map(async (asset) => {
+            parsed.state.assets.map((asset) => runCanvasRequest(asset.kind === "video" ? "video" : "image", async () => {
                 if (asset.kind === "video") {
                     const durableUrl = asset.data.creatorTaskId
                         ? creatorVideoContentUrl(asset.data.creatorTaskId)
@@ -118,7 +119,7 @@ const assetStorage: PersistStorage<AssetStore> = {
                 if (!asset.data.dataUrl.startsWith("data:image/")) return asset;
                 const image = await storeGeneratedImage({ dataUrl: asset.data.dataUrl, mimeType: asset.data.mimeType, width: asset.data.width, height: asset.data.height });
                 return { ...asset, coverUrl: image.url, data: { ...asset.data, dataUrl: image.url, storageKey: undefined, cloudStoragePath: image.cloudStoragePath, cloudAssetId: image.cloudAssetId, bytes: image.bytes, mimeType: image.mimeType, width: image.width, height: image.height } };
-            }),
+            })),
         );
         return parsed;
     },
