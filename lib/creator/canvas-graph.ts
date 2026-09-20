@@ -1,8 +1,8 @@
 import type { CreatorCanvasGraph } from './types';
 
-export const MAX_CANVAS_NODES = 500;
-export const MAX_CANVAS_EDGES = 1_000;
-export const MAX_CANVAS_GRAPH_CHARS = 900_000;
+export const MAX_CANVAS_NODES = 650;
+export const MAX_CANVAS_EDGES = 1_300;
+export const MAX_CANVAS_GRAPH_CHARS = 1_170_000;
 
 export type CanvasGraphLimitResource = 'nodes' | 'edges' | 'graph';
 
