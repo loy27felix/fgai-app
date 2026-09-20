@@ -2874,13 +2874,21 @@ function InfiniteCanvasPage() {
     const handleVideoPlaybackError = useCallback(async (node: CanvasNodeData, failedUrl: string, manual = false) => {
         const current = nodesRef.current.find((item) => item.id === node.id && item.type === CanvasNodeType.Video);
         if (!current?.metadata) return;
-        const recoveryKey = current.metadata.creatorTaskId ? `task:${current.metadata.creatorTaskId}` : `node:${current.id}`;
+        const alternatives = readVideoAlternatives(current.metadata);
+        const activeIndex = Math.min(Math.max(current.metadata.activeVideoAlternativeIndex ?? alternatives.length - 1, 0), Math.max(alternatives.length - 1, 0));
+        const failedAlternative = alternatives.find((alternative) => alternative.content === failedUrl) || alternatives[activeIndex];
+        // A rerender clears node-level media before its new task is ready, while
+        // the browser can still emit an error for the previous version's video.
+        // 重新生成期间旧视频卸载也会触发 onError，不能把它误判成新任务的播放失败。
+        if (!manual && current.metadata.status === NODE_STATUS_LOADING && failedAlternative?.content !== current.metadata.content) return;
+        const playbackSource = failedAlternative ? videoAlternativeMetadata(failedAlternative) : current.metadata;
+        const recoveryKey = playbackSource.creatorTaskId ? `task:${playbackSource.creatorTaskId}` : `node:${current.id}`;
         if (creatorVideoRecoveryInFlightRef.current.has(recoveryKey)) return;
         const recoveryAttempt = nextVideoPlaybackRecoveryAttempt(current.metadata.playbackRecoveryAttempt, { manual });
         logClientEvent("canvas_video_playback_error", {
             nodeId: current.id,
-            creatorTaskId: current.metadata.creatorTaskId || null,
-            hasCloudBackup: Boolean(current.metadata.cloudStoragePath),
+            creatorTaskId: playbackSource.creatorTaskId || null,
+            hasCloudBackup: Boolean(playbackSource.cloudStoragePath),
             manual,
             recoveryAttempt,
             failedUrlKind: failedUrl.startsWith("blob:") ? "blob" : "remote",
@@ -2892,13 +2900,13 @@ function InfiniteCanvasPage() {
             } : item));
             logClientEvent("canvas_video_playback_recovery_exhausted", {
                 nodeId: current.id,
-                creatorTaskId: current.metadata.creatorTaskId || null,
-                hasCloudBackup: Boolean(current.metadata.cloudStoragePath),
+                creatorTaskId: playbackSource.creatorTaskId || null,
+                hasCloudBackup: Boolean(playbackSource.cloudStoragePath),
             }, "error");
             return;
         }
         creatorVideoRecoveryInFlightRef.current.add(recoveryKey);
-        const { creatorTaskId, cloudStoragePath } = current.metadata;
+        const { creatorTaskId, cloudStoragePath } = playbackSource;
         let recoveredCloudStoragePath = cloudStoragePath;
         let recoveryUrl = "";
         let recoveryKind: "creator-task" | "canvas-asset" | null = null;

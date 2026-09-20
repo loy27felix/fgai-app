@@ -33,6 +33,10 @@ Wetoken 的 `wetoken_asset_exchange`、`wetoken_video_exchange`、`wetoken_chat_
 
 浏览器由 `components/ClientErrorReporter.tsx` 采集全局 `error`、`unhandledrejection`、网络失败和未成功的 `/api/*` 响应；画布事件异常和必要的创作台诊断通过 `lib/observability/client-log.ts` 进入同一入口 `/api/observability/client-errors`。服务端从当前 `fg_session` 解析主体并写入 `user_id`，同时把权威 `actorId` / `actorEmail` 固化在 metadata，日志详情优先展示账户邮箱，其次展示用户 UUID；没有会话的历史浏览器错误明确显示为“浏览器会话 / 未关联账户”，不能根据时间猜测用户。该接口是旁路 telemetry：事件格式错误、限流或数据库不可用时均不向用户抛出业务异常；事件数量按用户或 User-Agent 限制，文本和 metadata 在入库前脱敏和截断。
 
+### 画布视频重新生成的播放恢复边界
+
+视频节点重新生成时，旧版本保留在 `videoAlternatives`，新任务在完成前处于 `loading` 且尚无播放地址。浏览器可能在旧 `<video>` 卸载时发出 `onError`；这不是新任务的播放失败，必须忽略，不能用新任务 ID 查询旧版本的副本。真正的播放恢复按失败版本自身的 `creatorTaskId` 或 `cloudStoragePath` 查询，避免把“新任务仍在生成”误报为“视频可用副本暂时无法读取”。该问题于 2026-09-20 通过生产任务与 NAS 文件核查确认。
+
 实际 Docker 主机上的 `scripts/service-monitor.sh` 每轮把 Docker、NAS、App、PostgreSQL、Tunnel、磁盘和 App 错误检查写入 `observability_service_events` / `observability_error_events`。Tunnel 检查不能只依赖 `cloudflared tunnel ready`：只要配置了 `PROVIDER_MEDIA_URL`，监控还会从宿主机探测该公网媒体地址，将 HTTP 4xx 视为“隧道已到达应用”（例如无参数探测得到 404），将 5xx、超时和连接失败视为不可用；连续失败达到阈值后才重启 connector，并使用冷却窗口避免网络中断时反复重启。App 错误采集只匹配顶层 `level=error/critical`、失败/未知 `outcome`、失败 `stage` 或明确的 fatal/panic/exception 文本，不会把成功日志中的嵌套 `error: null` 当成故障；`app-errors` 同一健康状态不重复写事件，只记录状态变化。观测 HTTP 上报在独立后台进程中执行，网络或 App 不可用时不会拖慢本机健康检查。`scripts/report-scheduler.sh` 每 5 分钟调用一次内部 `/api/observability/report-runner`；每轮最多生成 4 份报表，scheduler 失败或历史补算未完成时下一轮继续重试。内部接口使用 `x-fg-observability-secret`，优先读取 `FG_OBSERVABILITY_SECRET`，兼容回退到 `SESSION_SECRET`。
 
 周期报表由 `lib/observability/reporting.ts` 生成并写入 `report_runs` 及三个快照表：
