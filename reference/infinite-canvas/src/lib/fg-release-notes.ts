@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.1.1";
+export const CURRENT_RELEASE_VERSION = "1.1.2";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,13 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年9月21日",
+        items: [
+            { type: "修复", content: "超级画布会识别浏览器中的过期本机缓存，并以云端最新画布刷新显示；若本机和云端同时有未确认变更，会先保留本机恢复副本，避免覆盖内容。" },
+        ],
+    },
+    {
+        version: "1.1.1",
         date: "2026年9月20日",
         items: [
             { type: "优化", content: "超级画布打开大型项目时会分批恢复视频任务、素材和本机处理状态，避免大量请求同时发出导致页面卡顿或暂时无法加载。" },
