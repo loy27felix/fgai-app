@@ -1,14 +1,36 @@
 import { Buffer } from 'node:buffer';
 import dayjs from 'dayjs';
 import { query as dbQuery } from '@/lib/local/db';
+import {
+  LOG_LEVELS,
+  LOG_SOURCES,
+  type LogCategory,
+  type LogDetail,
+  type LogFacet,
+  type LogExplorerSnapshot,
+  type LogLevel,
+  type LogLevelFilter,
+  type LogRecord,
+  type LogSearch,
+  type LogSourceFilter,
+  type LogTimelineBucket,
+  type StructuredFilters,
+} from './log-search-contract';
 
-export const LOG_SOURCES = ['audit', 'frontend', 'app', 'provider', 'infra', 'deploy', 'billing', 'data'] as const;
-export type LogSource = typeof LOG_SOURCES[number];
-export type LogSourceFilter = LogSource | 'all';
+export { LOG_LEVELS, LOG_SOURCES } from './log-search-contract';
+export type {
+  LogCategory,
+  LogDetail,
+  LogExplorerSnapshot,
+  LogLevel,
+  LogLevelFilter,
+  LogRecord,
+  LogSource,
+  LogSourceFilter,
+  LogTimelineBucket,
+  StructuredFilters,
+} from './log-search-contract';
 
-export const LOG_LEVELS = ['info', 'warning', 'error', 'critical'] as const;
-export type LogLevel = typeof LOG_LEVELS[number];
-export type LogLevelFilter = LogLevel | 'all';
 export type LogKind = 'audit' | 'error' | 'service' | 'log';
 
 const DEFAULT_RANGE_MS = 15 * 60 * 1_000;
@@ -21,9 +43,10 @@ const MAX_FILTER_VALUE_LENGTH = 256;
 const TEXT_FILTER_FIELDS = ['service', 'event', 'route', 'outcome', 'traceId', 'requestId', 'taskId', 'userId', 'actorEmail'] as const;
 type TextFilterField = typeof TEXT_FILTER_FIELDS[number];
 type NumericFilterField = 'httpStatus' | 'durationMs';
+type CategoryField = 'category';
 type RangeFilter = { exact: number | null; min: number | null; max: number | null };
 
-const SLS_FIELD_ALIASES: Record<string, TextFilterField | NumericFilterField> = {
+const SLS_FIELD_ALIASES: Record<string, TextFilterField | NumericFilterField | CategoryField> = {
   service: 'service',
   event: 'event',
   route: 'route',
@@ -37,6 +60,7 @@ const SLS_FIELD_ALIASES: Record<string, TextFilterField | NumericFilterField> = 
   httpstatus: 'httpStatus',
   duration: 'durationMs',
   durationms: 'durationMs',
+  category: 'category',
 };
 
 export class LogQueryValidationError extends Error {}
@@ -46,6 +70,8 @@ export type LogQueryInput = {
   to?: Date | string;
   query?: string;
   source?: string;
+  scope?: string;
+  focus?: string;
   level?: string;
   offset?: number | string;
   limit?: number | string;
@@ -73,6 +99,8 @@ export type NormalizedLogQuery = {
   query: string;
   fullText: string;
   source: LogSourceFilter;
+  scope: 'all' | LogCategory;
+  focus: 'all' | 'app-first';
   level: LogLevelFilter;
   textFilters: Partial<Record<TextFilterField, string[]>>;
   httpStatus: RangeFilter;
@@ -82,67 +110,13 @@ export type NormalizedLogQuery = {
   cursor: LogCursor | null;
 };
 
-export type LogRecord = {
-  id: string;
-  eventId: string | null;
-  kind: LogKind;
-  occurredAt: string;
-  source: string;
-  service: string;
-  event: string;
-  level: LogLevel;
-  outcome: string;
-  message: string;
-  traceId: string | null;
-  requestId: string | null;
-  taskId: string | null;
-  userId: string | null;
-  actorEmail: string | null;
-  route: string | null;
-  httpStatus: number | null;
-  durationMs: number | null;
-  details: Record<string, unknown>;
-};
-
-export type LogTimelineBucket = {
-  bucket: string;
-  total: number;
-  info: number;
-  warning: number;
-  error: number;
-  critical: number;
-};
-
-export type LogExplorerResult = {
-  from: string;
-  to: string;
-  query: string;
-  source: LogSourceFilter;
-  level: LogLevelFilter;
-  bucketSeconds: number;
-  rows: LogRecord[];
-  total: number;
-  hasMore: boolean;
-  nextOffset: number;
-  nextCursor: string | null;
-  summary: {
-    total: number;
-    info: number;
-    warning: number;
-    error: number;
-    critical: number;
-    sourceCount: number;
-    serviceCount: number;
-  };
-  timeline: LogTimelineBucket[];
-};
-
 type LogRow = {
   id: string;
   event_id: string | null;
   kind: LogKind;
   occurred_at: Date | string;
   source: string;
+  category: LogCategory;
   service: string;
   event_name: string;
   level: LogLevel;
@@ -168,7 +142,14 @@ type SummaryRow = {
   critical: number | string;
   source_count: number | string;
   service_count: number | string;
+  category_browser: number | string;
+  category_api: number | string;
+  category_api_runtime: number | string;
+  category_infrastructure: number | string;
+  category_other: number | string;
 };
+
+type FacetRow = { value: string | null; count: number | string };
 
 type TimelineRow = {
   bucket: Date | string;
@@ -194,6 +175,7 @@ const LOG_CTE = `with logs as (
     'audit'::text as kind,
     occurred_at,
     'audit'::text as source,
+    'other'::text as category,
     feature as service,
     coalesce(nullif(concat_ws('.', feature, action, stage), ''), 'audit') as event_name,
     case
@@ -243,6 +225,14 @@ const LOG_CTE = `with logs as (
     'log'::text as kind,
     log.occurred_at,
     log.source,
+    case
+      when log.source = 'frontend' then 'browser'
+      when log.source in ('infra', 'deploy') then 'infrastructure'
+      when lower(coalesce(log.service, '') || ' ' || coalesce(log.event_name, '')) ~ '(nas|tunnel|nginx)' then 'infrastructure'
+      when log.source = 'app' and (log.event_name in ('http_request_received', 'http_exchange_completed') or log.service in ('http', 'browser-api')) then 'api'
+      when log.source = 'app' then 'api_runtime'
+      else 'other'
+    end as category,
     log.service,
     log.event_name,
     log.level,
@@ -286,6 +276,14 @@ const LOG_CTE = `with logs as (
     'error'::text as kind,
     occurred_at,
     source,
+    case
+      when source = 'frontend' then 'browser'
+      when source in ('infra', 'deploy') then 'infrastructure'
+      when lower(coalesce(service, '') || ' ' || coalesce(feature, '') || ' ' || coalesce(action, '') || ' ' || coalesce(code, '')) ~ '(nas|tunnel|nginx)' then 'infrastructure'
+      when source = 'app' and (route is not null or http_status is not null) then 'api'
+      when source = 'app' then 'api_runtime'
+      else 'other'
+    end as category,
     service,
     coalesce(nullif(concat_ws('.', feature, action, code), ''), nullif(service, ''), 'error') as event_name,
     severity as level,
@@ -324,6 +322,7 @@ const LOG_CTE = `with logs as (
     'service'::text as kind,
     observed_at as occurred_at,
     'infra'::text as source,
+    'infrastructure'::text as category,
     service,
     coalesce(nullif(concat_ws('.', service, check_name), ''), 'service.health') as event_name,
     case when state = 'unhealthy' then 'error' when state = 'unknown' then 'warning' else 'info' end as level,
@@ -435,6 +434,7 @@ function parseSlsQuery(query: string) {
   const httpStatus = emptyRange();
   const durationMs = emptyRange();
   const fullText: string[] = [];
+  let category: LogCategory | null = null;
   let index = 0;
 
   while (index < query.length) {
@@ -494,7 +494,15 @@ function parseSlsQuery(query: string) {
       throw new LogQueryValidationError(`SLS 字段 ${rawField} 缺少有效值`);
     }
 
-    if (field === 'httpStatus' || field === 'durationMs') {
+    if (field === 'category') {
+      if (operator !== ':') throw new LogQueryValidationError(`SLS 字段 ${rawField} 只能使用 :`);
+      const normalized = rawValue as LogCategory;
+      if (!['browser', 'api', 'api_runtime', 'infrastructure', 'other'].includes(normalized)) {
+        throw new LogQueryValidationError(`日志类别 ${rawValue} 无效`);
+      }
+      if (category && category !== normalized) throw new LogQueryValidationError('日志类别条件冲突');
+      category = normalized;
+    } else if (field === 'httpStatus' || field === 'durationMs') {
       if (operator !== ':' && operator !== '=' && operator !== '>=' && operator !== '<=') throw new LogQueryValidationError(`SLS 字段 ${rawField} 的比较符无效`);
       const label = field === 'httpStatus' ? 'HTTP 状态码' : '耗时';
       const value = rangeValue(rawValue, label, field === 'httpStatus' ? 100 : 0, field === 'httpStatus' ? 599 : 86_400_000);
@@ -506,7 +514,7 @@ function parseSlsQuery(query: string) {
       addTextFilter(textFilters, field, value);
     }
   }
-  return { fullText: fullText.join(' '), textFilters, httpStatus, durationMs };
+  return { fullText: fullText.join(' '), textFilters, httpStatus, durationMs, category };
 }
 
 function decodeCursor(value: string | null | undefined): LogCursor | null {
@@ -552,14 +560,21 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
   const offset = input.offset === undefined ? 0 : Number(input.offset);
   const limit = input.limit === undefined ? MAX_LOG_LIMIT : Number(input.limit);
   if (!Number.isInteger(offset) || offset < 0 || offset > MAX_LOG_OFFSET) throw new LogQueryValidationError('日志分页位置无效');
-  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LOG_LIMIT) throw new LogQueryValidationError('日志条数无效');
+  if (!Number.isInteger(limit) || ![50, 100, 200].includes(limit)) throw new LogQueryValidationError('日志条数必须是 50、100 或 200');
 
+  const requestedScope = enumFilter(input.scope, ['all', 'browser', 'api', 'api_runtime', 'infrastructure', 'other'] as const, 'all', '日志类别');
+  const queryScope = parsedQuery.category || 'all';
+  if (requestedScope !== 'all' && queryScope !== 'all' && requestedScope !== queryScope) {
+    throw new LogQueryValidationError('日志类别条件冲突');
+  }
   return {
     from,
     to,
     query: rawQuery,
     fullText: parsedQuery.fullText,
     source: enumFilter(input.source, ['all', ...LOG_SOURCES] as const, 'all', '日志来源'),
+    scope: requestedScope === 'all' ? queryScope : requestedScope,
+    focus: enumFilter(input.focus, ['all', 'app-first'] as const, 'all', '日志焦点'),
     level: enumFilter(input.level, ['all', ...LOG_LEVELS] as const, 'all', '日志级别'),
     textFilters: parsedQuery.textFilters,
     httpStatus: parsedQuery.httpStatus,
@@ -570,14 +585,21 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
   };
 }
 
-function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], values: unknown[], startIndex: number) {
+type FilterDimension = 'category' | 'source' | 'level' | TextFilterField;
+
+function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], values: unknown[], startIndex: number, omit?: FilterDimension) {
   let index = startIndex;
-  if (filters.source !== 'all') {
+  if (filters.scope !== 'all' && omit !== 'category') {
+    clauses.push(`category = $${index}`);
+    values.push(filters.scope);
+    index += 1;
+  }
+  if (filters.source !== 'all' && omit !== 'source') {
     clauses.push(`source = $${index}`);
     values.push(filters.source);
     index += 1;
   }
-  if (filters.level !== 'all') {
+  if (filters.level !== 'all' && omit !== 'level') {
     clauses.push(`level = $${index}`);
     values.push(filters.level);
     index += 1;
@@ -594,6 +616,7 @@ function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], 
     actorEmail: 'actor_email',
   };
   for (const field of TEXT_FILTER_FIELDS) {
+    if (omit === field) continue;
     for (const value of filters.textFilters[field] || []) {
       clauses.push(`${columnByField[field]} = $${index}`);
       values.push(value);
@@ -621,10 +644,10 @@ function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], 
   }
 }
 
-function listScope(filters: NormalizedLogQuery, cursor: LogCursor | null = null) {
+function listScope(filters: NormalizedLogQuery, cursor: LogCursor | null = null, omit?: FilterDimension) {
   const clauses = ['occurred_at >= $1', 'occurred_at < $2'];
   const values: unknown[] = [filters.from.toISOString(), filters.to.toISOString()];
-  appendDimensionFilters(filters, clauses, values, 3);
+  appendDimensionFilters(filters, clauses, values, 3, omit);
   if (cursor) {
     const cursorIndex = values.length + 1;
     clauses.push(`(occurred_at, sequence_id, id) < ($${cursorIndex}::timestamptz, $${cursorIndex + 1}::bigint, $${cursorIndex + 2})`);
@@ -650,14 +673,15 @@ function bucketForRange(filters: NormalizedLogQuery) {
   return { interval: '1 day', seconds: 86_400 };
 }
 
-function normalizeRecord(row: LogRow): LogRecord {
+function normalizeRecord(row: LogRow, includeDetails = false): LogRecord {
   const details = row.details && typeof row.details === 'object' && !Array.isArray(row.details)
     ? row.details as Record<string, unknown>
     : {};
-  return {
+  const record: LogRecord = {
     id: row.id,
     eventId: row.event_id,
     kind: row.kind,
+    category: row.category,
     occurredAt: row.occurred_at instanceof Date ? row.occurred_at.toISOString() : new Date(row.occurred_at).toISOString(),
     source: row.source,
     service: row.service,
@@ -673,8 +697,9 @@ function normalizeRecord(row: LogRow): LogRecord {
     route: row.route,
     httpStatus: nullableNumber(row.http_status),
     durationMs: nullableNumber(row.duration_ms),
-    details,
   };
+  if (includeDetails) record.details = details;
+  return record;
 }
 
 function normalizeTimeline(row: TimelineRow): LogTimelineBucket {
@@ -688,21 +713,69 @@ function normalizeTimeline(row: TimelineRow): LogTimelineBucket {
   };
 }
 
-export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogExplorerResult> {
+function inputFilters(input: LogQueryInput): StructuredFilters {
+  const filters: StructuredFilters = {};
+  for (const key of TEXT_FILTER_FIELDS) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) filters[key] = value.trim();
+  }
+  for (const key of ['httpStatus', 'httpStatusGte', 'httpStatusLte', 'durationMs', 'durationMsGte', 'durationMsLte'] as const) {
+    const value = input[key];
+    if (value !== undefined && value !== null && String(value).trim()) filters[key] = String(value);
+  }
+  return filters;
+}
+
+function appliedSearch(filters: NormalizedLogQuery, input: LogQueryInput): LogSearch {
+  return {
+    from: filters.from.toISOString(),
+    to: filters.to.toISOString(),
+    q: filters.query,
+    scope: filters.scope,
+    level: filters.level,
+    source: filters.source,
+    filters: inputFilters(input),
+    limit: filters.limit as 50 | 100 | 200,
+    cursor: typeof input.cursor === 'string' ? input.cursor : null,
+    focus: filters.focus,
+  };
+}
+
+async function facetRows(filters: NormalizedLogQuery, column: string, omit: FilterDimension) {
+  const scope = listScope(filters, null, omit);
+  const result = await dbQuery<FacetRow>(
+    `${LOG_CTE}
+     select ${column}::text as value, count(*)::int as count
+       from logs
+      ${scope.where}
+      group by ${column}
+      order by count(*) desc, ${column} asc
+      limit 12`,
+    scope.values,
+  );
+  return result.rows
+    .filter((row) => row.value)
+    .map((row): LogFacet => ({ value: String(row.value), label: String(row.value), count: numberValue(row.count) }));
+}
+
+function orderClause() {
+  return 'order by occurred_at desc, sequence_id desc, id desc';
+}
+
+export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogExplorerSnapshot> {
   const filters = normalizeLogQuery(input);
   const scope = listScope(filters, filters.cursor);
   const limitIndex = scope.values.length + 1;
-  const offsetIndex = scope.values.length + 2;
   const listResult = dbQuery<LogRow>(
     `${LOG_CTE}
-     select id, event_id, kind, occurred_at, source, service, event_name, level, outcome,
+     select id, event_id, kind, occurred_at, source, category, service, event_name, level, outcome,
             message, trace_id, request_id, task_id, user_id, actor_email, route, http_status,
             duration_ms, details, sequence_id
        from logs
       ${scope.where}
-      order by occurred_at desc, sequence_id desc, id desc
-      limit $${limitIndex} offset $${offsetIndex}`,
-    [...scope.values, filters.limit + 1, filters.cursor ? 0 : filters.offset],
+      ${orderClause()}
+      limit $${limitIndex}`,
+    [...scope.values, filters.limit + 1],
   );
 
   const summaryScope = listScope(filters);
@@ -714,7 +787,12 @@ export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogEx
             count(*) filter (where level = 'error')::int as error,
             count(*) filter (where level = 'critical')::int as critical,
             count(distinct source)::int as source_count,
-            count(distinct service)::int as service_count
+            count(distinct service)::int as service_count,
+            count(*) filter (where category = 'browser')::int as category_browser,
+            count(*) filter (where category = 'api')::int as category_api,
+            count(*) filter (where category = 'api_runtime')::int as category_api_runtime,
+            count(*) filter (where category = 'infrastructure')::int as category_infrastructure,
+            count(*) filter (where category = 'other')::int as category_other
        from logs
       ${summaryScope.where}`,
     summaryScope.values,
@@ -737,33 +815,63 @@ export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogEx
     timelineScopeValue.values,
   );
 
-  const [list, summary, timeline] = await Promise.all([listResult, summaryResult, timelineResult]);
-  const summaryRow = summary.rows[0] || { total: 0, info: 0, warning: 0, error: 0, critical: 0, source_count: 0, service_count: 0 };
+  const [list, summary, timeline, category, level, source, service, event] = await Promise.all([
+    listResult,
+    summaryResult,
+    timelineResult,
+    facetRows(filters, 'category', 'category'),
+    facetRows(filters, 'level', 'level'),
+    facetRows(filters, 'source', 'source'),
+    facetRows(filters, 'service', 'service'),
+    facetRows(filters, 'event_name', 'event'),
+  ]);
+  const summaryRow = summary.rows[0] || {
+    total: 0, info: 0, warning: 0, error: 0, critical: 0, source_count: 0, service_count: 0,
+    category_browser: 0, category_api: 0, category_api_runtime: 0, category_infrastructure: 0, category_other: 0,
+  };
   const total = numberValue(summaryRow.total);
   const hasMore = list.rows.length > filters.limit;
   const visibleRows = list.rows.slice(0, filters.limit);
-  const rows = visibleRows.map(normalizeRecord);
+  const rows = visibleRows.map((row) => normalizeRecord(row));
+  const byLevel = { info: numberValue(summaryRow.info), warning: numberValue(summaryRow.warning), error: numberValue(summaryRow.error), critical: numberValue(summaryRow.critical) };
+  const byCategory = {
+    browser: numberValue(summaryRow.category_browser),
+    api: numberValue(summaryRow.category_api),
+    api_runtime: numberValue(summaryRow.category_api_runtime),
+    infrastructure: numberValue(summaryRow.category_infrastructure),
+    other: numberValue(summaryRow.category_other),
+  };
   return {
-    from: filters.from.toISOString(),
-    to: filters.to.toISOString(),
-    query: filters.query,
-    source: filters.source,
-    level: filters.level,
-    bucketSeconds: bucket.seconds,
+    applied: appliedSearch(filters, input),
     rows,
-    total,
-    hasMore,
-    nextOffset: filters.offset + rows.length,
-    nextCursor: hasMore && visibleRows.length ? encodeCursor(visibleRows[visibleRows.length - 1]) : null,
+    page: {
+      hasMore,
+      nextCursor: hasMore && visibleRows.length ? encodeCursor(visibleRows[visibleRows.length - 1]) : null,
+    },
     summary: {
       total,
-      info: numberValue(summaryRow.info),
-      warning: numberValue(summaryRow.warning),
-      error: numberValue(summaryRow.error),
-      critical: numberValue(summaryRow.critical),
+      byCategory,
+      byLevel,
       sourceCount: numberValue(summaryRow.source_count),
       serviceCount: numberValue(summaryRow.service_count),
     },
+    facets: { category, level, source, service, event },
+    bucketSeconds: bucket.seconds,
     timeline: timeline.rows.map(normalizeTimeline),
   };
+}
+
+export async function getLogDetail(id: string): Promise<LogDetail | null> {
+  if (!/^(audit|log|error|service):\d+$/.test(id)) return null;
+  const result = await dbQuery<LogRow>(
+    `${LOG_CTE}
+     select id, event_id, kind, occurred_at, source, category, service, event_name, level, outcome,
+            message, trace_id, request_id, task_id, user_id, actor_email, route, http_status,
+            duration_ms, details, sequence_id
+       from logs
+      where id = $1
+      limit 1`,
+    [id],
+  );
+  return result.rows[0] ? normalizeRecord(result.rows[0], true) as LogDetail : null;
 }

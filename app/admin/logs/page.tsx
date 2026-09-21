@@ -1,20 +1,27 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/local/server';
-import PageShell from '@/components/studio/PageShell';
-import ObservabilityLogExplorer, { type LogExplorerInitialFilters } from '@/components/ObservabilityLogExplorer';
-import { LogQueryValidationError, normalizeLogQuery, queryLogExplorer } from '@/lib/observability/log-query';
+import LogExplorer from '@/components/logs/LogExplorer';
+import { parseLogSearch } from '@/lib/observability/log-search-contract';
+import { LogQueryValidationError, queryLogExplorer } from '@/lib/observability/log-query';
 import { logServerFailure } from '@/lib/observability/server-log';
+import PageShell from '@/components/studio/PageShell';
 
 export const dynamic = 'force-dynamic';
 
-function valueOf(value: string | string[] | undefined) {
-  return typeof value === 'string' ? value : '';
+function toQueryInput(search: ReturnType<typeof parseLogSearch>) {
+  return {
+    from: search.from,
+    to: search.to,
+    query: search.q,
+    source: search.source,
+    scope: search.scope,
+    level: search.level,
+    focus: search.focus,
+    limit: search.limit,
+    cursor: search.cursor,
+    ...search.filters,
+  };
 }
-
-const STRUCTURED_LOG_QUERY_KEYS = [
-  'service', 'event', 'route', 'outcome', 'traceId', 'requestId', 'taskId', 'userId', 'actorEmail',
-  'httpStatus', 'httpStatusGte', 'httpStatusLte', 'durationMs', 'durationMsGte', 'durationMsLte',
-] as const;
 
 export default async function LogsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const localClient = createClient();
@@ -28,39 +35,15 @@ export default async function LogsPage({ searchParams }: { searchParams?: Record
     .maybeSingle();
   if (profile?.platform_role !== 'admin' && profile?.platform_role !== 'superadmin') redirect('/admin');
 
-  const to = new Date();
-  const from = new Date(to.getTime() - 15 * 60 * 1_000);
-  let initialFrom = from.toISOString();
-  let initialTo = to.toISOString();
-  try {
-    const normalizedRange = normalizeLogQuery({
-      from: valueOf(searchParams?.from) || from,
-      to: valueOf(searchParams?.to) || to,
-    });
-    initialFrom = normalizedRange.from.toISOString();
-    initialTo = normalizedRange.to.toISOString();
-  } catch {
-    // Keep the retry controls usable when the URL time range itself is invalid.
-    // URL 时间范围无效时仍使用默认范围，保证管理员可以直接修正其他条件后重试。
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams || {})) {
+    if (typeof value === 'string') params.set(key, value);
   }
-  const initialQuery = valueOf(searchParams?.q);
-  const structuredFilters = Object.fromEntries(STRUCTURED_LOG_QUERY_KEYS.flatMap((key) => {
-    const value = valueOf(searchParams?.[key]);
-    return value ? [[key, value]] : [];
-  })) as LogExplorerInitialFilters;
-  let initialData = null;
+  const initialSearch = parseLogSearch(params);
+  let initialSnapshot = null;
   let initialError = '';
   try {
-    initialData = await queryLogExplorer({
-      from: valueOf(searchParams?.from) || initialFrom,
-      to: valueOf(searchParams?.to) || initialTo,
-      query: initialQuery,
-      source: valueOf(searchParams?.source) || 'all',
-      level: valueOf(searchParams?.level) || 'all',
-      offset: 0,
-      limit: 50,
-      ...structuredFilters,
-    });
+    initialSnapshot = await queryLogExplorer(toQueryInput(initialSearch));
   } catch (error) {
     if (error instanceof LogQueryValidationError) {
       initialError = error.message;
@@ -72,7 +55,7 @@ export default async function LogsPage({ searchParams }: { searchParams?: Record
 
   return (
     <PageShell title="日志检索" email={user.email || ''} mainClassName="observability-page-main">
-      <ObservabilityLogExplorer initialData={initialData} initialError={initialError} initialFrom={initialFrom} initialTo={initialTo} initialQuery={initialQuery} initialFilters={structuredFilters} />
+      <LogExplorer initialSnapshot={initialSnapshot} initialSearch={initialSearch} initialError={initialError} />
     </PageShell>
   );
 }
