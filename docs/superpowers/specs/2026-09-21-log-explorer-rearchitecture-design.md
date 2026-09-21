@@ -23,6 +23,7 @@
 - 将 SLS 查询、可视化条件、类别切换、时间下钻和 Facet 统一为同一个可序列化查询模型。
 - 后端返回全量口径的类别、级别、来源、服务和事件 Facet，以及时间分布。
 - 前端拆分查询栏、Facet、时间分布、日志流和详情检查器；结果流按类别呈现不同摘要字段。
+- 任意一条日志都可以打开独立详情检查器；详情按类别展示完整上下文、关联字段和脱敏原始 payload，不要求用户先猜字段或离开当前结果集。
 - 仅保留 keyset cursor 分页，保证可复制 URL 与结果页一致。
 - 保留旧 URL 参数和旧 `q` 语法的兼容读取，并在成功查询后回显规范化查询。
 
@@ -108,7 +109,7 @@ type LogExplorerSnapshot = {
 };
 ```
 
-Facet 与 summary 必须使用同一 applied query 的全量结果口径。单个 Facet 计算时排除自身维度条件，保证用户从当前类别切换到其他类别时仍能看到可选项。列表行只返回规范化摘要和受控详情字段；详情检查器可以继续展示脱敏 JSON，但不得让列表布局依赖未知 payload 结构。
+Facet 与 summary 必须使用同一 applied query 的全量结果口径。单个 Facet 计算时排除自身维度条件，保证用户从当前类别切换到其他类别时仍能看到可选项。列表行只返回规范化摘要和受控详情字段；任意日志行点击后打开详情检查器，详情检查器展示规范化字段、关联字段、类别专属字段和完整脱敏 JSON。详情读取失败时保留结果流，并在检查器内显示可重试错误，不得把详情错误当成查询失败。
 
 ## Backend architecture
 
@@ -127,7 +128,7 @@ LogExplorer (reducer + request lifecycle)
 ├── LogTimeline (density strip + drilldown)
 ├── LogFacets (category / level / source / service / event)
 ├── LogStream (category-aware compact rows + cursor pagination)
-└── LogInspector (selected row + HTTP exchange / runtime / browser / infra adapters)
+└── LogInspector (selected row + HTTP exchange / runtime / browser / infra adapters + full redacted payload)
 ```
 
 页面层级固定为：
@@ -162,7 +163,7 @@ LogExplorer (reducer + request lifecycle)
 3. Facet、summary、timeline 和列表总数使用一致的全量口径；切换某个 Facet 后其他 Facet 仍能正确显示候选。
 4. 连续点击时间桶、Facet、分页时旧响应不会覆盖新结果；浏览器前进/后退能恢复完整 applied query。
 5. API 日志行突出 route、method/status、duration、trace/request；API 运行日志突出 service/event/outcome/message；浏览器和基建行使用各自摘要字段。
-6. 详情 inspector 能展示四类日志的关键字段和脱敏 JSON；列表不会因为未知 details 结构撑坏布局。
+6. 任意日志都能打开详情 inspector；详情能展示四类日志的关键字段、关联 ID、类别专属字段和完整脱敏 JSON，并支持复制/重试；列表不会因为未知 details 结构撑坏布局。
 7. TypeScript、migration syntax、`git diff --check` 和本地登录后的 `/admin/logs` 运行时验证通过。
 
 ## Verification
