@@ -51,7 +51,7 @@ import { MATERIAL_LIBRARY_DRAG_MIME, materialToInsertPayload, useMaterialLibrary
 import { CanvasSidePanel } from "@/reference/infinite-canvas/src/components/canvas/canvas-side-panel";
 import { CanvasZoomControls } from "@/reference/infinite-canvas/src/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
-import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
+import { canvasProjectSyncSignature, useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
 import { createCreatorCanvas, deleteCreatorCanvas, getCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
@@ -698,6 +698,14 @@ function InfiniteCanvasPage() {
                 updateProject(projectId, {
                     cloudCanvasId: nextId,
                     ...(typeof result.canvas.version === "number" ? { cloudCanvasVersion: result.canvas.version } : {}),
+                    cloudLocalSignature: canvasProjectSyncSignature({
+                        title: currentProject.title,
+                        nodes: nodesRef.current,
+                        connections: connectionsRef.current,
+                        viewport: viewportRef.current,
+                        backgroundMode,
+                        appearance,
+                    }),
                 });
                 return nextId;
             })
@@ -1100,7 +1108,17 @@ function InfiniteCanvasPage() {
                             cloudCanvasVersionRef.current = result.canvas.version;
                             cloudMergeBaseRef.current = graphToSave;
                             canvasLimitWarningRef.current = null;
-                            updateProject(projectId, { cloudCanvasVersion: result.canvas.version });
+                            updateProject(projectId, {
+                                cloudCanvasVersion: result.canvas.version,
+                                cloudLocalSignature: canvasProjectSyncSignature({
+                                    title: currentProject.title,
+                                    nodes,
+                                    connections,
+                                    viewport,
+                                    backgroundMode,
+                                    appearance,
+                                }),
+                            });
                             return;
                         } catch (error) {
                             const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";

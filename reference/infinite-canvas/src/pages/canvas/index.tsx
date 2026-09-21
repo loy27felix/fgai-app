@@ -9,12 +9,42 @@ import { setImageBlob } from "@/reference/infinite-canvas/src/services/image-sto
 import { CanvasDeleteProjectsDialog } from "@/reference/infinite-canvas/src/components/canvas/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "@/reference/infinite-canvas/src/components/canvas/canvas-project-card";
 import type { CanvasExportFile } from "@/reference/infinite-canvas/src/types/canvas-export";
-import { useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
+import { canvasProjectSyncSignature, type CanvasProject, useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { randomId } from "@/reference/infinite-canvas/src/lib/utils";
 import { normalizeCanvasAppearance } from "@/reference/infinite-canvas/src/lib/canvas/canvas-appearance";
 import { listCreatorCanvases } from "@/lib/creator/canvas-client";
+
+function isRemoteEdge(value: unknown): value is { from: string; to: string } {
+    if (!value || typeof value !== "object") return false;
+    const edge = value as Record<string, unknown>;
+    return typeof edge.from === "string" && typeof edge.to === "string";
+}
+
+function projectFromRemoteCanvas(canvas: { title?: string | null; graph?: unknown }): Pick<CanvasProject, "title" | "nodes" | "connections" | "backgroundMode" | "appearance" | "viewport"> {
+    const graph = canvas.graph && typeof canvas.graph === "object" ? canvas.graph as Record<string, unknown> : {};
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes as CanvasProject["nodes"] : [];
+    const edges = Array.isArray(graph.edges) ? graph.edges : [];
+    const viewport = graph.viewport && typeof graph.viewport === "object" ? graph.viewport as Record<string, unknown> : {};
+    return {
+        title: canvas.title || "云端画布",
+        nodes,
+        connections: edges.filter(isRemoteEdge).map((edge) => ({ id: `cloud-${randomId()}`, fromNodeId: edge.from, toNodeId: edge.to })),
+        backgroundMode: graph.background === "dots" || graph.background === "blank" ? graph.background : "lines",
+        appearance: normalizeCanvasAppearance(graph.appearance as any),
+        viewport: {
+            x: typeof viewport.x === "number" ? viewport.x : 0,
+            y: typeof viewport.y === "number" ? viewport.y : 0,
+            k: typeof viewport.zoom === "number" ? viewport.zoom : typeof viewport.k === "number" ? viewport.k : 1,
+        },
+    };
+}
+
+function localRecoveryTitle(title: string) {
+    return `${title} 本地恢复备份 ${new Date().toLocaleString("zh-CN", { hour12: false })}`;
+}
+
 function matchesRemoteCanvas(
     project: { title: string; nodes: unknown[]; connections: unknown[] },
     canvas: { title?: string | null },
@@ -110,46 +140,51 @@ export default function CanvasPage() {
                     // are mutating the store during this loop.
                     const currentProjects = useCanvasStore.getState().projects;
                     const existingLocal = currentProjects.find((project) => project.cloudCanvasId === canvas.id);
+                    const remoteProject = projectFromRemoteCanvas(canvas);
+                    const remoteEdges = remoteProject.connections.map((connection) => ({ from: connection.fromNodeId, to: connection.toNodeId }));
                     if (existingLocal) {
-                        if (existingLocal.cloudCanvasVersion !== canvas.version) updateProject(existingLocal.id, { cloudCanvasVersion: canvas.version });
+                        const localSignature = canvasProjectSyncSignature(existingLocal);
+                        const needsCloudRefresh = existingLocal.cloudCanvasVersion !== canvas.version || !matchesRemoteCanvas(existingLocal, canvas, remoteProject.nodes, remoteEdges);
+                        if (!needsCloudRefresh) {
+                            if (!existingLocal.cloudLocalSignature) updateProject(existingLocal.id, { cloudLocalSignature: localSignature });
+                            continue;
+                        }
+
+                        const canReplaceLocal = existingLocal.cloudLocalSignature === localSignature;
+                        if (!canReplaceLocal) {
+                            // Preserve an unverified local branch before taking the cloud copy as authoritative.
+                            // 本地状态无法确认已同步时，先保留恢复副本，再以云端版本为准。
+                            importProject({ ...existingLocal, title: localRecoveryTitle(existingLocal.title) });
+                            message.warning({ content: `“${existingLocal.title}” 检测到本地与云端同时有变更，已保留本地恢复副本并显示云端最新版本。`, duration: 8 });
+                        }
+
+                        const nextProject = { ...existingLocal, ...remoteProject };
+                        updateProject(existingLocal.id, {
+                            ...remoteProject,
+                            cloudCanvasVersion: canvas.version,
+                            cloudLocalSignature: canvasProjectSyncSignature(nextProject),
+                        });
                         continue;
                     }
 
-                    const graph = canvas.graph && typeof canvas.graph === "object" ? canvas.graph as Record<string, unknown> : {};
-                    const nodes = Array.isArray(graph.nodes) ? graph.nodes as any[] : [];
-                    const edges = Array.isArray(graph.edges) ? graph.edges as any[] : [];
-                    const viewport = graph.viewport && typeof graph.viewport === "object" ? graph.viewport as Record<string, unknown> : {};
-                    const matchingLocal = currentProjects.find((project) => !project.cloudCanvasId && matchesRemoteCanvas(project, canvas, nodes, edges));
+                    const matchingLocal = currentProjects.find((project) => !project.cloudCanvasId && matchesRemoteCanvas(project, canvas, remoteProject.nodes, remoteEdges));
 
                     if (matchingLocal) {
                         // Older local projects were created before cloudCanvasId
                         // existed. Adopt the matching project instead of importing
                         // a second copy on every visit.
-                        updateProject(matchingLocal.id, { cloudCanvasId: canvas.id, cloudCanvasVersion: canvas.version });
+                        updateProject(matchingLocal.id, { cloudCanvasId: canvas.id, cloudCanvasVersion: canvas.version, cloudLocalSignature: canvasProjectSyncSignature(matchingLocal) });
                         continue;
                     }
 
-                    const localId = importProject({
-                        title: canvas.title || "云端画布",
-                        nodes: nodes as any,
-                        connections: edges
-                            .filter((edge) => typeof edge?.from === "string" && typeof edge?.to === "string")
-                            .map((edge) => ({ id: "cloud-" + randomId(), fromNodeId: edge.from, toNodeId: edge.to })),
-                        backgroundMode: graph.background === "dots" || graph.background === "blank" ? graph.background : "lines",
-                        appearance: normalizeCanvasAppearance(graph.appearance as any),
-                        viewport: {
-                            x: typeof viewport.x === "number" ? viewport.x : 0,
-                            y: typeof viewport.y === "number" ? viewport.y : 0,
-                            k: typeof viewport.zoom === "number" ? viewport.zoom : typeof viewport.k === "number" ? viewport.k : 1,
-                        },
-                    });
-                    updateProject(localId, { cloudCanvasId: canvas.id, cloudCanvasVersion: canvas.version });
+                    const localId = importProject(remoteProject);
+                    updateProject(localId, { cloudCanvasId: canvas.id, cloudCanvasVersion: canvas.version, cloudLocalSignature: canvasProjectSyncSignature(remoteProject) });
                 }
             } catch {
                 // Unauthenticated/private deployments continue with localForage.
             }
         })();
-    }, [hydrated, importProject, updateProject]);
+    }, [hydrated, importProject, message, updateProject]);
     useEffect(() => {
         if (!hydrated || autoOpenRef.current || (mode !== "new" && mode !== "recent")) return;
         autoOpenRef.current = true;

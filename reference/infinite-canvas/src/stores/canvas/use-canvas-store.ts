@@ -11,6 +11,8 @@ export type CanvasProject = {
     id: string;
     cloudCanvasId?: string;
     cloudCanvasVersion?: number;
+    /** Last local snapshot confirmed by cloud sync. 云端同步确认过的本地快照签名。 */
+    cloudLocalSignature?: string;
     title: string;
     createdAt: string;
     updatedAt: string;
@@ -36,7 +38,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     replaceProjects: (projects: CanvasProject[], deletedProjectIds?: string[]) => void;
-    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "cloudCanvasId" | "cloudCanvasVersion" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "appearance" | "showImageInfo" | "viewport">>) => void;
+    updateProject: (id: string, patch: Partial<Pick<CanvasProject, "title" | "cloudCanvasId" | "cloudCanvasVersion" | "cloudLocalSignature" | "nodes" | "connections" | "chatSessions" | "activeChatId" | "backgroundMode" | "appearance" | "showImageInfo" | "viewport">>) => void;
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
@@ -44,6 +46,38 @@ const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
 type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjectIds">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
+
+function stableValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(stableValue);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+            .filter(([, item]) => item !== undefined)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, item]) => [key, stableValue(item)]),
+    );
+}
+
+function hashCanvasSnapshot(value: string) {
+    let left = 0x811c9dc5;
+    let right = 0x01000193;
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        left = Math.imul(left ^ code, 0x01000193);
+        right = Math.imul(right ^ code, 0x85ebca6b);
+    }
+    return `${(left >>> 0).toString(16).padStart(8, "0")}${(right >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function canvasProjectSyncSignature(project: Pick<CanvasProject, "title" | "nodes" | "connections" | "backgroundMode" | "appearance" | "viewport">) {
+    const nodes = [...project.nodes]
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((node) => stableValue(node));
+    const connections = project.connections
+        .map((connection) => ({ fromNodeId: connection.fromNodeId, toNodeId: connection.toNodeId }))
+        .sort((left, right) => `${left.fromNodeId}\u0000${left.toNodeId}`.localeCompare(`${right.fromNodeId}\u0000${right.toNodeId}`));
+    return hashCanvasSnapshot(JSON.stringify(stableValue({ title: project.title, nodes, connections, backgroundMode: project.backgroundMode, appearance: project.appearance, viewport: project.viewport })));
+}
 
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
