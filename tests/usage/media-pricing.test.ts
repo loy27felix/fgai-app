@@ -5,6 +5,7 @@ import {
   estimateImageUsagePrice,
   estimateTextPrice,
   estimateVideoPrice,
+  normalizeVideoPriceResolution,
   extractReportedCostUsd,
 } from '../../lib/usage/pricing';
 import { IMG_MODELS } from '../../lib/imageModels';
@@ -78,6 +79,10 @@ test('uses HappyHorse and MiniMax capabilities with concrete video-reference est
   assert.equal(estimateVideoPrice({
     model: 'MiniMax-H3', duration: 6, resolution: '768p', imageReferenceCount: 8,
   })?.estimatedCostUsd, 0.6);
+  assert.equal(normalizeVideoPriceResolution('2K'), '2k');
+  assert.equal(estimateVideoPrice({
+    model: 'MiniMax-H3', duration: 6, resolution: '2K', imageReferenceCount: 0,
+  })?.estimatedCostUsd, 0.78);
   assert.equal(estimateVideoPrice({
     model: 'MiniMax-H3', duration: 6, resolution: '768p', hasVideoReference: true,
   })?.estimatedCostUsd, 0.48);

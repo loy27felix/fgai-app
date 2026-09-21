@@ -1,6 +1,6 @@
 import { CircleDollarSign } from "lucide-react";
 
-import { estimateImagePrice, estimateVideoPrice } from "@/lib/usage/pricing";
+import { estimateImagePrice, estimateVideoPrice, normalizeVideoPriceResolution } from "@/lib/usage/pricing";
 import { getUsdToCnyRate } from "@/lib/usage/fx";
 import { imageOutputSizeOptionsFor, imageQualityForOutputSize, imageRequestSizeForModel } from "@/lib/imageModels";
 import { modelOptionName } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -29,12 +29,7 @@ export function GenerationPriceBadge({ kind, model, size = "", imageQuality = ""
         ? imageQualityForOutputSize(imageOutputSizeOptionsFor(modelName)[0] || "1K")
         : imageQuality;
     const imagePriceSize = imageRequestSizeForModel(modelName, size, imagePriceQuality) || size;
-    const normalizedVideoResolution = String(resolution).trim().toLowerCase();
-    const priceResolution = normalizedVideoResolution === "4k" || normalizedVideoResolution.endsWith("p")
-        ? normalizedVideoResolution
-        : normalizedVideoResolution
-            ? `${normalizedVideoResolution}p`
-            : "";
+    const priceResolution = normalizeVideoPriceResolution(String(resolution));
     const pricing = kind === "image"
         ? estimateImagePrice(modelName, imagePriceSize, { referenceCount: imageReferenceCount })
         : estimateVideoPrice({

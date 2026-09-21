@@ -138,6 +138,7 @@ const IMAGE_MAX_PIXELS = 8294400;
 const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_RATIO = 3;
 const IMAGE_OUTPUT_FORMAT = "png";
+const IMAGE_POLL_MAX_ATTEMPTS = 240; // 10 minutes at the 2.5s polling interval.
 
 const GEMINI_SUPPORTED_RATIOS = ["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"];
 
@@ -779,7 +780,7 @@ async function fgGenerateImage(config: AiConfig, prompt: string, references: Ref
     }
     if (immediate?.resultUrl) return [creatorGeneratedImage(draft.task.id, immediate.resultUrl, immediate.asset)];
     let consecutiveStatusReadFailures = 0;
-    for (let attempt = 0; attempt < 40; attempt += 1) {
+    for (let attempt = 0; attempt < IMAGE_POLL_MAX_ATTEMPTS; attempt += 1) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
         let statusResponse: Awaited<ReturnType<typeof listImageTasks>>;
         try {
