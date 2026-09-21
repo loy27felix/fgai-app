@@ -128,7 +128,7 @@ compose_build_services() {
   build_log="$BUILD_LOG_ROOT/build-${APP_DEPLOYMENT_VERSION}.log"
   LAST_BUILD_LOG_FILE="$build_log"
   log "Auto deploy: build output is $build_log"
-  if BUILDKIT_PROGRESS=plain compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "${services[@]}" >"$build_log" 2>&1; then
+  if BUILDKIT_PROGRESS=plain compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "${services[@]}" 2>&1 | tee "$build_log"; then
     return 0
   else
     exit_code=$?
