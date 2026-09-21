@@ -8,6 +8,7 @@ import { canvasThemes, type CanvasTheme } from "@/reference/infinite-canvas/src/
 import { exportCanvasNodes } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
 import { getNodeDefinition } from "@/reference/infinite-canvas/src/lib/canvas/node-registry";
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
+import { LocalWebpImage } from "@/reference/infinite-canvas/src/lib/media/local-webp-thumbnail";
 import { PromptDetailDialog } from "@/reference/infinite-canvas/src/pages/prompts/components/prompt-detail-dialog";
 import { PromptImagePreview } from "@/reference/infinite-canvas/src/pages/prompts/components/prompt-image-preview";
 import { fetchSourcePrompts, type Prompt } from "@/reference/infinite-canvas/src/services/api/prompts";
@@ -360,7 +361,7 @@ function CanvasNodeTreeBranch({ branch, collapsedGroupIds, selectedNodeIds, chec
                 <button type="button" onClick={() => (selectMode ? onToggleChecked(node.id) : onFocusNode(node.id))} className="flex min-w-0 flex-1 items-center gap-2.5 px-1 py-2 text-left" title={selectMode ? undefined : "定位到节点"}>
                     {selectMode ? <CheckMark checked={isChecked} theme={theme} /> : null}
                     <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md" style={isGroup ? { background: theme.node.fill } : undefined}>
-                        {isImage ? <img src={node.metadata!.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-4.5 opacity-65" />}
+                        {isImage ? <LocalWebpImage src={node.metadata!.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-4.5 opacity-65" />}
                     </span>
                     <span className="min-w-0 flex-1 space-y-0.5">
                         <span className="block truncate text-sm font-medium leading-snug">{node.title || getNodeDefinition(node.type)?.title || (isGroup ? "未命名分组" : "未命名节点")}</span>
@@ -616,7 +617,7 @@ function AssetCover({ asset, videoRef }: { asset: Asset; videoRef?: Ref<HTMLVide
     if (asset.kind === "text") return <div className="size-full overflow-hidden whitespace-pre-wrap break-words p-2.5 text-[11px] leading-snug opacity-80">{asset.data.content}</div>;
     if (asset.kind === "video") return <VideoAssetCover asset={asset} videoRef={videoRef} />;
     if (asset.kind === "audio") return <AudioAssetCover asset={asset} />;
-    return <img src={asset.coverUrl || asset.data.dataUrl} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
+    return <LocalWebpImage src={asset.coverUrl || asset.data.dataUrl} alt="" className="size-full object-cover transition duration-300 group-hover:scale-[1.04]" />;
 }
 
 function AudioAssetCover({ asset }: { asset: Extract<Asset, { kind: "audio" }> }) {

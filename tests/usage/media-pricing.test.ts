@@ -3,8 +3,10 @@ import test from 'node:test';
 import {
   estimateImagePrice,
   estimateImageUsagePrice,
+  estimateAudioPrice,
   estimateTextPrice,
   estimateVideoPrice,
+  normalizePricingModel,
   normalizeVideoPriceResolution,
   extractReportedCostUsd,
 } from '../../lib/usage/pricing';
@@ -92,6 +94,16 @@ test('uses HappyHorse and MiniMax capabilities with concrete video-reference est
   assert.equal(estimateVideoPrice({
     model: 'dreamina-seedance-2-5', duration: 5, resolution: '720p', ratio: '16:9', hasVideoReference: true,
   })?.estimatedCostUsd, 0.5901746);
+});
+
+test('normalizes editable MiniMax names and exposes Seed Audio per-minute pricing', () => {
+  assert.equal(normalizePricingModel('minimax h3'), 'MiniMax-H3');
+  assert.equal(normalizePricingModel('custom-channel::MiniMax-H3'), 'MiniMax-H3');
+  assert.equal(estimateVideoPrice({
+    model: 'MiniMax H3', duration: 6, resolution: '768p',
+  })?.estimatedCostUsd, 0.48);
+  assert.equal(estimateAudioPrice({ model: 'Seed Audio 1.0' })?.snapshot.raw_per_minute_cny, 1);
+  assert.equal(estimateAudioPrice({ model: 'seed-audio-1.0', durationSeconds: 30 })?.snapshot.billed_minutes_estimated, 0.5);
 });
 
 test('uses the same text catalog for all configured text models', () => {

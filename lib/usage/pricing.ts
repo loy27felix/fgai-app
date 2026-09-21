@@ -19,8 +19,10 @@ export type MediaPrice = {
 const BILLING_SNAPSHOT_DATE = '2026-09-10';
 const WETOKEN_BILLING_URL = 'https://wetoken.ai/billing-v2';
 const VOLCENGINE_SEEDANCE_PRICING_URL = 'https://docs.volcengine.com/docs/82379/1544106?lang=zh#02affcb8';
+const VOLCENGINE_SEED_AUDIO_PRICING_URL = 'https://docs.volcengine.com/docs/DoubaoVoice/audio-generation-http?lang=zh';
 const SEEDANCE_FRAME_RATE = 24;
 const TOKEN_SCALE = 1_000_000;
+const SEED_AUDIO_CNY_PER_MINUTE = 1;
 // The verified Seedance 2.5 sample costs ¥45.36 at the Volcengine list
 // formula, then receives the 85% WeToken model discount and settles at
 // $5.901746. Keep the settlement conversion explicit rather than treating a
@@ -40,6 +42,19 @@ export function normalizeVideoPriceResolution(value: string) {
   const normalized = normalizedResolution(value);
   if (normalized === '2k' || normalized === '4k') return normalized;
   return normalized ? (normalized.endsWith('p') ? normalized : `${normalized}p`) : '';
+}
+
+/**
+ * Provider/channel model names are user-editable. Keep pricing keyed to a
+ * stable canonical id so cosmetic differences do not hide a known price.
+ */
+export function normalizePricingModel(value: string) {
+  const model = value.trim();
+  const candidate = model.includes('::') ? model.slice(model.lastIndexOf('::') + 2).trim() : model;
+  const compact = candidate.toLowerCase().replace(/[\s_.-]+/g, '');
+  if (compact === 'minimaxh3' || compact === 'minimaxh3video') return 'MiniMax-H3';
+  if (compact === 'seedaudio10' || compact === 'seedaudio1') return 'seed-audio-1.0';
+  return candidate;
 }
 
 function snapshot(input: {
@@ -381,7 +396,7 @@ const SEEDANCE_DIMENSIONS: Record<string, Record<string, readonly [number, numbe
 };
 
 export function estimateLedgerPrice(input: {
-  kind: 'text' | 'image' | 'video';
+  kind: 'text' | 'image' | 'video' | 'audio';
   model: string;
   resolution?: string | null;
   videoSeconds?: number | null;
@@ -398,6 +413,7 @@ export function estimateLedgerPrice(input: {
   if (input.kind === 'image') return estimateImagePrice(input.model, input.resolution || '', {
     referenceCount: input.imageReferenceCount,
   });
+  if (input.kind === 'audio') return estimateAudioPrice({ model: input.model, durationSeconds: input.videoSeconds });
   return estimateVideoPrice({
     model: input.model, duration: input.videoSeconds || 0, resolution: input.resolution || '',
     ratio: input.ratio || '16:9', hasVideoReference: input.hasVideoReference,
@@ -416,34 +432,35 @@ export function estimateVideoPrice(input: {
   /** Sum of known reference-video durations. Missing legacy metadata is 0. */
   videoReferenceSeconds?: number;
 }): MediaPrice | null {
+  const model = normalizePricingModel(input.model);
   const duration = Math.floor(Number(input.duration));
   const resolution = normalizedResolution(input.resolution);
   const imageReferences = Math.max(0, Math.floor(input.imageReferenceCount || 0));
   const videoReferenceSeconds = Math.max(0, Number(input.videoReferenceSeconds) || 0);
 
-  if (input.model.startsWith('happyhorse-1.1-')) {
+  if (model.startsWith('happyhorse-1.1-')) {
     if (duration < 3 || duration > 15) return null;
     const raw = resolution === '720p' ? 0.14 : resolution === '1080p' ? 0.18 : null;
     if (raw === null) return null;
     return snapshot({
-      model: input.model, cost: raw * 0.45, basis: 'per_generation',
+      model, cost: raw * 0.45, basis: 'per_generation',
       note: 'HappyHorse 1.1 按次、按分辨率计费。',
       values: { resolution, raw_per_generation_usd: raw, account_multiplier: 0.45, duration_seconds: duration, reference_images: imageReferences },
     });
   }
-  if (input.model === 'MiniMax-H3') {
+  if (model === 'MiniMax-H3') {
     if (duration < 4 || duration > 15) return null;
     const perSecond = resolution === '768p' ? 0.08 : resolution === '2k' ? 0.13 : null;
     if (perSecond === null) return null;
     const referenceExtra = Math.max(0, imageReferences - 5) * 0.04;
     return snapshot({
-      model: input.model, cost: (duration + videoReferenceSeconds) * perSecond + referenceExtra, basis: 'per_second_with_reference_video_plus_extra_reference',
+      model, cost: (duration + videoReferenceSeconds) * perSecond + referenceExtra, basis: 'per_second_with_reference_video_plus_extra_reference',
       note: 'MiniMax H3 按输出与参考视频秒数计费；超过 5 张参考图的部分按张计费。缺失旧视频时长时仅按输出秒数预估。',
       values: { resolution, duration_seconds: duration, reference_video_seconds: videoReferenceSeconds, output_per_second_usd: perSecond, reference_images: imageReferences, extra_reference_cost_usd: referenceExtra, account_multiplier: 1 },
     });
   }
 
-  const catalog = SEEDANCE_CATALOG[input.model];
+  const catalog = SEEDANCE_CATALOG[model];
   if (!catalog || duration < catalog.minDuration || duration > catalog.maxDuration) return null;
   const ratio = String(input.ratio || '16:9').trim();
   const dimensions = SEEDANCE_DIMENSIONS[resolution]?.[ratio];
@@ -455,7 +472,7 @@ export function estimateVideoPrice(input: {
   const costCny = estimatedTokens * rawRateCny / TOKEN_SCALE;
   const cost = costCny * catalog.multiplier * SEEDANCE_SETTLEMENT_USD_PER_CNY;
   return snapshot({
-    model: input.model, cost, basis: 'seedance_output_token_formula',
+    model, cost, basis: 'seedance_output_token_formula',
     note: 'Seedance 按火山官方人民币 token 公式、参考视频档位、当前 WeToken 模型折扣和结算汇率估算；前台统一显示人民币。',
     source: 'Volcengine Seedance official RMB pricing + WeToken account discount',
     sourceUrl: VOLCENGINE_SEEDANCE_PRICING_URL,
@@ -466,6 +483,36 @@ export function estimateVideoPrice(input: {
       account_multiplier: catalog.multiplier,
       pre_discount_settlement_usd_per_cny: rounded(SEEDANCE_SETTLEMENT_USD_PER_CNY, 12),
       raw_cost_cny: rounded(costCny, 6),
+    },
+  });
+}
+
+/**
+ * Seed Audio is billed by generated duration. Before the provider returns a
+ * duration, expose the verified per-minute rate instead of pretending every
+ * request has a fixed cost.
+ */
+export function estimateAudioPrice(input: { model: string; durationSeconds?: number | null }): MediaPrice | null {
+  const model = normalizePricingModel(input.model);
+  if (model !== 'seed-audio-1.0') return null;
+  const durationSeconds = Number(input.durationSeconds);
+  const hasDuration = Number.isFinite(durationSeconds) && durationSeconds > 0;
+  const billedMinutes = hasDuration ? durationSeconds / 60 : 1;
+  const costCny = billedMinutes * SEED_AUDIO_CNY_PER_MINUTE;
+  return snapshot({
+    model,
+    cost: costCny / getUsdToCnyRate(),
+    basis: 'per_audio_minute',
+    note: hasDuration
+      ? 'Seed Audio 1.0 按实际生成时长计费，火山引擎推理价为 ¥1/分钟。'
+      : 'Seed Audio 1.0 火山引擎推理价为 ¥1/分钟；生成前仅显示单位价，完成后按实际时长结算。',
+    source: 'Volcengine Seed Audio official RMB pricing',
+    sourceUrl: VOLCENGINE_SEED_AUDIO_PRICING_URL,
+    values: {
+      duration_seconds: hasDuration ? rounded(durationSeconds, 3) : undefined,
+      billed_minutes_estimated: rounded(billedMinutes, 6),
+      raw_per_minute_cny: SEED_AUDIO_CNY_PER_MINUTE,
+      account_usd_to_cny_rate: getUsdToCnyRate(),
     },
   });
 }

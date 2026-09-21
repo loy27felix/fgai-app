@@ -70,6 +70,7 @@ import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives
 import { activeVideoAlternativeIndex, appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { cloneCanvasNodeForDuplicate, dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import { getCanvasEdgeAutoPanDelta } from "@/reference/infinite-canvas/src/lib/canvas/canvas-edge-auto-pan";
+import { canvasViewportWorldRect, connectionIntersectsRect, type CanvasWorldRect } from "@/reference/infinite-canvas/src/lib/canvas/canvas-connection-viewport";
 import {
     audioExtension,
     buildAngleLabel,
@@ -1472,6 +1473,14 @@ function InfiniteCanvasPage() {
     }, [collapsingBatchIds, nodes, size.height, size.width, viewport.k, viewport.x, viewport.y]);
 
     const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+    const viewportWorldRect = useMemo<CanvasWorldRect>(() => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        return canvasViewportWorldRect(viewport, rect?.width || size.width, rect?.height || size.height);
+    }, [size.height, size.width, viewport.k, viewport.x, viewport.y]);
+    const edgeCullWorldRect = useMemo<CanvasWorldRect>(() => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        return canvasViewportWorldRect(viewport, rect?.width || size.width, rect?.height || size.height, 220);
+    }, [size.height, size.width, viewport.k, viewport.x, viewport.y]);
     // 工具条跟随「单选节点」:点击/新建/框选/键盘选中任一节点都会显示,不再仅靠精确点中触发。
     // 多选时不显示;拖拽中由下方 isNodeDragging 守卫隐藏。
     const singleSelectedNodeId = selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
@@ -1545,13 +1554,16 @@ function InfiniteCanvasPage() {
     // Edges are much cheaper to draw when neither endpoint is on screen. Keep
     // a selected/related edge visible so keyboard and hover actions still
     // provide context while panning through a large graph.
-    const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
     const visibleConnections = useMemo(
-        () => connections.filter((connection) => visibleNodeIds.has(connection.fromNodeId)
-            || visibleNodeIds.has(connection.toNodeId)
+        () => connections.filter((connection) => {
+            const from = nodeById.get(connection.fromNodeId);
+            const to = nodeById.get(connection.toNodeId);
+            const intersectsViewport = Boolean(from && to && connectionIntersectsRect(from, to, edgeCullWorldRect));
+            return intersectsViewport
             || selectedConnectionId === connection.id
-            || relatedHighlight.connectionIds.has(connection.id)),
-        [connections, relatedHighlight.connectionIds, selectedConnectionId, visibleNodeIds],
+            || relatedHighlight.connectionIds.has(connection.id);
+        }),
+        [connections, edgeCullWorldRect, nodeById, relatedHighlight.connectionIds, selectedConnectionId],
     );
 
     const configInputsById = useMemo(() => {
@@ -5077,37 +5089,44 @@ function InfiniteCanvasPage() {
                     onDrop={handleDrop}
                 >
                     <svg className="absolute left-0 top-0 h-[10000px] w-[10000px] overflow-visible" style={{ pointerEvents: "none", transform: "translateZ(0)", zIndex: 0 }}>
-                        {visibleConnections
-                            .filter((connection) => {
-                                const from = nodeById.get(connection.fromNodeId);
-                                const to = nodeById.get(connection.toNodeId);
-                                return Boolean(from && to && !isHiddenBatchConnectionEndpoint(from, nodes) && !isHiddenBatchConnectionEndpoint(to, nodes));
-                            })
-                            .map((connection) => {
-                                const from = nodeById.get(connection.fromNodeId);
-                                const to = nodeById.get(connection.toNodeId);
-                                if (!from || !to) return null;
+                        <defs>
+                            <clipPath id="canvas-edge-viewport-clip" clipPathUnits="userSpaceOnUse">
+                                <rect x={viewportWorldRect.left} y={viewportWorldRect.top} width={Math.max(0, viewportWorldRect.right - viewportWorldRect.left)} height={Math.max(0, viewportWorldRect.bottom - viewportWorldRect.top)} />
+                            </clipPath>
+                        </defs>
+                        <g clipPath="url(#canvas-edge-viewport-clip)">
+                            {visibleConnections
+                                .filter((connection) => {
+                                    const from = nodeById.get(connection.fromNodeId);
+                                    const to = nodeById.get(connection.toNodeId);
+                                    return Boolean(from && to && !isHiddenBatchConnectionEndpoint(from, nodes) && !isHiddenBatchConnectionEndpoint(to, nodes));
+                                })
+                                .map((connection) => {
+                                    const from = nodeById.get(connection.fromNodeId);
+                                    const to = nodeById.get(connection.toNodeId);
+                                    if (!from || !to) return null;
 
-                                return (
-                                    <ConnectionPath
-                                        key={connection.id}
-                                        connection={connection}
-                                        from={from}
-                                        to={to}
-                                        active={selectedConnectionId === connection.id || relatedHighlight.connectionIds.has(connection.id)}
-                                        onSelect={() => {
-                                            setSelectedConnectionId(connection.id);
-                                            setSelectedNodeIds(new Set());
-                                            setContextMenu(null);
-                                        }}
-                                        onContextMenu={(event) => {
-                                            setSelectedConnectionId(connection.id);
-                                            setSelectedNodeIds(new Set());
-                                            setContextMenu({ type: "connection", x: event.clientX, y: event.clientY, connectionId: connection.id });
-                                        }}
-                                    />
-                                );
-                            })}
+                                    return (
+                                        <ConnectionPath
+                                            key={connection.id}
+                                            connection={connection}
+                                            from={from}
+                                            to={to}
+                                            active={selectedConnectionId === connection.id || relatedHighlight.connectionIds.has(connection.id)}
+                                            onSelect={() => {
+                                                setSelectedConnectionId(connection.id);
+                                                setSelectedNodeIds(new Set());
+                                                setContextMenu(null);
+                                            }}
+                                            onContextMenu={(event) => {
+                                                setSelectedConnectionId(connection.id);
+                                                setSelectedNodeIds(new Set());
+                                                setContextMenu({ type: "connection", x: event.clientX, y: event.clientY, connectionId: connection.id });
+                                            }}
+                                        />
+                                    );
+                                })}
+                        </g>
                         {connectingParams ? <ActiveConnectionPath node={nodeById.get(connectingParams.nodeId)} handle={connectingParams} mouseWorld={mouseWorld} target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined} /> : null}
                     </svg>
 

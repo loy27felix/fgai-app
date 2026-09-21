@@ -3,6 +3,7 @@ import { App, Empty, Input, Popconfirm, Tag } from "antd";
 import { ChevronRight, FileText, Image as ImageIcon, Plus, Search, Trash2, Video } from "lucide-react";
 
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
+import { LocalWebpImage } from "@/reference/infinite-canvas/src/lib/media/local-webp-thumbnail";
 import { persistCanvasMedia } from "@/reference/infinite-canvas/src/services/file-storage";
 import { persistCanvasImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { useAssetStore, type Asset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
@@ -99,7 +100,7 @@ export const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }
 function AssetCard({ asset, theme, onInsert, onRemove }: { asset: StandardAsset; theme: CanvasTheme; onInsert: () => void; onRemove: () => void }) {
     const [video, setVideo] = useState<HTMLVideoElement | null>(null);
     return <div className="group relative aspect-square overflow-hidden rounded-xl border transition duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: theme.node.stroke, background: theme.node.panel }} onPointerEnter={() => { if (asset.kind === "video") void video?.play().catch((error) => console.warn("[canvas asset video preview failed]", { assetId: asset.id, error })); }} onPointerLeave={() => { video?.pause(); if (video) video.currentTime = 0; }}>
-        {asset.kind === "image" ? <img src={asset.coverUrl || asset.data.dataUrl} alt="" className="size-full object-cover" /> : asset.kind === "video" ? <video ref={setVideo} src={`${asset.data.url}#t=0.1`} muted playsInline loop preload="metadata" className="size-full object-cover" onError={() => console.warn("[canvas asset video preview unavailable]", { assetId: asset.id })} /> : <div className="size-full overflow-hidden whitespace-pre-wrap break-words p-2 text-[11px]">{asset.data.content}</div>}
+        {asset.kind === "image" ? <LocalWebpImage src={asset.coverUrl || asset.data.dataUrl} alt="" className="size-full object-cover" /> : asset.kind === "video" ? <video ref={setVideo} src={`${asset.data.url}#t=0.1`} muted playsInline loop preload="metadata" className="size-full object-cover" onError={() => console.warn("[canvas asset video preview unavailable]", { assetId: asset.id })} /> : <div className="size-full overflow-hidden whitespace-pre-wrap break-words p-2 text-[11px]">{asset.data.content}</div>}
         <div className="absolute inset-0 flex items-center justify-center gap-2.5 opacity-0 transition group-hover:opacity-100"><button type="button" onClick={onInsert} className="grid size-8 place-items-center rounded-full bg-white/90 text-stone-700 shadow-sm"><Plus className="size-4" /></button><Popconfirm title="移除该资产?" okText="移除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={onRemove}><button type="button" className="grid size-8 place-items-center rounded-full bg-white/90 text-red-500 shadow-sm"><Trash2 className="size-4" /></button></Popconfirm></div>
     </div>;
 }

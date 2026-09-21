@@ -7,6 +7,7 @@ import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveC
 import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components/generation-price-badge";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
+import { LocalWebpImage } from "@/reference/infinite-canvas/src/lib/media/local-webp-thumbnail";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasPromptLibrary } from "./canvas-prompt-library";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
@@ -172,7 +173,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     )}
                 </div>
-                {mode === "image" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="image" model={config.model} size={config.size} imageQuality={config.quality} count={Number(config.count) || 1} imageReferenceCount={mentionReferences.filter((reference) => reference.kind === "image").length} /> : mode === "video" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={mentionReferences.some((reference) => reference.kind === "video")} imageReferenceCount={mentionReferences.filter((reference) => reference.kind === "image").length} videoReferenceSeconds={mentionReferences.reduce((total, reference) => total + (reference.kind === "video" ? Math.max(0, reference.durationMs || 0) / 1000 : 0), 0)} /> : null}
+                {mode === "image" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="image" model={config.model} size={config.size} imageQuality={config.quality} count={Number(config.count) || 1} imageReferenceCount={mentionReferences.filter((reference) => reference.kind === "image").length} /> : mode === "video" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={mentionReferences.some((reference) => reference.kind === "video")} imageReferenceCount={mentionReferences.filter((reference) => reference.kind === "image").length} videoReferenceSeconds={mentionReferences.reduce((total, reference) => total + (reference.kind === "video" ? Math.max(0, reference.durationMs || 0) / 1000 : 0), 0)} /> : mode === "audio" ? <GenerationPriceBadge className="max-w-full shrink-0" kind="audio" model={config.model} /> : null}
                 <Button
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
@@ -359,7 +360,7 @@ function ReferenceStrip({
                             aria-label={canReorder ? `${reference.label}，按住拖动调整参考发送顺序；引用标签保持不变；也可按 Alt 加左右方向键排序` : onReplace ? `替换 ${reference.label}` : undefined}
                             aria-roledescription={canReorder ? "可拖拽参考素材" : undefined}
                         >
-                            {reference.previewUrl && reference.kind === "image" ? <img src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
+                            {reference.previewUrl && reference.kind === "image" ? <LocalWebpImage src={reference.previewUrl} alt="" className="size-7 rounded-lg object-cover" /> : null}
                             {reference.previewUrl && reference.kind === "video" ? <video src={reference.previewUrl} className="size-7 rounded-lg bg-black object-cover" muted preload="metadata" /> : null}
                             {!reference.previewUrl || (reference.kind !== "image" && reference.kind !== "video") ? <span className="grid size-7 place-items-center rounded-lg bg-black/10 text-[10px] font-bold">{reference.kind === "text" ? "TXT" : reference.kind === "audio" ? "AUD" : "REF"}</span> : null}
                             <span className="max-w-28 truncate text-[11px] font-medium">{reference.label}</span>

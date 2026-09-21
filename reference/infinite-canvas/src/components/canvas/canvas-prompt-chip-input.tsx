@@ -7,6 +7,7 @@ import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { isImeComposing } from "@/reference/infinite-canvas/src/lib/keyboard-event";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
+import { LocalWebpImage } from "@/reference/infinite-canvas/src/lib/media/local-webp-thumbnail";
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
 type Props = {
@@ -309,7 +310,7 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
 }
 
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
+    if (reference.kind === "image" && reference.previewUrl) return <LocalWebpImage src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
     if (reference.kind === "video" && reference.previewUrl) return <video src={reference.previewUrl} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
     const Icon = reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
     return (

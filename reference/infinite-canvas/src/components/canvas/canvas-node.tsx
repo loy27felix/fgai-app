@@ -12,6 +12,7 @@ import { CanvasNodeType, type CanvasNodeData, type Position } from "@/reference/
 import { readImageAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-image-alternatives";
 import { readVideoAlternatives } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { isFailedCanvasMediaUpload } from "@/reference/infinite-canvas/src/lib/canvas/canvas-upload-durability";
+import { LocalWebpImage } from "@/reference/infinite-canvas/src/lib/media/local-webp-thumbnail";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/reference/infinite-canvas/src/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
 
@@ -934,7 +935,7 @@ function ImageContent({
                 </div>
             ) : null}
             <div data-canvas-video-frame-capture={node.metadata?.isVideoFrameCapture ? "true" : undefined} className={`relative z-10 h-full w-full overflow-hidden ${node.metadata?.isVideoFrameCapture ? "rounded-none" : "rounded-3xl"}`}>
-                <img
+                <LocalWebpImage
                     src={activeContent}
                     alt={node.title}
                     draggable={false}

@@ -3,6 +3,7 @@ import { Empty, Input, Modal, Pagination, Tag } from "antd";
 import { Search } from "lucide-react";
 
 import { cn } from "@/reference/infinite-canvas/src/lib/utils";
+import { LocalWebpImage } from "@/reference/infinite-canvas/src/lib/media/local-webp-thumbnail";
 import { useAssetStore, type Asset } from "@/reference/infinite-canvas/src/stores/use-asset-store";
 
 export const ASSET_DRAG_MIME = "application/x-fg-studio-material";
@@ -63,7 +64,7 @@ function PickerCard({ title, kind, cover, onClick }: { title: string; kind: stri
             {kind === "video" && cover ? (
                 <video ref={setVideo} src={`${cover}#t=0.1`} muted playsInline loop preload="metadata" className="aspect-[4/3] w-full object-cover" onError={() => console.warn("[asset picker video preview unavailable]", { title })} />
             ) : cover ? (
-                <img src={cover} alt={title} className="aspect-[4/3] w-full object-cover" />
+                <LocalWebpImage src={cover} alt={title} className="aspect-[4/3] w-full object-cover" />
             ) : (
                 <div className="flex aspect-[4/3] items-center justify-center bg-stone-100 p-3 text-center text-xs leading-5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">{title}</div>
             )}

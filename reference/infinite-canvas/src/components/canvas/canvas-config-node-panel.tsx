@@ -117,7 +117,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                 )}
             </div>
 
-            {mode === "image" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="image" model={config.model} size={config.size} imageQuality={config.quality} count={Number(config.count) || 1} imageReferenceCount={inputSummary.imageCount} /></div> : mode === "video" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={inputSummary.videoCount > 0} imageReferenceCount={inputSummary.imageCount} videoReferenceSeconds={inputSummary.videoReferenceSeconds} /></div> : null}
+            {mode === "image" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="image" model={config.model} size={config.size} imageQuality={config.quality} count={Number(config.count) || 1} imageReferenceCount={inputSummary.imageCount} /></div> : mode === "video" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="video" model={config.model} duration={config.videoSeconds} resolution={config.vquality} ratio={config.size} hasVideoReference={inputSummary.videoCount > 0} imageReferenceCount={inputSummary.imageCount} videoReferenceSeconds={inputSummary.videoReferenceSeconds} /></div> : mode === "audio" ? <div className="mb-2 flex justify-end"><GenerationPriceBadge kind="audio" model={config.model} /></div> : null}
             <Button
                 type="primary"
                 className="mt-auto !h-9 !w-full !cursor-pointer !rounded-lg"
