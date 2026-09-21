@@ -12,6 +12,7 @@
     "docker:config": "docker compose --env-file .env.docker config -q",
     "docker:ps": "docker compose --env-file .env.docker ps",
     "docker:up": "docker compose --env-file .env.docker up -d --build",
+    "docker:restart:app": "docker compose --env-file .env.docker up -d --no-deps --force-recreate app",
     "logs:docker": "docker compose --env-file .env.docker logs --timestamps --follow --tail=200",
     "logs:app": "docker compose --env-file .env.docker logs --timestamps --follow --tail=200 app",
     "logs:app:history": "find \"$HOME/Library/Logs/fg-studio-app\" -type f -name '*.log' -print | sort",
