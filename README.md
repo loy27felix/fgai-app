@@ -38,11 +38,14 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 WETOKEN_API_KEY=...
 WETOKEN_BASE_URL=https://wetoken.ai/v1
 WETOKEN_ASSET_BASE_URL=https://asset.wetoken.ai  # 可选，Seedance 素材库地址
+VOLCENGINE_SEED_AUDIO_API_KEY=                  # 可选，Seed Audio 1.0 服务端 API Key
 USAGE_USD_TO_CNY_RATE=6.77
 MEDIA_WORKER_ENABLED=false
 ```
 
 `DATABASE_URL`、`SESSION_SECRET`、`DEEPSEEK_API_KEY` 和 `WETOKEN_API_KEY` 只能放在服务端环境变量中。`USAGE_USD_TO_CNY_RATE` 仅用于费用展示，可按实际结算汇率调整。
+
+画布的 `seed-audio-1.0` 通过服务端代理调用火山引擎，API Key 只读取 `VOLCENGINE_SEED_AUDIO_API_KEY`，不会写入浏览器或画布配置。生成的音频在返回后仍会通过 `/api/creator/canvas-assets` 保存到云端素材桶。
 
 `MEDIA_WORKER_ENABLED` 默认必须为 `false`。它只控制新增的本地 GPU 后处理 API，不改变现有 Mac mini 的 WeToken、账单、队列和 NAS 职责。两机 canary 通过后才能改为 `true`。
 

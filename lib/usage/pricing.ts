@@ -35,6 +35,13 @@ function normalizedResolution(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, '');
 }
 
+/** Normalize UI resolution labels before sending them to the pricing catalog. */
+export function normalizeVideoPriceResolution(value: string) {
+  const normalized = normalizedResolution(value);
+  if (normalized === '2k' || normalized === '4k') return normalized;
+  return normalized ? (normalized.endsWith('p') ? normalized : `${normalized}p`) : '';
+}
+
 function snapshot(input: {
   model: string;
   cost: number;

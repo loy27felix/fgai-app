@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/reference/infinite-canvas/src/lib/audio-generation";
+import { isSeedAudioModel, normalizeSeedAudioFormat, seedAudioMimeType, SEED_AUDIO_MODEL } from "@/lib/ai/seed-audio";
 import type { UploadedFile } from "@/reference/infinite-canvas/src/services/file-storage";
 import { persistGeneratedCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
 import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
@@ -42,6 +43,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
             throw new Error(readAxiosError(error, "音频生成失败"));
         }
     }
+    if (isSeedAudioModel(model)) return requestSeedAudio(prompt, format, config.audioInstructions, options);
     assertAudioConfig(requestConfig, model);
     const instructions = config.audioInstructions.trim();
 
@@ -65,6 +67,30 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     }
 }
 
+async function requestSeedAudio(prompt: string, format: string, instructions: string, options?: RequestOptions): Promise<Blob> {
+    const providerFormat = normalizeSeedAudioFormat(format);
+    let response: Response;
+    try {
+        response = await fetch("/api/creator/audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: SEED_AUDIO_MODEL, prompt, format: providerFormat, instructions: instructions.trim() }),
+            signal: options?.signal,
+        });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") throw new Error("请求已取消");
+        throw new Error("音频服务暂时无法访问，请稍后重试");
+    }
+    if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { error?: unknown; message?: unknown };
+        const message = typeof payload.error === "string" ? payload.error : typeof payload.message === "string" ? payload.message : `音频生成失败（HTTP ${response.status}）`;
+        throw new Error(message);
+    }
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("音频服务没有返回结果");
+    return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: seedAudioMimeType(providerFormat) });
+}
+
 async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
     if (result instanceof Blob) return result.type.startsWith("audio/") ? result : new Blob([result], { type: audioMimeType(format) });
     let source = "";
@@ -81,9 +107,10 @@ async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
 
 export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<UploadedFile> {
     const audio = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
+    const extension = format === "wav" ? "wav" : format === "opus" ? "opus" : format === "aac" ? "aac" : format === "flac" ? "flac" : format === "pcm" ? "pcm" : "mp3";
     const stored = await persistGeneratedCanvasAsset(audio, {
         kind: "audio",
-        name: `generated-audio.${format === "wav" ? "wav" : "mp3"}`,
+        name: `generated-audio.${extension}`,
         mimeType: audio.type || audioMimeType(format),
     });
     return {
