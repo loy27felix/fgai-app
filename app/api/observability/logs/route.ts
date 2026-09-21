@@ -31,6 +31,21 @@ export async function GET(request: Request) {
       offset: params.get('offset') || '0',
       limit: params.get('limit') || '200',
       cursor: params.get('cursor') || null,
+      service: params.get('service') || undefined,
+      event: params.get('event') || undefined,
+      route: params.get('route') || undefined,
+      outcome: params.get('outcome') || undefined,
+      traceId: params.get('traceId') || undefined,
+      requestId: params.get('requestId') || undefined,
+      taskId: params.get('taskId') || undefined,
+      userId: params.get('userId') || undefined,
+      actorEmail: params.get('actorEmail') || undefined,
+      httpStatus: params.get('httpStatus') || undefined,
+      httpStatusGte: params.get('httpStatusGte') || undefined,
+      httpStatusLte: params.get('httpStatusLte') || undefined,
+      durationMs: params.get('durationMs') || undefined,
+      durationMsGte: params.get('durationMsGte') || undefined,
+      durationMsLte: params.get('durationMsLte') || undefined,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

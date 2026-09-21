@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
-import { DatePicker } from "antd";
+import { DatePicker, Input, Tag } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import dayjs, { type Dayjs } from "dayjs";
 import { Icon } from "@/components/studio/ui";
@@ -16,10 +16,33 @@ import type {
 
 type Preset = "15m" | "1h" | "6h" | "24h" | "7d" | "3m";
 type ActivePreset = Preset | "custom";
-type ExplorerProps = { initialData: LogExplorerResult | null; initialError: string };
+type StructuredFilterKey = "service" | "event" | "route" | "outcome" | "traceId" | "requestId" | "taskId" | "userId" | "actorEmail" | "httpStatus" | "httpStatusGte" | "httpStatusLte" | "durationMs" | "durationMsGte" | "durationMsLte";
+type StructuredFilters = Record<StructuredFilterKey, string>;
+export type LogExplorerInitialFilters = Partial<StructuredFilters>;
+type ExplorerProps = { initialData: LogExplorerResult | null; initialError: string; initialFrom: string; initialTo: string; initialQuery: string; initialFilters: LogExplorerInitialFilters };
 const PAGE_SIZES = [50, 100, 200] as const;
 const MAX_RANGE_MONTHS = 3;
 const DISPLAY_TIMEZONE = "Asia/Shanghai";
+const EMPTY_STRUCTURED_FILTERS: StructuredFilters = {
+  service: "", event: "", route: "", outcome: "", traceId: "", requestId: "", taskId: "", userId: "", actorEmail: "", httpStatus: "", httpStatusGte: "", httpStatusLte: "", durationMs: "", durationMsGte: "", durationMsLte: "",
+};
+const STRUCTURED_FILTERS: Array<{ key: StructuredFilterKey; label: string; placeholder: string }> = [
+  { key: "service", label: "服务", placeholder: "creator_video" },
+  { key: "event", label: "事件", placeholder: "wetoken_video_exchange" },
+  { key: "route", label: "接口", placeholder: "/api/creator/videos" },
+  { key: "outcome", label: "结果", placeholder: "failed" },
+  { key: "httpStatus", label: "HTTP", placeholder: "500" },
+  { key: "httpStatusGte", label: "HTTP ≥", placeholder: "400" },
+  { key: "httpStatusLte", label: "HTTP ≤", placeholder: "599" },
+  { key: "durationMs", label: "耗时 (ms)", placeholder: "1000" },
+  { key: "durationMsGte", label: "耗时 ≥ (ms)", placeholder: "1000" },
+  { key: "durationMsLte", label: "耗时 ≤ (ms)", placeholder: "5000" },
+  { key: "traceId", label: "Trace ID", placeholder: "x-fg-trace-id" },
+  { key: "requestId", label: "Request ID", placeholder: "request id" },
+  { key: "taskId", label: "Task ID", placeholder: "task id" },
+  { key: "userId", label: "用户 ID", placeholder: "user uuid" },
+  { key: "actorEmail", label: "用户邮箱", placeholder: "name@example.com" },
+];
 
 const PRESETS: Array<{ key: Preset; label: string; milliseconds?: number; months?: number }> = [
   { key: "15m", label: "近 15 分钟", milliseconds: 15 * 60 * 1_000 },
@@ -146,6 +169,16 @@ function presetForData(data: LogExplorerResult | null): ActivePreset {
     : Math.abs(duration - (item.milliseconds || 0)) < 5_000)?.key || "custom";
 }
 
+function normalizedFilters(filters: LogExplorerInitialFilters) {
+  return { ...EMPTY_STRUCTURED_FILTERS, ...filters };
+}
+
+function activeStructuredFilters(filters: StructuredFilters) {
+  return STRUCTURED_FILTERS
+    .filter((item) => filters[item.key].trim())
+    .map((item) => ({ ...item, value: filters[item.key].trim() }));
+}
+
 function levelMeta(level: string) {
   return LEVEL_META[level as LogLevel] || LEVEL_META.info;
 }
@@ -171,14 +204,20 @@ function timelineSlots(data: LogExplorerResult | null) {
   });
 }
 
-export default function ObservabilityLogExplorer({ initialData, initialError }: ExplorerProps) {
+export default function ObservabilityLogExplorer({ initialData, initialError, initialFrom, initialTo, initialQuery, initialFilters }: ExplorerProps) {
+  const initialStructuredFilters = normalizedFilters(initialFilters);
   const [data, setData] = useState<LogExplorerResult | null>(initialData);
-  const [queryDraft, setQueryDraft] = useState(initialData?.query || "");
+  const [queryDraft, setQueryDraft] = useState(initialData?.query || initialQuery);
   const [source, setSource] = useState<LogSourceFilter>(initialData?.source || "all");
   const [level, setLevel] = useState<LogLevelFilter>(initialData?.level || "all");
+  const [structuredFilters, setStructuredFilters] = useState<StructuredFilters>(initialStructuredFilters);
+  const [appliedQuery, setAppliedQuery] = useState(initialData?.query || initialQuery);
+  const [appliedSource, setAppliedSource] = useState<LogSourceFilter>(initialData?.source || "all");
+  const [appliedLevel, setAppliedLevel] = useState<LogLevelFilter>(initialData?.level || "all");
+  const [appliedFilters, setAppliedFilters] = useState<StructuredFilters>(initialStructuredFilters);
   const [preset, setPreset] = useState<ActivePreset>(() => presetForData(initialData));
-  const [fromDraft, setFromDraft] = useState(initialData ? dateTimeLocalText(initialData.from) : "");
-  const [toDraft, setToDraft] = useState(initialData ? dateTimeLocalText(initialData.to) : "");
+  const [fromDraft, setFromDraft] = useState(dateTimeLocalText(initialData?.from || initialFrom));
+  const [toDraft, setToDraft] = useState(dateTimeLocalText(initialData?.to || initialTo));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(false);
@@ -191,6 +230,7 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
   const slots = useMemo(() => timelineSlots(data), [data]);
   const maxBucket = Math.max(1, ...slots.map((item) => item.total));
   const pageCount = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
+  const activeFilters = activeStructuredFilters(appliedFilters);
 
   async function loadLogs(options: {
     from: Date | string;
@@ -198,6 +238,7 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
     query: string;
     source: LogSourceFilter;
     level: LogLevelFilter;
+    filters: StructuredFilters;
     cursor?: string | null;
     page?: number;
     pageSize?: number;
@@ -212,6 +253,9 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
       offset: "0",
       limit: String(limit),
     });
+    for (const [key, value] of Object.entries(options.filters)) {
+      if (value.trim()) params.set(key, value.trim());
+    }
     if (options.cursor) params.set("cursor", options.cursor);
     setLoading(true);
     setError("");
@@ -220,6 +264,10 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
       const body = await response.json() as LogExplorerResult & { error?: string };
       if (!response.ok) throw new Error(body.error || "日志查询失败");
       setData(body);
+      setAppliedQuery(options.query);
+      setAppliedSource(options.source);
+      setAppliedLevel(options.level);
+      setAppliedFilters(options.filters);
       const targetPage = options.page || 0;
       setPage(targetPage);
       setPageCursors((current) => {
@@ -234,6 +282,9 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
       if (options.query) url.searchParams.set("q", options.query);
       if (options.source !== "all") url.searchParams.set("source", options.source);
       if (options.level !== "all") url.searchParams.set("level", options.level);
+      for (const [key, value] of Object.entries(options.filters)) {
+        if (value.trim()) url.searchParams.set(key, value.trim());
+      }
       window.history.replaceState(null, "", `${url.pathname}${url.search}`);
       setSelectedId(null);
     } catch (loadError) {
@@ -248,7 +299,7 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
     setPreset(nextPreset);
     setFromDraft(dateTimeLocalText(range.from.toISOString()));
     setToDraft(dateTimeLocalText(range.to.toISOString()));
-    void loadLogs({ from: range.from, to: range.to, query: queryDraft.trim(), source, level, page: 0 });
+    void loadLogs({ from: range.from, to: range.to, query: queryDraft.trim(), source, level, filters: structuredFilters, page: 0 });
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -268,25 +319,26 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
       return;
     }
     setPreset("custom");
-    void loadLogs({ from, to, query: queryDraft.trim(), source, level, page: 0 });
+    void loadLogs({ from, to, query: queryDraft.trim(), source, level, filters: structuredFilters, page: 0 });
   }
 
   function reset() {
     setQueryDraft("");
     setSource("all");
     setLevel("all");
+    setStructuredFilters({ ...EMPTY_STRUCTURED_FILTERS });
     const range = rangeForPreset("15m");
     setPreset("15m");
     setFromDraft(dateTimeLocalText(range.from.toISOString()));
     setToDraft(dateTimeLocalText(range.to.toISOString()));
-    void loadLogs({ from: range.from, to: range.to, query: "", source: "all", level: "all", page: 0 });
+    void loadLogs({ from: range.from, to: range.to, query: "", source: "all", level: "all", filters: EMPTY_STRUCTURED_FILTERS, page: 0 });
   }
 
   function goToPage(nextPage: number) {
     if (!data || loading || nextPage < 0 || nextPage >= pageCount || nextPage === page) return;
     const cursor = pageCursors[nextPage] || null;
     if (nextPage > 0 && !cursor) return;
-    void loadLogs({ from: data.from, to: data.to, query: data.query, source: data.source, level: data.level, cursor, page: nextPage });
+    void loadLogs({ from: data.from, to: data.to, query: appliedQuery, source: appliedSource, level: appliedLevel, filters: appliedFilters, cursor, page: nextPage });
   }
 
   function changePageSize(value: string) {
@@ -294,7 +346,47 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
     if (!PAGE_SIZES.includes(nextPageSize as (typeof PAGE_SIZES)[number])) return;
     setPageSize(nextPageSize);
     if (!data) return;
-    void loadLogs({ from: data.from, to: data.to, query: data.query, source: data.source, level: data.level, page: 0, pageSize: nextPageSize });
+    void loadLogs({ from: data.from, to: data.to, query: appliedQuery, source: appliedSource, level: appliedLevel, filters: appliedFilters, page: 0, pageSize: nextPageSize });
+  }
+
+  function setFilter(key: StructuredFilterKey, value: string) {
+    setStructuredFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function reload(next: Partial<{ query: string; source: LogSourceFilter; level: LogLevelFilter; filters: StructuredFilters }>) {
+    const rangeFrom = data?.from || dateFromInput(fromDraft)?.toISOString();
+    const rangeTo = data?.to || dateFromInput(toDraft)?.toISOString();
+    if (!rangeFrom || !rangeTo) return;
+    void loadLogs({
+      from: rangeFrom,
+      to: rangeTo,
+      query: next.query ?? appliedQuery,
+      source: next.source ?? appliedSource,
+      level: next.level ?? appliedLevel,
+      filters: next.filters ?? appliedFilters,
+      page: 0,
+    });
+  }
+
+  function applyFilter(key: StructuredFilterKey, value: string) {
+    const filters = { ...appliedFilters, [key]: value };
+    setStructuredFilters(filters);
+    reload({ filters });
+  }
+
+  function removeFilter(key: StructuredFilterKey) {
+    applyFilter(key, "");
+  }
+
+  function drillIntoBucket(timestamp: string) {
+    if (!data) return;
+    const from = new Date(timestamp);
+    const to = new Date(Math.min(from.getTime() + data.bucketSeconds * 1_000, Date.parse(data.to)));
+    if (from >= to) return;
+    setPreset("custom");
+    setFromDraft(dateTimeLocalText(from.toISOString()));
+    setToDraft(dateTimeLocalText(to.toISOString()));
+    void loadLogs({ from, to, query: appliedQuery, source: appliedSource, level: appliedLevel, filters: appliedFilters, page: 0 });
   }
 
   return (
@@ -324,7 +416,7 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
             </label>
             <button className="log-explorer__querybutton" type="submit" disabled={loading}>{loading ? "查询中…" : "查询"}<Icon d={["M5 12h14", "m13 6 6 6-6 6"]} size={15} /></button>
           </div>
-          <div className="log-explorer__queryhint"><span>匹配 actor / email / event / action / message / trace / task / route / parameters / JSON</span>{queryDraft ? <button type="button" onClick={() => setQueryDraft("")} aria-label="清除搜索词"><Icon d={["M6 6l12 12", "M18 6 6 18"]} size={13} /></button> : null}</div>
+          <div className="log-explorer__queryhint"><span>支持 SLS 表达式；未带字段的词作为全文检索。示例：service:creator_video status&gt;=500 taskId:&quot;...&quot;</span>{queryDraft ? <button type="button" onClick={() => setQueryDraft("")} aria-label="清除搜索表达式"><Icon d={["M6 6l12 12", "M18 6 6 18"]} size={13} /></button> : null}</div>
           <div className="log-explorer__timerow">
             <span className="fg-mono log-explorer__timemark">TIME RANGE</span>
             <DatePicker.RangePicker
@@ -348,6 +440,19 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
             />
           </div>
         </form>
+        <details style={{ marginTop: 10, padding: "10px 5px 0", borderTop: "1px solid var(--stroke)" }}>
+          <summary className="fg-mono" style={{ color: "var(--accent)", cursor: "pointer", fontSize: 10, letterSpacing: ".1em" }}>字段筛选</summary>
+          <div className="log-explorer__selects" style={{ marginTop: 10 }}>
+            {STRUCTURED_FILTERS.map((item) => <label key={item.key} htmlFor={`log-filter-${item.key}`}><span>{item.label}</span><Input id={`log-filter-${item.key}`} size="small" value={structuredFilters[item.key]} onChange={(event) => setFilter(item.key, event.target.value)} placeholder={item.placeholder} aria-label={`按${item.label}筛选`} /></label>)}
+          </div>
+        </details>
+        {(appliedQuery || appliedSource !== "all" || appliedLevel !== "all" || activeFilters.length) ? <div className="log-explorer__queryhint" aria-label="已生效条件">
+          <span>当前条件</span>
+          {appliedQuery ? <Tag closable onClose={() => { setQueryDraft(""); reload({ query: "" }); }}>表达式: {appliedQuery}</Tag> : null}
+          {appliedSource !== "all" ? <Tag closable onClose={() => { setSource("all"); reload({ source: "all" }); }}>来源: {sourceLabel(appliedSource)}</Tag> : null}
+          {appliedLevel !== "all" ? <Tag closable onClose={() => { setLevel("all"); reload({ level: "all" }); }}>级别: {appliedLevel}</Tag> : null}
+          {activeFilters.map((item) => <Tag key={item.key} closable onClose={() => removeFilter(item.key)}>{item.label}: {item.value}</Tag>)}
+        </div> : null}
         <div className="log-explorer__filters">
           <div className="log-explorer__presets" aria-label="时间范围">
             {PRESETS.map((item) => <button key={item.key} type="button" className={preset === item.key ? "is-active" : ""} onClick={() => runPreset(item.key)} disabled={loading}>{item.label}</button>)}
@@ -372,15 +477,15 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
           <div><span className="fg-mono log-explorer__eyebrow">EVENT DENSITY</span><h2>时间分布</h2></div>
           <span className="fg-mono log-explorer__sectionmeta">{data ? `${data.bucketSeconds < 3_600 ? `${Math.round(data.bucketSeconds / 60)} 分钟` : `${Math.round(data.bucketSeconds / 3_600)} 小时`} / 桶` : "暂无数据"}</span>
         </div>
-        <div className="log-explorer__chart" role="img" aria-label="按时间分布的日志数量柱状图">
-          {slots.length ? slots.map((item) => <div key={item.timestamp} className="log-explorer__bar" title={`${dateText(item.timestamp)} · ${item.total} 条`}>
+        <div className="log-explorer__chart" aria-label="按时间分布的日志数量柱状图">
+          {slots.length ? slots.map((item) => <button key={item.timestamp} type="button" className="log-explorer__bar" title={`${dateText(item.timestamp)} · ${item.total} 条；点击缩小到该时间段`} aria-label={`${dateText(item.timestamp)}，${item.total} 条日志，点击缩小时间范围`} onClick={() => drillIntoBucket(item.timestamp)} style={{ border: 0, background: "transparent", padding: 0 }}>
             <div className="log-explorer__barstack" style={{ height: `${item.total ? Math.max(7, item.total / maxBucket * 100) : 2}%` }}>
               <span className="is-critical" style={{ height: `${item.total ? item.critical / item.total * 100 : 0}%` }} />
               <span className="is-error" style={{ height: `${item.total ? item.error / item.total * 100 : 0}%` }} />
               <span className="is-warning" style={{ height: `${item.total ? item.warning / item.total * 100 : 0}%` }} />
               <span className="is-info" style={{ height: `${item.total ? item.info / item.total * 100 : 0}%` }} />
             </div>
-          </div>) : <div className="log-explorer__chartempty">当前时间范围没有事件</div>}
+          </button>) : <div className="log-explorer__chartempty">当前时间范围没有事件</div>}
         </div>
         {slots.length ? <div className="log-explorer__chartlabels"><span>{clockText(slots[0].timestamp)}</span><span>{clockText(slots[Math.floor(slots.length / 2)].timestamp)}</span><span>{clockText(slots[slots.length - 1].timestamp)}</span></div> : null}
         <div className="log-explorer__legend"><span><i className="is-info" />Info {count(summary.info)}</span><span><i className="is-warning" />Warning {count(summary.warning)}</span><span><i className="is-error" />Error {count(summary.error)}</span><span><i className="is-critical" />Critical {count(summary.critical)}</span></div>
@@ -393,8 +498,8 @@ export default function ObservabilityLogExplorer({ initialData, initialError }: 
             <span className="fg-mono log-explorer__sectionmeta">{data ? `${count(data.rows.length)} / ${count(data.total)} 条 · 第 ${count(page + 1)} / ${count(pageCount)} 页` : "暂无数据"}</span>
           </div>
           <div className="log-explorer__tablewrap">
-            <div className="log-explorer__tablehead fg-mono"><span>时间</span><span>级别</span><span>来源 / 主体</span><span>事件 / 动作</span><span>摘要</span><span>关联</span></div>
-            {data?.rows.length ? data.rows.map((item) => <LogRow key={item.id} item={item} selected={selectedId === item.id} onSelect={() => setSelectedId(item.id)} />) : <div className="log-explorer__empty"><span className="fg-mono">NO MATCHING EVENTS</span><strong>没有匹配的日志</strong><p>扩大时间范围，或清除关键词和筛选条件后重新查询。</p></div>}
+            <div className="log-explorer__tablehead fg-mono"><span>时间</span><span>级别</span><span>来源 / 主体</span><span>事件 / 动作</span><span>摘要 / 接口</span><span>关联 / 性能</span></div>
+            {data?.rows.length ? data.rows.map((item) => <LogRow key={item.id} item={item} selected={selectedId === item.id} onSelect={() => setSelectedId(item.id)} onFilter={applyFilter} />) : <div className="log-explorer__empty"><span className="fg-mono">NO MATCHING EVENTS</span><strong>没有匹配的日志</strong><p>扩大时间范围，或清除关键词和筛选条件后重新查询。</p></div>}
           </div>
           {data ? <nav className="log-explorer__pagination" aria-label="日志分页">
             <div><span className="fg-mono">PAGE</span><strong>第 {count(page + 1)} / {count(pageCount)} 页</strong><small>本页 {count(data.rows.length)} 条，共 {count(data.total)} 条</small></div>
@@ -412,17 +517,28 @@ function SummaryCard({ label, value, detail, accent }: { label: string; value: n
   return <article className={`log-explorer__summarycard is-${accent}`}><span className="fg-mono">{label}</span><strong>{typeof value === "number" ? count(value) : value}</strong><small>{detail}</small></article>;
 }
 
-function LogRow({ item, selected, onSelect }: { item: LogRecord; selected: boolean; onSelect: () => void }) {
+function LogRow({ item, selected, onSelect, onFilter }: { item: LogRecord; selected: boolean; onSelect: () => void; onFilter: (key: StructuredFilterKey, value: string) => void }) {
   const meta = levelMeta(item.level);
   const context = logContext(item);
-  return <button type="button" className={`log-explorer__row ${selected ? "is-selected" : ""}`} onClick={onSelect} aria-expanded={selected}>
-    <span className="fg-mono log-explorer__time">{dateText(item.occurredAt)}</span>
+  function activateFilter(key: StructuredFilterKey, value: string | number | null) {
+    if (value === null || value === "") return;
+    onFilter(key, String(value));
+  }
+
+  return <div className={`log-explorer__row ${selected ? "is-selected" : ""}`}>
+    <span className="fg-mono log-explorer__time"><button type="button" onClick={onSelect} aria-expanded={selected} aria-label={`查看 ${item.event} 的详情`} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0, font: "inherit", textAlign: "left" }}>{dateText(item.occurredAt)}</button></span>
     <span className={`log-explorer__level log-explorer__level-table ${meta.className}`}><i />{meta.label}</span>
-    <span className="log-explorer__source"><strong>{sourceLabel(item.source)}</strong><small title={principalLabel(item, context)}>{principalLabel(item, context)}</small></span>
-    <span className="log-explorer__event"><strong title={item.event}>{item.event}</strong><small title={context.action || item.outcome}>{context.action || `${item.kind} · ${item.outcome}`}</small></span>
-    <span className="log-explorer__message"><strong title={item.message}>{item.message || "无摘要"}</strong><small>{item.route || item.taskId || item.requestId || "无额外关联"}</small></span>
-    <span className="fg-mono log-explorer__trace" title={item.traceId || item.eventId || "无 trace"}>{shortId(item.traceId || item.eventId)}</span>
-  </button>;
+    <span className="log-explorer__source"><strong>{sourceLabel(item.source)}</strong><small title={principalLabel(item, context)}><button type="button" onClick={(event) => { event.stopPropagation(); activateFilter(item.actorEmail ? "actorEmail" : "userId", item.actorEmail || item.userId); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: item.actorEmail || item.userId ? "pointer" : "default", padding: 0 }}>{principalLabel(item, context)}</button></small></span>
+    <span className="log-explorer__event"><strong title={item.event}><button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("event", item.event); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0, font: "inherit" }}>{item.event}</button></strong><small title={context.action || item.outcome}><button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("outcome", item.outcome); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}>{context.action || `${item.kind} · ${item.outcome}`}</button></small></span>
+    <span className="log-explorer__message"><strong title={item.message}>{item.message || "无摘要"}</strong><small>{item.route ? <button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("route", item.route); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}>{item.route}</button> : "无接口关联"}</small></span>
+    <span className="fg-mono log-explorer__trace" title={item.traceId || item.eventId || "无关联 ID"}>
+      {item.traceId ? <button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("traceId", item.traceId); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}>T {shortId(item.traceId, 16)}</button> : null}
+      {item.requestId ? <button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("requestId", item.requestId); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}>R {shortId(item.requestId, 16)}</button> : null}
+      {item.taskId ? <button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("taskId", item.taskId); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}>K {shortId(item.taskId, 16)}</button> : null}
+      {item.httpStatus !== null ? <button type="button" onClick={(event) => { event.stopPropagation(); activateFilter("httpStatus", item.httpStatus); }} style={{ border: 0, background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}>HTTP {item.httpStatus}</button> : null}
+      {item.durationMs !== null ? <span>{item.durationMs} ms</span> : null}
+    </span>
+  </div>;
 }
 
 type ExchangeSide = {

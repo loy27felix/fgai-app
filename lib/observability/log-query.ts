@@ -16,6 +16,28 @@ const MAX_RANGE_MONTHS = 3;
 const MAX_LOG_LIMIT = 200;
 const MAX_LOG_OFFSET = 5_000;
 const MAX_QUERY_LENGTH = 512;
+const MAX_FILTER_VALUE_LENGTH = 256;
+
+const TEXT_FILTER_FIELDS = ['service', 'event', 'route', 'outcome', 'traceId', 'requestId', 'taskId', 'userId', 'actorEmail'] as const;
+type TextFilterField = typeof TEXT_FILTER_FIELDS[number];
+type NumericFilterField = 'httpStatus' | 'durationMs';
+type RangeFilter = { exact: number | null; min: number | null; max: number | null };
+
+const SLS_FIELD_ALIASES: Record<string, TextFilterField | NumericFilterField> = {
+  service: 'service',
+  event: 'event',
+  route: 'route',
+  outcome: 'outcome',
+  traceid: 'traceId',
+  requestid: 'requestId',
+  taskid: 'taskId',
+  userid: 'userId',
+  actoremail: 'actorEmail',
+  status: 'httpStatus',
+  httpstatus: 'httpStatus',
+  duration: 'durationMs',
+  durationms: 'durationMs',
+};
 
 export class LogQueryValidationError extends Error {}
 
@@ -28,14 +50,33 @@ export type LogQueryInput = {
   offset?: number | string;
   limit?: number | string;
   cursor?: string | null;
+  service?: string;
+  event?: string;
+  route?: string;
+  outcome?: string;
+  traceId?: string;
+  requestId?: string;
+  taskId?: string;
+  userId?: string;
+  actorEmail?: string;
+  httpStatus?: number | string;
+  httpStatusGte?: number | string;
+  httpStatusLte?: number | string;
+  durationMs?: number | string;
+  durationMsGte?: number | string;
+  durationMsLte?: number | string;
 };
 
 export type NormalizedLogQuery = {
   from: Date;
   to: Date;
   query: string;
+  fullText: string;
   source: LogSourceFilter;
   level: LogLevelFilter;
+  textFilters: Partial<Record<TextFilterField, string[]>>;
+  httpStatus: RangeFilter;
+  durationMs: RangeFilter;
   offset: number;
   limit: number;
   cursor: LogCursor | null;
@@ -336,6 +377,138 @@ function enumFilter<T extends string>(value: string | undefined, allowed: readon
   return value as T;
 }
 
+function filterText(value: unknown, label: string) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new LogQueryValidationError(`${label}格式无效`);
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (normalized.length > MAX_FILTER_VALUE_LENGTH) throw new LogQueryValidationError(`${label}不能超过 ${MAX_FILTER_VALUE_LENGTH} 个字符`);
+  return normalized;
+}
+
+function rangeValue(value: unknown, label: string, minimum: number, maximum: number) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string' && !/^\d+$/.test(value)) throw new LogQueryValidationError(`${label}必须是整数`);
+  const normalized = Number(value);
+  if (!Number.isInteger(normalized) || normalized < minimum || normalized > maximum) {
+    throw new LogQueryValidationError(`${label}超出允许范围`);
+  }
+  return normalized;
+}
+
+function emptyRange(): RangeFilter {
+  return { exact: null, min: null, max: null };
+}
+
+function addTextFilter(filters: Partial<Record<TextFilterField, string[]>>, field: TextFilterField, value: string) {
+  const values = filters[field] || [];
+  if (!values.includes(value)) values.push(value);
+  filters[field] = values;
+}
+
+function addRangeFilter(range: RangeFilter, operator: ':' | '=' | '>=' | '<=', value: number, label: string) {
+  if (operator === ':' || operator === '=') {
+    if (range.exact !== null && range.exact !== value) throw new LogQueryValidationError(`${label}条件冲突`);
+    range.exact = value;
+  } else if (operator === '>=') {
+    range.min = range.min === null ? value : Math.max(range.min, value);
+  } else {
+    range.max = range.max === null ? value : Math.min(range.max, value);
+  }
+  if ((range.min !== null && range.max !== null && range.min > range.max)
+    || (range.exact !== null && ((range.min !== null && range.exact < range.min) || (range.max !== null && range.exact > range.max)))) {
+    throw new LogQueryValidationError(`${label}条件冲突`);
+  }
+}
+
+function addInputRange(range: RangeFilter, exact: unknown, minimum: unknown, maximum: unknown, label: string, lowerBound: number, upperBound: number) {
+  const exactValue = rangeValue(exact, label, lowerBound, upperBound);
+  const minimumValue = rangeValue(minimum, label, lowerBound, upperBound);
+  const maximumValue = rangeValue(maximum, label, lowerBound, upperBound);
+  if (exactValue !== null) addRangeFilter(range, '=', exactValue, label);
+  if (minimumValue !== null) addRangeFilter(range, '>=', minimumValue, label);
+  if (maximumValue !== null) addRangeFilter(range, '<=', maximumValue, label);
+}
+
+function parseSlsQuery(query: string) {
+  const textFilters: Partial<Record<TextFilterField, string[]>> = {};
+  const httpStatus = emptyRange();
+  const durationMs = emptyRange();
+  const fullText: string[] = [];
+  let index = 0;
+
+  while (index < query.length) {
+    while (/\s/.test(query[index] || '')) index += 1;
+    if (index >= query.length) break;
+    const tokenStart = index;
+    while (index < query.length && !/\s/.test(query[index])) index += 1;
+    const head = query.slice(tokenStart, index);
+    const match = /^([A-Za-z][A-Za-z0-9]*)(:|=|>=|<=)(.*)$/.exec(head);
+    if (!match) {
+      const malformedOperator = /^([A-Za-z][A-Za-z0-9]*)(?:>|<|!)/.exec(head);
+      if (malformedOperator) {
+        throw new LogQueryValidationError(`SLS 字段 ${malformedOperator[1]} 的比较符无效`);
+      }
+      if (head.includes('"')) throw new LogQueryValidationError('SLS 全文词不能包含未配对的引号');
+      fullText.push(head);
+      continue;
+    }
+
+    const [, rawField, operator, inlineValue] = match;
+    const field = SLS_FIELD_ALIASES[rawField.toLowerCase()];
+    // Keep legacy `q` searches such as `error:timeout` as one literal full-text term.
+    // 保留旧版 q 中 `error:timeout` 这类包含冒号的全文词，避免升级后改变检索含义。
+    if (!field) {
+      if (operator === ':') {
+        fullText.push(head);
+        continue;
+      }
+      throw new LogQueryValidationError(`不支持的 SLS 字段或比较符：${rawField}${operator}`);
+    }
+    let rawValue = inlineValue;
+    if (rawValue.startsWith('"')) {
+      const inlineQuotedValue = rawValue.slice(1);
+      const quotedSource = inlineQuotedValue + query.slice(index);
+      let closed = false;
+      rawValue = '';
+      let quotedIndex = 0;
+      while (quotedIndex < quotedSource.length) {
+        const character = quotedSource[quotedIndex++];
+        if (character === '\\') {
+          const escaped = quotedSource[quotedIndex++];
+          if (escaped !== '"' && escaped !== '\\') throw new LogQueryValidationError('SLS 引号仅支持 \\" 和 \\\\ 转义');
+          rawValue += escaped;
+        } else if (character === '"') {
+          closed = true;
+          break;
+        } else {
+          rawValue += character;
+        }
+      }
+      if (!closed) throw new LogQueryValidationError('SLS 引号未闭合');
+      if (quotedIndex < inlineQuotedValue.length) throw new LogQueryValidationError('SLS 引号值后必须以空格分隔');
+      const consumedFromQuery = Math.max(0, quotedIndex - inlineQuotedValue.length);
+      index += consumedFromQuery;
+      if (index < query.length && !/\s/.test(query[index])) throw new LogQueryValidationError('SLS 引号值后必须以空格分隔');
+    } else if (!rawValue || rawValue.includes('"')) {
+      throw new LogQueryValidationError(`SLS 字段 ${rawField} 缺少有效值`);
+    }
+
+    if (field === 'httpStatus' || field === 'durationMs') {
+      if (operator !== ':' && operator !== '=' && operator !== '>=' && operator !== '<=') throw new LogQueryValidationError(`SLS 字段 ${rawField} 的比较符无效`);
+      const label = field === 'httpStatus' ? 'HTTP 状态码' : '耗时';
+      const value = rangeValue(rawValue, label, field === 'httpStatus' ? 100 : 0, field === 'httpStatus' ? 599 : 86_400_000);
+      addRangeFilter(field === 'httpStatus' ? httpStatus : durationMs, operator as ':' | '=' | '>=' | '<=', value as number, label);
+    } else {
+      if (operator !== ':') throw new LogQueryValidationError(`SLS 字段 ${rawField} 只能使用 :`);
+      const value = filterText(rawValue, rawField);
+      if (!value) throw new LogQueryValidationError(`SLS 字段 ${rawField} 缺少有效值`);
+      addTextFilter(textFilters, field, value);
+    }
+  }
+  return { fullText: fullText.join(' '), textFilters, httpStatus, durationMs };
+}
+
 function decodeCursor(value: string | null | undefined): LogCursor | null {
   if (!value) return null;
   try {
@@ -369,7 +542,13 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
 
   const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
   if (rawQuery.length > MAX_QUERY_LENGTH) throw new LogQueryValidationError(`搜索词不能超过 ${MAX_QUERY_LENGTH} 个字符`);
-  const queryText = rawQuery;
+  const parsedQuery = parseSlsQuery(rawQuery);
+  for (const field of TEXT_FILTER_FIELDS) {
+    const value = filterText(input[field], field);
+    if (value) addTextFilter(parsedQuery.textFilters, field, value);
+  }
+  addInputRange(parsedQuery.httpStatus, input.httpStatus, input.httpStatusGte, input.httpStatusLte, 'HTTP 状态码', 100, 599);
+  addInputRange(parsedQuery.durationMs, input.durationMs, input.durationMsGte, input.durationMsLte, '耗时', 0, 86_400_000);
   const offset = input.offset === undefined ? 0 : Number(input.offset);
   const limit = input.limit === undefined ? MAX_LOG_LIMIT : Number(input.limit);
   if (!Number.isInteger(offset) || offset < 0 || offset > MAX_LOG_OFFSET) throw new LogQueryValidationError('日志分页位置无效');
@@ -378,9 +557,13 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
   return {
     from,
     to,
-    query: queryText,
+    query: rawQuery,
+    fullText: parsedQuery.fullText,
     source: enumFilter(input.source, ['all', ...LOG_SOURCES] as const, 'all', '日志来源'),
     level: enumFilter(input.level, ['all', ...LOG_LEVELS] as const, 'all', '日志级别'),
+    textFilters: parsedQuery.textFilters,
+    httpStatus: parsedQuery.httpStatus,
+    durationMs: parsedQuery.durationMs,
     offset,
     limit,
     cursor: decodeCursor(input.cursor),
@@ -399,11 +582,42 @@ function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], 
     values.push(filters.level);
     index += 1;
   }
-  if (filters.query) {
+  const columnByField: Record<TextFilterField, string> = {
+    service: 'service',
+    event: 'event_name',
+    route: 'route',
+    outcome: 'outcome',
+    traceId: 'trace_id',
+    requestId: 'request_id',
+    taskId: 'task_id',
+    userId: 'user_id',
+    actorEmail: 'actor_email',
+  };
+  for (const field of TEXT_FILTER_FIELDS) {
+    for (const value of filters.textFilters[field] || []) {
+      clauses.push(`${columnByField[field]} = $${index}`);
+      values.push(value);
+      index += 1;
+    }
+  }
+  for (const [column, operator, value] of [
+    ['http_status', '=', filters.httpStatus.exact],
+    ['http_status', '>=', filters.httpStatus.min],
+    ['http_status', '<=', filters.httpStatus.max],
+    ['duration_ms', '=', filters.durationMs.exact],
+    ['duration_ms', '>=', filters.durationMs.min],
+    ['duration_ms', '<=', filters.durationMs.max],
+  ] as const) {
+    if (value === null) continue;
+    clauses.push(`${column} ${operator} $${index}`);
+    values.push(value);
+    index += 1;
+  }
+  if (filters.fullText) {
     // Escape LIKE metacharacters so identifiers such as `trace_id` remain literal search terms.
     // 转义 LIKE 通配符，保证 `trace_id` 这类字段名按原文检索而不是被改写。
     clauses.push(`search_text ILIKE $${index} ESCAPE E'\\\\'`);
-    values.push(`%${filters.query.replace(/[\\%_]/g, '\\$&')}%`);
+    values.push(`%${filters.fullText.replace(/[\\%_]/g, '\\$&')}%`);
   }
 }
 
