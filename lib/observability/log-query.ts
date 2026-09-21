@@ -6,7 +6,6 @@ import {
   LOG_SOURCES,
   type LogCategory,
   type LogDetail,
-  type LogFacet,
   type LogExplorerSnapshot,
   type LogLevel,
   type LogLevelFilter,
@@ -16,6 +15,7 @@ import {
   type LogTimelineBucket,
   type StructuredFilters,
 } from './log-search-contract';
+import { serialiseLogValue } from './server-log';
 
 export { LOG_LEVELS, LOG_SOURCES } from './log-search-contract';
 export type {
@@ -149,8 +149,6 @@ type SummaryRow = {
   category_other: number | string;
 };
 
-type FacetRow = { value: string | null; count: number | string };
-
 type TimelineRow = {
   bucket: Date | string;
   total: number | string;
@@ -168,7 +166,7 @@ type LogCursor = {
 
 // Keep all durable event streams in one SQL shape for consistent filtering.
 // 将所有持久化观测流统一成同一 SQL 结构，确保筛选、统计和详情展示使用同一口径。
-const LOG_CTE = `with logs as (
+const LOG_CTE = `with logs as materialized (
   select
     'audit:' || audit_events.id::text as id,
     event_id::text as event_id,
@@ -226,6 +224,7 @@ const LOG_CTE = `with logs as (
     log.occurred_at,
     log.source,
     case
+      when log.source = 'frontend' and log.route like '/api/%' then 'api'
       when log.source = 'frontend' then 'browser'
       when log.source in ('infra', 'deploy') then 'infrastructure'
       when lower(coalesce(log.service, '') || ' ' || coalesce(log.event_name, '')) ~ '(nas|tunnel|nginx)' then 'infrastructure'
@@ -277,6 +276,7 @@ const LOG_CTE = `with logs as (
     occurred_at,
     source,
     case
+      when source = 'frontend' and route like '/api/%' then 'api'
       when source = 'frontend' then 'browser'
       when source in ('infra', 'deploy') then 'infrastructure'
       when lower(coalesce(service, '') || ' ' || coalesce(feature, '') || ' ' || coalesce(action, '') || ' ' || coalesce(code, '')) ~ '(nas|tunnel|nginx)' then 'infrastructure'
@@ -560,6 +560,7 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
   const offset = input.offset === undefined ? 0 : Number(input.offset);
   const limit = input.limit === undefined ? MAX_LOG_LIMIT : Number(input.limit);
   if (!Number.isInteger(offset) || offset < 0 || offset > MAX_LOG_OFFSET) throw new LogQueryValidationError('日志分页位置无效');
+  if (offset !== 0) throw new LogQueryValidationError('日志分页仅支持 cursor');
   if (!Number.isInteger(limit) || ![50, 100, 200].includes(limit)) throw new LogQueryValidationError('日志条数必须是 50、100 或 200');
 
   const requestedScope = enumFilter(input.scope, ['all', 'browser', 'api', 'api_runtime', 'infrastructure', 'other'] as const, 'all', '日志类别');
@@ -644,25 +645,6 @@ function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], 
   }
 }
 
-function listScope(filters: NormalizedLogQuery, cursor: LogCursor | null = null, omit?: FilterDimension) {
-  const clauses = ['occurred_at >= $1', 'occurred_at < $2'];
-  const values: unknown[] = [filters.from.toISOString(), filters.to.toISOString()];
-  appendDimensionFilters(filters, clauses, values, 3, omit);
-  if (cursor) {
-    const cursorIndex = values.length + 1;
-    clauses.push(`(occurred_at, sequence_id, id) < ($${cursorIndex}::timestamptz, $${cursorIndex + 1}::bigint, $${cursorIndex + 2})`);
-    values.push(cursor.occurredAt, cursor.sequenceId, cursor.id);
-  }
-  return { where: `where ${clauses.join(' and ')}`, values };
-}
-
-function timelineScope(filters: NormalizedLogQuery, interval: string) {
-  const clauses = ['occurred_at >= $1', 'occurred_at < $2'];
-  const values: unknown[] = [filters.from.toISOString(), filters.to.toISOString(), interval];
-  appendDimensionFilters(filters, clauses, values, 4);
-  return { where: `where ${clauses.join(' and ')}`, values };
-}
-
 function bucketForRange(filters: NormalizedLogQuery) {
   const rangeMs = filters.to.getTime() - filters.from.getTime();
   if (rangeMs <= 30 * 60 * 1_000) return { interval: '1 minute', seconds: 60 };
@@ -674,8 +656,9 @@ function bucketForRange(filters: NormalizedLogQuery) {
 }
 
 function normalizeRecord(row: LogRow, includeDetails = false): LogRecord {
-  const details = row.details && typeof row.details === 'object' && !Array.isArray(row.details)
-    ? row.details as Record<string, unknown>
+  const serialisedDetails = serialiseLogValue(row.details);
+  const details = serialisedDetails && typeof serialisedDetails === 'object' && !Array.isArray(serialisedDetails)
+    ? serialisedDetails as Record<string, unknown>
     : {};
   const record: LogRecord = {
     id: row.id,
@@ -741,105 +724,162 @@ function appliedSearch(filters: NormalizedLogQuery, input: LogQueryInput): LogSe
   };
 }
 
-async function facetRows(filters: NormalizedLogQuery, column: string, omit: FilterDimension) {
-  const scope = listScope(filters, null, omit);
-  const result = await dbQuery<FacetRow>(
-    `${LOG_CTE}
-     select ${column}::text as value, count(*)::int as count
-       from logs
-      ${scope.where}
-      group by ${column}
-      order by count(*) desc, ${column} asc
-      limit 12`,
-    scope.values,
-  );
-  return result.rows
-    .filter((row) => row.value)
-    .map((row): LogFacet => ({ value: String(row.value), label: String(row.value), count: numberValue(row.count) }));
-}
-
 function orderClause() {
   return 'order by occurred_at desc, sequence_id desc, id desc';
 }
 
 export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogExplorerSnapshot> {
   const filters = normalizeLogQuery(input);
-  const scope = listScope(filters, filters.cursor);
-  const limitIndex = scope.values.length + 1;
-  const listResult = dbQuery<LogRow>(
-    `${LOG_CTE}
-     select id, event_id, kind, occurred_at, source, category, service, event_name, level, outcome,
-            message, trace_id, request_id, task_id, user_id, actor_email, route, http_status,
-            duration_ms, details, sequence_id
-       from logs
-      ${scope.where}
-      ${orderClause()}
-      limit $${limitIndex}`,
-    [...scope.values, filters.limit + 1],
-  );
-
-  const summaryScope = listScope(filters);
-  const summaryResult = dbQuery<SummaryRow>(
-    `${LOG_CTE}
-     select count(*)::int as total,
-            count(*) filter (where level = 'info')::int as info,
-            count(*) filter (where level = 'warning')::int as warning,
-            count(*) filter (where level = 'error')::int as error,
-            count(*) filter (where level = 'critical')::int as critical,
-            count(distinct source)::int as source_count,
-            count(distinct service)::int as service_count,
-            count(*) filter (where category = 'browser')::int as category_browser,
-            count(*) filter (where category = 'api')::int as category_api,
-            count(*) filter (where category = 'api_runtime')::int as category_api_runtime,
-            count(*) filter (where category = 'infrastructure')::int as category_infrastructure,
-            count(*) filter (where category = 'other')::int as category_other
-       from logs
-      ${summaryScope.where}`,
-    summaryScope.values,
-  );
-
   const bucket = bucketForRange(filters);
-  const timelineScopeValue = timelineScope(filters, bucket.interval);
-  const timelineResult = dbQuery<TimelineRow>(
-    `${LOG_CTE}
-     select date_bin($3::interval, occurred_at, $1::timestamptz) as bucket,
-            count(*)::int as total,
-            count(*) filter (where level = 'info')::int as info,
-            count(*) filter (where level = 'warning')::int as warning,
-            count(*) filter (where level = 'error')::int as error,
-            count(*) filter (where level = 'critical')::int as critical
-       from logs
-      ${timelineScopeValue.where}
-      group by 1
-      order by 1 asc`,
-    timelineScopeValue.values,
+  const values: unknown[] = [];
+  const scopedWhere = (omit?: FilterDimension) => {
+    const fromIndex = values.length + 1;
+    const clauses = [`occurred_at >= $${fromIndex}`, `occurred_at < $${fromIndex + 1}`];
+    values.push(filters.from.toISOString(), filters.to.toISOString());
+    appendDimensionFilters(filters, clauses, values, values.length + 1, omit);
+    return `where ${clauses.join(' and ')}`;
+  };
+  const baseWhere = scopedWhere();
+  const pageClauses: string[] = [];
+  const pageValues: unknown[] = [];
+  if (filters.cursor) {
+    const cursorIndex = 1;
+    pageClauses.push(`(occurred_at, sequence_id, id) < ($${cursorIndex}::timestamptz, $${cursorIndex + 1}::bigint, $${cursorIndex + 2})`);
+    pageValues.push(filters.cursor.occurredAt, filters.cursor.sequenceId, filters.cursor.id);
+  }
+  const pageWhere = pageClauses.length ? `where ${pageClauses.join(' and ')}` : '';
+  pageValues.push(filters.limit + 1);
+  const pageParamsOffset = values.length;
+  const pageWhereSql = pageWhere.replace(/\$(\d+)/g, (_match, index) => `$${Number(index) + pageParamsOffset}`);
+  values.push(...pageValues);
+  const pageLimitParam = `$${values.length}`;
+  const scopeDefinitions = [
+    ['category', 'category_scope', 'category_scope_json'],
+    ['level', 'level_scope', 'level_scope_json'],
+    ['source', 'source_scope', 'source_scope_json'],
+    ['service', 'service_scope', 'service_scope_json'],
+    ['event_name', 'event_scope', 'event_scope_json'],
+  ] as const;
+  const facetCtes = scopeDefinitions.map(([column, name, jsonName]) => `${name} as (
+    select ${column}::text as value, count(*)::int as count
+      from filtered
+     group by ${column}
+     order by count(*) desc, ${column} asc
+     limit 12
+  ), ${jsonName} as (
+    select coalesce(jsonb_agg(jsonb_build_object('value', value, 'count', count)), '[]'::jsonb) as value
+      from ${name}
+  )`).join(',\n');
+  const queryValues = values;
+  const result = await dbQuery<{
+    rows_json: unknown;
+    summary_json: SummaryRow | string;
+    timeline_json: TimelineRow[] | string;
+    category_json: Array<{ value: string; count: number }> | string;
+    level_json: Array<{ value: string; count: number }> | string;
+    source_json: Array<{ value: string; count: number }> | string;
+    service_json: Array<{ value: string; count: number }> | string;
+    event_json: Array<{ value: string; count: number }> | string;
+  }>(
+    `${LOG_CTE},
+    filtered as (
+      select * from logs ${baseWhere}
+    ),
+    page as (
+      select id, event_id, kind, occurred_at, source, category, service, event_name, level, outcome,
+             message, trace_id, request_id, task_id, user_id, actor_email, route, http_status,
+             duration_ms, details, sequence_id
+        from filtered ${pageWhereSql}
+       ${orderClause()}
+       limit ${pageLimitParam}
+    ),
+    rows_json as (
+      select coalesce(jsonb_agg(to_jsonb(page) order by occurred_at desc, sequence_id desc, id desc), '[]'::jsonb) as value
+        from page
+    ),
+    summary_json as (
+      select to_jsonb(summary) as value
+        from (
+          select count(*)::int as total,
+                 count(*) filter (where level = 'info')::int as info,
+                 count(*) filter (where level = 'warning')::int as warning,
+                 count(*) filter (where level = 'error')::int as error,
+                 count(*) filter (where level = 'critical')::int as critical,
+                 count(distinct source)::int as source_count,
+                 count(distinct service)::int as service_count,
+                 count(*) filter (where category = 'browser')::int as category_browser,
+                 count(*) filter (where category = 'api')::int as category_api,
+                 count(*) filter (where category = 'api_runtime')::int as category_api_runtime,
+                 count(*) filter (where category = 'infrastructure')::int as category_infrastructure,
+                 count(*) filter (where category = 'other')::int as category_other
+            from filtered
+        ) summary
+    ),
+    timeline_json as (
+      select coalesce(jsonb_agg(to_jsonb(timeline) order by bucket asc), '[]'::jsonb) as value
+        from (
+          select date_bin($${values.length + 1}::interval, occurred_at, $${values.length + 2}::timestamptz) as bucket,
+                 count(*)::int as total,
+                 count(*) filter (where level = 'info')::int as info,
+                 count(*) filter (where level = 'warning')::int as warning,
+                 count(*) filter (where level = 'error')::int as error,
+                 count(*) filter (where level = 'critical')::int as critical
+            from filtered
+           group by 1
+        ) timeline
+    ),
+    ${facetCtes}
+    select (select value from rows_json) as rows_json,
+           (select value from summary_json) as summary_json,
+           (select value from timeline_json) as timeline_json,
+           (select value from category_scope_json) as category_json,
+           (select value from level_scope_json) as level_json,
+           (select value from source_scope_json) as source_json,
+           (select value from service_scope_json) as service_json,
+           (select value from event_scope_json) as event_json`,
+    [...queryValues, bucket.interval, filters.from.toISOString()],
   );
-
-  const [list, summary, timeline, category, level, source, service, event] = await Promise.all([
-    listResult,
-    summaryResult,
-    timelineResult,
-    facetRows(filters, 'category', 'category'),
-    facetRows(filters, 'level', 'level'),
-    facetRows(filters, 'source', 'source'),
-    facetRows(filters, 'service', 'service'),
-    facetRows(filters, 'event_name', 'event'),
-  ]);
-  const summaryRow = summary.rows[0] || {
+  const aggregate = result.rows[0];
+  const jsonArray = <T,>(value: T[] | string | unknown): T[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== 'string') return [];
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed as T[] : [];
+    } catch {
+      return [];
+    }
+  };
+  const pageRows = jsonArray<LogRow>(aggregate?.rows_json);
+  const summaryRow = (aggregate?.summary_json && typeof aggregate.summary_json === 'object'
+    ? aggregate.summary_json
+    : {}) as Partial<SummaryRow>;
+  const timelineRows = jsonArray<TimelineRow>(aggregate?.timeline_json);
+  const category = jsonArray<{ value: string; count: number }>(aggregate?.category_json)
+    .map((row) => ({ value: row.value, label: row.value, count: numberValue(row.count) }));
+  const level = jsonArray<{ value: string; count: number }>(aggregate?.level_json)
+    .map((row) => ({ value: row.value, label: row.value, count: numberValue(row.count) }));
+  const source = jsonArray<{ value: string; count: number }>(aggregate?.source_json)
+    .map((row) => ({ value: row.value, label: row.value, count: numberValue(row.count) }));
+  const service = jsonArray<{ value: string; count: number }>(aggregate?.service_json)
+    .map((row) => ({ value: row.value, label: row.value, count: numberValue(row.count) }));
+  const event = jsonArray<{ value: string; count: number }>(aggregate?.event_json)
+    .map((row) => ({ value: row.value, label: row.value, count: numberValue(row.count) }));
+  const summary = summaryRow || {
     total: 0, info: 0, warning: 0, error: 0, critical: 0, source_count: 0, service_count: 0,
     category_browser: 0, category_api: 0, category_api_runtime: 0, category_infrastructure: 0, category_other: 0,
   };
-  const total = numberValue(summaryRow.total);
-  const hasMore = list.rows.length > filters.limit;
-  const visibleRows = list.rows.slice(0, filters.limit);
+  const total = numberValue(summary.total);
+  const hasMore = pageRows.length > filters.limit;
+  const visibleRows = pageRows.slice(0, filters.limit);
   const rows = visibleRows.map((row) => normalizeRecord(row));
-  const byLevel = { info: numberValue(summaryRow.info), warning: numberValue(summaryRow.warning), error: numberValue(summaryRow.error), critical: numberValue(summaryRow.critical) };
+  const byLevel = { info: numberValue(summary.info), warning: numberValue(summary.warning), error: numberValue(summary.error), critical: numberValue(summary.critical) };
   const byCategory = {
-    browser: numberValue(summaryRow.category_browser),
-    api: numberValue(summaryRow.category_api),
-    api_runtime: numberValue(summaryRow.category_api_runtime),
-    infrastructure: numberValue(summaryRow.category_infrastructure),
-    other: numberValue(summaryRow.category_other),
+    browser: numberValue(summary.category_browser),
+    api: numberValue(summary.category_api),
+    api_runtime: numberValue(summary.category_api_runtime),
+    infrastructure: numberValue(summary.category_infrastructure),
+    other: numberValue(summary.category_other),
   };
   return {
     applied: appliedSearch(filters, input),
@@ -857,7 +897,7 @@ export async function queryLogExplorer(input: LogQueryInput = {}): Promise<LogEx
     },
     facets: { category, level, source, service, event },
     bucketSeconds: bucket.seconds,
-    timeline: timeline.rows.map(normalizeTimeline),
+    timeline: timelineRows.map(normalizeTimeline),
   };
 }
 

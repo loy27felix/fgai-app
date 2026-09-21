@@ -116,13 +116,13 @@ export default function LogQueryBar({
       </div>
       <div className="log-desk__scope-row" aria-label="日志类别">
         {SCOPES.map((scope) => (
-          <button key={scope.value} type="button" className={draft.scope === scope.value ? 'is-active' : ''} onClick={() => onScopeChange(scope.value)} title={scope.label}>
+          <button key={scope.value} type="button" className={draft.scope === scope.value ? 'is-active' : ''} aria-pressed={draft.scope === scope.value} onClick={() => onScopeChange(scope.value)} title={scope.label}>
             {scope.short}
           </button>
         ))}
         <span className="log-desk__focus-label">焦点</span>
-        <button type="button" className={draft.focus === 'all' ? 'is-active' : ''} onClick={() => onFocusChange('all')}>时间顺序</button>
-        <button type="button" className={draft.focus === 'app-first' ? 'is-active' : ''} onClick={() => onFocusChange('app-first')}>应用与接口优先</button>
+        <button type="button" className={draft.focus === 'all' ? 'is-active' : ''} aria-pressed={draft.focus === 'all'} onClick={() => onFocusChange('all')}>时间顺序</button>
+        <button type="button" className={draft.focus === 'app-first' ? 'is-active' : ''} aria-pressed={draft.focus === 'app-first'} onClick={() => onFocusChange('app-first')}>当前页应用优先</button>
       </div>
       <div className="log-desk__preset-row">
         {PRESETS.map(([key, label, minutes]) => (

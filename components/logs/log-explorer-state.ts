@@ -47,6 +47,7 @@ export function explorerReducer(state: ExplorerState, action: ExplorerAction): E
       return {
         ...state,
         applied: action.search,
+        snapshot: null,
         selectedId: null,
         detail: { status: 'idle', value: null, error: '' },
         requestState: 'loading',

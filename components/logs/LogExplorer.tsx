@@ -24,14 +24,18 @@ function errorMessage(value: unknown) {
 export default function LogExplorer({ initialSnapshot, initialSearch, initialError }: { initialSnapshot: LogExplorerSnapshot | null; initialSearch: LogSearch; initialError: string }) {
   const [state, dispatch] = useReducer(explorerReducer, createExplorerState(initialSearch, initialSnapshot, initialError));
   const abortRef = useRef<AbortController | null>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
   const cursorHistoryRef = useRef<Array<string | null>>([]);
   const row = selectedRow(state);
 
-  const loadSearch = useCallback(async (search: LogSearch) => {
+  const loadSearch = useCallback(async (search: LogSearch, history: 'push' | 'none' = 'push') => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     abortRef.current?.abort();
+    detailRequestIdRef.current += 1;
+    detailAbortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     dispatch({ type: 'applySearch', search });
@@ -42,7 +46,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
       if (requestId !== requestIdRef.current) return;
       const snapshot = body as unknown as LogExplorerSnapshot;
       dispatch({ type: 'snapshotLoaded', search, snapshot });
-      window.history.replaceState(null, '', `/admin/logs?${toLogSearchParams(search).toString()}`);
+      if (history === 'push') window.history.pushState(null, '', `/admin/logs?${toLogSearchParams(search).toString()}`);
     } catch (error) {
       if (controller.signal.aborted || requestId !== requestIdRef.current) return;
       dispatch({ type: 'loadFailed', error: errorMessage(error) });
@@ -53,23 +57,31 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
     const handlePopState = () => {
       const search = parseLogSearch(new URLSearchParams(window.location.search), defaultLogSearch());
       cursorHistoryRef.current = [];
-      loadSearch(search);
+      loadSearch(search, 'none');
     };
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
       abortRef.current?.abort();
+      detailAbortRef.current?.abort();
     };
   }, [loadSearch]);
 
   async function loadDetail(nextRow: LogRecord) {
+    detailRequestIdRef.current += 1;
+    const detailRequestId = detailRequestIdRef.current;
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
     dispatch({ type: 'selectRow', id: nextRow.id });
     try {
-      const response = await fetch(`/api/observability/logs/${encodeURIComponent(nextRow.id)}`);
+      const response = await fetch(`/api/observability/logs/${encodeURIComponent(nextRow.id)}`, { signal: controller.signal });
       const body = await response.json() as { ok?: boolean; error?: string; detail?: LogDetail };
       if (!response.ok || !body.ok || !body.detail) throw new Error(body.error || '详情读取失败');
+      if (detailRequestId !== detailRequestIdRef.current) return;
       dispatch({ type: 'detailLoaded', detail: body.detail });
     } catch (error) {
+      if (controller.signal.aborted || detailRequestId !== detailRequestIdRef.current) return;
       dispatch({ type: 'detailFailed', error: errorMessage(error) });
     }
   }
@@ -88,7 +100,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
 
   function applySearchPatch(patch: Partial<LogSearch>) {
     cursorHistoryRef.current = [];
-    loadSearch(resetToFirstPage(searchWith(state.applied, patch)));
+    loadSearch(resetToFirstPage(searchWith(state.draft, patch)));
   }
 
   function setPreset(minutes: number) {
@@ -96,7 +108,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
     const next = { from: new Date(to.getTime() - minutes * 60_000).toISOString(), to: to.toISOString() };
     dispatch({ type: 'editDraft', patch: next });
     cursorHistoryRef.current = [];
-    loadSearch(resetToFirstPage(searchWith(state.applied, next)));
+    loadSearch(resetToFirstPage(searchWith(state.draft, next)));
   }
 
   function expandRange() {
@@ -124,7 +136,13 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
   }
 
   function updateFilter(key: 'service' | 'event' | 'traceId' | 'requestId' | 'taskId', value: string) {
-    applySearchPatch({ filters: { ...state.applied.filters, [key]: value } });
+    applySearchPatch({ filters: { ...state.draft.filters, [key]: value } });
+  }
+
+  function closeDetail() {
+    detailRequestIdRef.current += 1;
+    detailAbortRef.current?.abort();
+    dispatch({ type: 'clearSelection' });
   }
 
   const facets = state.snapshot?.facets || { category: [], level: [], source: [], service: [], event: [] };
@@ -142,7 +160,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
       <div className="log-desk__body">
         <LogFacets facets={facets} scope={state.applied.scope} level={state.applied.level} source={state.applied.source} filters={state.applied.filters} onCategory={(scope) => applySearchPatch({ scope })} onLevel={(level) => applySearchPatch({ level: level as LogSearch['level'] })} onSource={(source) => applySearchPatch({ source: source as LogSearch['source'] })} onFilter={updateFilter} />
         <LogStream rows={state.snapshot?.rows || []} total={summary?.total || 0} hasMore={state.snapshot?.page.hasMore || false} focus={state.applied.focus} selectedId={state.selectedId} onSelect={loadDetail} onFilter={updateFilter} onNextPage={nextPage} onPreviousPage={previousPage} canPrevious={cursorHistoryRef.current.length > 0} />
-        <LogInspector row={row} state={state.detail} onClose={() => dispatch({ type: 'clearSelection' })} onRetry={() => row && loadDetail(row)} />
+        <LogInspector row={row} state={state.detail} onClose={closeDetail} onRetry={() => row && loadDetail(row)} />
       </div>
     </main>
   );

@@ -28,7 +28,7 @@ export default function LogStream({ rows, total, hasMore, focus, selectedId, onS
     <section className="log-desk__stream" aria-label="日志事件流">
       <div className="log-desk__stream-head">
         <div><span className="log-desk__eyebrow">LOG STREAM</span><h2>日志事件流</h2></div>
-        <span className="log-desk__stream-count">{rows.length} / {total} 条 · {focus === 'app-first' ? '应用与接口优先' : '时间顺序'}</span>
+        <span className="log-desk__stream-count">{rows.length} / {total} 条 · {focus === 'app-first' ? '当前页应用优先' : '时间顺序'}</span>
       </div>
       {rows.length === 0 ? (
         <div className="log-desk__stream-empty"><strong>没有匹配日志</strong><span>请扩大时间范围或清除一个筛选条件。</span></div>
@@ -36,19 +36,19 @@ export default function LogStream({ rows, total, hasMore, focus, selectedId, onS
         <div className="log-desk__table-wrap">
           <div className="log-desk__table-head"><span>时间</span><span>类别 / 级别</span><span>服务 / 事件</span><span>Route / HTTP / 耗时</span><span>Trace / Request / Task</span><span>摘要</span></div>
           {visibleRows.map((row) => (
-            <button key={row.id} type="button" className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} onClick={() => onSelect(row)}>
+            <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="button" tabIndex={0} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
               <span className="log-desk__time">{timeText(row.occurredAt)}</span>
               <span className={`log-desk__level log-desk__level--${row.level}`}><b>{categoryLabel(row.category)}</b><em>{row.level}</em></span>
               <span className="log-desk__service"><strong>{row.service || '—'}</strong><small>{row.event || '—'}</small></span>
               <span className="log-desk__route"><strong>{row.route || row.event || '—'}</strong><small>{statusText(row)}{row.durationMs === null ? '' : ` · ${row.durationMs} ms`}</small></span>
               <span className="log-desk__correlation">
-                {row.traceId && <span role="link" tabIndex={0} onClick={(event) => { event.stopPropagation(); onFilter('traceId', row.traceId as string); }}>T {row.traceId.slice(0, 16)}…</span>}
-                {row.requestId && <span role="link" tabIndex={0} onClick={(event) => { event.stopPropagation(); onFilter('requestId', row.requestId as string); }}>R {row.requestId.slice(0, 16)}…</span>}
-                {row.taskId && <span role="link" tabIndex={0} onClick={(event) => { event.stopPropagation(); onFilter('taskId', row.taskId as string); }}>K {row.taskId.slice(0, 16)}…</span>}
+                {row.traceId && <button type="button" className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('traceId', row.traceId as string); }}>T {row.traceId.slice(0, 16)}…</button>}
+                {row.requestId && <button type="button" className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('requestId', row.requestId as string); }}>R {row.requestId.slice(0, 16)}…</button>}
+                {row.taskId && <button type="button" className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('taskId', row.taskId as string); }}>K {row.taskId.slice(0, 16)}…</button>}
                 {!row.traceId && !row.requestId && !row.taskId && '—'}
               </span>
               <span className="log-desk__summary"><strong>{rowSummary(row)}</strong><small>{row.source} · {row.actorEmail || 'system'}</small></span>
-            </button>
+            </div>
           ))}
         </div>
       )}

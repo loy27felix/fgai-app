@@ -38,6 +38,9 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/local-db-migrate.mjs ./scripts/local-db-migrate.mjs
 COPY --exclude=001-local.sql --from=builder --chown=nextjs:nextjs /app/docker/initdb/ ./docker/initdb/
+# Keep the durable creator-session upgrade explicit for contract checks and image audits.
+# 为已有本地 volume 保留显式升级文件，便于构建审计与启动迁移校验。
+COPY --from=builder --chown=nextjs:nextjs /app/docker/initdb/002-local-upgrade.sql ./docker/initdb/002-local-upgrade.sql
 
 USER nextjs
 EXPOSE 3000
