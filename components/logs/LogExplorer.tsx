@@ -37,14 +37,19 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
 
   useEffect(() => {
     const handleScroll = () => {
-      const next = window.scrollY > 48;
+      const scrollTop = Math.max(window.scrollY, document.body.scrollTop, document.documentElement.scrollTop);
+      const next = scrollTop > 48;
       if (next === scrollStateRef.current) return;
       scrollStateRef.current = next;
       setHasScrolled(next);
     };
     handleScroll();
     window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    document.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll, true);
+    };
   }, []);
 
   useLayoutEffect(() => {
