@@ -1307,7 +1307,7 @@ body {
 
 /* Log console refinement: keep dense evidence readable while preserving the dark FG Studio identity.
    日志工作台视觉收敛：保持 FG Studio 深色基调，同时让高密度证据可读、可定位。 */
-.log-desk{--log-sticky-top:72px;--log-context-top:272px;--log-ink:#e8eef8;--log-subtle:#aab8cf;--log-muted:var(--log-subtle);--log-danger:#ff8a7a;--log-panel:#121b30;--log-panel-raised:#17233b;--log-rule-strong:#344765;--log-accent:#63e6a3;--log-code-bg:#0b1324;--log-code-ink:#dce6f6;max-width:1640px;color:var(--log-ink);font-family:"Space Grotesk",Geist,system-ui,"Microsoft YaHei",sans-serif}
+.log-desk{--log-sticky-top:72px;--log-context-top:352px;--log-ink:#e8eef8;--log-subtle:#aab8cf;--log-muted:var(--log-subtle);--log-danger:#ff8a7a;--log-panel:#121b30;--log-panel-raised:#17233b;--log-rule-strong:#344765;--log-accent:#63e6a3;--log-code-bg:#0b1324;--log-code-ink:#dce6f6;max-width:1640px;color:var(--log-ink);font-family:"Space Grotesk",Geist,system-ui,"Microsoft YaHei",sans-serif}
 .log-desk.has-collapsed-query{--log-context-top:148px}
 [data-theme="light"] .log-desk{--log-ink:#13213a;--log-subtle:#455673;--log-danger:#b42318;--text-2:#394b68;--text-3:#5f6f88;--log-panel:#f8faff;--log-panel-raised:#ffffff;--log-rule-strong:#c5d0e0;--log-accent:#087b48;--log-code-bg:#eef3fa;--log-code-ink:#13213a}
 .log-desk__header h1{font-size:clamp(30px,3.2vw,42px);letter-spacing:-.055em}

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DatePicker } from 'antd';
 import type { LogCategory, LogSearch, LogSearchDraft, LogScope } from '@/lib/observability/log-search-contract';
@@ -57,6 +58,8 @@ export default function LogQueryBar({
   showToggle: boolean;
   onToggle: () => void;
 }) {
+  const collapsedToggleRef = useRef<HTMLButtonElement>(null);
+  const expandedToggleRef = useRef<HTMLButtonElement>(null);
   const draftFilters = Object.entries(draft.filters).filter(([, value]) => value);
   const appliedFilters = Object.entries(applied.filters).filter(([, value]) => value);
   const hasDraftChanges = draft.q !== applied.q
@@ -66,6 +69,11 @@ export default function LogQueryBar({
     || draft.from !== applied.from
     || draft.to !== applied.to
     || JSON.stringify(draft.filters) !== JSON.stringify(applied.filters);
+
+  useEffect(() => {
+    const toggle = isCollapsed ? collapsedToggleRef.current : expandedToggleRef.current;
+    toggle?.focus();
+  }, [isCollapsed]);
 
   function updateRange(values: null | [Dayjs | null, Dayjs | null]) {
     if (!values?.[0] || !values[1]) return;
@@ -93,7 +101,7 @@ export default function LogQueryBar({
             {applied.q && <span className="is-applied is-query">{applied.q}</span>}
             {hasDraftChanges && <span className="is-draft">有待运行条件</span>}
           </div>
-          <button className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded={false} aria-controls="log-query-content">展开查询</button>
+          <button ref={collapsedToggleRef} className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded={false} aria-controls="log-query-content">展开查询</button>
         </div>
       )}
       <div id="log-query-content" hidden={isCollapsed}>
@@ -137,7 +145,7 @@ export default function LogQueryBar({
         </label>
         <span className="log-desk__query-state">{hasDraftChanges ? '有待运行条件' : `已应用 · ${applied.scope === 'all' ? '全部类别' : applied.scope}`}</span>
         <button className="log-desk__reset" type="button" onClick={onReset}>重置</button>
-        {showToggle && <button className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded aria-controls="log-query-content">收起查询</button>}
+        {showToggle && <button ref={expandedToggleRef} className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded={true} aria-controls="log-query-content">收起查询</button>}
         </div>
         <div className="log-desk__scope-row" aria-label="日志类别">
         {SCOPES.map((scope) => (
