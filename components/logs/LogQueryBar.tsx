@@ -40,6 +40,9 @@ export default function LogQueryBar({
   onScopeChange,
   onFocusChange,
   onPreset,
+  isCollapsed,
+  showToggle,
+  onToggle,
 }: {
   draft: LogSearchDraft;
   applied: LogSearch;
@@ -50,8 +53,12 @@ export default function LogQueryBar({
   onScopeChange: (scope: LogScope) => void;
   onFocusChange: (focus: 'all' | 'app-first') => void;
   onPreset: (minutes: number) => void;
+  isCollapsed: boolean;
+  showToggle: boolean;
+  onToggle: () => void;
 }) {
   const draftFilters = Object.entries(draft.filters).filter(([, value]) => value);
+  const appliedFilters = Object.entries(applied.filters).filter(([, value]) => value);
   const hasDraftChanges = draft.q !== applied.q
     || draft.scope !== applied.scope
     || draft.level !== applied.level
@@ -72,8 +79,25 @@ export default function LogQueryBar({
   }
 
   return (
-    <section className="log-desk__query" aria-label="日志查询条件">
-      <div className="log-desk__query-main">
+    <section className={`log-desk__query ${isCollapsed ? 'is-collapsed' : ''}`} aria-label="日志查询条件">
+      {isCollapsed && (
+        <div className="log-desk__query-collapsed">
+          <span className="log-desk__query-mark">SLS</span>
+          <div className="log-desk__query-summary">
+            <strong>已应用</strong>
+            <span className="is-applied">{applied.scope === 'all' ? '全部类别' : SCOPES.find((scope) => scope.value === applied.scope)?.label}</span>
+            <span className="is-applied">{dayjs(applied.from).format('MM-DD HH:mm')} — {dayjs(applied.to).format('MM-DD HH:mm')}</span>
+            <span className="is-applied">{applied.level === 'all' ? '全部级别' : applied.level}</span>
+            <span className="is-applied">{applied.focus === 'app-first' ? '应用优先' : '时间顺序'}</span>
+            {appliedFilters.length > 0 && <span className="is-applied is-filter">{appliedFilters.length} 个筛选：{appliedFilters.map(([key, value]) => `${labelForFilter(key)}:${value}`).join(' · ')}</span>}
+            {applied.q && <span className="is-applied is-query">{applied.q}</span>}
+            {hasDraftChanges && <span className="is-draft">有待运行条件</span>}
+          </div>
+          <button className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded={false} aria-controls="log-query-content">展开查询</button>
+        </div>
+      )}
+      <div id="log-query-content" hidden={isCollapsed}>
+        <div className="log-desk__query-main">
         <span className="log-desk__query-mark">SLS</span>
         <input
           id="log-search"
@@ -88,11 +112,11 @@ export default function LogQueryBar({
           {loading ? '查询中…' : '运行查询'}
           <span aria-hidden="true">→</span>
         </button>
-      </div>
-      <div className="log-desk__query-help">
-        <span>field:value</span> 精确筛选，<span>status&gt;=500</span> 数值范围，裸词按全文检索。默认展示全部类别。
-      </div>
-      <div className="log-desk__query-meta">
+        </div>
+        <div className="log-desk__query-help">
+          <span>field:value</span> 精确筛选，<span>status&gt;=500</span> 数值范围，裸词按全文检索。默认展示全部类别。
+        </div>
+        <div className="log-desk__query-meta">
         <DatePicker.RangePicker
           value={rangeValue(draft)}
           showTime={{ format: 'HH:mm' }}
@@ -113,8 +137,9 @@ export default function LogQueryBar({
         </label>
         <span className="log-desk__query-state">{hasDraftChanges ? '有待运行条件' : `已应用 · ${applied.scope === 'all' ? '全部类别' : applied.scope}`}</span>
         <button className="log-desk__reset" type="button" onClick={onReset}>重置</button>
-      </div>
-      <div className="log-desk__scope-row" aria-label="日志类别">
+        {showToggle && <button className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded aria-controls="log-query-content">收起查询</button>}
+        </div>
+        <div className="log-desk__scope-row" aria-label="日志类别">
         {SCOPES.map((scope) => (
           <button key={scope.value} type="button" className={draft.scope === scope.value ? 'is-active' : ''} aria-pressed={draft.scope === scope.value} onClick={() => onScopeChange(scope.value)} title={scope.label}>
             {scope.short}
@@ -123,21 +148,22 @@ export default function LogQueryBar({
         <span className="log-desk__focus-label">焦点</span>
         <button type="button" className={draft.focus === 'all' ? 'is-active' : ''} aria-pressed={draft.focus === 'all'} onClick={() => onFocusChange('all')}>时间顺序</button>
         <button type="button" className={draft.focus === 'app-first' ? 'is-active' : ''} aria-pressed={draft.focus === 'app-first'} onClick={() => onFocusChange('app-first')}>当前页应用优先</button>
-      </div>
-      <div className="log-desk__preset-row">
+        </div>
+        <div className="log-desk__preset-row">
         {PRESETS.map(([key, label, minutes]) => (
           <button key={key} type="button" onClick={() => onPreset(minutes)}>{label}</button>
         ))}
-      </div>
+        </div>
       {draftFilters.length > 0 && (
-        <div className="log-desk__chips" aria-label="结构化筛选条件">
+          <div className="log-desk__chips" aria-label="结构化筛选条件">
           {draftFilters.map(([key, value]) => (
             <button key={key} type="button" onClick={() => removeFilter(key)} title="移除条件">
               {labelForFilter(key)}:{value}<span aria-hidden="true">×</span>
             </button>
           ))}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

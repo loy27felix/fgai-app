@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LogDetail, LogExplorerSnapshot, LogRecord, LogSearch } from '@/lib/observability/log-search-contract';
 import { defaultLogSearch, draftFromSearch, parseLogSearch, resetToFirstPage, searchWith, toLogSearchParams } from '@/lib/observability/log-search-contract';
 import { createExplorerState, explorerReducer, selectedRow } from './log-explorer-state';
@@ -29,6 +29,21 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
   const detailRequestIdRef = useRef(0);
   const cursorHistoryRef = useRef<Array<string | null>>([]);
   const row = selectedRow(state);
+  const [hasScrolled, setHasScrolled] = useState(false);
+  const [queryCollapsed, setQueryCollapsed] = useState(false);
+  const scrollStateRef = useRef(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const next = window.scrollY > 48;
+      if (next === scrollStateRef.current) return;
+      scrollStateRef.current = next;
+      setHasScrolled(next);
+    };
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const loadSearch = useCallback(async (search: LogSearch, history: 'push' | 'none' = 'push') => {
     const requestId = requestIdRef.current + 1;
@@ -147,13 +162,14 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
 
   const facets = state.snapshot?.facets || { category: [], level: [], source: [], service: [], event: [] };
   const summary = state.snapshot?.summary;
+  const isQueryCollapsed = hasScrolled && queryCollapsed;
   return (
-    <main className={`log-desk ${row ? 'has-inspector' : ''}`}>
+    <main className={`log-desk ${row ? 'has-inspector' : ''} ${isQueryCollapsed ? 'has-collapsed-query' : ''}`}>
       <header className="log-desk__header">
         <div><span className="log-desk__eyebrow">OBSERVABILITY CONSOLE</span><h1>日志检索</h1><p>按类别、请求、任务和完整上下文定位一次异常，不再在混杂的运行日志里猜字段。</p></div>
         <nav><a href="/admin/reports">服务监控报表</a><a href="/admin">管理后台</a></nav>
       </header>
-      <LogQueryBar draft={state.draft} applied={state.applied} loading={state.requestState === 'loading'} onDraftChange={(patch) => dispatch({ type: 'editDraft', patch })} onRun={runDraft} onReset={reset} onScopeChange={(scope) => applySearchPatch({ scope })} onFocusChange={(focus) => applySearchPatch({ focus })} onPreset={setPreset} />
+      <LogQueryBar draft={state.draft} applied={state.applied} loading={state.requestState === 'loading'} isCollapsed={isQueryCollapsed} showToggle={hasScrolled} onToggle={() => setQueryCollapsed((value) => !value)} onDraftChange={(patch) => dispatch({ type: 'editDraft', patch })} onRun={runDraft} onReset={reset} onScopeChange={(scope) => applySearchPatch({ scope })} onFocusChange={(focus) => applySearchPatch({ focus })} onPreset={setPreset} />
       {state.error && <div className="log-desk__alert" role="alert">{state.error}</div>}
       <div className="log-desk__overview"><span>{summary?.total || 0} 条命中</span><span>{summary?.byCategory.api || 0} API · {summary?.byCategory.api_runtime || 0} API 运行 · {summary?.byCategory.browser || 0} 浏览器 · {summary?.byCategory.infrastructure || 0} 基建 · {summary?.byCategory.other || 0} 其他</span></div>
       <LogTimeline timeline={state.snapshot?.timeline || []} onBucketSelect={selectBucket} onExpand={expandRange} />
