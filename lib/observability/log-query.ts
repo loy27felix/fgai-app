@@ -166,7 +166,7 @@ type LogCursor = {
 
 // Keep all durable event streams in one SQL shape for consistent filtering.
 // 将所有持久化观测流统一成同一 SQL 结构，确保筛选、统计和详情展示使用同一口径。
-const LOG_CTE = `with logs as materialized (
+const LOG_CTE = `with logs as (
   select
     'audit:' || audit_events.id::text as id,
     event_id::text as event_id,
