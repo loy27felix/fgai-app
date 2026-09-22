@@ -97,11 +97,11 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
   }
 
   let responseText = "";
-  let responseBodyReadError: unknown;
+  let responseBodyReadFailed = false;
   try {
     responseText = await response.text();
   } catch (error) {
-    responseBodyReadError = error;
+    responseBodyReadFailed = true;
     logServerFailure("wetoken_chat_exchange", error, {
       ...baseLogFields,
       stage: "response_body_read_failed",
@@ -112,12 +112,14 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     });
   }
 
-  let data: any = {};
-  let responseBodyEncoding: "json" | "text" = "json";
-  try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    responseBodyEncoding = "text";
+  let data: any = null;
+  let responseBodyEncoding: "json" | "text" | "unavailable" = responseBodyReadFailed ? "unavailable" : "json";
+  if (!responseBodyReadFailed) {
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      responseBodyEncoding = "text";
+    }
   }
   logServerEvent("wetoken_chat_exchange", {
     ...baseLogFields,
@@ -129,7 +131,7 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     responseBodyEncoding,
     responseBody: fullLogPayload(data),
     ...(responseBodyEncoding === "text" ? { responseBodyText: fullLogPayload(responseText) } : {}),
-    ...(responseBodyReadError ? { responseBodyReadFailed: true } : {}),
+    ...(responseBodyReadFailed ? { responseBodyReadFailed: true } : {}),
   }, response.ok ? "info" : "warn");
 
   if (!response.ok) {

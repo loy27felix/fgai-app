@@ -282,6 +282,7 @@ export function serialiseLogError(error: unknown, depth = 0, seen = new WeakSet<
       ...(typeof value.status === 'number' ? { status: value.status } : {}),
       ...(typeof value.providerCode === 'string' || typeof value.providerCode === 'number' ? { providerCode: value.providerCode } : {}),
       ...(typeof value.retryable === 'boolean' ? { retryable: value.retryable } : {}),
+      ...(depth < 5 && typeof value.stack === 'string' && value.stack ? { stack: redactServerLogText(value.stack) } : {}),
       ...(depth === 0 && value.cause !== undefined ? { cause: serialiseLogError(value.cause, depth + 1, seen) } : {}),
     };
   }
