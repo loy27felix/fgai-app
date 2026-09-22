@@ -52,7 +52,7 @@ import { CanvasSidePanel } from "@/reference/infinite-canvas/src/components/canv
 import { CanvasZoomControls } from "@/reference/infinite-canvas/src/components/canvas/canvas-zoom-controls";
 import { useAgentStore } from "@/reference/infinite-canvas/src/stores/use-agent-store";
 import { canvasProjectSyncSignature, useCanvasStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
-import { createCreatorCanvas, deleteCreatorCanvas, getCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
+import { createCreatorCanvas, deleteCreatorCanvas, getCreatorCanvas, renameCreatorCanvas, updateCreatorCanvas } from "@/lib/creator/canvas-client";
 import { useAgentBridge } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/reference/infinite-canvas/src/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, getCanvasResourceKind, reconcileCanvasReferenceLabels, type CanvasResourceReference } from "@/reference/infinite-canvas/src/lib/canvas/canvas-resource-references";
@@ -3762,11 +3762,37 @@ function InfiniteCanvasPage() {
         setTitleEditing(true);
     }, [currentProject?.title]);
 
-    const finishTitleEditing = useCallback(() => {
+    const finishTitleEditing = useCallback(async () => {
         const nextTitle = titleDraft.trim();
-        if (nextTitle) renameProject(projectId, nextTitle);
-        setTitleEditing(false);
-    }, [projectId, renameProject, titleDraft]);
+        if (!nextTitle) {
+            setTitleEditing(false);
+            return;
+        }
+        if (!currentProject?.cloudCanvasId) {
+            renameProject(projectId, nextTitle);
+            setTitleEditing(false);
+            return;
+        }
+        const cloudCanvasId = currentProject.cloudCanvasId;
+        try {
+            const pendingSync = cloudSyncQueueRef.current.catch(() => undefined);
+            const rename = pendingSync.then(() => renameCreatorCanvas(cloudCanvasId, nextTitle, cloudCanvasVersionRef.current ?? currentProject.cloudCanvasVersion));
+            cloudSyncQueueRef.current = rename.then(() => undefined);
+            const result = await rename;
+            // Keep the queued graph sync on the version confirmed by the title update.
+            // 标题更新成功后同步版本，避免后续图同步使用旧版本触发冲突。
+            cloudCanvasVersionRef.current = result.canvas.version;
+            updateProject(projectId, {
+                title: nextTitle,
+                cloudCanvasVersion: result.canvas.version,
+                cloudLocalSignature: canvasProjectSyncSignature({ ...currentProject, title: nextTitle }),
+            });
+            setTitleEditing(false);
+        } catch (error) {
+            console.error("[canvas rename]", error);
+            message.error("云端画布重命名失败，请检查网络后重试");
+        }
+    }, [currentProject, message, projectId, renameProject, titleDraft, updateProject]);
 
     const preventCanvasContextMenu = useCallback((event: ReactMouseEvent) => {
         if ((event.target as HTMLElement).closest("[data-node-id]")) return;

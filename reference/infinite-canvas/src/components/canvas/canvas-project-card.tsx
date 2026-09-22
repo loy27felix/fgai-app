@@ -1,15 +1,18 @@
 import { Check, CopyPlus, Download, Pencil, Trash2, X } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Input } from "antd";
+import { App, Button, Input } from "antd";
 
-import { useCanvasStore, type CanvasProject } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
+import { canvasProjectSyncSignature, useCanvasStore, type CanvasProject } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/reference/infinite-canvas/src/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/reference/infinite-canvas/src/lib/canvas/canvas-export";
+import { renameCreatorCanvas } from "@/lib/creator/canvas-client";
 
 export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const renameProject = useCanvasStore((state) => state.renameProject);
+    const updateProject = useCanvasStore((state) => state.updateProject);
+    const { message } = App.useApp();
     const duplicateProject = useCanvasStore((state) => state.duplicateProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const editingId = useCanvasUiStore((state) => state.editingProjectId);
@@ -22,9 +25,29 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
     const open = () => navigate(`/canvas/${project.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`);
-    const saveTitle = () => {
-        renameProject(project.id, editingTitle);
-        stopEditing();
+    const saveTitle = async () => {
+        const nextTitle = editingTitle.trim();
+        if (!nextTitle) {
+            stopEditing();
+            return;
+        }
+        if (!project.cloudCanvasId) {
+            renameProject(project.id, nextTitle);
+            stopEditing();
+            return;
+        }
+        try {
+            const result = await renameCreatorCanvas(project.cloudCanvasId, nextTitle, project.cloudCanvasVersion);
+            updateProject(project.id, {
+                title: nextTitle,
+                cloudCanvasVersion: result.canvas.version,
+                cloudLocalSignature: canvasProjectSyncSignature({ ...project, title: nextTitle }),
+            });
+            stopEditing();
+        } catch (error) {
+            console.error("[canvas rename]", error);
+            message.error("云端画布重命名失败，请检查网络后重试");
+        }
     };
 
     return (
@@ -39,7 +62,7 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                     aria-label={`选择 ${project.title}`}
                 />
                 {editing ? (
-                    <Input className="min-w-0" value={editingTitle} onClick={(event) => event.stopPropagation()} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && saveTitle()} autoFocus />
+                    <Input className="min-w-0" value={editingTitle} onClick={(event) => event.stopPropagation()} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void saveTitle()} autoFocus />
                 ) : (
                     <button
                         type="button"
@@ -61,7 +84,7 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                 <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
                     {editing ? (
                         <>
-                            <Button type="text" size="small" shape="circle" icon={<Check className="size-4" />} onClick={saveTitle} aria-label="保存名称" />
+                            <Button type="text" size="small" shape="circle" icon={<Check className="size-4" />} onClick={() => void saveTitle()} aria-label="保存名称" />
                             <Button type="text" size="small" shape="circle" icon={<X className="size-4" />} onClick={stopEditing} aria-label="取消重命名" />
                         </>
                     ) : (
