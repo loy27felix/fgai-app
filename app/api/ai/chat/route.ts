@@ -14,7 +14,7 @@ import {
 } from '@/lib/observability/server-log';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type ChatRequestBody = {
   messages?: ChatMessage[];

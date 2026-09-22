@@ -11,17 +11,20 @@ export type ImageModelSpec = {
   maxReferences: number;
   /** Fixed output tiers the provider accepts; exact dimensions remain GPT-only. */
   outputSizes: ImageOutputSize[];
+  /** Whether the image endpoint accepts an explicit transparent background. */
+  supportsTransparentBackground: boolean;
 };
 
 export const IMG_MODELS: ImageModelSpec[] = [
-  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
-  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
-  { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES },
-  { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: ['1K'] },
-  // Wetoken documents a single `image` field for Seedream image-to-image.
-  // Lite has no documented higher-resolution tier; Pro explicitly supports 4K.
-  { id: 'seedream-5-0-lite-260128', label: 'Seedream 5.0 Lite · 轻量生图', provider: 'volcengine-image', experimental: false, maxReferences: 1, outputSizes: ['1K'] },
-  { id: 'dola-seedream-5-0-pro-260628', label: 'Dola Seedream 5.0 Pro · 4K 专业', provider: 'volcengine-image', experimental: false, maxReferences: 1, outputSizes: IMAGE_OUTPUT_SIZES },
+  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: true },
+  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: false },
+  { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: false },
+  { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: ['1K'], supportsTransparentBackground: false },
+  // Lite remains single-reference. Seedream Pro supports multiple reference
+  // images; the app/WeToken request path currently caps image references at 4
+  // so the UI and server-side validation stay aligned.
+  { id: 'seedream-5-0-lite-260128', label: 'Seedream 5.0 Lite · 轻量生图', provider: 'volcengine-image', experimental: false, maxReferences: 1, outputSizes: ['1K'], supportsTransparentBackground: false },
+  { id: 'dola-seedream-5-0-pro-260628', label: 'Dola Seedream 5.0 Pro · 4K 专业', provider: 'volcengine-image', experimental: false, maxReferences: 4, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: false },
 ];
 
 export const RATIOS = [
@@ -98,6 +101,10 @@ const GEMINI_SIZES: Record<string, string> = {
 
 export function getImageModel(model: string) {
   return IMG_MODELS.find((item) => item.id === model);
+}
+
+export function supportsTransparentImageBackground(model: string) {
+  return getImageModel(model)?.supportsTransparentBackground === true;
 }
 
 /**

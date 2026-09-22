@@ -4,9 +4,10 @@ import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
 import { VideoSettingsPanel, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/reference/infinite-canvas/src/components/video-settings-panel";
+import { normalizeSeedanceResolution } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
-import type { AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { modelOptionName, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 
 type CanvasVideoSettingsPopoverProps = {
     config: AiConfig;
@@ -50,7 +51,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, buttonClass
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
-                        {videoResolutionLabel(config.vquality)} · {videoSizeLabel(config.size)} · {videoSecondsLabel(config.videoSeconds)}
+                        {videoResolutionLabel(normalizeSeedanceResolution(config.vquality, modelOptionName(config.model || config.videoModel)))} · {videoSizeLabel(config.size)} · {videoSecondsLabel(config.videoSeconds)}
                     </span>
                 </Button>
             </span>

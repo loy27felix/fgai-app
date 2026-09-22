@@ -28,7 +28,7 @@ const ratioOptions = [
     { label: "9:16", value: "9:16" },
 ];
 
-export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (crop: CanvasImageCropRect) => void }) {
+export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm, processing = false }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (crop: CanvasImageCropRect) => void; processing?: boolean }) {
     const [crop, setCrop] = useState<CanvasImageCropRect>(defaultCrop);
     const [ratioPreset, setRatioPreset] = useState("free");
     const [fixedRatio, setFixedRatio] = useState<number | null>(null);
@@ -77,7 +77,7 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
     };
 
     return (
-        <Modal title="裁剪图片" open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={780} centered destroyOnHidden transitionName="" maskTransitionName="">
+        <Modal title={processing ? "正在裁剪图片…" : "裁剪图片"} open={open && Boolean(dataUrl)} onCancel={processing ? undefined : onClose} footer={null} width={780} centered destroyOnHidden transitionName="" maskTransitionName="">
             <div className="space-y-4">
                 <div
                     ref={viewport.viewportRef}
@@ -90,7 +90,9 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                                 <img src={dataUrl} alt="" className="block h-full w-full object-contain opacity-90" draggable={false} />
                             </div>
                             <CropMask crop={crop} />
-                            <div className="absolute cursor-move border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,.3),0_0_28px_rgba(0,0,0,.28)]" style={cropStyle(crop)} onPointerDown={(event) => startDrag("move", event)}>
+                            <div className="absolute cursor-move border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,.3),0_0_28px_rgba(0,0,0,.28)]" style={cropStyle(crop)} onPointerDown={(event) => {
+                                if (!processing) startDrag("move", event);
+                            }}>
                                 <div className="pointer-events-none absolute inset-x-0 top-1/3 border-t border-white/50" />
                                 <div className="pointer-events-none absolute inset-x-0 top-2/3 border-t border-white/50" />
                                 <div className="pointer-events-none absolute inset-y-0 left-1/3 border-l border-white/50" />
@@ -101,7 +103,9 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                                         type="button"
                                         className="absolute size-3 rounded-full border border-black bg-white"
                                         style={handleStyle(handle)}
-                                        onPointerDown={(event) => startDrag("resize", event, handle)}
+                                        onPointerDown={(event) => {
+                                            if (!processing) startDrag("resize", event, handle);
+                                        }}
                                         aria-label="调整裁剪框"
                                     />
                                 ))}
@@ -137,6 +141,7 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                         size="small"
                         options={ratioOptions}
                         value={ratioPreset}
+                        disabled={processing}
                         onChange={(value) => {
                             const preset = String(value);
                             setRatioPreset(preset);
@@ -150,12 +155,12 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                 </div>
 
                 <div className="flex items-center justify-end gap-2">
-                    <Button onClick={() => setCrop(defaultCrop)}>重置</Button>
-                    <Button icon={<X className="size-4" />} onClick={onClose}>
+                    <Button disabled={processing} onClick={() => setCrop(defaultCrop)}>重置</Button>
+                    <Button disabled={processing} icon={<X className="size-4" />} onClick={onClose}>
                         取消
                     </Button>
-                    <Button type="primary" icon={<Check className="size-4" />} onClick={() => onConfirm(crop)}>
-                        确认裁剪
+                    <Button type="primary" loading={processing} icon={<Check className="size-4" />} disabled={processing} onClick={() => onConfirm(crop)}>
+                        {processing ? "裁剪中…" : "确认裁剪"}
                     </Button>
                 </div>
             </div>

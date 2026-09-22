@@ -59,7 +59,10 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
     dispatcher: wetokenProviderDispatcher,
-    signal: AbortSignal.timeout(55_000),
+    // Reverse-prompt requests include an image and may legitimately take over
+    // a minute. Keep a finite deadline, but leave the route enough time to
+    // return a useful provider error instead of aborting at 55 seconds.
+    signal: AbortSignal.timeout(110_000),
   };
   const baseLogFields = {
     traceId: options.traceId,
