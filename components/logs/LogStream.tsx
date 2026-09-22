@@ -39,15 +39,15 @@ export default function LogStream({ rows, total, hasMore, focus, selectedId, onS
             <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="row" tabIndex={0} aria-selected={selectedId === row.id} aria-label={`打开 ${row.event || row.service || '日志详情'}`} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
               <span className="log-desk__time">{timeText(row.occurredAt)}</span>
               <span className={`log-desk__level log-desk__level--${row.level}`}><b>{categoryLabel(row.category)}</b><em>{row.level}</em></span>
-              <span className="log-desk__service"><strong>{row.service || '—'}</strong><small>{row.event || '—'}</small></span>
-              <span className="log-desk__route"><strong>{row.route || row.event || '—'}</strong><small>{statusText(row)}{row.durationMs === null ? '' : ` · ${row.durationMs} ms`}</small></span>
+              <span className="log-desk__service"><strong title={row.service || '—'}>{row.service || '—'}</strong><small title={row.event || '—'}>{row.event || '—'}</small></span>
+              <span className="log-desk__route"><strong title={row.route || row.event || '—'}>{row.route || row.event || '—'}</strong><small>{statusText(row)}{row.durationMs === null ? '' : ` · ${row.durationMs} ms`}</small></span>
               <span className="log-desk__correlation">
-                {row.traceId && <button type="button" className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('traceId', row.traceId as string); }}>T {row.traceId.slice(0, 16)}…</button>}
-                {row.requestId && <button type="button" className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('requestId', row.requestId as string); }}>R {row.requestId.slice(0, 16)}…</button>}
-                {row.taskId && <button type="button" className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('taskId', row.taskId as string); }}>K {row.taskId.slice(0, 16)}…</button>}
+                {row.traceId && <button type="button" title={row.traceId} className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('traceId', row.traceId as string); }}>T {row.traceId.slice(0, 16)}…</button>}
+                {row.requestId && <button type="button" title={row.requestId} className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('requestId', row.requestId as string); }}>R {row.requestId.slice(0, 16)}…</button>}
+                {row.taskId && <button type="button" title={row.taskId} className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('taskId', row.taskId as string); }}>K {row.taskId.slice(0, 16)}…</button>}
                 {!row.traceId && !row.requestId && !row.taskId && '—'}
               </span>
-              <span className="log-desk__summary"><strong>{rowSummary(row)}</strong><small>{row.source} · {row.actorEmail || 'system'}</small></span>
+              <span className="log-desk__summary"><strong title={rowSummary(row)}>{rowSummary(row)}</strong><small title={`${row.source} · ${row.actorEmail || 'system'}`}>{row.source} · {row.actorEmail || 'system'}</small></span>
             </div>
           ))}
         </div>
