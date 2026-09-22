@@ -10,6 +10,28 @@ function displayValue(value: unknown) {
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 }
 
+function isComplexContextValue(value: unknown) {
+  if (value !== null && typeof value === 'object') return true;
+  return typeof value === 'string' && (value.length > 180 || value.includes('\n'));
+}
+
+function ContextFieldView({ field }: { field: { key: string; label: string; value: unknown } }) {
+  const complex = isComplexContextValue(field.value);
+  return (
+    <div className={complex ? 'is-complex' : undefined}>
+      <dt>{field.label}</dt>
+      <dd>
+        {complex ? (
+          <details className="log-desk__context-value">
+            <summary>查看内容</summary>
+            <pre className="log-desk__detail-code">{displayValue(field.value)}</pre>
+          </details>
+        ) : displayValue(field.value)}
+      </dd>
+    </div>
+  );
+}
+
 function bodyStatus(body: DetailBody) {
   if (body.capture === 'empty') return '已采集空 Body。';
   if (body.capture === 'binary') return '已识别二进制 Body，内容不在界面展开。';
@@ -75,7 +97,7 @@ function DetailSectionView({ section }: { section: DetailSection }) {
       {section.fields && (
         <div className="log-desk__detail-section-body">
           <dl className="log-desk__detail-kv">
-            {section.fields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{displayValue(field.value)}</dd></div>)}
+            {section.fields.map((field) => <ContextFieldView key={field.key} field={field} />)}
           </dl>
         </div>
       )}

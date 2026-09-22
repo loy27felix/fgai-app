@@ -4,8 +4,8 @@ import type { LogFacet, LogCategory, LogScope } from '@/lib/observability/log-se
 
 const CATEGORY_LABELS: Record<LogCategory, string> = {
   browser: '浏览器日志',
-  api: 'API 日志',
-  api_runtime: 'API 运行日志',
+  api: 'API 请求日志',
+  api_runtime: '业务运行日志',
   infrastructure: '基建日志',
   other: '其他来源',
 };

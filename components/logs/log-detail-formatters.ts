@@ -2,8 +2,8 @@ import type { LogCategory, LogDetail, LogRecord } from '@/lib/observability/log-
 
 export const CATEGORY_LABELS: Record<LogCategory, string> = {
   browser: '浏览器日志',
-  api: 'API 日志',
-  api_runtime: 'API 运行日志',
+  api: 'API 请求日志',
+  api_runtime: '业务运行日志',
   infrastructure: '基建日志',
   other: '其他来源',
 };
@@ -17,11 +17,65 @@ export function statusText(row: LogRecord) {
   return `HTTP ${row.httpStatus}`;
 }
 
+type LogRowDescriptor = {
+  main: (row: LogRecord) => [string, string];
+  status: (row: LogRecord) => [string, string];
+  summary: (row: LogRecord) => [string, string];
+};
+
+function detailRecord(row: LogRecord) {
+  return row.details && typeof row.details === 'object' ? row.details : {};
+}
+
+function detailText(row: LogRecord, ...keys: string[]) {
+  const details = detailRecord(row);
+  for (const key of keys) {
+    const value = details[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  }
+  return '';
+}
+
+function withFallback(value: string | null, fallback: string) {
+  return value || fallback;
+}
+
+// Keep list rendering on known scalar fields so category differences stay readable without dumping details JSON.
+// 列表只读取已知标量字段，保持分类差异清晰，避免把 details JSON 直接塞进列表。
+const LOG_ROW_DESCRIPTORS: Record<LogCategory, LogRowDescriptor> = {
+  api: {
+    main: (row) => [withFallback(row.route, row.event), row.service],
+    status: (row) => [statusText(row), row.durationMs === null ? '—' : `${row.durationMs} ms`],
+    summary: (row) => [withFallback(row.message, row.event), withFallback(row.outcome, row.source)],
+  },
+  api_runtime: {
+    main: (row) => [withFallback(row.service, row.source), row.event],
+    status: (row) => [withFallback(row.outcome, '—'), withFallback(row.message, '—')],
+    summary: (row) => [withFallback(row.message, row.event), row.taskId ? `Task ${row.taskId}` : row.source],
+  },
+  browser: {
+    main: (row) => [withFallback(detailText(row, 'pageRoute', 'page'), withFallback(row.route, row.event)), row.event],
+    status: (row) => [withFallback(row.message, row.event), withFallback(detailText(row, 'userAgent', 'browser'), row.actorEmail || row.userId || '—')],
+    summary: (row) => [withFallback(detailText(row, 'userName', 'userEmail'), row.actorEmail || row.userId || 'system'), withFallback(detailText(row, 'browser', 'userAgent'), row.source)],
+  },
+  infrastructure: {
+    main: (row) => [withFallback(detailText(row, 'host', 'component'), row.service), row.event],
+    status: (row) => [withFallback(detailText(row, 'state'), row.outcome), withFallback(row.message, row.event)],
+    summary: (row) => [withFallback(row.message, row.event), row.source],
+  },
+  other: {
+    main: (row) => [withFallback(row.source, row.service), row.event],
+    status: (row) => [withFallback(row.outcome, '—'), withFallback(row.message, row.event)],
+    summary: (row) => [withFallback(row.message, row.event), row.service],
+  },
+};
+
+export function logRowDescriptor(row: LogRecord) {
+  return LOG_ROW_DESCRIPTORS[row.category];
+}
+
 export function rowSummary(row: LogRecord) {
-  if (row.category === 'api') return `${row.route || row.event} · ${statusText(row)}${row.durationMs === null ? '' : ` · ${row.durationMs} ms`}`;
-  if (row.category === 'browser') return row.message || `${row.service} · ${row.event}`;
-  if (row.category === 'infrastructure') return `${row.service} · ${row.message || row.event}`;
-  return row.message || `${row.service} · ${row.event}`;
+  return logRowDescriptor(row).summary(row)[0];
 }
 
 function text(value: unknown) {
@@ -32,26 +86,48 @@ function text(value: unknown) {
 
 export function detailFields(detail: LogDetail) {
   const request = detail.details.request && typeof detail.details.request === 'object' ? detail.details.request as Record<string, unknown> : {};
-  const fields: Array<[string, string]> = [
-    ['类别', categoryLabel(detail.category)],
-    ['来源', detail.source],
-    ['服务', detail.service],
-    ['事件', detail.event],
-    ['级别', detail.level],
-    ['结果', detail.outcome],
-    ['时间', detail.occurredAt],
-    ['Trace ID', detail.traceId || '—'],
-    ['Request ID', detail.requestId || '—'],
-    ['Task ID', detail.taskId || '—'],
-    ['用户 ID', detail.userId || '—'],
-    ['操作者', detail.actorEmail || '—'],
-    ['路由', detail.route || '—'],
-    ['HTTP 状态', detail.httpStatus === null ? '—' : String(detail.httpStatus)],
-    ['耗时', detail.durationMs === null ? '—' : `${detail.durationMs} ms`],
-  ];
-  if (detail.category === 'browser') fields.push(['浏览器上下文', text(detail.details.browser || detail.details.userAgent || detail.details.page)]);
-  if (detail.category === 'api') fields.push(['HTTP 方法', text(detail.details.method || request.method)]);
-  if (detail.category === 'infrastructure') fields.push(['主机/组件', text(detail.details.host || detail.details.component || detail.service)]);
+  const fields: Array<[string, string]> = [['类别', categoryLabel(detail.category)], ['级别', detail.level], ['时间', detail.occurredAt]];
+  const add = (label: string, value: unknown) => {
+    if (hasValue(value)) fields.push([label, text(value)]);
+  };
+  const addIdentifiers = () => {
+    add('Trace ID', detail.traceId);
+    add('Request ID', detail.requestId);
+    add('Task ID', detail.taskId);
+    add('用户 ID', detail.userId);
+    add('操作者', detail.actorEmail);
+  };
+  addIdentifiers();
+  if (detail.category === 'api') {
+    add('服务', detail.service);
+    add('路由', detail.route);
+    add('事件', detail.event);
+    add('结果', detail.outcome);
+    add('HTTP 状态', detail.httpStatus === null ? null : detail.httpStatus);
+    add('耗时', detail.durationMs === null ? null : `${detail.durationMs} ms`);
+    add('HTTP 方法', detail.details.method || request.method);
+  } else if (detail.category === 'api_runtime') {
+    add('服务', detail.service);
+    add('事件', detail.event);
+    add('结果', detail.outcome);
+    add('消息', detail.message);
+  } else if (detail.category === 'browser') {
+    add('页面路由', detail.details.pageRoute || detail.route || detail.details.page);
+    add('事件', detail.event);
+    add('消息', detail.message);
+    add('浏览器上下文', detail.details.browser || detail.details.userAgent);
+  } else if (detail.category === 'infrastructure') {
+    add('来源', detail.source);
+    add('主机/组件', detail.details.host || detail.details.component || detail.service);
+    add('状态', detail.details.state || detail.outcome);
+    add('事件', detail.event);
+    add('消息', detail.message);
+  } else {
+    add('来源', detail.source);
+    add('事件', detail.event);
+    add('结果', detail.outcome);
+    add('消息', detail.message);
+  }
   return fields;
 }
 

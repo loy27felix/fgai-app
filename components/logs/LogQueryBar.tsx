@@ -1,9 +1,9 @@
 'use client';
 
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DatePicker } from 'antd';
-import type { LogCategory, LogSearch, LogSearchDraft, LogScope } from '@/lib/observability/log-search-contract';
+import type { LogSearch, LogSearchDraft, LogScope } from '@/lib/observability/log-search-contract';
 
 const PRESETS = [
   ['15m', '近 15 分钟', 15],
@@ -14,10 +14,10 @@ const PRESETS = [
 ] as const;
 
 const SCOPES: Array<{ value: LogScope; label: string; short: string }> = [
-  { value: 'all', label: '全部来源', short: '全部' },
+  { value: 'all', label: '全部类别', short: '全部' },
   { value: 'browser', label: '浏览器日志', short: '浏览器' },
-  { value: 'api', label: 'API 日志', short: 'API' },
-  { value: 'api_runtime', label: 'API 运行日志', short: '运行' },
+  { value: 'api', label: 'API 请求日志', short: 'API' },
+  { value: 'api_runtime', label: '业务运行日志', short: '运行' },
   { value: 'infrastructure', label: '基建日志', short: '基建' },
   { value: 'other', label: '其他来源', short: '其他' },
 ];
@@ -62,6 +62,9 @@ export default function LogQueryBar({
   const expandedToggleRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const previousCollapsedRef = useRef(isCollapsed);
+  // Keep this presentation state local because the URL stores the range, not which preset was clicked.
+  // 该状态只负责按钮选中外观；查询参数仍由现有 draft/apply 流程维护，避免改变 URL/API 行为。
+  const [activePreset, setActivePreset] = useState<string | null>(null);
   const draftFilters = Object.entries(draft.filters).filter(([, value]) => value);
   const appliedFilters = Object.entries(applied.filters).filter(([, value]) => value);
   const hasDraftChanges = draft.q !== applied.q
@@ -90,8 +93,14 @@ export default function LogQueryBar({
   }, [isCollapsed]);
 
   function updateRange(values: null | [Dayjs | null, Dayjs | null]) {
+    setActivePreset(null);
     if (!values?.[0] || !values[1]) return;
     onDraftChange({ from: values[0].toISOString(), to: values[1].toISOString() });
+  }
+
+  function resetQuery() {
+    setActivePreset(null);
+    onReset();
   }
 
   function removeFilter(key: string) {
@@ -137,7 +146,16 @@ export default function LogQueryBar({
         </button>
         </div>
         <div className="log-desk__query-help">
-          <span>field:value</span> 精确筛选，<span>status&gt;=500</span> 数值范围，裸词按全文检索。默认展示全部类别。
+          <span>field:value</span> 精确筛选，<span>status&gt;=500</span> 数值范围，裸词按全文检索。<span>API 请求日志</span>记录 HTTP 请求交换，<span>业务运行日志</span>记录服务内部处理，两者可由同一请求关联但含义不同。默认展示全部类别。
+          <details>
+            <summary>SLS 字段说明</summary>
+            <div>
+              <p><span>category</span>：browser、api、api_runtime、infrastructure、other。</p>
+              <p><span>service</span>、<span>event</span>、<span>route</span>、<span>outcome</span>、<span>traceId</span>、<span>requestId</span>、<span>taskId</span>、<span>userId</span>、<span>actorEmail</span>：文本精确筛选。</p>
+              <p><span>status</span>/<span>httpStatus</span>：HTTP 状态码，可使用比较符；<span>duration</span>/<span>durationMs</span>：耗时毫秒数，可使用比较符。</p>
+              <p>不带字段的词按全文检索；<span>level</span> 与 <span>source</span> 请通过上方控件或左侧 Facet 筛选。</p>
+            </div>
+          </details>
         </div>
         <div className="log-desk__query-meta">
         <DatePicker.RangePicker
@@ -159,7 +177,7 @@ export default function LogQueryBar({
           </select>
         </label>
         <span className="log-desk__query-state">{hasDraftChanges ? '有待运行条件' : `已应用 · ${applied.scope === 'all' ? '全部类别' : applied.scope}`}</span>
-        <button className="log-desk__reset" type="button" onClick={onReset}>重置</button>
+        <button className="log-desk__reset" type="button" onClick={resetQuery}>重置</button>
         {showToggle && <button ref={expandedToggleRef} className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded={true} aria-controls="log-query-content">收起查询</button>}
         </div>
         <div className="log-desk__scope-row" aria-label="日志类别">
@@ -170,11 +188,12 @@ export default function LogQueryBar({
         ))}
         <span className="log-desk__focus-label">焦点</span>
         <button type="button" className={draft.focus === 'all' ? 'is-active' : ''} aria-pressed={draft.focus === 'all'} onClick={() => onFocusChange('all')}>时间顺序</button>
-        <button type="button" className={draft.focus === 'app-first' ? 'is-active' : ''} aria-pressed={draft.focus === 'app-first'} onClick={() => onFocusChange('app-first')}>当前页应用优先</button>
+        <button type="button" className={draft.focus === 'app-first' ? 'is-active' : ''} aria-pressed={draft.focus === 'app-first'} onClick={() => onFocusChange('app-first')}>应用日志优先（仅本页排序）</button>
+        <span className="log-desk__focus-note">仅调整当前页顺序，不改变总数，也不隐藏其他分类</span>
         </div>
         <div className="log-desk__preset-row">
         {PRESETS.map(([key, label, minutes]) => (
-          <button key={key} type="button" onClick={() => onPreset(minutes)}>{label}</button>
+          <button key={key} type="button" className={activePreset === key ? 'is-active' : ''} aria-pressed={activePreset === key} onClick={() => { setActivePreset(key); onPreset(minutes); }}>{label}</button>
         ))}
         </div>
       {draftFilters.length > 0 && (

@@ -1,7 +1,7 @@
 'use client';
 
 import type { LogRecord, LogFocus } from '@/lib/observability/log-search-contract';
-import { categoryLabel, rowSummary, statusText } from './log-detail-formatters';
+import { categoryLabel, logRowDescriptor } from './log-detail-formatters';
 
 const CATEGORY_ORDER = { api: 0, api_runtime: 1, browser: 2, infrastructure: 3, other: 4 } as const;
 
@@ -28,27 +28,33 @@ export default function LogStream({ rows, total, hasMore, focus, selectedId, onS
     <section className="log-desk__stream" aria-label="日志事件流">
       <div className="log-desk__stream-head">
         <div><span className="log-desk__eyebrow">LOG STREAM</span><h2>日志事件流</h2></div>
-        <span className="log-desk__stream-count">{rows.length} / {total} 条 · {focus === 'app-first' ? '当前页应用优先' : '时间顺序'}</span>
+        <span className="log-desk__stream-count">{rows.length} / {total} 条 · {focus === 'app-first' ? '应用日志优先（仅本页排序）' : '时间顺序'}</span>
       </div>
       {rows.length === 0 ? (
         <div className="log-desk__stream-empty"><strong>没有匹配日志</strong><span>请扩大时间范围或清除一个筛选条件。</span></div>
       ) : (
         <div className="log-desk__table-wrap">
-          <div className="log-desk__table-head"><span>时间</span><span>类别 / 级别</span><span>服务 / 事件</span><span>Route / HTTP / 耗时</span><span>Trace / Request / Task</span><span>摘要</span></div>
+          <div className="log-desk__table-head"><span>时间</span><span>类别 / 级别</span><span>主信息</span><span>状态与结果</span><span>关联</span><span>摘要</span></div>
           {visibleRows.map((row) => (
-            <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="row" tabIndex={0} aria-selected={selectedId === row.id} aria-label={`打开 ${row.event || row.service || '日志详情'}`} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
+            (() => {
+              const descriptor = logRowDescriptor(row);
+              const [main, mainSecondary] = descriptor.main(row);
+              const [status, statusSecondary] = descriptor.status(row);
+              const [summary, summarySecondary] = descriptor.summary(row);
+              return <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="row" tabIndex={0} aria-selected={selectedId === row.id} aria-label={`打开 ${row.event || row.service || '日志详情'}`} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
               <span className="log-desk__time">{timeText(row.occurredAt)}</span>
               <span className={`log-desk__level log-desk__level--${row.level}`}><b>{categoryLabel(row.category)}</b><em>{row.level}</em></span>
-              <span className="log-desk__service"><strong title={row.service || '—'}>{row.service || '—'}</strong><small title={row.event || '—'}>{row.event || '—'}</small></span>
-              <span className="log-desk__route"><strong title={row.route || row.event || '—'}>{row.route || row.event || '—'}</strong><small>{statusText(row)}{row.durationMs === null ? '' : ` · ${row.durationMs} ms`}</small></span>
+              <span className="log-desk__service"><strong title={main}>{main || '—'}</strong><small title={mainSecondary}>{mainSecondary || '—'}</small></span>
+              <span className="log-desk__route"><strong title={status}>{status || '—'}</strong><small title={statusSecondary}>{statusSecondary || '—'}</small></span>
               <span className="log-desk__correlation">
                 {row.traceId && <button type="button" title={row.traceId} className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('traceId', row.traceId as string); }}>T {row.traceId.slice(0, 16)}…</button>}
                 {row.requestId && <button type="button" title={row.requestId} className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('requestId', row.requestId as string); }}>R {row.requestId.slice(0, 16)}…</button>}
                 {row.taskId && <button type="button" title={row.taskId} className="log-desk__correlation-link" onClick={(event) => { event.stopPropagation(); onFilter('taskId', row.taskId as string); }}>K {row.taskId.slice(0, 16)}…</button>}
                 {!row.traceId && !row.requestId && !row.taskId && '—'}
               </span>
-              <span className="log-desk__summary"><strong title={rowSummary(row)}>{rowSummary(row)}</strong><small title={`${row.source} · ${row.actorEmail || 'system'}`}>{row.source} · {row.actorEmail || 'system'}</small></span>
-            </div>
+              <span className="log-desk__summary"><strong title={summary}>{summary || '—'}</strong><small title={summarySecondary}>{summarySecondary || '—'}</small></span>
+              </div>;
+            })()
           ))}
         </div>
       )}
