@@ -55,7 +55,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
     // Keep the fixed inspector below the rendered query instead of assuming a chip count.
     // 基于查询栏实际高度定位固定详情面板，避免筛选 chips 换行后被遮挡。
     const updateContextTop = () => {
-      const measured = query.getBoundingClientRect().bottom - desk.getBoundingClientRect().top + 12;
+      const measured = query.getBoundingClientRect().bottom + 12;
       const fallback = isQueryCollapsed ? 148 : 352;
       desk.style.setProperty('--log-context-top', `${Math.max(fallback, measured)}px`);
     };
