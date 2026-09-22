@@ -3,7 +3,7 @@ import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import type { AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
-import { imageOutputSizeOptionsFor, imageQualityForOutputSize, ratioForImageSize, supportsExactImageSize } from "@/lib/imageModels";
+import { imageOutputSizeOptionsFor, imageQualityForOutputSize, ratioForImageSize, supportsExactImageSize, supportsTransparentImageBackground } from "@/lib/imageModels";
 
 const qualityOptions = [
     { value: "auto", label: "自动" },
@@ -43,6 +43,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const activeSize = config.size || "auto";
     const selectedModel = (config.model || config.imageModel || "gpt-image-2").replace(/^.*::/, "");
     const exactSizeSupported = supportsExactImageSize(selectedModel);
+    const transparentBackgroundSupported = supportsTransparentImageBackground(selectedModel);
     const supportedQualityOptions = [qualityOptions[0], ...imageOutputSizeOptionsFor(selectedModel).map((size) => ({ value: imageQualityForOutputSize(size), label: size }))];
     const quality = supportedQualityOptions.some((item) => item.value === config.quality) ? config.quality : "auto";
     const displayedSize = exactSizeSupported || activeSize === "auto" ? activeSize : ratioForImageSize(activeSize);
@@ -124,11 +125,11 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     <div className="space-y-0.5">
                         <SettingTitle color={theme.node.muted}>透明背景</SettingTitle>
                         <div className="text-xs" style={{ color: theme.node.muted, opacity: 0.75 }}>
-                            开启后生成无背景的透明图像(仅部分模型可用)
+                            {transparentBackgroundSupported ? "开启后生成无背景的透明图像" : "当前模型不支持透明背景，请切换到 GPT Image 2"}
                         </div>
                     </div>
                     <span onMouseDown={(event) => event.stopPropagation()}>
-                        <Switch size="small" checked={transparentBackground} onChange={(checked) => onConfigChange("background", checked ? "transparent" : "")} />
+                        <Switch size="small" disabled={!transparentBackgroundSupported} checked={transparentBackgroundSupported && transparentBackground} onChange={(checked) => onConfigChange("background", checked ? "transparent" : "")} />
                     </span>
                 </div>
                 <div className="space-y-2.5">

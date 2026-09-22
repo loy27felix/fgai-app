@@ -109,9 +109,15 @@ export function CanvasPromptChipInput({ value, references, onChange, className, 
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
         if (range) {
-            range.insertNode(space);
-            range.insertNode(chip);
-            range.setStartAfter(space);
+            // Insert the chip and its separator as one fragment. Two
+            // consecutive insertNode calls leave the browser's caret between
+            // the nodes in some Chromium versions; the next punctuation key
+            // can then be dispatched twice after React serializes the editor.
+            range.deleteContents();
+            const fragment = document.createDocumentFragment();
+            fragment.append(chip, space);
+            range.insertNode(fragment);
+            range.setStart(space, space.length);
             range.collapse(true);
             selection?.removeAllRanges();
             selection?.addRange(range);

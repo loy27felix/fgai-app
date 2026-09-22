@@ -1,4 +1,5 @@
-import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { defaultConfig, modelOptionName, resolveModelForCapability, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { normalizeSeedanceResolution } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { imageMetadata, isDurableImageReferenceUrl, readReferenceImage, referenceUrl } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-factory";
@@ -127,15 +128,17 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
 }
 
 export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
+    const model = resolveModelForCapability(config, node?.metadata?.model, mode);
+    const vquality = node?.metadata?.vquality || config.vquality || defaultConfig.vquality;
     return {
         ...config,
-        model: resolveModelForCapability(config, node?.metadata?.model, mode),
+        model,
         reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         size: node?.metadata?.size || config.size || defaultConfig.size,
         background: node?.metadata?.background ?? config.background ?? defaultConfig.background,
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
+        vquality: mode === "video" ? normalizeSeedanceResolution(vquality, modelOptionName(model)) : vquality,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         videoReferenceMode: node?.metadata?.videoReferenceMode || config.videoReferenceMode || defaultConfig.videoReferenceMode,

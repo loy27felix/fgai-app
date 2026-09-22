@@ -3,7 +3,8 @@ import { Image as ImageIcon, LoaderCircle, MessageSquare, Music2, Play, Settings
 import { Button, Segmented } from "antd";
 
 import { ModelPicker } from "@/reference/infinite-canvas/src/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { defaultConfig, modelOptionName, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { normalizeSeedanceResolution } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { GenerationPriceBadge } from "@/reference/infinite-canvas/src/components/generation-price-badge";
 import { canvasThemes } from "@/reference/infinite-canvas/src/lib/canvas-theme";
 import { useThemeStore } from "@/reference/infinite-canvas/src/stores/use-theme-store";
@@ -155,15 +156,17 @@ function InputChip({ label, value, style }: { label: string; value: string; styl
 }
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode): AiConfig {
+    const model = resolveModelForCapability(globalConfig, node.metadata?.model, mode);
+    const vquality = node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality;
     return {
         ...globalConfig,
-        model: resolveModelForCapability(globalConfig, node.metadata?.model, mode),
+        model,
         reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
         background: node.metadata?.background ?? globalConfig.background ?? defaultConfig.background,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
-        vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
+        vquality: mode === "video" ? normalizeSeedanceResolution(vquality, modelOptionName(model)) : vquality,
         videoGenerateAudio: node.metadata?.generateAudio || globalConfig.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
         videoReferenceMode: node.metadata?.videoReferenceMode || globalConfig.videoReferenceMode || defaultConfig.videoReferenceMode,

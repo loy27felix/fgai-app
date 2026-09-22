@@ -36,8 +36,8 @@ test('ratioForImageSize retains the ratio of exact 2K and 4K presets', () => {
   assert.deepEqual(imageDraftGeometry('16:9'), { ratio: '16:9', size: undefined });
 });
 
-test('Seedream models use their documented single reference-image capability', () => {
-  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8, 1, 1]);
+test('Seedream Lite stays single-reference while Pro accepts multiple references', () => {
+  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8, 1, 4]);
 });
 
 test('only GPT Image 2 exposes exact 2K and 4K image-size controls', () => {

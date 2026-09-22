@@ -9,13 +9,14 @@ import { requestAudioGeneration, storeGeneratedAudio } from "@/reference/infinit
 import { requestVideoGeneration } from "@/reference/infinite-canvas/src/services/api/video";
 import { notifyGenerationCompleted } from "@/reference/infinite-canvas/src/services/generation-notifications";
 import { uploadCanvasAsset } from "@/reference/infinite-canvas/src/services/api/canvas-assets";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
+import { defaultConfig, modelOptionName, useConfigStore, useEffectiveConfig } from "@/reference/infinite-canvas/src/stores/use-config-store";
 import { previewImage, resolveImageUrl, storeGeneratedImage } from "@/reference/infinite-canvas/src/services/image-storage";
 import { previewMediaFile, resolveMediaUrl } from "@/reference/infinite-canvas/src/services/file-storage";
 import { creatorCanvasAssetContentUrl, creatorVideoContentUrl, getVideoTask } from "@/lib/creator/video-client";
 import { getMediaJob, type MediaWorkerJob } from "@/reference/infinite-canvas/src/services/api/media-worker";
 import { normalizeProviderErrorMessage } from "@/lib/creator/provider-error-message";
 import { listImageTasks } from "@/lib/creator/image-client";
+import { supportsTransparentImageBackground } from "@/lib/imageModels";
 import type { CreatorCanvasGraph, CreatorImageTaskView, CreatorVideoTaskView } from "@/lib/creator/types";
 import { logClientEvent } from "@/lib/observability/client-log";
 import { nanoid } from "nanoid";
@@ -70,6 +71,7 @@ import { appendImageAlternative, imageAlternativeMetadata, readImageAlternatives
 import { activeVideoAlternativeIndex, appendVideoAlternative, readVideoAlternatives, videoAlternativeAssetTitle, videoAlternativeFileName, videoAlternativeMetadata, videoAlternativeVersionLabel } from "@/reference/infinite-canvas/src/lib/canvas/canvas-video-alternatives";
 import { cloneCanvasNodeForDuplicate, dissolveGroups, expandGroupConnection, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, groupSelectedNodes, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/reference/infinite-canvas/src/lib/canvas/canvas-node-geometry";
 import { getCanvasEdgeAutoPanDelta } from "@/reference/infinite-canvas/src/lib/canvas/canvas-edge-auto-pan";
+import { normalizeSeedanceResolution } from "@/reference/infinite-canvas/src/lib/seedance-video";
 import { canvasViewportWorldRect, connectionIntersectsRect, type CanvasWorldRect } from "@/reference/infinite-canvas/src/lib/canvas/canvas-connection-viewport";
 import {
     audioExtension,
@@ -170,6 +172,17 @@ const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
 function referenceKindLabel(kind: CanvasResourceReference["kind"]) {
     return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : "文本";
+}
+
+function materialPayloadMatchesNode(payload: MaterialInsertPayload, node: CanvasNodeData) {
+    const expectedType = payload.kind === "image" ? CanvasNodeType.Image : payload.kind === "video" ? CanvasNodeType.Video : CanvasNodeType.Audio;
+    if (node.type !== expectedType) return false;
+    const metadata = node.metadata || {};
+    if (payload.cloudAssetId && metadata.cloudAssetId === payload.cloudAssetId) return true;
+    if (payload.cloudStoragePath && metadata.cloudStoragePath === payload.cloudStoragePath) return true;
+    if (payload.storageKey && metadata.storageKey === payload.storageKey) return true;
+    const payloadContent = payload.kind === "image" ? payload.dataUrl : payload.url;
+    return Boolean(payloadContent && metadata.content && payloadContent === metadata.content);
 }
 
 function replaceCanvasReferenceLabel(value: string | undefined, previousLabel: string, nextLabel: string) {
@@ -609,6 +622,7 @@ function InfiniteCanvasPage() {
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [pluginManagerOpen, setPluginManagerOpen] = useState(false);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
+    const [cropProcessingNodeId, setCropProcessingNodeId] = useState<string | null>(null);
     const [maskEditNodeId, setMaskEditNodeId] = useState<string | null>(null);
     const [splitNodeId, setSplitNodeId] = useState<string | null>(null);
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
@@ -645,6 +659,7 @@ function InfiniteCanvasPage() {
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const retryLocksRef = useRef(new Set<string>());
+    const cropInFlightRef = useRef<string | null>(null);
     const pendingGenerationConfirmationsRef = useRef(new Set<string>());
     const materialDropInsertRef = useRef<((assetId: string, position: Position) => void) | null>(null);
     const cloudCanvasIdRef = useRef<string | null>(null);
@@ -3090,7 +3105,17 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
-        setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
+        setNodes((prev) => prev.map((node) => {
+            if (node.id !== nodeId) return node;
+            const nextPatch = { ...(patch || {}) };
+            if (typeof nextPatch.model === "string" && (node.type === CanvasNodeType.Video || node.metadata?.generationMode === "video")) {
+                nextPatch.vquality = normalizeSeedanceResolution(node.metadata?.vquality || defaultConfig.vquality, modelOptionName(nextPatch.model));
+            }
+            if (typeof nextPatch.model === "string" && node.type !== CanvasNodeType.Video && node.metadata?.background === "transparent" && !supportsTransparentImageBackground(modelOptionName(nextPatch.model))) {
+                nextPatch.background = "";
+            }
+            return applyNodeConfigPatch(node, nextPatch);
+        }));
     }, []);
 
     const downloadNodeImage = useCallback(async (node: CanvasNodeData) => {
@@ -3212,29 +3237,39 @@ function InfiniteCanvasPage() {
     );
 
     const cropImageNode = useCallback(async (node: CanvasNodeData, crop: CanvasImageCropRect) => {
-        if (!node.metadata?.content) return;
-        const cropped = await cropDataUrl(node.metadata.content, crop);
-        const image = await storeGeneratedImage({ dataUrl: cropped });
-        const width = Math.min(node.width, Math.max(220, image.width));
-        const childId = nanoid();
-        const child: CanvasNodeData = {
-            id: childId,
-            type: CanvasNodeType.Image,
-            title: "Cropped Image",
-            position: { x: node.position.x + node.width + 96, y: node.position.y },
-            width,
-            height: width * (image.height / image.width),
-            metadata: {
-                ...imageMetadata(image),
-                prompt: node.metadata?.prompt,
-            },
-        };
-        setNodes((prev) => [...prev, child]);
-        setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
-        setSelectedNodeIds(new Set([childId]));
-        setDialogNodeId(childId);
-        setCropNodeId(null);
-    }, []);
+        if (!node.metadata?.content || cropInFlightRef.current === node.id) return;
+        cropInFlightRef.current = node.id;
+        setCropProcessingNodeId(node.id);
+        try {
+            const cropped = await cropDataUrl(node.metadata.content, crop);
+            const image = await storeGeneratedImage({ dataUrl: cropped });
+            const width = Math.min(node.width, Math.max(220, image.width));
+            const childId = nanoid();
+            const child: CanvasNodeData = {
+                id: childId,
+                type: CanvasNodeType.Image,
+                title: "Cropped Image",
+                position: { x: node.position.x + node.width + 96, y: node.position.y },
+                width,
+                height: width * (image.height / image.width),
+                metadata: {
+                    ...imageMetadata(image),
+                    prompt: node.metadata?.prompt,
+                },
+            };
+            setNodes((prev) => [...prev, child]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setSelectedNodeIds(new Set([childId]));
+            setDialogNodeId(childId);
+            setCropNodeId(null);
+        } catch (error) {
+            console.warn("[canvas crop failed]", { nodeId: node.id, error });
+            message.error("裁剪失败，请稍后重试");
+        } finally {
+            cropInFlightRef.current = null;
+            setCropProcessingNodeId(null);
+        }
+    }, [message]);
 
     const splitImageNode = useCallback(
         async (node: CanvasNodeData, params: CanvasImageSplitParams) => {
@@ -4665,19 +4700,24 @@ function InfiniteCanvasPage() {
                           references: retryImages.map(referenceUrl).filter((url): url is string => Boolean(url)),
                       }
                     : buildImageGenerationMetadata(useReferenceImages ? "edit" : "generation", generationConfig, 1, retryImages);
-                setNodes((prev) =>
-                    prev.map((item) =>
-                        item.id === node.id
-                            ? {
-                                  ...item,
-                                  type: CanvasNodeType.Image,
-                                  width: imageSize.width,
-                                  height: imageSize.height,
-                                  metadata: { ...item.metadata, ...imageMetadata(uploadedImage), prompt, ...generationMetadata },
-                              }
-                            : item,
-                    ),
-                );
+                setNodes((prev) => prev.map((item) => {
+                    if (item.id !== node.id) return item;
+                    const alternativeState = appendImageAlternative(item.metadata, imageMetadata(uploadedImage), `retry-${Date.now()}-${nanoid(6)}`);
+                    return {
+                        ...item,
+                        type: CanvasNodeType.Image,
+                        width: imageSize.width,
+                        height: imageSize.height,
+                        metadata: {
+                            ...item.metadata,
+                            ...imageMetadata(uploadedImage),
+                            prompt,
+                            ...generationMetadata,
+                            imageAlternatives: alternativeState.alternatives,
+                            activeImageAlternativeIndex: alternativeState.activeImageAlternativeIndex,
+                        },
+                    };
+                }));
                 notifyGenerationCompleted({
                     kind: "image",
                     id: `${node.id}:retry:${Date.now()}`,
@@ -4865,13 +4905,15 @@ function InfiniteCanvasPage() {
             if (!targetNodeId || !nodesRef.current.some((node) => node.id === targetNodeId)) return;
             try {
                 const target = nodesRef.current.find((node) => node.id === targetNodeId)!;
-                const referenceNodeId = await createMaterialAssetNode(payload, { x: target.position.x + target.width + 120, y: target.position.y + target.height / 2 });
+                const referenceType = payload.kind === "image" ? CanvasNodeType.Image : payload.kind === "video" ? CanvasNodeType.Video : CanvasNodeType.Audio;
+                const existing = nodesRef.current.find((node) => node.id !== targetNodeId && node.type === referenceType && materialPayloadMatchesNode(payload, node));
+                const referenceNodeId = existing?.id || await createMaterialAssetNode(payload, { x: target.position.x + target.width + 120, y: target.position.y + target.height / 2 });
                 setConnections((previous) => {
                     if (previous.some((connection) => connection.fromNodeId === referenceNodeId && connection.toNodeId === targetNodeId)) return previous;
                     return [...previous, { id: nanoid(), fromNodeId: referenceNodeId, toNodeId: targetNodeId }];
                 });
-                console.info("[material library reference connected]", { targetNodeId, referenceNodeId, kind: payload.kind });
-                message.success("素材已添加为参考，提示词 @ 引用会同步更新");
+                console.info("[material library reference connected]", { targetNodeId, referenceNodeId, reusedExistingNode: Boolean(existing), kind: payload.kind });
+                message.success(existing ? "已复用画布中的素材作为参考" : "素材已添加为参考，提示词 @ 引用会同步更新");
             } catch (error) {
                 console.warn("[material library reference insert failed]", { targetNodeId, kind: payload.kind, error });
                 message.error("参考素材添加失败，请重试");
@@ -5375,7 +5417,7 @@ function InfiniteCanvasPage() {
                 <CanvasNodeInfoModal node={infoNode} open={Boolean(infoNode)} onClose={() => setInfoNodeId(null)} />
                 <CanvasPluginManagerModal open={pluginManagerOpen} onClose={() => setPluginManagerOpen(false)} />
 
-                {cropNode?.metadata?.content ? <CanvasNodeCropDialog dataUrl={cropNode.metadata.content} open={Boolean(cropNode)} onClose={() => setCropNodeId(null)} onConfirm={(crop) => void cropImageNode(cropNode!, crop)} /> : null}
+                {cropNode?.metadata?.content ? <CanvasNodeCropDialog dataUrl={cropNode.metadata.content} open={Boolean(cropNode)} processing={cropProcessingNodeId === cropNode.id} onClose={() => setCropNodeId(null)} onConfirm={(crop) => void cropImageNode(cropNode!, crop)} /> : null}
 
                 {maskEditNode?.metadata?.content ? (
                     <CanvasNodeMaskEditDialog dataUrl={maskEditNode.metadata.content} open={Boolean(maskEditNode)} onClose={() => setMaskEditNodeId(null)} onConfirm={(payload) => void maskEditImageNode(maskEditNode!, payload)} />
