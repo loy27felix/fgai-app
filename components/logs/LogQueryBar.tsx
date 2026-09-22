@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DatePicker } from 'antd';
 import type { LogCategory, LogSearch, LogSearchDraft, LogScope } from '@/lib/observability/log-search-contract';
@@ -60,6 +60,8 @@ export default function LogQueryBar({
 }) {
   const collapsedToggleRef = useRef<HTMLButtonElement>(null);
   const expandedToggleRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const previousCollapsedRef = useRef(isCollapsed);
   const draftFilters = Object.entries(draft.filters).filter(([, value]) => value);
   const appliedFilters = Object.entries(applied.filters).filter(([, value]) => value);
   const hasDraftChanges = draft.q !== applied.q
@@ -70,9 +72,21 @@ export default function LogQueryBar({
     || draft.to !== applied.to
     || JSON.stringify(draft.filters) !== JSON.stringify(applied.filters);
 
-  useEffect(() => {
-    const toggle = isCollapsed ? collapsedToggleRef.current : expandedToggleRef.current;
-    toggle?.focus();
+  useLayoutEffect(() => {
+    const wasCollapsed = previousCollapsedRef.current;
+    previousCollapsedRef.current = isCollapsed;
+
+    if (isCollapsed) {
+      collapsedToggleRef.current?.focus();
+      return;
+    }
+
+    // The expanded toggle is intentionally hidden at the page top. Hand the
+    // focus to the query input when auto-expansion removes that button.
+    // 页面回到顶部会自动展开查询栏，此时收起按钮被移除，焦点交给搜索框避免落到 body。
+    if (wasCollapsed) {
+      (expandedToggleRef.current || searchInputRef.current)?.focus();
+    }
   }, [isCollapsed]);
 
   function updateRange(values: null | [Dayjs | null, Dayjs | null]) {
@@ -109,6 +123,7 @@ export default function LogQueryBar({
         <span className="log-desk__query-mark">SLS</span>
         <input
           id="log-search"
+          ref={searchInputRef}
           className="log-desk__query-input"
           value={draft.q}
           onChange={(event) => onDraftChange({ q: event.target.value })}

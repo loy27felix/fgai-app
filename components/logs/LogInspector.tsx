@@ -105,19 +105,6 @@ export default function LogInspector({ row, state, onClose, onRetry }: { row: Lo
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
-        return;
-      }
-      if (!isOverlay || event.key !== 'Tab' || !inspectorRef.current) return;
-      const focusable = Array.from(inspectorRef.current.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex]:not([tabindex="-1"])')).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -142,7 +129,7 @@ export default function LogInspector({ row, state, onClose, onRetry }: { row: Lo
   }
 
   return (
-    <aside ref={inspectorRef} className="log-desk__inspector" role={isOverlay ? 'dialog' : undefined} aria-modal={isOverlay ? true : undefined} aria-label="日志详情" aria-labelledby="log-detail-title">
+    <aside ref={inspectorRef} className="log-desk__inspector" aria-label="日志详情" aria-labelledby="log-detail-title">
       <div className="log-desk__inspector-head"><div><span className="log-desk__eyebrow">LOG DETAIL</span><h2 id="log-detail-title">{row.event || '日志详情'}</h2></div><button ref={closeButtonRef} type="button" onClick={onClose} aria-label="关闭详情">×</button></div>
       {state.status === 'loading' && <div className="log-desk__inspector-state">正在读取这条日志的完整信息…</div>}
       {state.status === 'error' && <div className="log-desk__inspector-state is-error"><strong>详情读取失败</strong><span>{state.error}</span><button type="button" onClick={onRetry}>重试</button></div>}

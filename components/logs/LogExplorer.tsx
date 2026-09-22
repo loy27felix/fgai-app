@@ -69,10 +69,12 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
     updateContextTop();
     window.addEventListener('resize', updateContextTop);
     window.addEventListener('scroll', updateContextTop, { passive: true });
+    document.addEventListener('scroll', updateContextTop, { passive: true, capture: true });
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', updateContextTop);
       window.removeEventListener('scroll', updateContextTop);
+      document.removeEventListener('scroll', updateContextTop, true);
       desk.style.removeProperty('--log-context-top');
     };
   }, [isQueryCollapsed]);
