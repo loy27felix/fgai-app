@@ -87,7 +87,7 @@ export default function LogQueryBar({
   }
 
   return (
-    <section className={`log-desk__query ${isCollapsed ? 'is-collapsed' : ''}`} aria-label="日志查询条件">
+    <section className={`log-desk__query ${isCollapsed ? 'is-collapsed' : ''}`} data-log-query="true" aria-label="日志查询条件">
       {isCollapsed && (
         <div className="log-desk__query-collapsed">
           <span className="log-desk__query-mark">SLS</span>

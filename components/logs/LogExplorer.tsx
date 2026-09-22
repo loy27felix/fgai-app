@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { LogDetail, LogExplorerSnapshot, LogRecord, LogSearch } from '@/lib/observability/log-search-contract';
 import { defaultLogSearch, draftFromSearch, parseLogSearch, resetToFirstPage, searchWith, toLogSearchParams } from '@/lib/observability/log-search-contract';
 import { createExplorerState, explorerReducer, selectedRow } from './log-explorer-state';
@@ -28,10 +28,12 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
   const requestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const cursorHistoryRef = useRef<Array<string | null>>([]);
+  const deskRef = useRef<HTMLElement | null>(null);
   const row = selectedRow(state);
   const [hasScrolled, setHasScrolled] = useState(false);
   const [queryCollapsed, setQueryCollapsed] = useState(false);
   const scrollStateRef = useRef(false);
+  const isQueryCollapsed = hasScrolled && queryCollapsed;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -44,6 +46,31 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useLayoutEffect(() => {
+    const desk = deskRef.current;
+    const query = desk?.querySelector<HTMLElement>('[data-log-query]');
+    if (!desk || !query) return undefined;
+
+    // Keep the fixed inspector below the rendered query instead of assuming a chip count.
+    // 基于查询栏实际高度定位固定详情面板，避免筛选 chips 换行后被遮挡。
+    const updateContextTop = () => {
+      const measured = query.getBoundingClientRect().bottom - desk.getBoundingClientRect().top + 12;
+      const fallback = isQueryCollapsed ? 148 : 352;
+      desk.style.setProperty('--log-context-top', `${Math.max(fallback, measured)}px`);
+    };
+    const observer = new ResizeObserver(updateContextTop);
+    observer.observe(query);
+    updateContextTop();
+    window.addEventListener('resize', updateContextTop);
+    window.addEventListener('scroll', updateContextTop, { passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateContextTop);
+      window.removeEventListener('scroll', updateContextTop);
+      desk.style.removeProperty('--log-context-top');
+    };
+  }, [isQueryCollapsed]);
 
   const loadSearch = useCallback(async (search: LogSearch, history: 'push' | 'none' = 'push') => {
     const requestId = requestIdRef.current + 1;
@@ -162,9 +189,8 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
 
   const facets = state.snapshot?.facets || { category: [], level: [], source: [], service: [], event: [] };
   const summary = state.snapshot?.summary;
-  const isQueryCollapsed = hasScrolled && queryCollapsed;
   return (
-    <main className={`log-desk ${row ? 'has-inspector' : ''} ${isQueryCollapsed ? 'has-collapsed-query' : ''}`}>
+    <main ref={deskRef} className={`log-desk ${row ? 'has-inspector' : ''} ${isQueryCollapsed ? 'has-collapsed-query' : ''}`}>
       <header className="log-desk__header">
         <div><span className="log-desk__eyebrow">OBSERVABILITY CONSOLE</span><h1>日志检索</h1><p>按类别、请求、任务和完整上下文定位一次异常，不再在混杂的运行日志里猜字段。</p></div>
         <nav><a href="/admin/reports">服务监控报表</a><a href="/admin">管理后台</a></nav>
