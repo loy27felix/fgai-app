@@ -27,6 +27,15 @@ export function updateCreatorCanvas(id: string, payload: { title?: string; graph
   });
 }
 
+export async function renameCreatorCanvas(
+  id: string,
+  title: string,
+  expectedVersion?: number | null,
+): Promise<CreatorCanvasResponse> {
+  const version = expectedVersion ?? (await getCreatorCanvas(id)).canvas.version;
+  return updateCreatorCanvas(id, { title, expectedVersion: version });
+}
+
 export function deleteCreatorCanvas(id: string) {
   return requestJson<{ ok: boolean; id: string }>('/api/creator/canvases/' + encodeURIComponent(id), {
     method: 'DELETE',
