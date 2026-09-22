@@ -1,4 +1,5 @@
 import { Check, CopyPlus, Download, Pencil, Trash2, X } from "lucide-react";
+import { useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Input } from "antd";
 
@@ -22,10 +23,11 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const stopEditing = useCanvasUiStore((state) => state.stopEditingProject);
     const toggleSelected = useCanvasUiStore((state) => state.toggleSelectedProjectId);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
+    const renameInFlightRef = useRef<Promise<void> | null>(null);
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
     const open = () => navigate(`/canvas/${project.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`);
-    const saveTitle = async () => {
+    const saveTitle = () => {
         const nextTitle = editingTitle.trim();
         if (!nextTitle) {
             stopEditing();
@@ -36,18 +38,25 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
             stopEditing();
             return;
         }
-        try {
-            const result = await renameCreatorCanvas(project.cloudCanvasId, nextTitle, project.cloudCanvasVersion);
-            updateProject(project.id, {
-                title: nextTitle,
-                cloudCanvasVersion: result.canvas.version,
-                cloudLocalSignature: canvasProjectSyncSignature({ ...project, title: nextTitle }),
+        if (renameInFlightRef.current) return renameInFlightRef.current;
+        const request = renameCreatorCanvas(project.cloudCanvasId, nextTitle, project.cloudCanvasVersion)
+            .then((result) => {
+                updateProject(project.id, {
+                    title: nextTitle,
+                    cloudCanvasVersion: result.canvas.version,
+                    cloudLocalSignature: canvasProjectSyncSignature({ ...project, title: nextTitle }),
+                });
+                stopEditing();
+            })
+            .catch((error) => {
+                console.error("[canvas rename]", error);
+                message.error("云端画布重命名失败，请检查网络后重试");
+            })
+            .finally(() => {
+                if (renameInFlightRef.current === request) renameInFlightRef.current = null;
             });
-            stopEditing();
-        } catch (error) {
-            console.error("[canvas rename]", error);
-            message.error("云端画布重命名失败，请检查网络后重试");
-        }
+        renameInFlightRef.current = request;
+        return request;
     };
 
     return (

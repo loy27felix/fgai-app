@@ -649,8 +649,10 @@ function InfiniteCanvasPage() {
     const materialDropInsertRef = useRef<((assetId: string, position: Position) => void) | null>(null);
     const cloudCanvasIdRef = useRef<string | null>(null);
     const cloudCanvasVersionRef = useRef<number | null>(null);
+    const cloudCanvasTitleRef = useRef(currentProject?.title || "");
     const cloudSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const renameInFlightRef = useRef<Promise<void> | null>(null);
     const cloudMergeBaseRef = useRef<CreatorCanvasGraph | null>(null);
     const cloudCreateInFlightRef = useRef(false);
     const cloudCreatePromiseRef = useRef<Promise<string | null> | null>(null);
@@ -662,6 +664,10 @@ function InfiniteCanvasPage() {
     const mediaJobPollInFlightRef = useRef(new Set<string>());
     const mediaJobHandledRef = useRef(new Set<string>());
     const creatorVideoRecoveryRunningRef = useRef(false);
+
+    useEffect(() => {
+        cloudCanvasTitleRef.current = currentProject?.title || "";
+    }, [currentProject?.title]);
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -1104,7 +1110,8 @@ function InfiniteCanvasPage() {
 
                     for (let attempt = 0; attempt < 2; attempt += 1) {
                         try {
-                            const result = await updateCreatorCanvas(cloudId, { title: currentProject.title, graph: graphToSave, expectedVersion });
+                            const title = cloudCanvasTitleRef.current;
+                            const result = await updateCreatorCanvas(cloudId, { title, graph: graphToSave, expectedVersion });
                             if (cloudProjectIdRef.current !== projectId) return;
                             cloudCanvasVersionRef.current = result.canvas.version;
                             cloudMergeBaseRef.current = graphToSave;
@@ -1112,7 +1119,7 @@ function InfiniteCanvasPage() {
                             updateProject(projectId, {
                                 cloudCanvasVersion: result.canvas.version,
                                 cloudLocalSignature: canvasProjectSyncSignature({
-                                    title: currentProject.title,
+                                    title,
                                     nodes,
                                     connections,
                                     viewport,
@@ -3762,7 +3769,7 @@ function InfiniteCanvasPage() {
         setTitleEditing(true);
     }, [currentProject?.title]);
 
-    const finishTitleEditing = useCallback(async () => {
+    const finishTitleEditing = useCallback(() => {
         const nextTitle = titleDraft.trim();
         if (!nextTitle) {
             setTitleEditing(false);
@@ -3773,25 +3780,33 @@ function InfiniteCanvasPage() {
             setTitleEditing(false);
             return;
         }
+        if (renameInFlightRef.current) return renameInFlightRef.current;
         const cloudCanvasId = currentProject.cloudCanvasId;
-        try {
-            const pendingSync = cloudSyncQueueRef.current.catch(() => undefined);
-            const rename = pendingSync.then(() => renameCreatorCanvas(cloudCanvasId, nextTitle, cloudCanvasVersionRef.current ?? currentProject.cloudCanvasVersion));
-            cloudSyncQueueRef.current = rename.then(() => undefined);
-            const result = await rename;
-            // Keep the queued graph sync on the version confirmed by the title update.
-            // 标题更新成功后同步版本，避免后续图同步使用旧版本触发冲突。
-            cloudCanvasVersionRef.current = result.canvas.version;
-            updateProject(projectId, {
-                title: nextTitle,
-                cloudCanvasVersion: result.canvas.version,
-                cloudLocalSignature: canvasProjectSyncSignature({ ...currentProject, title: nextTitle }),
-            });
-            setTitleEditing(false);
-        } catch (error) {
-            console.error("[canvas rename]", error);
-            message.error("云端画布重命名失败，请检查网络后重试");
-        }
+        const request = (async () => {
+            try {
+                const pendingSync = cloudSyncQueueRef.current.catch(() => undefined);
+                const rename = pendingSync.then(() => renameCreatorCanvas(cloudCanvasId, nextTitle, cloudCanvasVersionRef.current ?? currentProject.cloudCanvasVersion));
+                cloudSyncQueueRef.current = rename.then(() => undefined, () => undefined);
+                const result = await rename;
+                // Keep the queued graph sync on the version confirmed by the title update.
+                // 标题更新成功后同步版本，避免后续图同步使用旧版本触发冲突。
+                cloudCanvasVersionRef.current = result.canvas.version;
+                cloudCanvasTitleRef.current = nextTitle;
+                updateProject(projectId, {
+                    title: nextTitle,
+                    cloudCanvasVersion: result.canvas.version,
+                    cloudLocalSignature: canvasProjectSyncSignature({ ...currentProject, title: nextTitle }),
+                });
+                setTitleEditing(false);
+            } catch (error) {
+                console.error("[canvas rename]", error);
+                message.error("云端画布重命名失败，请检查网络后重试");
+            }
+        })().finally(() => {
+            if (renameInFlightRef.current === request) renameInFlightRef.current = null;
+        });
+        renameInFlightRef.current = request;
+        return request;
     }, [currentProject, message, projectId, renameProject, titleDraft, updateProject]);
 
     const preventCanvasContextMenu = useCallback((event: ReactMouseEvent) => {
