@@ -36,7 +36,7 @@ export default function LogStream({ rows, total, hasMore, focus, selectedId, onS
         <div className="log-desk__table-wrap">
           <div className="log-desk__table-head"><span>时间</span><span>类别 / 级别</span><span>服务 / 事件</span><span>Route / HTTP / 耗时</span><span>Trace / Request / Task</span><span>摘要</span></div>
           {visibleRows.map((row) => (
-            <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="button" tabIndex={0} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
+            <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="row" tabIndex={0} aria-selected={selectedId === row.id} aria-label={`打开 ${row.event || row.service || '日志详情'}`} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
               <span className="log-desk__time">{timeText(row.occurredAt)}</span>
               <span className={`log-desk__level log-desk__level--${row.level}`}><b>{categoryLabel(row.category)}</b><em>{row.level}</em></span>
               <span className="log-desk__service"><strong>{row.service || '—'}</strong><small>{row.event || '—'}</small></span>
