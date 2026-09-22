@@ -178,7 +178,7 @@ function exchangeSide(input: {
   if (!hasSideData) return null;
   const side = input.request || input.response || {};
   const nestedHeadersCaptured = hasOwn(side, 'headers');
-  const nestedBodyCaptured = hasOwn(side, 'body') || hasOwn(side, 'bodyText') || hasOwn(side, 'encoding') || hasOwn(side, 'bodyEncoding') || hasOwn(side, 'bytes') || hasOwn(side, 'truncated');
+  const nestedBodyCaptured = hasOwn(side, 'body') || hasOwn(side, 'bodyText');
   return {
     method: scalar(firstValue(side.method, input.method)),
     url: scalar(firstValue(side.url, input.url)),
@@ -218,7 +218,7 @@ export function formatExchange(detail: LogDetail): FormattedExchange {
     truncated: details.requestTruncated,
     evidence: requestEvidence,
     headersCaptured: hasOwn(details, 'requestHeaders'),
-    bodyCaptured: hasOwn(details, 'requestBody') || hasOwn(details, 'requestBodyText') || hasOwn(details, 'requestBodyEncoding') || hasOwn(details, 'requestBytes') || hasOwn(details, 'requestTruncated'),
+    bodyCaptured: hasOwn(details, 'requestBody') || hasOwn(details, 'requestBodyText'),
   });
   const responseSide = exchangeSide({
     response,
@@ -231,7 +231,7 @@ export function formatExchange(detail: LogDetail): FormattedExchange {
     truncated: details.responseTruncated,
     evidence: responseEvidence,
     headersCaptured: hasOwn(details, 'responseHeaders'),
-    bodyCaptured: hasOwn(details, 'responseBody') || hasOwn(details, 'responseBodyText') || hasOwn(details, 'responseBodyEncoding') || hasOwn(details, 'responseBytes') || hasOwn(details, 'responseTruncated'),
+    bodyCaptured: hasOwn(details, 'responseBody') || hasOwn(details, 'responseBodyText'),
   });
   const topLevelErrorPresent = errorRecord === null && ['code', 'message', 'name', 'status', 'stack', 'providerCode', 'retryable', 'cause'].some((key) => hasOwn(details, key));
   const error = errorRecord || topLevelErrorPresent || hasValue(details.error) || hasValue(details.causeName) || hasValue(details.causeCode) || hasValue(details.causeMessage)
@@ -248,9 +248,16 @@ export function formatExchange(detail: LogDetail): FormattedExchange {
   const contextInputs: Array<[string, string, unknown]> = [
     ['stage', '阶段', details.stage],
     ['operation', '操作', details.operation],
+    ['action', '动作', details.action],
+    ['reason', '原因', details.reason],
     ['provider', '供应商', details.provider],
     ['feature', '功能', details.feature],
+    ['model', '模型', details.model],
     ['exchangeId', 'Exchange ID', details.exchangeId],
+    ['sessionId', 'Session ID', details.sessionId],
+    ['workspaceId', '工作区 ID', details.workspaceId],
+    ['resourceType', '资源类型', details.resourceType],
+    ['resourceId', '资源 ID', details.resourceId],
     ['pageRoute', '页面路由', details.pageRoute],
     ['userAgent', 'User-Agent', details.userAgent],
     ['host', '主机', details.host],
