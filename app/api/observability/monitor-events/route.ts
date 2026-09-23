@@ -6,6 +6,7 @@ import { logServerFailure } from '@/lib/observability/server-log';
 export const runtime = 'nodejs';
 
 type MonitorBody = {
+  observedAt?: unknown;
   host?: unknown;
   service?: unknown;
   checkName?: unknown;
@@ -26,6 +27,12 @@ function state(value: unknown) {
   return value === 'healthy' || value === 'unhealthy' || value === 'unknown' ? value : 'unknown';
 }
 
+function parseObservedAt(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export async function POST(request: Request) {
   if (!hasObservabilitySecret(request)) return NextResponse.json({ error: 'not found' }, { status: 404 });
   let body: MonitorBody;
@@ -34,10 +41,19 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'invalid event' }, { status: 400 });
   }
+  let observedAt: Date | undefined = undefined;
+  if (body.observedAt !== undefined) {
+    const parsedObservedAt = parseObservedAt(body.observedAt);
+    if (!parsedObservedAt) {
+      return NextResponse.json({ error: 'observedAt must be a valid timestamp' }, { status: 400 });
+    }
+    observedAt = parsedObservedAt;
+  }
   const service = text(body.service, 80);
   if (!service) return NextResponse.json({ error: 'service is required' }, { status: 400 });
   try {
     await recordObservationService({
+      observedAt,
       host: text(body.host, 120),
       service,
       checkName: text(body.checkName, 120) || 'health',

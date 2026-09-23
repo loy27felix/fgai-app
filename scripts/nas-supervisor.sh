@@ -8,6 +8,10 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${FG_NAS_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
+# Keep supervisor events beside monitor state so they survive app outages.
+# 将守护事件放在监控器的持久状态目录中，确保 App 离线时仍可等待投递。
+export FG_MONITOR_STATE_DIR="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application Support/fg-studio-monitor}"
+source "$PROJECT_ROOT/scripts/observability-outbox.sh"
 APP_SERVICE="app"
 APP_CONTAINER_PATH="/data/media"
 DEFAULT_MARKER_NAME=".fg-studio-nas-ready"
@@ -16,6 +20,7 @@ STATE_FILE="$STATE_ROOT/state"
 LOCK_DIR="$STATE_ROOT/lock"
 MOUNT_RETRY_FILE="$STATE_ROOT/last-mount-attempt"
 KEYCHAIN_SERVICE="com.fgstudio.nas-supervisor.smb"
+STATE_TRANSITION_SEQUENCE=0
 
 mkdir -p "$STATE_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -36,6 +41,54 @@ trap cleanup EXIT
 
 log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+}
+
+monitor_state() {
+  case "$1" in
+    ready) printf 'healthy' ;;
+    mount-requested|app-transitioning) printf 'unknown' ;;
+    config-missing|config-invalid|nas-offline|mount-failed|docker-offline|app-unhealthy|nas-readonly|container-mount-failed)
+      printf 'unhealthy'
+      ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+queue_state_event() {
+  local previous="$1"
+  local next="$2"
+  local message="$3"
+  local host
+  local observed_at
+  local event_id
+  local event_key
+  local mapped_state
+  local payload
+  local escaped_host
+  local escaped_previous
+  local escaped_message
+
+  host="$(hostname -s 2>/dev/null || hostname)"
+  observed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  event_id="$(uuidgen 2>/dev/null || true)"
+  if [[ -z "$event_id" ]]; then
+    STATE_TRANSITION_SEQUENCE=$((STATE_TRANSITION_SEQUENCE + 1))
+    event_id="$(date -u '+%Y%m%dT%H%M%S')-$$-$STATE_TRANSITION_SEQUENCE"
+  fi
+  event_key="nas-supervisor-${event_id}"
+  mapped_state="$(monitor_state "$next")"
+  escaped_host="$(json_escape "$host")"
+  escaped_previous="$(json_escape "$previous")"
+  escaped_message="$(json_escape "$message (rawState=$next)")"
+  payload="{\"host\":\"$escaped_host\",\"service\":\"nas\",\"checkName\":\"supervisor\",\"state\":\"$mapped_state\",\"previousState\":\"$escaped_previous\",\"message\":\"$escaped_message\",\"observedAt\":\"$observed_at\",\"eventKey\":\"$event_key\"}"
+
+  if ! fg_obs_queue_event monitor "$payload"; then
+    log "NAS supervisor: observability outbox enqueue failed for state transition $previous -> $next"
+  fi
 }
 
 run_with_timeout() {
@@ -67,6 +120,7 @@ set_state() {
   local current_state=""
   [[ -f "$STATE_FILE" ]] && current_state="$(<"$STATE_FILE")"
   if [[ "$current_state" != "$next_state" ]]; then
+    queue_state_event "$current_state" "$next_state" "$message"
     printf '%s' "$next_state" > "$STATE_FILE"
     log "$message"
   fi

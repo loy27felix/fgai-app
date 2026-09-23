@@ -14,12 +14,15 @@ LOCK_DIR="$STATE_ROOT/lock"
 DISK_THRESHOLD="${FG_MONITOR_DISK_THRESHOLD:-90}"
 MAX_APP_ERROR_LINES_PER_RUN="${FG_MONITOR_MAX_APP_ERROR_LINES_PER_RUN:-200}"
 MAX_APP_ERROR_EVENTS_PER_RUN="${FG_MONITOR_MAX_APP_ERROR_EVENTS_PER_RUN:-20}"
+MAX_OBSERVABILITY_EVENTS_PER_RUN="${FG_MONITOR_MAX_OBSERVABILITY_EVENTS_PER_RUN:-5}"
 TUNNEL_FAILURE_THRESHOLD="${FG_MONITOR_TUNNEL_FAILURE_THRESHOLD:-2}"
 TUNNEL_RESTART_COOLDOWN_SECONDS="${FG_MONITOR_TUNNEL_RESTART_COOLDOWN_SECONDS:-300}"
 TUNNEL_PROBE_TIMEOUT_SECONDS="${FG_MONITOR_TUNNEL_PROBE_TIMEOUT_SECONDS:-8}"
 USER_DOMAIN="gui/$(id -u)"
 AUTO_DEPLOY_LABEL="com.fgstudio.auto-deploy"
 AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
+
+source "$PROJECT_ROOT/scripts/observability-outbox.sh"
 
 mkdir -p "$STATE_ROOT" "$LOG_ROOT"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -345,6 +348,94 @@ check_nginx() {
   fi
 }
 
+check_nginx_5xx() {
+  local compose_profile
+  local container
+  local cursor_file="$STATE_ROOT/nginx-log-cursor"
+  local cursor="2m"
+  local scan_started_at
+  local host
+
+  compose_profile="$(read_env_value FG_COMPOSE_PROFILE)"
+  [[ "$compose_profile" == "https" ]] || return 0
+  container="$(container_id nginx)"
+  [[ -n "$container" ]] || return 0
+  [[ -s "$cursor_file" ]] && cursor="$(<"$cursor_file")"
+  scan_started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  host="$(hostname -s 2>/dev/null || hostname)"
+  # Stream Docker output so a long outage cannot load the full rotated log window into memory.
+  # 逐行处理 Docker 输出，避免长时间中断后将整段轮转日志一次性载入内存。
+  if ! docker logs --since "$cursor" --timestamps "$container" 2>/dev/null | /usr/bin/ruby -rjson -rdigest -e '
+    host = ARGV.fetch(0)
+    STDIN.each_line do |line|
+      match = line.match(/\A(\S+)\s+(\{.*\})\s*\z/)
+      next unless match
+      docker_timestamp, raw = match.captures
+      begin
+        entry = JSON.parse(raw)
+      rescue JSON::ParserError
+        next
+      end
+      next unless entry.is_a?(Hash)
+      status = Integer(entry["status"], exception: false)
+      next unless status && status >= 500 && status <= 599
+      trace_id = entry["traceId"].to_s
+      trace_id = nil unless trace_id.match?(/\A[A-Za-z0-9._:-]{8,128}\z/)
+      request_id = entry["requestId"].to_s
+      request_id = nil if request_id.empty? || request_id.length > 160
+      upstream_status = entry["upstreamStatus"].to_s.slice(0, 120)
+      key_material = request_id ? "#{host}|#{request_id}" : "#{host}|#{docker_timestamp}|#{raw}"
+      event_key = "nginx-#{Digest::SHA256.hexdigest(key_material)}"
+      message = "Nginx returned HTTP #{status}"
+      message += " (upstream #{upstream_status})" unless upstream_status.empty?
+      payload = {
+        occurredAt: entry["timestamp"].to_s.empty? ? docker_timestamp : entry["timestamp"],
+        source: "infra",
+        service: "nginx",
+        severity: "error",
+        impact: "blocked",
+        code: "nginx_http_#{status}",
+        message: message,
+        traceId: trace_id,
+        requestId: request_id,
+        route: entry["uri"].to_s.slice(0, 240),
+        httpStatus: status,
+        eventKey: event_key,
+        metadata: {
+          component: "nginx",
+          host: host,
+          method: entry["method"].to_s.slice(0, 16),
+          upstreamStatus: upstream_status,
+          upstreamAddress: entry["upstreamAddress"].to_s.slice(0, 160),
+          upstreamConnectTime: entry["upstreamConnectTime"].to_s.slice(0, 80),
+          upstreamHeaderTime: entry["upstreamHeaderTime"].to_s.slice(0, 80),
+          upstreamResponseTime: entry["upstreamResponseTime"].to_s.slice(0, 80),
+          requestTime: entry["requestTime"].to_s.slice(0, 80),
+          cfRay: entry["cfRay"].to_s.slice(0, 80)
+        }
+      }
+      puts JSON.generate(payload)
+    end
+  ' "$host" 2>/dev/null | while IFS= read -r payload; do
+    [[ -n "$payload" ]] || continue
+    fg_obs_queue_event error "$payload" || exit 1
+  done; then
+    return 0
+  fi
+  # Advance only after every captured line has been safely queued; the next scan overlaps at the start time.
+  # 所有采集行安全写入 outbox 后才推进游标；下轮从本轮开始时间读取，边界重复由 eventKey 去重。
+  printf '%s' "$scan_started_at" > "$cursor_file"
+}
+
+flush_observability_outbox() {
+  local base_url
+  local secret
+  base_url="$(read_env_value FG_OBSERVABILITY_URL)"
+  base_url="${base_url:-$(app_base_url)}"
+  secret="$(observability_secret)"
+  fg_obs_flush_outbox "$base_url" "$secret" "$MAX_OBSERVABILITY_EVENTS_PER_RUN"
+}
+
 check_postgres() {
   local container
   local health="missing"
@@ -503,8 +594,10 @@ update_state docker healthy "Docker daemon is available"
 check_nas
 check_app
 check_nginx
+check_nginx_5xx
 check_postgres
 check_tunnel
 check_disk
 check_app_errors
 check_auto_deploy
+flush_observability_outbox

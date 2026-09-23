@@ -36,6 +36,20 @@ function detailText(row: LogRecord, ...keys: string[]) {
   return '';
 }
 
+function objectValue(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function firstScalar(sources: Record<string, unknown>[], ...keys: string[]) {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+    }
+  }
+  return '';
+}
+
 function withFallback(value: string | null, fallback: string) {
   return value || fallback;
 }
@@ -60,7 +74,7 @@ const LOG_ROW_DESCRIPTORS: Record<LogCategory, LogRowDescriptor> = {
   },
   infrastructure: {
     main: (row) => [withFallback(detailText(row, 'host', 'component'), row.service), row.event],
-    status: (row) => [withFallback(detailText(row, 'state'), row.outcome), withFallback(row.message, row.event)],
+    status: (row) => [row.httpStatus === null ? withFallback(detailText(row, 'state'), row.outcome) : statusText(row), withFallback(row.message, row.event)],
     summary: (row) => [withFallback(row.message, row.event), row.source],
   },
   other: {
@@ -117,11 +131,27 @@ export function detailFields(detail: LogDetail) {
     add('消息', detail.message);
     add('浏览器上下文', detail.details.browser || detail.details.userAgent);
   } else if (detail.category === 'infrastructure') {
+    const metadata = objectValue(detail.details.metadata);
+    const nestedNginx = objectValue(detail.details.nginx);
+    const metadataNginx = objectValue(metadata.nginx);
+    const metadataSources = [detail.details, metadata, nestedNginx, metadataNginx];
+    const httpStatus = detail.httpStatus ?? firstScalar(metadataSources, 'httpStatus', 'http_status');
+    const previousState = firstScalar(metadataSources, 'previousState', 'previous_state');
+    const state = firstScalar(metadataSources, 'state') || detail.outcome;
     add('来源', detail.source);
     add('主机/组件', detail.details.host || detail.details.component || detail.service);
-    add('状态', detail.details.state || detail.outcome);
+    add('检查项', firstScalar(metadataSources, 'checkName', 'check_name'));
+    add('状态变化', previousState && state ? `${previousState} → ${state}` : null);
+    add('状态', state);
+    add('HTTP 状态', httpStatus);
     add('事件', detail.event);
     add('消息', detail.message);
+    add('Nginx upstream 地址', firstScalar(metadataSources, 'upstreamAddress', 'upstream_address', '$upstream_addr'));
+    add('Nginx upstream 状态', firstScalar(metadataSources, 'upstreamStatus', 'upstream_status', '$upstream_status'));
+    add('Nginx upstream 响应耗时（秒）', firstScalar(metadataSources, 'upstreamResponseTime', 'upstream_response_time', '$upstream_response_time'));
+    add('Nginx upstream 连接耗时（秒）', firstScalar(metadataSources, 'upstreamConnectTime', 'upstream_connect_time', '$upstream_connect_time'));
+    add('Nginx upstream 响应头耗时（秒）', firstScalar(metadataSources, 'upstreamHeaderTime', 'upstream_header_time', '$upstream_header_time'));
+    add('Nginx 请求耗时（秒）', firstScalar(metadataSources, 'requestTime', 'request_time', '$request_time'));
   } else {
     add('来源', detail.source);
     add('事件', detail.event);
