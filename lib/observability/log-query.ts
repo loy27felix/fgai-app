@@ -173,7 +173,7 @@ const LOG_CTE = `with logs as (
     'audit'::text as kind,
     occurred_at,
     'audit'::text as source,
-    'other'::text as category,
+    'api_runtime'::text as category,
     feature as service,
     coalesce(nullif(concat_ws('.', feature, action, stage), ''), 'audit') as event_name,
     case
@@ -224,12 +224,11 @@ const LOG_CTE = `with logs as (
     log.occurred_at,
     log.source,
     case
-      when log.source = 'frontend' and log.route like '/api/%' then 'api'
-      when log.source = 'frontend' then 'browser'
       when log.source in ('infra', 'deploy') then 'infrastructure'
       when lower(coalesce(log.service, '') || ' ' || coalesce(log.event_name, '')) ~ '(nas|tunnel|nginx)' then 'infrastructure'
-      when log.source = 'app' and (log.event_name in ('http_request_received', 'http_exchange_completed') or log.service in ('http', 'browser-api')) then 'api'
-      when log.source = 'app' then 'api_runtime'
+      when log.event_name in ('http_request_received', 'http_exchange_completed') then 'api'
+      when log.source = 'frontend' then 'browser'
+      when log.source in ('app', 'provider', 'audit') then 'api_runtime'
       else 'other'
     end as category,
     log.service,
@@ -276,12 +275,10 @@ const LOG_CTE = `with logs as (
     occurred_at,
     source,
     case
-      when source = 'frontend' and route like '/api/%' then 'api'
-      when source = 'frontend' then 'browser'
       when source in ('infra', 'deploy') then 'infrastructure'
       when lower(coalesce(service, '') || ' ' || coalesce(feature, '') || ' ' || coalesce(action, '') || ' ' || coalesce(code, '')) ~ '(nas|tunnel|nginx)' then 'infrastructure'
-      when source = 'app' and (route is not null or http_status is not null) then 'api'
-      when source = 'app' then 'api_runtime'
+      when source = 'frontend' then 'browser'
+      when source in ('app', 'provider', 'audit') then 'api_runtime'
       else 'other'
     end as category,
     service,
@@ -680,9 +677,36 @@ function normalizeRecord(row: LogRow, includeDetails = false): LogRecord {
     route: row.route,
     httpStatus: nullableNumber(row.http_status),
     durationMs: nullableNumber(row.duration_ms),
+    contextPreview: contextPreview(details),
   };
   if (includeDetails) record.details = details;
   return record;
+}
+
+const CONTEXT_PREVIEW_PRIORITY = ['stage', 'reason', 'path', 'bucket', 'size', 'hasrange'];
+const CONTEXT_PREVIEW_SENSITIVE_KEY = /^(authorization|cookie|set-cookie|token|secret|password|api[_-]?key|access[_-]?key|signature|sig|credential|private[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|x-api-key)$/i;
+const CONTEXT_PREVIEW_STANDARD_KEYS = new Set([
+  'message', 'event', 'eventname', 'service', 'outcome', 'id', 'eventid', 'traceid', 'requestid', 'taskid',
+  'userid', 'actorid', 'actoremail', 'workspaceid', 'route', 'httpstatus', 'status', 'durationms',
+]);
+
+function contextPreview(details: Record<string, unknown>) {
+  const entries = Object.entries(details).filter(([key, value]) => {
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return !CONTEXT_PREVIEW_SENSITIVE_KEY.test(key)
+      && !CONTEXT_PREVIEW_STANDARD_KEYS.has(normalizedKey)
+      && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean');
+  });
+  const priority = new Map(CONTEXT_PREVIEW_PRIORITY.map((key, index) => [key, index]));
+  entries.sort(([left], [right]) => {
+    const leftPriority = priority.get(left.toLowerCase().replace(/[^a-z0-9]/g, '')) ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = priority.get(right.toLowerCase().replace(/[^a-z0-9]/g, '')) ?? Number.MAX_SAFE_INTEGER;
+    return leftPriority - rightPriority;
+  });
+  return entries.slice(0, 4).map(([key, value]) => ({
+    key,
+    value: String(value).slice(0, 120),
+  }));
 }
 
 function normalizeTimeline(row: TimelineRow): LogTimelineBucket {

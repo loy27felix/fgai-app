@@ -53,6 +53,7 @@ export type LogRecord = {
   route: string | null;
   httpStatus: number | null;
   durationMs: number | null;
+  contextPreview: Array<{ key: string; value: string }>;
   details?: Record<string, unknown>;
 };
 
