@@ -677,7 +677,7 @@ function normalizeRecord(row: LogRow, includeDetails = false): LogRecord {
     route: row.route,
     httpStatus: nullableNumber(row.http_status),
     durationMs: nullableNumber(row.duration_ms),
-    contextPreview: contextPreview(details),
+    contextPreview: contextPreview(details, row.kind),
   };
   if (includeDetails) record.details = details;
   return record;
@@ -690,14 +690,17 @@ const CONTEXT_PREVIEW_STANDARD_KEYS = new Set([
   'userid', 'actorid', 'actoremail', 'workspaceid', 'route', 'httpstatus', 'status', 'durationms',
 ]);
 
-function contextPreview(details: Record<string, unknown>) {
+function contextPreview(details: Record<string, unknown>, kind: LogRecord['kind']) {
   const entries = Object.entries(details).filter(([key, value]) => {
     const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
     return !CONTEXT_PREVIEW_SENSITIVE_KEY.test(key)
       && !CONTEXT_PREVIEW_STANDARD_KEYS.has(normalizedKey)
       && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean');
   });
-  const priority = new Map(CONTEXT_PREVIEW_PRIORITY.map((key, index) => [key, index]));
+  const priorityKeys = kind === 'audit'
+    ? ['stage', 'action', 'resourceType', 'resourceId']
+    : CONTEXT_PREVIEW_PRIORITY;
+  const priority = new Map(priorityKeys.map((key, index) => [key, index]));
   entries.sort(([left], [right]) => {
     const leftPriority = priority.get(left.toLowerCase().replace(/[^a-z0-9]/g, '')) ?? Number.MAX_SAFE_INTEGER;
     const rightPriority = priority.get(right.toLowerCase().replace(/[^a-z0-9]/g, '')) ?? Number.MAX_SAFE_INTEGER;

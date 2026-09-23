@@ -388,7 +388,7 @@
 
 - [ ] **Step 2: Add bounded scalar context preview during normalization**
 
-  Use `normalizeRecord`'s already deserialized/redacted `details`. Select at most four scalar key/value pairs, preferring diagnostic context such as `stage`, `reason`, `path`, `bucket`, `size`, and `hasRange`, then preserving payload order. Exclude sensitive-key matches and standard fields already shown as message, event, service, IDs, route, or status. Truncate rendered values to 120 characters. Never copy nested objects or arrays into the list response.
+  Use `normalizeRecord`'s already deserialized/redacted `details`. Select at most four scalar key/value pairs, preferring diagnostic context such as `stage`, `reason`, `path`, `bucket`, `size`, and `hasRange`, then preserving payload order. For audit records, prioritize `stage`, `action`, `resourceType`, and `resourceId` so the row can identify the audited target. Exclude sensitive-key matches and standard fields already shown as message, event, service, IDs, route, or status. Truncate rendered values to 120 characters. Never copy nested objects or arrays into the list response.
 
 - [ ] **Step 3: Run the existing test suite and type check**
 
