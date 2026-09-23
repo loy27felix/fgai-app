@@ -1,0 +1,5 @@
+prototype/dist/
+tests/domain.cjs
+tests/canvas-draft.cjs
+tests/guided-session.cjs
+tests/text-models.cjs

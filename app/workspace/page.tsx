@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import WorkspaceHub from "@/components/WorkspaceHub";
 import { createClient } from "@/lib/local/server";
+import { canAccessProductionLab } from "@/lib/production-lab/access-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export default async function WorkspacePage() {
     localClient.from("projects").select("id", { count: "exact", head: true }),
   ]);
   const isAdmin = profile?.platform_role === "admin" || profile?.platform_role === "superadmin";
+  const showProductionLab = canAccessProductionLab(profile?.platform_role, process.env.PRODUCTION_LAB_ENABLED);
 
-  return <WorkspaceHub email={user.email || ""} isAdmin={isAdmin} projectCount={projectCount || 0} />;
+  return <WorkspaceHub email={user.email || ""} isAdmin={isAdmin} showProductionLab={showProductionLab} projectCount={projectCount || 0} />;
 }

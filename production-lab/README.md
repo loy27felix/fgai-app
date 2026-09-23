@@ -1,0 +1,54 @@
+# Production Lab / 第六板块
+
+本分支是第六板块的独立试用实现，新增 `/production-lab`、`/api/production-lab/*`、独立数据表，以及工作区中仅超级管理员可见的第六入口。旧五个板块的页面、数据、画布、浏览器存储和接口保持原样。Mac mini 尚未执行本分支部署或数据库迁移。
+
+当前主路径：选题与立项 → 项目创作依据 → 批量分集剧本（多个文本模型比较）→ 审核 → 项目/分集画布 → 画布制作 Agent 与素材草稿 → 推进记录。编剧和导演合并为一个编导工作台；画布里的 Agent 服务当前模型可用时会读取项目、分集、选中节点和上游文字依据，动态提问或提出可确认的新增/修改节点操作。
+
+画布交互正在重做：节点默认工作倍率提高；“适配画布”按当前内容居中；Ctrl/Cmd+滚轮用画布自身的非被动监听，避免浏览器抢走缩放；普通滚轮平移带缓动；空白处拖动相机有可关闭的惯性；Shift+拖动可框选；节点拖动逐帧更新 DOM 与连线，最终一次性写入历史；选中后画布顶部提供复制、克隆、删除和清除选择；撤销/删除后会清除已不存在的节点选择；正文按中英文混排换行并可选中复制。主题在本机读取完成前暂禁切换，避免第一次点击与存储恢复竞争。系统启用“减少动态效果”时会关闭惯性。
+
+生产板块仍是内测原型：**图片、视频、音频实际生成器和后台队列尚未接入；媒体文件目前只存用户浏览器；人民币账单核对、官方素材团队发布也未接通。**GPU 超分与去水印按用户要求延期。没有真实服务端模型配置时，Agent 和剧本模型调用会显示不可用，不会伪造生成结果。
+
+## 本机交互预览
+
+需要先执行 TypeScript 检查，再由本机已有的 esbuild 打包：
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit --incremental false
+node production-lab/prototype/build.cjs
+node production-lab/prototype/server.cjs
+```
+
+预览默认只监听 `127.0.0.1:4189`，打开 `http://127.0.0.1:4189/`。它以示例账号在浏览器本地运行，不访问 API，也不调用模型。若在受限环境出现 esbuild `spawn EPERM`，这是当前 shell 的子进程策略；可在允许本机 bundler 子进程的开发环境构建。
+如果 4189 已被占用，可设置 `PRODUCTION_LAB_PREVIEW_PORT` 后再启动预览服务；服务仍只监听本机回环地址。
+
+## 超级管理员内测
+
+第六板块在服务端默认启用，但只有数据库角色为 `superadmin` 的已登录账号可以打开页面或调用 API。设置 `PRODUCTION_LAB_ENABLED=false` 可立即关闭；入口只对超级管理员显示。此门禁不使用邮箱白名单或浏览器传入的角色。
+
+模型和数据库只在服务器环境配置：
+
+```dotenv
+PRODUCTION_LAB_ENABLED=true
+PRODUCTION_LAB_DATABASE_URL=postgresql://lab_user:REPLACE@127.0.0.1:5432/fg_production_lab
+PRODUCTION_LAB_TEXT_MODELS=[{"id":"gpt","label":"GPT","model":"...","endpoint":"https://.../v1/chat/completions","apiKey":"..."},{"id":"claude","label":"Claude","model":"...","endpoint":"https://.../v1/chat/completions","apiKey":"..."}]
+```
+
+上面是格式示例，不含凭据。模型 endpoint 必须是 HTTPS OpenAI-compatible Chat Completions。密钥只在服务端环境中读取。Claude 需使用兼容网关；目前没有原生 Anthropic 请求适配。
+
+首次测试按顺序将 `migrations/001.sql`、`002-script-runs.sql`、`003-script-run-project-scope.sql`、`004-project-canvas-graphs.sql` 应用到**新的**测试数据库。不要把这些迁移加进旧数据库，也不要复用旧 `DATABASE_URL`。应用自身会拒绝相同主机、端口和数据库名，但仍需人工核对 DNS 别名指向。
+
+超级管理员可在试用空间里查看、创建、审核和推进项目；其他账号的入口、页面和 API 均受服务端角色检查保护。画布按项目与分集存服务端图，并用版本比较避免静默覆盖。本机副本失败时可导出，版本冲突时可选择保存本机恢复副本后载入服务器版。
+
+## 测试
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit --incremental false
+node production-lab/tests/build.cjs
+Get-ChildItem production-lab/tests -Filter *.test.cjs | ForEach-Object { node $_.FullName; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+```
+
+测试使用当前源码构建隔离模块，不会调用模型或数据库。`node --test` 在部分 Windows 沙箱中需要 Node 启动子进程，会遇到 `spawn EPERM`；直接逐个运行测试文件可验证相同断言。
+
+## 参考适配
+
+五个画布项目及 OiiOii、TapNow、LibTV 的采用点见 [REFERENCE-ADAPTATIONS.md](REFERENCE-ADAPTATIONS.md)。TapCanvas 的纯 DAG 排布算法和 Open AI Canvas 主题 store 适配源码与上游声明位于 `lib/production-lab/`。

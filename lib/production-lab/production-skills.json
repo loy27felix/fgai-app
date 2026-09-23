@@ -1,0 +1,182 @@
+[
+  {
+    "id": "acting",
+    "name": "acting",
+    "description": "Write and improve character acting and performance direction for cinematic AI video prompts, including objectives, tactics, beats, subtext, eye life, voice, physicality, and scene adaptation.",
+    "category": "制作",
+    "sha256": "ce9c240fea55c5141b0353a66cd5636a12c42cf8fe9de190ddfa9d8576803db2",
+    "status": "制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "cinedance-higgsfield",
+    "name": "cinedance-higgsfield",
+    "description": "Production-ready cinematic prompt direction for Seedance 2.0 and Higgsfield, including scene diagnosis, spatial blocking, first-frame occupancy, gaze lines, body orientation, landmark continuity, optics, dialogue timing, reference control, multi-shot continuity, and final prompt QA. Use when creating, refining, or validating Seedance/Higgsfield video prompts.",
+    "category": "制作",
+    "sha256": "582cda50ea1f86e1a0827129f20cc7152e5b79dd925af9cdfb9848d8ae4b6e90",
+    "status": "制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "cinema-dna-21x9x3",
+    "name": "cinema-dna-21x9x3",
+    "description": "将人物、空间、产品、建筑、历史、神话、科幻、体育或一句简单故事，转译为真人实景电影感的 21:9 单帧、三联镜头或九镜故事板。用于用户要求电影感、导演感、21:9、三联分镜、9 张图讲故事、九宫格、连续镜头、电影静帧、镜头测试或故事视觉化时；仅在用户明确要求时追加片名、海报、封面与视觉体系。参考图只用于抽象分析，默认不作为风格复制来源。",
+    "category": "美术",
+    "sha256": "8ff9ece0c11466bce15db607675cd16c174e58d5e613eda799224f8e5c432ef3",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "deepwhite-director-shooting-v3-7",
+    "name": "deepwhite-director-shooting-v3-7",
+    "description": "将已确认的中文剧本、场景或剧情片段忠实转译为导演文字分镜、火柴人简笔画多宫格故事板和 Seedance 2.5 视频提示词。保持 v3.6 提示词格式不变；强化文戏镜头主任务、连续动作链、摄影机路径、切镜必要性与跨镜动势继承；战斗或高运动场景仍仅在提示词阶段加载动态动作与物理因果规则。作者：DeepWhite。",
+    "category": "编导",
+    "sha256": "e55fa814eb2c83c9ac6cf0b085e7b6a1284321e589b67a9e87a2d7b9ae5fd794",
+    "status": "编导工作台与制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "deepwhite-image-prompt-builder",
+    "name": "deepwhite-image-prompt-builder",
+    "description": "Create polished bilingual image-generation prompts for still images. Use when the user asks for an image prompt, wants a visual idea translated into a generation-ready prompt, provides a script plus style description and wants key stills, posters, character images, scene concept art, or other static image prompts, describes a subject, scene, style, product, character, poster, illustration, or photo for a still image, needs prompt variants, or asks to improve or translate an image prompt. Always provide both an English prompt and a Chinese prompt. Do not create video prompts, shotlists, timestamped sequences, motion directions, duration notes, or audio instructions. Do not recommend, compare, or name image-generation models unless the user explicitly asks for model or tool advice.",
+    "category": "美术",
+    "sha256": "be8001b558e35fe2503ce8b67d329517c35fe24783038120dafbefaa13952eba",
+    "status": "制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "deepwhite-screenwriting-v1",
+    "name": "deepwhite-screenwriting-v1",
+    "description": "v1 版本。中文影视编剧整合技能。用于从零构思概念短片、短片、长片、多集剧集，也用于已有梗概、分场大纲、剧本片段的诊断、量化评分、精准修改、对白打磨、节奏删减和剧本医生。整合并保留山音超级编剧大师的中文全流程、视听化写作、分步骤自检机制，以及 screenwriter 的麦基/坎贝尔/亚里士多德结构审计、场景价值转变、因果性审计、精准 edit 机制。只输出中文，不使用 Hollywood 格式、docx 输出或双语台词。",
+    "category": "编导",
+    "sha256": "7b73f42daacb8d9510f9068d91886d5a65df79ba183d250a6c596c2a093ae412",
+    "status": "编导工作台与制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "deepwhite-shotlist-builder-zh-user",
+    "name": "deepwhite-shotlist-builder-zh-user",
+    "description": "将剧本或场景拆解为中文影视分镜、Seedance 2.0 视频提示词、直接文本提示词或分镜网页。Use when the user uploads or references a screenplay and asks for shot breakdown, shotlist, cinematic blocking, Seedance prompts, video prompt sheets, storyboard-aware prompts, asset-image comparison, or an HTML production page. Enforce asset confirmation, optional storyboard use, spatial blocking confirmation, time division confirmation, delivery-format confirmation, per-shot action/composition/camera/sound fields, Chinese output, prompt length control, and HTML layout QA when generating a webpage.",
+    "category": "编导",
+    "sha256": "3ebf27d459d60cf16eacc13e4924199e2d5b542237d107ffb0363365694a866d",
+    "status": "编导工作台与制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "gpt-image-2-style-library",
+    "name": "gpt-image-2-style-library",
+    "description": "Choose GPT-Image2 / gpt-image-2 visual styles and industrial prompt templates from the awesome-gpt-image-2 style library. Use when an agent needs to create, rewrite, classify, or improve image-generation prompts with repository-backed templates, categories, style tags, scene tags, pitfalls, and example cases.",
+    "category": "美术",
+    "sha256": "98519a3bfd28c5ab5630771a536f18fbe3627123cd7dd7a8801fa5da166a60f9",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "libtv-video-producer",
+    "name": "libtv-video-producer",
+    "description": "Guide video production work inside LibTV with concrete step-by-step操作, model selection, workflow design, asset management, storyboard generation, video generation, editing, and troubleshooting. Use when the user asks how to do something in LibTV/Liblib TV, wants to produce videos primarily on LibTV, needs exact click-by-click guidance, wants help choosing LibTV models or features, wants to turn scripts/assets into storyboard images or videos, wants to build reusable LibTV workflows, or asks why a LibTV generation/setup failed.",
+    "category": "制作",
+    "sha256": "7075630f8db04fcdf47798652f2c03bb64952a29f90df320bebfabaaac407c42",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "lira-image-prompts",
+    "name": "lira-image-prompts",
+    "description": "Lira — a master-level prompt-optimization persona for AI IMAGE generation. Use this skill WHENEVER the user wants to write, fix, optimize, or iterate an image-generation prompt — Higgsfield Soul 2.0 / Cinema Studio AI Cast (characters), Higgsfield Soul Cinema (locations/cinematic stills), frame edits via Nano Banana Pro (NBP, always first: post-processing of an original), Seedream 4.5 (texture-slop cleanup only), GPT Image 2 (last resort: finest local micro-edits, location view changes), or any text-to-image / image-edit task. Trigger it for requests like \"a prompt for Soul Cinema\", \"make an NBP prompt\", \"rewrite this prompt\" — in any language — plus character sheets, location/environment shots, prop sheets, surgical image edits, or any time an image prompt needs to be built or debugged. Apply this skill even if the user doesn't say the name \"Lira\" — any image-prompt construction or repair task qualifies.",
+    "category": "美术",
+    "sha256": "f480d1ad5b61f7b33df3bc49e1b652e50a9a75acef280c8893facd6cb40eee83",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "screenwriter",
+    "name": "screenwriter",
+    "description": "Скилл-инструмент для сценариста полнометражного фильма или сериала. Используй всегда, когда пользователь хочет писать сценарий, поэпизодник, разрабатывать сцены, бит-шит, диалоги, делать ревизии, считать экранное время, резать длину, работать с персонажами или мифологией истории. Скилл работает на основе методологий Макки, Кэмпбелла и Аристотеля, выдаёт Hollywood-формат .docx, поддерживает билингвальные сценарии (диалог на одном языке + перевод в скобках под ним), и помогает аудитировать структуру по причинности и движению ценности. Скилл не привязан к конкретной истории — пользователь приносит свою.",
+    "category": "编导",
+    "sha256": "e6820b694654786753df9507840a36b770b3c3d3adf5f54292ad85b2ff9de4a4",
+    "status": "编导工作台与制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "seedance-combat-prompt",
+    "name": "seedance-combat-prompt",
+    "description": "Seedance 2.0 二次元打戏视频提示词生成智能体。飞驰影漫社+废话军师联合改造。",
+    "category": "制作",
+    "sha256": "575beee3a4a37f871f154b57e04101bbe99e4c0fcd2314d8449c80ff318a8155",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "seedance-director",
+    "name": "seedance-director",
+    "description": "Seedance 2.0 video prompt director. Converts plain-text scene descriptions into production-ready bilingual EN+ZH video prompts optimized for the Seedance 2.0 video generator. Handles action scenes (combat, pursuit, stunts), general scenes (landscapes, journeys, atmosphere), and dialogue scenes (confrontations, negotiations, interrogations). Use this skill whenever the user wants to create a Seedance video prompt, describes a scene for video generation, mentions Seedance, or asks for a cinematic scene breakdown.",
+    "category": "制作",
+    "sha256": "2ccbef0fc9456d9733fe74dab8cc53ca0852193fd3527bcf02d615d189d979ff",
+    "status": "制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "seedance-emotion-director",
+    "name": "seedance-emotion-director",
+    "description": "Seedance 2.0 情绪导演。将故事大纲、剧本片段、分镜草稿、小说段落、剧情提示词或口播文案转成可直接用于 Seedance 2.0 的六段式影视级视频提示词，强调情绪曲线、可拍摄动作、物理化表达、镜头、光线、声音和时间轴控制，最终输出 1900 字以内。",
+    "category": "制作",
+    "sha256": "413c8ac54e8dfa1ac84ce931196db23c535ce8e654349394a961b4e81a73839d",
+    "status": "制作 Agent 已部署",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "tygg-ai-film-studio",
+    "name": "tygg-ai-film-studio",
+    "description": "制作独立短片或连续剧情片段：恢复项目故事与偏好，详细共创并同轮展示剧本和分镜，准备人物设定板与场景资产，用可弯曲简化人物和圆滑镜头完成 Blender 预演，分阶段确认后交付参考视频与 Seedance 提示词。",
+    "category": "制作",
+    "sha256": "87d62cb2c17aa633c162e5bb6537fc5de80f8395ad1556e570c975a401838256",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "video-shotcraft",
+    "name": "video-shotcraft",
+    "description": "Create cinematic product videos from shot recipe cards, a validated template, and code/audio assets (Remotion + real page screenshots + 2.5D camera moves + beat-synced cuts + sound design). Use when the user asks to turn a frontend project or webpage into a product video, says \"use video-shotcraft to make a video/promo\", names the Ink Press template or asks to reproduce its effect, or wants a single shot card's motion. 用镜头配方卡 + 已验收模板 + 代码/音频资产制作电影感产品视频（Remotion + 真实页面截图 + 2.5D 运镜 + 节奏卡点 + 声音设计）。当用户要求\"用 video-shotcraft 做视频/宣传片\"、把前端项目/网页做成产品视频、点名 Ink Press 模板或要求复刻模板片效果，或要用镜头卡做单个动效镜头时使用。",
+    "category": "制作",
+    "sha256": "21730a5d53d3095be62d1148602370349c9ce3ec10ca64152ced44e2b9e86281",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": true
+  },
+  {
+    "id": "xiaotang-ai-prompt-architect",
+    "name": "xiaotang-ai-prompt-architect",
+    "description": "Expand a simple creative idea into a cinematic visual concept, industrial-style storyboard, and executable AI image/video prompts using controlled camera language, movement, lighting, color, material, and emotional contrast. Use when users want a director-level treatment for Sora, Seedance, Runway, Kling, Midjourney, or similar visual generation tools.",
+    "category": "制作",
+    "sha256": "5f8bb4c80f112a7222396b7ea725c0704aa4ec73b533841a5a03ad641ab73d57",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  },
+  {
+    "id": "xiaotang-aigc-tvc-sop",
+    "name": "xiaotang-aigc-tvc-sop",
+    "description": "Develop premium commercial TVC concepts, shot plans, and AI video prompts using a five-phase emotional arc, locked visual continuity, a concrete six-element shot formula, montage rhythm, and final delivery QA. Use when a user asks for a high-end commercial film, product TVC, Seedance/Kling video prompt, or director-style advertising treatment.",
+    "category": "制作",
+    "sha256": "ab960636d4473dbac7074d809bfcce19815ae7863876058689252a7db4bb447a",
+    "status": "尚未适配运行器",
+    "license": "接入前核对来源与许可",
+    "hasReferences": false
+  }
+]

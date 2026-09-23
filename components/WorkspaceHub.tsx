@@ -4,7 +4,7 @@ import FGLogo from "@/components/FGLogo";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
 import { signOut } from "@/app/projects/actions";
 
-type WorkspaceHubProps = { email: string; isAdmin: boolean; projectCount: number };
+type WorkspaceHubProps = { email: string; isAdmin: boolean; showProductionLab: boolean; projectCount: number };
 
 const WORKSPACES = [
   {
@@ -42,9 +42,16 @@ const WORKSPACES = [
     accent: "#ffb673", glow: "rgba(255,156,95,.27)",
     icon: ["M4 19V9M10 19V5M16 19v-8M22 19V3", "M2 21h20"],
   },
+  {
+    href: "/production-lab", number: "06", title: "漫剧生产台", en: "PRODUCTION PILOT",
+    description: "在独立试用空间里串联选题、批量剧本、项目推进与制作画布。",
+    note: "超级管理员内测 · 独立数据区",
+    accent: "#a993ff", glow: "rgba(143,116,255,.32)",
+    icon: ["M4 5h16v14H4z", "M8 9h8M8 13h8M8 17h4", "m17 2 1.5 1.5L20 2"],
+  },
 ] as const;
 
-export default function WorkspaceHub({ email, isAdmin, projectCount }: WorkspaceHubProps) {
+export default function WorkspaceHub({ email, isAdmin, showProductionLab, projectCount }: WorkspaceHubProps) {
   const { theme, toggle } = useFgTheme();
   const name = email.replace(/@.*/, "") || "创作者";
   const initial = name.slice(0, 2).toUpperCase();
@@ -86,7 +93,7 @@ export default function WorkspaceHub({ email, isAdmin, projectCount }: Workspace
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 16 }} className="fg-workspace-grid">
-          {WORKSPACES.map((space, index) => {
+          {WORKSPACES.filter((space) => space.href !== "/production-lab" || showProductionLab).map((space) => {
             const restricted = space.href === "/admin" && !isAdmin;
             return (
               <Hov key={space.href} as="a" href={space.href} base={{ position: "relative", minHeight: 235, display: "flex", flexDirection: "column", padding: "26px 26px 23px", overflow: "hidden", borderRadius: 23, color: "inherit", textDecoration: "none", border: "1px solid var(--stroke)", background: "linear-gradient(135deg,color-mix(in srgb,var(--panel-solid) 82%,transparent),color-mix(in srgb,var(--panel) 84%,transparent))", boxShadow: "var(--inset),0 24px 50px -38px rgba(0,0,0,.7)", transition: "transform .35s var(--ease-expo), border-color .35s var(--ease-expo), box-shadow .35s var(--ease-expo)" }} hover={{ transform: "translateY(-6px)", borderColor: space.accent, boxShadow: `var(--inset),0 24px 56px -30px ${space.glow}` }}>
@@ -97,7 +104,7 @@ export default function WorkspaceHub({ email, isAdmin, projectCount }: Workspace
                 </div>
                 <div style={{ position: "relative", marginTop: "auto" }}>
                   <div className="fg-mono" style={{ color: "var(--text-3)", fontSize: 9.5, letterSpacing: "1.4px" }}>{space.en}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 7 }}><h2 style={{ margin: 0, fontSize: 25, letterSpacing: "-.8px" }}>{space.title}</h2>{restricted ? <span style={{ padding: "3px 7px", borderRadius: 6, color: "var(--text-3)", background: "var(--panel-2)", fontSize: 10 }}>管理员</span> : null}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 7, flexWrap: "wrap" }}><h2 style={{ margin: 0, fontSize: 25, letterSpacing: "-.8px" }}>{space.title}</h2>{restricted ? <span style={{ padding: "3px 7px", borderRadius: 6, color: "var(--text-3)", background: "var(--panel-2)", fontSize: 10 }}>管理员</span> : null}{space.href === "/production-lab" ? <span style={{ padding: "3px 7px", borderRadius: 6, color: space.accent, background: `color-mix(in srgb,${space.accent} 12%,transparent)`, border: `1px solid color-mix(in srgb,${space.accent} 24%,transparent)`, fontSize: 10 }}>仅超级管理员</span> : null}</div>
                   <p style={{ maxWidth: 410, minHeight: 43, margin: "9px 0 0", color: "var(--text-2)", fontSize: 13, lineHeight: 1.65 }}>{space.description}</p>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 18, paddingTop: 13, borderTop: "1px solid var(--stroke)", color: "var(--text-3)", fontSize: 11 }}><span>{space.note}</span><span style={{ color: space.accent, fontSize: 17 }}>↗</span></div>
                 </div>
