@@ -1,14 +1,7 @@
 'use client';
 
-import type { LogFacet, LogCategory, LogScope } from '@/lib/observability/log-search-contract';
-
-const CATEGORY_LABELS: Record<LogCategory, string> = {
-  browser: '浏览器日志',
-  api: 'API 请求日志',
-  api_runtime: '业务运行日志',
-  infrastructure: '基建日志',
-  other: '其他来源',
-};
+import type { LogFacet, LogScope } from '@/lib/observability/log-search-contract';
+import { CATEGORY_LABELS } from './log-detail-formatters';
 
 function FacetGroup({ title, items, active, onSelect }: { title: string; items: LogFacet[]; active?: string; onSelect: (value: string) => void }) {
   if (!items.length) return null;
@@ -37,7 +30,7 @@ export default function LogFacets({ facets, scope, level, source, filters, onCat
   onSource: (value: string) => void;
   onFilter: (key: 'service' | 'event', value: string) => void;
 }) {
-  const categories = facets.category.map((item) => ({ ...item, label: CATEGORY_LABELS[item.value as LogCategory] || item.label }));
+  const categories = facets.category.map((item) => ({ ...item, label: CATEGORY_LABELS[item.value as keyof typeof CATEGORY_LABELS] || item.label }));
   return (
     <aside className="log-desk__facets" aria-label="日志筛选 Facet">
       <FacetGroup title="类别" items={categories} active={scope} onSelect={(value) => onCategory(value as LogScope)} />

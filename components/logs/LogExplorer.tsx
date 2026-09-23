@@ -9,6 +9,7 @@ import LogTimeline from './LogTimeline';
 import LogFacets from './LogFacets';
 import LogStream from './LogStream';
 import LogInspector from './LogInspector';
+import { CATEGORY_LABELS } from './log-detail-formatters';
 
 function toApiParams(search: LogSearch) {
   const params = toLogSearchParams(search);
@@ -204,7 +205,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
       </header>
       <LogQueryBar draft={state.draft} applied={state.applied} loading={state.requestState === 'loading'} isCollapsed={isQueryCollapsed} showToggle={hasScrolled} onToggle={() => setQueryCollapsed((value) => !value)} onDraftChange={(patch) => dispatch({ type: 'editDraft', patch })} onRun={runDraft} onReset={reset} onScopeChange={(scope) => applySearchPatch({ scope })} onFocusChange={(focus) => applySearchPatch({ focus })} onPreset={setPreset} />
       {state.error && <div className="log-desk__alert" role="alert">{state.error}</div>}
-      <div className="log-desk__overview"><span>{summary?.total || 0} 条命中</span><span>{summary?.byCategory.api || 0} API 请求日志 · {summary?.byCategory.api_runtime || 0} 业务运行日志 · {summary?.byCategory.browser || 0} 浏览器 · {summary?.byCategory.infrastructure || 0} 基建 · {summary?.byCategory.other || 0} 其他</span></div>
+      <div className="log-desk__overview"><span>{summary?.total || 0} 条命中</span><span>{summary?.byCategory.api || 0} {CATEGORY_LABELS.api} · {summary?.byCategory.api_runtime || 0} {CATEGORY_LABELS.api_runtime} · {summary?.byCategory.browser || 0} {CATEGORY_LABELS.browser} · {summary?.byCategory.infrastructure || 0} {CATEGORY_LABELS.infrastructure} · {summary?.byCategory.other || 0} {CATEGORY_LABELS.other}</span></div>
       <LogTimeline timeline={state.snapshot?.timeline || []} onBucketSelect={selectBucket} onExpand={expandRange} />
       <div className="log-desk__body">
         <LogFacets facets={facets} scope={state.applied.scope} level={state.applied.level} source={state.applied.source} filters={state.applied.filters} onCategory={(scope) => applySearchPatch({ scope })} onLevel={(level) => applySearchPatch({ level: level as LogSearch['level'] })} onSource={(source) => applySearchPatch({ source: source as LogSearch['source'] })} onFilter={updateFilter} />

@@ -2,8 +2,8 @@ import type { LogCategory, LogDetail, LogRecord } from '@/lib/observability/log-
 
 export const CATEGORY_LABELS: Record<LogCategory, string> = {
   browser: '浏览器日志',
-  api: 'API 请求日志',
-  api_runtime: '业务运行日志',
+  api: 'HTTP 日志',
+  api_runtime: 'API 日志',
   infrastructure: '基建日志',
   other: '其他来源',
 };
@@ -54,18 +54,39 @@ function withFallback(value: string | null, fallback: string) {
   return value || fallback;
 }
 
+function previewValue(row: LogRecord, key: string) {
+  return row.contextPreview.find((field) => field.key.toLowerCase() === key.toLowerCase())?.value || '';
+}
+
+function previewText(row: LogRecord) {
+  return row.contextPreview.map((field) => `${field.key}: ${field.value}`).join(' · ');
+}
+
+function auditContext(row: LogRecord) {
+  const actor = row.actorEmail || row.userId || 'system';
+  const action = previewValue(row, 'action') || row.event;
+  const resourceType = previewValue(row, 'resourceType');
+  const resourceId = previewValue(row, 'resourceId') || row.taskId || '';
+  const resource = [resourceType, resourceId].filter(Boolean).join(' ');
+  return `操作者 ${actor} · 动作 ${action} · 资源 ${resource || '—'}`;
+}
+
 // Keep list rendering on known scalar fields so category differences stay readable without dumping details JSON.
 // 列表只读取已知标量字段，保持分类差异清晰，避免把 details JSON 直接塞进列表。
 const LOG_ROW_DESCRIPTORS: Record<LogCategory, LogRowDescriptor> = {
   api: {
-    main: (row) => [withFallback(row.route, row.event), row.service],
+    main: (row) => {
+      const method = previewValue(row, 'method');
+      const route = withFallback(row.route, row.event);
+      return [method ? `${method} ${route}` : route, row.service];
+    },
     status: (row) => [statusText(row), row.durationMs === null ? '—' : `${row.durationMs} ms`],
-    summary: (row) => [withFallback(row.message, row.event), withFallback(row.outcome, row.source)],
+    summary: (row) => [withFallback(row.message, row.event), row.outcome || row.event],
   },
   api_runtime: {
-    main: (row) => [withFallback(row.service, row.source), row.event],
-    status: (row) => [withFallback(row.outcome, '—'), withFallback(row.message, '—')],
-    summary: (row) => [withFallback(row.message, row.event), row.taskId ? `Task ${row.taskId}` : row.source],
+    main: (row) => [withFallback(row.event, row.service), row.service],
+    status: (row) => [withFallback(row.outcome, '—'), row.kind === 'audit' ? '审计事件' : row.source],
+    summary: (row) => [withFallback(row.message, row.event), row.kind === 'audit' ? auditContext(row) : previewText(row)],
   },
   browser: {
     main: (row) => [withFallback(detailText(row, 'pageRoute', 'page'), withFallback(row.route, row.event)), row.event],
@@ -428,6 +449,23 @@ export function detailSections(detail: LogDetail): DetailSection[] {
   if (exchange.request) sections.push({ id: 'request', title: '请求参数', exchange: exchange.request });
   if (exchange.response) sections.push({ id: 'response', title: '响应', exchange: exchange.response });
   if (exchange.error) sections.push({ id: 'error', title: '错误', error: exchange.error });
-  if (exchange.context.length) sections.push({ id: 'context', title: '业务上下文', fields: exchange.context });
+  const normalizeKey = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const knownContextKeys = new Set(exchange.context.map((field) => normalizeKey(field.key)));
+  const displayedKeys = new Set([
+    'source', 'service', 'event', 'eventname', 'message', 'outcome', 'level', 'route', 'category', 'kind', 'id', 'eventid', 'httpstatus', 'httpstatuscode',
+    'durationms', 'traceid', 'requestid', 'taskid', 'userid', 'actorid', 'actoremail', 'workspaceid', 'method', 'url',
+    'path', 'requesturl', 'responsestatus', 'responsestatustext', 'statustext', 'status', 'component', 'page', 'browser', 'request', 'response', 'error', 'stack', 'cause', 'name', 'code', 'providercode', 'retryable', 'details', 'raw', 'rawjson', 'rawpayload', 'payload', 'json',
+    'requestheaders', 'requestbody', 'requestbodytext', 'requestbodyencoding', 'requestbytes', 'requesttruncated',
+    'responseheaders', 'responsebody', 'responsebodytext', 'responsebodyencoding', 'responsebytes', 'responsetruncated',
+    'upstreamaddress', 'upstreamstatus', 'upstreamresponsetime', 'upstreamconnecttime', 'upstreamheadertime', 'requesttime',
+  ].map((key) => key.toLowerCase()));
+  const customContext = Object.entries(detail.details)
+    .filter(([key, value]) => {
+      const normalizedKey = normalizeKey(key);
+      return hasValue(value) && !knownContextKeys.has(normalizedKey) && !displayedKeys.has(normalizedKey);
+    })
+    .map(([key, value]) => ({ key, label: key, value }));
+  const context = [...exchange.context, ...customContext];
+  if (context.length) sections.push({ id: 'context', title: '事件上下文', fields: context });
   return sections;
 }

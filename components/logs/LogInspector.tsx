@@ -17,13 +17,14 @@ function isComplexContextValue(value: unknown) {
 
 function ContextFieldView({ field }: { field: { key: string; label: string; value: unknown } }) {
   const complex = isComplexContextValue(field.value);
+  const structured = field.value !== null && typeof field.value === 'object';
   return (
     <div className={complex ? 'is-complex' : undefined}>
       <dt>{field.label}</dt>
       <dd>
         {complex ? (
-          <details className="log-desk__context-value">
-            <summary>查看内容</summary>
+          <details className="log-desk__context-value" aria-label={`展开 ${field.label} 的${structured ? 'JSON' : '完整文本'}`}>
+            <summary>{structured ? '展开 JSON' : '展开全文'}</summary>
             <pre className="log-desk__detail-code">{displayValue(field.value)}</pre>
           </details>
         ) : displayValue(field.value)}

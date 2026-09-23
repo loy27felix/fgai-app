@@ -41,7 +41,7 @@ export default function LogStream({ rows, total, hasMore, focus, selectedId, onS
               const [main, mainSecondary] = descriptor.main(row);
               const [status, statusSecondary] = descriptor.status(row);
               const [summary, summarySecondary] = descriptor.summary(row);
-              return <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="row" tabIndex={0} aria-selected={selectedId === row.id} aria-label={`打开 ${row.event || row.service || '日志详情'}`} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
+              return <div key={row.id} className={`log-desk__row ${selectedId === row.id ? 'is-selected' : ''}`} role="row" tabIndex={0} aria-selected={selectedId === row.id} aria-label={`打开${categoryLabel(row.category)}：${row.event || row.service || '日志详情'}`} onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row); } }}>
               <span className="log-desk__time">{timeText(row.occurredAt)}</span>
               <span className={`log-desk__level log-desk__level--${row.level}`}><b>{categoryLabel(row.category)}</b><em>{row.level}</em></span>
               <span className="log-desk__service"><strong title={main}>{main || '—'}</strong><small title={mainSecondary}>{mainSecondary || '—'}</small></span>

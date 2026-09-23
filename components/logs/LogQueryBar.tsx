@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
 import { DatePicker } from 'antd';
 import type { LogSearch, LogSearchDraft, LogScope } from '@/lib/observability/log-search-contract';
+import { CATEGORY_LABELS } from './log-detail-formatters';
 
 const PRESETS = [
   ['15m', '近 15 分钟', 15],
@@ -13,14 +14,18 @@ const PRESETS = [
   ['7d', '近 7 天', 10_080],
 ] as const;
 
-const SCOPES: Array<{ value: LogScope; label: string; short: string }> = [
-  { value: 'all', label: '全部类别', short: '全部' },
-  { value: 'browser', label: '浏览器日志', short: '浏览器' },
-  { value: 'api', label: 'API 请求日志', short: 'API' },
-  { value: 'api_runtime', label: '业务运行日志', short: '运行' },
-  { value: 'infrastructure', label: '基建日志', short: '基建' },
-  { value: 'other', label: '其他来源', short: '其他' },
+const SCOPES: Array<{ value: LogScope; short: string }> = [
+  { value: 'all', short: '全部' },
+  { value: 'browser', short: '浏览器' },
+  { value: 'api', short: 'HTTP' },
+  { value: 'api_runtime', short: 'API' },
+  { value: 'infrastructure', short: '基建' },
+  { value: 'other', short: '其他' },
 ];
+
+function scopeLabel(scope: LogScope) {
+  return scope === 'all' ? '全部类别' : CATEGORY_LABELS[scope];
+}
 
 function rangeValue(search: LogSearchDraft): [Dayjs, Dayjs] {
   return [dayjs(search.from), dayjs(search.to)];
@@ -116,7 +121,7 @@ export default function LogQueryBar({
           <span className="log-desk__query-mark">SLS</span>
           <div className="log-desk__query-summary">
             <strong>已应用</strong>
-            <span className="is-applied">{applied.scope === 'all' ? '全部类别' : SCOPES.find((scope) => scope.value === applied.scope)?.label}</span>
+            <span className="is-applied">{scopeLabel(applied.scope)}</span>
             <span className="is-applied">{dayjs(applied.from).format('MM-DD HH:mm')} — {dayjs(applied.to).format('MM-DD HH:mm')}</span>
             <span className="is-applied">{applied.level === 'all' ? '全部级别' : applied.level}</span>
             <span className="is-applied">{applied.focus === 'app-first' ? '应用优先' : '时间顺序'}</span>
@@ -146,11 +151,11 @@ export default function LogQueryBar({
         </button>
         </div>
         <div className="log-desk__query-help">
-          <span>field:value</span> 精确筛选，<span>status&gt;=500</span> 数值范围，裸词按全文检索。<span>API 请求日志</span>记录 HTTP 请求交换，<span>业务运行日志</span>记录服务内部处理，两者可由同一请求关联但含义不同。默认展示全部类别。
+          <span>field:value</span> 精确筛选，<span>status&gt;=500</span> 数值范围，裸词按全文检索。{CATEGORY_LABELS.api}记录请求/响应交换基本信息；{CATEGORY_LABELS.api_runtime}记录服务端 API 内部自定义日志、message、排查事件和审计事件。两类日志可由同一请求关联，但含义不同。默认展示全部类别。
           <details>
             <summary>SLS 字段说明</summary>
             <div>
-              <p><span>category</span>：browser、api、api_runtime、infrastructure、other。</p>
+              <p><span>category:api</span>：兼容查询值，对应 {CATEGORY_LABELS.api}；<span>category:api_runtime</span>：{CATEGORY_LABELS.api_runtime}；也可使用 browser、infrastructure、other。</p>
               <p><span>service</span>、<span>event</span>、<span>route</span>、<span>outcome</span>、<span>traceId</span>、<span>requestId</span>、<span>taskId</span>、<span>userId</span>、<span>actorEmail</span>：文本精确筛选。</p>
               <p><span>status</span>/<span>httpStatus</span>：HTTP 状态码，可使用比较符；<span>duration</span>/<span>durationMs</span>：耗时毫秒数，可使用比较符。</p>
               <p>不带字段的词按全文检索；<span>level</span> 与 <span>source</span> 请通过上方控件或左侧 Facet 筛选。</p>
@@ -176,13 +181,13 @@ export default function LogQueryBar({
             <option value="critical">Critical</option>
           </select>
         </label>
-        <span className="log-desk__query-state">{hasDraftChanges ? '有待运行条件' : `已应用 · ${applied.scope === 'all' ? '全部类别' : applied.scope}`}</span>
+        <span className="log-desk__query-state">{hasDraftChanges ? '有待运行条件' : `已应用 · ${scopeLabel(applied.scope)}`}</span>
         <button className="log-desk__reset" type="button" onClick={resetQuery}>重置</button>
         {showToggle && <button ref={expandedToggleRef} className="log-desk__query-toggle" type="button" onClick={onToggle} aria-expanded={true} aria-controls="log-query-content">收起查询</button>}
         </div>
         <div className="log-desk__scope-row" aria-label="日志类别">
         {SCOPES.map((scope) => (
-          <button key={scope.value} type="button" className={draft.scope === scope.value ? 'is-active' : ''} aria-pressed={draft.scope === scope.value} onClick={() => onScopeChange(scope.value)} title={scope.label}>
+          <button key={scope.value} type="button" className={draft.scope === scope.value ? 'is-active' : ''} aria-pressed={draft.scope === scope.value} onClick={() => onScopeChange(scope.value)} title={scopeLabel(scope.value)}>
             {scope.short}
           </button>
         ))}
