@@ -430,3 +430,24 @@
 .topbar{position:sticky;top:0;z-index:20;backdrop-filter:blur(18px)}
 .headerRight>button:first-of-type{display:inline-flex}
 @media(max-width:700px){.headerRight>button:nth-of-type(2){display:none}}
+
+/* Keep the creative desk readable, and let its floating tools move out of the way. */
+.root.light .right,.root:not(.light) .right{width:clamp(420px,25vw,490px);min-width:420px}
+.root.light .rightBody,.root:not(.light) .rightBody{display:flex;flex-direction:column;overflow:hidden;min-height:0;padding:0 22px}
+.dock{left:50%;bottom:22px;transform:translate(calc(-50% + var(--dock-x,0px)),var(--dock-y,0px));touch-action:none;transition:box-shadow .18s ease,border-color .18s ease}
+.dockHandle{display:grid;flex:none;width:27px;height:36px;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--lab-muted);cursor:grab;touch-action:none}
+.dockHandle:hover{background:var(--lab-raised);color:var(--lab-accent)}
+.dockHandle:active{cursor:grabbing}
+.root.light .dockHandle{color:#66758a}
+@media(max-width:1450px){.root.light .right,.root:not(.light) .right{width:390px;min-width:390px}}
+@media(max-width:1100px){.root.light .right,.root:not(.light) .right{width:355px;min-width:355px}.root.light .rightBody,.root:not(.light) .rightBody{padding-right:15px;padding-left:15px}}
+@media(max-width:700px){
+  .workspace{position:relative}
+  .root.light .right,.root:not(.light) .right{display:none;width:100%;min-width:0}
+  .root.light .right.showPanel,.root:not(.light) .right.showPanel{position:absolute;inset:0 0 0 auto;display:flex;width:min(520px,100%);min-width:0;border-left:0;border-radius:0;box-shadow:-18px 0 55px #02050c66;z-index:20}
+  .root.light .rightBody,.root:not(.light) .rightBody{padding:0 14px}
+  .dock{bottom:14px;max-width:calc(100% - 16px);overflow-x:auto;gap:0;padding:5px}
+  .dockHandle{width:23px;height:32px}
+  .dock :global(.ant-btn){width:32px;height:32px;flex:none}
+  .dock>i{margin:0 3px;flex:none}
+}

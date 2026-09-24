@@ -172,6 +172,11 @@ export default function ScriptComparison({ demo, actorId, project, projectTasks,
   const hasBatch = Object.keys(taskIds).length > 0;
   const isLocked = preparing || running || saving !== null || hasBatch;
   return <section className={s.page}>
+    <div className={s.workflowIntro}>
+      <div className={s.workflowCopy}><span className={s.eyebrow}>批量剧本 / 当前项目</span><strong>把已立项故事，变成可比较、可审核的分集剧本。</strong><p>先建立分集任务，再让最多两个文本模型并行写同一批剧本；逐集选定版本后，会回到项目审核并生成可编辑的画布分镜。</p></div>
+      <div className={s.workflowSteps}><div><b>01</b><span>选择模型与集数</span></div><i/><div><b>02</b><span>建立分集任务</span></div><i/><div><b>03</b><span>并行生成对照</span></div><i/><div><b>04</b><span>选稿并提交审核</span></div></div>
+      <div className={s.workflowFoot}><strong>费用提示</strong><span>建立分集任务不会调用模型；点击“开始模型生成”后才会产生文本模型费用，也可以直接手工写剧本。</span></div>
+    </div>
     <div className={s.versionHead}><span className={s.eyebrow}>WRITERS’ ROOM · {project.tier} TIER</span><Button onClick={loadHistory}>本项目生成记录</Button></div>
     <h1>同一个故事，多种写法。</h1>
     <p className={s.muted}>编剧与导演合为编导工作台。模型共享项目的已确认方向和故事圣经；每一集单独比较、审核和回写。</p>
@@ -187,8 +192,8 @@ export default function ScriptComparison({ demo, actorId, project, projectTasks,
         <Button onClick={onSkills} disabled={isLocked}>编导 Skill · {versions.length ? batchSkills.length : skillIds.length}</Button>
       </div>
       <div className={s.controls}>
-        <Button type="primary" disabled={isLocked || !project.direction || !project.bible} loading={preparing} onClick={() => void plan()}>建立项目批次</Button>
-        {hasBatch && <><Button disabled={running || saving !== null} onClick={() => { setVersions([]); setChosen({}); setTaskIds({}); setManualDrafts({}); }}>重新配置</Button>{versions.length > 0 && <Button type="primary" loading={running} disabled={demo || !configuredSelected || versions.some(version => version.status !== "idle" || !version.requestId)} onClick={() => void generate()}>并行生成剧本</Button>}</>}
+        <Button type="primary" disabled={isLocked || !project.direction || !project.bible} loading={preparing} onClick={() => void plan()}>建立分集任务</Button>
+        {hasBatch && <><Button disabled={running || saving !== null} onClick={() => { setVersions([]); setChosen({}); setTaskIds({}); setManualDrafts({}); }}>重新配置</Button>{versions.length > 0 && <Button type="primary" loading={running} disabled={demo || !configuredSelected || versions.some(version => version.status !== "idle" || !version.requestId)} onClick={() => void generate()}>开始模型生成</Button>}</>}
       </div>
       <p className={s.note}>{demo ? "可先建立空白批次并手工写作；本机演示不会调用模型或产生费用。" : "可只建立批次后手工写作，也可选文本模型对照。模型按模型并行、模型内逐集串行运行；生成会产生供应商费用。"}</p>
     </div>

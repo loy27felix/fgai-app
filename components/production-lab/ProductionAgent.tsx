@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import { App, Button, Select, Tag } from "antd";
-import { ArrowUp, Sparkles } from "lucide-react";
+import { ArrowUp, ChevronRight, Sparkles, WandSparkles } from "lucide-react";
 import type { Project, ScriptTask } from "../../lib/production-lab/domain";
 import type { AgentDraft } from "../../lib/production-lab/production-agent";
 import type { DraftGraph, DraftOperation, DraftNode } from "../../lib/production-lab/canvas-draft";
@@ -15,7 +15,7 @@ function conversationKey(actorId: string, projectId: string, episode: number) {
   return `fg-lab-production-agent-v1:${actorId}:${projectId}:ep-${episode}`;
 }
 
-export default function ProductionAgent({ demo, appearance, actorId, project, episode, task, selectedNode, graph, canvasSync, skillIds, skillLabels, onSkills, onApply }: {
+export default function ProductionAgent({ demo, appearance, actorId, project, episode, task, selectedNode, graph, canvasSync, skillIds, skillLabels, onSkills, onOpenMedia, onApply }: {
   demo?: boolean;
   appearance: "dark" | "light";
   actorId: string;
@@ -28,6 +28,7 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
   skillIds: string[];
   skillLabels: string[];
   onSkills: () => void;
+  onOpenMedia: () => void;
   onApply: (operations: DraftOperation[]) => boolean | void;
 }) {
   const { message } = App.useApp();
@@ -118,6 +119,11 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
         <Button className={s.skillButton} size="small" icon={<Sparkles size={13}/>} onClick={onSkills} disabled={busy}>Skills <b>{skillIds.length}</b></Button>
       </div>
       <div className={s.skills}>{skillLabels.length ? skillLabels.map(label => <Tag key={label}>{label}</Tag>) : <small>选择编导、美术或视频制作 Skill</small>}</div>
+      <Button className={s.mediaAction} block onClick={onOpenMedia} disabled={demo}>
+        <span className={s.mediaActionIcon}><WandSparkles size={16} /></span>
+        <span className={s.mediaActionText}><strong>图片 / 视频生成</strong><small>打开 WeToken 队列 · 先看估价，再确认提交</small></span>
+        <ChevronRight size={16} />
+      </Button>
     </div>
     <div className={s.thread} aria-live="polite">
       {!turns.length && <div className={s.empty}>
@@ -143,7 +149,7 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
     </div>
     <div className={s.status}>
       <span>{canvasSync === "saved" ? "画布已同步" : canvasSync === "saving" ? "画布保存中" : canvasSync === "conflict" ? "多人编辑冲突" : canvasSync === "error" ? "画布未同步" : canvasSync === "local" ? "本机交互预览" : "读取画布中"}</span>
-      <small>{demo ? "预览模式不请求模型" : "项目、分集、节点文字与上游连线摘要发给新 Agent；本机图片本体不会上传"}</small>
+      <small>{demo ? "预览模式不请求模型或媒体服务" : "Agent 对话先整理文字方案；图片 / 视频到上方队列选择模型并确认费用"}</small>
     </div>
   </section>;
 }

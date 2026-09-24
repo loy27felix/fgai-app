@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   parseAgentResult,
+  productionAgentSystemPrompt,
   productionAgentSkillContext,
   summarizeProductionCanvas,
   validateAgentMessages,
@@ -40,4 +41,17 @@ test('assistant must ask for missing information without smuggling operations an
   const skills = productionAgentSkillContext(['acting']);
   assert.match(skills.text, /creative_skill id="acting"/);
   assert.throws(() => productionAgentSkillContext(['acting', 'acting']), /不同的制作 Skill/);
+});
+
+test('agent distinguishes its text planning from the connected paid media queue', () => {
+  const prompt = productionAgentSystemPrompt({
+    project: { title: '试用故事', tier: 'A', market: '北美', style: '2D 动画', stage: '剧本开发', direction: '待确认', bible: '待补充' },
+    episode: 1,
+    canvasSummary: '暂无节点',
+    skills: '',
+  });
+  assert.match(prompt, /图片 \/ 视频模型、后台任务队列、费用预估与团队素材归档已接入/);
+  assert.match(prompt, /不能直接提交付费任务/);
+  assert.match(prompt, /打开“图片 \/ 视频生成”队列/);
+  assert.doesNotMatch(prompt, /实际图像\/视频任务执行器与预算预览没有接入/);
 });
