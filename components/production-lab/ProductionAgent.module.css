@@ -161,3 +161,6 @@
 .mediaAction>svg{flex:none;color:var(--lab-accent)}
 .root.light .mediaAction{background:linear-gradient(110deg,#eef4fb,#f3f0f8);box-shadow:0 8px 20px #35445a12}
 @media(max-width:700px){.mediaAction{min-height:64px;margin-top:11px;padding:11px 12px}.mediaActionText strong{font-size:12px}.mediaActionText small{font-size:10px}}
+.staleMediaNote{display:flex;align-items:flex-start;gap:8px;margin:8px 1px 0;padding:8px 10px;border:1px solid color-mix(in srgb,var(--lab-warm) 32%,var(--lab-border));border-radius:10px;background:color-mix(in srgb,var(--lab-warm) 8%,var(--lab-panel));font-size:9px;line-height:1.6}
+.staleMediaNote strong{flex:none;color:var(--lab-warm);font-weight:600}
+.staleMediaNote span{min-width:0;color:var(--lab-muted)}

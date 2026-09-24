@@ -41,6 +41,7 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
   const canContinue = !demo && !busy && canvasSync === "saved" && Boolean(modelId);
   const canSend = canContinue && Boolean(input.trim());
   const availableModels = useMemo(() => models.filter(model => model.configured), [models]);
+  const hasOutdatedMediaReply = turns.some(turn => turn.role === "assistant" && /图片生成入口(?:尚未接入|未接入)|实际图像\/视频任务执行器与预算预览没有接入/.test(turn.content));
 
   useEffect(() => {
     setTurns([]);
@@ -124,6 +125,7 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
         <span className={s.mediaActionText}><strong>图片 / 视频生成</strong><small>打开 WeToken 队列 · 先看估价，再确认提交</small></span>
         <ChevronRight size={16} />
       </Button>
+      {hasOutdatedMediaReply && <div className={s.staleMediaNote} role="note"><strong>状态已更新</strong><span>历史回复中的“图片生成入口未接入”已过期；请使用上方生成队列。</span></div>}
     </div>
     <div className={s.thread} aria-live="polite">
       {!turns.length && <div className={s.empty}>
