@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addCostLine, emptyCostBuckets, groupAtTime, type MembershipInterval } from "../lib/production-lab/admin-accounting";
+import { addCostLine, emptyCostBuckets, groupAtTime, visibleGroupSpendRows, type MembershipInterval } from "../lib/production-lab/admin-accounting";
 import { resolveLabMediaAccounting } from "../lib/production-lab/media-accounting";
 
 test("spending reports never double count invoice, provider report, estimate, and unknown requests", () => {
@@ -20,6 +20,25 @@ test("reassigned members retain the group that applied when each request ran", (
   assert.equal(groupAtTime(history, "u1", "2026-09-14T23:59:00Z")?.groupName, "小组1");
   assert.equal(groupAtTime(history, "u1", "2026-09-15T00:00:00Z")?.groupName, "小组2");
   assert.equal(groupAtTime(history, "unknown", "2026-09-15T00:00:00Z"), null);
+});
+
+test("spend view hides empty archived and unassigned rows but keeps current and historical groups", () => {
+  const empty = { settledUsd: 0, reportedUsd: 0, estimatedUsd: 0, unknownCount: 0 };
+  const rows = [
+    { groupId: "current", name: "小组1", requests: 0, ...empty },
+    { groupId: "archived-empty", name: "1", requests: 0, ...empty },
+    { groupId: "archived-used", name: "旧组", requests: 1, ...empty },
+    { groupId: "__unassigned__", name: "未归属小组", requests: 0, ...empty },
+  ];
+  const visible = visibleGroupSpendRows(rows, [
+    { id: "current", archivedAt: null },
+    { id: "archived-empty", archivedAt: "2026-09-20T00:00:00Z" },
+    { id: "archived-used", archivedAt: "2026-09-20T00:00:00Z" },
+  ]);
+  assert.deepEqual(visible.map((row) => [row.name, row.archivedAt]), [
+    ["小组1", null],
+    ["旧组", "2026-09-20T00:00:00Z"],
+  ]);
 });
 
 test("script and media fees settle only after an exact WeToken Reference ID match", () => {

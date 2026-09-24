@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, App, Button, Empty, Form, Input, Modal, Segmented, Select, Space, Table, Tag } from "antd";
 import { Archive, ArrowDownUp, CircleDollarSign, Clock3, FolderKanban, History, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
+import { visibleGroupSpendRows } from "../../lib/production-lab/admin-accounting";
 import styles from "./ProductionLabAdmin.module.css";
 
 type Group = { id: string; name: string; createdAt: string; archivedAt: string | null; memberCount: number };
@@ -13,6 +14,7 @@ type SpendLine = { settledUsd: number; reportedUsd: number; estimatedUsd: number
 type ReportPerson = SpendLine & { userId: string; email: string; name: string; platformRole: string; currentGroup: string | null };
 type ReportProject = SpendLine & { projectId: string; title: string; tier: string; stage: string; team: string; ownerName: string; ownerEmail: string; budgetCny: number };
 type ReportGroup = SpendLine & { groupId: string; name: string; memberCount: number };
+type VisibleReportGroup = ReportGroup & { archivedAt: string | null };
 type Report = { totals: SpendLine; people: ReportPerson[]; projects: ReportProject[]; groups: ReportGroup[]; currency: { rate: number; source: string }; coverage: { mediaJobs: number; mediaJobsTotal: number; scriptRuns: number; scriptRunsTotal: number; maxRows: number; complete: boolean; unreconciledMediaJobs: number; unreconciledScriptRuns: number; unlinkedProjectRequests: number } };
 
 const roleLabel: Record<string, string> = { superadmin: "超级管理员", admin: "管理员", user: "成员" };
@@ -81,6 +83,7 @@ export default function ProductionLabAdmin({ demo, appearance }: { demo: boolean
   }
 
   const activeGroups = useMemo(() => (directory?.groups || []).filter((group) => !group.archivedAt), [directory]);
+  const groupSpendRows = useMemo(() => visibleGroupSpendRows(report?.groups || [], directory?.groups || []), [report, directory]);
   const filteredUsers = useMemo(() => (directory?.users || []).filter((person) => `${person.displayName} ${person.email} ${person.groupName || "未分组"}`.toLowerCase().includes(search.trim().toLowerCase())), [directory, search]);
   const currentMembers = (groupId: string) => (directory?.users || []).filter((person) => person.groupId === groupId);
   const totals = report?.totals;
@@ -110,7 +113,7 @@ export default function ProductionLabAdmin({ demo, appearance }: { demo: boolean
     { title: "任务", render: (_: unknown, row: ReportProject) => `${row.imageJobs} 图 · ${row.videoJobs} 视频 · ${row.scriptRuns} 剧本` },
   ];
   const groupSpendColumns = [
-    { title: "费用归属小组", dataIndex: "name", render: (value: string) => value === "未归属小组" ? <Tag>{value}</Tag> : <strong>{value}</strong> },
+    { title: "费用归属小组", dataIndex: "name", render: (value: string, row: VisibleReportGroup) => row.groupId === "__unassigned__" ? <Tag>{value}</Tag> : <div className={styles.groupSpendName}><strong>{value}</strong>{row.archivedAt && <Tag>已停用 · 历史归属</Tag>}</div> },
     { title: "当前成员", dataIndex: "memberCount", render: (value: number) => `${value} 人` },
     { title: "已发生费用", render: (_: unknown, row: ReportGroup) => renderSpendAmounts(row) },
     { title: "任务", render: (_: unknown, row: ReportGroup) => `${row.requests} 次 · ${row.imageJobs} 图 / ${row.videoJobs} 视频 / ${row.scriptRuns} 剧本` },
@@ -158,12 +161,12 @@ export default function ProductionLabAdmin({ demo, appearance }: { demo: boolean
             <div className={styles.metricEstimate}><FolderKanban size={17} /><span>模型费率估算</span><strong>{fmt(totals.estimatedCny)}</strong><small>{fmt(totals.estimatedUsd, "USD")} · 不是最终账单金额</small></div>
             <div className={styles.metricUnknown}><Clock3 size={17} /><span>暂无法计价请求</span><strong>{totals.unknownCount}</strong><small>{totals.requests.toLocaleString("zh-CN")} 条生成记录 · 全部项目</small></div>
           </div>
-          <div className={styles.reportNote}><span>汇率 {report?.currency.rate} CNY / USD（{report?.currency.source === "USAGE_USD_TO_CNY_RATE" ? "服务端配置" : "当前展示配置"}）</span><span>图像、视频与剧本生成统一按账号和项目汇总；计划预算单独列示。</span></div>
+          <div className={styles.reportNote}><span>汇率 {report?.currency.rate} CNY / USD（{report?.currency.source === "USAGE_USD_TO_CNY_RATE" ? "服务端配置" : "当前展示配置"}）</span><span>停用组不会被物理删除：有生成记录时保留并标记“已停用 · 历史归属”；空停用组和零任务的未归属组不显示。</span></div>
           {!report?.coverage.complete && <Alert type="warning" showIcon message={`报表受读取上限影响：媒体任务 ${report?.coverage.mediaJobs.toLocaleString("zh-CN")} / ${report?.coverage.mediaJobsTotal.toLocaleString("zh-CN")}，剧本任务 ${report?.coverage.scriptRuns.toLocaleString("zh-CN")} / ${report?.coverage.scriptRunsTotal.toLocaleString("zh-CN")}。`} />}
           <div className={styles.sectionIntro}><div><h3>费用归集</h3><p>“已核销 / 服务商回报 / 估算”分开列示，不把预估账单合并成实际花费。</p></div><Segmented value={reportView} onChange={(value) => setReportView(String(value))} options={[{ value: "people", label: "按人员" }, { value: "projects", label: "按项目" }, { value: "groups", label: "按小组" }]} /></div>
           {reportView === "people" && <Table loading={loadingReport} rowKey="userId" dataSource={report?.people || []} pagination={{ pageSize: 10, showSizeChanger: false }} locale={{ emptyText: "尚无人员用量记录" }} columns={peopleColumns} />}
           {reportView === "projects" && <Table loading={loadingReport} rowKey="projectId" dataSource={report?.projects || []} pagination={{ pageSize: 10, showSizeChanger: false }} locale={{ emptyText: "尚无项目费用记录" }} columns={projectColumns} />}
-          {reportView === "groups" && <Table loading={loadingReport} rowKey="groupId" dataSource={(report?.groups || []).filter((group) => group.groupId === "__unassigned__" || directory?.groups.some((item) => item.id === group.groupId))} pagination={false} locale={{ emptyText: "暂无小组费用记录" }} columns={groupSpendColumns} />}
+          {reportView === "groups" && <Table loading={loadingReport || loadingDirectory} rowKey="groupId" dataSource={groupSpendRows} pagination={false} locale={{ emptyText: "暂无小组费用记录" }} columns={groupSpendColumns} />}
           <div className={styles.coverageFoot}><span>费用单未核销：图片/视频 {report?.coverage.unreconciledMediaJobs || 0} 条 · 剧本 {report?.coverage.unreconciledScriptRuns || 0} 条</span><span>无法关联到当前立项的生成记录：{report?.coverage.unlinkedProjectRequests || 0} 条</span><span>汇总含当前平台所有账号的第六板块请求</span></div>
         </>}
       </>}
