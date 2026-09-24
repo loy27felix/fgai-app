@@ -241,6 +241,15 @@
 .light .selectionBar{background:#fffffff2;box-shadow:0 10px 28px #263b2b18}
 @media(max-width:700px){.selectionBar{top:110px;right:8px;left:8px;justify-content:center;gap:2px;padding:4px}.selectionBar>span{padding:0 5px;font-size:10px}.selectionBar :global(.ant-btn){padding:0 6px;font-size:10px}}
 
+.projectSelect{width:clamp(150px,20vw,300px);flex:none}
+.projectSelect :global(.ant-select-selector){height:36px!important;padding:0 12px!important;border:1px solid var(--lab-border)!important;border-radius:9px!important;background:var(--lab-raised)!important;box-shadow:inset 0 1px 0 #ffffff08!important;transition:border-color .16s ease,box-shadow .16s ease!important}
+.projectSelect:hover :global(.ant-select-selector),.projectSelect:global(.ant-select-focused) :global(.ant-select-selector){border-color:color-mix(in srgb,var(--lab-border) 45%,var(--lab-accent) 55%)!important}
+.projectSelect :global(.ant-select-selection-item),.projectSelect :global(.ant-select-selection-placeholder){display:flex;align-items:center;color:var(--lab-text)!important;font-size:12px;line-height:34px!important}
+.projectSelect :global(.ant-select-selection-placeholder){color:var(--lab-muted)!important}
+.projectSelect :global(.ant-select-arrow){color:var(--lab-accent)}
+@media(max-width:950px){.projectSelect{width:clamp(140px,23vw,220px)}}
+@media(max-width:700px){.projectSelect{width:min(44vw,190px)}.projectSelect :global(.ant-select-selector){height:33px!important;padding:0 9px!important}.projectSelect :global(.ant-select-selection-item),.projectSelect :global(.ant-select-selection-placeholder){font-size:11px;line-height:31px!important}}
+
 /* Production-lab visual direction: graphite edit suite, cool steel controls, warm film accents. */
 .root{
   --lab-bg:#10141b;

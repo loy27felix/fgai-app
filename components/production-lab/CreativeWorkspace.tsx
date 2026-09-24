@@ -33,6 +33,7 @@ const skillName: Record<string, string> = { "deepwhite-screenwriting-v1": "DeepW
 export default function CreativeWorkspace(props: { demo?: boolean; actor?: Actor }) {
   const [area, setArea] = useState("canvas");
   const [activeProject, setActiveProject] = useState<ProjectContext | null>(null);
+  const [availableProjects, setAvailableProjects] = useState<Project[]>([]);
   const [projectError, setProjectError] = useState("");
   const appearance = useLabTheme(v => v.theme);
   const [appearanceReady, setAppearanceReady] = useState(false);
@@ -60,6 +61,7 @@ export default function CreativeWorkspace(props: { demo?: boolean; actor?: Actor
   }
   function applyContext(state: LabState, projectId?: string) {
     const next = contextFromState(state, projectId);
+    setAvailableProjects(state.projects);
     setActiveProject(next);
     if (next) localStorage.setItem(activeProjectStorageKey(actorId), next.project.id);
     return next;
@@ -88,6 +90,19 @@ export default function CreativeWorkspace(props: { demo?: boolean; actor?: Actor
       setArea("canvas");
     } catch (error) { setProjectError(error instanceof Error ? error.message : "项目读取失败"); }
   }
+  async function returnToCanvas() {
+    try {
+      const state = await readLabState();
+      const next = contextFromState(state, activeProject?.project.id);
+      setAvailableProjects(state.projects);
+      setActiveProject(next);
+      if (next) localStorage.setItem(activeProjectStorageKey(actorId), next.project.id);
+      setProjectError("");
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "项目列表刷新失败");
+    }
+    setArea("canvas");
+  }
   async function prepareBatch(projectId: string, from: number, count: number) {
     const state = await readLabState();
     const project = state.projects.find(item => item.id === projectId);
@@ -113,8 +128,10 @@ export default function CreativeWorkspace(props: { demo?: boolean; actor?: Actor
     void (async () => {
       try {
         const preferred = localStorage.getItem(activeProjectStorageKey(actorId)) || undefined;
-        const next = contextFromState(await readLabState(), preferred);
+        const state = await readLabState();
+        const next = contextFromState(state, preferred);
         if (disposed) return;
+        setAvailableProjects(state.projects);
         setActiveProject(next);
         if (next) localStorage.setItem(activeProjectStorageKey(actorId), next.project.id);
         setProjectError("");
@@ -125,14 +142,14 @@ export default function CreativeWorkspace(props: { demo?: boolean; actor?: Actor
     return () => { disposed = true; };
   }, [props.demo, actorId]);
   const content = area === "management"
-    ? <ProductionLab {...props} appearance={appearance} onBackToWorkspace={() => setArea("canvas")} onOpenWorkspace={openProject} />
-    : <Workspace demo={props.demo} actorId={actorId} projectContext={activeProject} projectError={projectError} appearanceReady={appearanceReady} onManagement={() => setArea("management")} onPrepareBatch={prepareBatch} onSaveScript={saveSelectedScript} />;
+    ? <ProductionLab {...props} appearance={appearance} onBackToWorkspace={returnToCanvas} onOpenWorkspace={openProject} />
+    : <Workspace demo={props.demo} actorId={actorId} projectContext={activeProject} projects={availableProjects} projectError={projectError} appearanceReady={appearanceReady} onSelectProject={openProject} onManagement={() => setArea("management")} onPrepareBatch={prepareBatch} onSaveScript={saveSelectedScript} />;
   return <ConfigProvider locale={zhCN} theme={{ algorithm: appearance === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm, token: { colorPrimary: appearance === "dark" ? "#91b9e8" : "#496f9f", colorBgContainer: appearance === "dark" ? "#171c25" : "#fffdfa", borderRadius: 9, fontFamily: "'Segoe UI Variable', Aptos, 'PingFang SC', 'Microsoft YaHei UI', sans-serif" } }}><App>{content}</App></ConfigProvider>;
 }
 const NODE_WIDTH = 320;
 const NODE_ESTIMATED_HEIGHT = 420;
 const NODE_PORT_Y = 190;
-function Workspace({ onManagement, demo, actorId, projectContext, projectError, appearanceReady, onPrepareBatch, onSaveScript }: { onManagement: () => void; demo?: boolean; actorId: string; projectContext: ProjectContext | null; projectError: string; appearanceReady: boolean; onPrepareBatch: (projectId: string, from: number, count: number) => Promise<ScriptTask[]>; onSaveScript: (projectId: string, episode: number, content: string, source: "模型生成" | "人工录入", modelId?: string, requestId?: string) => Promise<ScriptTask> }) {
+function Workspace({ onManagement, demo, actorId, projectContext, projects, projectError, appearanceReady, onSelectProject, onPrepareBatch, onSaveScript }: { onManagement: () => void; demo?: boolean; actorId: string; projectContext: ProjectContext | null; projects: Project[]; projectError: string; appearanceReady: boolean; onSelectProject: (projectId: string) => void; onPrepareBatch: (projectId: string, from: number, count: number) => Promise<ScriptTask[]>; onSaveScript: (projectId: string, episode: number, content: string, source: "模型生成" | "人工录入", modelId?: string, requestId?: string) => Promise<ScriptTask> }) {
   const appearance = useLabTheme(v => v.theme);
   const setAppearance = useLabTheme(v => v.setTheme);
   const [inertia, setInertia] = useState(true);
@@ -601,7 +618,7 @@ function Workspace({ onManagement, demo, actorId, projectContext, projectError, 
     setActiveEpisode(episode); setTab("canvas");
   }
 
-  return <div className={`${c.root} ${appearance === "light" ? c.light : ""}`}><header className={c.header}><button className={c.wordmark} onClick={() => setTab("canvas")}>fg<span>STUDIO</span><small>06</small></button><div className={c.projectCrumb}><span>制作实验室</span><ChevronRight size={13} /><strong>{projectContext?.project.title || "未选择项目"}</strong>{projectContext?.project.topicId && <span className={c.sample}>选题 #{projectContext.project.topicId}</span>}{projectContext && <span className={c.sample}>{projectContext.project.tier} 级 · {projectContext.project.stage}</span>}</div><div className={c.headerRight}><Button type="text" aria-label="切换明暗模式" disabled={!appearanceReady} onClick={toggleAppearance}>{appearance === "dark" ? "日间" : "夜间"}</Button><Button type="text" icon={<ArrowDownToLine size={15} />} onClick={() => exportGraph()}>导出</Button><span className={c.user}>FL</span></div></header>
+  return <div className={`${c.root} ${appearance === "light" ? c.light : ""}`}><header className={c.header}><button className={c.wordmark} onClick={() => setTab("canvas")}>fg<span>STUDIO</span><small>06</small></button><div className={c.projectCrumb}><span>制作项目</span><ChevronRight size={13} /><Select className={c.projectSelect} aria-label="选择制作项目" value={projectContext?.project.id} placeholder={projects.length ? "选择项目" : "暂无项目"} showSearch optionFilterProp="label" popupMatchSelectWidth={320} options={projects.map(project => ({ value: project.id, label: project.title }))} onChange={onSelectProject} />{projectContext?.project.topicId && <span className={c.sample}>选题 #{projectContext.project.topicId}</span>}{projectContext && <span className={c.sample}>{projectContext.project.tier} 级 · {projectContext.project.stage}</span>}</div><div className={c.headerRight}><Button type="text" aria-label="切换明暗模式" disabled={!appearanceReady} onClick={toggleAppearance}>{appearance === "dark" ? "日间" : "夜间"}</Button><Button type="text" icon={<ArrowDownToLine size={15} />} onClick={() => exportGraph()}>导出</Button><span className={c.user}>FL</span></div></header>
     <div className={c.subheader}><nav><button className={tab === "canvas" ? c.active : ""} onClick={() => {setTab("canvas");setSkills(["seedance-director","acting"]);}}><Layers3 size={15} />制作画布</button><button className={tab === "scripts" ? c.active : ""} onClick={() => { setTab("scripts"); setSkills(["deepwhite-screenwriting-v1"]); }}><FileText size={15} />批量剧本</button><button className={tab === "assets" ? c.active : ""} onClick={() => setTab("assets")}><Box size={15} />素材库</button><button onClick={onManagement}><LayoutGrid size={15} />项目推进</button></nav></div>
     <div className={c.notice}><span>第六板块试用</span>项目、分集与服务器画布已关联；WeToken 图片 / 视频队列、NAS 团队素材库和 Reference ID 费用对账已接入。每次实际生成都会先展示估价并要求确认。<button onClick={() => setMobilePanel(v => !v)}>制作面板</button></div>
     <div className={c.workspace}><aside className={c.left}><div className={c.leftTitle}><span>项目内容</span><Layers3 size={14} /></div><button className={c.episode} onClick={() => fitGraph()}><Clapperboard size={16} /><div>EP {String(activeEpisode).padStart(2, "0")}<small>{projectContext?.tasks.find(task => task.episode === activeEpisode)?.title || (projectContext ? "暂无分集任务" : "先选择项目")}</small></div><span>{graph.nodes.length}</span></button>{projectContext && projectContext.tasks.length > 1 && <Select className={c.episodeSelect} size="small" aria-label="选择项目分集" value={activeEpisode} onChange={setActiveEpisode} options={projectContext.tasks.map(task => ({ value: task.episode, label: task.title + " · " + task.status }))} />}<div className={c.label}>素材与节点</div>{Object.entries(kindLabels).map(([key, label]) => { const Icon = icons[key as DraftKind]; return <div key={key}><button className={c.folder} onClick={() => add(key as DraftKind)}><Icon size={14} /><span>{label}</span><Plus size={12} /></button>{graph.nodes.filter(n => n.kind === key).map(n => <button key={n.id} className={`${c.asset} ${selected === n.id ? c.selectedAsset : ""}`} onClick={() => { select(n.id); animateViewport({ ...viewportRef.current, x: 70 - n.x * viewportRef.current.k, y: 135 - n.y * viewportRef.current.k }); }}>{n.title}</button>)}</div>; })}<div className={c.leftFoot}><span>生产工作流</span><strong>选题 → 剧本 → 分镜 → 视频</strong><small>同一项目与分集上下文</small></div></aside>
