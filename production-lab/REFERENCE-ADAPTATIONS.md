@@ -32,4 +32,4 @@
 
 第六板块模型仅由服务端 `PRODUCTION_LAB_TEXT_MODELS` 提供，字段为 `id,label,model,endpoint,apiKey`；密钥不回传浏览器，endpoint 要求 HTTPS OpenAI-compatible Chat Completions。Claude 需通过兼容网关，不是原生 Anthropic 协议适配。
 
-独立测试数据库按顺序使用：`001.sql` 项目状态、`002-script-runs.sql` 批次运行记录、`003-script-run-project-scope.sql` 项目/分集绑定、`004-project-canvas-graphs.sql` 项目画布。**当前没有对 Mac mini 或任意线上数据库执行迁移。**部署时必须使用新库，并由部署者核验库身份；不可使用旧 `DATABASE_URL`。
+独立测试数据库按顺序使用：`001.sql` 项目状态、`002-script-runs.sql` 批次运行记录、`003-script-run-project-scope.sql` 项目/分集绑定、`004-project-canvas-graphs.sql` 项目画布。Mac mini 试用版已将这四个迁移应用到独立 `fg_production_lab` 库；其他部署仍须先核验独立数据库身份，绝不可使用旧 `DATABASE_URL`。
