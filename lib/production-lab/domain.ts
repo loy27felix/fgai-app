@@ -6,7 +6,7 @@ export type TopicSnapshot = {
   id: number; title: string; original: string; plot: string; conflict: string;
   tier: string; form: string; style: string; markets: string;
   confidence: string; sourceName: string; sourceRights: string; capturedAt: string;
-  selectionGroup?: string; selectedBy?: string; selectedAt?: string;
+  selectionGroup?: string; selectedBy?: string; selectedByEmail?: string; selectedAt?: string;
 };
 export type Project = {
   id: string; title: string; source: string; brief: string; tier: Tier; market: string;
@@ -56,6 +56,7 @@ function normalizeTopicSnapshot(value: unknown, topicId: number | null, now: str
     sourceRights: text(raw.sourceRights, 500), capturedAt: text(raw.capturedAt, 40) || now,
     selectionGroup: text(raw.selectionGroup, 80) || undefined,
     selectedBy: text(raw.selectedBy, 100) || undefined,
+    selectedByEmail: text(raw.selectedByEmail, 254).toLowerCase() || undefined,
     selectedAt: text(raw.selectedAt, 40) || undefined,
   };
 }
