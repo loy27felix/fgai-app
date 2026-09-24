@@ -6,7 +6,7 @@ import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { addCostLine, emptyCostBuckets, groupAtTime, type CostBuckets, type MembershipInterval } from "@/lib/production-lab/admin-accounting";
 import { resolveLabMediaAccounting } from "@/lib/production-lab/media-accounting";
 import { database, readLab } from "@/lib/production-lab/store";
-import { teamSelectedTopics } from "@/lib/production-lab/selected-topics";
+import { productionLabDisplayName } from "@/lib/production-lab/identities";
 import { findUsageLedgerRows } from "@/lib/production-lab/media-runner";
 import { fxSnapshot, usdToCny } from "@/lib/usage/fx";
 
@@ -41,17 +41,15 @@ async function directory() {
   if (accountsResult.error || rolesResult.error) throw new Error("读取平台账号失败");
   const accounts = (accountsResult.data || []) as AccountRow[];
   const roleById = new Map(((rolesResult.data || []) as { id: string; platform_role: string | null }[]).map((row) => [row.id, row.platform_role || "user"]));
-  const identityByEmail = new Map(teamSelectedTopics.map((topic) => [topic.selected_by_email.toLowerCase(), topic.selected_by]));
   const current = new Map(memberships.rows.filter((membership) => !membership.unassigned_at).map((membership) => [membership.user_id, membership]));
   const groupById = new Map(groups.rows.map((group) => [group.id, group]));
   const memberCounts = new Map<string, number>();
   for (const membership of current.values()) memberCounts.set(membership.group_id, (memberCounts.get(membership.group_id) || 0) + 1);
   const users = accounts.map((user) => {
-    const email = user.email.toLowerCase();
     const membership = current.get(user.id);
     return {
       id: user.id, email: user.email,
-      displayName: identityByEmail.get(email) || user.email.split("@")[0],
+      displayName: productionLabDisplayName(user.email),
       platformRole: roleById.get(user.id) || "user", createdAt: user.created_at,
       groupId: membership?.group_id || null,
       groupName: membership ? (groupById.get(membership.group_id)?.name || membership.group_name_snapshot) : null,
@@ -86,9 +84,8 @@ export async function GET(request: Request) {
     if (usersResult.error || rolesResult.error) throw new Error("读取平台账号失败");
     const users = (usersResult.data || []) as AccountRow[];
     const roles = ((rolesResult.data || []) as { id: string; platform_role: string | null }[]);
-    const identityByEmail = new Map(teamSelectedTopics.map((topic) => [topic.selected_by_email.toLowerCase(), topic.selected_by]));
     const emailById = new Map(users.map((user) => [user.id, user.email]));
-    const nameById = new Map(users.map((user) => [user.id, identityByEmail.get(user.email.toLowerCase()) || user.email.split("@")[0]]));
+    const nameById = new Map(users.map((user) => [user.id, productionLabDisplayName(user.email)]));
     const membershipHistory: MembershipInterval[] = membershipHistoryRows.map((membership) => ({ userId: membership.user_id, groupId: membership.group_id, groupName: membership.group_name_snapshot, assignedAt: membership.assigned_at, unassignedAt: membership.unassigned_at }));
     const ledgerByRequest = await findUsageLedgerRows([...mediaJobs.map((job) => job.request_id), ...scriptRuns.map((run) => run.request_id)]);
     const people = new Map<string, { userId: string; email: string; name: string; platformRole: string; currentGroup: string | null } & ReportEntry>();
@@ -103,7 +100,7 @@ export async function GET(request: Request) {
     }
     for (const user of users) {
       const membership = currentMemberships.get(user.id);
-      people.set(user.id, { userId: user.id, email: user.email, name: identityByEmail.get(user.email.toLowerCase()) || user.email.split("@")[0], platformRole: roles.find((role) => role.id === user.id)?.platform_role || "user", currentGroup: membership ? (allGroups.find((group) => group.id === membership.group_id)?.name || membership.group_name_snapshot) : null, ...emptyEntry() });
+      people.set(user.id, { userId: user.id, email: user.email, name: productionLabDisplayName(user.email), platformRole: roles.find((role) => role.id === user.id)?.platform_role || "user", currentGroup: membership ? (allGroups.find((group) => group.id === membership.group_id)?.name || membership.group_name_snapshot) : null, ...emptyEntry() });
     }
     for (const project of state.projects) projects.set(project.id, { projectId: project.id, title: project.title, tier: project.tier, stage: project.stage, team: project.team, ownerId: project.ownerId, ownerName: nameById.get(project.ownerId) || project.ownerName, ownerEmail: emailById.get(project.ownerId) || "", budgetCny: project.budgetCny, ...emptyEntry() });
     const unassignedKey = "__unassigned__";

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { labActor } from "@/lib/production-lab/access";
 import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
-import { readLab, changeLab } from "@/lib/production-lab/store";
+import { database, readLab, changeLab } from "@/lib/production-lab/store";
 import type { Command } from "@/lib/production-lab/domain";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,13 @@ export const runtime = "nodejs";
 export async function GET() {
   const actor = await labActor();
   if (!actor) return NextResponse.json({ error: "新板块未开放或当前账号不在试用名单" }, { status: 403 });
-  try { return NextResponse.json({ state: await readLab(), actor }); }
+  try {
+    const [state, groups] = await Promise.all([
+      readLab(),
+      database().query<{ id: string; name: string }>("SELECT id,name FROM production_lab_groups WHERE archived_at IS NULL ORDER BY created_at,id"),
+    ]);
+    return NextResponse.json({ state, actor, groups: groups.rows });
+  }
   catch { return NextResponse.json({ error: "试用数据库尚未配置或不可用，请按新板块部署说明初始化" }, { status: 503 }); }
 }
 export async function POST(req: Request) {

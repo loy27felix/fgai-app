@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/local/server";
 import type { Actor } from "./domain";
 import { canAccessProductionLab } from "./access-policy";
+import { productionLabDisplayName } from "./identities";
 
 export async function labActor(): Promise<Actor | null> {
   if (process.env.PRODUCTION_LAB_ENABLED === "false") return null;
@@ -9,5 +10,5 @@ export async function labActor(): Promise<Actor | null> {
   if (!canAccessProductionLab(user?.platform_role, process.env.PRODUCTION_LAB_ENABLED)) return null;
   if (!user) return null;
   const email = (user.email || "").toLowerCase();
-  return { id: user.id, name: email.replace(/@.*/, ""), reviewer: true };
+  return { id: user.id, name: productionLabDisplayName(email), reviewer: true };
 }
