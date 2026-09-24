@@ -23,7 +23,8 @@ function jobView(job: any, ledger?: Record<string, unknown>) {
   return {
     id: job.id, projectId: job.project_id, episode: job.episode, nodeId: job.node_id,
     kind: job.kind, status: job.status, model: job.model, providerRequestId: job.provider_request_id,
-    request: job.request, output: { assetId, mimeType: output.mimeType || null, bytes: output.bytes || null, archivePending: output.archivePending === true, providerStatus: output.providerStatus || null, usage: output.usage || null },
+    request: job.request, output: { assetId, mimeType: output.mimeType || null, bytes: output.bytes || null, archivePending: output.archivePending === true, providerStatus: output.providerStatus || null, providerTaskId: output.providerTaskId || null, providerReferenceSource: output.providerReferenceSource || null, usage: output.usage || null },
+    providerReferenceKind: job.kind === "video" && output.providerReferenceSource === "task_id_fallback" ? "task_id_fallback" : "reference_id",
     assetUrl: assetId ? `/api/production-lab/assets/${encodeURIComponent(assetId)}/content` : null,
     error: job.error, accountingError: job.accounting_error,
     estimateUsd: accounting.estimateUsd,

@@ -385,6 +385,20 @@ test('video client creates a task on the native Wetoken endpoint', async () => {
   assert.deepEqual(result, { externalTaskId: 'task-123', status: 'queued', raw: { id: 'task-123', status: 'queued' } });
 });
 
+test('video submission preserves the fee Reference ID separately from the polling task ID', async () => {
+  process.env.WETOKEN_API_KEY = 'test-key';
+  process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
+  const fetcher = async () => new Response(JSON.stringify({ id: 'task-123', status: 'queued' }), {
+    status: 200, headers: { 'Content-Type': 'application/json', 'X-OneAPI-Request-ID': 'fee-ref-456' },
+  });
+  const result = await createWetokenVideoTask({
+    model: 'doubao-seedance-2-0', prompt: 'fox', references: [], duration: 6,
+    ratio: '16:9', resolution: '720p', watermark: false, generateAudio: false,
+  }, { fetcher });
+  assert.equal(result.externalTaskId, 'task-123');
+  assert.equal(result.feeReferenceId, 'fee-ref-456');
+});
+
 test('HappyHorse task submission uses DashScope async routing', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
@@ -500,7 +514,7 @@ test('video client maps a Wetoken gateway ratio error to a useful Chinese messag
     },
   );
 });
-test('video client normalizes a succeeded query result', async () => {
+test('video client normalizes a succeeded query result and captures the fee Reference ID', async () => {
   process.env.WETOKEN_API_KEY = 'test-key';
   process.env.WETOKEN_BASE_URL = 'https://wetoken.example/v1';
   const fetcher = async () => new Response(JSON.stringify({
@@ -508,9 +522,10 @@ test('video client normalizes a succeeded query result', async () => {
     status: 'succeeded',
     content: { video_url: 'https://cdn.example.com/result.mp4' },
     usage: { total_tokens: 42 },
-  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }), { status: 200, headers: { 'Content-Type': 'application/json', 'X-WeToken-Reference-ID': 'fee-ref-456' } });
   assert.deepEqual(await getWetokenVideoTask('task-123', { fetcher }), {
     externalTaskId: 'task-123',
+    feeReferenceId: 'fee-ref-456',
     status: 'succeeded',
     videoUrl: 'https://cdn.example.com/result.mp4',
     error: undefined,

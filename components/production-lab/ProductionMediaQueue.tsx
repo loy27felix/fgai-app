@@ -12,6 +12,7 @@ type ImageModel = { id: string; label: string; experimental: boolean; sizes: str
 type VideoModel = { id: string; label: string; resolutions: string[]; ratios: string[]; minDuration: number; maxDuration: number; minImageReferences: number; maxImageReferences: number; imageRoles: string[]; supportsAudioGeneration: boolean };
 type Job = {
   id: string; kind: "image" | "video"; status: "queued" | "submitting" | "running" | "succeeded" | "failed" | "unknown";
+  providerReferenceKind?: "reference_id" | "task_id_fallback";
   model: string; providerRequestId: string | null; request: Record<string, unknown>;
   output: { assetId: string | null; mimeType?: string | null; bytes?: number | null; archivePending?: boolean; providerStatus?: string | null };
   assetUrl: string | null; error: string | null; accountingError: string | null;
@@ -231,7 +232,7 @@ export default function ProductionMediaQueue({
                 <div className={s.jobIcon}>{job.kind === "image" ? <ImagePlus size={17} /> : <VideoIcon size={17} />}</div>
                 <div className={s.jobMain}><div className={s.jobTop}><strong>{String(job.request.title || (job.kind === "image" ? "生成图片" : "分集视频"))}</strong><Tag color={job.status === "succeeded" ? "success" : job.status === "failed" ? "error" : job.status === "unknown" ? "warning" : "processing"}>{statusLabel[job.status]}</Tag></div><p>{job.model} · EP{String(episode).padStart(2, "0")} · {dateLabel(job.createdAt)}{busy ? <span className={s.progress}><Clock3 size={12} />{job.output.archivePending ? "成片已出，正在归档到云端" : "后台持续跟进"}</span> : null}</p>
                   {job.error && <small className={job.status === "unknown" ? s.warningText : s.errorText}>{job.error}</small>}
-                  {job.providerRequestId && <div className={s.reference}>Reference ID <code>{job.providerRequestId}</code><Tooltip title="复制 Reference ID"><button onClick={() => void navigator.clipboard?.writeText(job.providerRequestId || "").then(() => message.success("已复制 Reference ID"))}><Check size={12} /></button></Tooltip></div>}
+                  {job.providerRequestId && <div className={s.reference}>{job.providerReferenceKind === "task_id_fallback" ? "WeToken 任务 ID · 等待 CSV 同号核对" : "Reference ID"} <code>{job.providerRequestId}</code><Tooltip title="复制编号"><button onClick={() => void navigator.clipboard?.writeText(job.providerRequestId || "").then(() => message.success("已复制编号"))}><Check size={12} /></button></Tooltip></div>}
                   <div className={s.costLine}><span>{job.settledUsd != null ? `账单实付 ${money(job.settledUsd)}` : job.reportedUsd != null ? `WeToken 回报 ${money(job.reportedUsd)}` : `估算 ${money(job.estimateUsd)}`}</span><span className={job.accountingStatus.includes("按 WeToken") ? s.settled : ""}>{job.accountingStatus}</span></div>
                   {job.accountingError && <small className={s.warningText}>账本提示：{job.accountingError}</small>}
                   {asset && <div className={s.resultAsset}>{asset.kind === "video" ? <video src={asset.url} controls preload="metadata" /> : <img src={asset.url} alt={asset.name} loading="lazy" />}<div><strong>已归档到故事素材</strong><small>{asset.name} · {asset.style || "风格待标注"}</small><Button size="small" onClick={() => useAsset(asset)}>放入画布</Button></div></div>}

@@ -270,12 +270,14 @@ async function submitLabVideo(job: LabMediaJob, lease: string) {
     return;
   }
 
+  const providerReferenceId = created.feeReferenceId || created.externalTaskId;
+  const providerReferenceSource = created.feeReferenceId ? "response_header" : "task_id_fallback";
   const completedAt = ["succeeded", "failed", "expired"].includes(created.status) ? new Date().toISOString() : null;
   const initialStatus = created.status === "expired" ? "failed" : created.status;
   await updateLabMediaJob(job.id, {
     status: initialStatus,
-    providerRequestId: created.externalTaskId,
-    output: { providerStatus: created.status, archivePending: created.status === "succeeded", usage: safeUsage(record(created.raw).usage) },
+    providerRequestId: providerReferenceId,
+    output: { providerTaskId: created.externalTaskId, providerReferenceSource, providerStatus: created.status, archivePending: created.status === "succeeded", usage: safeUsage(record(created.raw).usage) },
     error: created.status === "failed" || created.status === "expired" ? "WeToken 视频任务未完成" : null,
     leaseToken: null,
     leaseExpiresAt: null,
@@ -290,7 +292,7 @@ async function submitLabVideo(job: LabMediaJob, lease: string) {
   try {
     await recordUsageRequired(buildVideoLedgerEntry({
       requestId: job.request_id,
-      providerRequestId: created.externalTaskId,
+      providerRequestId: providerReferenceId,
       userId: job.owner_id,
       provider: "wetoken",
       model: job.model,
@@ -301,7 +303,7 @@ async function submitLabVideo(job: LabMediaJob, lease: string) {
       reportedCostUsd,
     }));
     if (created.status !== "running" && created.status !== "queued") {
-      await updateVideoUsageBestEffort({ requestId: job.request_id, providerRequestId: created.externalTaskId, providerStatus: created.status, completedAt, reportedCostUsd, priceSnapshot: pricing?.snapshot });
+      await updateVideoUsageBestEffort({ requestId: job.request_id, providerRequestId: providerReferenceId, providerStatus: created.status, completedAt, reportedCostUsd, priceSnapshot: pricing?.snapshot });
     }
   } catch (error) { accountingError = safeMessage(error, "用量账本写入失败"); }
   await updateLabMediaJob(job.id, {
@@ -330,7 +332,7 @@ async function archiveVideo(job: LabMediaJob, lease: string, videoUrl: string, u
       media_kind: "video", storage_path: storagePath, mime_type: mimeType, bytes: bytes.byteLength,
       media_job_id: job.id, metadata: { model: job.model, providerRequestId: job.provider_request_id },
     });
-    await updateLabMediaJob(job.id, { status: "succeeded", output: { assetId: asset.id, mimeType, bytes: bytes.byteLength, archivePending: false, usage: safeUsage(usage) }, error: null, leaseToken: null, leaseExpiresAt: null, completedAt: new Date().toISOString() }, lease);
+    await updateLabMediaJob(job.id, { status: "succeeded", output: { ...job.output, assetId: asset.id, mimeType, bytes: bytes.byteLength, archivePending: false, usage: safeUsage(usage) }, error: null, leaseToken: null, leaseExpiresAt: null, completedAt: new Date().toISOString() }, lease);
     await writeLabMediaEvent(job.id, "media_job_archived", job.owner_id, { kind: "video", bytes: bytes.byteLength });
   } catch (error) {
     await localStorage(PRODUCTION_LAB_ASSET_BUCKET).remove([storagePath]);
@@ -345,20 +347,23 @@ export async function refreshLabVideoJob(id: string) {
   if (!claimed || !claimed.lease_token) return current;
   const lease = claimed.lease_token;
   try {
-    const result = await getWetokenVideoTask(claimed.provider_request_id!, { model: claimed.model, taskId: claimed.id, traceId: claimed.id });
+    const providerTaskId = typeof claimed.output.providerTaskId === "string" ? claimed.output.providerTaskId : claimed.provider_request_id!;
+    const result = await getWetokenVideoTask(providerTaskId, { model: claimed.model, taskId: claimed.id, traceId: claimed.id });
+    const providerReferenceId = result.feeReferenceId || claimed.provider_request_id!;
+    const providerReferenceSource = result.feeReferenceId ? "response_header" : String(claimed.output.providerReferenceSource || "task_id_fallback");
     const terminal = ["succeeded", "failed", "expired"].includes(result.status);
     const completedAt = terminal ? new Date().toISOString() : null;
     const reportedCostUsd = extractReportedCostUsd(result.usage);
     if (result.status === "succeeded") {
-      await updateLabMediaJob(id, { status: "succeeded", output: { ...claimed.output, providerStatus: result.status, usage: safeUsage(result.usage), archivePending: true }, error: null, reportedCostUsd: reportedCostUsd ?? null, costSource: reportedCostUsd === undefined ? claimed.cost_source : "reported", completedAt, nextPollAt: new Date(Date.now() + 30_000).toISOString() }, lease);
+      await updateLabMediaJob(id, { status: "succeeded", providerRequestId: providerReferenceId, output: { ...claimed.output, providerTaskId, providerReferenceSource, providerStatus: result.status, usage: safeUsage(result.usage), archivePending: true }, error: null, reportedCostUsd: reportedCostUsd ?? null, costSource: reportedCostUsd === undefined ? claimed.cost_source : "reported", completedAt, nextPollAt: new Date(Date.now() + 30_000).toISOString() }, lease);
       const pricing = estimateVideoPrice({ model: claimed.model, duration: Number(claimed.request.duration), resolution: String(claimed.request.resolution || "720p"), ratio: String(claimed.request.ratio || "9:16"), imageReferenceCount: Array.isArray(claimed.request.referenceAssetIds) ? claimed.request.referenceAssetIds.length : 0 });
-      await updateVideoUsageBestEffort({ requestId: claimed.request_id, providerRequestId: result.externalTaskId, providerStatus: result.status, completedAt, reportedCostUsd, priceSnapshot: pricing?.snapshot });
+      await updateVideoUsageBestEffort({ requestId: claimed.request_id, providerRequestId: providerReferenceId, providerStatus: result.status, completedAt, reportedCostUsd, priceSnapshot: pricing?.snapshot });
       if (!result.videoUrl) {
         await updateLabMediaJob(id, { error: "WeToken 已报告任务完成，但尚未返回可下载的成片地址；系统会继续查询，不会重新生成。", leaseToken: null, leaseExpiresAt: null }, lease);
         await writeLabMediaEvent(id, "media_job_archive_pending", claimed.owner_id, { kind: "video", reason: "missing_download_url" });
         return findLabMediaJob(id);
       }
-      try { await archiveVideo(claimed, lease, result.videoUrl, result.usage); }
+      try { await archiveVideo((await findLabMediaJob(id)) || claimed, lease, result.videoUrl, result.usage); }
       catch (error) {
         await updateLabMediaJob(id, { error: safeMessage(error, "视频已生成，但云端存储暂未完成"), leaseToken: null, leaseExpiresAt: null, nextPollAt: new Date(Date.now() + 30_000).toISOString() }, lease);
         await writeLabMediaEvent(id, "media_job_archive_pending", claimed.owner_id, { kind: "video" });
@@ -367,10 +372,10 @@ export async function refreshLabVideoJob(id: string) {
     }
     const failed = result.status === "failed" || result.status === "expired";
     const status = failed ? "failed" : "running";
-    const patch = { status, output: { ...claimed.output, providerStatus: result.status, usage: safeUsage(result.usage) }, error: failed ? (result.error || "WeToken 视频生成失败") : null, reportedCostUsd: reportedCostUsd ?? null, costSource: reportedCostUsd === undefined ? claimed.cost_source : "reported", leaseToken: null, leaseExpiresAt: null, completedAt, nextPollAt: new Date(Date.now() + (failed ? 0 : 15_000)).toISOString() };
+    const patch = { status, providerRequestId: providerReferenceId, output: { ...claimed.output, providerTaskId, providerReferenceSource, providerStatus: result.status, usage: safeUsage(result.usage) }, error: failed ? (result.error || "WeToken 视频生成失败") : null, reportedCostUsd: reportedCostUsd ?? null, costSource: reportedCostUsd === undefined ? claimed.cost_source : "reported", leaseToken: null, leaseExpiresAt: null, completedAt, nextPollAt: new Date(Date.now() + (failed ? 0 : 15_000)).toISOString() };
     await updateLabMediaJob(id, patch, lease);
     const pricing = estimateVideoPrice({ model: claimed.model, duration: Number(claimed.request.duration), resolution: String(claimed.request.resolution || "720p"), ratio: String(claimed.request.ratio || "9:16"), imageReferenceCount: Array.isArray(claimed.request.referenceAssetIds) ? claimed.request.referenceAssetIds.length : 0 });
-    await updateVideoUsageBestEffort({ requestId: claimed.request_id, providerRequestId: result.externalTaskId, providerStatus: result.status, completedAt, reportedCostUsd, priceSnapshot: pricing?.snapshot });
+    await updateVideoUsageBestEffort({ requestId: claimed.request_id, providerRequestId: providerReferenceId, providerStatus: result.status, completedAt, reportedCostUsd, priceSnapshot: pricing?.snapshot });
     if (failed) await writeLabMediaEvent(id, "media_job_failed", claimed.owner_id, { kind: "video", providerStatus: result.status });
   } catch {
     await updateLabMediaJob(id, { error: "WeToken 状态暂时无法读取；队列会稍后重试查询，不会重新提交生成。", leaseToken: null, leaseExpiresAt: null, nextPollAt: new Date(Date.now() + 30_000).toISOString() }, lease);

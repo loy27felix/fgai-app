@@ -16,10 +16,8 @@ RUN pnpm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
-ARG APP_DEPLOYMENT_VERSION=dev
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
 # Alpine mirror downloads can be truncated transiently on the deployment host.
 # 部署主机的 Alpine 镜像下载可能短暂中断，有限重试后仍失败才中止构建。
 RUN set -eu; \
@@ -30,6 +28,10 @@ RUN set -eu; \
     done; \
     addgroup -S nextjs; \
     adduser -S nextjs -G nextjs
+# Keep the per-deployment version out of the ffmpeg layer cache key. It changes
+# every release, while the runtime package set does not.
+ARG APP_DEPLOYMENT_VERSION=dev
+ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 # The startup migration script runs outside Next's output-file tracing, so it
 # needs the application's PostgreSQL driver and its transitive dependencies.

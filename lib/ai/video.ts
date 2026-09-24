@@ -368,6 +368,17 @@ function taskPayload(value: unknown): Record<string, unknown> {
   const candidates = [asRecord(nested.task), nested, asRecord(root.task), output, asRecord(output.task)];
   return candidates.find((candidate) => hasTaskShape(candidate)) || root;
 }
+
+function feeReferenceId(response: Response) {
+  const value = response.headers.get('x-oneapi-request-id')
+    || response.headers.get('x-wetoken-reference-id')
+    || response.headers.get('x-wetoken-request-id')
+    || response.headers.get('x-reference-id')
+    || response.headers.get('reference-id');
+  const normalized = value?.trim();
+  return normalized && normalized.length <= 512 ? normalized : undefined;
+}
+
 async function providerJson(response: Response, context: ProviderJsonContext) {
   let responseText: string;
   try {
@@ -548,7 +559,13 @@ export async function createWetokenVideoTask(
     const payload = taskPayload(data);
     const externalTaskId = payload.id || payload.task_id;
     if (!externalTaskId) throw new Error('Wetoken video task ID missing');
-    return { externalTaskId: String(externalTaskId), status: normalizeStatus(payload.status || payload.task_status || asRecord(data).status || 'queued'), raw: data };
+    const providerFeeReferenceId = feeReferenceId(providerResponse.response);
+    return {
+      externalTaskId: String(externalTaskId),
+      status: normalizeStatus(payload.status || payload.task_status || asRecord(data).status || 'queued'),
+      raw: data,
+      ...(providerFeeReferenceId ? { feeReferenceId: providerFeeReferenceId } : {}),
+    };
   } catch (error) {
     // Only definitive 4xx rejection is safe to clean up; 408/5xx may hide an accepted upstream task.
     // 仅确定性 4xx 拒绝可清理素材；408/5xx 可能发生在上游已受理之后，必须保留用于对账。
@@ -598,6 +615,7 @@ export async function getWetokenVideoTask(
   return {
     externalTaskId: String(payload.id || payload.task_id || externalTaskId),
     status: normalizeStatus(payload.status || payload.task_status || asRecord(data).status),
+    ...(feeReferenceId(providerResponse.response) ? { feeReferenceId: feeReferenceId(providerResponse.response) } : {}),
     error: taskErrorMessage ? String(taskErrorMessage).slice(0, 500) : undefined,
     videoUrl: typeof taskContent.video_url === 'string' ? taskContent.video_url
       : typeof taskContent.url === 'string' ? taskContent.url
