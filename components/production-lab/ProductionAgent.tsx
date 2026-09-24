@@ -9,7 +9,20 @@ import { createDraft, kindLabels } from "../../lib/production-lab/canvas-draft";
 import s from "./ProductionAgent.module.css";
 
 type Model = { id: string; label: string; configured: boolean };
-type Turn = { role: "user" | "assistant"; content: string; options?: string[]; drafts?: AgentDraft[]; applied?: boolean };
+type Accounting = { reportedCostUsd: number | null; estimatedCostUsd: number | null; costSource: "reported" | "estimated" | "unknown"; providerRequestId: string | null; accountingError: string | null };
+type Turn = { role: "user" | "assistant"; content: string; options?: string[]; drafts?: AgentDraft[]; applied?: boolean; requestId?: string; usage?: { total_tokens?: number }; accounting?: Accounting; accountingState?: "untracked-history" | "request-error" };
+
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 4, maximumFractionDigits: 8 }).format(value);
+}
+
+function accountingLabel(accounting: Accounting) {
+  const amount = accounting.reportedCostUsd ?? accounting.estimatedCostUsd;
+  if (accounting.accountingError) return "已返回模型内容 · 费用入账待处理";
+  if (amount === null) return "费用待核对 · 未按 ¥0 处理";
+  if (accounting.reportedCostUsd !== null) return `服务商回报 ${formatUsd(amount)} · 待费用单核销`;
+  return `费率参考 ${formatUsd(amount)} · 非最终账单`;
+}
 
 function conversationKey(actorId: string, projectId: string, episode: number) {
   return `fg-lab-production-agent-v1:${actorId}:${projectId}:ep-${episode}`;
@@ -49,7 +62,7 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
       const raw = localStorage.getItem(key);
       if (raw) {
         const saved = JSON.parse(raw);
-        if (Array.isArray(saved)) setTurns(saved.slice(-20));
+        if (Array.isArray(saved)) setTurns(saved.slice(-20).map((turn: Turn) => turn.role === "assistant" && !turn.accounting && !turn.accountingState ? { ...turn, accountingState: "untracked-history" as const } : turn));
       }
     } catch { message.error("制作对话记录读取失败"); }
     if (!demo) {
@@ -87,16 +100,17 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
     setTurns(nextTurns); setInput(""); setBusy(true);
     try {
       const recent = nextTurns.slice(-15).map(turn => ({ role: turn.role, content: turn.content }));
+      const requestId = crypto.randomUUID();
       const response = await fetch("/api/production-lab/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: modelId, projectId: project.id, episode, selectedNodeId: selectedNode?.id, skillIds, messages: recent }),
+        body: JSON.stringify({ model: modelId, projectId: project.id, episode, requestId, selectedNodeId: selectedNode?.id, skillIds, messages: recent }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "制作 Agent 请求失败");
-      setTurns(current => [...current, { role: "assistant" as const, content: data.reply, options: data.options || [], drafts: data.drafts?.length ? data.drafts : undefined }].slice(-20));
+      setTurns(current => [...current, { role: "assistant" as const, content: data.reply, options: data.options || [], drafts: data.drafts?.length ? data.drafts : undefined, requestId: data.requestId, usage: data.usage || undefined, accounting: data.accounting || undefined }].slice(-20));
     } catch (error) {
-      setTurns(current => [...current, { role: "assistant" as const, content: (error as Error).message }].slice(-20));
+      setTurns(current => [...current, { role: "assistant" as const, content: (error as Error).message, accountingState: "request-error" as const }].slice(-20));
     } finally { setBusy(false); }
   }
 
@@ -139,6 +153,12 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
       {turns.map((turn, index) => <article className={turn.role === "user" ? s.userTurn : s.agentTurn} key={index}>
         <div className={s.role}>{turn.role === "user" ? "你" : "制作 Agent"}</div>
         <p>{turn.content}</p>
+        {turn.role === "assistant" && turn.accounting && <small className={s.accounting}>
+          {turn.usage?.total_tokens !== undefined ? `${turn.usage.total_tokens.toLocaleString("zh-CN")} Token · ` : ""}{accountingLabel(turn.accounting)}
+          {turn.accounting.providerRequestId ? ` · Reference ID ${turn.accounting.providerRequestId}` : " · 未返回 Reference ID，无法与费用单精确核销"}
+        </small>}
+        {turn.role === "assistant" && turn.accountingState === "untracked-history" && <small className={s.accounting}>历史对话未保存 Token / Reference ID，平台无法追溯金额；请以 WeToken 原始费用单为准。</small>}
+        {turn.role === "assistant" && turn.accountingState === "request-error" && <small className={s.accounting}>本次没有收到成功回复；服务商是否计费需按实际 Reference ID / 费用单确认。</small>}
         {turn.role === "assistant" && turn.options?.length ? <div className={s.options}>{turn.options.map(option => <button key={option} disabled={!canContinue} onClick={() => void send(option)}>{option}</button>)}</div> : null}
         {turn.drafts?.length ? <div className={s.plan}><div className={s.planHead}><strong>待确认的画布计划</strong><Tag>{turn.drafts.length} 项</Tag></div>{turn.drafts.map((draft, i) => <div className={s.planItem} key={i}><span>{String(i + 1).padStart(2, "0")}</span><div>{draft.type === "add" ? <><strong>新增{kindLabels[draft.kind]} · {draft.title}</strong><small>{draft.text.slice(0, 180) || "空白草稿"}</small></> : <><strong>修改当前选中节点{draft.title ? ` · ${draft.title}` : ""}</strong><small>{draft.text?.slice(0, 180) || "仅更新节点标题"}</small></>}</div></div>)}<Button type="primary" block disabled={turn.applied || canvasSync !== "saved"} onClick={() => apply(turn, index)}>{turn.applied ? "已应用到画布" : "确认并写入画布"}</Button></div> : null}
       </article>)}
@@ -151,7 +171,7 @@ export default function ProductionAgent({ demo, appearance, actorId, project, ep
     </div>
     <div className={s.status}>
       <span>{canvasSync === "saved" ? "画布已同步" : canvasSync === "saving" ? "画布保存中" : canvasSync === "conflict" ? "多人编辑冲突" : canvasSync === "error" ? "画布未同步" : canvasSync === "local" ? "本机交互预览" : "读取画布中"}</span>
-      <small>{demo ? "预览模式不请求模型或媒体服务" : "Agent 对话先整理文字方案；图片 / 视频到上方队列选择模型并确认费用"}</small>
+      <small>{demo ? "预览模式不请求模型或媒体服务" : "每轮 Agent 对话都会计入文本用量；图片 / 视频在上方队列单独估价并确认费用"}</small>
     </div>
   </section>;
 }

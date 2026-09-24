@@ -6,8 +6,10 @@ import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { addCostLine, emptyCostBuckets, groupAtTime, type CostBuckets, type MembershipInterval } from "@/lib/production-lab/admin-accounting";
 import { resolveLabMediaAccounting } from "@/lib/production-lab/media-accounting";
 import { database, readLab } from "@/lib/production-lab/store";
+import { query as usageQuery } from "@/lib/local/db";
 import { productionLabDisplayName } from "@/lib/production-lab/identities";
 import { findUsageLedgerRows } from "@/lib/production-lab/media-runner";
+import { PRODUCTION_LAB_AGENT_LEDGER_SOURCE } from "@/lib/production-lab/agent-accounting";
 import { fxSnapshot, usdToCny } from "@/lib/usage/fx";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +20,11 @@ type MembershipRow = { id: string; group_id: string; user_id: string; group_name
 type AdminEventRow = { id: string; actor_id: string; action: string; group_id: string | null; details: Record<string, unknown>; created_at: string };
 type MediaRow = { id: string; owner_id: string; project_id: string; episode: number; kind: "image" | "video"; status: string; model: string; request_id: string; provider_request_id: string | null; estimated_cost_usd: string | number | null; reported_cost_usd: string | number | null; accounting_error: string | null; created_at: string };
 type ScriptRow = { actor_id: string; request_id: string; model_id: string; project_id: string | null; status: string; result: unknown; reported_cost_usd: string | number | null; estimated_cost_usd: string | number | null; cost_source: string; provider_request_id: string | null; accounting_error: string | null; created_at: string };
-type ReportEntry = CostBuckets & { requests: number; imageJobs: number; videoJobs: number; scriptRuns: number; totalTokens: number };
+type AgentLedgerRow = { request_id: string; provider_request_id: string | null; user_id: string; project_id: string | null; input_tokens: number | string | null; output_tokens: number | string | null; total_tokens: number | string | null; reported_cost_usd: number | string | null; estimated_cost_usd: number | string | null; cost_source: string; price_snapshot: Record<string, unknown> | null; status: string; created_at: string };
+type ReportEntry = CostBuckets & { requests: number; imageJobs: number; videoJobs: number; scriptRuns: number; agentTurns: number; totalTokens: number };
 type AccountRow = { id: string; email: string; created_at: string };
 
-const emptyEntry = (): ReportEntry => ({ ...emptyCostBuckets(), requests: 0, imageJobs: 0, videoJobs: 0, scriptRuns: 0, totalTokens: 0 });
+const emptyEntry = (): ReportEntry => ({ ...emptyCostBuckets(), requests: 0, imageJobs: 0, videoJobs: 0, scriptRuns: 0, agentTurns: 0, totalTokens: 0 });
 const numeric = (value: unknown) => { const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN; return Number.isFinite(parsed) && parsed >= 0 ? parsed : null; };
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
@@ -82,12 +85,19 @@ export async function GET(request: Request) {
       database().query<GroupRow>("SELECT id,name,created_by,created_at,updated_at,archived_at FROM production_lab_groups ORDER BY created_at"),
     ]);
     if (usersResult.error || rolesResult.error) throw new Error("读取平台账号失败");
+    const productionProjectIds = state.projects.map(project => project.id);
+    const [{ rows: agentLedgerRows }, { rows: agentCountRows }] = await Promise.all([
+      usageQuery<AgentLedgerRow>("SELECT request_id,provider_request_id,user_id,project_id,input_tokens,output_tokens,total_tokens,reported_cost_usd,estimated_cost_usd,cost_source,price_snapshot,status,created_at FROM ai_usage_ledger WHERE project_id=ANY($2::uuid[]) AND price_snapshot->>'production_lab_source'=$1 ORDER BY created_at DESC LIMIT 10000", [PRODUCTION_LAB_AGENT_LEDGER_SOURCE, productionProjectIds]),
+      usageQuery<{ count: string }>("SELECT count(*)::text AS count FROM ai_usage_ledger WHERE project_id=ANY($2::uuid[]) AND price_snapshot->>'production_lab_source'=$1", [PRODUCTION_LAB_AGENT_LEDGER_SOURCE, productionProjectIds]),
+    ]);
+    const agentLedgerTotal = Number(agentCountRows[0]?.count || 0);
     const users = (usersResult.data || []) as AccountRow[];
     const roles = ((rolesResult.data || []) as { id: string; platform_role: string | null }[]);
     const emailById = new Map(users.map((user) => [user.id, user.email]));
     const nameById = new Map(users.map((user) => [user.id, productionLabDisplayName(user.email)]));
     const membershipHistory: MembershipInterval[] = membershipHistoryRows.map((membership) => ({ userId: membership.user_id, groupId: membership.group_id, groupName: membership.group_name_snapshot, assignedAt: membership.assigned_at, unassignedAt: membership.unassigned_at }));
     const ledgerByRequest = await findUsageLedgerRows([...mediaJobs.map((job) => job.request_id), ...scriptRuns.map((run) => run.request_id)]);
+    const alreadyReportedRequestIds = new Set([...mediaJobs.map((job) => job.request_id), ...scriptRuns.map((run) => run.request_id)]);
     const people = new Map<string, { userId: string; email: string; name: string; platformRole: string; currentGroup: string | null } & ReportEntry>();
     const projects = new Map<string, { projectId: string; title: string; tier: string; stage: string; team: string; ownerId: string; ownerName: string; ownerEmail: string; budgetCny: number } & ReportEntry>();
     const groups = new Map<string, { groupId: string; name: string; memberCount: number } & ReportEntry>();
@@ -107,24 +117,27 @@ export async function GET(request: Request) {
     groups.set(unassignedKey, { groupId: unassignedKey, name: "未归属小组", memberCount: 0, ...emptyEntry() });
     const total = emptyEntry();
 
-    const applyRequest = (userId: string, projectId: string | null, createdAt: string, line: { settledUsd?: unknown; reportedUsd?: unknown; estimatedUsd?: unknown }, kind: "image" | "video" | "script", tokens = 0) => {
+    const applyRequest = (userId: string, projectId: string | null, createdAt: string, line: { settledUsd?: unknown; reportedUsd?: unknown; estimatedUsd?: unknown }, kind: "image" | "video" | "script" | "agent", tokens = 0) => {
       if (!people.has(userId)) people.set(userId, { userId, email: emailById.get(userId) || "平台账号已不存在", name: nameById.get(userId) || "未知账号", platformRole: "unknown", currentGroup: null, ...emptyEntry() });
       const person = people.get(userId)!;
       const project = projectId ? projects.get(projectId) : undefined;
       addCostLine(person, line); person.requests += 1; person.totalTokens += tokens;
       if (kind === "image") person.imageJobs += 1;
       else if (kind === "video") person.videoJobs += 1;
+      else if (kind === "agent") person.agentTurns += 1;
       else person.scriptRuns += 1;
-      if (project) { addCostLine(project, line); project.requests += 1; project.totalTokens += tokens; if (kind === "image") project.imageJobs += 1; else if (kind === "video") project.videoJobs += 1; else project.scriptRuns += 1; }
+      if (project) { addCostLine(project, line); project.requests += 1; project.totalTokens += tokens; if (kind === "image") project.imageJobs += 1; else if (kind === "video") project.videoJobs += 1; else if (kind === "agent") project.agentTurns += 1; else project.scriptRuns += 1; }
       addCostLine(total, line); total.requests += 1; total.totalTokens += tokens;
       if (kind === "image") total.imageJobs += 1;
       else if (kind === "video") total.videoJobs += 1;
+      else if (kind === "agent") total.agentTurns += 1;
       else total.scriptRuns += 1;
       const membership = groupAtTime(membershipHistory, userId, createdAt);
       const group = groups.get(membership?.groupId || unassignedKey)!;
       addCostLine(group, line); group.requests += 1; group.totalTokens += tokens;
       if (kind === "image") group.imageJobs += 1;
       else if (kind === "video") group.videoJobs += 1;
+      else if (kind === "agent") group.agentTurns += 1;
       else group.scriptRuns += 1;
       return { projectFound: Boolean(project) };
     };
@@ -153,6 +166,18 @@ export async function GET(request: Request) {
         estimatedUsd: accounting.estimateUsd ?? run.estimated_cost_usd,
       }, "script", totalTokens).projectFound) unlinkedProjectRequests += 1;
     }
+    let unreconciledAgentTurns = 0;
+    for (const row of agentLedgerRows) {
+      if (alreadyReportedRequestIds.has(row.request_id)) continue;
+      const accounting = resolveLabMediaAccounting(row.provider_request_id, row, row.estimated_cost_usd, row.reported_cost_usd);
+      if (!accounting.reconciled) unreconciledAgentTurns += 1;
+      const tokens = numeric(row.total_tokens) ?? (numeric(row.input_tokens) || 0) + (numeric(row.output_tokens) || 0);
+      if (!applyRequest(row.user_id, row.project_id, row.created_at, {
+        settledUsd: accounting.settledUsd,
+        reportedUsd: accounting.reportedUsd ?? row.reported_cost_usd,
+        estimatedUsd: accounting.estimateUsd ?? row.estimated_cost_usd,
+      }, "agent", tokens).projectFound) unlinkedProjectRequests += 1;
+    }
     const fx = fxSnapshot();
     const line = (entry: ReportEntry) => ({
       ...entry,
@@ -164,7 +189,7 @@ export async function GET(request: Request) {
       projects: Array.from(projects.values()).map(line).sort((a, b) => b.settledUsd + b.reportedUsd + b.estimatedUsd - (a.settledUsd + a.reportedUsd + a.estimatedUsd)),
       groups: Array.from(groups.values()).map(line).sort((a, b) => b.settledUsd + b.reportedUsd + b.estimatedUsd - (a.settledUsd + a.reportedUsd + a.estimatedUsd)),
       currency: fx,
-      coverage: { mediaJobs: mediaJobs.length, mediaJobsTotal: Number(mediaCount[0]?.count || 0), scriptRuns: scriptRuns.length, scriptRunsTotal: Number(scriptCount[0]?.count || 0), maxRows: 10000, complete: mediaJobs.length === Number(mediaCount[0]?.count || 0) && scriptRuns.length === Number(scriptCount[0]?.count || 0), unreconciledMediaJobs, unreconciledScriptRuns, unlinkedProjectRequests },
+      coverage: { mediaJobs: mediaJobs.length, mediaJobsTotal: Number(mediaCount[0]?.count || 0), scriptRuns: scriptRuns.length, scriptRunsTotal: Number(scriptCount[0]?.count || 0), agentTurns: agentLedgerRows.filter(row => !alreadyReportedRequestIds.has(row.request_id)).length, agentTurnsTotal: agentLedgerTotal, maxRows: 10000, complete: mediaJobs.length === Number(mediaCount[0]?.count || 0) && scriptRuns.length === Number(scriptCount[0]?.count || 0) && agentLedgerRows.length === agentLedgerTotal, unreconciledMediaJobs, unreconciledScriptRuns, unreconciledAgentTurns, unlinkedProjectRequests },
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error && error.message.includes("WeToken") ? error.message : "第六板块费用报表暂不可用；请检查账单账本、数据库迁移与服务状态" }, { status: 503 });

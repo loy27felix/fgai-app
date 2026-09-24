@@ -164,3 +164,4 @@
 .staleMediaNote{display:flex;align-items:flex-start;gap:8px;margin:8px 1px 0;padding:8px 10px;border:1px solid color-mix(in srgb,var(--lab-warm) 32%,var(--lab-border));border-radius:10px;background:color-mix(in srgb,var(--lab-warm) 8%,var(--lab-panel));font-size:9px;line-height:1.6}
 .staleMediaNote strong{flex:none;color:var(--lab-warm);font-weight:600}
 .staleMediaNote span{min-width:0;color:var(--lab-muted)}
+.accounting{display:block;margin-top:7px;padding-top:6px;border-top:1px solid var(--lab-border);color:var(--lab-muted);font-size:9px;line-height:1.6;overflow-wrap:anywhere}

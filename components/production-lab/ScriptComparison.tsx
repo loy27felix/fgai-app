@@ -9,11 +9,23 @@ type Model = { id: string; label: string; configured: boolean };
 type Run = {
   request_id: string; model_id: string; project_id?: string; task_id?: string;
   episode?: number; status: string; created_at: string; error?: string;
+  reported_cost_usd?: number | string | null; estimated_cost_usd?: number | string | null;
+  cost_source?: "reported" | "estimated" | "unknown"; provider_request_id?: string | null; accounting_error?: string | null;
   result?: { text?: string; usage?: { total_tokens?: number } };
   skill_versions: { id: string; version: string }[];
 };
 type Version = { requestId: string; model: string; episode: number; taskId: string; text: string; status: "idle" | "running" | "done" | "error"; error?: string };
 const emptyState = { brief: "", count: 3, selected: [] as string[], episode: 1, chosen: {} as Record<number, string>, versions: [] as Version[], batchSkills: [] as string[] };
+
+function scriptRunCostLabel(run: Run) {
+  const reported = run.reported_cost_usd == null ? null : Number(run.reported_cost_usd);
+  const estimated = run.estimated_cost_usd == null ? null : Number(run.estimated_cost_usd);
+  const format = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 4, maximumFractionDigits: 8 }).format(value);
+  if (run.accounting_error) return "费用账本写入待处理";
+  if (reported !== null && Number.isFinite(reported)) return `服务商回报 ${format(reported)} · 待费用单核销`;
+  if (estimated !== null && Number.isFinite(estimated)) return `费率参考 ${format(estimated)} · 非最终账单`;
+  return "费用待核对 · 不代表免费或 ¥0";
+}
 
 export default function ScriptComparison({ demo, actorId, project, projectTasks, skillIds, onSkills, onPrepareBatch, onUse }: {
   demo?: boolean;
@@ -216,6 +228,8 @@ export default function ScriptComparison({ demo, actorId, project, projectTasks,
       <p>仅显示当前项目、当前账号的请求记录。超时或未知状态不会自动重跑。</p><Button onClick={() => void loadHistory()}>刷新记录</Button>
       {historyError ? <p role="alert">{historyError}</p> : !history.length ? <Empty description="当前项目暂无生成记录" /> : history.map(run => <article key={run.request_id} style={{ padding: "18px 0", borderBottom: "1px solid #8884" }}>
         <Tag>{run.model_id}</Tag><Tag>{({ running: "运行中", succeeded: "已完成", failed: "失败", unknown: "结果待核对" } as Record<string, string>)[run.status] || run.status}</Tag><p>{run.episode ? `第 ${run.episode} 集 · ` : ""}{new Date(run.created_at).toLocaleString("zh-CN")}</p><small>请求：{run.request_id}</small><p>Skill：{run.skill_versions?.map(version => version.id + " @ " + version.version.slice(0, 8)).join("、") || "基础模型"}</p>
+        <p>费用：{scriptRunCostLabel(run)}{run.result?.usage?.total_tokens != null ? ` · ${run.result.usage.total_tokens.toLocaleString("zh-CN")} Token` : ""}</p>
+        {run.provider_request_id && <small>WeToken Reference ID：{run.provider_request_id}</small>}{run.accounting_error && <p role="alert">{run.accounting_error}</p>}
         {run.error && <p>{run.error}</p>}
         {run.result?.text && <><Input.TextArea readOnly rows={5} value={run.result.text} /><p>服务商报告 Token：{run.result.usage?.total_tokens ?? "未提供"}</p><Button disabled={!run.task_id || !run.episode} onClick={async () => { try { await onUse(`恢复 / ${run.model_id}`, run.result!.text!, run.episode!, run.model_id, run.request_id, true); message.success("已恢复到对应项目分集与画布"); } catch (error) { message.error((error as Error).message); } }}>恢复结果到画布</Button></>}
       </article>)}
