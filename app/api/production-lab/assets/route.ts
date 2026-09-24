@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { labActor } from "@/lib/production-lab/access";
+import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { readLab } from "@/lib/production-lab/store";
 import { createLabAsset, listLabAssets, PRODUCTION_LAB_ASSET_BUCKET, type LabAssetScope } from "@/lib/production-lab/media-store";
 import { localStorage } from "@/lib/local/storage";
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const actor = await labActor();
   if (!actor) return NextResponse.json({ error: "无试用权限" }, { status: 403 });
-  if (request.headers.get("origin") !== new URL(request.url).origin) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
+  if (!hasSameOriginLabRequest(request)) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
   let form: FormData;
   try { form = await request.formData(); } catch { return NextResponse.json({ error: "上传内容格式无效" }, { status: 400 }); }
   const scopeValue = String(form.get("scope") || "story");

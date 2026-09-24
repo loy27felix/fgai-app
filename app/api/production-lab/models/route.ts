@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { labActor } from "@/lib/production-lab/access";
+import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { labTextModels, scriptMessages } from "@/lib/production-lab/text-models";
 import { scriptSkillContext, scriptSkillCatalog } from "@/lib/production-lab/script-skills";
 import { reserveScriptRun, finishScriptRun, recentScriptRuns, requestFingerprint } from "@/lib/production-lab/script-runs";
@@ -29,7 +30,7 @@ export async function GET(req:Request){
 export async function POST(req:Request){
   const actor=await labActor();
   if(!actor)return NextResponse.json({error:"无试用权限"},{status:403});
-  if(req.headers.get("origin")!==new URL(req.url).origin)return NextResponse.json({error:"请求来源无效"},{status:403});
+  if (!hasSameOriginLabRequest(req)) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
   const raw=await req.text();if(raw.length>60000)return NextResponse.json({error:"请求过大"},{status:413});
   type Body = Parameters<typeof scriptMessages>[0] & {model:string;requestId:string;projectId:string;taskId:string};
   let body:Body, model: ReturnType<typeof labTextModels>[number] | undefined;

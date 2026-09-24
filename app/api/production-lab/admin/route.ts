@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/local/admin";
 import { labActor } from "@/lib/production-lab/access";
+import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { addCostLine, emptyCostBuckets, groupAtTime, type CostBuckets, type MembershipInterval } from "@/lib/production-lab/admin-accounting";
 import { resolveLabMediaAccounting } from "@/lib/production-lab/media-accounting";
 import { database, readLab } from "@/lib/production-lab/store";
@@ -176,7 +177,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const actor = await requireSuperadmin();
   if (!actor) return NextResponse.json({ error: "仅超级管理员可管理第六板块" }, { status: 403 });
-  if (request.headers.get("origin") !== new URL(request.url).origin) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
+  if (!hasSameOriginLabRequest(request)) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "请求格式无效" }, { status: 400 }); }
   const action = typeof body.action === "string" ? body.action : "";

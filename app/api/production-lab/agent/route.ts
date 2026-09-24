@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { labActor } from "@/lib/production-lab/access";
+import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { readLab } from "@/lib/production-lab/store";
 import { labTextModels } from "@/lib/production-lab/text-models";
 import { readProjectCanvas, validateCanvasGraph } from "@/lib/production-lab/canvas-storage";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const actor = await labActor();
   if (!actor) return NextResponse.json({ error: "无试用权限" }, { status: 403 });
-  if (request.headers.get("origin") !== new URL(request.url).origin) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
+  if (!hasSameOriginLabRequest(request)) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
   const raw = await request.text();
   if (raw.length > 100000) return NextResponse.json({ error: "对话请求过大" }, { status: 413 });
   let body: { model?: unknown; projectId?: unknown; episode?: unknown; selectedNodeId?: unknown; skillIds?: unknown; messages?: unknown };

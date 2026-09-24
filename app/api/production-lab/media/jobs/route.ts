@@ -5,6 +5,7 @@ import { getVideoModel } from "@/lib/ai/video";
 import { estimateImagePrice, estimateVideoPrice } from "@/lib/usage/pricing";
 import { assertMonthlyBudgetAvailable } from "@/lib/usage/budget";
 import { labActor } from "@/lib/production-lab/access";
+import { hasSameOriginLabRequest } from "@/lib/production-lab/origin";
 import { readLab } from "@/lib/production-lab/store";
 import { readProjectCanvas, validateCanvasGraph } from "@/lib/production-lab/canvas-storage";
 import { createLabMediaJob, listLabMediaJobs } from "@/lib/production-lab/media-store";
@@ -69,7 +70,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const actor = await labActor();
   if (!actor) return NextResponse.json({ error: "无试用权限" }, { status: 403 });
-  if (request.headers.get("origin") !== new URL(request.url).origin) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
+  if (!hasSameOriginLabRequest(request)) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });
   if (!process.env.WETOKEN_API_KEY) return NextResponse.json({ error: "服务端尚未配置 WeToken API Key；未创建任务，也未产生费用" }, { status: 503 });
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "请求格式无效" }, { status: 400 }); }
