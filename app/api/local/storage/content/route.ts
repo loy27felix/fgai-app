@@ -4,7 +4,7 @@ import { isNasUnavailableError, localFileSize, readLocalFile, readLocalRange, ve
 import { canAccessStoragePath } from "@/lib/local/storage-auth";
 import { logServerEvent, logServerFailure } from "@/lib/observability/server-log";
 
-const allowedBuckets = new Set(["project-assets", "creator-assets"]);
+const allowedBuckets = new Set(["project-assets", "creator-assets", "production-lab-assets"]);
 
 function contentType(name: string) {
   const extension = name.toLowerCase().split(".").pop();
@@ -39,6 +39,9 @@ export async function GET(request: Request) {
     cfRay: cfRay || undefined,
   });
   if (!user && !signedAccess) return new NextResponse("未登录", { status: 401 });
+  // Production Lab files live in a team-shared NAS bucket. They can only be
+  // opened through a short-lived signature issued by its superadmin-only API.
+  if (bucket === "production-lab-assets" && !signedAccess) return new NextResponse("请通过第六板块素材库访问", { status: 403 });
   if (user && !signedAccess && !await canAccessStoragePath(user.id, bucket, name)) return new NextResponse("无权访问该媒体路径", { status: 403 });
   try {
     const size = await localFileSize(bucket, name);

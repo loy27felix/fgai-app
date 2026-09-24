@@ -6,7 +6,7 @@
 
 画布交互正在重做：节点默认工作倍率提高；“适配画布”按当前内容居中；Ctrl/Cmd+滚轮用画布自身的非被动监听，避免浏览器抢走缩放；普通滚轮平移带缓动；空白处拖动相机有可关闭的惯性；Shift+拖动可框选；节点拖动逐帧更新 DOM 与连线，最终一次性写入历史；选中后画布顶部提供复制、克隆、删除和清除选择；撤销/删除后会清除已不存在的节点选择；正文按中英文混排换行并可选中复制。主题在本机读取完成前暂禁切换，避免第一次点击与存储恢复竞争。系统启用“减少动态效果”时会关闭惯性。
 
-生产板块仍是内测原型：**图片、视频、音频实际生成器和后台队列尚未接入；媒体文件目前只存用户浏览器；人民币账单核对、官方素材团队发布也未接通。**GPU 超分与去水印按用户要求延期。没有真实服务端模型配置时，Agent 和剧本模型调用会显示不可用，不会伪造生成结果。
+生产板块仍是超级管理员内测：图片和视频通过 WeToken 进入独立生产任务表；生成结果会保存到 `production-lab-assets` NAS 目录并登记为团队素材。视频任务按本地任务 ID 调用 WeToken 状态查询，未知提交不会自动重复。估算费用先显示在生成确认中；WeToken 费用 CSV 导入主平台账本后，按 Reference ID 精确显示实付金额与对账状态，不按时间、模型或金额推测。音频独立生成暂未接入；GPU 超分与去水印按用户要求延期。
 
 ## 本机交互预览
 
@@ -35,7 +35,9 @@ PRODUCTION_LAB_TEXT_MODELS=[{"id":"gpt","label":"GPT","model":"...","endpoint":"
 
 上面是格式示例，不含凭据。模型 endpoint 必须是 HTTPS OpenAI-compatible Chat Completions。密钥只在服务端环境中读取。Claude 需使用兼容网关；目前没有原生 Anthropic 请求适配。
 
-首次测试按顺序将 `migrations/001.sql`、`002-script-runs.sql`、`003-script-run-project-scope.sql`、`004-project-canvas-graphs.sql` 应用到**新的**测试数据库。不要把这些迁移加进旧数据库，也不要复用旧 `DATABASE_URL`。应用自身会拒绝相同主机、端口和数据库名，但仍需人工核对 DNS 别名指向。
+图片 / 视频生成复用服务器端 `WETOKEN_API_KEY`。纯文生视频不要求公网素材入口；选择 NAS 里的图片做视频参考时，另需配置 WeToken 可访问的 HTTPS `PROVIDER_MEDIA_URL`。官方素材由试用管理员在“素材库”上传并分类，文件进入 NAS 下独立的 `production-lab-assets` 目录。
+
+首次测试按顺序将 `migrations/001.sql`、`002-script-runs.sql`、`003-script-run-project-scope.sql`、`004-project-canvas-graphs.sql` 应用到**新的**测试数据库。图片 / 视频队列新增 `migrations/005-media-queue-and-assets.sql`。在 Mac mini 部署后，以容器内的隔离库变量手动执行 `docker compose exec -T app node scripts/production-lab-migrate.mjs`；脚本只读 `PRODUCTION_LAB_DATABASE_URL`，会拒绝与 `DATABASE_URL` 指向同一主机、端口和数据库的情况，并核验旧第六板块基表存在。不要将此迁移放入主库启动迁移。仍需人工确认数据库地址没有用 DNS 别名指向旧库。
 
 超级管理员可在试用空间里查看、创建、审核和推进项目；其他账号的入口、页面和 API 均受服务端角色检查保护。画布按项目与分集存服务端图，并用版本比较避免静默覆盖。本机副本失败时可导出，版本冲突时可选择保存本机恢复副本后载入服务器版。
 

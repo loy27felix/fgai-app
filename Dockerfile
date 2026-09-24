@@ -37,6 +37,8 @@ COPY --from=deps --chown=nextjs:nextjs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/scripts/local-db-migrate.mjs ./scripts/local-db-migrate.mjs
+COPY --from=builder --chown=nextjs:nextjs /app/scripts/production-lab-migrate.mjs ./scripts/production-lab-migrate.mjs
+COPY --from=builder --chown=nextjs:nextjs /app/production-lab/migrations/005-media-queue-and-assets.sql ./production-lab/migrations/005-media-queue-and-assets.sql
 COPY --exclude=001-local.sql --from=builder --chown=nextjs:nextjs /app/docker/initdb/ ./docker/initdb/
 # Keep the durable creator-session upgrade explicit for contract checks and image audits.
 # 为已有本地 volume 保留显式升级文件，便于构建审计与启动迁移校验。

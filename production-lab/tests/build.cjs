@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, '../..');
 const output = path.join(__dirname, '.build');
 fs.mkdirSync(output, { recursive: true });
 
-const files = ['domain', 'canvas-draft', 'canvas-interactions', 'production-flow', 'text-models', 'production-agent', 'canvas-storage']
+const files = ['domain', 'canvas-draft', 'canvas-interactions', 'production-flow', 'text-models', 'production-agent', 'canvas-storage', 'selected-topics', 'media-accounting']
   .map(name => path.join(root, 'lib', 'production-lab', `${name}.ts`));
 const options = {
   target: ts.ScriptTarget.ES2022,

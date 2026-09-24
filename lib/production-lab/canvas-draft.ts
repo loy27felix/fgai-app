@@ -1,5 +1,5 @@
 export type DraftKind = "text" | "character" | "scene" | "shot" | "video" | "audio";
-export type DraftNode = { id: string; kind: DraftKind; title: string; text: string; x: number; y: number; skillIds: string[]; assetId?: string; metadata?: { projectId: string; topicId?: number | null; episode?: number; taskId?: string; version?: number; role: "topic" | "project-context" | "script-task" | "script" | "shot" | "asset" | "video" } };
+export type DraftNode = { id: string; kind: DraftKind; title: string; text: string; x: number; y: number; skillIds: string[]; assetId?: string; assetKind?: "image" | "video" | "audio"; metadata?: { projectId: string; topicId?: number | null; episode?: number; taskId?: string; version?: number; role: "topic" | "project-context" | "script-task" | "script" | "shot" | "asset" | "video" } };
 export type DraftGraph = { nodes: DraftNode[]; edges: { from: string; to: string }[] };
 export type DraftOperation =
   | { type: "add"; node: DraftNode }
