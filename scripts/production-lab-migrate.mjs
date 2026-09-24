@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Client } from "pg";
 
-const migrationName = "005-media-queue-and-assets.sql";
+const migrationNames = ["005-media-queue-and-assets.sql", "006-superadmin-groups-and-accounting.sql"];
 const targetUrl = process.env.PRODUCTION_LAB_DATABASE_URL;
 const primaryUrl = process.env.DATABASE_URL;
 const prefix = "[fg-production-lab-migrate]";
@@ -41,19 +41,21 @@ async function main() {
         applied_at timestamptz NOT NULL DEFAULT now()
       )
     `);
-    const migrationSql = await readFile(new URL(`../production-lab/migrations/${migrationName}`, import.meta.url), "utf8");
-    const checksum = createHash("sha256").update(migrationSql).digest("hex");
-    const existing = await client.query("SELECT checksum FROM production_lab_schema_migrations WHERE name=$1", [migrationName]);
-    if (existing.rows[0]) {
-      if (existing.rows[0].checksum !== checksum) throw new Error(`${migrationName} was previously applied with a different checksum.`);
-      log("already_applied", { migration: migrationName, database: target.database_name });
-      return;
-    }
+    for (const migrationName of migrationNames) {
+      const migrationSql = await readFile(new URL(`../production-lab/migrations/${migrationName}`, import.meta.url), "utf8");
+      const checksum = createHash("sha256").update(migrationSql).digest("hex");
+      const existing = await client.query("SELECT checksum FROM production_lab_schema_migrations WHERE name=$1", [migrationName]);
+      if (existing.rows[0]) {
+        if (existing.rows[0].checksum !== checksum) throw new Error(`${migrationName} was previously applied with a different checksum.`);
+        log("already_applied", { migration: migrationName, database: target.database_name });
+        continue;
+      }
 
-    log("applying", { migration: migrationName, database: target.database_name, databaseUser: target.database_user });
-    await client.query(migrationSql);
-    await client.query("INSERT INTO production_lab_schema_migrations(name,checksum) VALUES($1,$2)", [migrationName, checksum]);
-    log("applied", { migration: migrationName, database: target.database_name });
+      log("applying", { migration: migrationName, database: target.database_name, databaseUser: target.database_user });
+      await client.query(migrationSql);
+      await client.query("INSERT INTO production_lab_schema_migrations(name,checksum) VALUES($1,$2)", [migrationName, checksum]);
+      log("applied", { migration: migrationName, database: target.database_name });
+    }
   } finally {
     await client.end().catch(() => undefined);
   }

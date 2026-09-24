@@ -23,8 +23,9 @@ export type TextLedgerEntry = {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  reported_cost_usd?: number;
   estimated_cost_usd?: number;
-  cost_source: 'estimated' | 'unknown';
+  cost_source: 'reported' | 'estimated' | 'unknown';
   price_snapshot: Record<string, string | number>;
   duration_ms?: number;
   status: 'succeeded';
@@ -130,18 +131,24 @@ export function buildTextLedgerEntry(input: {
   provider: string;
   model: string;
   usage: TextUsage;
+  reportedCostUsd?: number;
+  estimateOnlyWhenUsageKnown?: boolean;
   durationMs?: number;
 }): TextLedgerEntry {
   const inputTokens = tokenCount(input.usage?.prompt_tokens);
   const outputTokens = tokenCount(input.usage?.completion_tokens);
   const cachedTokens = tokenCount(input.usage?.cached_tokens)
     || tokenCount(input.usage?.prompt_tokens_details?.cached_tokens);
-  const estimate = estimateTextPrice({
+  const hasReportedCost = typeof input.reportedCostUsd === 'number' && Number.isFinite(input.reportedCostUsd);
+  const hasUsage = Number.isSafeInteger(input.usage?.prompt_tokens) && (input.usage?.prompt_tokens ?? -1) >= 0
+    && Number.isSafeInteger(input.usage?.completion_tokens) && (input.usage?.completion_tokens ?? -1) >= 0;
+  const estimate = hasReportedCost || (input.estimateOnlyWhenUsageKnown && !hasUsage) ? null : estimateTextPrice({
     model: input.model,
     inputTokens,
     outputTokens,
     cachedInputTokens: cachedTokens,
   });
+  const priceSnapshot = hasReportedCost ? { currency: 'USD', source: 'provider_response' } : estimate?.snapshot || {};
   return {
     request_id: input.requestId || randomId(),
     ...(input.providerRequestId ? { provider_request_id: input.providerRequestId } : {}),
@@ -155,9 +162,10 @@ export function buildTextLedgerEntry(input: {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
     total_tokens: tokenCount(input.usage?.total_tokens) || inputTokens + outputTokens,
+    ...(hasReportedCost ? { reported_cost_usd: Math.abs(input.reportedCostUsd!) } : {}),
     ...(estimate ? { estimated_cost_usd: estimate.estimatedCostUsd } : {}),
-    cost_source: estimate ? 'estimated' : 'unknown',
-    price_snapshot: estimate?.snapshot || {},
+    cost_source: hasReportedCost ? 'reported' : estimate ? 'estimated' : 'unknown',
+    price_snapshot: priceSnapshot,
     ...(Number.isFinite(input.durationMs) && (input.durationMs || 0) >= 0 ? { duration_ms: Math.floor(input.durationMs || 0) } : {}),
     status: 'succeeded',
     possibly_charged: true,

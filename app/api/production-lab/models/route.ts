@@ -4,6 +4,8 @@ import { labTextModels, scriptMessages } from "@/lib/production-lab/text-models"
 import { scriptSkillContext, scriptSkillCatalog } from "@/lib/production-lab/script-skills";
 import { reserveScriptRun, finishScriptRun, recentScriptRuns, requestFingerprint } from "@/lib/production-lab/script-runs";
 import { readLab } from "@/lib/production-lab/store";
+import { buildTextLedgerEntry, recordUsageRequired } from "@/lib/usage/ledger";
+import { extractReportedCostUsd } from "@/lib/usage/pricing";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 export async function GET(req:Request){
@@ -58,12 +60,45 @@ export async function POST(req:Request){
     return NextResponse.json({error,requestId:body.requestId},{status:502});
   }
   try{
+    const modelStartedAt = Date.now();
     const upstream=await fetch(model.endpoint,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${model.apiKey}`},body:JSON.stringify({model:model.model,messages,max_tokens:6000}),signal:AbortSignal.timeout(120000),redirect:"error",cache:"no-store"});
     if(!upstream.ok)return fail(`模型服务返回 ${upstream.status}，未自动重试；请核对服务商计费记录`,"failed");
     const data=await upstream.json();const text=data?.choices?.[0]?.message?.content;
     if(typeof text!=="string"||!text.trim())return fail("模型未返回可用剧本；请核对供应商计费记录");
-    const result={text,model:body.model,usage:data.usage||null,requestId:body.requestId,skillVersions,projectId:project.id,taskId:task.id,episode:task.episode};
-    try{await finishScriptRun(actor.id,body.requestId,"succeeded",result,null);}catch{return NextResponse.json({...result,persistenceWarning:"模型已返回但任务结果保存失败，请立即复制剧本并核对记录"});}
+    const usage = data.usage && typeof data.usage === "object" ? data.usage as Record<string, unknown> : null;
+    const tokenCount = (...keys: string[]): number | undefined => {
+      for (const key of keys) {
+        const value = usage?.[key];
+        const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+        if (Number.isSafeInteger(parsed) && parsed >= 0) return parsed;
+      }
+      return undefined;
+    };
+    const promptTokens = tokenCount("prompt_tokens", "input_tokens");
+    const completionTokens = tokenCount("completion_tokens", "output_tokens");
+    const cachedTokenDetails = usage?.prompt_tokens_details && typeof usage.prompt_tokens_details === "object" ? usage.prompt_tokens_details as Record<string, unknown> : {};
+    const normalizedUsage = usage ? {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: tokenCount("total_tokens"),
+      cached_tokens: tokenCount("cached_tokens") ?? (() => {
+        const value = cachedTokenDetails.cached_tokens;
+        const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+        return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+      })(),
+    } : undefined;
+    // Only the dedicated fee headers are durable WeToken CSV Reference IDs.
+    // Generic request IDs and model response IDs are intentionally excluded.
+    const providerRequestId = ["x-oneapi-request-id","x-wetoken-reference-id","x-wetoken-request-id","x-reference-id","reference-id"]
+      .map((name) => upstream.headers.get(name)?.trim())
+      .find((value): value is string => Boolean(value))?.slice(0, 160);
+    const reportedCostUsd=extractReportedCostUsd(data);
+    const ledgerRow=buildTextLedgerEntry({requestId:body.requestId,providerRequestId,userId:actor.id,projectId:project.id,provider:"wetoken",model:model.model,usage:normalizedUsage,estimateOnlyWhenUsageKnown:true,durationMs:Date.now()-modelStartedAt,reportedCostUsd});
+    let accountingError:string|null=null;
+    try{await recordUsageRequired(ledgerRow);}catch{accountingError="用量账本写入失败；费用统计会保留为待处理，请核对服务状态";}
+    const accounting={reportedCostUsd:ledgerRow.reported_cost_usd??null,estimatedCostUsd:ledgerRow.estimated_cost_usd??null,costSource:ledgerRow.cost_source,priceSnapshot:Object.keys(ledgerRow.price_snapshot).length?ledgerRow.price_snapshot:null,providerRequestId:providerRequestId??null,accountingError};
+    const result={text,model:body.model,usage:data.usage||null,accounting,requestId:body.requestId,skillVersions,projectId:project.id,taskId:task.id,episode:task.episode};
+    try{await finishScriptRun(actor.id,body.requestId,"succeeded",result,null,accounting);}catch{return NextResponse.json({...result,persistenceWarning:"模型已返回但任务结果保存失败，请立即复制剧本并核对记录"});}
     return NextResponse.json(result);
   }catch{return fail("模型调用中断或超时；可能已经计费，请先核对供应商记录");}
 }

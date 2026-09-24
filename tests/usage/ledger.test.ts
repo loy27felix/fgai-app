@@ -52,6 +52,38 @@ test('persists the Wetoken request ID for exact future fee-log reconciliation', 
   assert.equal(row.provider_request_id, '20260911023732712120112W');
 });
 
+test('does not invent a zero-cost estimate when the model omits token usage', () => {
+  const row = buildTextLedgerEntry({
+    requestId: 'req-no-usage',
+    userId: 'user-1',
+    provider: 'wetoken',
+    model: 'gpt-5.6-luna-t1a',
+    usage: undefined,
+    estimateOnlyWhenUsageKnown: true,
+  });
+
+  assert.equal(row.cost_source, 'unknown');
+  assert.equal(row.estimated_cost_usd, undefined);
+  assert.equal(row.input_tokens, 0);
+  assert.equal(row.output_tokens, 0);
+});
+
+test('records a provider-reported text cost ahead of any model-rate estimate', () => {
+  const row = buildTextLedgerEntry({
+    requestId: 'req-reported-cost',
+    userId: 'user-1',
+    provider: 'wetoken',
+    model: 'gpt-5.6-luna-t1a',
+    usage: { prompt_tokens: 10, completion_tokens: 20 },
+    reportedCostUsd: 0.0007,
+  });
+
+  assert.equal(row.cost_source, 'reported');
+  assert.equal(row.reported_cost_usd, 0.0007);
+  assert.equal(row.estimated_cost_usd, undefined);
+  assert.equal(row.price_snapshot.source, 'provider_response');
+});
+
 test('rejects a successful Wetoken call that has no exact provider Reference ID for reconciliation', () => {
   assert.throws(
     () => requireProviderUsageReference('wetoken', undefined),

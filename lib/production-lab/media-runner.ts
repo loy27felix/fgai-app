@@ -393,10 +393,25 @@ export async function wakeLabMediaQueue(projectId: string, episode: number) {
 }
 
 export async function findUsageLedgerRows(requestIds: string[]): Promise<Map<string, Record<string, unknown>>> {
-  if (!requestIds.length) return new Map<string, Record<string, unknown>>();
-  const { data, error } = await createAdminClient().from("ai_usage_ledger")
-    .select("request_id,provider_request_id,reported_cost_usd,estimated_cost_usd,cost_source,status,price_snapshot,completed_at")
-    .in("request_id", requestIds);
-  if (error) throw new Error("读取 WeToken 用量账本失败");
-  return new Map((data || []).map((row: Record<string, unknown>) => [String(row.request_id), row]));
+  const uniqueRequestIds = Array.from(new Set(requestIds.filter((id) => typeof id === "string" && id.length > 0)));
+  if (!uniqueRequestIds.length) return new Map<string, Record<string, unknown>>();
+  const client = createAdminClient();
+  const result = new Map<string, Record<string, unknown>>();
+  const batchSize = 100;
+  const concurrency = 8;
+  const batches = Array.from({ length: Math.ceil(uniqueRequestIds.length / batchSize) }, (_, index) =>
+    uniqueRequestIds.slice(index * batchSize, (index + 1) * batchSize));
+  for (let offset = 0; offset < batches.length; offset += concurrency) {
+    const rows = await Promise.all(batches.slice(offset, offset + concurrency).map(async (batch) => {
+      const { data, error } = await client.from("ai_usage_ledger")
+        .select("request_id,provider_request_id,reported_cost_usd,estimated_cost_usd,cost_source,status,price_snapshot,completed_at")
+        .in("request_id", batch);
+      if (error) throw new Error("读取 WeToken 用量账本失败");
+      return (data || []) as Record<string, unknown>[];
+    }));
+    for (const batchRows of rows) {
+      for (const row of batchRows) result.set(String(row.request_id), row);
+    }
+  }
+  return result;
 }
