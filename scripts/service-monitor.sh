@@ -294,18 +294,22 @@ container_id() {
 }
 
 check_nas() {
-  local nas_path
-  local expected_host
-  local marker_name
-  nas_path="$(read_env_value NAS_MEDIA_PATH)"
-  expected_host="$(read_env_value NAS_EXPECTED_HOST)"
-  marker_name="$(read_env_value NAS_READY_MARKER)"
-  marker_name="${marker_name:-.fg-studio-nas-ready}"
-  if [[ -n "$expected_host" ]] && /usr/bin/nc -G 2 -z "$expected_host" 445 >/dev/null 2>&1 \
-    && [[ -n "$nas_path" && -f "$nas_path/$marker_name" ]]; then
-    update_state nas healthy "SMB and ready marker are available"
+  local supervisor_root="${TMPDIR:-/tmp}/fg-studio-nas-supervisor-$(id -u)"
+  local supervisor_state=""
+  local last_success=0
+  local now
+  [[ -f "$supervisor_root/state" ]] && supervisor_state="$(<"$supervisor_root/state")"
+  [[ -f "$supervisor_root/last-storage-success" ]] && last_success="$(<"$supervisor_root/last-storage-success")"
+  [[ "$last_success" =~ ^[0-9]+$ ]] || last_success=0
+  now="$(date +%s)"
+  if [[ "$supervisor_state" == "ready" ]] && (( now - last_success <= 25 && now >= last_success )); then
+    update_state nas healthy "App container NAS read/write probe passed within 25 seconds"
+  elif [[ "$supervisor_state" == "app-transitioning" || "$supervisor_state" == "mount-requested" ]]; then
+    update_state nas unknown "NAS supervisor is waiting for App deployment or SMB mount"
+  elif [[ -z "$supervisor_state" || "$supervisor_state" == "ready" || "$supervisor_state" == "docker-offline" || "$supervisor_state" == "probe-unavailable" || "$supervisor_state" == "app-start-failed" || "$supervisor_state" == "config-missing" || "$supervisor_state" == "config-invalid" || "$supervisor_state" == "stop-failed" ]]; then
+    update_state nas unknown "NAS storage probe is unavailable or stale (supervisor=$supervisor_state)"
   else
-    update_state nas unhealthy "SMB or mounted ready marker is unavailable"
+    update_state nas unhealthy "NAS supervisor storage state=$supervisor_state"
   fi
 }
 
@@ -322,7 +326,7 @@ check_app() {
     clear_failures app
     update_state app healthy "container health=healthy; HTTP /api/version=200"
   else
-    update_state app unhealthy "container health=$health; HTTP /api/version=$http_status; NAS supervisor will recover it"
+    update_state app unhealthy "container health=$health; HTTP /api/version=$http_status"
   fi
 }
 

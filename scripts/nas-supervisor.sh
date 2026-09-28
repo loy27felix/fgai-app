@@ -17,9 +17,11 @@ APP_CONTAINER_PATH="/data/media"
 DEFAULT_MARKER_NAME=".fg-studio-nas-ready"
 STATE_ROOT="${TMPDIR:-/tmp}/fg-studio-nas-supervisor-$(id -u)"
 STATE_FILE="$STATE_ROOT/state"
+LAST_SUCCESS_FILE="$STATE_ROOT/last-storage-success"
 LOCK_DIR="$STATE_ROOT/lock"
 MOUNT_RETRY_FILE="$STATE_ROOT/last-mount-attempt"
 KEYCHAIN_SERVICE="com.fgstudio.nas-supervisor.smb"
+RECREATE_LOCK_DIR="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
 STATE_TRANSITION_SEQUENCE=0
 
 mkdir -p "$STATE_ROOT"
@@ -34,6 +36,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 printf '%s' "$$" > "$LOCK_DIR/pid"
 cleanup() {
+  release_recreate_lock
   rm -f "$LOCK_DIR/pid"
   rmdir "$LOCK_DIR" 2>/dev/null || true
 }
@@ -50,8 +53,8 @@ json_escape() {
 monitor_state() {
   case "$1" in
     ready) printf 'healthy' ;;
-    mount-requested|app-transitioning) printf 'unknown' ;;
-    config-missing|config-invalid|nas-offline|mount-failed|docker-offline|app-unhealthy|nas-readonly|container-mount-failed)
+    mount-requested|app-transitioning|docker-offline|probe-unavailable|app-start-failed|config-missing|config-invalid|stop-failed) printf 'unknown' ;;
+    mount-failed|mount-check-unavailable|nas-readonly|container-mount-failed)
       printf 'unhealthy'
       ;;
     *) printf 'unknown' ;;
@@ -126,6 +129,11 @@ set_state() {
   fi
 }
 
+set_storage_ready() {
+  printf '%s' "$(date +%s)" > "$LAST_SUCCESS_FILE"
+  set_state "ready" "$1"
+}
+
 read_env_value() {
   local key="$1"
   local line=""
@@ -139,26 +147,50 @@ read_env_value() {
 }
 
 find_app_container() {
+  docker ps \
+    --filter label=com.docker.compose.project=fgai-app \
+    --filter label=com.docker.compose.service="$APP_SERVICE" \
+    --format '{{.ID}}' | head -n 1
+}
+
+find_app_image() {
   docker ps -a \
     --filter label=com.docker.compose.project=fgai-app \
     --filter label=com.docker.compose.service="$APP_SERVICE" \
-    --format '{{.Names}}' | head -n 1
+    --format '{{.Image}}' | head -n 1
 }
 
-probe_running_container() {
+acquire_recreate_lock() {
+  local owner_pid=""
+  mkdir -p "$(dirname "$RECREATE_LOCK_DIR")"
+  if ! mkdir "$RECREATE_LOCK_DIR" 2>/dev/null; then
+    [[ -f "$RECREATE_LOCK_DIR/pid" ]] && owner_pid="$(<"$RECREATE_LOCK_DIR/pid")"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+      return 1
+    fi
+    rm -f "$RECREATE_LOCK_DIR/pid"
+    rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || return 1
+    mkdir "$RECREATE_LOCK_DIR" 2>/dev/null || return 1
+  fi
+  printf '%s' "$$" > "$RECREATE_LOCK_DIR/pid"
+}
+
+release_recreate_lock() {
+  if [[ -f "$RECREATE_LOCK_DIR/pid" ]] && [[ "$(<"$RECREATE_LOCK_DIR/pid")" == "$$" ]]; then
+    rm -f "$RECREATE_LOCK_DIR/pid"
+    rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+probe_running_storage() {
   local container="$1"
-  local health
   local marker_path="$APP_CONTAINER_PATH/$MARKER_NAME"
   local probe_path="$APP_CONTAINER_PATH/.fg-studio-container-probe"
   # Keep one stable probe because deleting an open SMB file creates persistent .smbdelete files.
   # 保留单个稳定探针，避免删除 SMB 占用文件后持续产生 .smbdelete 文件。
   run_with_timeout 5 docker exec "$container" sh -c \
-    'grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2"' \
-    sh "$marker_path" "$probe_path" >/dev/null 2>&1 || return 1
-  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
-  # A freshly recreated app remains starting while migrations and Next.js boot complete.
-  # 新容器执行迁移和启动 Next.js 时会暂处 starting，不能被守护进程提前终止。
-  [[ "$health" == "healthy" || "$health" == "starting" ]]
+    'grep -qx "fg-studio-media:v1" "$1" || exit 10; printf probe > "$2" || exit 11; grep -qx probe "$2" || exit 12' \
+    sh "$marker_path" "$probe_path" >/dev/null 2>&1
 }
 
 probe_new_mount() {
@@ -171,7 +203,7 @@ probe_new_mount() {
   run_with_timeout 5 docker run --rm --name "$probe_container" \
     --mount "type=bind,source=$NAS_PATH,target=$APP_CONTAINER_PATH" \
     --entrypoint sh "$image" -c \
-    'if [ ! -f "$1" ]; then printf "%s\n" "fg-studio-media:v1" > "$1"; fi; grep -qx "fg-studio-media:v1" "$1" && printf probe > "$2"' \
+    'grep -qx "fg-studio-media:v1" "$1" || exit 10; printf probe > "$2" || exit 11; grep -qx probe "$2" || exit 12' \
     sh "$marker_path" "$probe_path" >/dev/null 2>&1 || probe_exit=$?
   run_with_timeout 5 docker rm -f "$probe_container" >/dev/null 2>&1 || true
   return "$probe_exit"
@@ -179,11 +211,15 @@ probe_new_mount() {
 
 stop_app() {
   local container
-  container="$(find_app_container 2>/dev/null || true)"
-  if [[ -n "$container" ]] && [[ "$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)" == "true" ]]; then
+  local running
+  container="${1:-}"
+  [[ -n "$container" ]] || container="$(find_app_container 2>/dev/null)" || return 1
+  if [[ -n "$container" ]]; then
     if ! run_with_timeout 15 docker stop -t 10 "$container" >/dev/null 2>&1; then
-      run_with_timeout 5 docker kill "$container" >/dev/null 2>&1 || true
+      run_with_timeout 5 docker kill "$container" >/dev/null 2>&1 || return 1
     fi
+    running="$(docker ps -q --no-trunc --filter "id=$container" 2>/dev/null)" || return 1
+    [[ -z "$running" ]]
   fi
 }
 
@@ -234,23 +270,30 @@ SMB_USER="${MOUNT_URL#smb://}"
 SMB_USER="${SMB_USER%%@*}"
 
 if [[ -z "$NAS_PATH" || "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
-  stop_app
+  if ! stop_app; then
+    set_state "stop-failed" "NAS supervisor: invalid NAS configuration; could not confirm app stopped"
+    exit 1
+  fi
   set_state "config-invalid" "NAS supervisor: NAS path, expected source, or mount URL is invalid; app stopped"
   exit 1
 fi
 
-if ! run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
-  stop_app
-  set_state "nas-offline" "NAS supervisor: SMB server is unreachable; app stopped"
-  exit 0
-fi
-
 # Read the mount table before touching the network path so a stale SMB session cannot block the supervisor.
 # 先读取挂载表再访问网络目录，避免失效的 SMB 会话永久阻塞守护进程。
-MOUNT_LINE="$(/sbin/mount | awk -v host="$EXPECTED_HOST" -v share="/$EXPECTED_SHARE on " 'index($0, host) && index($0, share) { print; exit }')"
+if ! MOUNT_LINE="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')"; then
+  if ! stop_app; then
+    set_state "stop-failed" "NAS supervisor: could not read SMB mount table or confirm App stopped"
+    exit 1
+  fi
+  set_state "mount-check-unavailable" "NAS supervisor: could not read SMB mount table; app stopped"
+  exit 1
+fi
 MOUNT_POINT="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$MOUNT_LINE")"
 if [[ -z "$MOUNT_LINE" || -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
-  stop_app
+  if ! stop_app; then
+    set_state "stop-failed" "NAS supervisor: expected SMB mount is absent; could not confirm app stopped"
+    exit 1
+  fi
   if request_mount "$MOUNT_URL" "$SMB_USER"; then
     set_state "mount-requested" "NAS supervisor: non-interactive SMB mount requested; app stopped until ready"
   else
@@ -264,14 +307,44 @@ if ! run_with_timeout 5 docker info >/dev/null 2>&1; then
   exit 0
 fi
 
-APP_CONTAINER="$(find_app_container 2>/dev/null || true)"
-if [[ -n "$APP_CONTAINER" ]] && [[ "$(docker inspect --format '{{.State.Running}}' "$APP_CONTAINER" 2>/dev/null || true)" == "true" ]]; then
-  if probe_running_container "$APP_CONTAINER"; then
-    set_state "ready" "NAS supervisor: NAS and app are healthy"
+if ! APP_CONTAINER="$(find_app_container 2>/dev/null)"; then
+  set_state "probe-unavailable" "NAS supervisor: Docker could not list the App container"
+  exit 1
+fi
+if [[ -n "$APP_CONTAINER" ]]; then
+  STORAGE_PROBE_EXIT=0
+  probe_running_storage "$APP_CONTAINER" || STORAGE_PROBE_EXIT=$?
+  if (( STORAGE_PROBE_EXIT == 0 )); then
+    set_storage_ready "NAS supervisor: mounted App storage is readable and writable"
     exit 0
   fi
-  stop_app
-  set_state "app-unhealthy" "NAS supervisor: running app lost NAS access; recovering"
+  # Retry once before stopping a live app; Docker exec and SMB I/O can both fail transiently.
+  # 停止运行中的 App 前复核一次，避免 Docker exec 或 SMB I/O 的瞬时失败造成停机。
+  STORAGE_RETRY_EXIT=0
+  probe_running_storage "$APP_CONTAINER" || STORAGE_RETRY_EXIT=$?
+  if (( STORAGE_RETRY_EXIT == 0 )); then
+    set_storage_ready "NAS supervisor: mounted App storage recovered on retry"
+    exit 0
+  fi
+  CURRENT_APP="$(find_app_container 2>/dev/null || true)"
+  if [[ "$CURRENT_APP" != "$APP_CONTAINER" ]]; then
+    set_state "app-transitioning" "NAS supervisor: App container changed during storage probe; waiting"
+    exit 0
+  fi
+  if (( (STORAGE_PROBE_EXIT < 10 || STORAGE_PROBE_EXIT > 12) && STORAGE_PROBE_EXIT != 137 && STORAGE_PROBE_EXIT != 143 )) \
+    || (( (STORAGE_RETRY_EXIT < 10 || STORAGE_RETRY_EXIT > 12) && STORAGE_RETRY_EXIT != 137 && STORAGE_RETRY_EXIT != 143 )); then
+    set_state "probe-unavailable" "NAS supervisor: Docker exec could not confirm App storage ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT)"
+    exit 0
+  fi
+  if ! stop_app "$APP_CONTAINER"; then
+    set_state "stop-failed" "NAS supervisor: App storage probe failed ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT); could not confirm app stopped"
+    exit 1
+  fi
+  SMB_PORT_STATUS="unreachable"
+  if run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
+    SMB_PORT_STATUS="reachable"
+  fi
+  set_state "container-mount-failed" "NAS supervisor: running App storage probe failed twice ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT); TCP 445=$SMB_PORT_STATUS; app stopped"
 fi
 
 CURRENT_STATE=""
@@ -283,25 +356,55 @@ if [[ "$CURRENT_STATE" == "ready" ]]; then
   exit 0
 fi
 
-APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$APP_CONTAINER" 2>/dev/null || true)"
+if ! APP_IMAGE="$(find_app_image 2>/dev/null)"; then
+  set_state "probe-unavailable" "NAS supervisor: Docker could not find the App image"
+  exit 1
+fi
 APP_IMAGE="${APP_IMAGE:-fgai-app-app}"
-if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1 || ! probe_new_mount "$APP_IMAGE"; then
-  stop_app
-  set_state "nas-readonly" "NAS supervisor: Docker write probe failed; app stopped"
+if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
+  set_state "probe-unavailable" "NAS supervisor: App image is unavailable; cannot verify mounted storage"
+  exit 1
+fi
+PROBE_EXIT=0
+probe_new_mount "$APP_IMAGE" || PROBE_EXIT=$?
+if (( PROBE_EXIT != 0 )); then
+  if (( PROBE_EXIT >= 10 && PROBE_EXIT <= 12 )); then
+    set_state "nas-readonly" "NAS supervisor: fresh container NAS storage probe failed at stage $PROBE_EXIT; app remains stopped"
+  else
+    set_state "probe-unavailable" "NAS supervisor: fresh container storage probe could not complete (exit=$PROBE_EXIT); app remains stopped"
+  fi
   exit 1
 fi
 
 # Recreate the app after every recovered mount so Docker cannot retain a stale bind mount.
 # 每次 NAS 恢复后都重建 App，避免 Docker 继续持有失效的 bind mount。
-CLOUDFLARE_TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-nas-supervisor-not-used}" \
+if ! acquire_recreate_lock; then
+  set_state "app-transitioning" "NAS supervisor: App recreation is already in progress; waiting"
+  exit 0
+fi
+if ! CLOUDFLARE_TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-nas-supervisor-not-used}" \
   docker compose --project-directory "$PROJECT_ROOT" --env-file "$ENV_FILE" \
-  up -d --no-deps --force-recreate "$APP_SERVICE" >/dev/null
-
-APP_CONTAINER="$(find_app_container)"
-if [[ -z "$APP_CONTAINER" ]] || ! probe_running_container "$APP_CONTAINER"; then
-  stop_app
-  set_state "container-mount-failed" "NAS supervisor: container cannot see NAS marker; app stopped"
+  up -d --no-deps --force-recreate "$APP_SERVICE" >/dev/null; then
+  set_state "app-start-failed" "NAS supervisor: mounted storage probe passed, but Docker Compose could not start App"
   exit 1
 fi
 
-set_state "ready" "NAS supervisor: NAS recovered and app recreated"
+if ! APP_CONTAINER="$(find_app_container 2>/dev/null)"; then
+  set_state "probe-unavailable" "NAS supervisor: Docker could not inspect the recreated App"
+  exit 1
+fi
+if [[ -z "$APP_CONTAINER" ]]; then
+  set_state "app-start-failed" "NAS supervisor: Docker Compose returned without a running App container"
+  exit 1
+fi
+if ! probe_running_storage "$APP_CONTAINER"; then
+  if ! stop_app; then
+    set_state "stop-failed" "NAS supervisor: recreated App storage probe failed; could not confirm app stopped"
+    exit 1
+  fi
+  set_state "container-mount-failed" "NAS supervisor: recreated App storage probe failed; app stopped"
+  exit 1
+fi
+
+set_storage_ready "NAS supervisor: NAS recovered and app recreated"
+release_recreate_lock

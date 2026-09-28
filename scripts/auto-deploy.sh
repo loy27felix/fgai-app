@@ -18,6 +18,7 @@ STATE_ROOT="${FG_AUTO_DEPLOY_STATE_DIR:-$HOME/Library/Application Support/fg-stu
 APP_LOG_ROOT="${FG_APP_LOG_DIR:-$HOME/Library/Logs/fg-studio-app}"
 BUILD_LOG_ROOT="${FG_AUTO_DEPLOY_BUILD_LOG_DIR:-$HOME/Library/Logs/fg-studio-auto-deploy-build}"
 LOCK_DIR="$STATE_ROOT/lock"
+RECREATE_LOCK_DIR="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
 FAILED_SHA_FILE="$STATE_ROOT/failed-sha"
 FAILED_DETAIL_FILE="$STATE_ROOT/failed-detail"
 LAST_BUILD_LOG_FILE=""
@@ -35,6 +36,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 printf '%s' "$$" > "$LOCK_DIR/pid"
 cleanup() {
+  release_recreate_lock
   rm -f "$LOCK_DIR/pid"
   rmdir "$LOCK_DIR" 2>/dev/null || true
 }
@@ -42,6 +44,56 @@ trap cleanup EXIT
 
 log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+acquire_recreate_lock() {
+  local owner_pid=""
+  local attempt
+  mkdir -p "$(dirname "$RECREATE_LOCK_DIR")"
+  for attempt in {1..15}; do
+    owner_pid=""
+    if mkdir "$RECREATE_LOCK_DIR" 2>/dev/null; then
+      printf '%s' "$$" > "$RECREATE_LOCK_DIR/pid"
+      return 0
+    fi
+    [[ -f "$RECREATE_LOCK_DIR/pid" ]] && owner_pid="$(<"$RECREATE_LOCK_DIR/pid")"
+    if [[ ! "$owner_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$owner_pid" 2>/dev/null; then
+      rm -f "$RECREATE_LOCK_DIR/pid"
+      rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || true
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+release_recreate_lock() {
+  if [[ -f "$RECREATE_LOCK_DIR/pid" ]] && [[ "$(<"$RECREATE_LOCK_DIR/pid")" == "$$" ]]; then
+    rm -f "$RECREATE_LOCK_DIR/pid"
+    rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+run_with_timeout() {
+  local timeout_seconds="$1"
+  local command_pid
+  local watchdog_pid
+  local exit_code=0
+  shift
+
+  "$@" &
+  command_pid=$!
+  (
+    sleep "$timeout_seconds"
+    kill -TERM "$command_pid" 2>/dev/null || exit 0
+    sleep 1
+    kill -KILL "$command_pid" 2>/dev/null || true
+  ) &
+  watchdog_pid=$!
+
+  wait "$command_pid" || exit_code=$?
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+  return "$exit_code"
 }
 
 new_deployment_version() {
@@ -191,22 +243,18 @@ nas_is_ready() {
   local nas_path
   local expected_host
   local expected_share
-  local marker_name
   local mount_line
   local mount_point
 
   nas_path="$(read_env_value NAS_MEDIA_PATH)"
   expected_host="$(read_env_value NAS_EXPECTED_HOST)"
   expected_share="$(read_env_value NAS_EXPECTED_SHARE)"
-  marker_name="$(read_env_value NAS_READY_MARKER)"
-  marker_name="${marker_name:-.fg-studio-nas-ready}"
-
   if [[ -z "$nas_path" || -z "$expected_host" || -z "$expected_share" ]]; then
     log "Auto deploy: NAS deployment settings are incomplete; waiting"
     return 1
   fi
 
-  mount_line="$(/sbin/mount | awk -v host="$expected_host" -v share="/$expected_share on " 'index($0, host) && index($0, share) { print; exit }')"
+  mount_line="$(/sbin/mount | awk -v source="@$expected_host/$expected_share on " 'index($0, source) { print; exit }')"
   mount_point="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$mount_line")"
   if [[ -z "$mount_line" || -z "$mount_point" ]]; then
     log "Auto deploy: NAS mount is not ready; waiting"
@@ -216,11 +264,51 @@ nas_is_ready() {
     log "Auto deploy: NAS path is outside the expected mount; waiting"
     return 1
   fi
-  if [[ ! -f "$nas_path/$marker_name" ]]; then
-    log "Auto deploy: NAS ready marker is missing; waiting"
+  return 0
+}
+
+probe_deploy_mount() {
+  local nas_path
+  local marker_name
+  local image
+  local probe_container="fg-studio-deploy-nas-probe-$$"
+  local probe_output=""
+
+  nas_path="$(read_env_value NAS_MEDIA_PATH)"
+  marker_name="$(read_env_value NAS_READY_MARKER)"
+  marker_name="${marker_name:-.fg-studio-nas-ready}"
+  image="$(docker image inspect --format '{{.Id}}' "$COMPOSE_PROJECT_NAME-app" 2>/dev/null || true)"
+  if [[ -z "$image" ]]; then
+    log "Auto deploy: built App image is unavailable for NAS preflight"
     return 1
   fi
-  return 0
+
+  # Probe through a new bind mount so the next App cannot inherit stale storage.
+  # 通过新 bind mount 复核，避免新 App 继承旧挂载；复用探针文件以免产生 SMB 删除残留。
+  if probe_output="$(run_with_timeout 20 docker run --rm --name "$probe_container" \
+    --mount "type=bind,source=$nas_path,target=/data/media" \
+    --entrypoint sh "$image" -c '
+      [ -f "$1" ] || { printf "NAS_MARKER_MISSING\n"; exit 1; }
+      marker=$(cat "$1") || { printf "NAS_MARKER_READ_FAILED\n"; exit 1; }
+      [ "$marker" = "fg-studio-media:v1" ] || { printf "NAS_MARKER_INVALID\n"; exit 1; }
+      printf probe > "$2" || { printf "NAS_WRITE_FAILED\n"; exit 1; }
+      written=$(cat "$2") || { printf "NAS_READBACK_FAILED\n"; exit 1; }
+      [ "$written" = probe ] || { printf "NAS_READBACK_MISMATCH\n"; exit 1; }
+    ' sh "/data/media/$marker_name" /data/media/.fg-studio-container-probe 2>&1)"; then
+    return 0
+  fi
+
+  run_with_timeout 5 docker rm -f "$probe_container" >/dev/null 2>&1 || true
+  case "$probe_output" in
+    *NAS_MARKER_MISSING*) log "Auto deploy: NAS preflight marker is missing" ;;
+    *NAS_MARKER_READ_FAILED*) log "Auto deploy: NAS preflight marker could not be read" ;;
+    *NAS_MARKER_INVALID*) log "Auto deploy: NAS preflight marker content is invalid" ;;
+    *NAS_WRITE_FAILED*) log "Auto deploy: NAS preflight media directory is not writable" ;;
+    *NAS_READBACK_FAILED*) log "Auto deploy: NAS preflight probe could not be read back" ;;
+    *NAS_READBACK_MISMATCH*) log "Auto deploy: NAS preflight probe readback differs from written content" ;;
+    *) log "Auto deploy: Docker NAS preflight container failed to start or timed out: $probe_output" ;;
+  esac
+  return 1
 }
 
 worktree_is_clean() {
@@ -329,14 +417,26 @@ rollback() {
     log "Auto deploy: rollback image build failed"
     return 1
   fi
+  if ! acquire_recreate_lock; then
+    log "Auto deploy: rollback App recreation lock is busy"
+    return 1
+  fi
+  if ! nas_is_ready || ! probe_deploy_mount; then
+    release_recreate_lock
+    log "Auto deploy: rollback NAS preflight failed; App was not recreated"
+    return 1
+  fi
   if ! compose up -d --no-deps --force-recreate --remove-orphans "${services[@]}" >/dev/null; then
+    release_recreate_lock
     log "Auto deploy: rollback Compose start failed"
     return 1
   fi
   if ! wait_for_healthy; then
+    release_recreate_lock
     log "Auto deploy: rollback health check failed"
     return 1
   fi
+  release_recreate_lock
   log "Auto deploy: rollback completed"
 }
 
@@ -420,6 +520,16 @@ if ! compose_build_services app; then
   send_deploy_error_event "$target_sha" "image-build"
   exit 1
 fi
+if ! nas_is_ready || ! probe_deploy_mount; then
+  # NAS availability is transient; keep the running App and retry this commit later.
+  # NAS 可用性是瞬时条件；保留运行中的旧 App，回退检出版本并在下轮重试。
+  if ! git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null; then
+    log "Auto deploy: NAS preflight failed and checkout could not return to $previous_sha"
+    exit 1
+  fi
+  log "Auto deploy: NAS preflight failed; running App kept, deployment deferred"
+  exit 0
+fi
 if ! apply_database_upgrade; then
   record_failed_deployment "$target_sha" "database-upgrade"
   rollback "$previous_sha" || true
@@ -428,16 +538,29 @@ if ! apply_database_upgrade; then
 fi
 
 archive_app_logs "before-${target_sha:0:12}"
+if ! acquire_recreate_lock; then
+  log "Auto deploy: App recreation lock is busy; deployment deferred"
+  git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null
+  exit 0
+fi
+if ! nas_is_ready || ! probe_deploy_mount; then
+  release_recreate_lock
+  git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null
+  log "Auto deploy: NAS changed before App recreation; deployment deferred"
+  exit 0
+fi
 if ! compose up -d --no-deps --force-recreate --remove-orphans app >/dev/null \
-  || ! legacy_video_worker_is_absent \
   || ! wait_for_healthy \
+  || ! legacy_video_worker_is_absent \
   || ! reload_nginx; then
+  release_recreate_lock
   archive_app_logs "failed-${target_sha:0:12}"
   record_failed_deployment "$target_sha" "container-health"
   rollback "$previous_sha" || true
   send_deploy_error_event "$target_sha" "container-health"
   exit 1
 fi
+release_recreate_lock
 
 rm -f "$FAILED_SHA_FILE" "$FAILED_DETAIL_FILE"
 log "Auto deploy: commit $target_sha is healthy (deployment $APP_DEPLOYMENT_VERSION)"
