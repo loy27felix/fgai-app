@@ -54,7 +54,7 @@ monitor_state() {
   case "$1" in
     ready) printf 'healthy' ;;
     mount-requested|app-transitioning|docker-offline|probe-unavailable|app-start-failed|config-missing|config-invalid|stop-failed) printf 'unknown' ;;
-    mount-failed|mount-check-unavailable|nas-readonly|container-mount-failed)
+    mount-failed|nas-readonly|container-mount-failed)
       printf 'unhealthy'
       ;;
     *) printf 'unknown' ;;
@@ -280,16 +280,23 @@ fi
 
 # Read the mount table before touching the network path so a stale SMB session cannot block the supervisor.
 # 先读取挂载表再访问网络目录，避免失效的 SMB 会话永久阻塞守护进程。
-if ! MOUNT_LINE="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')"; then
-  if ! stop_app; then
-    set_state "stop-failed" "NAS supervisor: could not read SMB mount table or confirm App stopped"
-    exit 1
-  fi
-  set_state "mount-check-unavailable" "NAS supervisor: could not read SMB mount table; app stopped"
-  exit 1
+read_expected_mount_point() {
+  local mount_line
+  mount_line="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')" || return 1
+  [[ -n "$mount_line" ]] || return 1
+  sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$mount_line"
+}
+
+# `mount` can return transiently empty or stale output while the SMB client renegotiates
+# a keepalive, even though the share stays mounted; retry once before treating it as gone.
+# `mount` 在 SMB 客户端重协商 keepalive 时可能瞬时返回空或过期结果，即使挂载点仍在；
+# 判定为挂载丢失前先重试一次，避免命令输出抖动误杀正在运行的 App。
+MOUNT_POINT="$(read_expected_mount_point)" || MOUNT_POINT=""
+if [[ -z "$MOUNT_POINT" ]]; then
+  sleep 1
+  MOUNT_POINT="$(read_expected_mount_point)" || MOUNT_POINT=""
 fi
-MOUNT_POINT="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$MOUNT_LINE")"
-if [[ -z "$MOUNT_LINE" || -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
+if [[ -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
   if ! stop_app; then
     set_state "stop-failed" "NAS supervisor: expected SMB mount is absent; could not confirm app stopped"
     exit 1
