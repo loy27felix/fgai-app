@@ -25,15 +25,16 @@ var systemProcessStartedAt = time.Now()
 const systemPerformanceTimeout = 3 * time.Second
 
 type AdminSystemPerformance struct {
-	CollectedAt time.Time                       `json:"collectedAt"`
-	Status      string                          `json:"status"`
-	Host        SystemPerformanceHost           `json:"host"`
-	Memory      SystemPerformanceMemory         `json:"memory"`
-	Disk        SystemPerformanceDisk           `json:"disk"`
-	Database    repository.DatabaseRuntimeStats `json:"database"`
-	Redis       SystemPerformanceRedis          `json:"redis"`
-	Agents      []SystemPerformanceAgent        `json:"agents"`
-	Build       buildinfo.Info                  `json:"build"`
+	CollectedAt     time.Time                       `json:"collectedAt"`
+	Status          string                          `json:"status"`
+	DegradedReasons []string                        `json:"degradedReasons,omitempty"`
+	Host            SystemPerformanceHost           `json:"host"`
+	Memory          SystemPerformanceMemory         `json:"memory"`
+	Disk            SystemPerformanceDisk           `json:"disk"`
+	Database        repository.DatabaseRuntimeStats `json:"database"`
+	Redis           SystemPerformanceRedis          `json:"redis"`
+	Agents          []SystemPerformanceAgent        `json:"agents"`
+	Build           buildinfo.Info                  `json:"build"`
 }
 
 type SystemPerformanceAgent struct {
@@ -169,11 +170,30 @@ func (s *Service) AdminSystemPerformance(ctx context.Context, actor *model.User)
 	redisStats := s.collectRedisPerformance(ctx)
 	agents := s.collectAgentServices(ctx)
 	status := "healthy"
-	if databaseErr != nil || !databaseStats.Connected || !disk.Available || !disk.Writable || s.ValidateRuntime() != nil || (redisStats.Configured && !redisStats.Connected) || agentServicesDegraded(agents) {
+	reasons := []string{}
+	if databaseErr != nil || !databaseStats.Connected {
+		reasons = append(reasons, "database")
+	}
+	if !disk.Available {
+		reasons = append(reasons, "diskMetrics")
+	}
+	if !disk.Writable {
+		reasons = append(reasons, "diskWritable")
+	}
+	if s.ValidateRuntime() != nil {
+		reasons = append(reasons, "runtime")
+	}
+	if redisStats.Configured && !redisStats.Connected {
+		reasons = append(reasons, "redis")
+	}
+	if agentServicesDegraded(agents) {
+		reasons = append(reasons, "agent")
+	}
+	if len(reasons) > 0 {
 		status = "degraded"
 	}
 	return &AdminSystemPerformance{
-		CollectedAt: time.Now(), Status: status,
+		CollectedAt: time.Now(), Status: status, DegradedReasons: reasons,
 		Host:   SystemPerformanceHost{Hostname: hostname, OS: runtime.GOOS, Arch: runtime.GOARCH, CPUCores: runtime.NumCPU(), GOMAXPROCS: runtime.GOMAXPROCS(0), ProcessID: os.Getpid(), UptimeSeconds: int64(time.Since(systemProcessStartedAt).Seconds()), Goroutines: runtime.NumGoroutine(), ActiveWorkerTasks: s.ActiveWorkerTasks(), LoadAverage: load, LoadAverageAvailable: loadAvailable},
 		Memory: memory, Disk: disk, Database: databaseStats, Redis: redisStats, Agents: agents, Build: buildinfo.Current(),
 	}, nil

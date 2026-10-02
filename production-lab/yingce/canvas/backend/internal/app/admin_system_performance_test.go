@@ -76,6 +76,18 @@ func TestAdminSystemPerformanceReportsSQLiteWithoutRedis(t *testing.T) {
 	}
 }
 
+func TestAdminSystemPerformanceKeepsRuntimeFailureReason(t *testing.T) {
+	svc, _ := newSystemPerformanceTestService(t)
+	svc.runtimeErr = errors.New("runtime unavailable")
+	result, err := svc.AdminSystemPerformance(context.Background(), &model.User{ID: "admin-1", Role: model.UserRoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "degraded" || len(result.DegradedReasons) != 1 || result.DegradedReasons[0] != "runtime" {
+		t.Fatalf("runtime health failure must remain visible: %#v", result)
+	}
+}
+
 func TestClearAdminRuntimeCacheRejectsUnknownScopeAndAuditsLocalClear(t *testing.T) {
 	svc, db := newSystemPerformanceTestService(t)
 	admin := &model.User{ID: "admin-1", Role: model.UserRoleAdmin}

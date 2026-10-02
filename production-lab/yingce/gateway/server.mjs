@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { pipeline } from 'node:stream';
 import pg from 'pg';
 import fs from 'node:fs/promises';
+import {applyHostDiskMetrics} from './host-metrics.mjs';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
@@ -125,16 +126,9 @@ const server = http.createServer(async (req, res) => {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});
       const payload = await response.json();
       if (payload.code === 0 && payload.data) {
-        const original = payload.data.disk;
         let hostDisk;
         try { hostDisk = JSON.parse(await fs.readFile('/host-metrics/nas.json','utf8')); } catch {}
-        const age = Date.now() - Date.parse(hostDisk?.collectedAt);
-        if (age >= 0 && age < 180000 && hostDisk.totalBytes > 0 && hostDisk.usedBytes >= 0 && hostDisk.usedBytes <= hostDisk.totalBytes && hostDisk.freeBytes >= 0 && hostDisk.freeBytes <= hostDisk.totalBytes) {
-          payload.data.disk = {...original,...hostDisk,available:true,usagePercent:hostDisk.usedBytes/hostDisk.totalBytes*100,source:'macos-df-nas'};
-        } else {
-          payload.data.disk = {...original,available:false,totalBytes:0,usedBytes:0,freeBytes:0,usagePercent:0,statusMessage:'NAS 主机采集快照不可用；Docker SMB 指标不能作为容量依据'};
-          payload.data.status = 'degraded';
-        }
+        applyHostDiskMetrics(payload.data,hostDisk);
       }
       res.writeHead(response.status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(payload));return;
     }
