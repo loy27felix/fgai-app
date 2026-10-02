@@ -321,6 +321,8 @@ export type CanvasNodeMetadata = {
     imageBatchExpanded?: boolean;
     storageKey?: string;
     mimeType?: string;
+    directorDesk?: boolean;
+    directorDeskSourceId?: string;
     bytes?: number;
     durationMs?: number;
     /** Whether the video file contains an audio track when this is known. */

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { App, Button, Dropdown, Input, Modal, Tag, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import { Camera, Check, ChevronDown, ChevronRight, Ellipsis, Grid3x3, Images, Plus, SlidersHorizontal, UserRound } from "lucide-react";
+import { Camera, Check, ChevronDown, ChevronRight, Ellipsis, Grid3x3, Images, Plus, SkipBack, SkipForward, SlidersHorizontal, UserRound } from "lucide-react";
 
 import { canvasDockStyle } from "@/lib/canvas/canvas-aceternity-style";
 import { ASSET_CATEGORY_OPTIONS } from "@/lib/asset-category";
@@ -52,6 +52,8 @@ type CanvasNodeToolbarProps = {
     onPanorama: (node: CanvasNodeData) => void;
     onViewImage: (node: CanvasNodeData) => void;
     onExtractVideoFrames: (node: CanvasNodeData) => void;
+    onCaptureVideoFrame?: (node: CanvasNodeData, mode: "first" | "current" | "last", currentTimeMs?: number) => void;
+    onOpenDirectorDesk?: (node: CanvasNodeData) => void;
     onExtractAudioFromVideo: (node: CanvasNodeData) => void;
     onTrimVideoSegments: (node: CanvasNodeData) => void;
     onSubtitles: (node: CanvasNodeData) => void;
@@ -118,6 +120,8 @@ export function CanvasNodeToolbar({
     onPanorama,
     onViewImage,
     onExtractVideoFrames,
+    onCaptureVideoFrame,
+    onOpenDirectorDesk,
     onExtractAudioFromVideo,
     onTrimVideoSegments,
     onSubtitles,
@@ -328,6 +332,20 @@ export function CanvasNodeToolbar({
                 className="flex h-11 max-w-full items-center gap-0.5 overflow-visible rounded-[var(--dock-radius-tight)] px-2 backdrop-blur-2xl"
                 style={{ ...dockStyle, border: 0 }}
             >
+                {node.metadata?.directorDesk && onOpenDirectorDesk ? <Button size="small" type="text" onClick={() => onOpenDirectorDesk(node)}>打开 3D 导演台</Button> : null}
+                {isVideo && onCaptureVideoFrame ? (["first", "current", "last"] as const).map((mode, index) => (
+                    <NodeDockToolButton key={mode} tool={{
+                        id: `capture-${mode}`, label: ["首帧", "当前帧", "尾帧"][index],
+                        icon: mode === "first" ? <SkipBack className="size-3.5" /> : mode === "last" ? <SkipForward className="size-3.5" /> : <Camera className="size-3.5" />,
+                        group: "primary", order: index, disabled: extractingVideoFrames,
+                        onClick: () => {
+                            const video = containerRef.current?.querySelector<HTMLVideoElement>(`[data-node-id="${CSS.escape(node.id)}"] video`);
+                            const timeMs = video ? Math.round(video.currentTime * 1000) : undefined;
+                            video?.pause();
+                            onCaptureVideoFrame(node, mode, timeMs);
+                        },
+                    }} />
+                )) : null}
                 {primaryTools.map((tool) => <NodeDockToolButton key={tool.id} tool={tool} />)}
                 {nineGridTools.length ? <NodeDockMenuButton menuId="nine-grid" label="九宫格" icon={<Grid3x3 className="size-3.5" />} tools={nineGridTools} openMenuId={openMenuId} onOpenChange={handleMenuOpenChange} /> : null}
                 {panoramaTools.map((tool) => <NodeDockToolButton key={tool.id} tool={tool} />)}

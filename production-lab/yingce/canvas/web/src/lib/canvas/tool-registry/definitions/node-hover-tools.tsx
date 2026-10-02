@@ -84,7 +84,7 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         defaultVisible: true,
         defaultOrder: 40,
         nodeToolbar: { group: "process", order: 10, section: "提取素材", description: "选取画面，保存为图片节点" },
-        applicable: (ctx) => hasVideo(ctx) && !simpleMode(ctx),
+        applicable: (ctx) => hasVideo(ctx),
         disabled: (ctx) => ctx.extractingVideoFrames,
         run: (ctx) => ctx.handlers.onNodeExtractVideoFrames(ctx.node!),
     },

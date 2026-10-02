@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
 # 构建 Vite 前端产物。
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.9 AS director-build
+WORKDIR /app/director
+COPY director-desk/package.fg.json ./package.json
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --ignore-scripts
+COPY director-desk ./
+RUN bun scripts/build-builtin-skill.mjs
+RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build --base=/director-desk/
+
 FROM --platform=$BUILDPLATFORM oven/bun:1.3.9 AS web-build
 
 WORKDIR /app/web
@@ -25,12 +33,14 @@ RUN bun test test/fg-official-limits.test.ts test/fg-reference-model.test.ts tes
 RUN bun test test/fg-nas-upload.test.ts
 RUN bun test test/fg-skill-catalog.test.ts test/skills-api.test.ts
 RUN bun test test/fg-team-policy.test.ts test/workspace-sidebar-storage.test.ts
+RUN bun test test/canvas-video-frame.test.ts
 RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build
 
 # 运行镜像：nginx 托管静态前端，并在 Compose 中把 /api 转发到后端服务。
 FROM nginx:1.27-alpine
 
 COPY --from=web-build /app/web/dist /opt/canvas-release
+COPY --from=director-build /app/director/dist /opt/canvas-release/director-desk
 COPY docker/canvas-web-entrypoint.sh /usr/local/bin/canvas-web-entrypoint
 RUN sed -i 's/\r$//' /usr/local/bin/canvas-web-entrypoint && chmod +x /usr/local/bin/canvas-web-entrypoint
 COPY nginx.conf /etc/nginx/conf.d/default.conf

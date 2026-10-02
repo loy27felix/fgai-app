@@ -22,6 +22,9 @@ describe("normalizeVideoFrameTimes", () => {
     test("视频时长无效时不返回时间点", () => {
         expect(normalizeVideoFrameTimes([0, 1000], 0)).toEqual([]);
     });
+    test("尾帧快捷入口按真实视频时长定位，保留播放器的当前时间", () => {
+        expect(normalizeVideoFrameTimes([0, 2573, Number.MAX_SAFE_INTEGER], 6123)).toEqual([0, 2573, 6122]);
+    });
 });
 
 describe("buildVideoFrameNodes", () => {

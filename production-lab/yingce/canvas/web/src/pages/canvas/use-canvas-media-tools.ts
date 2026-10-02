@@ -260,7 +260,7 @@ export function useCanvasMediaTools({
     }, [message, persistMediaNodes, setConnections, setDialogNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
 
     const openVideoFrameExtractor = useCallback((node: CanvasNodeData) => {
-        if (!node.metadata?.content) {
+        if (!node.metadata?.content && !node.metadata?.storageKey) {
             message.warning("视频节点为空，无法提取画面");
             return;
         }
@@ -277,27 +277,35 @@ export function useCanvasMediaTools({
 
     const extractVideoFrames = useCallback(async (node: CanvasNodeData, params: CanvasVideoFrameParams): Promise<CanvasNodeData[]> => {
         const content = node.metadata?.content;
-        if (!content || extractingVideoFramesNodeIdRef.current || !params.timesMs.length) return [];
+        if ((!content && !node.metadata?.storageKey) || extractingVideoFramesNodeIdRef.current || !params.timesMs.length) return [];
         const progress = startUploadStatus("提取视频画面", "读取视频资源", params.timesMs.length + 2);
         extractingVideoFramesNodeIdRef.current = node.id;
         setExtractingVideoFramesNodeId(node.id);
         setFrameDialogNodeId(null);
         try {
-            const storedBlob = node.metadata?.storageKey ? await getMediaBlob(node.metadata.storageKey).catch(() => null) : null;
+            const storedBlob = node.metadata?.storageKey ? await getMediaBlob(node.metadata.storageKey) : null;
             progress.update("定位并绘制所选画面", 2);
-            const captured = await captureVideoFrames(storedBlob || content, params.timesMs);
+            if (!storedBlob && !content) throw new Error("无法读取云端视频");
+            const captured = await captureVideoFrames(storedBlob || content!, params.timesMs);
             const uploadedFrames = [];
             const uploadFailures: string[] = [];
             for (let index = 0; index < captured.frames.length; index += 1) {
                 const frame = captured.frames[index];
                 try {
                     progress.update(`保存画面（${index + 1}/${captured.frames.length}）`, index + 3);
-                    uploadedFrames.push({ timeMs: frame.timeMs, image: await uploadImage(frame.blob) });
+                    const image = await uploadImage(frame.blob);
+                    if (image.pendingRemoteUpload) throw new Error("截取的图片尚未保存到 NAS，请重试");
+                    uploadedFrames.push({ timeMs: frame.timeMs, image });
                 } catch (error) {
                     uploadFailures.push(error instanceof Error ? error.message : "画面图片上传失败");
                 }
             }
             const frameNodes = buildVideoFrameNodes(node, uploadedFrames);
+            const existingFrames = nodesRef.current.filter(item => item.metadata?.videoFrameSourceNodeId === node.id);
+            if (existingFrames.length) {
+                const nextY = Math.max(...existingFrames.map(item => item.position.y + item.height)) + 24;
+                for (const frame of frameNodes) frame.position.y += Math.max(0, nextY - node.position.y);
+            }
             if (!frameNodes.length) throw new Error(uploadFailures[0] || "画面图片保存失败");
             const links = frameNodes.map((frameNode) => ({ id: nanoid(), fromNodeId: node.id, toNodeId: frameNode.id }));
             const nextNodes = [...nodesRef.current, ...frameNodes];
@@ -325,6 +333,15 @@ export function useCanvasMediaTools({
             setExtractingVideoFramesNodeId(null);
         }
     }, [connectionsRef, message, nodesRef, persistMediaNodes, selectedNodeIdsRef, setConnections, setNodes, setSelectedConnectionId, setSelectedNodeIds, startUploadStatus]);
+
+    const captureQuickVideoFrame = useCallback((node: CanvasNodeData, mode: "first" | "current" | "last", currentTimeMs?: number) => {
+        if (mode === "current" && currentTimeMs === undefined) {
+            message.info("先播放视频并停在目标画面，或在提取画面窗口选择时间点");
+            openVideoFrameExtractor(node);
+            return;
+        }
+        void extractVideoFrames(node, { timesMs: [mode === "first" ? 0 : mode === "last" ? Number.MAX_SAFE_INTEGER : currentTimeMs!] });
+    }, [extractVideoFrames, message, openVideoFrameExtractor]);
 
     const extractAudioFromVideo = useCallback((node: CanvasNodeData) => {
         if (!node.metadata?.content) {
@@ -1245,6 +1262,7 @@ export function useCanvasMediaTools({
         closeSegmentDialog,
         extractAudioFromVideo,
         extractVideoFrames,
+        captureQuickVideoFrame,
         extractingVideoFramesNodeId,
         frameDialogNodeId,
         handleSegmentConfirm,

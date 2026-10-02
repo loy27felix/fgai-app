@@ -141,6 +141,8 @@ import { useCanvasGenerationRetry } from "./use-canvas-generation-retry";
 import { useCanvasHistory } from "./use-canvas-history";
 import { useCanvasKeyboard } from "./use-canvas-keyboard";
 import { useCanvasMediaTools } from "./use-canvas-media-tools";
+import { useDirectorDesk } from "./use-director-desk";
+import { CanvasDirectorDeskModal } from "@/components/canvas/director/canvas-director-desk-modal";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
 import { useCanvasNodeOperations } from "./use-canvas-node-operations";
 import { useCanvasProjectLifecycle } from "./use-canvas-project-lifecycle";
@@ -871,6 +873,7 @@ function InfiniteCanvasPage() {
         setUpscaleNodeId,
         splitImageNode,
         openVideoFrameExtractor,
+        captureQuickVideoFrame,
         openVideoSegmentExtractor,
         upscaleImageNode,
         upscaleNodeId,
@@ -895,6 +898,7 @@ function InfiniteCanvasPage() {
         bindGenerationTask,
     });
 
+    const directorDesk = useDirectorDesk({nodesRef, connectionsRef, setNodes, setConnections, getCanvasCenter, saveCanvasProject});
     const handleNodesDeleted = useCallback(
         (removedIds: Set<string>, nextNodes: CanvasNodeData[], removedNodes: CanvasNodeData[]) => {
             const clearDeletedId = (current: string | null) => (current && removedIds.has(current) ? null : current);
@@ -2767,6 +2771,7 @@ function InfiniteCanvasPage() {
                                         onAddExtensionNode={(type) => createNode(type)}
                                         onAddWorkflow={() => createNode(CanvasNodeType.Config)}
                                         onOpenDirector={() => setDirectorTemplateRequest({})}
+                                        onOpenDirectorDesk={() => directorDesk.openDesk(nodesRef.current.find(node => selectedNodeIds.has(node.id) && node.metadata?.directorDesk))}
                                         onUndo={undoCanvas}
                                         onRedo={redoCanvas}
                                         onUpload={() => handleUploadRequest()}
@@ -2974,6 +2979,8 @@ function InfiniteCanvasPage() {
                             onPanorama={openPanoramaConfig}
                             onViewImage={(node) => setPreviewNodeId(node.id)}
                             onExtractVideoFrames={openVideoFrameExtractor}
+                            onCaptureVideoFrame={captureQuickVideoFrame}
+                            onOpenDirectorDesk={directorDesk.openDesk}
                             onExtractAudioFromVideo={(node) => void extractAudioFromVideo(node)}
                             onTrimVideoSegments={openVideoSegmentExtractor}
                             onSubtitles={(node) => setSubtitleNodeId(node.id)}
@@ -3088,6 +3095,8 @@ function InfiniteCanvasPage() {
                         ) : null}
 
                         {frameNode ? <CanvasVideoFrameDialog node={frameNode} open={Boolean(frameNode)} onClose={closeFrameDialog} onConfirm={(params) => void extractVideoFrames(frameNode, params)} /> : null}
+                        <CanvasDirectorDeskModal open={directorDesk.open} node={directorDesk.node} onClose={directorDesk.closeDesk} onSave={directorDesk.saveDocument} onOutput={directorDesk.saveOutput}
+                            onAgentContext={async summary => { await directorDesk.saveOutput(new File([summary], "3D 调度说明.txt", {type: "text/plain"})); setAgentPrefillPrompt(summary); openAgent(); directorDesk.closeDesk(); }} />
 
                         {segmentNode && segmentDialogMode ? (
                             <CanvasVideoSegmentDialog

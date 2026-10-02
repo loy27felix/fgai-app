@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Switch } from "@/components/ui/base/switch";
-import { Palette, Info } from "lucide-react";
+import { Palette, Info, Box } from "lucide-react";
 
 import { FloatingDock } from "@/components/ui/aceternity/floating-dock";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
@@ -41,6 +41,7 @@ export function CanvasToolbar({
     onAddExtensionNode,
     onAddWorkflow,
     onOpenDirector,
+    onOpenDirectorDesk,
     onUndo,
     onRedo,
     onUpload,
@@ -77,6 +78,7 @@ export function CanvasToolbar({
     onAddExtensionNode: (type: CanvasNodeTypeId) => void;
     onAddWorkflow: () => void;
     onOpenDirector: () => void;
+    onOpenDirectorDesk?: () => void;
     onUndo: () => void;
     onRedo: () => void;
     onUpload: () => void;
@@ -190,6 +192,7 @@ export function CanvasToolbar({
     };
 
     const items = resolveToolbarEntries("main", ctx, prefs ?? defaultToolbarPrefs("main"));
+    if (onOpenDirectorDesk) items.push({id: "fg-director-desk", label: "3D 导演台", displayLabel: "3D 导演台", icon: <Box className="size-4" />, onClick: onOpenDirectorDesk});
 
     // 中央空白起点与主工具栏共用同一份命令解析，避免素材类型和插件节点逐渐分叉。
     const createCommands = useCanvasCreateCommands(ctx, runAddAction);
