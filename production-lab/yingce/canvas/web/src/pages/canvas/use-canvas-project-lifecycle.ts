@@ -218,15 +218,20 @@ export function useCanvasProjectLifecycle({
     useEffect(() => {
         if (!projectLoaded) return;
         let cancelled = false;
-        listAddedSkills()
-            .then(({ skills }) => {
-                if (!cancelled) setAddedSkills(skills);
-            })
-            .catch(() => {
-                if (!cancelled) setAddedSkills([]);
-            });
+        const refreshSkills = () => {
+            void listAddedSkills()
+                .then(({ skills }) => {
+                    if (!cancelled) setAddedSkills(skills);
+                })
+                .catch(() => {
+                    if (!cancelled) setAddedSkills([]);
+                });
+        };
+        refreshSkills();
+        window.addEventListener('canvas-skills-changed', refreshSkills);
         return () => {
             cancelled = true;
+            window.removeEventListener('canvas-skills-changed', refreshSkills);
         };
     }, [projectLoaded]);
 

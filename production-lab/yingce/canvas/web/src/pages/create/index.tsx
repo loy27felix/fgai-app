@@ -348,6 +348,15 @@ export default function CreatePage() {
     }, []);
 
     useEffect(() => {
+        const refresh = () => {
+            addedSkillsRequestedRef.current = false;
+            loadAddedSkills();
+        };
+        window.addEventListener('canvas-skills-changed', refresh);
+        return () => window.removeEventListener('canvas-skills-changed', refresh);
+    }, [loadAddedSkills]);
+
+    useEffect(() => {
         if (isEmpty || !followLatestMessageRef.current) return;
         const frame = window.requestAnimationFrame(() => {
             const container = threadScrollRef.current;

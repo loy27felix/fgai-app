@@ -23,6 +23,7 @@ ENV CANVAS_BUILD_TIME=${BUILD_TIME}
 # 生产镜像只构建云端工作台前端；Agent Runtime 在后端 Worker 中运行。
 RUN bun test test/fg-official-limits.test.ts test/fg-reference-model.test.ts test/image-size-presets.test.tsx
 RUN bun test test/fg-nas-upload.test.ts
+RUN bun test test/fg-skill-catalog.test.ts test/skills-api.test.ts
 RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build
 
 # 运行镜像：nginx 托管静态前端，并在 Compose 中把 /api 转发到后端服务。
