@@ -16,7 +16,8 @@ export async function extractDocumentText(file:File):Promise<string>{
    const pages:string[]=[];
    for(let i=1;i<=doc.numPages;i++){
     const page=await doc.getPage(i),content=await page.getTextContent();
-    pages.push(`【第 ${i} 页】\n`+content.items.map(item=>'str' in item?item.str+(item.hasEOL?'\n':' '):'').join(''));page.cleanup();
+    const body=content.items.map(item=>'str' in item?item.str+(item.hasEOL?'\n':' '):'').join('').trim();
+    if(body)pages.push(`【第 ${i} 页】\n`+body);page.cleanup();
    }
    text=pages.join('\n\n');
   }finally{await task.destroy();}

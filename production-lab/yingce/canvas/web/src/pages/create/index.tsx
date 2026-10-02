@@ -466,13 +466,20 @@ export default function CreatePage() {
         const next = Array.from(files).filter((file) => creationFileAccepted(mode, file));
         if (!next.length) return [];
         const settled = await Promise.allSettled(next.map(async (file) => {
-            const { asset } = await uploadCreationAsset(file);
-            return asset ? addAsset(asset) : "";
+            const { asset, attachment } = await uploadCreationAsset(file);
+            return { assetId: asset ? addAsset(asset) : "", attachment };
         }));
-        const assetIds = settled.flatMap((entry) => entry.status === "fulfilled" && entry.value ? [entry.value] : []);
+        const uploaded = settled.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+        const assetIds = uploaded.flatMap((entry) => entry.assetId ? [entry.assetId] : []);
+        const documents = uploaded.filter((entry) => !entry.assetId).map((entry) => entry.attachment);
+        if (documents.length) {
+            setAttachments((current) => reconcileCreationAttachmentLimit([...current, ...documents], [], maxReferences).attachments);
+            if (!assetIds.length) setLibraryOpen(false);
+            toast.success(`${documents.length} 份资料已读取并保存到 NAS`);
+        }
         const failed = settled.filter((entry) => entry.status === "rejected");
         if (assetIds.length) toast.success(`${assetIds.length} 个素材已上传到素材库并自动选中`);
-        if (failed.length) toast.error(`${failed.length} 个素材上传失败，请重试`);
+        if (failed.length) toast.error(failed[0].reason instanceof Error ? failed[0].reason.message : `${failed.length} 个素材上传失败，请重试`);
         return assetIds;
     };
 

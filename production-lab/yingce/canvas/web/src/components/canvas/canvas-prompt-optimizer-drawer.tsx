@@ -689,6 +689,14 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                     disabled={working}
                     suffix={false}
                     submitType="shiftEnter"
+                    onKeyDown={(event) => {
+                        if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                        if (event.ctrlKey || event.metaKey) {
+                            event.preventDefault();
+                            if (!working) void runOptimization(draftPrompt);
+                        }
+                        return false;
+                    }}
                     footer={
                         <div className="canvas-prompt-optimizer-composer-toolbar">
                             <div className="canvas-prompt-optimizer-composer-leading">
