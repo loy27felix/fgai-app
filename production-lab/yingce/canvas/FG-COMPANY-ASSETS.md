@@ -12,10 +12,12 @@
 
 | 方法与路径（`/api` 前缀） | 功能 | 权限 |
 | --- | --- | --- |
-| GET `/fg/company-assets` | 分页、搜索、类型/分类/品牌/风格筛选，返回全目录分类计数 | 登录成员；下架目录仅管理员 |
-| POST `/fg/company-assets` | 发布本人已上传且 ready 的 NAS 文件 | 超级管理员 |
-| PATCH `/fg/company-assets/:id` | 编辑资料或上下架，必须传 `expectedRevision` | 超级管理员 |
-| POST `/fg/company-assets/:id/use` | 幂等加入个人素材，不复制文件 | 登录成员 |
+| GET `/fg-company-assets` | 分页、搜索、类型/分类/品牌/风格筛选，返回全目录分类计数 | 登录成员；下架目录仅管理员 |
+| POST `/fg-company-assets` | 发布本人已上传且 ready 的 NAS 文件 | 超级管理员 |
+| PATCH `/fg-company-assets/:id` | 编辑资料或上下架，必须传 `expectedRevision` | 超级管理员 |
+| POST `/fg-company-assets/:id/use` | 幂等加入个人素材，不复制文件 | 登录成员 |
+
+独立后端使用 `/fg-company-assets` 路径，避开故事与账务网关已处理的 `/fg/*` 前缀。
 
 文件资源不能在原条目上替换，新增文件应发布新条目。重复发布同一上传文件返回已有条目，重复引用返回同一账号的素材记录；修改版本冲突返回 409。
 

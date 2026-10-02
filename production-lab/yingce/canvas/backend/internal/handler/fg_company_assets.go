@@ -17,7 +17,7 @@ func fgCompanyPage(c *gin.Context, key string, fallback int) int {
 }
 
 func registerFGCompanyAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
-	r.GET("/fg/company-assets", func(c *gin.Context) {
+	r.GET("/fg-company-assets", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
@@ -30,7 +30,7 @@ func registerFGCompanyAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
-	r.POST("/fg/company-assets", func(c *gin.Context) {
+	r.POST("/fg-company-assets", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
@@ -49,7 +49,7 @@ func registerFGCompanyAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"asset": item})
 	})
-	r.PATCH("/fg/company-assets/:id", func(c *gin.Context) {
+	r.PATCH("/fg-company-assets/:id", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
@@ -68,7 +68,7 @@ func registerFGCompanyAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"asset": item})
 	})
-	r.POST("/fg/company-assets/:id/use", func(c *gin.Context) {
+	r.POST("/fg-company-assets/:id/use", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
