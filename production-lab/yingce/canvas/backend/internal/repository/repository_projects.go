@@ -3,6 +3,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -14,14 +15,14 @@ import (
 
 func (r *Repository) Projects(userID string) ([]model.Project, error) {
 	var projects []model.Project
-	err := r.db.Where("user_id = ?", userID).Order("updated_at desc").Find(&projects).Error
+	err := fgProjectScope(r.db,"projects",userID).Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) ProjectsPage(userID string, page int, pageSize int) ([]model.Project, int64, error) {
 	var projects []model.Project
 	var total int64
-	query := r.db.Model(&model.Project{}).Where("user_id = ?", userID)
+	query := fgProjectScope(r.db.Model(&model.Project{}),"projects",userID)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -33,7 +34,7 @@ func (r *Repository) ProjectsPage(userID string, page int, pageSize int) ([]mode
 
 func (r *Repository) ProjectForUser(userID string, id string) (*model.Project, error) {
 	var project model.Project
-	if err := r.db.First(&project, "id = ? AND user_id = ?", id, userID).Error; err != nil {
+	if err := fgProjectScope(r.db,"projects",userID).First(&project, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &project, nil
@@ -288,13 +289,13 @@ func (r *Repository) UpsertCanvasUnitLink(link *model.CanvasUnitLink) error {
 
 func (r *Repository) ProjectCanvasSummaries(userID string, projectID string) ([]model.CanvasProject, error) {
 	var canvases []model.CanvasProject
-	err := r.db.Select("id", "user_id", "project_id", "title", "revision", "created_at", "updated_at").Where("user_id = ? AND project_id = ?", userID, projectID).Order("updated_at desc").Find(&canvases).Error
+	err := fgCanvasScope(r.db,userID).Select("id", "user_id", "project_id", "title", "revision", "created_at", "updated_at").Where("project_id = ?", projectID).Order("updated_at desc").Find(&canvases).Error
 	return canvases, err
 }
 
 func (r *Repository) ProjectCanvasDocuments(userID string, projectID string) ([]model.CanvasProject, error) {
 	var canvases []model.CanvasProject
-	err := r.db.Select("id", "title", "payload_json", "revision").Where("user_id = ? AND project_id = ?", userID, projectID).Find(&canvases).Error
+	err := fgCanvasScope(r.db,userID).Select("id", "title", "payload_json", "revision").Where("project_id = ?", projectID).Find(&canvases).Error
 	return canvases, err
 }
 
@@ -341,7 +342,7 @@ func (r *Repository) UnassignCanvasFromProject(userID string, projectID string, 
 
 func (r *Repository) ProjectAssets(userID string, projectID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := r.db.Table("assets").Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("assets.user_id = ? AND project_asset_links.project_id = ?", userID, projectID).Order("assets.updated_at desc").Scan(&assets).Error
+	err := fgMediaScope(r.db.Table("assets"),"assets","fg_asset_grants","asset_id",userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID).Order("assets.updated_at desc").Scan(&assets).Error
 	return assets, err
 }
 
@@ -481,6 +482,11 @@ func (r *Repository) LinkProjectAsset(asset *model.Asset, version *model.AssetVe
 		}
 		if result.RowsAffected != 1 {
 			return gorm.ErrRecordNotFound
+		}
+		if New(tx).FGSharedProject(link.ProjectID) {
+			payload, err := json.Marshal(map[string]any{"nodes": []any{map[string]any{"metadata": map[string]any{"assetId": asset.ID}}}, "asset": json.RawMessage(asset.PayloadJSON)})
+			if err != nil { return err }
+			if err := New(tx).fgPublishCanvasMedia(&model.CanvasProject{ProjectID: link.ProjectID, UserID: asset.UserID, PayloadJSON: string(payload)}); err != nil { return err }
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", link.ProjectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
 	})

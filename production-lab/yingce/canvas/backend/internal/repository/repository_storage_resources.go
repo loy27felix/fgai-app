@@ -191,7 +191,7 @@ func (r *Repository) Resource(id string) (*model.Resource, error) {
 
 func (r *Repository) ResourceForUser(userID string, id string) (*model.Resource, error) {
 	var resource model.Resource
-	if err := r.db.First(&resource, "id = ? AND user_id = ?", id, userID).Error; err != nil {
+	if err := fgMediaScope(r.db,"resources","fg_resource_grants","resource_id",userID).First(&resource, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &resource, nil

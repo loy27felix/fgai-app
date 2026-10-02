@@ -45,17 +45,17 @@ export default function FGFinancePage(){
         }});
     }
     return <WorkspacePage className="fg-production-page">
-        <PageHeader title="FG 人民币费用对账" description="每次模型请求保留人员、画布与项目归属。实际金额以 WeToken 消费费用单核销。" actions={<><Button icon={<RefreshCw size={15}/>} loading={busy} onClick={()=>void load()}>刷新</Button><Button icon={<Download size={15}/>} disabled={!calls.length} onClick={exportCSV}>导出明细</Button><Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={file=>{void importFile(file);return false;}}><Button type="primary" icon={<UploadCloud size={15}/>}>导入 WeToken 费用单</Button></Upload></>}/>
+        <PageHeader title="FG 人民币费用对账" description="每次模型请求保留人员、画布与项目归属。实际金额以 WeToken 消费费用单核销。" actions={<><Button icon={<RefreshCw size={15}/>} loading={busy} onClick={()=>void load()}>刷新</Button><Button icon={<Download size={15}/>} disabled={!calls.length} onClick={exportCSV}>导出明细</Button>{data?.canManage&&<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={file=>{void importFile(file);return false;}}><Button type="primary" icon={<UploadCloud size={15}/>}>导入 WeToken 费用单</Button></Upload>}</>}/>
         {error&&<Alert type="error" showIcon message={error} action={<Button onClick={()=>void load()}>重试</Button>}/>}
         <Alert type={data?.billingSync?.status==='reauthorization_required'?'warning':'info'} showIcon message="页面每 15 秒刷新 · 供应商账单每分钟同步" description={`${data?.billingSync?.reason||'用量估算自动更新，账单实扣须精确匹配供应商流水。'}${data?.billingSync?.lastSuccess?' 上次成功同步：'+new Date(data.billingSync.lastSuccess).toLocaleString('zh-CN'):''}`}/>
         <div className="fg-finance-stats">
-            <section><span>已同步账户账单合计 · 人民币</span><strong>{data?money(accountBillTotal):'—'}</strong><small>含同一 WeToken 账户其他系统的历史消费；不等于本板块项目费用</small></section>
+            {data?.canManage&&<section><span>已同步账户账单合计 · 人民币</span><strong>{data?money(accountBillTotal):'—'}</strong><small>含同一 WeToken 账户其他系统的历史消费；不等于本板块项目费用</small></section>}
             <section><span>已核销费用 · 人民币折算</span><strong>{data?money(total):'—'}</strong><small>{settled.length} 次精确匹配 · 费用单覆盖部分</small></section>
             <section><span>待核销用量估算 · 人民币</span><strong>{data?money(pendingTotal):'—'}</strong><small>{pending.length} 次有估算，另有 {calls.length-settled.length-pending.length} 次金额待确认；不计入实扣</small></section>
             <section><span>WeToken 请求记录</span><strong>{data?calls.length:'—'}</strong><small>包含失败尝试；轮询与下载不重复计费</small></section>
-            <section><span>费用单待归属</span><strong>{data?data.unallocated.length:'—'}</strong><small>未找到唯一对应请求，未计入任何项目</small></section>
+            {data?.canManage&&<section><span>费用单待归属</span><strong>{data?data.unallocated.length:'—'}</strong><small>未找到唯一对应请求，未计入任何项目</small></section>}
         </div>
-        <div className="fg-finance-controls"><div><span>人民币记账换算系数</span><InputNumber min={0.000001} max={100} precision={6} value={fx} onChange={setFx}/><Button disabled={!fx||fx===data?.fx} onClick={async()=>{if(fx)try{await updateFGFx(fx);void message.success('已保存；历史核销保留原汇率');await load();}catch(e){void message.error(e instanceof Error?e.message:'保存失败');}}}>保存</Button></div><small>最近导入：{data?.lastImport?new Date(data.lastImport.created_at).toLocaleString('zh-CN')+' · '+data.lastImport.row_count+' 条':'尚未导入'}。预算与模型估算不计入已核销总额。</small></div>
+        {data?.canManage&&<div className="fg-finance-controls"><div><span>人民币记账换算系数</span><InputNumber min={0.000001} max={100} precision={6} value={fx} onChange={setFx}/><Button disabled={!fx||fx===data?.fx} onClick={async()=>{if(fx)try{await updateFGFx(fx);void message.success('已保存；历史核销保留原汇率');await load();}catch(e){void message.error(e instanceof Error?e.message:'保存失败');}}}>保存</Button></div><small>最近导入：{data?.lastImport?new Date(data.lastImport.created_at).toLocaleString('zh-CN')+' · '+data.lastImport.row_count+' 条':'尚未导入'}。预算与模型估算不计入已核销总额。</small></div>}
         <div className="fg-topic-toolbar"><Input prefix={<span>搜索</span>} value={query} onChange={e=>setQuery(e.target.value)} placeholder="成员、项目、小组、模型或 Reference ID" allowClear/><Segmented options={['项目','人员','小组']} value={groupBy} onChange={value=>setGroupBy(String(value))}/>{params.get('project')&&<Button onClick={()=>setParams({})}>查看全部项目</Button>}</div>
         <h2 className="fg-finance-title">费用归集</h2>
         <FGModelPrices/>

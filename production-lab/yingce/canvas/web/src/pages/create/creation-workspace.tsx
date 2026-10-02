@@ -1,5 +1,6 @@
 import { ImageSizePicker } from "@/components/image-size-picker";
 import {FGPricePreview} from '@/components/fg-price-preview';
+import {FGSkillControl} from '@/components/fg-skill-control';
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { createPortal } from "react-dom";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
@@ -387,6 +388,7 @@ export function CreationComposer(props: ComposerProps) {
                     </button>
                 </Tooltip> : null}
 				<ModelPicker config={props.config} value={props.model} onChange={props.onModelChange} capability={props.mode} requirements={props.modelRequirements} className="creation-model-picker" placeholder={`选择${modeLabels[props.mode]}模型`} showSelectedPrice={false} showOptionPrices variant="creation" />
+                <FGSkillControl references={props.references} prompt={props.prompt} onChange={props.setPrompt} disabled={interactionBusy}/>
                 {props.mode === "video" || (props.mode === "image" && imageSettingsSupported) ? <GenerationSettingsMenu {...props} /> : null}
                 {props.mode === "video" ? <DurationMenu profile={props.videoProfile} seconds={props.seconds} onChange={props.setSeconds} /> : null}
                 {props.mode === "text" ? <>
@@ -395,7 +397,7 @@ export function CreationComposer(props: ComposerProps) {
                 </> : null}
                 {props.prompt.trim() || props.attachments.length || props.references.some((reference) => reference.active) ? <Tooltip title="清空提示词和参考内容"><button type="button" className="creation-chat-control is-clear" onClick={props.onClearComposer} disabled={interactionBusy} aria-label="清空提示词和参考内容"><Trash2 /><span>清空</span></button></Tooltip> : null}
             </div>
-            <Button
+            <div className="fg-creation-submit-group"><FGPricePreview config={props.config} model={props.model} mode={props.mode} requirements={props.modelRequirements}/><Button
                 type="text"
                 className={`creation-submit ${showCost ? "has-cost" : ""}`}
                 disabled={interactionBusy || !canSubmit}
@@ -411,8 +413,8 @@ export function CreationComposer(props: ComposerProps) {
                 {showCost ? <span className="creation-submit-cost" title={routeQuote ? modelQuoteDescription(routeQuote) : undefined}><CreditSymbol /><span>{routeQuote?.estimated ? `预估:${formattedCredits}` : formattedCredits}</span></span> : null}
                 <span className="creation-submit-action" aria-hidden>{showWorkingSpinner ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}<span>{showWorkingSpinner ? "生成中" : "开始创作"}</span></span>
             </Button>
+            </div>
         </footer>
-        <FGPricePreview config={props.config} model={props.model} mode={props.mode} requirements={props.modelRequirements}/>
         <CreationMediaPreviewModal url={previewUrl} type={previewType} onClose={() => setPreviewUrl("")} />
         </SpotlightSurface>
     </HoverBorderGradient>;

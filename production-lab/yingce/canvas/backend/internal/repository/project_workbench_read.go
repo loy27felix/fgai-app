@@ -160,7 +160,7 @@ func (r *Repository) ProjectWorkflowInstancesForUnit(projectID string, unitID st
 func (r *Repository) ProjectCanvasSummariesPage(userID string, projectID string, page int, pageSize int) ([]model.CanvasProject, int64, error) {
 	var canvases []model.CanvasProject
 	var total int64
-	query := r.db.Model(&model.CanvasProject{}).Where("user_id = ? AND project_id = ?", userID, projectID)
+	query := fgCanvasScope(r.db.Model(&model.CanvasProject{}),userID).Where("project_id = ?",projectID)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -171,7 +171,7 @@ func (r *Repository) ProjectCanvasSummariesPage(userID string, projectID string,
 func (r *Repository) UserCanvasProjectsPage(userID string, page int, pageSize int, projectID string, search string, sort string) ([]model.CanvasProject, int64, error) {
 	var projects []model.CanvasProject
 	var total int64
-	query := r.db.Model(&model.CanvasProject{}).Where("user_id = ?", userID)
+	query := fgCanvasScope(r.db.Model(&model.CanvasProject{}),userID)
 	if projectID == "independent" {
 		query = query.Where("project_id = '' OR project_id IS NULL")
 	} else if projectID != "" && projectID != "all" {
@@ -231,7 +231,7 @@ func (r *Repository) ProjectAssetCandidatesPage(projectID string, page int, page
 func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int, pageSize int, category string, mediaType string, status string, folderID *string, queryText string) ([]model.Asset, int64, error) {
 	var assets []model.Asset
 	var total int64
-	query := r.db.Table("assets").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("assets.user_id = ? AND project_asset_links.project_id = ?", userID, projectID)
+	query := fgMediaScope(r.db.Table("assets"),"assets","fg_asset_grants","asset_id",userID).Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
 	if value := strings.TrimSpace(category); value != "" {
 		query = query.Where("assets.category = ?", value)
 	}

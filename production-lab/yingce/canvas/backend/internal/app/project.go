@@ -353,9 +353,11 @@ func normalizeProjectDefaultModel(value string) (string, error) {
 }
 
 func (s *Service) DeleteProject(userID string, id string) error {
-	if _, err := s.repo.ProjectForUser(userID, id); err != nil {
+	project, err := s.repo.ProjectForUser(userID, id)
+	if err != nil {
 		return err
 	}
+	if project.UserID!=userID{return Forbidden("仅项目创建者可删除项目")}
 	canvases, err := s.repo.ProjectCanvasDocuments(userID, id)
 	if err != nil {
 		return err
@@ -557,8 +559,12 @@ func (s *Service) LinkCanvasUnit(userID string, projectID string, req LinkCanvas
 	if canvasID == "" || unitID == "" {
 		return model.CanvasUnitLink{}, BadAuthRequest("画布和章节不能为空")
 	}
-	if _, err := s.repo.CanvasProjectForUser(userID, canvasID); err != nil {
+	canvas, err := s.repo.CanvasProjectForUser(userID, canvasID)
+	if err != nil {
 		return model.CanvasUnitLink{}, err
+	}
+	if canvas.UserID != userID && canvas.ProjectID != projectID {
+		return model.CanvasUnitLink{}, Forbidden("仅画布创建者可调整所属项目")
 	}
 	if _, err := s.repo.ProjectUnit(projectID, unitID); err != nil {
 		return model.CanvasUnitLink{}, err

@@ -22,6 +22,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
+import {FGSkillControl} from '@/components/fg-skill-control';
 import { CanvasNineGridPicker } from "./canvas-nine-grid-picker";
 import { CanvasChooseImageStylePicker } from "./canvas-choose-image-style-picker";
 import { CanvasChooseEffectPicker } from "./canvas-choose-effect-picker";
@@ -350,6 +351,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 </>}
             </div> : null}
             {showPromptTemplates ? <CanvasPresetPicker mode={mode} skillReferences={skillReferences} open={expanded ? expandedPresetOpen : presetOpen} onOpenChange={expanded ? setExpandedPresetOpen : setPresetOpen} onSelect={applyPreset} dense appearance="quiet" /> : null}
+            <FGSkillControl references={resolvedMentionReferences} prompt={prompt} onChange={updatePrompt} disabled={isRunning}/>
             {canOptimizePrompt ? (
                 <Tooltip title="用 AI 润色提示词">
                     <button

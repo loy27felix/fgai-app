@@ -93,7 +93,7 @@ func (r *Repository) ResourcesForUserIDs(userID string, resourceIDs []string) ([
 		return []model.Resource{}, nil
 	}
 	var resources []model.Resource
-	err := r.db.Where("user_id = ? AND id IN ?", userID, resourceIDs).Find(&resources).Error
+	err := fgMediaScope(r.db,"resources","fg_resource_grants","resource_id",userID).Where("id IN ?",resourceIDs).Find(&resources).Error
 	return resources, err
 }
 

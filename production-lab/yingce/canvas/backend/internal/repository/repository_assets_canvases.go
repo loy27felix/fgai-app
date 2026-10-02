@@ -14,19 +14,19 @@ import (
 
 func (r *Repository) Assets(userID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := r.db.Order("updated_at desc").Find(&assets, "user_id = ?", userID).Error
+	err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).Order("updated_at desc").Find(&assets).Error
 	return assets, err
 }
 
 func (r *Repository) AssetSummaries(userID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := r.db.Select("id", "folder_id", "kind", "category", "status", "primary_version_id", "title", "created_at", "updated_at").Order("updated_at desc").Find(&assets, "user_id = ?", userID).Error
+	err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).Select("id", "folder_id", "kind", "category", "status", "primary_version_id", "title", "created_at", "updated_at").Order("updated_at desc").Find(&assets).Error
 	return assets, err
 }
 
 func (r *Repository) AssetForUser(userID string, id string) (*model.Asset, error) {
 	var asset model.Asset
-	if err := r.db.First(&asset, "id = ? AND user_id = ?", id, userID).Error; err != nil {
+	if err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).First(&asset, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &asset, nil
@@ -37,7 +37,7 @@ func (r *Repository) AssetsForUserIDs(userID string, ids []string) ([]model.Asse
 		return nil, nil
 	}
 	var assets []model.Asset
-	err := r.db.Find(&assets, "user_id = ? AND id IN ?", userID, ids).Error
+	err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).Find(&assets, "id IN ?", ids).Error
 	return assets, err
 }
 
@@ -81,19 +81,19 @@ func (r *Repository) ReplaceAssets(userID string, assets []model.Asset) error {
 
 func (r *Repository) CanvasProjects(userID string) ([]model.CanvasProject, error) {
 	var projects []model.CanvasProject
-	err := r.db.Order("updated_at desc").Find(&projects, "user_id = ?", userID).Error
+	err := fgCanvasScope(r.db,userID).Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) CanvasProjectSummaries(userID string) ([]model.CanvasProject, error) {
 	var projects []model.CanvasProject
-	err := r.db.Select("id", "title", "revision", "created_at", "updated_at").Order("updated_at desc").Find(&projects, "user_id = ?", userID).Error
+	err := fgCanvasScope(r.db,userID).Select("id", "title", "revision", "created_at", "updated_at").Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) CanvasProjectForUser(userID string, id string) (*model.CanvasProject, error) {
 	var project model.CanvasProject
-	if err := r.db.First(&project, "id = ? AND user_id = ?", id, userID).Error; err != nil {
+	if err := fgCanvasScope(r.db,userID).First(&project, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &project, nil
@@ -119,8 +119,8 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 	}
 	// The revision predicate and increment must be in the same SQL statement.
 	// A missing row is a conflict, never an invitation to recreate a deleted canvas.
-	result := r.db.Model(&model.CanvasProject{}).
-		Where("id = ? AND user_id = ? AND revision = ?", project.ID, project.UserID, expected).
+	result := fgCanvasScope(r.db.Model(&model.CanvasProject{}),project.UserID).
+		Where("id = ? AND revision = ?", project.ID, expected).
 		Updates(map[string]any{"project_id": project.ProjectID, "title": project.Title, "payload_json": project.PayloadJSON, "updated_at": project.UpdatedAt, "revision": expected + 1})
 	if result.Error != nil {
 		return result.Error

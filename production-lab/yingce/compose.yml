@@ -60,6 +60,7 @@ services:
       CANVAS_DATABASE_DRIVER: postgres
       DATABASE_URL: ${DATABASE_URL:?required}
       REDIS_URL: redis://redis:6379/0
+      CANVAS_FG_TEAM_WORKSPACE: "true"
       CANVAS_REGISTRATION_ENABLED: "false"
       CANVAS_WORKER_CONCURRENCY: "2"
       CANVAS_CHANNEL_CONCURRENCY: "2"
@@ -112,6 +113,7 @@ services:
       WETOKEN_FEE_SESSION_FILE: ${WETOKEN_FEE_SESSION_FILE:-}
       FG_FEE_SYNC_ACTOR_ID: ${FG_FEE_SYNC_ACTOR_ID:-}
       FG_TOPICS_FILE: ${FG_TOPICS_FILE:-/run/fg-data/topics.json}
+      FG_GROUP3_ACCOUNT_EMAIL: ${FG_GROUP3_ACCOUNT_EMAIL:-}
     networks: [default, fg-platform]
     volumes:
       - ./host-metrics:/host-metrics:ro

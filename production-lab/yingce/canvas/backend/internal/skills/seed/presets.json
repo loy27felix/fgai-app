@@ -72,16 +72,6 @@
       "source": "hand-curated",
       "evidence": "E4",
       "upgrade": "AI 角色表演分层写法 single 待 E1 实测后（下批灯塔卡候选），可作替换位。"
-    },
-    {
-      "presetId": "brand-positioning",
-      "name": "品牌定位与策略",
-      "scene": "ecommerce",
-      "skillIds": ["16000000000102", "16000000000104", "16000000000099"],
-      "rationale": "不写片不拍片的日子用这组：定位策略找心智空格，故事营销把目的讲成故事，决策模型格森做判断，STEPPS 设计传播。纯思考层，无生产技能。",
-      "source": "hand-curated",
-      "evidence": "E4",
-      "upgrade": "与官方技能无重叠冲突，可长期稳定；若定位类 singles（定位心智图等）上架，可拆出轻量版。"
     }
   ]
 }

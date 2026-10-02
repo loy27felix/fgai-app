@@ -43,9 +43,9 @@ const WORKSPACES = [
     icon: ["M4 19V9M10 19V5M16 19v-8M22 19V3", "M2 21h20"],
   },
   {
-    href: "/production-lab", number: "06", title: "漫剧生产台", en: "PRODUCTION PILOT",
-    description: "在独立试用空间里串联选题、批量剧本、项目推进与制作画布。",
-    note: "超级管理员内测 · 独立数据区",
+    href: "/production-lab", number: "06", title: "FG 创作工作台", en: "STORY & CANVAS",
+    description: "从故事选题进入共享项目，用分集画布协作制作，按项目查看人民币费用。",
+    note: "故事审核 · 团队画布 · 项目费用",
     accent: "#a993ff", glow: "rgba(143,116,255,.32)",
     icon: ["M4 5h16v14H4z", "M8 9h8M8 13h8M8 17h4", "m17 2 1.5 1.5L20 2"],
   },
@@ -104,7 +104,7 @@ export default function WorkspaceHub({ email, isAdmin, showProductionLab, projec
                 </div>
                 <div style={{ position: "relative", marginTop: "auto" }}>
                   <div className="fg-mono" style={{ color: "var(--text-3)", fontSize: 9.5, letterSpacing: "1.4px" }}>{space.en}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 7, flexWrap: "wrap" }}><h2 style={{ margin: 0, fontSize: 25, letterSpacing: "-.8px" }}>{space.title}</h2>{restricted ? <span style={{ padding: "3px 7px", borderRadius: 6, color: "var(--text-3)", background: "var(--panel-2)", fontSize: 10 }}>管理员</span> : null}{space.href === "/production-lab" ? <span style={{ padding: "3px 7px", borderRadius: 6, color: space.accent, background: `color-mix(in srgb,${space.accent} 12%,transparent)`, border: `1px solid color-mix(in srgb,${space.accent} 24%,transparent)`, fontSize: 10 }}>仅超级管理员</span> : null}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 7, flexWrap: "wrap" }}><h2 style={{ margin: 0, fontSize: 25, letterSpacing: "-.8px" }}>{space.title}</h2>{restricted ? <span style={{ padding: "3px 7px", borderRadius: 6, color: "var(--text-3)", background: "var(--panel-2)", fontSize: 10 }}>管理员</span> : null}{space.href === "/production-lab" ? <span style={{ padding: "3px 7px", borderRadius: 6, color: space.accent, background: `color-mix(in srgb,${space.accent} 12%,transparent)`, border: `1px solid color-mix(in srgb,${space.accent} 24%,transparent)`, fontSize: 10 }}>团队开放</span> : null}</div>
                   <p style={{ maxWidth: 410, minHeight: 43, margin: "9px 0 0", color: "var(--text-2)", fontSize: 13, lineHeight: 1.65 }}>{space.description}</p>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 18, paddingTop: 13, borderTop: "1px solid var(--stroke)", color: "var(--text-3)", fontSize: 11 }}><span>{space.note}</span><span style={{ color: space.accent, fontSize: 17 }}>↗</span></div>
                 </div>

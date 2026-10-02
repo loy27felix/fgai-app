@@ -1,0 +1,5 @@
+.fg-price-chip{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--muted-foreground);white-space:nowrap;line-height:1.5;padding:4px 0}
+.fg-skill-popover{width:min(330px,calc(100vw - 48px));padding:6px}
+.fg-skill-popover-heading{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.fg-skill-popover-heading>a{display:flex;align-items:center;gap:5px;margin-left:auto;font-size:12px;color:var(--muted-foreground)}
+.fg-skill-popover>p{font-size:12px;line-height:1.8;color:var(--muted-foreground);margin:14px 0 0}

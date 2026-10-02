@@ -272,3 +272,6 @@ html:not(.dark) .app-product-overlays .creation-control-popover .ant-popover-inn
 html:not(.dark) .app-product-overlays .creation-control-popover-surface {
     box-shadow: 0 16px 40px rgba(25, 25, 30, .12) !important;
 }
+/* FG: one quiet currency amount beside the primary action. */
+.fg-creation-submit-group{display:flex;align-items:center;gap:14px;margin-left:auto;flex-shrink:0}
+@media(max-width:640px){.fg-creation-submit-group{width:100%;justify-content:flex-end}.creation-chat-dock{flex-wrap:wrap}}

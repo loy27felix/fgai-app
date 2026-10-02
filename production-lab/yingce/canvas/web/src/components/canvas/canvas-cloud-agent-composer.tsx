@@ -3,6 +3,7 @@
 // 运行中输入框保持可用（产品约定，勿收紧）：发送走插话，停止由 running 驱动，两者互不排斥。
 
 import type { Skill, SkillPreset } from "@/services/api/skills";
+import {FGSkillControl} from '@/components/fg-skill-control';
 import { ArrowLeft, ArrowUp, AtSign, Bookmark, Clapperboard, ImagePlus, Layers3, LoaderCircle, Palette, Shapes, Share2, ShoppingBag, Sparkles, Square, X } from "lucide-react";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -472,6 +473,7 @@ export function AgentChatComposer({
                             </>
                         ) : null}
                         {left}
+                        <FGSkillControl references={composerReferences} prompt={prompt} onChange={onPromptChange} disabled={sending}/>
                     </div>
                     <div className="agent-composer-submit flex items-center gap-2">
                         {submitAccessory}

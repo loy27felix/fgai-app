@@ -5,6 +5,7 @@ import pg from 'pg';
 import fs from 'node:fs/promises';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
+import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -16,6 +17,7 @@ const sessions = new Map();
 const creating = new Map();
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
+await publishExistingStoryMedia(pool);
 startFeeSync(pool);
 
 function respond(res, status, message, reason) {
@@ -26,20 +28,24 @@ function respond(res, status, message, reason) {
 async function platformActor(req) {
   const token = platformToken(req.headers.cookie);
   if (!token) return null;
-  // The existing sixth-module API is the authority for the pilot gate and kill switch.
-  const response = await fetch(new URL('/api/production-lab', platform), {
+  if(process.env.FG_SIX_ENABLED==='false')return null;
+  // Authenticate every request against the existing platform. Access is now
+  // company-wide; native administrator rights remain superadmin-only.
+  const response = await fetch(new URL('/api/auth/session', platform), {
     headers: { cookie: `fg_session=${token}` }, signal: AbortSignal.timeout(15000), redirect: 'error',
   });
   if (response.status === 403 || response.status === 401) return null;
   if (!response.ok) throw new Error('PLATFORM_UNAVAILABLE');
   const data = await response.json();
-  if (!data.actor?.reviewer || !uuidPattern.test(data.actor.id)) return null;
-  return data.actor;
+  const user=data.data?.session?.user;
+  if(!user||!uuidPattern.test(user.id))return null;
+  const known=(await pool.query('SELECT display_name FROM users WHERE id=$1',[user.id])).rows[0];
+  return {id:user.id,email:user.email,name:known?.display_name||String(user.email||'FG 成员').split('@')[0],reviewer:user.platform_role==='superadmin',platformRole:user.platform_role||'user'};
 }
 
 async function canvasSession(actor) {
   const existing = sessions.get(actor.id);
-  if (existing && existing.expires > Date.now()) return existing.cookie;
+  if (existing && existing.expires > Date.now() && existing.reviewer===actor.reviewer) return existing.cookie;
   if (creating.has(actor.id)) return creating.get(actor.id);
   const promise = (async () => {
     const token = randomBytes(32).toString('hex');
@@ -50,9 +56,10 @@ async function canvasSession(actor) {
     try {
       await connection.query('BEGIN');
       await connection.query(`INSERT INTO users (id,username,display_name,role,status,password_hash,created_at,updated_at)
-        VALUES ($1,$2,$3,'admin','active','',now(),now())
-        ON CONFLICT (id) DO UPDATE SET display_name=EXCLUDED.display_name,role='admin',status='active',updated_at=now()`,
-        [actor.id, 'fg_' + actor.id.replaceAll('-', '').slice(0,29), String(actor.name || 'FG 管理员').slice(0,80)]);
+        VALUES ($1,$2,$3,$4,'active','',now(),now())
+        ON CONFLICT (id) DO UPDATE SET display_name=EXCLUDED.display_name,role=EXCLUDED.role,status='active',updated_at=now()`,
+        [actor.id, 'fg_' + actor.id.replaceAll('-', '').slice(0,29), String(actor.name || 'FG 成员').slice(0,80),actor.reviewer?'admin':'user']);
+      await connection.query('INSERT INTO fg_accounts(user_id,email,platform_role) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,platform_role=excluded.platform_role',[actor.id,actor.email,actor.platformRole]);
       await connection.query(`INSERT INTO credit_accounts (user_id,available_microcredits,reserved_microcredits,version,created_at,updated_at)
         VALUES ($1,0,0,1,now(),now()) ON CONFLICT (user_id) DO NOTHING`, [actor.id]);
       await connection.query(`DELETE FROM auth_sessions WHERE user_id=$1 AND expires_at < now()`, [actor.id]);
@@ -64,7 +71,7 @@ async function canvasSession(actor) {
       throw error;
     } finally { connection.release(); }
     const cookie = `open_ai_canvas_session=${id}.${token}`;
-    sessions.set(actor.id, { cookie, expires: expires.getTime() - 60000 });
+    sessions.set(actor.id, { cookie, reviewer:actor.reviewer, expires: expires.getTime() - 60000 });
     return cookie;
   })();
   creating.set(actor.id, promise);
@@ -91,7 +98,8 @@ const server = http.createServer(async (req, res) => {
       upstream.end();return;
     }
     const actor = await platformActor(req);
-    if (!actor) { respond(res,403,'请先登录 FG Studio；第六板块当前只对超级管理员开放','FG_PILOT_ACCESS_DENIED'); return; }
+    if (!actor) { respond(res,403,'请先登录 FG Studio','FG_ACCESS_DENIED'); return; }
+    if(path.pathname.startsWith('/api/admin/')&&!actor.reviewer){respond(res,403,'仅超级管理员可管理平台','FG_ADMIN_REQUIRED');return;}
     if (path.pathname === '/fg/entry' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FG Studio · 制作工作区</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#101114}iframe{display:block;width:100%;height:100dvh;border:0}</style></head><body><iframe name="fg-canvas-workspace" title="FG 制作工作区" src="${publicOrigin}/" allow="clipboard-read; clipboard-write; fullscreen" allowfullscreen></iframe></body></html>`);

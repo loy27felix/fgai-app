@@ -7,8 +7,8 @@ import "infinite-canvas/backend/internal/model"
 // is still current.
 func (r *Repository) CanvasProjectMetadataForUser(userID string, id string) (*model.CanvasProject, error) {
 	var project model.CanvasProject
-	if err := r.db.Select("id", "user_id", "project_id", "title", "revision", "created_at", "updated_at").
-		First(&project, "id = ? AND user_id = ?", id, userID).Error; err != nil {
+	if err := fgCanvasScope(r.db,userID).Select("id", "user_id", "project_id", "title", "revision", "created_at", "updated_at").
+		First(&project, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &project, nil

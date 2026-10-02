@@ -33,7 +33,7 @@ const canvasSnapshotSummaryColumns = "id, canvas_id, user_id, revision, title, n
 
 func (r *Repository) CanvasProjectMetadata(userID, id string) (*model.CanvasProject, error) {
 	var project model.CanvasProject
-	err := r.db.Omit("payload_json").Where("id = ? AND user_id = ?", id, userID).First(&project).Error
+	err := fgCanvasScope(r.db,userID).Omit("payload_json").Where("id = ?",id).First(&project).Error
 	return &project, err
 }
 
@@ -55,6 +55,14 @@ func (r *Repository) CanvasSnapshot(userID, canvasID, id string) (*model.CanvasS
 func (r *Repository) SaveCanvasWithSnapshot(project *model.CanvasProject, snapshot *model.CanvasSnapshot, resourceIDs, currentResourceIDs []string, cutoff time.Time, limit int, force bool) error {
 	next := *project
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if fgTeamEnabled(){
+			if err:=New(tx).fgPublishCanvasMedia(&next);err!=nil{return err}
+			var current model.CanvasProject
+			if err:=fgCanvasScope(tx,next.UserID).Where("id = ?",next.ID).First(&current).Error;err==nil{
+				next.UserID=current.UserID
+				if snapshot!=nil{snapshot.UserID=current.UserID}
+			}else if !errors.Is(err,gorm.ErrRecordNotFound){return err}
+		}
 		if err := New(tx).UpsertCanvasProject(&next); err != nil {
 			return err
 		}
@@ -75,7 +83,7 @@ func (r *Repository) SaveCanvasWithSnapshot(project *model.CanvasProject, snapsh
 		requiredIDs = slices.Compact(requiredIDs)
 		if len(requiredIDs) > 0 {
 			var resources []model.Resource
-			query := tx.Select("id").Where("id IN ? AND user_id = ? AND status = ?", requiredIDs, project.UserID, model.ResourceStatusReady).Order("id")
+			query := fgMediaScope(tx,"resources","fg_resource_grants","resource_id",next.UserID).Select("id").Where("id IN ? AND status = ?", requiredIDs, model.ResourceStatusReady).Order("id")
 			if r.Dialect() == "postgres" {
 				query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 			}

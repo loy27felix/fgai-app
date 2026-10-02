@@ -105,6 +105,7 @@ export const router = createBrowserRouter([
             { path: "/", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
             { path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
             { path: "/fg-production", element: <RequireAuth>{deferred(<FGProductionPage />)}</RequireAuth> },
+            { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
             {
                 path: "/tasks",
                 element: (

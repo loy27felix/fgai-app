@@ -1,6 +1,7 @@
 // 渠道模型选项的编码、解析与展示：channelId + 模型名组合成选择值，按能力过滤可选模型。
 
 import { type AiConfig, type ModelChannel, resolveModelChannel } from "./use-config-store";
+import {fgModelName} from '@/lib/fg-model-names';
 
 export const CHANNEL_MODEL_SEPARATOR = "::";
 
@@ -43,7 +44,8 @@ export function modelDisplayName(config: AiConfig, value: string) {
     const model = modelOptionName(value);
     const channel = resolveModelChannel(config, value);
     const displayName = channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim();
-    if (displayName) return displayName;
+    const fgName = fgModelName(model, displayName || '');
+    if (fgName) return fgName;
     return channel.scope === "system" ? "系统模型" : model;
 }
 

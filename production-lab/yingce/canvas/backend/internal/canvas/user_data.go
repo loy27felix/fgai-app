@@ -107,6 +107,9 @@ func (s *Service) UpsertUserAsset(userID string, raw json.RawMessage) (UserDataS
 		}
 		existingBytes := int64(0)
 		if existing != nil {
+			if existing.UserID != userID {
+				return kernel.NewAppError(http.StatusForbidden, "共享素材请先复制到自己的素材库再修改")
+			}
 			existingBytes = int64(len([]byte(existing.PayloadJSON)))
 		}
 		if err := s.host.StructuredQuota(userID, "asset", errors.Is(existingErr, gorm.ErrRecordNotFound), int64(len(raw))-existingBytes); err != nil {
@@ -253,6 +256,9 @@ func (s *Service) upsertUserCanvasProjectWithHistory(userID string, raw json.Raw
 	}
 	var audit CanvasSaveAudit
 	err = s.host.WithStorageLock(func() error {
+		if err := s.repo.FGValidateProjectAccess(userID, project.ProjectID); err != nil {
+			return kernel.NewAppError(http.StatusForbidden, "项目不存在或无权访问")
+		}
 		if err := s.ValidateCanvasMediaAssets(userID, raw); err != nil {
 			return err
 		}
@@ -266,6 +272,9 @@ func (s *Service) upsertUserCanvasProjectWithHistory(userID string, raw json.Raw
 		if existing != nil {
 			existingBytes = int64(len([]byte(existing.PayloadJSON)))
 			project.CreatedAt = existing.CreatedAt
+			if existing.UserID != userID && existing.ProjectID != project.ProjectID {
+				return kernel.NewAppError(http.StatusForbidden, "仅画布创建者可调整所属项目")
+			}
 		}
 		if (existing == nil && project.Revision != 0) || (existing != nil && project.Revision != existing.Revision) {
 			return canvasRevisionConflict()

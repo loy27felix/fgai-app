@@ -110,7 +110,7 @@ export function ModelPicker({
         if (nextOpen && !options.length) onMissingConfig?.();
         if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
         if (nextOpen) {
-            setActiveGroupKey(optionGroups.find((group) => group.models.some((item) => item.models.includes(current)))?.key ?? null);
+            setActiveGroupKey(optionGroups.every(group=>group.models.flatMap(item=>item.models).length===1)?null:optionGroups.find((group) => group.models.some((item) => item.models.includes(current)))?.key ?? null);
         }
         setOpen(nextOpen);
     };
@@ -168,9 +168,9 @@ export function ModelPicker({
                     <div className="canvas-model-picker-brands" aria-label="选择产品模型">
                         {optionGroups.map((group) => {
                             const groupCurrent = group.models.find((item) => item.models.includes(current));
-                            return <button key={group.key} type="button" data-model-picker-item className={cn("canvas-model-picker-brand", groupCurrent && "is-active")} aria-pressed={Boolean(groupCurrent)} onClick={() => { setActiveGroupKey(group.key); focusMenuOption(); }}>
+                            return <button key={group.key} type="button" data-model-picker-item className={cn("canvas-model-picker-brand", groupCurrent && "is-active")} aria-pressed={Boolean(groupCurrent)} onClick={() => { const only=group.models.flatMap(item=>item.models); if(only.length===1&&!modelCompatibilityError(config,only[0],requirements)){onChange(only[0]);setOpen(false);}else{setActiveGroupKey(group.key); focusMenuOption();} }}>
                                 <span className="canvas-model-picker-brand-icon"><ModelLogo icon={group.icon} size={22} /></span>
-                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong><small>{group.models.length} 个{group.kind === "product" ? "渠道" : "模型"}{group.scope ? ` · ${group.scope}` : ""}</small></span>
+                                <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong><small>{group.kind==='product'&&group.models.length===1?'WeToken':`${group.models.length} 个${group.kind==='product'?'渠道':'模型'}`}</small></span>
                                 <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
                             </button>;
                         })}
@@ -205,7 +205,7 @@ export function ModelPicker({
                                         style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: theme.node.text }}
                                         onClick={() => {
                                             if (!model) return;
-                                            onChange(model);
+                                            onChange(model); setOpen(false);
                                         }}
                                     >
                                         <ModelLabel

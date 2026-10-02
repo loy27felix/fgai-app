@@ -96,9 +96,10 @@ func (s *Service) PrepareResourceDelivery(userID, id string, options ResourceAcc
 }
 
 func (s *Service) prepareResourceDelivery(userID string, resource *model.Resource, options ResourceAccessOptions, rangeHeader string) (*ResourceDelivery, error) {
-	if resource == nil || resource.UserID != userID {
+	if resource == nil {
 		return nil, Forbidden("资源不可访问")
 	}
+	if _,err:=s.repo.ResourceForUser(userID,resource.ID);err!=nil{return nil,Forbidden("资源不可访问")}
 	access, err := s.resolveResourceAccess(resource, options)
 	if err != nil {
 		return nil, err

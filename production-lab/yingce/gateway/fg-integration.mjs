@@ -4,6 +4,7 @@ import {importFeeCsv} from './fg-fee-import.mjs';
 import {estimateCNY} from './fg-prices.mjs';
 import {priceQuote} from './fg-quotes.mjs';
 import {capabilities} from './fg-model-capabilities.mjs';
+import {teamAndStoryAPI,approvedTopics,bootstrapTeam} from './fg-team-stories.mjs';
 
 export async function initializeFG(pool){await pool.query(await fs.readFile(new URL('./fg-schema.sql',import.meta.url),'utf8'));}
 async function jsonBody(req,max=100000){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>max)throw new Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
@@ -40,16 +41,16 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
         return {model:p.model,capability:spec.capability,enabled:p.snapshot.enabled,collectedAt:p.collected_at,profile,quote:priceQuote(p.model,p.snapshot,{capability:spec.capability,options,inputs:{}},fx),evidence:evidence.filter(e=>e.model.endsWith('::'+p.model)).map(e=>({operation:e.operation,status:e.status,error:e.error,updatedAt:e.updated_at}))};
       })});return true;
     }
-    const topics=JSON.parse(await fs.readFile(process.env.FG_TOPICS_FILE||new URL('./topics.json',import.meta.url),'utf8'));
+    const seed=JSON.parse(await fs.readFile(process.env.FG_TOPICS_FILE||new URL('./topics.json',import.meta.url),'utf8'));
+    if(await teamAndStoryAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin},{body:jsonBody,send,topics:seed}))return true;
+    const topics=await approvedTopics(pool,seed);
     if(path.pathname==='/api/fg/topics'&&req.method==='GET'){send(res,{topics});return true;}
     if(path.pathname==='/api/fg/projects'&&req.method==='GET'){
       const {rows}=await pool.query(`SELECT p.id,p.name,p.user_id,p.status,f.topic_id,f.topic_snapshot,f.tier,f.group_name,f.budget_cny,p.updated_at,
         u.display_name owner_name,(SELECT count(*)::int FROM canvas_projects c WHERE c.project_id=p.id) canvas_count
-        FROM projects p JOIN users u ON u.id=p.user_id LEFT JOIN fg_story_projects f ON f.native_project_id=p.id WHERE p.user_id=$1 ORDER BY p.updated_at DESC`,[actor.id]);
-      let legacy=[];let groups=[];
-      const source=await fetch(new URL('/api/production-lab',platform),{headers:{cookie:platformCookie},signal:AbortSignal.timeout(15000)});
-      if(!source.ok)throw new Error('原选题与小组数据暂时不可用');
-      const data=await source.json();legacy=data.state?.projects||[];groups=data.groups||[];
+        FROM projects p JOIN users u ON u.id=p.user_id LEFT JOIN fg_story_projects f ON f.native_project_id=p.id WHERE p.user_id=$1 OR f.native_project_id IS NOT NULL ORDER BY p.updated_at DESC`,[actor.id]);
+      await bootstrapTeam(pool,actor,platform,platformCookie);
+      const legacy=[];const groups=(await pool.query('SELECT id,name FROM fg_groups WHERE archived_at IS NULL ORDER BY created_at,id')).rows;
       send(res,{projects:rows,legacy,groups});return true;
     }
     if(path.pathname==='/api/fg/projects'&&req.method==='POST'){
@@ -57,18 +58,15 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
       if(!topic||topic.blocked)throw new Error('选题不存在或暂不适合立项');
       if(!['S','A','B','C'].includes(body.tier)||!Number.isFinite(body.budgetCny)||body.budgetCny<0||body.budgetCny>10000000)throw new Error('请选择档位并填写有效预算');
       const group=String(body.groupName||'');
-      const source=await fetch(new URL('/api/production-lab',platform),{headers:{cookie:platformCookie},signal:AbortSignal.timeout(15000)});
-      if(!source.ok)throw new Error('小组数据暂时不可用');
-      const sourceData=await source.json();
-      if(group&&!sourceData.groups?.some(g=>g.name===group))throw new Error('请选择当前有效的小组');
+      if(group&&!(await pool.query('SELECT 1 FROM fg_groups WHERE name=$1 AND archived_at IS NULL',[group])).rowCount)throw new Error('请选择当前有效的小组');
       const client=await pool.connect();
       try{
-        await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[actor.id+':'+topic.id]);
-        let link=(await client.query('SELECT * FROM fg_story_projects WHERE user_id=$1 AND topic_id=$2',[actor.id,topic.id])).rows[0];
+        await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['fg-story:'+group+':'+topic.id]);
+        let link=(await client.query('SELECT * FROM fg_story_projects WHERE topic_id=$2 AND (user_id=$1 OR ($3<>\'\' AND group_name=$3)) ORDER BY created_at LIMIT 1',[actor.id,topic.id,group])).rows[0];
         if(link?.native_project_id){send(res,{projectId:link.native_project_id,reused:true});await client.query('COMMIT');return true;}
         const hex=createHash('sha256').update(actor.id+':fg-topic:'+topic.id).digest('hex');
         const marker=link?.id||`${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;
-        const description=`[FG-STORY:${marker}]\n选题 #${topic.id} ${topic.title}\n原型：${topic.original||'待补充'}\n核心冲突：${topic.conflict||topic.plot}\n风格：${topic.style}\n目标市场：${topic.markets}\n选题人：${topic.selected_by||'未指定'} / 原选择小组：${topic.selection_group||'未指定'}\n项目档位：${body.tier} / 制作小组：${group||'待分组'}\n版权状态：${topic.source_rights||'待核验'}`;
+        const description=`[FG-STORY:${marker}]\n选题 #${topic.id} ${topic.title}\n原型：${topic.original||'待补充'}\n人物：${topic.characters||topic.original}\n故事梗概：${topic.plot}\n核心冲突：${topic.conflict||topic.plot}\n风格：${topic.style}\n目标市场：${topic.markets}\n选题人：${topic.selected_by||'未指定'} / 原选择小组：${topic.selection_group||'未指定'}\n项目档位：${body.tier} / 制作小组：${group||'待分组'}\n版权状态：${topic.source_rights||'待核验'}`;
         const recovered=(await client.query('SELECT id FROM projects WHERE user_id=$1 AND description LIKE $2',[actor.id,`[FG-STORY:${marker}]%`])).rows[0];
         const project=recovered|| (await api('/projects','POST',{name:topic.title,type:'short-drama',aspectRatio:'9:16',sourceType:'text',description})).project;
         await client.query(`INSERT INTO fg_story_projects(id,user_id,topic_id,native_project_id,topic_snapshot,tier,group_name,budget_cny)
@@ -80,7 +78,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
       // Every provider attempt stays separate. Polls/downloads are not a second charge.
       const {rows}=await pool.query(`WITH calls AS (
         SELECT l.id,l.user_id,l.task_id,l.model,l.capability,l.status,t.status task_status,l.created_at,l.input_tokens,l.output_tokens,l.cached_tokens,l.usage_available,l.media_count,l.request_body,l.response_body,l.video_seconds,
-          l.fg_fee_reference_id,l.fg_fee_references_json,l.provider_request_id,l.cost_available,l.estimated_cost_micros,l.currency,
+          l.fg_fee_reference_id,l.fg_fee_references_json,l.provider_request_id,l.cost_available,l.estimated_cost_micros,l.currency,l.fg_group_name,
           COALESCE(NULLIF(c.project_id,''),p.id) project_id,c.title canvas_title
         FROM api_call_logs l LEFT JOIN tasks t ON t.id=l.task_id
         LEFT JOIN canvas_projects c ON c.id=t.project_id
@@ -91,30 +89,33 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
           (c.fg_fee_reference_id=f.reference_id OR c.fg_fee_references_json::jsonb ? f.reference_id OR(c.capability='video' AND c.provider_request_id=f.reference_id)) GROUP BY f.reference_id HAVING count(*)=1
       ), matched AS (
         SELECT reference_id,call_id FROM fee_candidates WHERE call_id IN(SELECT call_id FROM fee_candidates GROUP BY call_id HAVING count(*)=1)
-      ) SELECT c.*,p.name project_name,u.display_name user_name,s.group_name,s.tier,s.budget_cny,
+      ) SELECT c.*,p.name project_name,u.display_name user_name,COALESCE(NULLIF(c.fg_group_name,''),s.group_name) group_name,s.tier,s.budget_cny,
         f.usd settled_usd,f.fx settled_fx,(f.usd*f.fx) settled_cny, f.reference_id settled_reference_id
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
         LEFT JOIN matched m ON m.call_id=c.id LEFT JOIN fg_provider_fees f ON f.reference_id=m.reference_id
-        ORDER BY c.created_at DESC`);
+        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL
+        ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
       const settings=(await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0];
       const imports=(await pool.query('SELECT id,row_count,created_at FROM fg_fee_imports ORDER BY created_at DESC LIMIT 1')).rows;
       const matchedReferences=rows.filter(c=>c.settled_reference_id).map(c=>c.settled_reference_id);
-      const unallocated=(await pool.query(`SELECT reference_id,model,usd,fx,occurred_at FROM fg_provider_fees WHERE NOT(reference_id=ANY($1::text[])) ORDER BY occurred_at DESC`,[matchedReferences])).rows;
+      const unallocated=actor.reviewer?(await pool.query(`SELECT reference_id,model,usd,fx,occurred_at FROM fg_provider_fees WHERE NOT(reference_id=ANY($1::text[])) ORDER BY occurred_at DESC`,[matchedReferences])).rows:[];
       const prices=(await pool.query('SELECT model,snapshot,collected_at FROM fg_model_prices ORDER BY model')).rows;
       const byModel=new Map(prices.map(p=>[p.model,p.snapshot]));
       const fx=Number(settings.value);
       for(const call of rows){call.rate_estimated_cny=estimateCNY(call,byModel.get(call.model),fx);delete call.request_body;delete call.response_body;delete call.settled_usd;}
       const billingSync=(await pool.query("SELECT value FROM fg_company_settings WHERE key='wetokenFeeSync'")).rows[0]?.value||{mode:'csv',automatic:false,reason:'未配置授权账单会话；可导入官方 CSV。'};
-      send(res,{calls:rows,fx,lastImport:imports[0]||null,unallocated:unallocated.map(({usd,fx,...row})=>({...row,cny:Number(usd)*Number(fx)})),collectedAt:new Date().toISOString(),billingSync});return true;
+      send(res,{calls:rows,fx,canManage:actor.reviewer,lastImport:actor.reviewer?imports[0]||null:null,unallocated:unallocated.map(({usd,fx,...row})=>({...row,cny:Number(usd)*Number(fx)})),collectedAt:new Date().toISOString(),billingSync});return true;
     }
     if(path.pathname==='/api/fg/finance/import'&&req.method==='POST'){
+      if(!actor.reviewer){send(res,'仅超级管理员可导入账单',403);return true;}
       const body=await jsonBody(req,5_500_000);send(res,await importFeeCsv(pool,actor.id,body.csv));return true;
     }
     if(path.pathname==='/api/fg/finance/fx'&&req.method==='PUT'){
+      if(!actor.reviewer){send(res,'仅超级管理员可修改记账设置',403);return true;}
       const {fx}=await jsonBody(req);if(!Number.isFinite(fx)||fx<=0||fx>100)throw new Error('人民币折算汇率必须为 0–100 的正数');
       await pool.query("UPDATE fg_company_settings SET value=$1,updated_at=now() WHERE key='usdCnyRate'",[JSON.stringify(fx)]);send(res,{fx});return true;
     }
     send(res,'FG 接口不存在',404);return true;
-  }catch(error){const message=String(error.message);send(res,/^(费用单|请|同一|已核销|原选题|小组|选题|人民币|请求内容)/.test(message)?message:'FG 数据操作失败，请稍后刷新重试',400);return true;}
+  }catch(error){const message=String(error.message);console.error(JSON.stringify({event:'fg_api_error',path:path.pathname,code:error.code||'application',constraint:error.constraint||'',column:error.column||''}));send(res,/^(费用单|请|同一|已核销|原选题|小组|选题|人民币|请求内容)/.test(message)?message:'FG 数据操作失败，请稍后刷新重试',400);return true;}
 }

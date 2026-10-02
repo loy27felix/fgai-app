@@ -1,6 +1,5 @@
 import {useEffect,useState} from 'react';
-import {Tooltip} from 'antd';
-import {CircleDollarSign} from 'lucide-react';
+import './fg-controls.css';
 import {http} from '@/services/api/request';
 import {modelOptionName,resolveModelChannel,type AiConfig,type ModelCapability} from '@/stores/use-config-store';
 import {modelRequestOptions,resolveVideoOperationForModel,type ModelRequirements} from '@/lib/model-selection';
@@ -21,11 +20,9 @@ export function FGPricePreview({config,model,mode,requirements}:{config:AiConfig
  },[key]);
  if(!enabled)return null;
  const quote=state.key===key?state.quote:undefined;
- const detail=quote?<div style={{maxWidth:420,lineHeight:1.8}}>{quote.lines.map((line,i)=><div key={'r'+i}>{line}</div>)}{quote.notes.map((note,i)=><div key={'n'+i}>{note}</div>)}<div>账户折扣 {((quote.discount||1)*100).toLocaleString()}% · 人民币换算系数 {quote.fx}</div><div>费率采集 {new Date(quote.collectedAt).toLocaleString('zh-CN')}</div></div>:state.key===key?state.error:'正在核对当前参数的费率';
- const prefix=quote?.estimateKind==='partial'?'图片输出部分':quote?.estimateKind==='lower_bound'?'公式部分（非最终金额）':'预计';
- return <div role="status" className="nodrag nopan" style={{padding:'7px 10px',fontSize:12,lineHeight:1.7,color:'var(--user-muted, inherit)',overflowWrap:'anywhere'}}>
-  <Tooltip title={detail}><div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}><CircleDollarSign size={14}/><strong>{quote?(quote.estimatedCny===null?'按实际用量计费':`${prefix} ¥${quote.estimatedCny.toLocaleString('zh-CN',{maximumFractionDigits:4})}`):state.key===key&&state.error?'费率待核验':'核对费率中…'}</strong><span>WeToken · 实扣见费用对账</span></div></Tooltip>
-  {quote?<details><summary style={{cursor:'pointer'}}>人民币费率与计费说明</summary>{detail}</details>:state.key===key&&state.error?<div>{state.error}</div>:null}
-  {quote?.estimateKind&&quote.estimateKind!=='estimate'?<div>{quote.notes.find(note=>note.includes('另计')||note.includes('最低 Token'))}</div>:null}
- </div>;
+ const amount=quote?.estimatedCny;
+ const rates=quote?.lines.flatMap(line=>[...line.matchAll(/¥([\d,.]+)/g)].slice(0,2).map(m=>Number(m[1].replaceAll(',',''))))||[];
+ const rate=mode==='text'&&rates.length?`¥${Math.min(...rates).toLocaleString('zh-CN',{maximumFractionDigits:4})}–${Math.max(...rates).toLocaleString('zh-CN',{maximumFractionDigits:4})}/百万Token`:null;
+ const label=quote?(amount!==null&&amount!==undefined?`${quote.estimateKind==='lower_bound'?'≥':'≈'}¥${amount.toLocaleString('zh-CN',{maximumFractionDigits:4})}${quote.estimateKind==='partial'?'起':''}`:rate||'按用量'):state.key===key&&state.error?'价格待确认':'…';
+ return <span role="status" aria-label={`人民币价格 ${label}`} className="fg-price-chip nodrag nopan">{label}</span>;
 }
