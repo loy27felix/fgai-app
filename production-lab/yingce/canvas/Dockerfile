@@ -7,6 +7,7 @@ COPY director-desk/package.fg.json ./package.json
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --ignore-scripts
 COPY director-desk ./
 RUN bun scripts/build-builtin-skill.mjs
+RUN bun test tests/automation.test.ts tests/fg-tools.test.ts
 RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build --base=/director-desk/
 
 FROM --platform=$BUILDPLATFORM oven/bun:1.3.9 AS web-build
@@ -34,6 +35,7 @@ RUN bun test test/fg-nas-upload.test.ts
 RUN bun test test/fg-skill-catalog.test.ts test/skills-api.test.ts
 RUN bun test test/fg-team-policy.test.ts test/workspace-sidebar-storage.test.ts
 RUN bun test test/canvas-video-frame.test.ts
+RUN bun test test/document-storage.test.ts test/canvas-appearance.test.ts test/canvas-video-segment-args.test.ts test/tapnow-import.test.ts test/skill-runtime.test.ts
 RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build
 
 # 运行镜像：nginx 托管静态前端，并在 Compose 中把 /api 转发到后端服务。
