@@ -28,7 +28,7 @@ export function mountFGDirector(ctx: AppContext) {
     const brand = document.querySelector('.brand strong'); if (brand) brand.textContent = 'FG 3D 导演台';
     const logo = document.querySelector('.logo'); if (logo) logo.textContent = 'FG';
     // Desktop-only AI/MCP must not offer browser key settings or an unavailable service.
-    document.querySelectorAll<HTMLElement>('[data-act^="ai-"], [data-act="updates"], #timeline-to-ai').forEach(el => el.hidden = true);
+    document.querySelectorAll<HTMLElement>('[data-act^="ai-"], [data-act="updates"], #timeline-to-ai, #ai-toggle, #ai-changes-toggle, #update-toggle, [data-setting="updates"]').forEach(el => el.hidden = true);
     const actions = document.querySelector('.header-actions')!;
     const send = document.createElement('button'); send.className = 'tool-button'; send.textContent = '交给制作 Agent';
     actions.prepend(send);

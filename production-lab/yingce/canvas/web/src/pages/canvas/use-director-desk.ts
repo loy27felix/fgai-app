@@ -47,7 +47,9 @@ export function useDirectorDesk({nodesRef, connectionsRef, setNodes, setConnecti
     }, [nodesRef, getCanvasCenter, commit]);
     const saveOutput = useCallback(async (file: File) => {
         const parent = nodesRef.current.find(n => n.id === sceneId.current);
-        const position = parent ? {x: parent.position.x + parent.width + 80, y: parent.position.y + nodesRef.current.filter(n => n.metadata?.directorDeskSourceId === parent.id).length * 230} : getCanvasCenter();
+        const siblings = parent ? nodesRef.current.filter(n => n.metadata?.directorDeskSourceId === parent.id) : [];
+        const position = parent ? {x: parent.position.x + parent.width + 80,
+            y: siblings.length ? Math.max(...siblings.map(n => n.position.y + n.height)) + 56 : parent.position.y} : getCanvasCenter();
         let node: CanvasNodeData;
         if (file.type.startsWith("image/")) {
             const image = await uploadImage(file); if (image.pendingRemoteUpload) throw new Error("截图尚未保存到 NAS");
