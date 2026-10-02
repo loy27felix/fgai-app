@@ -48,7 +48,7 @@ describe("account storage meter", () => {
 });
 
 describe("workspace sidebar storage meter", () => {
-    test("sits above the signed-in profile and shows used, remaining and total", () => {
+    test("sits above the signed-in profile and shows used storage without a personal quota", () => {
         const sidebar = readFileSync(resolve(import.meta.dir, "../src/components/layout/workspace-sidebar-nav.tsx"), "utf8");
         const meter = readFileSync(resolve(import.meta.dir, "../src/components/layout/workspace-sidebar-storage-meter.tsx"), "utf8");
         const css = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
@@ -58,8 +58,9 @@ describe("workspace sidebar storage meter", () => {
         expect(meter).toContain("HardDrive");
         expect(meter).toContain("app-workspace-sidebar-storage-icon");
         expect(meter).toContain("已用 ${meter.usedLabel}");
-        expect(meter).toContain("剩余 ${meter.remainingLabel}");
-        expect(meter).toContain("共 ${meter.totalLabel}");
+        expect(meter).not.toContain("剩余 ${meter.remainingLabel}");
+        expect(meter).not.toContain("${meter.totalLabel}");
+        expect(meter).not.toContain('role="progressbar"');
         expect(meter).toContain('to="/assets"');
         expect(css).toContain(".app-workspace-sidebar-storage-icon");
         expect(css).toMatch(/\.app-workspace-sidebar-storage-used\s*\{[^}]*font-variant-numeric:\s*tabular-nums/s);

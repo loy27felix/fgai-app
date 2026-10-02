@@ -18,23 +18,6 @@ export function WorkspaceSidebarStorageMeter({ collapsed }: { collapsed: boolean
     const query = useAccountFileStorageUsage();
     const meter = accountStorageMeter(query.data);
     const usedText = query.data ? `已用 ${meter.usedLabel}` : query.isError ? "容量暂不可用" : "正在统计容量";
-    const remainingText = query.data ? (meter.full ? "容量已满" : `剩余 ${meter.remainingLabel}`) : "";
-    const totalText = query.data ? `配额 ${meter.totalLabel}` : "";
-    const summary = query.data ? `${usedText}，${remainingText}，${totalText}` : usedText;
-
-    const track = (
-        <span
-            className="app-workspace-sidebar-storage-track"
-            role="progressbar"
-            aria-label="账号文件容量使用进度"
-            aria-valuemin={0}
-            aria-valuemax={query.data?.totalBytes ?? 0}
-            aria-valuenow={query.data ? Math.min(query.data.usedBytes, query.data.totalBytes) : 0}
-            aria-valuetext={summary}
-        >
-            <span style={{ width: `${meter.percent}%` }} />
-        </span>
-    );
 
     if (query.isError && !query.data) {
         return (
@@ -62,34 +45,25 @@ export function WorkspaceSidebarStorageMeter({ collapsed }: { collapsed: boolean
             className={cn(
                 "app-workspace-sidebar-storage",
                 collapsed && "is-collapsed",
-                meter.tone === "warn" && "is-warn",
-                meter.tone === "critical" && "is-critical",
                 query.data?.usedBytes ? "has-usage" : null,
                 query.isPending && !query.data && "is-pending",
             )}
-            title={`${summary}。这是账号的 NAS 文件配额，包含上传、生成素材和 Agent 附件；管理员可在资源策略中调整，共享素材引用不会重复复制文件。`}
-            aria-label={`账号容量，${summary}`}
+            title={`${usedText}。文件保存在 NAS，个人文件总量不限额；共享引用不会重复复制文件。`}
+            aria-label={`NAS 文件，${usedText}`}
             aria-busy={query.isPending && !query.data}
             onFocus={() => preloadWorkspaceRoute("/assets")}
             onPointerEnter={() => preloadWorkspaceRoute("/assets")}
         >
             <StorageGlyph />
-            {collapsed ? (
-                track
-            ) : (
+            {!collapsed ? (
                 <span className="app-workspace-sidebar-storage-body">
                     <span className="app-workspace-sidebar-storage-copy">
                         <span className="app-workspace-sidebar-storage-meta">
                             <span className="app-workspace-sidebar-storage-used">{usedText}</span>
-                            {totalText ? <span className="app-workspace-sidebar-storage-total">{totalText}</span> : null}
                         </span>
                     </span>
-                    <span className="app-workspace-sidebar-storage-foot">
-                        {track}
-                        {remainingText ? <span className="app-workspace-sidebar-storage-remain">{remainingText}</span> : null}
-                    </span>
                 </span>
-            )}
+            ) : null}
         </Link>
     );
 }

@@ -235,6 +235,11 @@ func (s *Service) PluginPackage(id string) ([]byte, string, error) {
 }
 
 func (s *Service) SetPluginEnabled(id string, enabled bool) (PluginView, error) {
+	if enabled && os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" {
+		if plugin, exists := runtimePluginByID(s.Plugins(), id); exists && pluginManagementFromView(plugin).Kind == PluginKindPayment {
+			return PluginView{}, Forbidden("FG 内部工作台不启用支付插件")
+		}
+	}
 	if s.pluginRuntime == nil {
 		return PluginView{}, fmt.Errorf("插件运行时未初始化")
 	}

@@ -147,8 +147,12 @@ func TestRuntimePolicyRejectsSingleFileAboveAccountCapacity(t *testing.T) {
 		t.Fatalf("999MB should fit in 1GB: %v", err)
 	}
 	policy.Resource.StoredFileGB = 0
+	if err := validateRuntimePolicy(policy); err != nil {
+		t.Fatalf("zero means unlimited account file capacity: %v", err)
+	}
+	policy.Resource.StoredFileGB = -1
 	if err := validateRuntimePolicy(policy); err == nil {
-		t.Fatal("zero account capacity should be rejected")
+		t.Fatal("negative account capacity should be rejected")
 	}
 }
 

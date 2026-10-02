@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -196,6 +197,9 @@ func (s *Service) pluginStateForUser(actor *model.User, pluginID string, items [
 		return PluginStateView{}, fmt.Errorf("插件 %q 不存在", pluginID)
 	}
 	policy := pluginManagement(pluginID, source)
+	if hasRuntime {
+		policy = pluginManagementFromView(runtimePlugin)
+	}
 	platformAvailable := policy.Kind == PluginKindApplication
 	if hasRuntime && (policy.ActivationScope == PluginScopeSystem || s.repo == nil) {
 		platformAvailable = runtimePlugin.Status == "enabled"
@@ -210,6 +214,9 @@ func (s *Service) pluginStateForUser(actor *model.User, pluginID string, items [
 		}
 	}
 
+	if os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" && policy.Kind == PluginKindPayment {
+		return PluginStateView{PluginID: pluginID, BlockedReason: "FG 内部工作台不启用支付插件"}, nil
+	}
 	userEnabled := false
 	userConfigured := false
 	if policy.ActivationScope == PluginScopeUser && actor != nil {
@@ -315,6 +322,12 @@ func (s *Service) SetPluginPlatformAvailability(actor *model.User, pluginID stri
 		return AdminPluginStateView{}, fmt.Errorf("插件 %q 不存在", pluginID)
 	}
 	policy := pluginManagement(pluginID, source)
+	if hasRuntime {
+		policy = pluginManagementFromView(runtimePlugin)
+	}
+	if available && os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" && policy.Kind == PluginKindPayment {
+		return AdminPluginStateView{}, Forbidden("FG 内部工作台不启用支付插件")
+	}
 	previousRuntimeEnabled := false
 	runtimeChanged := false
 	if policy.ActivationScope == PluginScopeSystem {

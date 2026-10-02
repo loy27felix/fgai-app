@@ -26,7 +26,7 @@ const resourceFields: PolicyField[] = [
     { group: "resource", name: "resourceUploadMB", label: "普通资源单文件", extra: "素材上传和远程导入的单文件业务上限。", unit: "MB", max: 999 },
     { group: "resource", name: "generatedFileMB", label: "单个生成资源", extra: "上游生成响应和落库资源的单文件上限。", unit: "MB", max: 999 },
     { group: "resource", name: "dailyUploadMB", label: "每日上传总量", extra: "按 UTC 自然日累计资源与附件上传。", unit: "MB", max: 999_999 },
-    { group: "resource", name: "storedFileGB", label: "账号文件总量", extra: "资源文件与 Agent 会话附件合计。", unit: "GB", max: 999 },
+    { group: "resource", name: "storedFileGB", label: "账号文件总量", extra: "0 表示不限额；已用空间继续统计。", unit: "GB", min: 0, max: 999 },
     { group: "resource", name: "structuredDataMB", label: "结构化数据总量", extra: "画布、素材和 Agent 会话结构化数据合计。", unit: "MB", max: 999_999 },
     { group: "resource", name: "taskDataGB", label: "任务数据总量", extra: "任务历史、结果和上游请求日志合计。", unit: "GB", max: 999 },
     { group: "resource", name: "assetCount", label: "素材数量", extra: "单账号可保存的素材记录数。", unit: "条", max: 999_999_999 },
@@ -578,6 +578,7 @@ function parseRuntimePolicySetting(value: RuntimePolicySetting): RuntimePolicySe
 
 function validatePolicyRelationships(value: RuntimePolicyDraft) {
     const accountCapacityMB = readDraftNumber(value, "resource", "storedFileGB") * 1024;
+    if (accountCapacityMB === 0) return "";
     const oversized = resourceFields.slice(0, 3).find((field) => readPolicyValue(value, field) > accountCapacityMB);
     return oversized ? `${oversized.label}不能大于账号文件总量` : "";
 }

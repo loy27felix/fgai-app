@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"infinite-canvas/backend/internal/kernel"
+	"os"
 	"strings"
 	"time"
 
@@ -145,12 +146,16 @@ type PublicRuntimeLimits struct {
 // compatibility code and domain tests do not need to reach into platform's
 // private implementation.
 func DefaultRuntimePolicy() RuntimePolicySetting {
+	storedFileGB := int64(20)
+	if os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" {
+		storedFileGB = 0
+	}
 	return RuntimePolicySetting{
 		Resource: RuntimeResourcePolicy{
 			ResourceUploadMB:        50,
 			GeneratedFileMB:         64,
 			DailyUploadMB:           2048,
-			StoredFileGB:            20,
+			StoredFileGB:            storedFileGB,
 			StructuredDataMB:        256,
 			TaskDataGB:              1,
 			AssetCount:              2_000,
@@ -384,14 +389,17 @@ func validateRuntimePolicy(value RuntimePolicySetting) error {
 	if resource.DailyUploadMB < 1 || resource.DailyUploadMB > maxRuntimeDataMB {
 		return kernel.BadAuthRequest(fmt.Sprintf("每日上传量必须是 1-%d MB 的整数", maxRuntimeDataMB))
 	}
-	if resource.StoredFileGB < 1 || resource.StoredFileGB > maxRuntimeStorageGB || resource.TaskDataGB < 1 || resource.TaskDataGB > maxRuntimeStorageGB {
-		return kernel.BadAuthRequest(fmt.Sprintf("账号文件与任务数据容量必须是 1-%d GB 的整数", maxRuntimeStorageGB))
+	if resource.StoredFileGB < 0 || resource.StoredFileGB > maxRuntimeStorageGB {
+		return kernel.BadAuthRequest(fmt.Sprintf("账号文件容量必须是 0-%d GB 的整数，0 表示不限量", maxRuntimeStorageGB))
+	}
+	if resource.TaskDataGB < 1 || resource.TaskDataGB > maxRuntimeStorageGB {
+		return kernel.BadAuthRequest(fmt.Sprintf("任务数据容量必须是 1-%d GB 的整数", maxRuntimeStorageGB))
 	}
 	if resource.StructuredDataMB < 1 || resource.StructuredDataMB > maxRuntimeDataMB {
 		return kernel.BadAuthRequest(fmt.Sprintf("结构化数据容量必须是 1-%d MB 的整数", maxRuntimeDataMB))
 	}
 	storedMB := resource.StoredFileGB * 1024
-	if resource.ResourceUploadMB > storedMB || resource.GeneratedFileMB > storedMB {
+	if storedMB > 0 && (resource.ResourceUploadMB > storedMB || resource.GeneratedFileMB > storedMB) {
 		return kernel.BadAuthRequest("单文件上限不能大于账号文件总容量")
 	}
 	for label, item := range map[string]int64{

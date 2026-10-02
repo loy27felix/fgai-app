@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { microphoneErrorMessage } from "@/lib/microphone-error";
 
 export type VoiceRecordingState = "idle" | "recording" | "paused";
 
@@ -130,8 +131,7 @@ export function useVoiceRecording(options: UseVoiceRecordingOptions = {}): UseVo
                 }
             }, 100);
         } catch (err) {
-            const message = err instanceof Error ? err.message : "无法访问麦克风";
-            setError(message);
+            setError(microphoneErrorMessage(err));
             setState("idle");
             cleanup();
         }

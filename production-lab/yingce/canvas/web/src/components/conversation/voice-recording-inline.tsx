@@ -115,7 +115,7 @@ export function VoiceRecordingInline({ onTranscribed, onCancel }: VoiceRecording
         >
             {displayError ? (
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className="truncate text-xs" style={{ color: "#dc2626" }}>
+                    <span role="alert" className="min-w-32 whitespace-normal break-words text-xs leading-5" style={{ color: "var(--color-error, #dc2626)" }}>
                         {displayError}
                     </span>
                     {speechSupported ? (

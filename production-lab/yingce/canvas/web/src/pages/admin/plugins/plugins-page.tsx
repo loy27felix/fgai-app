@@ -36,7 +36,7 @@ export default function AdminPluginsPage() {
     const [savingId, setSavingId] = useState("");
     const [uploadOpen, setUploadOpen] = useState(false);
     const [search, setSearch] = useState("");
-    const [kind, setKind] = useState<"all" | "application" | "protocol" | "payment" | "uploaded">("all");
+    const [kind, setKind] = useState<"all" | "application" | "protocol" | "uploaded">("all");
     const [availability, setAvailability] = useState<"all" | "available" | "unavailable">("all");
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
@@ -58,7 +58,7 @@ export default function AdminPluginsPage() {
         void reload();
     }, []);
 
-    const items = useMemo(() => mergePlugins(plugins), [plugins]);
+    const items = useMemo(() => mergePlugins(plugins).filter((plugin) => plugin.management.kind !== "payment"), [plugins]);
     const filtered = useMemo(() => {
         const keyword = search.trim().toLocaleLowerCase();
         return items.filter((item) => {
@@ -122,7 +122,6 @@ export default function AdminPluginsPage() {
 
     const applicationCount = items.filter((item) => item.management.kind === "application").length;
     const protocolCount = items.filter((item) => item.management.kind === "protocol").length;
-    const paymentCount = items.filter((item) => item.management.kind === "payment").length;
     const unavailableCount = items.filter((item) => !(states[item.manifest.id]?.platformAvailable ?? item.status === "enabled")).length;
     const hasFilters = Boolean(search.trim() || kind !== "all" || availability !== "all");
     const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -244,11 +243,10 @@ export default function AdminPluginsPage() {
                 </>
             }
         >
-            <div className="my-4 grid min-h-16 grid-cols-2 divide-x divide-border/70 overflow-hidden rounded-lg border border-border/70 bg-card sm:grid-cols-5">
+            <div className="my-4 grid min-h-16 grid-cols-2 divide-x divide-border/70 overflow-hidden rounded-lg border border-border/70 bg-card sm:grid-cols-4">
                 <OverviewItem label="全部插件" value={items.length} />
                 <OverviewItem label="官方应用" value={applicationCount} />
                 <OverviewItem label="系统协议" value={protocolCount} />
-                <OverviewItem label="支付协议" value={paymentCount} />
                 <OverviewItem label="平台已停用" value={unavailableCount} tone={unavailableCount ? "warning" : "default"} />
             </div>
             <AdminDataTable
@@ -280,7 +278,6 @@ export default function AdminPluginsPage() {
                                 { value: "all", label: "全部类型" },
                                 { value: "application", label: "官方应用插件" },
                                 { value: "protocol", label: "系统协议插件" },
-                                { value: "payment", label: "支付协议插件" },
                                 { value: "uploaded", label: "上传的自定义插件" },
                             ]}
                         />

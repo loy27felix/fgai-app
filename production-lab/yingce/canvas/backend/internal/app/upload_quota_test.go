@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -67,6 +68,41 @@ func TestReserveUserUploadQuotaRejectsTotalStoredFilesAtLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := svc.reserveUserUploadQuota("user-1", 1); err == nil || !strings.Contains(err.Error(), "20GB 上限") {
+		t.Fatalf("stored-file limit error = %v", err)
+	}
+}
+
+func TestFGUnlimitedStorageKeepsUsageAndUploadSafeguards(t *testing.T) {
+	svc := newResourceTestService(t)
+	policy := defaultRuntimePolicy()
+	policy.Resource.StoredFileGB = 0
+	policy.Resource.DailyUploadMB = 100
+	encoded, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.repo.SaveSystemSetting(&model.SystemSetting{Key: runtimePolicySettingKey, ValueJSON: string(encoded)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.repo.Create(&model.Resource{ID: "large-original", UserID: "user-1", Status: model.ResourceStatusReady, Provider: "local", ObjectKey: "large-original.mp4", Size: 25 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := svc.AccountFileStorageUsage("user-1")
+	if err != nil || usage.UsedBytes != 25<<30 || usage.TotalBytes != 0 {
+		t.Fatalf("unlimited usage = %#v, error = %v", usage, err)
+	}
+	for _, reserve := range []func(string, int64) (string, error){svc.reserveUserUploadQuota, svc.reserveChunkedUploadQuota, svc.reserveGeneratedResourceQuota} {
+		day, err := reserve("user-1", 10<<20)
+		if err != nil {
+			t.Fatalf("upload above former 20GB limit rejected: %v", err)
+		}
+		svc.releaseUserUploadQuota("user-1", day, 10<<20)
+	}
+	if _, err := svc.reserveUserUploadQuota("user-1", 50<<20); err == nil {
+		t.Fatal("single-file limit was lost")
+	}
+	if _, err := svc.reserveChunkedUploadQuota("user-1", 100<<20); err == nil || !strings.Contains(err.Error(), "每日") && !strings.Contains(err.Error(), "自然日") {
+		t.Fatalf("daily-upload limit was lost: %v", err)
 	}
 }
 

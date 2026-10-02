@@ -145,7 +145,7 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                                         <span className="text-foreground/60">{item.label}</span>
                                                         <span className="shrink-0 tabular-nums text-foreground/75">{item.display}</span>
                                                     </div>
-                                                    <Progress percent={Math.min(100, item.limit > 0 ? Math.round(item.value / item.limit * 100) : 0)} size="small" showInfo={false} status={item.value >= item.limit ? "exception" : "normal"} />
+                                                    {item.limit > 0 ? <Progress percent={Math.min(100, Math.round(item.value / item.limit * 100))} size="small" showInfo={false} status={item.value >= item.limit ? "exception" : "normal"} /> : null}
                                                 </div>
                                             ))}
                                         </div>
@@ -249,7 +249,7 @@ function quotaUsageItems(detail: AdminUserDetail) {
     const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GB` : `${(value / 1024 ** 2).toFixed(1)} MB`;
     const number = (value: number) => new Intl.NumberFormat("zh-CN").format(value);
     return [
-        { label: "资源与附件", value: detail.storedFileBytes, limit: detail.quota.storedFileGB * 1024 ** 3, display: `${bytes(detail.storedFileBytes)} / ${detail.quota.storedFileGB} GB` },
+        { label: "资源与附件", value: detail.storedFileBytes, limit: detail.quota.storedFileGB * 1024 ** 3, display: detail.quota.storedFileGB > 0 ? `${bytes(detail.storedFileBytes)} / ${detail.quota.storedFileGB} GB` : `${bytes(detail.storedFileBytes)} · 不限额` },
         { label: "今日上传（UTC）", value: detail.dailyUploadBytes, limit: detail.quota.dailyUploadMB * 1024 ** 2, display: `${bytes(detail.dailyUploadBytes)} / ${detail.quota.dailyUploadMB} MB` },
         { label: "画布、素材与会话数据", value: structuredBytes, limit: detail.quota.structuredDataMB * 1024 ** 2, display: `${bytes(structuredBytes)} / ${detail.quota.structuredDataMB} MB` },
         { label: "任务与请求日志数据", value: detail.storageUsage.taskBytes, limit: detail.quota.taskDataGB * 1024 ** 3, display: `${bytes(detail.storageUsage.taskBytes)} / ${detail.quota.taskDataGB} GB` },

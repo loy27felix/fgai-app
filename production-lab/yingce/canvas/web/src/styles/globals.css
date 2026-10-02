@@ -11861,6 +11861,14 @@ html:not(.dark) .creation-home .creation-chat-control[aria-expanded="true"] { ba
     max-width: 160px;
     min-width: 0;
 }
+.creation-home .creation-chat-controls:has(> .voice-recording-inline [role="alert"]) { flex-wrap: wrap; }
+.creation-home .creation-chat-controls > .voice-recording-inline:has([role="alert"]) {
+    max-width: 320px;
+    flex: 1 1 260px;
+    height: auto;
+    min-height: 36px;
+    overflow: visible;
+}
 
 .creation-chat-intro h1 > .creation-intro-emphasis {
     display: inline-block;

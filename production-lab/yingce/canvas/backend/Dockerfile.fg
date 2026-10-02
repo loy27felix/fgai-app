@@ -8,7 +8,7 @@ RUN go mod download
 COPY backend ./
 ARG BUILD_VERSION=v1.2.0
 ARG BUILD_COMMIT=unknown
-RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app ./internal/handler ./internal/protocol ./internal/repository ./internal/canvas -run '^(TestFG|TestArkVideoAdapter|TestCanvasRevision)' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app ./internal/handler ./internal/protocol ./internal/repository ./internal/canvas -run '^(TestFG|TestArkVideoAdapter|TestCanvasRevision|TestReserveUserUploadQuota|TestReleaseUserUploadQuota|TestCommitUserUploadQuota|TestAccountFileStorageUsage|TestRuntimePolicy)' -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/skills -run '^(TestFG|TestBuiltin|TestEnsureBuiltin|TestSkillPresets)' -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X infinite-canvas/backend/internal/buildinfo.Version=${BUILD_VERSION} -X infinite-canvas/backend/internal/buildinfo.Commit=${BUILD_COMMIT}" -o /out/infinite-canvas-backend ./cmd/server
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -o /out/migrate-schema ./cmd/migrate-schema

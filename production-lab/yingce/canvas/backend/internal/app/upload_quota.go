@@ -77,7 +77,7 @@ func (s *Service) reserveUserStoredFileQuota(userID string, size int64, exclusiv
 	if s.pendingStorage == nil {
 		s.pendingStorage = map[string]int64{}
 	}
-	if storedBytes+s.pendingStorage[userID]+size >= storedLimit {
+	if storedLimit > 0 && storedBytes+s.pendingStorage[userID]+size >= storedLimit {
 		return "", QuotaExceeded(fmt.Sprintf("账号资源和会话附件已达到 %s 上限，请联系管理员清理历史文件", formatStorageLimit(storedLimit)))
 	}
 	s.pendingStorage[userID] += size

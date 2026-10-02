@@ -1,8 +1,11 @@
-import { App, Button, InputNumber, Progress, Skeleton, Switch } from "antd";
+import { Alert, App, Button, InputNumber, Progress, Skeleton, Switch } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { Activity, AlertTriangle, Bot, Cpu, Database, Gauge, HardDrive, MemoryStick, RefreshCw, Server, ShieldCheck, Trash2, Wifi } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { clearRuntimeCache, getSystemPerformance, updateAgentSessionLimit, type SystemPerformance } from "@/services/api/system-performance";
+import { getAdminStorageStats } from "@/services/api/admin-storage";
+import { storageCapacityAlert } from "@/lib/storage-capacity-alert";
 import { AdminPageFrame } from "../components/admin-shell";
 import { AdminStatusBadge, SettingsSectionCard } from "../components/admin-ui";
 
@@ -32,7 +35,7 @@ function formatNumber(value?: number) {
 
 function metricTone(value: number) {
     if (value >= 90) return "exception" as const;
-    if (value >= 75) return "active" as const;
+    if (value >= 80) return "active" as const;
     return "normal" as const;
 }
 
@@ -65,6 +68,7 @@ export default function SystemPerformancePage() {
     const [agentLimitDraft, setAgentLimitDraft] = useState<number | null>(null);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [loadError, setLoadError] = useState("");
+    const storage = useQuery({ queryKey: ["admin-team-storage"], queryFn: ({ signal }) => getAdminStorageStats(signal), refetchInterval: autoRefresh ? refreshIntervalMs : false });
     const mountedRef = useRef(true);
     const requestSequence = useRef(0);
 
@@ -147,6 +151,7 @@ export default function SystemPerformancePage() {
     const databasePercent = databaseLimit ? databaseConnections / databaseLimit * 100 : undefined;
     const redisPoolRequests = (data?.redis.pool.hits || 0) + (data?.redis.pool.misses || 0);
     const redisPoolHitRate = redisPoolRequests ? (data?.redis.pool.hits || 0) / redisPoolRequests * 100 : 0;
+    const capacityAlert = !loadError ? storageCapacityAlert(data.disk) : null;
 
     return (
         <AdminPageFrame
@@ -164,10 +169,18 @@ export default function SystemPerformancePage() {
 
                 <section className="admin-performance-kpis" aria-label="核心性能指标">
                     <PerformanceKpi icon={<MemoryStick className="size-4" />} label={memoryPercent !== undefined ? "Docker 虚拟机内存" : "进程堆内存"} value={memoryPercent !== undefined ? `${memoryPercent.toFixed(1)}%` : formatBytes(data?.memory.heapAllocBytes)} detail={memoryPercent !== undefined ? `${formatBytes(data?.memory.usedBytes)} / ${formatBytes(data?.memory.totalBytes)} · 非 Mac 总内存` : `Go 已保留 ${formatBytes(data?.memory.heapSysBytes)}`} percent={memoryPercent} />
-                    <PerformanceKpi icon={<HardDrive className="size-4" />} label="NAS 存储容量" value={data?.disk.available ? `${data.disk.usagePercent.toFixed(1)}%` : "待采集"} detail={data?.disk.available ? `${formatBytes(data.disk.usedBytes)} / ${formatBytes(data.disk.totalBytes)} · 主机采集` : data.disk.statusMessage || "无法取得有效容量快照"} percent={data?.disk.available ? data.disk.usagePercent : undefined} />
+                    <PerformanceKpi icon={<HardDrive className="size-4" />} label="NAS 挂载使用率" value={data?.disk.available ? `${data.disk.usagePercent.toFixed(1)}%` : "待采集"} detail={data?.disk.available ? `${formatBytes(data.disk.usedBytes)} / ${formatBytes(data.disk.totalBytes)} · 共享盘报告` : data.disk.statusMessage || "无法取得有效容量快照"} percent={data?.disk.available ? data.disk.usagePercent : undefined} />
                     <PerformanceKpi icon={<Database className="size-4" />} label={data?.database.driver === "postgres" ? "PostgreSQL 连接" : "数据库连接"} value={`${databaseConnections}${databaseLimit ? ` / ${databaseLimit}` : ""}`} detail={`${data?.database.driver || "--"} · ${data?.database.latencyMs || 0} ms`} percent={databasePercent} />
                     <PerformanceKpi icon={<Wifi className="size-4" />} label="Redis" value={data?.redis.connected ? formatBytes(data.redis.usedMemoryBytes) : data?.redis.mode === "local" ? "本地模式" : "连接异常"} detail={data?.redis.connected ? `${formatNumber(data.redis.keys)} keys · ${formatNumber(data.redis.opsPerSecond)} ops/s` : data?.redis.statusMessage || "未连接"} />
                 </section>
+                {capacityAlert ? <Alert showIcon type={capacityAlert.type} title={capacityAlert.title} description={capacityAlert.description} /> : null}
+                <SettingsSectionCard layout="stacked" icon={<HardDrive className="size-4" />} title="团队存储" description="个人文件总量不限额；80% 提醒、90% 强提醒基于 NAS 挂载报告的整体使用率。">
+                    <FactGrid>
+                        <Fact label="第六板块素材原件已用" value={storage.data ? `${formatBytes(storage.data.physicalBytes)} · ${formatNumber(storage.data.readyCount)} 条文件记录` : storage.isError ? "统计暂不可用" : "正在统计"} />
+                        <Fact label="NAS 可用空间" value={data.disk.available ? formatBytes(data.disk.freeBytes) : "待采集"} />
+                        <Fact label="容量来源" value="Mac 的 NAS 挂载报告，包含共享盘上的其他文件；不等同于存储设备的物理盘容量。" />
+                    </FactGrid>
+                </SettingsSectionCard>
 
                 <div className="admin-performance-grid">
                     <SettingsSectionCard layout="stacked" icon={<Server className="size-4" />} title="服务器与进程" description="操作系统、运行时和当前进程快照。" status={{ label: data?.disk.writable ? "数据目录可写" : "数据目录不可写", color: data?.disk.writable ? "success" : "error" }}>
@@ -217,7 +230,7 @@ export default function SystemPerformancePage() {
 
                 {(data.agents || []).map((agent) => {
                     const draft = agentLimitDraft ?? agent.configuredLimit;
-                    return <SettingsSectionCard key={agent.id} layout="stacked" icon={<Bot className="size-4" />} title="画布 Agent 服务" description="同时进行中的对话占用一个名额。审批等待不占用。降低上限不会中断已经开始的对话，也不会在这台机器上再启动容器。" status={{ label: agent.healthy ? "服务可连接" : "服务不可达", color: agent.healthy ? "success" : "error" }} footer={<><span className="admin-performance-cache-note"><Gauge className="size-3.5" />FG 试用并发 4；按机器与供应商承载调整</span><span style={{ display: "flex", gap: 8, alignItems: "center" }}><InputNumber min={1} max={64} precision={0} value={draft} onChange={(value) => setAgentLimitDraft(typeof value === "number" ? value : draft)} /><Button type="primary" loading={savingAgentLimit} disabled={draft === agent.configuredLimit} onClick={() => {
+                    return <SettingsSectionCard key={agent.id} layout="stacked" icon={<Bot className="size-4" />} title="画布 Agent 服务" description="同时进行中的对话占用一个名额。审批等待不占用。降低上限不会中断已经开始的对话，也不会在这台机器上再启动容器。" status={{ label: agent.healthy ? "服务可连接" : "服务不可达", color: agent.healthy ? "success" : "error" }} footer={<><span className="admin-performance-cache-note"><Gauge className="size-3.5" />这是活跃对话上限，不限制登录人数</span><span style={{ display: "flex", gap: 8, alignItems: "center" }}><InputNumber min={1} max={64} precision={0} value={draft} onChange={(value) => setAgentLimitDraft(typeof value === "number" ? value : draft)} /><Button type="primary" loading={savingAgentLimit} disabled={draft === agent.configuredLimit} onClick={() => {
                         setSavingAgentLimit(true);
                         void updateAgentSessionLimit(draft).then(() => {
                             message.success("已应用 Agent 同时对话上限");
