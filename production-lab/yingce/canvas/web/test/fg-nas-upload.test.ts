@@ -6,6 +6,15 @@ mock.module('@/lib/image-utils',()=>({readImageMeta:async()=>({width:32,height:3
 mock.module('@/services/resource-blob-cache',()=>({primeResourceBlobCache:async()=>{},getCachedResourceBlob:async()=>null}));
 const {uploadImage}=await import('@/services/image-storage');
 const {uploadMediaFile}=await import('@/services/file-storage');
+const {applyResourceReference}=await import('@/services/user-data-sync-media');
+
+test('director cloud documents retain readable text while media references resolve to server URLs',()=>{
+ const scene={directorDesk:true,content:'1 个戏段 · 工程已保存到 NAS',storageKey:'resource:scene-json'};
+ expect(applyResourceReference(scene,scene.storageKey).content).toBe(scene.content);
+ expect(scene.content).toBe('1 个戏段 · 工程已保存到 NAS');
+ const media=applyResourceReference({content:'blob:temporary'},'resource:video');
+ expect(media.content).toBe('/api/resources/video/file');
+});
 test('FG network upload failure is rejected; no local-only image or media is accepted',async()=>{
  const previous=apiClient.defaults.adapter;
  apiClient.defaults.adapter=async()=>{throw new Error('Network Error');};

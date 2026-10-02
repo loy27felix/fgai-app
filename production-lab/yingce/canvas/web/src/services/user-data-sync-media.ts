@@ -78,6 +78,8 @@ export function applyResourceReference(payload: Record<string, unknown>, storage
     const url = resourceFileUrl(resourceId);
     payload.storageKey = storageKey;
     for (const key of ["content", "dataUrl", "url", "coverUrl"]) {
+        // A director scene references a JSON file, while content remains its readable synopsis.
+        if (key === "content" && payload.directorDesk === true) continue;
         if (typeof payload[key] === "string") payload[key] = url;
     }
     return payload;
