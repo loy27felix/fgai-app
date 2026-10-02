@@ -418,14 +418,14 @@ export function AssetLibraryPickerModal({
         if (remoteCategoryCounts) return value === "all" ? Object.values(remoteCategoryCounts).reduce((sum, count) => sum + count, 0) : remoteCategoryCounts[value] || 0;
         return value === "all" ? activeSourceItems.length : activeSourceItems.filter((item) => item.category === value).length;
     };
-    const sourceLabel = source === "plugin" ? "插件来源" : "本地素材";
+    const sourceLabel = source === "plugin" ? "插件来源" : "我的素材";
     const sourceMenuItems: MenuProps["items"] = [
         {
             key: "local",
             icon: <HardDrive aria-hidden="true" />,
             label: (
                 <span className="asset-picker-source-menu-label">
-                    <span>本地素材</span>
+                    <span>我的素材</span>
                     <em>{localItems.filter((item) => !item.archived).length}</em>
                 </span>
             ),
