@@ -1,0 +1,16 @@
+.env*
+*.dump
+*.tar.gz
+*.csv
+host-metrics/
+*.log
+fg-model-audit.json
+reference-video-metadata.json
+fg-video-qa-*.mp4
+secrets/
+private-data/
+*.private.json
+proofs/
+gateway/topics.json
+gateway/topics.example.json
+ARCHIVE_*.md

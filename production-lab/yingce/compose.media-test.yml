@@ -1,0 +1,25 @@
+name: fg-six-media-test
+services:
+  signed-media:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    volumes:
+      - ./media-readonly.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [fg-platform]
+    healthcheck:
+      test: [CMD, nginx, -t]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: "no"
+    command: [tunnel, --no-autoupdate, --url, http://signed-media:8080]
+    networks: [fg-platform]
+    depends_on:
+      signed-media:
+        condition: service_healthy
+networks:
+  fg-platform:
+    name: fg-studio
+    external: true

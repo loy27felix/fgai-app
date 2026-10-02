@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.25-alpine AS build
+RUN apk add --no-cache build-base
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
+COPY backend/third_party ./third_party
+RUN go mod download
+COPY backend ./
+ARG BUILD_VERSION=v1.2.0
+ARG BUILD_COMMIT=unknown
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app ./internal/handler ./internal/protocol -run '^(TestFG|TestArkVideoAdapter)' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X infinite-canvas/backend/internal/buildinfo.Version=${BUILD_VERSION} -X infinite-canvas/backend/internal/buildinfo.Commit=${BUILD_COMMIT}" -o /out/infinite-canvas-backend ./cmd/server
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -o /out/migrate-schema ./cmd/migrate-schema
+FROM ghcr.io/ddcat-ai/open-ai-canvas-backend@sha256:11b34ae00f4afc3fab3f5d75a782cea807069f49091c63c6019f1d1e791628b6
+COPY --from=build /out/infinite-canvas-backend /usr/local/bin/infinite-canvas-backend
+COPY --from=build /out/migrate-schema /usr/local/bin/migrate-schema

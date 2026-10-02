@@ -1,0 +1,4 @@
+# Keep the deployed runtime and dependencies unchanged; customize its visible model label.
+FROM ghcr.io/ddcat-ai/open-ai-canvas-yingce-agent@sha256:e8f4e89e7501840d0b6f024d28b7bcc97e6798faad65262c0b1e21fcfa53b251
+COPY backend/agent-runtime/pi/agent-runtime.mjs /app/agent-runtime/agent-runtime.mjs
+RUN node --check /app/agent-runtime/agent-runtime.mjs

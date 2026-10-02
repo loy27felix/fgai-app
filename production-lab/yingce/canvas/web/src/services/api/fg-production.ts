@@ -1,0 +1,11 @@
+import {http} from './request';
+export type FGTopic={id:number;title:string;original:string;plot:string;conflict?:string;style:string;markets:string;form:string;tier:string;blocked?:boolean;selection_group?:string;selected_by?:string;selected_by_email?:string;selected_at?:string;source_rights?:string};
+export type FGProject={id:string;name:string;status:string;topic_id:number|null;topic_snapshot:FGTopic|null;tier:string|null;group_name:string|null;budget_cny:string|null;owner_name:string;canvas_count:number;updated_at:string};
+export type FGCall={id:string;user_id:string;user_name:string;project_id:string|null;project_name:string|null;canvas_title:string|null;group_name:string|null;model:string;capability:string;status:string;task_status:string|null;created_at:string;fg_fee_reference_id:string;provider_request_id:string;settled_usd:string|null;settled_cny:string|null;settled_reference_id:string|null;rate_estimated_cny:number|null;cost_available:boolean;estimated_cost_micros:number;currency:string};
+export type FGFinance={calls:FGCall[];fx:number;collectedAt:string;billingSync:{mode:string;reason:string;automatic?:boolean;status?:string;lastSuccess?:string};lastImport:{id:string;row_count:number;created_at:string}|null;unallocated:Array<{reference_id:string;model:string;cny:number;occurred_at:string}>};
+export const getFGTopics=()=>http.get<{topics:FGTopic[]}>('/fg/topics');
+export const getFGProjects=()=>http.get<{projects:FGProject[];legacy:Array<{id:string;title:string;ownerName:string;team:string;topicId:number|null}>;groups:Array<{id:string;name:string}>}>('/fg/projects');
+export const createFGProject=(input:{topicId:number;tier:string;groupName:string;budgetCny:number})=>http.post<{projectId:string;reused:boolean}>('/fg/projects',input);
+export const getFGFinance=()=>http.get<FGFinance>('/fg/finance');
+export const importFGFees=(csv:string)=>http.post<{rows:number;reused:boolean}>('/fg/finance/import',{csv});
+export const updateFGFx=(fx:number)=>http.put<{fx:number}>('/fg/finance/fx',{fx});
