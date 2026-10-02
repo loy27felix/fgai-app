@@ -684,11 +684,11 @@ export function CanvasPromptOptimizerDrawer({ open, children, prompt, generation
                     value={draftPrompt}
                     onChange={(value) => setDraftPrompt(value)}
                     onSubmit={(value) => void runOptimization(value)}
-                    placeholder="继续描述你的画面想法，Enter 发送"
+                    placeholder="继续描述你的画面想法，回车换行；点击发送"
                     autoSize={{ minRows: 2, maxRows: 6 }}
                     disabled={working}
                     suffix={false}
-                    submitType="enter"
+                    submitType="shiftEnter"
                     footer={
                         <div className="canvas-prompt-optimizer-composer-toolbar">
                             <div className="canvas-prompt-optimizer-composer-leading">
