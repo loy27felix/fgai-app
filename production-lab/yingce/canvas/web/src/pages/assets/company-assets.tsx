@@ -17,7 +17,7 @@ const categories=[{value:"character",label:"角色形象"},{value:"environment",
 const kinds=[{value:"image",label:"图片"},{value:"video",label:"视频"},{value:"audio",label:"音频"}];
 function CompanyMedia({item,large=false}:{item:CompanyAsset;large?:boolean}) {
  const [url,setUrl]=useState("");const [error,setError]=useState("");
- useEffect(()=>{if(item.kind==="image")return;let stopped=false;getResourceAccess(item.resourceId,"display").then(access=>{if(!stopped)setUrl(resolveResourceAccessURL(access.url))}).catch(()=>{if(!stopped)setError("文件读取失败，请刷新重试")});return()=>{stopped=true}},[item.resourceId,item.kind]);
+ useEffect(()=>{if(item.kind==="image")return;let stopped=false;getResourceAccess(`resource:${item.resourceId}`,"display").then(access=>{if(!stopped)setUrl(resolveResourceAccessURL(access.url))}).catch(()=>{if(!stopped)setError("文件读取失败，请刷新重试")});return()=>{stopped=true}},[item.resourceId,item.kind]);
  if(item.kind==="image")return <CachedResourceImage storageKey={`resource:${item.resourceId}`} alt={item.title} className={large?"fg-company-preview":"fg-company-image"} fallback={<Image aria-label="图片加载中"/>}/>;
  if(error)return <span role="alert">{error}</span>;
  if(item.kind==="video")return url?<video src={url} controls playsInline preload="metadata" className={large?"fg-company-preview":"fg-company-image"}/>:<Film/>;
