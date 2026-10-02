@@ -1,7 +1,7 @@
 import { fetchFile } from "@ffmpeg/util";
 
 import { getMediaBlob } from "@/services/file-storage";
-import { buildExtractAudioArgs, buildSegmentTrimArgs, SEGMENT_INPUT_NAME, SEGMENT_OUTPUT_NAME } from "./canvas-video-segment-args";
+import { AUDIO_OUTPUT_NAME, buildExtractAudioArgs, buildSegmentTrimArgs, SEGMENT_INPUT_NAME, SEGMENT_OUTPUT_NAME } from "./canvas-video-segment-args";
 import { loadFFmpeg } from "./canvas-video-merge";
 
 export type VideoSegmentRange = {
@@ -76,23 +76,34 @@ export async function trimVideoSegment(source: VideoSegmentSource, range: VideoS
 
 /** 从视频片段提取声音为 MP3；优先 libmp3lame，内核不支持时回退默认 mp3 编码器。 */
 export async function extractVideoAudio(source: VideoSegmentSource, range: VideoSegmentRange, durationMs?: number, onProgress?: (progress: VideoSegmentProgress) => void) {
+    assertValidRange(range, durationMs);
     const ffmpeg = await loadFFmpeg(({ phase, progress }) => onProgress?.({ phase: phase === "loading" ? "loading" : "reading", progress }));
     const blob = await readVideoSourceBlob(source);
     onProgress?.({ phase: "reading", progress: 45 });
     await ffmpeg.writeFile(INPUT_NAME, await fetchFile(blob));
-    assertValidRange(range, durationMs);
     const startSec = String(range.startMs / 1000);
     const durationSec = String((range.endMs - range.startMs) / 1000);
     onProgress?.({ phase: "encoding", progress: 55 });
+    const logs: string[] = [];
+    const log = ({message}: {message: string}) => { logs.push(message); if (logs.length > 80) logs.shift(); };
+    ffmpeg.on("log", log);
+    let outputName = AUDIO_OUTPUT_NAME;
+    let outputType = "audio/mpeg";
     try {
         const args = (audioCodec: string) => buildExtractAudioArgs(audioCodec, startSec, durationSec);
         let exitCode = await ffmpeg.exec(["-y", ...args("libmp3lame")]);
+        if (exitCode !== 0 && logs.some(line => /matches no streams|does not contain any stream/i.test(line))) throw new Error("原视频没有音轨，无法提取声音；可以为它添加配音或音乐");
         if (exitCode !== 0) exitCode = await ffmpeg.exec(["-y", ...args("mp3")]);
-        if (exitCode !== 0) throw new Error("音频提取失败：当前 FFmpeg 内核不支持 MP3 编码");
-        const output = await ffmpeg.readFile(OUTPUT_NAME);
+        if (exitCode !== 0) {
+            outputName = "segment-output.wav"; outputType = "audio/wav";
+            exitCode = await ffmpeg.exec(["-y", "-i", INPUT_NAME, "-ss", startSec, "-t", durationSec, "-map", "0:a:0", "-vn", "-c:a", "pcm_s16le", outputName]);
+        }
+        if (exitCode !== 0) throw new Error("无法读取视频音轨，请确认原视频有声音且文件完整");
+        const output = await ffmpeg.readFile(outputName);
         onProgress?.({ phase: "encoding", progress: 100 });
-        return new Blob([output as BlobPart], { type: "audio/mpeg" });
+        return new Blob([output as BlobPart], { type: outputType });
     } finally {
-        await Promise.all([INPUT_NAME, OUTPUT_NAME].map((file) => ffmpeg.deleteFile(file).catch(() => undefined)));
+        ffmpeg.off("log", log);
+        await Promise.all([INPUT_NAME, AUDIO_OUTPUT_NAME, "segment-output.wav"].map((file) => ffmpeg.deleteFile(file).catch(() => undefined)));
     }
 }

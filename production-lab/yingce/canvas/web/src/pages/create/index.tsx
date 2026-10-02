@@ -452,8 +452,9 @@ export default function CreatePage() {
             };
         }
         if (!file.type.startsWith("image/")) {
-            const uploaded = await uploadMediaFile(file, "create-upload");
-            return { attachment: creationAttachmentFromDocument(file, uploaded) };
+            const {uploadDocument}=await import('@/services/document-storage');
+            const uploaded = await uploadDocument(file);
+            return { attachment: {...creationAttachmentFromDocument(file, uploaded),text:uploaded.text} };
         }
         const uploaded = await uploadImage(file);
         return {

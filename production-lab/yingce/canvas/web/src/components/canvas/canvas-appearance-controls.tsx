@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, ColorPicker, Input, Segmented, Slider } from "antd";
+import { Button, ColorPicker, Input, Segmented, Slider, Upload } from "antd";
+import {uploadImage} from '@/services/image-storage';
 import { CircleDot, Grid2x2, Moon, Paintbrush, RotateCcw, Save, Square, Sun } from "lucide-react";
 
 import {
@@ -14,7 +15,7 @@ import {
 import type { CanvasBackgroundMode, CanvasColorTheme, CanvasTheme } from "@/lib/canvas-theme";
 
 const LIGHT_PRESETS = ["#F0F0F0", "#F3DCE5", "#EEE5D8", "#DFE9E6"];
-const DARK_PRESETS = ["#000000", "#30272B", "#302D26", "#25302E"];
+const DARK_PRESETS = ["#14171D", "#252431", "#302D26", "#233039"];
 
 export function CanvasAppearanceControls({
     appearance,
@@ -34,6 +35,8 @@ export function CanvasAppearanceControls({
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
 }) {
     const [draft, setDraft] = useState(appearance);
+    const [uploading,setUploading]=useState(false);
+    const [uploadError,setUploadError]=useState('');
 
     useEffect(() => setDraft(appearance), [appearance]);
 
@@ -101,6 +104,13 @@ export function CanvasAppearanceControls({
                     />
                     <ColorField label="画布背景" value={draft.custom.backgroundColor} theme={theme} onChange={(backgroundColor) => updateCustom({ backgroundColor, backgroundBrightness: 0 })} />
                     <SliderField label="明亮度" value={draft.custom.backgroundBrightness} min={-30} max={30} suffix="%" onChange={(backgroundBrightness) => updateCustom({ backgroundBrightness })} />
+                    <Upload accept="image/*" showUploadList={false} beforeUpload={file=>{
+                        setUploading(true);setUploadError('');
+                        void uploadImage(file).then(image=>{if(image.pendingRemoteUpload)throw Error('背景尚未保存到 NAS，请重试');updateCustom({backgroundImage:{storageKey:image.storageKey}});}).catch(e=>setUploadError(e.message)).finally(()=>setUploading(false));
+                        return false;
+                    }}><Button size="small" block loading={uploading}>上传画布背景图片</Button></Upload>
+                    {draft.custom.backgroundImage?<Button size="small" block onClick={()=>updateCustom({backgroundImage:undefined})}>移除背景图片</Button>:null}
+                    {uploadError?<p role="alert" className="text-xs text-red-500">{uploadError}</p>:null}
                     <ColorField label="网格颜色" value={draft.custom.gridColor} theme={theme} onChange={(gridColor) => updateCustom({ gridColor })} />
                     <SliderField label="网格强度" value={draft.custom.gridOpacity} min={0} max={100} suffix="%" onChange={(gridOpacity) => updateCustom({ gridOpacity })} />
                     <Button block size="small" type="text" icon={<RotateCcw className="size-3.5" />} onClick={resetCustom}>从继承主题重新开始</Button>

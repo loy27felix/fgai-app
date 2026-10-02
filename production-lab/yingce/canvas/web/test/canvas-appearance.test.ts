@@ -38,8 +38,8 @@ afterEach(() => {
 });
 
 describe("canvas custom appearance", () => {
-    test("uses point grid as the default for new canvases", () => {
-        expect(DEFAULT_CANVAS_BACKGROUND_MODE).toBe("dots");
+    test("uses a clean background as the default for new FG canvases", () => {
+        expect(DEFAULT_CANVAS_BACKGROUND_MODE).toBe("blank");
         expect(DEFAULT_CANVAS_COLOR_THEME).toBe("dark");
     });
 
@@ -47,13 +47,13 @@ describe("canvas custom appearance", () => {
         const appearance = canvasAppearanceForTheme(DEFAULT_CANVAS_COLOR_THEME);
         expect(resolveCanvasAppearance(appearance, "light")).toEqual({
             baseTheme: "dark",
-            background: "#000000",
+            background: "#14171D",
             grid: "#000000",
         });
         expect(resolveCanvasGridColor(appearance, "light", "dots")).toBe("#000000");
         expect(resolveCanvasAppearance(customCanvasAppearanceFromTheme("dark"), "light")).toEqual({
             baseTheme: "dark",
-            background: "#000000",
+            background: "#14171D",
             grid: "rgba(0,0,0,1)",
         });
     });
@@ -79,7 +79,7 @@ describe("canvas custom appearance", () => {
         });
 
         const dark = enterCustomCanvasAppearance(canvasAppearanceForTheme("dark"), "dark");
-        expect(dark.custom).toMatchObject({ baseTheme: "dark", backgroundColor: "#000000", backgroundBrightness: 0, gridColor: "#000000", gridOpacity: 100 });
+        expect(dark.custom).toMatchObject({ baseTheme: "dark", backgroundColor: "#14171D", backgroundBrightness: 0, gridColor: "#000000", gridOpacity: 100 });
     });
 
     test("restores a previous custom profile only under the same base theme", () => {
@@ -92,7 +92,7 @@ describe("canvas custom appearance", () => {
         expect(fixedDark.custom).toBeUndefined();
         expect(enterCustomCanvasAppearance(fixedDark, "dark").custom).toMatchObject({
             baseTheme: "dark",
-            backgroundColor: "#000000",
+            backgroundColor: "#14171D",
         });
     });
 
@@ -173,7 +173,7 @@ describe("canvas custom appearance", () => {
     test("does not expose background opacity after legacy values are ignored", async () => {
         const controlsSource = await Bun.file(new URL("../src/components/canvas/canvas-appearance-controls.tsx", import.meta.url)).text();
         expect(controlsSource).toContain('const LIGHT_PRESETS = ["#F0F0F0"');
-        expect(controlsSource).toContain('const DARK_PRESETS = ["#000000"');
+        expect(controlsSource).toContain('const DARK_PRESETS = ["#14171D"');
         expect(controlsSource).not.toContain('label="背景透明度"');
         expect(controlsSource).toContain('aria-label="界面样式"');
         expect(controlsSource).toContain('label="网格强度"');

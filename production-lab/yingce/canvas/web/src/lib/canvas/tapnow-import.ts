@@ -1,5 +1,5 @@
 const TAPNOW_SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const TAPNOW_SHARE_HOST = "app.tapnow.media";
+const TAPNOW_SHARE_HOSTS = new Set(["app.tapnow.media", "app.tapnow.ai"]);
 
 export function parseTapNowShareID(value: string) {
     const trimmed = value.trim();
@@ -8,7 +8,7 @@ export function parseTapNowShareID(value: string) {
     try {
         const parsed = new URL(trimmed);
         const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
-        if (hostname !== TAPNOW_SHARE_HOST || !/^\/tapflow\/view\/?[^/]*\/?$/.test(parsed.pathname)) return "";
+        if (parsed.protocol !== "https:" || !TAPNOW_SHARE_HOSTS.has(hostname) || !/^\/tapflow\/view\/[^/]+\/?$/.test(parsed.pathname)) return "";
         const parts = parsed.pathname.split("/").filter(Boolean);
         candidate = parts.at(-1) || "";
     } catch {

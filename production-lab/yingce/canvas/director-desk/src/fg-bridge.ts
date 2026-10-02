@@ -1,11 +1,11 @@
 import type { AppContext } from './app-context.ts';
 import { readSceneDocument } from './scenes/sequence-project.ts';
 
-export const fgEmbedded = new URLSearchParams(location.search).get('fg') === '1' && parent !== window;
+export const fgEmbedded = typeof window !== 'undefined' && new URLSearchParams(location.search).get('fg') === '1' && parent !== window;
 export let fgCloudReady = !fgEmbedded;
 export function markFGCloudReady() { fgCloudReady = true; }
 const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: number }>();
-window.addEventListener('message', event => {
+if (typeof window !== 'undefined') window.addEventListener('message', event => {
     if (event.source !== parent || event.origin !== location.origin || event.data?.channel !== 'fg-director-desk-result') return;
     const item = pending.get(event.data.id); if (!item) return;
     clearTimeout(item.timer); pending.delete(event.data.id);
@@ -28,7 +28,7 @@ export function mountFGDirector(ctx: AppContext) {
     const brand = document.querySelector('.brand strong'); if (brand) brand.textContent = 'FG 3D 导演台';
     const logo = document.querySelector('.logo'); if (logo) logo.textContent = 'FG';
     // Desktop-only AI/MCP must not offer browser key settings or an unavailable service.
-    document.querySelectorAll<HTMLElement>('[data-act^="ai-"], [data-act="updates"], #timeline-to-ai, #ai-toggle, #ai-changes-toggle, #update-toggle, [data-setting="updates"]').forEach(el => el.hidden = true);
+    document.querySelectorAll<HTMLElement>('[data-act="updates"], #update-toggle, [data-setting="updates"]').forEach(el => el.hidden = true);
     const actions = document.querySelector('.header-actions')!;
     const send = document.createElement('button'); send.className = 'tool-button'; send.textContent = '交给制作 Agent';
     actions.prepend(send);

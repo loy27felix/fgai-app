@@ -15,12 +15,15 @@ type Options = {
 export function useDirectorDesk({nodesRef, connectionsRef, setNodes, setConnections, getCanvasCenter, saveCanvasProject}: Options) {
     const [open, setOpen] = useState(false);
     const [nodeId, setNodeId] = useState<string>();
+    const [libraryOpen, setLibraryOpen] = useState(false);
     const sceneId = useRef<string | undefined>(undefined);
     const lastDocument = useRef("");
     const openDesk = useCallback((node?: CanvasNodeData) => {
+        if(!node){setLibraryOpen(true);return;}
         sceneId.current = node?.metadata?.directorDesk ? node.id : undefined;
         setNodeId(sceneId.current); lastDocument.current = ""; setOpen(true);
     }, []);
+    const newDesk = useCallback(()=>{sceneId.current=undefined;setNodeId(undefined);lastDocument.current="";setLibraryOpen(false);setOpen(true);},[]);
     const commit = useCallback(async (node: CanvasNodeData, linkFrom?: string) => {
         const previousNodes = nodesRef.current; const previousLinks = connectionsRef.current;
         const exists = previousNodes.some(n => n.id === node.id);
@@ -65,5 +68,5 @@ export function useDirectorDesk({nodesRef, connectionsRef, setNodes, setConnecti
         }
         node.metadata = {...node.metadata, directorDeskSourceId: parent?.id}; await commit(node, parent?.id);
     }, [nodesRef, getCanvasCenter, commit]);
-    return {open, openDesk, closeDesk: () => setOpen(false), node: nodesRef.current.find(n => n.id === nodeId), saveDocument, saveOutput};
+    return {open, openDesk, newDesk, libraryOpen, closeLibrary:()=>setLibraryOpen(false), closeDesk: () => setOpen(false), node: nodesRef.current.find(n => n.id === nodeId), saveDocument, saveOutput};
 }

@@ -117,6 +117,7 @@ export async function submitBackendGenerationTask(
 }
 
 type BackendToolGenerationOptions = {
+    projectId?: string;
     prompt: string;
     config: AiConfig;
     messages: ResponseInputMessage[];
@@ -125,7 +126,7 @@ type BackendToolGenerationOptions = {
     signal?: AbortSignal;
     onDelta?: (text: string) => void;
     onTaskCreated?: (task: GenerationTask) => void;
-    metadata?: { source: string; nodeId?: string; runId?: string; stage?: string };
+    metadata?: { source: string; canvasId?: string; nodeId?: string; runId?: string; stage?: string };
 };
 
 // 报价和执行复用完全相同的任务协议，准备阶段不提交模型任务。
@@ -147,6 +148,7 @@ export function prepareBackendToolGenerationTask(options: BackendToolGenerationO
     }
     if (!logicalModelId && !requestConfig.channelId && !requestConfig.interfaceType) throw new Error("当前模型未选择可用请求协议");
     const task: CreateTaskInput = {
+        ...(options.projectId ? {projectId: options.projectId} : {}),
         type: "canvas_text",
         operation: "text",
         prompt: options.prompt,

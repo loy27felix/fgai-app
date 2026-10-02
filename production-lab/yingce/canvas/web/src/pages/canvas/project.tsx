@@ -143,6 +143,7 @@ import { useCanvasKeyboard } from "./use-canvas-keyboard";
 import { useCanvasMediaTools } from "./use-canvas-media-tools";
 import { useDirectorDesk } from "./use-director-desk";
 import { CanvasDirectorDeskModal } from "@/components/canvas/director/canvas-director-desk-modal";
+import { CanvasDirectorLibrary } from "@/components/canvas/director/canvas-director-library";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
 import { useCanvasNodeOperations } from "./use-canvas-node-operations";
 import { useCanvasProjectLifecycle } from "./use-canvas-project-lifecycle";
@@ -899,6 +900,12 @@ function InfiniteCanvasPage() {
     });
 
     const directorDesk = useDirectorDesk({nodesRef, connectionsRef, setNodes, setConnections, getCanvasCenter, saveCanvasProject});
+    const directorOpenedFromURL = useRef(false);
+    useEffect(()=>{
+        const id=new URLSearchParams(location.search).get('director');
+        const node=id?nodes.find(n=>n.id===id&&n.metadata?.directorDesk):undefined;
+        if(node&&!directorOpenedFromURL.current){directorOpenedFromURL.current=true;directorDesk.openDesk(node);}
+    },[nodes,directorDesk.openDesk]);
     const handleNodesDeleted = useCallback(
         (removedIds: Set<string>, nextNodes: CanvasNodeData[], removedNodes: CanvasNodeData[]) => {
             const clearDeletedId = (current: string | null) => (current && removedIds.has(current) ? null : current);
@@ -3095,7 +3102,8 @@ function InfiniteCanvasPage() {
                         ) : null}
 
                         {frameNode ? <CanvasVideoFrameDialog node={frameNode} open={Boolean(frameNode)} onClose={closeFrameDialog} onConfirm={(params) => void extractVideoFrames(frameNode, params)} /> : null}
-                        <CanvasDirectorDeskModal open={directorDesk.open} node={directorDesk.node} onClose={directorDesk.closeDesk} onSave={directorDesk.saveDocument} onOutput={directorDesk.saveOutput}
+                        <CanvasDirectorLibrary open={directorDesk.libraryOpen} nodes={nodes} onClose={directorDesk.closeLibrary} onOpen={directorDesk.openDesk} onNew={directorDesk.newDesk}/>
+                        <CanvasDirectorDeskModal open={directorDesk.open} node={directorDesk.node} canvasId={projectId} projectId={linkedProjectId} onClose={directorDesk.closeDesk} onSave={directorDesk.saveDocument} onOutput={directorDesk.saveOutput}
                             onAgentContext={async summary => { await directorDesk.saveOutput(new File([summary], "3D 调度说明.txt", {type: "text/plain"})); setAgentPrefillPrompt(summary); openAgent(); directorDesk.closeDesk(); }} />
 
                         {segmentNode && segmentDialogMode ? (

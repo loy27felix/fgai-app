@@ -148,7 +148,7 @@ export function PanoramaNodeContent({ node, theme, reduceMediaEffects }: Panoram
                     <button
                         type="button"
                         className="shrink-0 rounded-[var(--r-md)] px-2 py-1 font-medium text-white outline-none transition-colors"
-                        style={{ fontSize: "var(--fs-label)", background: "rgba(0,0,0,.78)", boxShadow: "0 1px 4px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.32)" }}
+                        style={{ color: "#fff", fontSize: "var(--fs-label)", background: "rgba(0,0,0,.78)", boxShadow: "0 1px 4px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.32)" }}
                         onMouseDown={(event) => event.stopPropagation()}
                         onClick={() => { setFailed(false); setActive(true); }}
                     >

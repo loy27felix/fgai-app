@@ -2,6 +2,7 @@ import { buildSkillMentionReferences } from "@/services/skill-runtime";
 import { canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
 import { creationAttachmentKind, type CreationAttachment } from "./creation-assets";
+import { documentPromptContext } from "@/services/document-storage";
 
 export type CreationReference = CanvasResourceReference & {
     attachmentId?: string;
@@ -97,7 +98,9 @@ export function displayCreationPrompt(prompt: string, references: CreationRefere
 
 export function expandCreationPrompt(prompt: string, references: CreationReference[], attachments: CreationAttachment[] = []) {
     const visiblePrompt = displayCreationPrompt(prompt, references).trim();
-    if (!references.length) return visiblePrompt;
+    const documents=attachments.filter((item):item is import('./creation-assets').CreationDocumentAttachment=>'text' in item&&typeof item.text==='string');
+    const documentContext=documentPromptContext(documents.map(item=>({name:item.name,storageKey:item.storageKey,text:item.text||''})));
+    if (!references.length) return [visiblePrompt,documentContext].filter(Boolean).join('\n\n');
 
     const contexts: string[] = [];
     const mediaMappings: string[] = [];
@@ -112,7 +115,7 @@ export function expandCreationPrompt(prompt: string, references: CreationReferen
     });
 
     if (mediaMappings.length) contexts.push(`【资源对应关系】\n${mediaMappings.join("\n")}`);
-    return [...contexts, `【创作要求】\n${visiblePrompt}`].filter(Boolean).join("\n\n");
+    return [...contexts, documentContext, `【创作要求】\n${visiblePrompt}`].filter(Boolean).join("\n\n");
 }
 
 function attachmentReference(attachment: CreationAttachment, index: number): CreationReference {

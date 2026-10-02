@@ -6,6 +6,7 @@ import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { applyCanvasLiveViewport, subscribeCanvasViewportPreview } from "@/lib/canvas/canvas-live-viewport";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
+import {resolveMediaUrl} from '@/services/file-storage';
 
 type InfiniteCanvasProps = {
     interactive?: boolean;
@@ -48,6 +49,12 @@ type PinchState = {
 export function InfiniteCanvas({ interactive = true, containerRef, viewport, appearance, backgroundMode = "lines", onViewportChange, onViewportPreviewChange, onCanvasMouseDown, boxSelectEnabled = false, onCanvasDoubleClick, onCanvasDeselect, onContextMenu, onDrop, onFileDragEnter, onFileDragLeave, onFileDragOver, graphicsLayer, children }: InfiniteCanvasProps) {
     const colorTheme = useActiveTheme();
     const resolvedAppearance = resolveCanvasAppearance(appearance, colorTheme);
+    const [backgroundImage,setBackgroundImage]=useState('');
+    const backgroundKey=appearance?.mode==='custom'?appearance.custom?.backgroundImage?.storageKey:undefined;
+    useEffect(()=>{let active=true;setBackgroundImage('');if(backgroundKey)void resolveMediaUrl(backgroundKey).then(url=>{if(active)setBackgroundImage(url);}).catch(()=>{if(active)setBackgroundImage('');});return()=>{active=false;};},[backgroundKey]);
+    const inertiaFrame=useRef<number|null>(null);
+    const panVelocity=useRef({x:0,y:0,lastX:0,lastY:0,time:0});
+    const stopInertia=()=>{if(inertiaFrame.current!==null)cancelAnimationFrame(inertiaFrame.current);inertiaFrame.current=null;};
     const panState = useRef({
         isPanning: false,
         pointerId: -1,
@@ -181,6 +188,7 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
 
     const handleWheel = useCallback(
         (event: WheelEvent) => {
+            stopInertia();
             const target = event.target instanceof Element ? event.target : null;
             const deltaX = wheelDeltaToPixels(event.deltaX, event.deltaMode);
             const deltaY = wheelDeltaToPixels(event.deltaY, event.deltaMode);
@@ -232,6 +240,8 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         if (!interactive) return;
+        stopInertia();
+        panVelocity.current={x:0,y:0,lastX:event.clientX,lastY:event.clientY,time:performance.now()};
         const target = event.target instanceof Element ? event.target : null;
         // AntD 浮层通过 Portal 渲染到节点 DOM 之外；若不统一排除，会被误判为画布空白并捕获指针。
         if (target?.closest(CANVAS_POINTER_IGNORE_SELECTOR)) return;
@@ -349,6 +359,8 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
 
             const dx = event.clientX - panState.current.startX;
             const dy = event.clientY - panState.current.startY;
+            const sample=panVelocity.current,now=performance.now(),dt=Math.max(1,now-sample.time);
+            panVelocity.current={x:Math.max(-2.5,Math.min(2.5,(event.clientX-sample.lastX)/dt)),y:Math.max(-2.5,Math.min(2.5,(event.clientY-sample.lastY)/dt)),lastX:event.clientX,lastY:event.clientY,time:now};
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
                 panState.current.hasMoved = true;
             }
@@ -389,12 +401,19 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
             syncViewport();
             setIsPanning(false);
             document.body.style.cursor = "";
+            const velocity=panVelocity.current;
+            if(event.type==='pointerup'&&panState.current.hasMoved&&performance.now()-velocity.time<70&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+                let vx=velocity.x,vy=velocity.y,last=performance.now();
+                const tick=(now:number)=>{const dt=Math.min(32,now-last);last=now;const decay=Math.exp(-dt/140);vx*=decay;vy*=decay;const current=viewportRef.current;scheduleViewportChange({...current,x:current.x+vx*dt,y:current.y+vy*dt},true);if(Math.hypot(vx,vy)>.015)inertiaFrame.current=requestAnimationFrame(tick);else{inertiaFrame.current=null;syncViewport();}};
+                inertiaFrame.current=requestAnimationFrame(tick);
+            }
         };
 
         window.addEventListener("pointermove", handlePointerMove);
         window.addEventListener("pointerup", handlePointerEnd);
         window.addEventListener("pointercancel", handlePointerEnd);
         return () => {
+            stopInertia();
             window.removeEventListener("pointermove", handlePointerMove);
             window.removeEventListener("pointerup", handlePointerEnd);
             window.removeEventListener("pointercancel", handlePointerEnd);
@@ -426,7 +445,9 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
             data-canvas-pan-state={isPanning ? "grabbing" : isSpacePressed || !boxSelectEnabled ? "grab" : undefined}
             className={`relative h-full w-full select-none overflow-hidden touch-none ${isPanning ? "cursor-grabbing" : isSpacePressed || !boxSelectEnabled ? "cursor-grab" : "canvas-cursor-select"}`}
             style={{
-                background: resolvedAppearance.background,
+                backgroundColor: resolvedAppearance.background,
+                backgroundImage: backgroundImage?`linear-gradient(rgba(10,14,22,.12),rgba(10,14,22,.12)), url(${JSON.stringify(backgroundImage)})`:resolvedAppearance.baseTheme==='dark'?`radial-gradient(ellipse at 15% 10%,rgba(112,122,164,.13),transparent 55%),radial-gradient(ellipse at 90% 80%,rgba(102,84,146,.09),transparent 50%),linear-gradient(145deg,${resolvedAppearance.background},#101217)`:'radial-gradient(ellipse at 20% 10%,rgba(128,156,191,.08),transparent 65%)',
+                backgroundSize:'cover',backgroundPosition:'center',
                 overscrollBehavior: "none",
                 "--canvas-live-x": `${viewport.x}px`,
                 "--canvas-live-y": `${viewport.y}px`,

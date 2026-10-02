@@ -3,13 +3,22 @@ import { Button, Space } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { getMediaBlob } from "@/services/file-storage";
 import type { CanvasNodeData } from "@/types/canvas";
+import { useEffectiveConfig, selectableModelsByCapability, modelDisplayName } from "@/stores/use-config-store";
+import { runBackendToolGenerationTask } from "@/services/api/generation-task";
+import { cancelGenerationTask } from "@/services/api/task-center";
+import type { ResponseInputMessage, ResponseFunctionTool } from "@/services/api/image";
+import { http } from "@/services/api/request";
+import { resolveModelChannel, modelOptionName } from "@/stores/use-config-store";
 
 type Props = {
-    open: boolean; node?: CanvasNodeData; onClose: () => void;
+    open: boolean; node?: CanvasNodeData; canvasId: string; projectId?: string; onClose: () => void;
     onSave: (document: Record<string, unknown>) => Promise<void>;
     onOutput: (file: File) => Promise<void>; onAgentContext: (summary: string) => Promise<void>;
 };
 export function CanvasDirectorDeskModal(props: Props) {
+    const config = useEffectiveConfig();
+    const configRef = useRef(config); configRef.current = config;
+    const aiRuns = useRef(new Map<string, {controller:AbortController; tasks:Set<string>}>());
     const iframe = useRef<HTMLIFrameElement>(null);
     const latest = useRef(props); latest.current = props;
     const [status, setStatus] = useState("载入 3D 场景…");
@@ -23,13 +32,36 @@ export function CanvasDirectorDeskModal(props: Props) {
             if (event.origin !== location.origin || event.source !== iframe.current?.contentWindow || event.data?.channel !== "fg-director-desk") return;
             const {id, method, payload} = event.data;
             if (typeof id !== "string" || typeof method !== "string") return;
-            // Serialize writes so an export and an autosave cannot overwrite the canvas version.
-            queue = queue.then(async () => {
+            // Model waits cannot block autosave or the stop command.
+            const process = async () => {
                 if (disposed) return;
                 busy.current++;
                 try {
                     let result: unknown = true;
-                    if (method === "load") {
+                    if (method === "ai-models") {
+                        result = await Promise.all(selectableModelsByCapability(configRef.current,"text").map(async model=>{
+                            const channel=resolveModelChannel(configRef.current,model);
+                            let price="价格待确认";
+                            try{
+                                const quote=await http.post<{lines:string[]}>('/fg/models/quote',{channelId:channel.id,modelKey:modelOptionName(model),intent:{capability:'text',inputs:{},options:{}}});
+                                const rates=quote.lines.flatMap(line=>[...line.matchAll(/¥([\d,.]+)/g)].slice(0,2).map(m=>Number(m[1].replaceAll(',',''))));
+                                if(rates.length)price=`¥${Math.min(...rates).toLocaleString('zh-CN',{maximumFractionDigits:4})}–${Math.max(...rates).toLocaleString('zh-CN',{maximumFractionDigits:4})}/百万Token`;
+                            }catch{ /* The model remains usable when the price lookup is unavailable. */ }
+                            return {id:model,name:modelDisplayName(configRef.current,model),price};
+                        }));
+                    } else if (method === "ai-round") {
+                        if (typeof payload?.runId !== "string" || typeof payload?.modelId !== "string" || typeof payload?.prompt !== "string" || !Array.isArray(payload.messages) || !Array.isArray(payload.tools)) throw new Error("导演助手请求格式无效");
+                        if (!selectableModelsByCapability(configRef.current,"text").includes(payload.modelId)) throw new Error("该模型当前不可用");
+                        if (payload.tools.some((tool:ResponseFunctionTool)=>tool.type!=="function"||!tool.function?.name.startsWith("director_"))) throw new Error("不支持的导演台工具");
+                        let run=aiRuns.current.get(payload.runId);
+                        if(!run){run={controller:new AbortController(),tasks:new Set()};aiRuns.current.set(payload.runId,run);}
+                        let taskId:string|undefined;
+                        try{result=await runBackendToolGenerationTask({projectId:latest.current.projectId,prompt:payload.prompt,config:{...configRef.current,model:payload.modelId},messages:payload.messages as ResponseInputMessage[],tools:payload.tools as ResponseFunctionTool[],toolChoice:"auto",signal:run.controller.signal,onTaskCreated:task=>{taskId=task.id;run!.tasks.add(task.id);},metadata:{source:"fg-director-desk",canvasId:latest.current.canvasId,nodeId:latest.current.node?.id,runId:payload.runId,stage:"scene-edit"}});}
+                        finally{if(taskId)run.tasks.delete(taskId);}
+                    } else if (method === "ai-stop") {
+                        const run=aiRuns.current.get(payload?.runId);
+                        if(run){run.controller.abort();await Promise.all([...run.tasks].map(id=>cancelGenerationTask(id)));aiRuns.current.delete(payload.runId);}
+                    } else if (method === "load") {
                         const key = latest.current.node?.metadata?.storageKey;
                         const blob = key ? await getMediaBlob(key) : null;
                         if (key && !blob) throw new Error("云端工程读取失败，请重试，不能用空白工程替换");
@@ -50,10 +82,11 @@ export function CanvasDirectorDeskModal(props: Props) {
                     const message = error instanceof Error ? error.message : "云端保存失败";
                     setStatus(message); event.source?.postMessage({channel: "fg-director-desk-result", id, error: message}, {targetOrigin: location.origin});
                 } finally { busy.current--; }
-            });
+            };
+            if(method.startsWith("ai-"))void process();else queue=queue.then(process);
         };
         window.addEventListener("message", listener);
-        return () => { disposed = true; window.removeEventListener("message", listener); };
+        return () => { disposed = true; window.removeEventListener("message", listener); for(const run of aiRuns.current.values()){run.controller.abort();for(const id of run.tasks)void cancelGenerationTask(id).catch(()=>undefined);}aiRuns.current.clear(); };
     }, [props.open]);
     return <AppModal flush open={props.open} onCancel={() => { if (!busy.current) command("close"); }} maskClosable={false} keyboard={false}
         width="calc(100vw - 32px)" style={{top: 16}} title={null} closable={false} footer={null}>

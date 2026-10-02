@@ -3,7 +3,6 @@
 // 运行中输入框保持可用（产品约定，勿收紧）：发送走插话，停止由 running 驱动，两者互不排斥。
 
 import type { Skill, SkillPreset } from "@/services/api/skills";
-import {FGSkillControl} from '@/components/fg-skill-control';
 import { ArrowLeft, ArrowUp, AtSign, Bookmark, Clapperboard, ImagePlus, Layers3, LoaderCircle, Palette, Shapes, Share2, ShoppingBag, Sparkles, Square, X } from "lucide-react";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -325,11 +324,11 @@ export function AgentChatComposer({
     // 保留粘贴图片成附件（contentEditable 模式内部会把粘贴转纯文本，capture 阶段先拦截图片）
     const handlePasteCapture = (event: ReactClipboardEvent) => {
         if (!onAddFiles) return;
-        const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
-        if (!images.length) return;
+        const documents = Array.from(event.clipboardData.files).filter((file) => /\.(docx|pdf|md|txt|csv|json)$/i.test(file.name));
+        if (!documents.length) return;
         event.preventDefault();
         event.stopPropagation();
-        void onAddFiles(images);
+        void onAddFiles(documents);
     };
 
     const insertAttachmentMention = (item: CloudAgentChatAttachment) => {
@@ -356,15 +355,15 @@ export function AgentChatComposer({
                                     className="relative block size-20 overflow-hidden rounded-lg"
                                     title="点击放大预览"
                                     aria-label={`预览 ${item.name || `图片${index + 1}`}`}
-                                    onClick={() => setPreviewAttachment(item)}
-                                    onDoubleClick={() => setPreviewAttachment(item)}
+                                    onClick={() => item.kind==='text'?window.open(item.url,'_blank','noopener'):setPreviewAttachment(item)}
+                                    onDoubleClick={() => {if(item.kind!=='text')setPreviewAttachment(item);}}
                                 >
-                                    <img src={item.url} alt={item.name} className="size-full object-cover" />
+                                    {item.kind==='text'?<span className="flex h-full flex-col items-center justify-center gap-2 bg-black/5 p-2 text-xs"><span>文档</span><span className="line-clamp-2">{item.name}</span></span>:<img src={item.url} alt={item.name} className="size-full object-cover" />}
                                 </button>
                                 <div className="mt-1 flex min-w-0 items-center justify-between gap-1">
                                     <button type="button" className="flex min-w-0 items-center gap-0.5 truncate text-[var(--fs-tiny)] opacity-80 hover:opacity-100" title={`插入 @图片${index + 1}`} onClick={() => insertAttachmentMention(item)}>
                                         <AtSign className="size-2.5 shrink-0" />
-                                        <span className="truncate">图片{index + 1}</span>
+                                        <span className="truncate">{item.kind==='text'?'文件':'图片'}{index + 1}</span>
                                     </button>
                                     {onRemoveAttachment ? (
                                         <button
@@ -406,7 +405,7 @@ export function AgentChatComposer({
                             value={prompt}
                             references={composerReferences}
                             includeAssetLibrary={includeAssetLibrary}
-                            sendOnEnter={canSubmit ? "both" : false}
+                            sendOnEnter={false}
                             disabled={disabled}
                             onChange={handlePromptChange}
                             onSubmit={() => {
@@ -452,14 +451,14 @@ export function AgentChatComposer({
                                     ref={fileInputRef}
                                     hidden
                                     type="file"
-                                    accept="image/*"
+                                    accept=".docx,.pdf,.md,.txt,.csv,.json"
                                     multiple
                                     onChange={(event) => {
                                         void onAddFiles(event.target.files);
                                         event.target.value = "";
                                     }}
                                 />
-                                <Tooltip title="上传图片">
+                                <Tooltip title="上传资料（Word、PDF、Markdown）；图片可从画布引用">
                                     <Button
                                         type="text"
                                         shape="circle"
@@ -473,7 +472,6 @@ export function AgentChatComposer({
                             </>
                         ) : null}
                         {left}
-                        <FGSkillControl references={composerReferences} prompt={prompt} onChange={onPromptChange} disabled={sending}/>
                     </div>
                     <div className="agent-composer-submit flex items-center gap-2">
                         {submitAccessory}

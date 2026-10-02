@@ -54,6 +54,8 @@ import { CanvasAgentSkillLibraryModal } from "./canvas-agent-skill-library-modal
 import { CanvasCloudAgentSettings, type AgentContextKey } from "./canvas-cloud-agent-settings";
 import { useAgentPanelLayout } from "./use-agent-panel-layout";
 import "./canvas-cloud-agent.css";
+import {uploadDocument, documentPromptContext} from '@/services/document-storage';
+import type {CloudAgentChatAttachment} from './canvas-cloud-agent-attachments';
 import { appendAgentError, appendUniqueMessage, applyAgentEvent, positiveNumber, type ApprovalState } from "./canvas-cloud-agent-events";
 import { AgentContextRing, AgentConversation, AgentHeader, AgentHistory, AgentLauncher, ComposerControls } from "./canvas-cloud-agent-panel-parts";
 
@@ -78,6 +80,14 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
     const userId = useUserStore((state) => state.user?.id);
     const theme = canvasThemes[useActiveTheme()];
     const config = useEffectiveConfig();
+    const [documents,setDocuments]=useState<Array<CloudAgentChatAttachment&{storageKey:string;text:string}>>([]);
+    const [uploadingDocuments,setUploadingDocuments]=useState(false);
+    const addDocuments=async(files:FileList|File[]|null)=>{
+        if(!files||uploadingDocuments)return;setUploadingDocuments(true);
+        try{for(const file of Array.from(files)){const upload=await uploadDocument(file);setDocuments(current=>[...current,{id:upload.storageKey,name:file.name,url:upload.url,storageKey:upload.storageKey,text:upload.text,kind:'text'}]);}}
+        catch(cause){setMessages(current=>appendAgentError(current,`document-${Date.now()}`,cause,'资料上传失败'));}
+        finally{setUploadingDocuments(false);}
+    };
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const reducedMotion = useReducedMotion();
     const [view, setView] = useState<AgentPanelView>("chat");
@@ -582,7 +592,8 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
     };
 
     const submit = async (override?: string) => {
-        const value = (override ?? prompt).trim();
+        const originalValue = (override ?? prompt).trim();
+        const value = originalValue.includes('【用户参考资料：')?originalValue:originalValue+documentPromptContext(documents);
         if (running) {
             await interject(value);
             return;
@@ -1018,9 +1029,12 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                                     ) : null}
                                     {pendingQuestion ? <AgentQuestionBar question={pendingQuestion} theme={theme} disabled={approvalSubmitting || connectionStatus !== "connected"} onAnswer={(label) => void submit(label)} /> : null}
                                     <AgentChatComposer
+                                        attachments={documents}
+                                        onAddFiles={addDocuments}
+                                        onRemoveAttachment={id=>setDocuments(current=>current.filter(doc=>doc.id!==id))}
                                         prompt={prompt}
                                         disabled={Boolean(run && connectionStatus !== "connected") || !historyHydrated || !pendingHydrated}
-                                        sending={busy}
+                                        sending={busy||uploadingDocuments}
                                         running={running}
                                         placeholder={running ? "运行中可直接插话，会在它下一步生效" : "输入操作指导；用 @ 引用画布节点，用 / 或 、 引用 Skills"}
                                         theme={theme}

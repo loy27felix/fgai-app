@@ -6,7 +6,10 @@ import { escape } from './common.ts';
 import './ai-panel.css';
 import { createAIPanel } from './ai-panel-view.ts';
 import { mountAISkills } from './ai-skills-panel.ts';
+import { fgEmbedded } from '../fg-bridge.ts';
+import { mountFGAI } from '../fg-ai.ts';
 export function mountAI(ctx: AppContext) {
+    if (fgEmbedded) { mountFGAI(ctx); return; }
     const bridge = window.directorDesktop;
     const { panel, find, open } = createAIPanel(Boolean(bridge));
     const scope = mountAISelection(ctx, panel, open);

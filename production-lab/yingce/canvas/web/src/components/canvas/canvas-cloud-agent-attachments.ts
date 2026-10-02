@@ -4,15 +4,15 @@
 
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
-export type CloudAgentChatAttachment = { id: string; name: string; url: string };
+export type CloudAgentChatAttachment = { id: string; name: string; url: string;kind?:'text'|'image' };
 
 /** 附件以 @[attachment:<id>] 引用进入提示词，编号按附件顺序从「图片1」开始。 */
 export function agentAttachmentReferences(attachments: CloudAgentChatAttachment[]): CanvasResourceReference[] {
     return attachments.map((item, index) => ({
         id: `attachment:${item.id}`,
         nodeId: "",
-        kind: "image",
-        label: `图片${index + 1}`,
+        kind: item.kind==='text'?'text':"image",
+        label: `${item.kind==='text'?'文件':'图片'}${index + 1}`,
         title: item.name || `图片${index + 1}`,
         previewUrl: item.url,
         active: true,

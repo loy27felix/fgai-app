@@ -5,6 +5,7 @@
 
 export const SEGMENT_INPUT_NAME = "segment-input.mp4";
 export const SEGMENT_OUTPUT_NAME = "segment-output.mp4";
+export const AUDIO_OUTPUT_NAME = "segment-output.mp3";
 
 /** 视频片段裁切参数：输出统一编码 MP4。 */
 export function buildSegmentTrimArgs(startSec: string, durationSec: string): string[] {
@@ -13,5 +14,5 @@ export function buildSegmentTrimArgs(startSec: string, durationSec: string): str
 
 /** 从视频片段提取声音：同样使用输出 seek，保证起点与裁切路径一致。 */
 export function buildExtractAudioArgs(audioCodec: string, startSec: string, durationSec: string): string[] {
-    return ["-i", SEGMENT_INPUT_NAME, "-ss", startSec, "-t", durationSec, "-vn", "-c:a", audioCodec, "-q:a", "2", SEGMENT_OUTPUT_NAME];
+    return ["-i", SEGMENT_INPUT_NAME, "-ss", startSec, "-t", durationSec, "-map", "0:a:0", "-vn", "-c:a", audioCodec, "-q:a", "2", "-f", "mp3", AUDIO_OUTPUT_NAME];
 }

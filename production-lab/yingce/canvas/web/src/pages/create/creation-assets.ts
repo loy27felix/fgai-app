@@ -15,6 +15,7 @@ export type CreationDocumentAttachment = {
     storageKey: string;
     bytes: number;
     previewUrl: string;
+    text?: string;
 };
 export type CreationAttachment = ((ReferenceImage | ReferenceVideo | ReferenceAudio) & { previewUrl: string }) | CreationDocumentAttachment;
 export type CreationMode = "text" | "image" | "video";

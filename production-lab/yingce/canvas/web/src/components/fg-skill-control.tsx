@@ -38,9 +38,9 @@ export function FGSkillControl({references,prompt,onChange,disabled}:{references
   }catch(cause){setError(cause instanceof Error?cause.message:'加载技能失败，请重试');}
   finally{selecting.current=false;setPending(false);}
  }
- return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="topLeft" content={<div className="fg-skill-popover" data-canvas-no-zoom>
+ return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="topLeft" content={<div className="fg-skill-popover" data-canvas-no-zoom onPointerDown={event=>event.stopPropagation()}>
   <div className="fg-skill-popover-heading"><BookOpen size={17}/><strong>制作 Skills</strong><Link to="/skills" onClick={()=>setOpen(false)}><Library size={14}/>技能库</Link></div>
-  <Select style={{width:'100%'}} mode="multiple" maxCount={4} maxTagCount="responsive" showSearch optionFilterProp="label" placeholder="搜索并选择制作 Skill" aria-label="选择制作 Skill" value={selected.map(r=>r.id)} options={skills.map(r=>({value:r.id,label:r.label,title:r.text}))} loading={loading||pending} disabled={loading||pending||disabled} notFoundContent={loading?'正在读取技能库':'没有匹配的制作技能'} onChange={ids=>void select(ids)}/>
+  <Select getPopupContainer={trigger=>trigger.parentElement!} style={{width:'100%'}} mode="multiple" maxCount={4} maxTagCount="responsive" showSearch optionFilterProp="label" placeholder="搜索并选择制作 Skill" aria-label="选择制作 Skill" value={selected.map(r=>r.id)} options={skills.map(r=>({value:r.id,label:r.label,title:r.text}))} loading={loading||pending} disabled={loading||pending||disabled} notFoundContent={loading?'正在读取技能库':'没有匹配的制作技能'} onChange={ids=>void select(ids)}/>
   {error?<p role="alert">{error}</p>:<p>{pending?'正在加载所选技能…':`${skills.length} 个可用技能 · 本次最多选择 4 个`}</p>}
  </div>}><Button className="creation-chat-control" type="text" disabled={disabled} icon={<BookOpen size={16}/>} aria-label="加载制作 Skill">Skill{selected.length?` · ${selected.length}`:''}</Button></Popover>;
 }
