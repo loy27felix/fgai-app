@@ -15,7 +15,7 @@ func TestFGTeamCanvasIsolationAndAtomicMedia(t *testing.T) {
  db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"fg.db")),&gorm.Config{})
  if err!=nil{t.Fatal(err)}
  sqlDB,_:=db.DB();defer sqlDB.Close();sqlDB.SetMaxOpenConns(1)
- if err=db.AutoMigrate(&model.Project{},&model.CanvasProject{},&model.Asset{},&model.Resource{},&model.CanvasSnapshot{},&model.CanvasSnapshotResource{});err!=nil{t.Fatal(err)}
+ if err=db.AutoMigrate(&model.FGCompanyAsset{},&model.Project{},&model.CanvasProject{},&model.Asset{},&model.Resource{},&model.CanvasSnapshot{},&model.CanvasSnapshotResource{});err!=nil{t.Fatal(err)}
  for _,sql:=range []string{"CREATE TABLE fg_story_projects(native_project_id TEXT PRIMARY KEY)","CREATE TABLE fg_resource_grants(project_id TEXT,resource_id TEXT,PRIMARY KEY(project_id,resource_id))","CREATE TABLE fg_asset_grants(project_id TEXT,asset_id TEXT,PRIMARY KEY(project_id,asset_id))"}{if err=db.Exec(sql).Error;err!=nil{t.Fatal(err)}}
  repo:=New(db)
  for _,p:=range []model.Project{{ID:"shared",UserID:"alice",Name:"story"},{ID:"private",UserID:"alice",Name:"private"}}{if err=db.Create(&p).Error;err!=nil{t.Fatal(err)}}

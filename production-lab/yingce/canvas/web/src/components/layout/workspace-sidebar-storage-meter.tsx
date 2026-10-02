@@ -19,7 +19,7 @@ export function WorkspaceSidebarStorageMeter({ collapsed }: { collapsed: boolean
     const meter = accountStorageMeter(query.data);
     const usedText = query.data ? `已用 ${meter.usedLabel}` : query.isError ? "容量暂不可用" : "正在统计容量";
     const remainingText = query.data ? (meter.full ? "容量已满" : `剩余 ${meter.remainingLabel}`) : "";
-    const totalText = query.data ? `共 ${meter.totalLabel}` : "";
+    const totalText = query.data ? `配额 ${meter.totalLabel}` : "";
     const summary = query.data ? `${usedText}，${remainingText}，${totalText}` : usedText;
 
     const track = (
@@ -67,7 +67,7 @@ export function WorkspaceSidebarStorageMeter({ collapsed }: { collapsed: boolean
                 query.data?.usedBytes ? "has-usage" : null,
                 query.isPending && !query.data && "is-pending",
             )}
-            title={`${summary}。包含素材文件和 Agent 会话附件`}
+            title={`${summary}。这是账号的 NAS 文件配额，包含上传、生成素材和 Agent 附件；管理员可在资源策略中调整，共享素材引用不会重复复制文件。`}
             aria-label={`账号容量，${summary}`}
             aria-busy={query.isPending && !query.data}
             onFocus={() => preloadWorkspaceRoute("/assets")}

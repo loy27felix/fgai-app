@@ -62,6 +62,9 @@ func (r *Repository) AssetsResourceRecords(assetIDs []string) ([]model.AssetVers
 // OtherAssetResourceReferences 只查询整批删除范围之外的素材，不扫描任务和画布。
 func (r *Repository) OtherAssetResourceReferences(userID string, excludedAssetIDs []string) (ResourceReferenceSnapshot, error) {
 	snapshot := ResourceReferenceSnapshot{}
+	companyRefs, err := fgCompanyReferences(r.db)
+	if err != nil { return snapshot, err }
+	snapshot.Direct = append(snapshot.Direct, companyRefs...)
 	var assets []model.Asset
 	if err := r.db.Where("user_id = ? AND id NOT IN ?", userID, excludedAssetIDs).Find(&assets).Error; err != nil {
 		return snapshot, err
@@ -115,6 +118,11 @@ func (r *Repository) ResourceStorageReferenceCount(resource *model.Resource, exc
 	}
 	var count int64
 	err := query.Count(&count).Error
+	if err == nil && fgTeamEnabled() {
+		var companyCount int64
+		err = r.db.Table("fg_company_assets ca").Joins("JOIN resources cr ON cr.id = ca.resource_id").Where("cr.endpoint = ? AND cr.bucket = ? AND cr.object_key = ? AND cr.provider = ?", resource.Endpoint, resource.Bucket, resource.ObjectKey, resource.Provider).Count(&companyCount).Error
+		count += companyCount
+	}
 	return count, err
 }
 
@@ -124,6 +132,9 @@ func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID s
 
 func (r *Repository) ResourceReferenceSnapshotExcludingAssets(userID string, excludingAssetIDs []string, resourceIDs []string) (ResourceReferenceSnapshot, error) {
 	snapshot := ResourceReferenceSnapshot{Documents: []ResourceReferenceDocument{}, Direct: []ResourceDirectReference{}}
+	companyRefs, companyErr := fgCompanyReferences(r.db)
+	if companyErr != nil { return snapshot, companyErr }
+	snapshot.Direct = append(snapshot.Direct, companyRefs...)
 	if len(resourceIDs) == 0 {
 		return snapshot, nil
 	}

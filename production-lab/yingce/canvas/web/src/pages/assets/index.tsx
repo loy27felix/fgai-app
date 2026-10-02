@@ -18,8 +18,9 @@ import { AssetBatchUploadModal } from "./asset-batch-upload-modal";
 import { assetGridCardMinWidth, type AssetGridDensity, assetGridDensityOptions, parseAssetGridDensity } from "./asset-grid-density";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Form, Popconfirm, Button, Dropdown, Input, Modal, Space, Tag, Typography, Progress } from "antd";
-import { useNavigate } from "react-router";
+import { App, Form, Popconfirm, Button, Dropdown, Input, Modal, Space, Tag, Typography, Progress, Segmented } from "antd";
+import { useNavigate, useSearchParams } from "react-router";
+import { CompanyAssetsPage } from "./company-assets";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { ASSET_CATEGORY_OPTIONS } from "@/lib/asset-category";
@@ -65,6 +66,24 @@ const ASSET_FOLDER_QUERY_KEY = ["asset-folders"] as const;
 type AssetFolderFilter = "all" | "uncategorized" | string;
 
 export default function AssetsPage() {
+    const [params, setParams] = useSearchParams();
+    const company = params.get("library") === "company";
+    return (
+        <>
+            <div className="px-6 pt-5">
+                <Segmented
+                    aria-label="素材库范围"
+                    value={company ? "company" : "personal"}
+                    options={[{ label: "我的素材", value: "personal" }, { label: "公司素材库", value: "company" }]}
+                    onChange={(value) => setParams(value === "company" ? { library: "company" } : {})}
+                />
+            </div>
+            {company ? <CompanyAssetsPage /> : <PersonalAssetsPage />}
+        </>
+    );
+}
+
+function PersonalAssetsPage() {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();

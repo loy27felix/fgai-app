@@ -22,7 +22,8 @@ func fgCanvasScope(db *gorm.DB,userID string) *gorm.DB {
 }
 func fgMediaScope(db *gorm.DB,table,grantTable,grantColumn,userID string) *gorm.DB {
  if !fgTeamEnabled(){return db.Where(table+".user_id = ?",userID)}
- return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM "+grantTable+" g JOIN fg_story_projects fg ON fg.native_project_id=g.project_id WHERE g."+grantColumn+"="+table+".id))",userID)
+ company:="";if table=="resources"{company=" OR EXISTS (SELECT 1 FROM fg_company_assets ca WHERE ca.resource_id=resources.id)"}
+ return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM "+grantTable+" g JOIN fg_story_projects fg ON fg.native_project_id=g.project_id WHERE g."+grantColumn+"="+table+".id)"+company+")",userID)
 }
 func (r *Repository) FGSharedProject(id string) bool {
  if !fgTeamEnabled() || id=="" {return false}

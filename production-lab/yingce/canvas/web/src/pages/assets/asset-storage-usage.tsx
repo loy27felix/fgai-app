@@ -15,7 +15,7 @@ export function AssetStorageUsage() {
             <span className="assets-storage-usage-icon" aria-hidden="true">
                 <HardDrive />
             </span>
-            <span className="assets-storage-usage-title">账号容量</span>
+            <span className="assets-storage-usage-title">NAS 文件配额</span>
             {usage ? (
                 <>
                     <span className="assets-storage-usage-value">
