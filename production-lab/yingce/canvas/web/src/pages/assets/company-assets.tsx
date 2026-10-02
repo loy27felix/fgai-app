@@ -10,6 +10,8 @@ import { getResourceAccess, resolveResourceAccessURL, uploadResourceFile } from 
 import { loadAssetsForUse } from "@/services/user-data-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { readImageMeta } from "@/lib/image-utils";
+import { probeMediaDurationMs } from "@/lib/media-metadata";
+import { captureVideoPoster } from "@/lib/video-poster";
 import { listCompanyAssets, publishCompanyAsset, updateCompanyAsset, useCompanyAsset, type CompanyAsset, type CompanyAssetInput } from "@/services/api/fg-company-assets";
 import "./company-assets.css";
 
@@ -43,8 +45,10 @@ export function CompanyAssetsPage() {
     if(!mediaKind)throw new Error("请选择图片、视频或音频文件");
     if(!upload.current||upload.current.file!==file)upload.current={file,key:crypto.randomUUID()};
     if(!upload.current.resourceId){
-     let meta={width:undefined as number|undefined,height:undefined as number|undefined};
+     let meta:{width?:number;height?:number;durationMs?:number}={};
      if(mediaKind==="image"){const temp=URL.createObjectURL(file);try{meta=await readImageMeta(temp)}finally{URL.revokeObjectURL(temp)}}
+     else if(mediaKind==="audio")meta={durationMs:await probeMediaDurationMs(file)};
+     else {const temp=URL.createObjectURL(file);try{const captured=await captureVideoPoster(temp);meta={width:captured.width,height:captured.height,durationMs:captured.durationMs}}catch{meta={durationMs:await probeMediaDurationMs(file)}}finally{URL.revokeObjectURL(temp)}}
      const resource=await uploadResourceFile(file,mediaKind,{...meta,fileName:file.name,idempotencyKey:upload.current.key},(bytes,total)=>setProgress(Math.round(bytes/Math.max(total,1)*100)));
      if(resource.status!=="ready"||resource.provider!=="local")throw new Error("文件尚未保存到 NAS，请稍后重试");
      upload.current.resourceId=resource.id;
