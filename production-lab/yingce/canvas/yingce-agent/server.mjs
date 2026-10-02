@@ -4,7 +4,8 @@ import { createServer } from "node:http";
 import { dirname } from "node:path";
 
 const token = process.env.YINGCE_AGENT_TOKEN || "";
-let maxSessions = positiveInt(process.env.MAX_CONCURRENT_SESSIONS, 30, 64);
+const maxSessionLimit = 100;
+let maxSessions = positiveInt(process.env.MAX_CONCURRENT_SESSIONS, 30, maxSessionLimit);
 const memoryMB = positiveInt(process.env.NODE_MAX_OLD_SPACE_SIZE, 512, 8192);
 const runtimePath = process.env.YINGCE_AGENT_RUNTIME || "/app/agent-runtime/agent-runtime.mjs";
 const port = Number(process.env.PORT || 8081);
@@ -104,8 +105,10 @@ const server = createServer(async (request, response) => {
     }
     try {
       const body = JSON.parse((await readBody(request)).toString("utf8"));
-      const next = positiveInt(body.maxSessions, 0, 64);
-      if (!next) throw new Error("maxSessions must be an integer from 1 to 64");
+      const next = Number(body.maxSessions);
+      if (!Number.isInteger(next) || next < 1 || next > maxSessionLimit) {
+        throw new Error(`maxSessions must be an integer from 1 to ${maxSessionLimit}`);
+      }
       maxSessions = next;
       admitWaiters();
       response.writeHead(200, { "content-type": "application/json" });

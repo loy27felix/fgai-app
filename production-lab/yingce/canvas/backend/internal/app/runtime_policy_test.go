@@ -139,6 +139,18 @@ func TestRuntimePolicyDefaultsAndSelfUseModeValidate(t *testing.T) {
 	}
 }
 
+func TestRuntimePolicyAllowsHundredAgentSessions(t *testing.T) {
+	policy := defaultRuntimePolicy()
+	policy.Task.AgentMaxSessions = 100
+	if err := validateRuntimePolicy(policy); err != nil {
+		t.Fatalf("100 Agent sessions should be accepted: %v", err)
+	}
+	policy.Task.AgentMaxSessions = 101
+	if err := validateRuntimePolicy(policy); err == nil {
+		t.Fatal("more than 100 Agent sessions should be rejected")
+	}
+}
+
 func TestRuntimePolicyRejectsSingleFileAboveAccountCapacity(t *testing.T) {
 	policy := defaultRuntimePolicy()
 	policy.Resource.StoredFileGB = 1

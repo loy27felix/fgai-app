@@ -38,7 +38,7 @@ const (
 	MaxRuntimeAgentStepTimeoutSeconds   = 3_600
 	DefaultRuntimeAgentStepTimeout      = 0
 	MinRuntimeAgentSessions             = 1
-	MaxRuntimeAgentSessions             = 64
+	MaxRuntimeAgentSessions             = 100
 	DefaultRuntimeAgentSessions         = 30
 )
 
