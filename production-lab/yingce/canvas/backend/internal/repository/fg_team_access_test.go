@@ -10,6 +10,31 @@ import (
  "gorm.io/gorm"
 )
 
+func TestFGAdvertisingMembershipRevokesProjectAccess(t *testing.T) {
+ t.Setenv("CANVAS_FG_TEAM_WORKSPACE","true")
+ db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"ads.db")),&gorm.Config{})
+ if err!=nil{t.Fatal(err)}
+ sqlDB,_:=db.DB();defer sqlDB.Close();sqlDB.SetMaxOpenConns(1)
+ if err=db.AutoMigrate(&model.Project{});err!=nil{t.Fatal(err)}
+ for _,sql:=range []string{
+  "CREATE TABLE fg_story_projects(native_project_id TEXT)",
+  "CREATE TABLE fg_adcraft_workspaces(id TEXT,native_project_id TEXT,owner_id TEXT,group_id TEXT,archived_at TEXT)",
+  "CREATE TABLE fg_adcraft_members(workspace_id TEXT,user_id TEXT)",
+  "CREATE TABLE fg_groups(id TEXT,archived_at TEXT)",
+  "CREATE TABLE fg_memberships(group_id TEXT,user_id TEXT,unassigned_at TEXT)",
+  "INSERT INTO fg_groups VALUES('team',NULL)",
+  "INSERT INTO fg_memberships VALUES('team','bob',NULL)",
+  "INSERT INTO fg_adcraft_workspaces VALUES('ad','advert','alice','team',NULL)",
+ }{if err=db.Exec(sql).Error;err!=nil{t.Fatal(err)}}
+ if err=db.Create(&model.Project{ID:"advert",UserID:"alice",Name:"ad"}).Error;err!=nil{t.Fatal(err)}
+ repo:=New(db)
+ if _,err=repo.ProjectForUser("bob","advert");err!=nil{t.Fatal(err)}
+ if _,err=repo.ProjectForUser("unrelated","advert");!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("advertising project leaked")}
+ if err=db.Exec("UPDATE fg_memberships SET unassigned_at='removed' WHERE user_id='bob'").Error;err!=nil{t.Fatal(err)}
+ if _,err=repo.ProjectForUser("bob","advert");!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("removed teammate retained access")}
+ if _,err=repo.ProjectForUser("alice","advert");err!=nil{t.Fatal(err)}
+}
+
 func TestFGTeamCanvasIsolationAndAtomicMedia(t *testing.T) {
  t.Setenv("CANVAS_FG_TEAM_WORKSPACE","true")
  db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"fg.db")),&gorm.Config{})

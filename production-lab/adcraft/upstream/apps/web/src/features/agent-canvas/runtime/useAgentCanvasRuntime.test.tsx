@@ -1,0 +1,1271 @@
+import { renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type {
+  AgentCanvasWorkflowV2,
+  CanvasNodeV2,
+  CanvasRuntimeSnapshotV2,
+} from "../../../types-v2.ts";
+
+const api = vi.hoisted(() => ({
+  agentCanvasEvents: vi.fn(),
+  agentCanvasRuntime: vi.fn(),
+  agentCanvasWorkflowWithEtag: vi.fn(),
+  listAgentCanvasProjectAssets: vi.fn(),
+  agentCanvasNode: vi.fn(),
+  openAgentCanvasEventStream: vi.fn(),
+  runAgentCanvas: vi.fn(),
+  cancelAgentCanvasRun: vi.fn(),
+}));
+
+vi.mock("../../../api/v2Client.ts", () => ({
+  isV2ApiError: (value: unknown) => (
+    typeof value === "object"
+    && value !== null
+    && "status" in value
+    && "code" in value
+  ),
+  v2Api: api,
+}));
+
+import { useAgentCanvasRuntime } from "./useAgentCanvasRuntime.ts";
+
+const workflow: AgentCanvasWorkflowV2 = {
+  workflow_id: "workflow-1",
+  project_id: "project-1",
+  workflow_schema_version: 2,
+  canvas_model: "agent_canvas_v1",
+  revision: 1,
+  layout_revision: 1,
+  nodes: [],
+  bindings: [],
+  assets: [],
+};
+
+const runtime: CanvasRuntimeSnapshotV2 = {
+  workflow_id: "workflow-1",
+  active_execution_id: null,
+  execution_status: null,
+  node_runtime: {},
+  queued_node_ids: [],
+  working_node_ids: [],
+  waiting_node_ids: [],
+  ready_node_ids: [],
+  failed_node_ids: [],
+  events_cursor: 42,
+  updated_at: "2026-07-28T00:00:00Z",
+};
+
+class EventSourceStub {
+  static instances: EventSourceStub[] = [];
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  private readonly listeners = new Map<string, Array<(event: MessageEvent<string>) => void>>();
+
+  constructor() {
+    EventSourceStub.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    const current = this.listeners.get(type) ?? [];
+    current.push(listener as (event: MessageEvent<string>) => void);
+    this.listeners.set(type, current);
+  }
+
+  close() {}
+
+  emit(type: string, payload: unknown) {
+    const event = { data: JSON.stringify(payload) } as MessageEvent<string>;
+    this.listeners.get(type)?.forEach((listener) => listener(event));
+  }
+}
+
+function terminalEvent(sequence_no: number, event_type: string) {
+  return {
+    sequence_no,
+    workflow_id: "workflow-1",
+    event_type,
+    project_id: "project-1",
+    execution_id: "execution-1",
+    node_id: "node-1",
+    asset_id: "asset-1",
+    binding_id: null,
+    conversation_id: null,
+    turn_id: null,
+    action_id: null,
+    trace_id: null,
+    span_id: null,
+    transition_key: "node-1:ready:1",
+    attempt: 1,
+    created_at: "2026-07-28T00:02:00Z",
+    payload: { status: "ready" },
+  };
+}
+
+describe("useAgentCanvasRuntime", () => {
+  beforeEach(() => {
+    EventSourceStub.instances = [];
+    vi.clearAllMocks();
+    api.agentCanvasEvents
+      .mockRejectedValueOnce({
+        status: 409,
+        code: "event_cursor_expired",
+      })
+      .mockResolvedValue({
+        workflow_id: "workflow-1",
+        events: [],
+        next_cursor: 42,
+      });
+    api.agentCanvasRuntime.mockResolvedValue(runtime);
+    api.agentCanvasWorkflowWithEtag.mockResolvedValue({ value: workflow, etag: "\"workflow-r1\"" });
+    api.agentCanvasNode.mockResolvedValue({ node_id: "image-1" } as CanvasNodeV2);
+    api.openAgentCanvasEventStream.mockReturnValue(new EventSourceStub());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("recovers an expired replay cursor from the canonical runtime snapshot", async () => {
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => {
+      expect(api.agentCanvasEvents).toHaveBeenCalledWith("workflow-1", 42, 200);
+    });
+    expect(api.agentCanvasRuntime).toHaveBeenCalledWith("workflow-1");
+    expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalledWith("workflow-1");
+    expect(result.current.state.chatRevision).toBe(1);
+  });
+
+  it("does not refresh Workflow on an idle initial SSE boundary", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+
+    renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+    await waitFor(() => expect(eventSource.onopen).not.toBeNull());
+    eventSource.onopen?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(api.agentCanvasRuntime).toHaveBeenCalledOnce();
+    expect(api.agentCanvasWorkflowWithEtag).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a terminal event when the first runtime read is still stale", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const working = {
+      ...runtime,
+      working_node_ids: ["node-1"],
+      ready_node_ids: [],
+    };
+    const ready = {
+      ...runtime,
+      working_node_ids: [],
+      ready_node_ids: ["node-1"],
+      events_cursor: 44,
+    };
+    api.agentCanvasRuntime.mockReset()
+      .mockResolvedValueOnce(working)
+      .mockResolvedValueOnce(working)
+      .mockResolvedValueOnce(ready);
+    api.agentCanvasWorkflowWithEtag.mockReset().mockResolvedValue({
+      value: workflow,
+      etag: "\"workflow-r1\"",
+    });
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const hook = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+    try {
+      await waitFor(() => expect(eventSource.onmessage).not.toBeNull());
+      vi.useFakeTimers();
+      eventSource.emit("node_ready", terminalEvent(43, "node_ready"));
+
+      await vi.advanceTimersByTimeAsync(250);
+      vi.useRealTimers();
+      await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(hook.result.current.state.runtime).toMatchObject({
+        working_node_ids: [],
+        ready_node_ids: ["node-1"],
+      }));
+    } finally {
+      hook.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes Workflow when reconnect replay contains a terminal event", async () => {
+    let restoreTimers = false;
+    let hook: ReturnType<typeof renderHook> | null = null;
+    try {
+      api.agentCanvasEvents
+        .mockReset()
+        .mockResolvedValueOnce({ workflow_id: "workflow-1", events: [], next_cursor: 42 })
+        .mockResolvedValueOnce({
+          workflow_id: "workflow-1",
+          events: [],
+          next_cursor: 42,
+        })
+        .mockResolvedValueOnce({
+          workflow_id: "workflow-1",
+          events: [terminalEvent(43, "node_ready")],
+          next_cursor: 43,
+        });
+      const first = new EventSourceStub();
+      const second = new EventSourceStub();
+      api.openAgentCanvasEventStream
+        .mockReset()
+        .mockReturnValueOnce(first)
+        .mockReturnValueOnce(second);
+      const callbacks = {
+        applyWorkflow: vi.fn(),
+        mergePublishedAsset: vi.fn(),
+        mergeNode: vi.fn(),
+      };
+      hook = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+      await waitFor(() => expect(first.onopen).not.toBeNull());
+      first.onopen?.();
+      vi.useFakeTimers();
+      restoreTimers = true;
+      first.onerror?.();
+      await vi.advanceTimersByTimeAsync(2_000);
+      vi.useRealTimers();
+      restoreTimers = false;
+      await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(second.onopen).not.toBeNull());
+      second.onopen?.();
+      await waitFor(() => expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalled());
+    } finally {
+      hook?.unmount();
+      if (restoreTimers) vi.useRealTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("performs a trailing Workflow refresh when another event arrives in flight", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 0,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    let resolveFirstRefresh!: (value: { value: AgentCanvasWorkflowV2; etag: string }) => void;
+    api.agentCanvasWorkflowWithEtag
+      .mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirstRefresh = resolve;
+      }))
+      .mockResolvedValue({ value: { ...workflow, revision: 3 }, etag: "\"workflow-r3\"" });
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    await waitFor(() => expect(eventSource.onmessage).not.toBeNull());
+
+    const event = (seq: number) => ({
+      sequence_no: seq,
+      workflow_id: "workflow-1",
+      event_type: "node_created",
+      execution_id: null,
+      node_id: `node-${seq}`,
+      asset_id: null,
+      binding_id: null,
+      created_at: "2026-07-28T00:01:00Z",
+      payload: {},
+    });
+    eventSource.onmessage?.({
+      data: JSON.stringify(event(43)),
+    } as MessageEvent<string>);
+    await waitFor(() => expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalledOnce());
+    eventSource.onmessage?.({
+      data: JSON.stringify(event(44)),
+    } as MessageEvent<string>);
+    resolveFirstRefresh({ value: { ...workflow, revision: 2 }, etag: "\"workflow-r2\"" });
+
+    await waitFor(() => expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(callbacks.applyWorkflow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ revision: 3 }),
+    ));
+  });
+
+  it("keeps the latest secret-safe resolved model metadata per node", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    eventSource.emit("node_generation_started", {
+      sequence_no: 43,
+      workflow_id: "workflow-1",
+      event_type: "node_generation_started",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "image-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: "image-1:started:1",
+      attempt: 1,
+      created_at: "2026-08-03T00:00:00Z",
+      payload: {
+        model_resolution: {
+          model_ref: "siliconflow:zai-org/GLM-5.2",
+          provider_id: "siliconflow",
+          provider_model_id: "zai-org/GLM-5.2",
+          credential_revision: 3,
+          catalog_revision: 12,
+          api_key: "not-retained",
+        },
+      },
+    });
+
+    await waitFor(() => expect(result.current.state.modelResolutionsByNodeId["image-1"]).toEqual({
+      node_id: "image-1",
+      model_ref: "siliconflow:zai-org/GLM-5.2",
+      provider_id: "siliconflow",
+      provider_model_id: "zai-org/GLM-5.2",
+      credential_revision: 3,
+      catalog_revision: 12,
+    }));
+  });
+
+  it("refreshes the canonical node once when generation starts", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const canonicalNode = { node_id: "image-1", status: "working" } as CanvasNodeV2;
+    api.agentCanvasNode.mockResolvedValue(canonicalNode);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(eventSource.onmessage).not.toBeNull());
+    const event = {
+      sequence_no: 43,
+      workflow_id: "workflow-1",
+      event_type: "node_generation_started",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "image-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      created_at: "2026-08-03T00:00:00Z",
+      payload: {},
+    };
+    eventSource.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
+    eventSource.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
+
+    await waitFor(() => expect(api.agentCanvasNode).toHaveBeenCalledOnce());
+    expect(api.agentCanvasNode).toHaveBeenCalledWith("workflow-1", "image-1");
+    expect(callbacks.mergeNode).toHaveBeenCalledWith(canonicalNode);
+    expect(api.agentCanvasWorkflowWithEtag).not.toHaveBeenCalled();
+  });
+
+  it("starts replay from the runtime high-water mark instead of replaying historical receipts", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.agentCanvasEvents).toHaveBeenCalledWith("workflow-1", 42, 200));
+    expect(result.current.state.chatEvents).toEqual([]);
+  });
+
+  it("reuses the baseline runtime after replay instead of fetching it again", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+
+    renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    expect(api.agentCanvasRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("does not refresh authoritative snapshots when the SSE boundary has no events", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 80,
+    });
+    api.agentCanvasRuntime.mockReset().mockResolvedValue({
+      ...runtime,
+      events_cursor: 80,
+    });
+    api.agentCanvasWorkflowWithEtag.mockReset().mockResolvedValue({
+      value: { ...workflow, revision: 2 },
+      etag: "\"workflow-r2\"",
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    eventSource.onopen?.();
+    eventSource.onopen?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(api.agentCanvasWorkflowWithEtag).not.toHaveBeenCalled();
+    expect(result.current.state.chatRevision).toBe(0);
+    expect(api.agentCanvasEvents).toHaveBeenCalledTimes(2);
+    expect(api.agentCanvasEvents).toHaveBeenCalledWith("workflow-1", 80, 200);
+    expect(callbacks.applyWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("retains a sanitized provider input audit without creating client-side graph state", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    eventSource.emit("provider_inputs_resolved", {
+      sequence_no: 43,
+      workflow_id: "workflow-1",
+      event_type: "provider_inputs_resolved",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "node-video-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: "node-run:node-video-1:inputs-resolved:1",
+      attempt: 1,
+      created_at: "2026-07-31T04:00:00Z",
+      payload: {
+        input_manifest_id: "manifest-1",
+        media_inputs: [{
+          binding_id: "binding-image-1",
+          source_node_id: "node-image-1",
+          asset_id: "asset-image-1",
+          media_type: "image",
+          input_role: "image_reference",
+          display_order: 0,
+          media_url: "https://must-not-be-stored.example/image.png",
+        }],
+      },
+    });
+
+    await waitFor(() => expect(result.current.state.inputManifestsByNodeId["node-video-1"]).toEqual({
+      node_id: "node-video-1",
+      input_manifest_id: "manifest-1",
+      execution_id: "execution-1",
+      node_run_id: null,
+      text_inputs: [],
+      media_inputs: [{
+        binding_id: "binding-image-1",
+        source_node_id: "node-image-1",
+        asset_id: "asset-image-1",
+        media_type: "image",
+        input_role: "image_reference",
+        source_semantic_role: null,
+        transport_type: null,
+        display_order: 0,
+      }],
+      omitted_optional_inputs: [],
+      world_setting_inputs: [],
+    }));
+    expect(callbacks.applyWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("advances the SSE cursor but ignores duplicate continuation transitions", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    const event = (sequence_no: number) => ({
+      sequence_no,
+      workflow_id: "workflow-1",
+      event_type: "continuation_started",
+      project_id: "project-1",
+      execution_id: null,
+      node_id: null,
+      asset_id: null,
+      binding_id: null,
+      conversation_id: "conversation-1",
+      turn_id: "turn-1",
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: "continuation-1:leased:1",
+      attempt: 1,
+      created_at: "2026-07-31T05:00:00Z",
+      payload: {},
+    });
+
+    eventSource.emit("continuation_started", event(43));
+    await waitFor(() => expect(result.current.state.chatRevision).toBe(1));
+    eventSource.emit("continuation_started", event(44));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.current.state.chatRevision).toBe(1);
+    expect(api.agentCanvasEvents).toHaveBeenCalledWith("workflow-1", 42, 200);
+  });
+
+  it("refreshes a Product handoff once when its typed transition is replayed", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    const event = (sequence_no: number) => ({
+      sequence_no,
+      workflow_id: "workflow-1",
+      event_type: "guided_product_source_pending",
+      project_id: "project-1",
+      execution_id: null,
+      node_id: null,
+      asset_id: null,
+      binding_id: null,
+      conversation_id: "conversation-1",
+      turn_id: null,
+      action_id: "interaction-product-main-1",
+      trace_id: null,
+      span_id: null,
+      transition_key: "guided-product:workflow-1:main:pending:request-1",
+      attempt: 1,
+      created_at: "2026-08-27T00:00:00Z",
+      payload: {
+        input_kind: "main",
+        pending_handoff_id: "handoff-product-main-1",
+        asset_versions: [{ asset_id: "asset-product", version_id: "version-product" }],
+      },
+    });
+
+    eventSource.emit("guided_product_source_pending", event(43));
+    await waitFor(() => expect(result.current.state.chatRevision).toBe(1));
+    eventSource.emit("guided_product_source_pending", event(44));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.current.state.chatRevision).toBe(1);
+  });
+
+  it("keeps one provider-waiting chat event across an SSE replay", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    const event = (sequence_no: number) => ({
+      sequence_no,
+      workflow_id: "workflow-1",
+      event_type: "agent_turn_waiting",
+      project_id: "project-1",
+      execution_id: null,
+      node_id: null,
+      asset_id: null,
+      binding_id: null,
+      conversation_id: "conversation-1",
+      turn_id: "turn-waiting-1",
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: "turn-waiting-1:provider_waiting:1",
+      attempt: 1,
+      created_at: "2026-08-12T00:00:00Z",
+      payload: {
+        operation: "decide_turn_intent",
+        deadline_at: "2026-08-12T00:05:00Z",
+        model_ref: "siliconflow:zai-org/GLM-5.2",
+      },
+    });
+
+    eventSource.emit("agent_turn_waiting", event(43));
+    await waitFor(() => expect(result.current.state.chatRevision).toBe(1));
+    expect(result.current.state.chatEvents).toEqual([
+      expect.objectContaining({
+        event_type: "agent_turn_waiting",
+        turn_id: "turn-waiting-1",
+      }),
+    ]);
+
+    eventSource.emit("agent_turn_waiting", event(44));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.current.state.chatRevision).toBe(1);
+    expect(result.current.state.chatEvents).toHaveLength(1);
+  });
+
+  it("delivers guidance authority and post-ready events through the live SSE path", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    const eventTypes = [
+      "continuation_superseded",
+      "guidance_advance_accepted",
+      "guided_action_superseded",
+      "post_ready_effect_started",
+      "post_ready_effect_completed",
+      "post_ready_effect_failed",
+      "post_ready_effect_retry_scheduled",
+    ];
+    eventTypes.forEach((eventType, index) => {
+      eventSource.emit(eventType, {
+        sequence_no: 43 + index,
+        workflow_id: "workflow-1",
+        event_type: eventType,
+        project_id: "project-1",
+        execution_id: null,
+        node_id: null,
+        asset_id: null,
+        binding_id: null,
+        conversation_id: "conversation-1",
+        turn_id: `turn-${index + 1}`,
+        action_id: null,
+        trace_id: null,
+        span_id: null,
+        transition_key: `${eventType}:${index + 1}`,
+        attempt: 1,
+        created_at: "2026-08-17T10:00:00Z",
+        payload: {},
+      });
+    });
+
+    await waitFor(() => expect(result.current.state.chatRevision).toBe(7));
+    expect(result.current.state.chatEvents.map((item) => item.event_type)).toEqual(eventTypes);
+    await waitFor(() => expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalled());
+  });
+
+  it("persists legacy Draft video parameters before submitting a global Run", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const draftVideo: CanvasNodeV2 = {
+      node_id: "node-video-legacy",
+      workflow_id: "workflow-1",
+      node_type: "video",
+      creative_role: "general_video",
+      role_contract_version: "ad-media-role-v1",
+      title: "Legacy Video Draft",
+      status: "draft",
+      summary_prompt: null,
+      generation_prompt: "Animate the supplied references.",
+      structured_content: {},
+      model_id: null,
+      parameters: {
+        requested_duration_seconds: 0,
+        effective_duration_seconds: 15,
+      },
+      prompt_context_snapshot_id: null,
+      output_asset_id: null,
+      position: { x: 0, y: 0 },
+      revision: 1,
+      error: null,
+      created_at: "2026-07-31T04:00:00Z",
+      updated_at: "2026-07-31T04:00:00Z",
+    };
+    let resolvePatch!: () => void;
+    const firstPatchNode = vi.fn().mockResolvedValue(undefined);
+    const patchNode = vi.fn(() => new Promise<void>((resolve) => {
+      resolvePatch = resolve;
+    }));
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result, rerender } = renderHook(
+      ({ patchNode: currentPatchNode }) => useAgentCanvasRuntime({
+        ...workflow,
+        nodes: [draftVideo],
+      }, callbacks, currentPatchNode),
+      { initialProps: { patchNode: firstPatchNode } },
+    );
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    rerender({ patchNode });
+    const runPromise = result.current.actions.runAll();
+    await waitFor(() => expect(patchNode).toHaveBeenCalledWith(
+      draftVideo.node_id,
+      { parameters: {} },
+    ));
+    expect(firstPatchNode).not.toHaveBeenCalled();
+    expect(api.runAgentCanvas).not.toHaveBeenCalled();
+
+    resolvePatch();
+    await runPromise;
+
+    expect(api.runAgentCanvas).toHaveBeenCalledWith(
+      "workflow-1",
+      expect.objectContaining({ scope: "all_drafts" }),
+      expect.any(String),
+    );
+    expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a selected node Draft and exposes required source IDs when backend preflight rejects it", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const draftVideo: CanvasNodeV2 = {
+      node_id: "node-video-1",
+      workflow_id: "workflow-1",
+      node_type: "video",
+      creative_role: "general_video",
+      role_contract_version: "ad-media-role-v1",
+      title: "Video Draft",
+      status: "draft",
+      summary_prompt: null,
+      generation_prompt: "A short cinematic product video.",
+      structured_content: {},
+      model_id: "video-model",
+      parameters: {},
+      prompt_context_snapshot_id: null,
+      output_asset_id: null,
+      position: { x: 0, y: 0 },
+      revision: 1,
+      error: null,
+      created_at: "2026-07-31T04:00:00Z",
+      updated_at: "2026-07-31T04:00:00Z",
+    };
+    api.runAgentCanvas.mockRejectedValueOnce({
+      status: 409,
+      code: "upstream_inputs_not_ready",
+      details: { missing_required_source_node_ids: ["node-script-1", "node-image-1"] },
+    });
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime({ ...workflow, nodes: [draftVideo] }, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    await expect(result.current.actions.runNode(draftVideo)).rejects.toMatchObject({ code: "upstream_inputs_not_ready" });
+
+    await waitFor(() => expect(result.current.state.inputReadinessIssue).toEqual({
+      target_node_id: "node-video-1",
+      source_node_ids: ["node-script-1", "node-image-1"],
+    }));
+    expect(callbacks.mergeNode).not.toHaveBeenCalled();
+  });
+
+  it("submits a per-node Run for the same Ready media node", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const readyImage: CanvasNodeV2 = {
+      node_id: "image-ready-1",
+      workflow_id: "workflow-1",
+      node_type: "image",
+      creative_role: "product",
+      role_contract_version: "ad-media-role-v1",
+      title: "Product image",
+      status: "ready",
+      summary_prompt: null,
+      generation_prompt: "Product on black acrylic",
+      structured_content: {},
+      model_id: "image-model",
+      parameters: {},
+      prompt_context_snapshot_id: null,
+      output_asset_id: "asset-1",
+      output_asset_version_id: "asset-version-1",
+      latest_attempt: null,
+      position: { x: 0, y: 0 },
+      revision: 2,
+      error: null,
+      created_at: "2026-07-30T00:00:00Z",
+      updated_at: "2026-07-30T00:00:00Z",
+    };
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime({
+      ...workflow,
+      nodes: [readyImage],
+    }, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    await result.current.actions.runNode(readyImage);
+
+    expect(api.runAgentCanvas).toHaveBeenCalledWith(
+      "workflow-1",
+      expect.objectContaining({
+        scope: "selected_nodes",
+        node_ids: [readyImage.node_id],
+        retry_failed: false,
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("exposes settings, document, and Editing preparation event projections without inventing node state", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    api.agentCanvasRuntime.mockClear();
+    api.agentCanvasWorkflowWithEtag.mockClear();
+
+    const baseEvent = {
+      workflow_id: "workflow-1",
+      project_id: "project-1",
+      execution_id: null,
+      node_id: null,
+      asset_id: null,
+      binding_id: null,
+      conversation_id: "conversation-1",
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      created_at: "2026-08-06T08:00:00Z",
+    };
+    eventSource.emit("agent_settings_updated", {
+      ...baseEvent,
+      sequence_no: 43,
+      event_type: "agent_settings_updated",
+      payload: { media_execution_mode: "automatic", revision: 2 },
+    });
+    eventSource.emit("agent_document_updated", {
+      ...baseEvent,
+      sequence_no: 44,
+      event_type: "agent_document_updated",
+      payload: { document_id: "doc-plan-1", revision: 4 },
+    });
+    eventSource.emit("editing_prepared", {
+      ...baseEvent,
+      sequence_no: 45,
+      event_type: "editing_prepared",
+      node_id: "node-editing-1",
+      payload: {
+        editing_node_id: "node-editing-1",
+        omitted_node_ids: ["node-video-failed"],
+        manifest_revision: 3,
+      },
+    });
+
+    await waitFor(() => expect(result.current.state.settingsRevision).toBe(1));
+    expect(result.current.state.documentEvents).toEqual([
+      expect.objectContaining({ event_type: "agent_document_updated" }),
+    ]);
+    expect(result.current.state.editingPreparationByNodeId).toEqual({
+      "node-editing-1": {
+        omittedNodeIds: ["node-video-failed"],
+        manifestRevision: 3,
+      },
+    });
+    await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalled());
+    expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalled();
+    expect(result.current.state.runtime?.ready_node_ids).toEqual([]);
+  });
+
+  it("deduplicates repeated runtime events and retains the runtime reference for timestamp-only snapshots", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const timestampOnlyRuntime = {
+      ...runtime,
+      events_cursor: 43,
+      updated_at: "2026-07-28T00:01:00Z",
+    };
+    api.agentCanvasRuntime
+      .mockReset()
+      .mockResolvedValueOnce(runtime)
+      .mockResolvedValueOnce(timestampOnlyRuntime)
+      .mockResolvedValue({
+        ...runtime,
+        events_cursor: 44,
+        updated_at: "2026-07-28T00:02:00Z",
+      });
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    await waitFor(() => expect(result.current.state.runtime).not.toBeNull());
+    const presentedRuntime = result.current.state.runtime;
+    api.agentCanvasRuntime.mockClear();
+
+    const waitingEvent = (sequence_no: number) => ({
+      sequence_no,
+      workflow_id: "workflow-1",
+      event_type: "node_generation_waiting",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "node-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: null,
+      attempt: 1,
+      created_at: "2026-07-28T00:02:00Z",
+      payload: { waiting_reason: "provider_queue" },
+    });
+    eventSource.emit("node_generation_waiting", waitingEvent(43));
+    eventSource.emit("node_generation_waiting", waitingEvent(44));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+
+    expect(api.agentCanvasRuntime).toHaveBeenCalledOnce();
+    expect(result.current.state.runtime).toBe(presentedRuntime);
+
+    eventSource.emit("node_generation_started", {
+      ...waitingEvent(45),
+      event_type: "node_generation_started",
+    });
+    await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalledTimes(2));
+    eventSource.emit("node_generation_waiting", waitingEvent(46));
+    await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalledTimes(3));
+  });
+
+  it("deduplicates publication recovery events by transition identity", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(eventSource.onmessage).not.toBeNull());
+    api.agentCanvasRuntime.mockClear();
+    api.agentCanvasWorkflowWithEtag.mockClear();
+    api.agentCanvasNode.mockClear();
+    const publicationFailed = (sequenceNo: number) => ({
+      sequence_no: sequenceNo,
+      workflow_id: "workflow-1",
+      event_type: "node_result_publication_failed",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "node-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: "publication:intent-1:failed",
+      attempt: 1,
+      created_at: "2026-09-04T00:00:00Z",
+      payload: {
+        publication_intent_id: "intent-1",
+        retryable: false,
+        reason_code: "node_result_publication_object_invalid",
+      },
+    });
+
+    eventSource.emit("node_result_publication_failed", publicationFailed(43));
+    eventSource.emit("node_result_publication_failed", publicationFailed(44));
+
+    await waitFor(() => expect(api.agentCanvasWorkflowWithEtag).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.agentCanvasNode).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalledOnce());
+  });
+
+  it("batches distinct non-terminal runtime presentations", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    api.agentCanvasRuntime.mockReset().mockResolvedValue(runtime);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(eventSource.onmessage).not.toBeNull());
+    api.agentCanvasRuntime.mockClear();
+    const event = (sequence_no: number, progress: number) => ({
+      sequence_no,
+      workflow_id: "workflow-1",
+      event_type: "provider_task_polled",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "node-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: null,
+      attempt: 1,
+      created_at: "2026-07-28T00:02:00Z",
+      payload: { progress },
+    });
+
+    eventSource.emit("provider_task_polled", event(43, 0.25));
+    eventSource.emit("provider_task_polled", event(44, 0.5));
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(api.agentCanvasRuntime).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalledOnce());
+  });
+
+  it("cancels a pending non-terminal refresh when the workflow changes", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    api.agentCanvasRuntime.mockReset().mockResolvedValue(runtime);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const hook = renderHook(({ currentWorkflow }: { currentWorkflow: AgentCanvasWorkflowV2 | null }) => useAgentCanvasRuntime(currentWorkflow, callbacks), {
+      initialProps: { currentWorkflow: workflow },
+    });
+
+    await waitFor(() => expect(eventSource.onmessage).not.toBeNull());
+    api.agentCanvasRuntime.mockClear();
+    eventSource.emit("provider_task_polled", {
+      sequence_no: 43,
+      workflow_id: "workflow-1",
+      event_type: "provider_task_polled",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "node-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: null,
+      attempt: 1,
+      created_at: "2026-07-28T00:02:00Z",
+      payload: { progress: 0.25 },
+    });
+    hook.rerender({ currentWorkflow: null });
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+
+    expect(api.agentCanvasRuntime).not.toHaveBeenCalled();
+    hook.unmount();
+  });
+
+  it("retries a duplicate runtime event after a transient refresh failure", async () => {
+    api.agentCanvasEvents.mockReset();
+    api.agentCanvasEvents.mockResolvedValue({
+      workflow_id: "workflow-1",
+      events: [],
+      next_cursor: 42,
+    });
+    const eventSource = new EventSourceStub();
+    api.openAgentCanvasEventStream.mockReturnValue(eventSource);
+    const callbacks = {
+      applyWorkflow: vi.fn(),
+      mergePublishedAsset: vi.fn(),
+      mergeNode: vi.fn(),
+    };
+    const { result } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+
+    await waitFor(() => expect(result.current.state.runtime).not.toBeNull());
+    api.agentCanvasRuntime.mockReset()
+      .mockRejectedValueOnce(new Error("temporary runtime failure"))
+      .mockResolvedValueOnce({ ...runtime, events_cursor: 44 });
+    const waitingEvent = (sequence_no: number) => ({
+      sequence_no,
+      workflow_id: "workflow-1",
+      event_type: "node_generation_waiting",
+      project_id: "project-1",
+      execution_id: "execution-1",
+      node_id: "node-1",
+      asset_id: null,
+      binding_id: null,
+      conversation_id: null,
+      turn_id: null,
+      action_id: null,
+      trace_id: null,
+      span_id: null,
+      transition_key: null,
+      attempt: 1,
+      created_at: "2026-07-28T00:02:00Z",
+      payload: { waiting_reason: "provider_queue" },
+    });
+
+    eventSource.emit("node_generation_waiting", waitingEvent(43));
+    await waitFor(() => expect(result.current.state.runtimeError).toBe("temporary runtime failure"));
+    eventSource.emit("node_generation_waiting", waitingEvent(44));
+
+    await waitFor(() => expect(api.agentCanvasRuntime).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.state.runtimeError).toBeNull());
+  });
+});

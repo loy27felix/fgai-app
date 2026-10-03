@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+apps/*/node_modules/
+
+# Frontend build output
+apps/web/dist/
+apps/web/.vite/
+apps/web/coverage/
+
+# Project documentation allowlist; generated and local docs remain ignored
+/docs/*
+!/docs/deployment-with-docker.md
+!/docs/deployment-with-docker_zh.md
+!/docs/deployment-without-docker.md
+!/docs/deployment-without-docker_zh.md
+!/docs/deployment-with-docker-agent.md
+!/docs/deployment-with-docker-agent_zh.md
+!/docs/deployment-without-docker-agent.md
+!/docs/deployment-without-docker-agent_zh.md
+!/docs/recommended-assets.md
+!/docs/recommended-assets_zh.md
+!/docs/getting-started.md
+!/docs/getting-started_zh.md
+
+# Frontend local docs, tests, and agent workspace files
+apps/web/.codex/
+apps/web/docs/
+apps/web/frontend
+apps/web/frontend/
+apps/web/task
+apps/web/task/
+apps/web/task_v2/
+apps/web/tests/
+apps/web/*.md
+
+# Environment files
+.env
+.env.*
+!.env.example
+apps/*/.env
+apps/*/.env.*
+!apps/*/.env.example
+
+# Python backend local runtime
+apps/api/.venv/
+apps/api/data/
+data/
+
+# Local caches and generated indexes
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Docker deployment runtime state
+runtime-data/
+
+# Local agent, skill, planning, and code-intelligence artifacts
+.superpowers/
+AGENT_PROPOSAL_CARD_UI.md
+.codex/
+openspec/
+docs/superpowers/
+.codegraph/
+apps/*/.codegraph/

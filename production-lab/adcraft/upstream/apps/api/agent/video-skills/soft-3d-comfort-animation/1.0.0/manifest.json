@@ -1,0 +1,41 @@
+{
+  "skill_id": "soft-3d-comfort-animation",
+  "version": "1.0.0",
+  "video_representation_mode": "illustrated",
+  "display_name": "柔软三维治愈动画",
+  "description": "以圆润比例、触觉化柔软材质、温暖光线和轻柔情绪动作构建安全而有细节的三维动画。",
+  "content_locale": "zh-CN",
+  "category": "animation-illustration",
+  "tags": [
+    "三维动画",
+    "柔软材质",
+    "治愈叙事"
+  ],
+  "supported_use_cases": [
+    "品牌动画",
+    "生活方式内容",
+    "情绪产品广告"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "柔软三维治愈动画视觉预览。",
+    "media_url": "/api/v2/video-skills/soft-3d-comfort-animation/preview?v=1.0.0"
+  },
+  "display_order": 320,
+  "files": {
+    "SKILL.md": "814696b74345fb23402d40774dc5515365eef3147d46aa32ea38c1e7a0753b65",
+    "references/character.md": "e9e50969ae925eca264ce515026d2d98d68e49793ecc190f7bd31b0edf22057a",
+    "references/scene.md": "32a9479bedddb4005a3c72dd02c571061a0d8b8f2360ee4ea709ded712dbc80c",
+    "references/storyboard.md": "0900a0908693a7e381ab720973e4bd6dee48c207d8f2a50c0d6181b7009b809b",
+    "references/video.md": "fd0379010ede87ac2f98a529badc76fe7520e8205394da309324dc6c79afd588",
+    "references/quick_media.md": "78795968094b9e28e98275ff893d10c1183222d1ba6fd4044fb0f50113452815",
+    "previews/preview.webp": "a02dfed983199d0ff0e60a525cd1e485d2c30d62f94583e98d3c50e480524075"
+  },
+  "role_guidance": {
+    "character": "references/character.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md",
+    "quick_media": "references/quick_media.md"
+  }
+}

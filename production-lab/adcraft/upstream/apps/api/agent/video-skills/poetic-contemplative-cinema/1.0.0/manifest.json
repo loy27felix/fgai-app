@@ -1,0 +1,38 @@
+{
+  "skill_id": "poetic-contemplative-cinema",
+  "version": "1.0.0",
+  "display_name": "诗性沉思影像",
+  "description": "以时间感、材质观察、静默和环境隐喻组织耐心而有情绪依据的商业影像。",
+  "content_locale": "zh-CN",
+  "category": "cinematic-narrative",
+  "tags": [
+    "诗性影像",
+    "材质观察",
+    "环境隐喻"
+  ],
+  "supported_use_cases": [
+    "品牌叙事",
+    "情绪广告",
+    "生活方式影片"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "诗性沉思影像视觉预览。",
+    "media_url": "/api/v2/video-skills/poetic-contemplative-cinema/preview?v=1.0.0"
+  },
+  "display_order": 230,
+  "files": {
+    "SKILL.md": "33ef608fe48c902f0fc07ce9a4b814ae922dab64abcdb79a31bca5dc532d9836",
+    "references/script.md": "08e3274685a3a70d8fd1d20cdd2b85d13a8cbf3a1cf706593df437cc172adad6",
+    "references/scene.md": "c713032442933ffd15dd5baa3a858b645c271ddd1a73201acced469ff1c94d9b",
+    "references/storyboard.md": "cbeb2ecf857b5217e5aaee177d642a50573cde095eba9a2f7ededd085c7eed24",
+    "references/video.md": "4d849c2169fae8ff34f6e32e7650c534b5f44cf45af6fd0bdbea293b527d2acf",
+    "previews/preview.webp": "35122ea24763dff5f5a723d1aff3936969f743784cba1b0b0e4f2d063c445d3f"
+  },
+  "role_guidance": {
+    "script": "references/script.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md"
+  }
+}

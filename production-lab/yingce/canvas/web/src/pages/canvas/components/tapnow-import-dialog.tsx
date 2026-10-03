@@ -179,7 +179,7 @@ export function TapNowImportDialog({ open, projectId, viewport, viewportSize, on
                             </div>
                         ) : null}
                         <div className="flex flex-wrap gap-2">
-                            <Tag role="status">{loading && progress ? `正在归档到 NAS：${progress.completed}/${progress.total}${progress.waitSeconds ? ` · 等待 ${progress.waitSeconds} 秒继续` : ''}` : '等待确认导入'}</Tag>
+                            <span role="status" className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium" style={{ background: 'var(--surface-hover)', color: 'var(--foreground)', borderColor: 'var(--border)' }}><span className="size-1.5 rounded-full bg-current opacity-50" />{loading && progress ? `正在归档到 NAS：${progress.completed}/${progress.total}${progress.waitSeconds ? ` · 等待 ${progress.waitSeconds} 秒继续` : ''}` : '等待确认导入'}</span>
                         </div>
                     </div>
                 ) : null}

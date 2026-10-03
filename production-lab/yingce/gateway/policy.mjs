@@ -31,7 +31,7 @@ export function proxyHeaders(incoming, cookie, host) {
   const blocked = new Set([...hopHeaders, 'cookie', 'authorization', 'host', 'forwarded']);
   String(incoming.connection || '').split(',').forEach(h => blocked.add(h.trim().toLowerCase()));
   const headers = Object.fromEntries(Object.entries(incoming).filter(([name]) =>
-    !blocked.has(name.toLowerCase()) && !/^x-(?:canvas-|yingce-|forwarded-)/i.test(name)));
+    !blocked.has(name.toLowerCase()) && !/^x-(?:canvas-|yingce-|forwarded-|fg-)/i.test(name)));
   return { ...headers, cookie, host, 'x-forwarded-proto': 'https', 'x-forwarded-host': host };
 }
 

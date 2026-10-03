@@ -1,0 +1,60 @@
+{
+  "skills": [
+    {
+      "path": "video_agent_bgm_direction/SKILL.md",
+      "sha256": "3100e5e08ddf9462f814770c861df5f8ef0e28b02b14685da20956f25e4a26c8",
+      "skill_id": "video_agent_bgm_direction"
+    },
+    {
+      "path": "video_agent_character_design/SKILL.md",
+      "sha256": "db1f5558bb7aa6ee6866f90bbd8a03f8cdaa61e7a31230d34c018a425c635297",
+      "skill_id": "video_agent_character_design"
+    },
+    {
+      "path": "video_agent_product_design/SKILL.md",
+      "sha256": "4ca60de958a108261b08ae850e0500b38618da7e3c0c4814f172b061d89c8bd6",
+      "skill_id": "video_agent_product_design"
+    },
+    {
+      "path": "video_agent_prop_design/SKILL.md",
+      "sha256": "28ebf5dca5ff068d2a5ecf48d043f25b3f0a214af63a9265c830f2a8061cfcdd",
+      "skill_id": "video_agent_prop_design"
+    },
+    {
+      "path": "video_agent_quick_media/SKILL.md",
+      "sha256": "a4a4f32144fa5047729f8137eee630a851b765bafe3b8c11c4434b10b54cb46e",
+      "skill_id": "video_agent_quick_media"
+    },
+    {
+      "path": "video_agent_role_prompt_authoring/SKILL.md",
+      "sha256": "3c2cada92dade6b9414e224eb5ee7dc4af9f15ee35ea83dce8555e7907f7acb6",
+      "skill_id": "video_agent_role_prompt_authoring"
+    },
+    {
+      "path": "video_agent_scene_design/SKILL.md",
+      "sha256": "1bffd56cb8c0e2be851a704f2e936aa0af4e42604be669920eee2e3f693dbed2",
+      "skill_id": "video_agent_scene_design"
+    },
+    {
+      "path": "video_agent_script_authoring/SKILL.md",
+      "sha256": "b0d872ec8c7d671c4bd83f6e334a69a4717d05b4af43135462d8469f6d0ac8ee",
+      "skill_id": "video_agent_script_authoring"
+    },
+    {
+      "path": "video_agent_storyboard_design/SKILL.md",
+      "sha256": "1ba595417ca66f7c759ab2466babaf1aa57c3d50f5a98747775529b3e916b738",
+      "skill_id": "video_agent_storyboard_design"
+    },
+    {
+      "path": "video_agent_video_direction/SKILL.md",
+      "sha256": "db4cfbf8428363fce0843add44813ec1e5bc8bc0caa89e0e8ed6c4f2c49d142f",
+      "skill_id": "video_agent_video_direction"
+    },
+    {
+      "path": "video_agent_world_setting/SKILL.md",
+      "sha256": "60078ca00977c87d23d73241f138ae0865db8ee4e1ba52ceb3d356163919144c",
+      "skill_id": "video_agent_world_setting"
+    }
+  ],
+  "version": "1"
+}

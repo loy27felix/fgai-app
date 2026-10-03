@@ -7,6 +7,7 @@ import {applyHostDiskMetrics} from './host-metrics.mjs';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
+import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute} from './fg-adcraft.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -18,6 +19,7 @@ const sessions = new Map();
 const creating = new Map();
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
+await initializeAdcraft(pool);
 await publishExistingStoryMedia(pool);
 startFeeSync(pool);
 
@@ -86,6 +88,7 @@ const server = http.createServer(async (req, res) => {
     try { parsed = requestPath(req.url, publicOrigin); }
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
+    if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if (publicResourceRead(req.method, path)) {
       // The native backend verifies the expiring HMAC capability before reading
       // NAS bytes. No browser or FG credentials are forwarded on this route.
@@ -116,11 +119,12 @@ const server = http.createServer(async (req, res) => {
     }
     const cookie = await canvasSession(actor);
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
+    if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
     if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin}))return;
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
-      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.2',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
+      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.3',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
     }
     if (path.pathname === '/api/admin/system-performance' && req.method === 'GET') {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});

@@ -1,0 +1,20 @@
+FROM ghcr.io/astral-sh/uv:0.8.22 AS uv
+FROM python:3.10.20-slim-trixie
+ENV DEBIAN_FRONTEND=noninteractive HOME=/tmp PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /uvx /bin/
+WORKDIR /app
+COPY upstream/apps/api/pyproject.toml upstream/apps/api/uv.lock upstream/apps/api/.python-version ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY upstream/apps/api/app ./app
+COPY upstream/apps/api/agent/video-skills ./agent/video-skills
+COPY upstream/apps/api/agent/contracts ./agent/contracts
+COPY upstream/apps/api/agent/skills ./agent/skills
+COPY upstream/apps/api/agent/src/generated ./agent/src/generated
+COPY upstream/apps/api/scripts ./scripts
+COPY upstream/apps/api/alembic ./alembic
+COPY upstream/apps/api/alembic.ini ./alembic.ini
+COPY upstream/apps/api/fg_main.py ./fg_main.py
+RUN python -c "import subprocess,pathlib; e=subprocess.check_output(['ffmpeg','-hide_banner','-encoders']).decode(); assert 'libx264' in e and ' aac ' in e; assert pathlib.Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc').is_file()"
+EXPOSE 8000
+CMD ["uvicorn", "fg_main:app", "--host", "0.0.0.0", "--port", "8000"]

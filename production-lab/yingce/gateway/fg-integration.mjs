@@ -89,12 +89,13 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
           (c.fg_fee_reference_id=f.reference_id OR c.fg_fee_references_json::jsonb ? f.reference_id OR(c.capability='video' AND c.provider_request_id=f.reference_id)) GROUP BY f.reference_id HAVING count(*)=1
       ), matched AS (
         SELECT reference_id,call_id FROM fee_candidates WHERE call_id IN(SELECT call_id FROM fee_candidates GROUP BY call_id HAVING count(*)=1)
-      ) SELECT c.*,p.name project_name,u.display_name user_name,COALESCE(NULLIF(c.fg_group_name,''),s.group_name) group_name,s.tier,s.budget_cny,
+      ) SELECT c.*,p.name project_name,u.display_name user_name,COALESCE(NULLIF(c.fg_group_name,''),s.group_name) group_name,s.tier,COALESCE(s.budget_cny,aw.budget_cny) budget_cny,
         f.usd settled_usd,f.fx settled_fx,(f.usd*f.fx) settled_cny, f.reference_id settled_reference_id
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
+        LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id
         LEFT JOIN matched m ON m.call_id=c.id LEFT JOIN fg_provider_fees f ON f.reference_id=m.reference_id
-        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL
+        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1) OR EXISTS(SELECT 1 FROM fg_memberships m WHERE m.group_id=aw.group_id AND m.user_id=$1 AND m.unassigned_at IS NULL)))
         ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
       const settings=(await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0];
       const imports=(await pool.query('SELECT id,row_count,created_at FROM fg_fee_imports ORDER BY created_at DESC LIMIT 1')).rows;

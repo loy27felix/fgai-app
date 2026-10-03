@@ -14,6 +14,9 @@ func fgTeamEnabled() bool { return os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "tru
 
 func fgProjectScope(db *gorm.DB, table, userID string) *gorm.DB {
  if !fgTeamEnabled(){ return db.Where(table+".user_id = ?",userID) }
+ if db.Migrator().HasTable("fg_adcraft_workspaces") {
+  return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = "+table+".id) OR EXISTS (SELECT 1 FROM fg_adcraft_workspaces w WHERE w.native_project_id="+table+".id AND w.archived_at IS NULL AND (w.owner_id=? OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=?) OR EXISTS(SELECT 1 FROM fg_memberships m JOIN fg_groups g ON g.id=m.group_id WHERE m.group_id=w.group_id AND m.user_id=? AND m.unassigned_at IS NULL AND g.archived_at IS NULL))))",userID,userID,userID,userID)
+ }
  return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = "+table+".id))",userID)
 }
 func fgCanvasScope(db *gorm.DB,userID string) *gorm.DB {

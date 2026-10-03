@@ -31,6 +31,7 @@ const ThirdPartySettingsPage = lazy(() => import("@/pages/admin/settings/libtv-s
 const SystemUpdatePage = lazy(() => import("@/pages/admin/settings/fg-release-page"));
 const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-performance-page"));
 const FGProductionPage = lazy(() => import("@/pages/fg-production"));
+const AdvertisingPage = lazy(() => import("@/pages/advertising"));
 const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
@@ -105,6 +106,7 @@ export const router = createBrowserRouter([
             { path: "/", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
             { path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
             { path: "/fg-production", element: <RequireAuth>{deferred(<FGProductionPage />)}</RequireAuth> },
+            { path: "/advertising", element: <RequireAuth>{deferred(<AdvertisingPage />)}</RequireAuth> },
             { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
             {
                 path: "/tasks",

@@ -115,6 +115,7 @@ services:
       FG_FEE_SYNC_ACTOR_ID: ${FG_FEE_SYNC_ACTOR_ID:-}
       FG_TOPICS_FILE: ${FG_TOPICS_FILE:-/run/fg-data/topics.json}
       FG_GROUP3_ACCOUNT_EMAIL: ${FG_GROUP3_ACCOUNT_EMAIL:-}
+      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:?required}
     networks: [default, fg-platform]
     volumes:
       - ./host-metrics:/host-metrics:ro
@@ -139,6 +140,54 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+  adcraft-agent:
+    image: ${ADCRAFT_AGENT_IMAGE:?required}
+    restart: unless-stopped
+    environment:
+      AGENT_RUNTIME_HOST: 0.0.0.0
+      AGENT_RUNTIME_INTERNAL_TOKEN: ${FG_ADCRAFT_SECRET:?required}
+      AGENT_RUNTIME_MODE: real
+      AGENT_RUNTIME_PYTHON_BASE_URL: http://adcraft-api:8000
+      FG_ADCRAFT_MODE: "true"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8765/internal/v1/health',{headers:{authorization:'Bearer '+process.env.AGENT_RUNTIME_INTERNAL_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  adcraft-api:
+    image: ${ADCRAFT_API_IMAGE:?required}
+    user: "0:0"
+    restart: "no"
+    environment:
+      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      FG_ADCRAFT_SQLITE_ROOT: /database
+      AGENT_RUNTIME_MODE: real
+      MEDIA_MODE: real
+      SKIP_AUDIO_AGENTS: "true"
+    volumes:
+      - type: bind
+        source: ${NAS_MEDIA_PATH:?required}
+        target: /nas
+        bind:
+          create_host_path: false
+      - adcraft-database:/database
+    depends_on:
+      adcraft-agent:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import pathlib,urllib.request;assert pathlib.Path('/nas/.fg-studio-nas-ready').is_file();urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    stop_grace_period: 10m
+  adcraft-web:
+    image: ${ADCRAFT_WEB_IMAGE:?required}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
 networks:
   fg-platform:
     name: fg-studio
@@ -148,3 +197,4 @@ volumes:
   redis-data:
   web-data:
   fee-sync-secrets:
+  adcraft-database:

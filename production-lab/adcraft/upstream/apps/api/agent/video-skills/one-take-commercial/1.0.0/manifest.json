@@ -1,0 +1,38 @@
+{
+  "skill_id": "one-take-commercial",
+  "version": "1.0.0",
+  "display_name": "一镜到底空间广告",
+  "description": "以连续空间调度、有动机的转场和揭示时机组织一条可追踪的广告长镜头。",
+  "content_locale": "zh-CN",
+  "category": "commercial-craft",
+  "tags": [
+    "长镜头",
+    "空间调度",
+    "连续动作"
+  ],
+  "supported_use_cases": [
+    "品牌广告",
+    "产品展示",
+    "空间叙事"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "一镜到底空间广告视觉预览。",
+    "media_url": "/api/v2/video-skills/one-take-commercial/preview?v=1.0.0"
+  },
+  "display_order": 50,
+  "files": {
+    "SKILL.md": "8b9631e4fed3b102119ca39f4b8f2853bd3888578025f7c17eee6ee72da58cb5",
+    "references/script.md": "258df0690b655a8495a99ef42a732bd6389c1a1c7720ff1c42dd93342c33a1b8",
+    "references/product.md": "c27930e8fdca15be0524e34ef48c84d50339f12d0460541fc7f43476934180a3",
+    "references/storyboard.md": "41abee4bc0c1aa877faccbbc2a8f2d7eb24454cda0983be251536afef7fa5c98",
+    "references/video.md": "ed94786cf132b3b18ea517f81960995baee05ec81085fa292a41cfa01e9f03b2",
+    "previews/preview.webp": "7bdde9c26cbbf8563370737e5dbfc3ac8171a94cb800a750ba80520d6bbc9368"
+  },
+  "role_guidance": {
+    "script": "references/script.md",
+    "product": "references/product.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md"
+  }
+}

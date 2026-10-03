@@ -47,6 +47,7 @@ function buildNav(features: FeatureAvailability, isAdmin: boolean): { groups: Wo
                 { ...toolItem("create", "/"), id: "home", title: "创作" },
                 { id: "fg-stories", title: "故事与项目", icon: BookOpenText, to: "/fg-production" },
                 { ...toolItem("projects", "/projects"), title: "短剧 Agent" },
+                { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: "广告工作台" },
                 { ...toolItem("canvas", "/canvas"), title: "自由画布" },
             ],
         },

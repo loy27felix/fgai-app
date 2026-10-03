@@ -1,0 +1,40 @@
+{
+  "skill_id": "miniature-world-cinema",
+  "version": "1.0.0",
+  "display_name": "微缩世界电影广告",
+  "description": "以尺度对照、微距光学、手工细节和微型世界动作可读性组织具有玩具般真实感的商业影像。",
+  "content_locale": "zh-CN",
+  "category": "experimental-graphic",
+  "tags": [
+    "微缩世界",
+    "手工质感",
+    "尺度叙事"
+  ],
+  "supported_use_cases": [
+    "概念广告",
+    "产品展示",
+    "创意叙事"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "微缩世界电影广告视觉预览。",
+    "media_url": "/api/v2/video-skills/miniature-world-cinema/preview?v=1.0.0"
+  },
+  "display_order": 450,
+  "files": {
+    "SKILL.md": "e62a00e9892b3afffc33a90abc137fef9940d2b8b00be3a9b21f1ea4047c2a29",
+    "references/prop.md": "c58875654363a28b29da95c928b35590700282a6f32d425d5657607976534d75",
+    "references/scene.md": "f3a1f5dfe4aa570c074d0e4085ea7822c84a97b946357702999e1e4c73b54523",
+    "references/storyboard.md": "0a1dd29cbd70d3392e5d756a9a9f4a8969cd0ba04dd98cc8b38e33a8fa7ab5c2",
+    "references/video.md": "65501807972b14052d05e1e04093f69de4fd18a07f089419e3770a695f399362",
+    "references/quick_media.md": "25d91a4fda90975551d983f1a2a1640b8665d3a706035ffe987d024a8d551830",
+    "previews/preview.webp": "c1001d2a47b24e4426670f7d67800a329a8b7b452e9c2a680260a3ccc1c72a2c"
+  },
+  "role_guidance": {
+    "prop": "references/prop.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md",
+    "quick_media": "references/quick_media.md"
+  }
+}
