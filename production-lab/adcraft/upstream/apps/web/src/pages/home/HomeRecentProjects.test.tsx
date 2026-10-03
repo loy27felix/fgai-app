@@ -15,7 +15,7 @@ describe("HomeRecentProjects", () => {
   it("shows loading rather than demos or a premature empty state", () => {
     render(<HomeRecentProjects {...callbacks} />);
     expect(screen.getByRole("status").textContent).toContain("Loading recent projects");
-    expect(screen.queryByText("No recent projects")).toBeNull();
+    expect(screen.queryByText("暂无广告工程")).toBeNull();
     expect(screen.queryByText("New fragrance product reel")).toBeNull();
   });
 
@@ -51,7 +51,7 @@ describe("HomeRecentProjects", () => {
   it("shows empty only after success and supports creating a project", () => {
     state.projects = []; state.loading = false;
     render(<HomeRecentProjects {...callbacks} />);
-    expect(screen.getByText("No recent projects")).toBeTruthy();
+    expect(screen.getByText("暂无广告工程")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     expect(callbacks.onCreateProject).toHaveBeenCalledOnce();
   });
@@ -59,7 +59,7 @@ describe("HomeRecentProjects", () => {
   it("keeps cached cards on refresh failure and disables repeat retry while loading", () => {
     state.projects = [fixture("a")]; state.error = true; state.loading = false;
     const view = render(<HomeRecentProjects {...callbacks} />);
-    expect(screen.getByRole("alert").textContent).toContain("could not be refreshed");
+    expect(screen.getByRole("alert").textContent).toContain("最近工程刷新失败");
     expect(screen.getByText("Campaign a")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(state.refresh).toHaveBeenCalledOnce();
@@ -71,7 +71,7 @@ describe("HomeRecentProjects", () => {
     state.error = true; state.loading = false;
     render(<HomeRecentProjects {...callbacks} />);
     expect(screen.getByRole("alert")).toBeTruthy();
-    expect(screen.queryByText("No recent projects")).toBeNull();
+    expect(screen.queryByText("暂无广告工程")).toBeNull();
     expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
   });
 });

@@ -37,6 +37,43 @@ func TestFGAdvertisingMembershipRevokesProjectAccess(t *testing.T) {
  if _,err=repo.ProjectForUser("alice","advert");err!=nil{t.Fatal(err)}
 }
 
+func TestFGSuperadminScopePreservesCanvasSaveStatement(t *testing.T) {
+ t.Setenv("CANVAS_FG_TEAM_WORKSPACE","true")
+ db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"admin.db")),&gorm.Config{})
+ if err!=nil{t.Fatal(err)}
+ sqlDB,_:=db.DB();defer sqlDB.Close();sqlDB.SetMaxOpenConns(1)
+ if err=db.AutoMigrate(&model.Project{},&model.CanvasProject{},&model.Resource{});err!=nil{t.Fatal(err)}
+ for _,sql:=range []string{
+  "CREATE TABLE fg_accounts(user_id TEXT PRIMARY KEY,platform_role TEXT)",
+  "INSERT INTO fg_accounts VALUES('admin','superadmin'),('alice','member'),('bob','member')",
+  "CREATE TABLE fg_story_projects(native_project_id TEXT PRIMARY KEY)",
+  "CREATE TABLE fg_resource_grants(project_id TEXT,resource_id TEXT)",
+  "CREATE TABLE fg_company_assets(resource_id TEXT)",
+ }{if err=db.Exec(sql).Error;err!=nil{t.Fatal(err)}}
+ repo:=New(db)
+ if err=db.Create(&model.Project{ID:"private",UserID:"alice",Name:"private"}).Error;err!=nil{t.Fatal(err)}
+ if _,err=repo.ProjectForUser("admin","private");err!=nil{t.Fatal(err)}
+ if _,err=repo.ProjectForUser("bob","private");!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("private project leaked",err)}
+ canvas:=model.CanvasProject{ID:"admin-canvas",UserID:"admin",PayloadJSON:`{"nodes":[]}`}
+ if err=repo.UpsertCanvasProject(&canvas);err!=nil{t.Fatal(err)}
+ canvas.Title="saved by admin"
+ if err=repo.UpsertCanvasProject(&canvas);err!=nil{t.Fatal("model-scoped admin save failed",err)}
+ if canvas.Revision!=2{t.Fatal("revision did not increment")}
+ canvas.Title="transactional save"
+ if err=repo.SaveCanvasWithSnapshot(&canvas,nil,nil,nil,time.Now(),20,false);err!=nil{t.Fatal("transaction-scoped save failed",err)}
+ stored,err:=repo.CanvasProjectForUser("admin",canvas.ID)
+ if err!=nil||stored.Title!=canvas.Title||stored.Revision!=3{t.Fatalf("stored canvas: %+v, %v",stored,err)}
+ if _,err=repo.CanvasProjectForUser("bob",canvas.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("admin canvas leaked",err)}
+ // A caller's existing predicates must not restrict the separate role lookup.
+ scoped:=db.Model(&model.CanvasProject{}).Where("canvas_projects.id = ?",canvas.ID)
+ if !fgSuperadmin(scoped,"admin"){t.Fatal("role lookup inherited canvas predicates")}
+ if err=scoped.Update("title","scope preserved").Error;err!=nil{t.Fatal("role lookup mutated caller",err)}
+ resource:=model.Resource{ID:"private-resource",UserID:"alice",Status:model.ResourceStatusReady}
+ if err=db.Create(&resource).Error;err!=nil{t.Fatal(err)}
+ if _,err=repo.ResourceForUser("admin",resource.ID);err!=nil{t.Fatal("admin media scope failed",err)}
+ if _,err=repo.ResourceForUser("bob",resource.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("private media leaked",err)}
+}
+
 func TestFGTeamCanvasIsolationAndAtomicMedia(t *testing.T) {
  t.Setenv("CANVAS_FG_TEAM_WORKSPACE","true")
  db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"fg.db")),&gorm.Config{})

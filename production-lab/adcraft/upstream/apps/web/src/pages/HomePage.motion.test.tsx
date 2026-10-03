@@ -96,8 +96,8 @@ describe("HomePage motion", () => {
     );
 
     expect(lines.slice(0, 2).map((line) => line.textContent?.replace(/\u00a0/g, " "))).toEqual([
-      "ONE SENTENCE",
-      "BECOMES AN",
+      "从一句创意",
+      "到一支",
     ]);
 
     expect(lines[2]?.getAttribute("data-accent-text")).toBe("广告片。");

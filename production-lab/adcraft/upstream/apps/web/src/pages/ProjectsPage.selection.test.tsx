@@ -80,7 +80,7 @@ describe("ProjectsPage batch selection", () => {
     fireEvent.click(view.container.querySelector('[data-project-id="project-1"] .project-card-open') as HTMLElement);
 
     expect(fixture.openProject).not.toHaveBeenCalled();
-    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByText("已选 1 个工程")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(true);
   });
 
@@ -89,12 +89,12 @@ describe("ProjectsPage batch selection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(screen.getByRole("button", { name: "全选" }));
-    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(screen.getByText("已选 2 个工程")).toBeTruthy();
 
     fireEvent.change(screen.getByPlaceholderText("搜索工程"), { target: { value: "Summer" } });
 
     expect(screen.getByText("Selection cleared because the project list changed.")).toBeTruthy();
-    expect(screen.queryByText("2 selected")).toBeNull();
+    expect(screen.queryByText("已选 2 个工程")).toBeNull();
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(false);
   });
 
@@ -114,7 +114,7 @@ describe("ProjectsPage batch selection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(screen.getByRole("button", { name: "全选" }));
-    fireEvent.click(screen.getByRole("button", { name: "收藏" }));
+    fireEvent.click(screen.getByRole("button", { name: "收藏选中" }));
 
     await waitFor(() => expect(fixture.toggleProjectFavorite).toHaveBeenCalledTimes(2));
     expect(fixture.toggleProjectFavorite).toHaveBeenNthCalledWith(1, fixture.savedProjects[0]);
@@ -135,7 +135,7 @@ describe("ProjectsPage batch selection", () => {
 
     await waitFor(() => expect(fixture.moveProjectToTrash).toHaveBeenCalledTimes(2));
     expect(screen.getByText("1 project could not be moved to trash.")).toBeTruthy();
-    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByText("已选 1 个工程")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Select Winter launch" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(false);
   });

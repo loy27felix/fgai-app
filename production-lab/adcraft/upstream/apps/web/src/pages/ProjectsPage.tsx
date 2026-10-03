@@ -86,7 +86,7 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
   const selectionBusy = batchAction !== null;
   const favoriteActionLabel = selectedProjects.length > 0 && selectedProjects.every((project) => project.favorite)
     ? "取消收藏"
-    : "收藏";
+    : "收藏选中";
 
   useEffect(() => {
     if (!selectionNotice) return undefined;
@@ -118,7 +118,7 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
   }, []);
 
   const clearSelectionForListChange = useCallback(() => {
-    if (selectedProjectIds.size > 0) setSelectionNotice("Selection cleared because the project list changed.");
+    if (selectedProjectIds.size > 0) setSelectionNotice("工程列表已更新，已清除选中项。");
     setSelectedProjectIds(new Set());
   }, [selectedProjectIds.size]);
 

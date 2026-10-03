@@ -62,7 +62,7 @@ describe("TrashPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select Archived campaign" }));
 
     expect((screen.getByRole("checkbox", { name: "Select Archived campaign" }) as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByText("已选 1 个工程")).toBeTruthy();
     expect(mockState.restoreTrashedProject).not.toHaveBeenCalled();
   });
 
@@ -91,7 +91,7 @@ describe("TrashPage", () => {
 
     fireEvent.change(screen.getByPlaceholderText("搜索已删除工程"), { target: { value: "product" } });
 
-    expect(screen.getByText("0 selected")).toBeTruthy();
+    expect(screen.getByText("已选 0 个工程")).toBeTruthy();
     expect(screen.getByRole("button", { name: "全选" })).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Select Old product film" }) as HTMLInputElement).checked).toBe(false);
     expect(screen.queryByRole("checkbox", { name: "Select Archived campaign" })).toBeNull();
@@ -162,7 +162,7 @@ describe("TrashPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "完成" }));
 
     expect(screen.getByRole("button", { name: "选择" })).toBeTruthy();
-    expect(screen.queryByText("1 selected")).toBeNull();
+    expect(screen.queryByText("已选 1 个工程")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "Select Archived campaign" })).toBeNull();
   });
 });

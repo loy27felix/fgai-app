@@ -40,11 +40,11 @@ describe("HomePage hero title", () => {
     expect(
       Array.from(lines[0]?.querySelectorAll<HTMLElement>(".home-product-hero__title-character") ?? [])
         .map((character) => character.dataset.homeHeroCharacterOrder),
-    ).toEqual(["10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"]);
+    ).toEqual(["4", "3", "2", "1", "0"]);
     expect(
       Array.from(lines[1]?.querySelectorAll<HTMLElement>(".home-product-hero__title-character") ?? [])
         .map((character) => character.dataset.homeHeroCharacterOrder),
-    ).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8"]);
+    ).toEqual(["0", "1", "2"]);
     expect(lines[0]?.querySelectorAll(".home-product-hero__title-character--collision")).toHaveLength(0);
     expect(lines[1]?.querySelectorAll(".home-product-hero__title-character--collision")).toHaveLength(0);
     expect(lines[0]?.querySelectorAll(".home-product-hero__title-character--bump-target")).toHaveLength(0);
@@ -129,7 +129,7 @@ describe("HomePage hero title", () => {
     expect(styles).toMatch(
       /\.home-product-hero__create\s*\{[^}]*min-height:\s*44px;[^}]*gap:\s*8px;[^}]*padding:\s*0 18px 0 15px;/s,
     );
-    const [createButton] = screen.getAllByRole("button", { name: "Create Your Project" });
+    const [createButton] = screen.getAllByRole("button", { name: "创建广告工程" });
     const createIcon = createButton.querySelector("svg.home-product-hero__create-icon");
     expect(createIcon?.getAttribute("viewBox")).toBe("0 0 256 256");
     expect(createIcon?.querySelector("path")?.getAttribute("d")).toBe(

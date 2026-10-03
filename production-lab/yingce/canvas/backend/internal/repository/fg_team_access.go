@@ -37,9 +37,13 @@ func (r *Repository) FGSharedProject(id string) bool {
  return r.db.Table("fg_story_projects").Where("native_project_id = ?",id).Count(&count).Error==nil && count>0
 }
 func fgSuperadmin(db *gorm.DB,userID string) bool {
- if !db.Migrator().HasTable("fg_accounts"){return false}
+ // A scope may receive an existing Model/Where statement. Role lookups must
+ // not replace its target table or carry its predicates into the account query.
+ // NewDB preserves the caller's transaction connection, with a fresh statement.
+ lookup:=db.Session(&gorm.Session{NewDB:true})
+ if !lookup.Migrator().HasTable("fg_accounts"){return false}
  var count int64
- return db.Table("fg_accounts").Where("user_id=? AND platform_role='superadmin'",userID).Count(&count).Error==nil&&count==1
+ return lookup.Table("fg_accounts").Where("user_id=? AND platform_role='superadmin'",userID).Count(&count).Error==nil&&count==1
 }
 
 // Called inside the existing canvas-save transaction after resource validation.
