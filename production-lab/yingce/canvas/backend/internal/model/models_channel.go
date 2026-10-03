@@ -95,6 +95,7 @@ type ChannelModelPriceTier struct {
 }
 
 type ApiCallLog struct {
+    FGBudgetReservationID string `json:"budgetReservationId,omitempty" gorm:"column:fg_budget_reservation_id;size:36;not null;default:''"`
     FGFeeReferenceID string `json:"feeReferenceId,omitempty" gorm:"column:fg_fee_reference_id;size:160;not null;default:''"`
     FGFeeReferencesJSON string `json:"feeReferencesJson,omitempty" gorm:"column:fg_fee_references_json;type:text;not null;default:'[]'"`
 	ID                     string        `json:"id" gorm:"primaryKey;size:36"`

@@ -20,11 +20,11 @@ export async function initializeAdcraft(pool){
   await pool.query(`CREATE TABLE IF NOT EXISTS fg_adcraft_workspaces(id uuid PRIMARY KEY,owner_id varchar(36) NOT NULL REFERENCES users(id),native_project_id varchar(36) UNIQUE NOT NULL REFERENCES projects(id),name varchar(160) NOT NULL,brief text NOT NULL,group_id uuid REFERENCES fg_groups(id),story_id integer, budget_cny numeric(16,2) NOT NULL CHECK(budget_cny>0),archived_at timestamptz,created_at timestamptz NOT NULL DEFAULT now());
     CREATE TABLE IF NOT EXISTS fg_adcraft_members(workspace_id uuid REFERENCES fg_adcraft_workspaces(id),user_id varchar(36) REFERENCES users(id),PRIMARY KEY(workspace_id,user_id));
     CREATE TABLE IF NOT EXISTS fg_adcraft_jobs(id uuid PRIMARY KEY,workspace_id uuid REFERENCES fg_adcraft_workspaces(id),actor_id varchar(36) NOT NULL REFERENCES users(id),logical_key varchar(64) NOT NULL,task_id varchar(36) REFERENCES tasks(id),mode varchar(12) NOT NULL,reserved_cny numeric(16,6) NOT NULL,status varchar(16) NOT NULL DEFAULT 'reserved',error varchar(300) NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(workspace_id,logical_key));`);
-  await pool.query('ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_project_id varchar(80); ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_workflow_id varchar(80)');
+  await pool.query('ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_project_id varchar(80); ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_workflow_id varchar(80); ALTER TABLE fg_adcraft_workspaces DROP CONSTRAINT IF EXISTS fg_adcraft_workspaces_budget_cny_check; ALTER TABLE fg_adcraft_workspaces ADD CONSTRAINT fg_adcraft_workspaces_budget_cny_check CHECK(budget_cny>=0)');
 }
 export async function advertisingAccess(pool,actor,id){
   if(!uuid.test(id))return null;
-  return (await pool.query(`SELECT w.* FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND ($3 OR w.owner_id=$2 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$2) OR EXISTS(SELECT 1 FROM fg_memberships m JOIN fg_groups g ON g.id=m.group_id WHERE m.group_id=w.group_id AND m.user_id=$2 AND m.unassigned_at IS NULL AND g.archived_at IS NULL))`,[id,actor.id,actor.reviewer===true])).rows[0]||null;
+  return (await pool.query(`SELECT w.* FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND ($3 OR w.owner_id=$2 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$2))`,[id,actor.id,actor.reviewer===true])).rows[0]||null;
 }
 // Release a reservation only with a complete receipt match or explicit proof
 // that the provider request never left FG. Missing receipts remain reserved.
@@ -53,6 +53,13 @@ async function nativeAPI(web,cookie,origin,path,method='GET',payload){
   const data=await response.json();if(!response.ok||data.code!==0)throw Error(data.msg||'FG 制作服务暂时不可用');return data.data;
 }
 export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}){
+  const memberMatch=/^\/api\/fg\/advertising\/([^/]+)\/members$/.exec(path.pathname);
+  if(memberMatch){
+    try{const workspace=await advertisingAccess(pool,actor,memberMatch[1]);if(!workspace||(!actor.reviewer&&workspace.owner_id!==actor.id)){json(res,'仅项目所有者或超级管理员可管理分享',403);return true;}
+      if(req.method==='GET'){json(res,{members:(await pool.query('SELECT user_id FROM fg_adcraft_members WHERE workspace_id=$1',[workspace.id])).rows.map(r=>r.user_id),users:(await pool.query("SELECT u.id,u.display_name name,a.email FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.id<>$1 ORDER BY u.display_name",[workspace.owner_id])).rows});return true;}
+      if(req.method==='PUT'){const input=await body(req,8192);if(!Array.isArray(input.userIds)||input.userIds.length>100||input.userIds.some(id=>!uuid.test(id)))throw Error('请选择有效成员');const client=await pool.connect();try{await client.query('BEGIN');await client.query('SELECT id FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[workspace.id]);const valid=(await client.query("SELECT id FROM users WHERE id=ANY($1::text[]) AND status='active'",[input.userIds])).rows;if(valid.length!==new Set(input.userIds).size)throw Error('部分成员不可用');await client.query('DELETE FROM fg_adcraft_members WHERE workspace_id=$1',[workspace.id]);for(const user of valid)await client.query('INSERT INTO fg_adcraft_members(workspace_id,user_id) VALUES($1,$2)',[workspace.id,user.id]);await client.query('COMMIT');json(res,{saved:true});}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}return true;}
+    }catch(e){json(res,e.message,400);}return true;
+  }
   const assetMatch=/^\/api\/fg\/advertising\/([^/]+)\/company-asset$/.exec(path.pathname);
   if(assetMatch&&req.method==='POST'){
     try{
@@ -75,8 +82,9 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   }
   const budgetMatch=/^\/api\/fg\/advertising\/([^/]+)\/budget$/.exec(path.pathname);
   if(budgetMatch&&req.method==='PATCH'){
-    try{const workspace=await advertisingAccess(pool,actor,budgetMatch[1]);if(!workspace||(!actor.reviewer&&workspace.owner_id!==actor.id)){json(res,'仅项目负责人或超级管理员可以修改预算',403);return true;}
-      const input=await body(req,4096);const budget=Number(input.budgetCny);if(!(budget>0&&budget<=1000000))throw Error('预算无效');await pool.query('UPDATE fg_adcraft_workspaces SET budget_cny=$2 WHERE id=$1',[workspace.id,budget]);json(res,{budgetCny:budget});
+    try{const workspace=await advertisingAccess(pool,actor,budgetMatch[1]);if(!workspace||!actor.reviewer){json(res,'仅超级管理员可以修改预算',403);return true;}
+      const input=await body(req,4096);const budget=Number(input.budgetCny||0);if(!Number.isFinite(budget)||budget<0||budget>10000000)throw Error('预算无效');
+      const client=await pool.connect();try{await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-project:'||$1))",[workspace.native_project_id]);const before=(await client.query('SELECT budget_cny FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[workspace.id])).rows[0];await client.query('UPDATE fg_adcraft_workspaces SET budget_cny=$2 WHERE id=$1',[workspace.id,budget]);await client.query('INSERT INTO fg_finance_audit(id,actor_id,action,target,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor.id,'advertising_budget',workspace.native_project_id,before,{budgetCny:budget}]);await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}json(res,{budgetCny:budget});
     }catch(error){json(res,error.message,400);}return true;
   }
   const openMatch=/^\/api\/fg\/advertising\/([^/]+)\/open$/.exec(path.pathname);
@@ -94,25 +102,24 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(path.pathname==='/api/fg/advertising'){
     try {
       if(req.method==='GET'){
-        const rows=(await pool.query(`SELECT w.*,g.name group_name,u.display_name owner_name FROM fg_adcraft_workspaces w LEFT JOIN fg_groups g ON g.id=w.group_id JOIN users u ON u.id=w.owner_id WHERE w.archived_at IS NULL AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1) OR EXISTS(SELECT 1 FROM fg_memberships m JOIN fg_groups gg ON gg.id=m.group_id WHERE m.group_id=w.group_id AND m.user_id=$1 AND m.unassigned_at IS NULL AND gg.archived_at IS NULL)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer])).rows;
-        const groups=(await pool.query(`SELECT g.id,g.name FROM fg_groups g WHERE g.archived_at IS NULL AND ($2 OR EXISTS(SELECT 1 FROM fg_memberships m WHERE m.group_id=g.id AND m.user_id=$1 AND m.unassigned_at IS NULL)) ORDER BY g.name`,[actor.id,actor.reviewer])).rows;
-        for(const row of rows)row.can_manage=actor.reviewer||row.owner_id===actor.id;
+        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE w.archived_at IS NULL AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer])).rows;
+        const groups=[];
+        for(const row of rows){row.can_manage=actor.reviewer||row.owner_id===actor.id;row.can_budget=actor.reviewer;}
         json(res,{workspaces:rows,groups,models});return true;
       }
       if(req.method==='POST'){
-        const input=await body(req,32768);const name=String(input.name||'').trim(),brief=String(input.brief||'').trim(),budget=Number(input.budgetCny);
-        if(!name||name.length>160||brief.length<5||brief.length>10000||!(budget>0&&budget<=1000000))throw Error('请填写项目名称、广告需求和有效预算');
-        if(input.groupId&&!(await pool.query(`SELECT 1 FROM fg_groups g WHERE g.id=$1 AND g.archived_at IS NULL AND ($3 OR EXISTS(SELECT 1 FROM fg_memberships m WHERE m.group_id=g.id AND m.user_id=$2 AND m.unassigned_at IS NULL))`,[input.groupId,actor.id,actor.reviewer])).rowCount)throw Error('无权选择该小组');
-        if(input.storyId&&!(await pool.query('SELECT 1 FROM fg_stories WHERE id=$1 AND status=\'approved\'',[input.storyId])).rowCount)throw Error('请选择已审核的故事');
+        const input=await body(req,32768);const name=String(input.name||'').trim(),brief=String(input.brief||'').trim(),budget=Number(input.budgetCny||0);
+        if(!name||name.length>160||brief.length<5||brief.length>10000||!Number.isFinite(budget)||budget<0||budget>1000000)throw Error('请填写项目名称、广告需求和有效预算');
+        if(input.groupId||input.storyId)throw Error('广告项目独立于神话故事小组和故事库');
         const {project}=await nativeAPI(web,cookie,publicOrigin,'/projects','POST',{name,type:'advertising',aspectRatio:input.aspectRatio==='9:16'?'9:16':'16:9',sourceType:'text',description:brief});
-        const id=randomUUID();await pool.query('INSERT INTO fg_adcraft_workspaces(id,owner_id,native_project_id,name,brief,group_id,story_id,budget_cny) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,actor.id,project.id,name,brief,input.groupId||null,input.storyId||null,budget]);
+        const id=randomUUID();await pool.query('INSERT INTO fg_adcraft_workspaces(id,owner_id,native_project_id,name,brief,group_id,story_id,budget_cny) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,actor.id,project.id,name,brief,null,null,budget]);
         json(res,{id,projectId:project.id});return true;
       }
       json(res,'不支持此操作',405);return true;
     }catch(error){json(res,error.message,400);return true;}
   }
   const match=/^\/(advertising-app|adcraft-api)\/([^/]+)(\/.*)?$/.exec(path.pathname);
-  const staticReference=/\/(?:advertising-app|adcraft-static)\//.test(String(req.headers.referer||''))&&/^\/(?:brand|agent-icons|agent-roles|video-skills|showcase)\//.test(path.pathname);
+  const staticReference=/\/(?:advertising-app|adcraft-static)\//.test(String(req.headers.referer||''))&&(/^\/(?:brand|agent-icons|agent-roles|video-skills|showcase|imgs|icon|fonts)\//.test(path.pathname)||/^\/assets\/.*\.(?:webp|png|jpg|svg|mp4)$/.test(path.pathname));
   if(!match&&!path.pathname.startsWith('/adcraft-static/')&&!staticReference)return false;
   if(!secret()){json(res,'广告工作台尚未配置',503);return true;}
   if(match&&!await advertisingAccess(pool,actor,match[2])){json(res,'没有这个广告项目的访问权限',403);return true;}
@@ -187,7 +194,7 @@ export async function adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvas
     const logical=createHash('sha256').update(JSON.stringify([context.operation,context.actor,mode,payload])).digest('hex');
     const client=await pool.connect();let job;
     try{await client.query('BEGIN');const locked=(await client.query('SELECT budget_cny FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[workspace.id])).rows[0];if(!locked)throw Error('广告项目不存在');job=(await client.query('SELECT * FROM fg_adcraft_jobs WHERE workspace_id=$1 AND logical_key=$2',[workspace.id,logical])).rows[0];
-      if(!job){const used=await budgetUsage(client,workspace.id);if(used+amount>Number(locked.budget_cny))throw Error('广告项目预算不足，请增加预算后继续');job={id:randomUUID()};await client.query('INSERT INTO fg_adcraft_jobs(id,workspace_id,actor_id,logical_key,mode,reserved_cny) VALUES($1,$2,$3,$4,$5,$6)',[job.id,workspace.id,actor.id,logical,mode,amount]);}
+      if(!job){const used=await budgetUsage(client,workspace.id);if(Number(locked.budget_cny)>0&&used+amount>Number(locked.budget_cny))throw Error('广告项目预算不足，请联系超级管理员调整预算');job={id:randomUUID()};await client.query('INSERT INTO fg_adcraft_jobs(id,workspace_id,actor_id,logical_key,mode,reserved_cny) VALUES($1,$2,$3,$4,$5,$6)',[job.id,workspace.id,actor.id,logical,mode,amount]);}
       await client.query('COMMIT');
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     if(!job.task_id){

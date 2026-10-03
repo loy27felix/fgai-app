@@ -1,77 +1,54 @@
 import {useEffect,useMemo,useState,useRef} from 'react';
-import {Alert,App,Button,Input,InputNumber,Segmented,Table,Tag,Upload} from 'antd';
+import {Alert,App,Button,Input,InputNumber,Segmented,Select,Table,Tag,Tabs,Upload} from 'antd';
 import {Download,RefreshCw,UploadCloud} from 'lucide-react';
-import {Link,useSearchParams} from 'react-router';
+import {useSearchParams} from 'react-router';
 import {WorkspacePage,PageHeader} from '@/components/layout/workspace-page';
-import {getFGFinance,importFGFees,updateFGFx,type FGCall,type FGFinance} from '@/services/api/fg-production';
-import './production.css';
+import {AppModal} from '@/components/ui/product/app-modal';
+import {getFGFinance,importFGFees,updateFGFx,type FGCall,type FGFinance,type FGReceipt} from '@/services/api/fg-production';
+import {http} from '@/services/api/request';
 import {FGModelPrices} from '@/components/fg-model-prices';
-
-const money=(value:number)=>new Intl.NumberFormat('zh-CN',{style:'currency',currency:'CNY',minimumFractionDigits:2,maximumFractionDigits:4}).format(value);
-const csvCell=(value:unknown)=>`"${String(value??'').replaceAll('"','""')}"`;
-type Summary={id:string;name:string;count:number;settled:number;pending:number;total:number};
-
+import './production.css';
+const money=(n:number)=>new Intl.NumberFormat('zh-CN',{style:'currency',currency:'CNY',maximumFractionDigits:4}).format(n);
+const date=(s:string)=>new Date(s).toLocaleString('zh-CN');
+type Audit={id:string;created_at:string;actor_name:string;action:string;target:string;after_value:{note?:string;monthlyCny?:number;budgetCny?:number}};
 export default function FGFinancePage(){
-    const {message,modal}=App.useApp();const [params,setParams]=useSearchParams();
-    const [data,setData]=useState<FGFinance|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
-    const [groupBy,setGroupBy]=useState('项目'),[query,setQuery]=useState(''),[fx,setFx]=useState<number|null>(null);
-    const loading=useRef(false),mounted=useRef(false);
-    async function load(silent=false){if(loading.current)return;loading.current=true;if(!silent)setBusy(true);try{const result=await getFGFinance();if(!mounted.current)return;setData(result);setError('');if(!silent)setFx(result.fx);}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'读取费用失败');}finally{loading.current=false;if(mounted.current&&!silent)setBusy(false);}}
-    useEffect(()=>{mounted.current=true;void load();const timer=setInterval(()=>{if(!document.hidden)void load(true);},15000);return()=>{mounted.current=false;clearInterval(timer);};},[]);
-    const calls=useMemo(()=>data?.calls.filter(row=>(!params.get('project')||row.project_id===params.get('project'))&&(!query||[row.project_name,row.user_name,row.group_name,row.model,row.settled_reference_id,row.fg_fee_reference_id,row.provider_request_id].join(' ').toLowerCase().includes(query.toLowerCase())))??[],[data,params,query]);
-    const settled=calls.filter(row=>row.settled_cny!==null);
-    const total=settled.reduce((sum,row)=>sum+Number(row.settled_cny),0);
-    const accountBillTotal=(data?.calls.reduce((sum,row)=>sum+Number(row.settled_cny||0),0)||0)+(data?.unallocated.reduce((sum,row)=>sum+row.cny,0)||0);
-    const pending=calls.filter(row=>row.settled_cny===null&&row.rate_estimated_cny!==null),pendingTotal=pending.reduce((sum,row)=>sum+Number(row.rate_estimated_cny),0);
-    const summaries=useMemo(()=>{
-        const map=new Map<string,Summary>();
-        for(const row of calls){
-            const id=groupBy==='人员'?row.user_id:groupBy==='小组'?(row.group_name||'未归属小组'):(row.project_id||'未关联项目');
-            const name=groupBy==='人员'?row.user_name:groupBy==='小组'?(row.group_name||'未归属小组'):(row.project_name||row.canvas_title||'自由画布 / 未关联项目');
-            const item=map.get(id)??{id,name,count:0,settled:0,pending:0,total:0};item.count++;
-            if(row.settled_cny===null)item.pending++;else{item.settled++;item.total+=Number(row.settled_cny);}map.set(id,item);
-        }return [...map.values()].sort((a,b)=>b.total-a.total);
-    },[calls,groupBy]);
-    function exportCSV(){
-        const rows=[['时间','成员','项目','小组','模型','状态','Reference ID','账单实扣（人民币）','用量估算（人民币，非核销）'],...calls.map(row=>[row.created_at,row.user_name,row.project_name,row.group_name,row.model,row.status,row.settled_reference_id||row.fg_fee_reference_id||row.provider_request_id,row.settled_cny,row.rate_estimated_cny])];
-        const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
-        const a=document.createElement('a');a.href=url;a.download=`FG-项目费用-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
-    }
-    async function importFile(file:File){
-        if(file.size>5_000_000){void message.error('费用单最多 5 MB');return;}
-        const csv=await file.text();
-        modal.confirm({title:'导入 WeToken 实际费用单',content:`以 Reference ID 和模型精确匹配，按当前人民币换算系数 ${data?.fx??'—'} 记账。重复流水不会重复计费；无对应请求的流水会保留为待归属。`,okText:'导入并对账',onOk:async()=>{
-            try{const result=await importFGFees(csv);void message.success(result.reused?'费用单已导入，无重复计费':`已处理 ${result.rows} 条消费流水`);await load();}catch(e){void message.error(e instanceof Error?e.message:'导入失败');throw e;}
-        }});
-    }
-    return <WorkspacePage className="fg-production-page">
-        <PageHeader title="FG 人民币费用对账" description="每次模型请求保留人员、画布与项目归属。实际金额以 WeToken 消费费用单核销。" actions={<><Button icon={<RefreshCw size={15}/>} loading={busy} onClick={()=>void load()}>刷新</Button><Button icon={<Download size={15}/>} disabled={!calls.length} onClick={exportCSV}>导出明细</Button>{data?.canManage&&<Upload accept=".csv,text/csv" showUploadList={false} beforeUpload={file=>{void importFile(file);return false;}}><Button type="primary" icon={<UploadCloud size={15}/>}>导入 WeToken 费用单</Button></Upload>}</>}/>
-        {error&&<Alert type="error" showIcon message={error} action={<Button onClick={()=>void load()}>重试</Button>}/>}
-        <Alert type={data?.billingSync?.status==='reauthorization_required'?'warning':'info'} showIcon message="页面每 15 秒刷新 · 供应商账单每分钟同步" description={`${data?.billingSync?.reason||'用量估算自动更新，账单实扣须精确匹配供应商流水。'}${data?.billingSync?.lastSuccess?' 上次成功同步：'+new Date(data.billingSync.lastSuccess).toLocaleString('zh-CN'):''}`}/>
-        <div className="fg-finance-stats">
-            {data?.canManage&&<section><span>已同步账户账单合计 · 人民币</span><strong>{data?money(accountBillTotal):'—'}</strong><small>含同一 WeToken 账户其他系统的历史消费；不等于本板块项目费用</small></section>}
-            <section><span>已核销费用 · 人民币折算</span><strong>{data?money(total):'—'}</strong><small>{settled.length} 次精确匹配 · 费用单覆盖部分</small></section>
-            <section><span>待核销用量估算 · 人民币</span><strong>{data?money(pendingTotal):'—'}</strong><small>{pending.length} 次有估算，另有 {calls.length-settled.length-pending.length} 次金额待确认；不计入实扣</small></section>
-            <section><span>WeToken 请求记录</span><strong>{data?calls.length:'—'}</strong><small>包含失败尝试；轮询与下载不重复计费</small></section>
-            {data?.canManage&&<section><span>费用单待归属</span><strong>{data?data.unallocated.length:'—'}</strong><small>未找到唯一对应请求，未计入任何项目</small></section>}
-        </div>
-        {data?.canManage&&<div className="fg-finance-controls"><div><span>人民币记账换算系数</span><InputNumber min={0.000001} max={100} precision={6} value={fx} onChange={setFx}/><Button disabled={!fx||fx===data?.fx} onClick={async()=>{if(fx)try{await updateFGFx(fx);void message.success('已保存；历史核销保留原汇率');await load();}catch(e){void message.error(e instanceof Error?e.message:'保存失败');}}}>保存</Button></div><small>最近导入：{data?.lastImport?new Date(data.lastImport.created_at).toLocaleString('zh-CN')+' · '+data.lastImport.row_count+' 条':'尚未导入'}。预算与模型估算不计入已核销总额。</small></div>}
-        <div className="fg-topic-toolbar"><Input prefix={<span>搜索</span>} value={query} onChange={e=>setQuery(e.target.value)} placeholder="成员、项目、小组、模型或 Reference ID" allowClear/><Segmented options={['项目','人员','小组']} value={groupBy} onChange={value=>setGroupBy(String(value))}/>{params.get('project')&&<Button onClick={()=>setParams({})}>查看全部项目</Button>}</div>
-        <h2 className="fg-finance-title">费用归集</h2>
-        <FGModelPrices/>
-        <Table rowKey="id" dataSource={summaries} loading={busy} pagination={false} scroll={{x:760}} locale={{emptyText:'尚无模型调用记录。先从故事建立项目，在项目画布中运行模型。'}} columns={[
-            {title:groupBy,dataIndex:'name',render:(value:string,row:Summary)=>groupBy==='项目'&&row.id!=='未关联项目'?<Link to={`/projects/${row.id}`}>{value}</Link>:value},
-            {title:'模型请求',dataIndex:'count',width:110}, {title:'已核销 / 待核销',render:(_:unknown,row:Summary)=><><Tag>{row.settled} 已核销</Tag><Tag color={row.pending?'gold':undefined}>{row.pending} 待核销</Tag></>},
-            {title:'已核销费用',width:170,render:(_:unknown,row:Summary)=><strong>{row.settled?money(row.total):'待核销'}</strong>}
-        ]}/>
-        <h2 className="fg-finance-title">模型请求明细</h2>
-        <Table<FGCall> rowKey="id" dataSource={calls} loading={busy} pagination={{pageSize:20,showSizeChanger:true}} scroll={{x:1250}} columns={[
-            {title:'时间 / 成员',width:180,render:(_:unknown,row)=><><div>{row.user_name}</div><small>{new Date(row.created_at).toLocaleString('zh-CN')}</small></>},
-            {title:'项目 / 小组',width:190,render:(_:unknown,row)=><><div>{row.project_name||row.canvas_title||'未关联项目'}</div><small>{row.group_name||'未归属小组'}</small></>},
-            {title:'模型',dataIndex:'model',width:270}, {title:'请求 / 任务',dataIndex:'status',width:110,render:(value:string,row)=>row.task_status==='failed'?<Tag color="red">任务失败</Tag>:row.task_status==='queued'||row.task_status==='running'?<Tag color="blue">任务处理中</Tag>:value==='succeeded'?<Tag color="green">请求成功</Tag>:value==='failed'?<Tag color="red">请求失败</Tag>:value},
-            {title:'人民币费用',width:180,render:(_:unknown,row)=>row.settled_cny!==null?<><strong>{money(Number(row.settled_cny))}</strong><div><Tag color="green">费用单已核销</Tag></div></>:<><Tag color="gold">待费用单核销</Tag>{row.rate_estimated_cny!==null&&<div><small>用量估算 {money(row.rate_estimated_cny)}</small></div>}</>},
-            {title:'Reference ID',width:270,render:(_:unknown,row)=><span className="fg-fee-reference">{row.settled_reference_id||row.fg_fee_reference_id||'供应商未返回费用流水号'}</span>}
-        ]}/>
-        {!!data?.unallocated.length&&<><Alert type="info" showIcon message={`费用单待归属合计 ${money(data.unallocated.reduce((sum,row)=>sum+row.cny,0))}`} description="这些流水缺少唯一匹配的请求，不会根据时间、提示词或金额猜测归属；保留在账户账单中，未计入任何项目。"/><Table rowKey="reference_id" dataSource={data.unallocated} pagination={false} scroll={{x:720}} columns={[{title:'待归属流水号',dataIndex:'reference_id'},{title:'模型',dataIndex:'model'},{title:'费用单实扣（人民币）',dataIndex:'cny',render:(value:number)=>money(value)}]}/></>}
-    </WorkspacePage>;
+ const {message,modal}=App.useApp();const [params,setParams]=useSearchParams();const [data,setData]=useState<FGFinance>();const [busy,setBusy]=useState(false),[error,setError]=useState(''),[tab,setTab]=useState('overview'),[groupBy,setGroupBy]=useState('项目'),[query,setQuery]=useState(''),[receiptQuery,setReceiptQuery]=useState(''),[receiptStatus,setReceiptStatus]=useState('pending');
+ const [fx,setFx]=useState<number|null>(null),[selected,setSelected]=useState<React.Key[]>([]),[audits,setAudits]=useState<Audit[]>([]);
+ const [action,setAction]=useState<{kind:string;refs:string[];call?:FGCall}|null>(null),[note,setNote]=useState(''),[reference,setReference]=useState<string>(),[saving,setSaving]=useState(false);
+ const loading=useRef(false);
+ async function load(silent=false){if(loading.current)return;loading.current=true;if(!silent)setBusy(true);try{const d=await getFGFinance();setData(d);setError('');if(!silent)setFx(d.fx);}catch(e){setError(e instanceof Error?e.message:'费用读取失败');}finally{loading.current=false;if(!silent)setBusy(false);}}
+ useEffect(()=>{void load();const t=setInterval(()=>{if(!document.hidden)void load(true);},15000);return()=>clearInterval(t);},[]);
+ const calls=useMemo(()=>data?.calls.filter(c=>(!params.get('project')||params.get('project')===c.project_id)&&(!query||[c.user_name,c.project_name,c.canvas_title,c.model,c.fg_fee_reference_id,c.settled_reference_id].join(' ').toLowerCase().includes(query.toLowerCase())))||[],[data,params,query]);
+ const actual=calls.reduce((n,c)=>n+Number(c.settled_cny||0),0),pending=calls.filter(c=>c.settled_cny===null),pendingMoney=pending.reduce((n,c)=>n+Number(c.rate_estimated_cny||0),0);
+ const receipts=(data?.unallocated||[]).filter(f=>(receiptStatus==='all'||(receiptStatus==='pending'?!f.classification:f.classification===receiptStatus))&&(!receiptQuery||[f.reference_id,f.model,f.note].join(' ').toLowerCase().includes(receiptQuery.toLowerCase())));
+ const summary=useMemo(()=>{const groups=new Map<string,{id:string;name:string;actual:number;pending:number;count:number}>();for(const c of calls){const id=groupBy==='人员'?c.user_id:groupBy==='小组'?(c.group_name||'未分组'):(c.project_id||'自由画布');const name=groupBy==='人员'?c.user_name:groupBy==='小组'?(c.group_name||'未分组'):(c.project_name||'自由画布 / 主页创作');const item=groups.get(id)||{id,name,actual:0,pending:0,count:0};item.count++;if(c.settled_cny===null)item.pending++;else item.actual+=Number(c.settled_cny);groups.set(id,item);}return [...groups.values()].sort((a,b)=>b.actual-a.actual);},[calls,groupBy]);
+ const begin=(a:NonNullable<typeof action>)=>{setNote('');setReference(undefined);setAction(a);};
+ function exportCSV(){const cell=(s:unknown)=>'"'+String(s??'').replaceAll('"','""')+'"';const rows=[['时间','人员','项目','模型','账单人民币金额','参考用量估算','Reference ID','核销方式'],...calls.map(c=>[date(c.created_at),c.user_name,c.project_name||c.canvas_title,c.model,c.settled_cny,c.rate_estimated_cny,c.settled_reference_id||c.fg_fee_reference_id,c.match_method])];const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='FG-人民币费用.csv';a.click();URL.revokeObjectURL(url);}
+ async function importFile(file:File){if(file.size>5000000){message.error('费用单最多 5 MB');return;}const csv=await file.text();modal.confirm({title:'导入 WeToken 消费账单',content:'按供应商流水精确核销；重复导入不会重复记账，不能匹配的流水进入待处理列表。',onOk:async()=>{const r=await importFGFees(csv);message.success(r.reused?'费用单已存在，无重复记账':`已处理 ${r.rows} 条流水`);await load();}});}
+ const callTable=<Table<FGCall> rowKey="id" dataSource={tab==='reconcile'?pending:calls} loading={busy} pagination={{pageSize:15,showSizeChanger:true}} scroll={{x:1050}} columns={[
+ {title:'成员 / 时间',width:170,render:(_,c)=><><strong>{c.user_name}</strong><div className="text-xs opacity-60">{date(c.created_at)}</div></>},
+ {title:'项目 / 画布',width:185,render:(_,c)=><>{c.project_name||c.canvas_title||'主页创作'}{c.group_name&&<div className="text-xs opacity-60">{c.group_name}</div>}</>},
+ {title:'模型',dataIndex:'model',width:220},
+ {title:'请求状态',width:100,render:(_,c)=><Tag color={c.status==='succeeded'?'green':'red'}>{c.status==='succeeded'?'成功':'失败'}</Tag>},
+ {title:'账单金额',width:145,render:(_,c)=>c.settled_cny!==null?<><strong>{money(Number(c.settled_cny))}</strong><div className="text-xs opacity-60">{c.match_method?.includes('manual')?'人工核销':'自动核销'}</div></>:<><Tag color="gold">待核对</Tag><div className="text-xs opacity-60">{c.rate_estimated_cny!==null?'用量参考 '+money(c.rate_estimated_cny):'金额待确认'}</div></>},
+ {title:'流水 / 操作',render:(_,c)=><><div className="text-xs break-all opacity-60">{c.settled_reference_id||c.fg_fee_reference_id||'供应商未返回流水号'}</div>{c.settled_cny===null&&data?.canManage&&<Button size="small" className="mt-1" onClick={()=>begin({kind:'matched',refs:[],call:c})}>核对账单流水</Button>}</>},
+ ]}/>;
+ return <WorkspacePage className="fg-production-page"><PageHeader title="人民币费用" description="查看制作花费，处理待核对账单。" actions={<><Button icon={<RefreshCw size={15}/>} loading={busy} onClick={()=>void load()}>刷新</Button><Button icon={<Download size={15}/>} disabled={!calls.length} onClick={exportCSV}>导出明细</Button>{data?.canManage&&<Upload accept=".csv" showUploadList={false} beforeUpload={f=>{void importFile(f);return false;}}><Button type="primary" icon={<UploadCloud size={15}/>}>导入费用单</Button></Upload>}</>}/>
+ {error&&<Alert type="error" showIcon message={error}/>}
+ <div className="fg-finance-stats"><section><span>本板块已核销</span><strong>{data?money(actual):'—'}</strong><small>仅包含已归属制作请求的账单金额</small></section><section><span>待核对请求</span><strong>{pending.length} 笔</strong><small>用量参考 {money(pendingMoney)}，尚未计入已核销</small></section><section><span>模型请求</span><strong>{calls.length} 次</strong><small>页面 15 秒刷新 · 账单每分钟同步</small></section></div>
+ <div className="flex items-center gap-2 mb-4"><Tag color={data?.billingSync.status==='reauthorization_required'?'gold':'green'}>{data?.billingSync.status==='reauthorization_required'?'账单会话需重新授权':'账单自动同步'}</Tag><span className="text-xs opacity-60">{data?.billingSync.lastSuccess?'上次成功：'+date(data.billingSync.lastSuccess):data?.billingSync.reason}</span></div>
+ <Tabs activeKey={tab} onChange={key=>{setTab(key);if(key==='audit')void http.get<{audit:Audit[]}>('/fg/finance/audit').then(d=>setAudits(d.audit)).catch(e=>message.error(e.message));}} items={[{key:'overview',label:'费用汇总'},{key:'requests',label:'请求明细'},{key:'reconcile',label:`待核对 · ${pending.length}`},...(data?.canManage?[{key:'receipts',label:'账户流水'},{key:'audit',label:'处理记录'}]:[]),{key:'prices',label:'模型价格'}]}/>
+ {['overview','requests','reconcile'].includes(tab)&&<div className="fg-topic-toolbar"><Input value={query} onChange={e=>setQuery(e.target.value)} allowClear placeholder="搜索成员、项目、模型或流水号"/>{params.get('project')&&<Button onClick={()=>setParams({})}>全部项目</Button>}{tab==='overview'&&<Segmented options={['项目','人员','小组']} value={groupBy} onChange={v=>setGroupBy(String(v))}/>}</div>}
+ {tab==='overview'?<Table rowKey="id" dataSource={summary} pagination={{pageSize:15}} columns={[{title:groupBy,dataIndex:'name'},{title:'请求数',dataIndex:'count'},{title:'待核对',dataIndex:'pending',render:n=>n?<Tag color="gold">{n} 笔</Tag>:'—'},{title:'已核销金额',dataIndex:'actual',render:n=><strong>{money(n)}</strong>}]} />:tab==='requests'||tab==='reconcile'?<>{tab==='reconcile'&&<Alert className="mb-4" type="info" showIcon message="不同流水号不会自动匹配" description="可核对原始账单后人工关联。人工处理必须填写依据，保留原始金额和操作记录；不要仅按时间或金额确认。"/>}{callTable}</>:tab==='prices'?<FGModelPrices/>:tab==='audit'?<Table<Audit> rowKey="id" dataSource={audits} pagination={{pageSize:15}} columns={[{title:'时间',dataIndex:'created_at',render:date},{title:'操作人',dataIndex:'actor_name'},{title:'操作',dataIndex:'action'},{title:'对象',dataIndex:'target',render:s=><span className="text-xs break-all">{s}</span>},{title:'处理依据 / 新额度',render:(_,a)=>a.after_value?.note??(a.after_value?.monthlyCny!==undefined?money(a.after_value.monthlyCny):a.after_value?.budgetCny!==undefined?money(a.after_value.budgetCny):'—')}]} />:tab==='receipts'?<>
+ <Alert type="info" showIcon className="mb-4" message={'账户全部已同步消费 '+money((data?.calls.reduce((n,c)=>n+Number(c.settled_cny||0),0)||0)+(data?.unallocated.reduce((n,f)=>n+f.cny,0)||0))} description="包含其他系统与历史消费。只有归属本板块请求的部分计入项目；确认属于超级画布的流水可标记为其他系统，保留账单记录。"/>
+ <div className="fg-topic-toolbar"><Input allowClear value={receiptQuery} onChange={e=>setReceiptQuery(e.target.value)} placeholder="搜索账户流水、模型或处理依据"/><Select value={receiptStatus} onChange={s=>{setReceiptStatus(s);setSelected([]);}} options={[{value:'pending',label:'待归属'},{value:'external',label:'其他系统'},{value:'ignored',label:'已备注'},{value:'all',label:'全部未关联流水'}]}/><Button disabled={!selected.length} onClick={()=>begin({kind:'external',refs:selected.map(String)})}>标记其他系统</Button><Button disabled={!selected.length} onClick={()=>begin({kind:'ignored',refs:selected.map(String)})}>备注处理</Button></div>
+ <Table<FGReceipt> rowKey="reference_id" dataSource={receipts} rowSelection={{selectedRowKeys:selected,onChange:setSelected,preserveSelectedRowKeys:false}} pagination={{pageSize:20,showSizeChanger:true,showTotal:n=>`${n} 条`}} scroll={{x:950}} columns={[{title:'时间',width:170,dataIndex:'occurred_at',render:date},{title:'模型',width:240,dataIndex:'model'},{title:'人民币实扣',width:130,dataIndex:'cny',render:money},{title:'流水 / 备注',render:(_,f)=><><div className="text-xs break-all">{f.reference_id}</div>{f.note&&<small className="opacity-60">{f.note}</small>}</>},{title:'归属状态',width:170,render:(_,f)=><><Tag>{f.classification==='external'?'其他系统':f.classification==='ignored'?'已备注':'待归属'}</Tag>{f.classification&&<Button size="small" onClick={()=>begin({kind:'reset',refs:[f.reference_id]})}>撤回处理</Button>}</>}]} />
+ <div className="flex gap-2 items-center mt-4 text-sm"><span>人民币折算系数</span><InputNumber min={0.000001} max={100} value={fx} onChange={setFx}/><Button disabled={!fx||fx===data?.fx} onClick={async()=>{if(fx){await updateFGFx(fx);await load();}}}>保存</Button><small className="opacity-60">历史核销保留当时系数</small></div>
+ </>:null}
+ <AppModal title={action?.kind==='matched'?'核对并关联账单':action?.kind==='reset'?'撤回人工处理':'处理账户流水'} open={!!action} onCancel={()=>setAction(null)} okText="保存处理记录" confirmLoading={saving} onOk={async()=>{if(!action)return;if(note.trim().length<8){message.info('请填写至少 8 字的处理依据');return;}const refs=action.kind==='matched'?(reference?[reference]:[]):action.refs;if(!refs.length){message.info('请选择账单流水');return;}setSaving(true);try{await http.post('/fg/finance/decisions',{classification:action.kind,referenceIds:refs,callId:action.call?.id,note});setAction(null);setSelected([]);await load();message.success('已保存，可在处理记录中追溯');}catch(e){message.error(e instanceof Error?e.message:'处理失败');}finally{setSaving(false);}}}>
+  {action?.call&&<><p className="mb-3">{action.call.user_name} · {action.call.model}<br/>{date(action.call.created_at)}<br/><span className="text-xs break-all">请求流水：{action.call.fg_fee_reference_id}</span></p><Select className="w-full mb-3" showSearch optionFilterProp="label" value={reference} onChange={setReference} placeholder="选择经核实的原始账单流水" options={(data?.unallocated||[]).filter(f=>f.model===action.call?.model&&!f.classification).map(f=>({value:f.reference_id,label:date(f.occurred_at)+' · '+money(f.cny)+' · '+f.reference_id}))}/><Alert className="mb-3" type="warning" message="这是人工归属，不代表流水号自动匹配。请确认来源依据。"/></>}
+ {!action?.call&&<p className="mb-3">将处理 {action?.refs.length} 条流水，原始账单与金额保留。</p>}
+ <Input.TextArea rows={4} value={note} onChange={e=>setNote(e.target.value)} maxLength={2000} placeholder="填写核对依据，例如已检查供应商请求详情、原系统消费记录或相关证明。"/>
+ </AppModal>
+ </WorkspacePage>;
 }

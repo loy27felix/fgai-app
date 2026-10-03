@@ -45,8 +45,8 @@ export function TextWorkbench({
           value={isWorldSetting || !canRun ? draft.textContent : draft.prompt}
           disabled={draft.pending}
           placeholder={isWorldSetting
-            ? "Describe the world, its rules, place, era, and visual continuity."
-            : canRun ? "Describe the text you want to create." : "Write the brief, direction, or notes for the next node."}
+            ? "描述世界观、规则、地点、时代与视觉风格。"
+            : canRun ? "描述你想创作的文本。" : "为下一个节点填写需求、方向或说明。"}
           onChange={(event) => {
             if (isWorldSetting || !canRun) draft.setTextContent(event.currentTarget.value);
             else draft.setPrompt(event.currentTarget.value);
@@ -88,8 +88,8 @@ export function TextWorkbench({
               ? "Save World Setting changes"
               : !canRun ? "Save text changes" : retryingExecution ? "Retry text node" : regenerating ? "Regenerate text node" : "Run text node"}
             title={!canRun
-              ? "Save changes"
-              : retryingExecution ? "Retry text" : regenerating ? "Regenerate text" : "Run text"}
+              ? "保存修改"
+              : retryingExecution ? "重试文本" : regenerating ? "重新生成文本" : "生成文本"}
             disabled={draft.pending || (canRun && !draft.prompt.trim())}
             onClick={() => void (isWorldSetting || !canRun ? draft.save() : draft.run())}
           >

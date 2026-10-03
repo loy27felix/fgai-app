@@ -1,4 +1,5 @@
-export const imageBase = "/assets/";
+import {fgURL} from './fg-scope';
+export const imageBase = fgURL("/assets/card1.webp").replace('card1.webp','');
 
 export const images = [
   "card1.webp",

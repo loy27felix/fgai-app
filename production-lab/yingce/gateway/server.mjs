@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import {applyHostDiskMetrics} from './host-metrics.mjs';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
+import {budgetInternalRoute} from './fg-budgets.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute} from './fg-adcraft.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
@@ -88,6 +89,7 @@ const server = http.createServer(async (req, res) => {
     try { parsed = requestPath(req.url, publicOrigin); }
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
+    if(await budgetInternalRoute(req,res,{pool,path}))return;
     if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if (publicResourceRead(req.method, path)) {
       // The native backend verifies the expiring HMAC capability before reading
@@ -124,7 +126,7 @@ const server = http.createServer(async (req, res) => {
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
-      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.3',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
+      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.4',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
     }
     if (path.pathname === '/api/admin/system-performance' && req.method === 'GET') {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});

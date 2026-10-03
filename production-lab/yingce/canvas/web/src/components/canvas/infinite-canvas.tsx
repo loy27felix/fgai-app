@@ -446,7 +446,7 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
             className={`relative h-full w-full select-none overflow-hidden touch-none ${isPanning ? "cursor-grabbing" : isSpacePressed || !boxSelectEnabled ? "cursor-grab" : "canvas-cursor-select"}`}
             style={{
                 backgroundColor: resolvedAppearance.background,
-                backgroundImage: backgroundImage?`linear-gradient(rgba(10,14,22,.12),rgba(10,14,22,.12)), url(${JSON.stringify(backgroundImage)})`:resolvedAppearance.baseTheme==='dark'?`radial-gradient(ellipse at 15% 10%,rgba(112,122,164,.13),transparent 55%),radial-gradient(ellipse at 90% 80%,rgba(102,84,146,.09),transparent 50%),linear-gradient(145deg,${resolvedAppearance.background},#101217)`:'radial-gradient(ellipse at 20% 10%,rgba(128,156,191,.08),transparent 65%)',
+                backgroundImage: resolvedAppearance.baseTheme==='dark'?`radial-gradient(ellipse at 15% 10%,rgba(112,122,164,.13),transparent 55%),radial-gradient(ellipse at 90% 80%,rgba(102,84,146,.09),transparent 50%),linear-gradient(145deg,${resolvedAppearance.background},#101217)`:'radial-gradient(ellipse at 20% 10%,rgba(128,156,191,.08),transparent 65%)',
                 backgroundSize:'cover',backgroundPosition:'center',
                 overscrollBehavior: "none",
                 "--canvas-live-x": `${viewport.x}px`,
@@ -495,6 +495,7 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
                 onDrop?.(event);
             }}
         >
+            {backgroundImage?<div aria-hidden className="absolute inset-0 pointer-events-none" style={{backgroundImage:`url(${JSON.stringify(backgroundImage)})`,backgroundPosition:'center',backgroundSize:'cover',opacity:(appearance?.custom?.backgroundImage?.opacity??100)/100}}/>:null}
             <CanvasGrid appearance={appearance} mode={backgroundMode} />
             {graphicsLayer}
             <div

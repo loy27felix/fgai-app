@@ -39,7 +39,7 @@ function RecentProjectCard({ project, index, onOpenProject }: {
           onError={() => setFailedUrl(source)}
         />
       ) : (
-        <span className="recent-card__missing">{failed ? "Cover unavailable" : "No cover yet"}</span>
+        <span className="recent-card__missing">{failed ? "封面暂不可用" : "暂无封面"}</span>
       )}
       <div className="recent-card__caption">
         <h3 data-home-typography-region="cardTitle">{project.name}</h3>
@@ -59,15 +59,15 @@ export function HomeRecentProjects({ onOpenProject, onCreateProject, loadingCont
       <div className="recent-strip" data-reveal-item style={{ "--home-reveal-delay": "100ms" } as CSSProperties}>
         {error && (
           <div className="home-recent-state" role="alert">
-            <p>Recent projects could not be refreshed.</p>
-            <button type="button" className="home-recent-action" disabled={loading} onClick={refresh}>Retry</button>
+            <p>最近工程刷新失败。</p>
+            <button type="button" className="home-recent-action" disabled={loading} onClick={refresh}>重试</button>
           </div>
         )}
         {projects?.map((project, index) => <RecentProjectCard key={project.project_id} project={project} index={index} onOpenProject={onOpenProject} />)}
         {projects?.length === 0 && !error && !loading && (
           <div className="home-recent-state">
-            <p>No recent projects</p>
-            <button type="button" className="home-recent-action" onClick={onCreateProject}>Create project</button>
+            <p>暂无广告工程</p>
+            <button type="button" className="home-recent-action" onClick={onCreateProject}>创建工程</button>
           </div>
         )}
       </div>

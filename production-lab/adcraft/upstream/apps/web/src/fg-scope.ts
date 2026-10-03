@@ -17,7 +17,7 @@ export function fgLabel(text: string): string {
 export function fgURL(input: string): string {
   if (!fgWorkspace) return input;
   if (/^\/(?:api\/v[12](?:\/|$)|media(?:\/|$))/.test(input)) return '/adcraft-api/' + fgWorkspace + input;
-  if (/^\/(?:brand|agent-icons|agent-roles|video-skills|showcase)(?:\/|$)/.test(input) || /^\/assets\/.*\.(?:webp|png|jpg|svg|mp4)$/.test(input)) return '/adcraft-static' + input;
+  if (/^\/(?:brand|agent-icons|agent-roles|video-skills|showcase|imgs|icon|fonts)(?:\/|$)/.test(input) || /^\/assets\/.*\.(?:webp|png|jpg|svg|mp4)$/.test(input)) return '/adcraft-static' + input;
   return input;
 }
 function rewrite(value: unknown): unknown {
@@ -28,13 +28,8 @@ function rewrite(value: unknown): unknown {
 }
 export function installFGScope() {
   if (!fgWorkspace) return;
-  const applyTheme = (theme: unknown) => {
-    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.fgTheme = theme;
-  };
-  applyTheme(new URLSearchParams(window.location.search).get('fgTheme') || 'dark');
-  window.addEventListener('message', (event) => {
-    if (event.origin === window.location.origin && event.source === window.parent && event.data?.type === 'fg-advertising-theme') applyTheme(event.data.theme);
-  });
+  // AdCraft owns its appearance independently from the FG workbench.
+  document.documentElement.lang = 'zh-CN';
   const fetchNative = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const requested = typeof input === 'string' ? fgURL(input) : input;

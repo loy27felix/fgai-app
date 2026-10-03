@@ -15,6 +15,13 @@ import {
 } from "../src/lib/canvas/canvas-appearance";
 
 const values = new Map<string, string>();
+test('NAS background opacity survives document normalization',()=>{
+ const value=enterCustomCanvasAppearance(canvasAppearanceForTheme('dark'),'dark');
+ value.custom!.backgroundImage={storageKey:'resource:example',opacity:23};
+ expect(normalizeCanvasAppearance(value)?.custom?.backgroundImage).toEqual({storageKey:'resource:example',opacity:23});
+ value.custom!.backgroundImage.opacity=150;
+ expect(normalizeCanvasAppearance(value)?.custom?.backgroundImage?.opacity).toBe(100);
+});
 let originalWindow: PropertyDescriptor | undefined;
 
 beforeEach(() => {

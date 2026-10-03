@@ -50,8 +50,8 @@ export function ScriptWorkbench({
           value={canRun ? draft.prompt : draft.textContent}
           disabled={editorDisabled}
           placeholder={canRun
-            ? "Describe the script the Script Writer should create."
-            : "Write or refine the completed script."}
+            ? "描述广告脚本需求，交给编剧助手创作。"
+            : "编写或完善广告脚本。"}
           onChange={(event) => {
             if (canRun) draft.setPrompt(event.currentTarget.value);
             else draft.setTextContent(event.currentTarget.value);
@@ -88,10 +88,10 @@ export function ScriptWorkbench({
                 ? retryingExecution ? "Retry script node" : regenerating ? "Regenerate script node" : "Run script node"
                 : "Save script node"}
             title={isWorking
-              ? "Script generation is in progress"
+              ? "脚本正在生成"
               : canRun
-                ? retryingExecution ? "Retry script" : regenerating ? "Regenerate script" : "Run script"
-                : "Save script"}
+                ? retryingExecution ? "重试脚本" : regenerating ? "重新生成脚本" : "生成脚本"
+                : "保存脚本"}
             disabled={editorDisabled || (canRun && !draft.prompt.trim())}
             onClick={() => void (canRun ? draft.run() : draft.save())}
           >

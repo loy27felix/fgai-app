@@ -73,13 +73,13 @@ export function CanvasModelPicker({
   );
   const defaultModelName = models.find((model) => model.model_ref === defaultModelRef)?.display_name;
   const defaultLabel = defaultModelRef === undefined
-    ? "Default model"
-    : `Default model · ${error ? "Unavailable" : defaultModelName ?? (defaultModelRef ? "Name unavailable" : "Not configured")}`;
+    ? "默认模型"
+    : `默认模型 · ${error ? "暂不可用" : defaultModelName ?? (defaultModelRef ? "名称不可用" : "未配置")}`;
   const selectedLabel = selectionMode === "default"
     ? defaultLabel
     : selectedModel
       ? showStatusDetails ? modelSummaryLabel(selectedModel) : selectedModel.display_name
-      : `${modelRef ?? "Selected model"} · unavailable`;
+      : `${modelRef ?? "所选模型"} · 暂不可用`;
 
   const { open, setOpen, menuStyle, triggerRef, menuRef } = useWorkbenchMenu(disabled || loading, visibleModels.length);
 
@@ -138,7 +138,7 @@ export function CanvasModelPicker({
           </button>
         );
       })}
-      {!visibleModels.length && !loading ? <p>No compatible models are currently available.</p> : null}
+      {!visibleModels.length && !loading ? <p>当前没有适配的模型。</p> : null}
       {!showStatusDetails && error ? <p role="alert">{error}</p> : null}
     </div>,
     document.body,
@@ -146,7 +146,7 @@ export function CanvasModelPicker({
 
   return (
     <div className={`agent-node-workbench__model-picker${appearance === "monochrome" ? " agent-node-workbench__model-picker--monochrome" : ""}`}>
-      <span className="agent-node-workbench__model-label">Model</span>
+      <span className="agent-node-workbench__model-label">模型</span>
       <details
         open={open}
       >

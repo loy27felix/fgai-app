@@ -9,7 +9,7 @@ export type CanvasCustomAppearance = {
     backgroundBrightness: number;
     gridColor: string;
     gridOpacity: number;
-    backgroundImage?: {storageKey:string};
+    backgroundImage?: {storageKey:string;opacity?:number};
 };
 
 export type CanvasAppearance = {
@@ -145,7 +145,7 @@ function normalizeCustomAppearance(value: unknown): CanvasCustomAppearance | und
         backgroundBrightness: clampNumber(candidate.backgroundBrightness, -30, 30, 0),
         gridColor,
         gridOpacity: clampNumber(candidate.gridOpacity, 0, 100, CUSTOM_GRID_OPACITY[candidate.baseTheme]),
-        ...(typeof candidate.backgroundImage?.storageKey==='string'&&candidate.backgroundImage.storageKey.startsWith('resource:')?{backgroundImage:{storageKey:candidate.backgroundImage.storageKey}}:{}),
+        ...(typeof candidate.backgroundImage?.storageKey==='string'&&candidate.backgroundImage.storageKey.startsWith('resource:')?{backgroundImage:{storageKey:candidate.backgroundImage.storageKey,opacity:Math.max(0,Math.min(100,Number.isFinite(candidate.backgroundImage.opacity)?candidate.backgroundImage.opacity!:100))}}:{}),
     };
 }
 

@@ -109,7 +109,7 @@ export function CanvasAppearanceControls({
                         void uploadImage(file).then(image=>{if(image.pendingRemoteUpload)throw Error('背景尚未保存到 NAS，请重试');updateCustom({backgroundImage:{storageKey:image.storageKey}});}).catch(e=>setUploadError(e.message)).finally(()=>setUploading(false));
                         return false;
                     }}><Button block loading={uploading} icon={<ImagePlus className="size-4" />}>上传背景图片</Button></Upload>
-                    {draft.custom.backgroundImage?<Button size="small" block onClick={()=>updateCustom({backgroundImage:undefined})}>移除背景图片</Button>:null}
+                    {draft.custom.backgroundImage?<><SliderField label="图片不透明度" value={draft.custom.backgroundImage.opacity??100} min={0} max={100} suffix="%" onChange={opacity=>updateCustom({backgroundImage:{...draft.custom!.backgroundImage!,opacity}})}/><Button size="small" block onClick={()=>updateCustom({backgroundImage:undefined})}>移除背景图片</Button></>:null}
                     {uploadError?<p role="alert" className="text-xs text-red-500">{uploadError}</p>:null}
                 </section>
             ) : null}

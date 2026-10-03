@@ -5,12 +5,14 @@ import {estimateCNY} from './fg-prices.mjs';
 import {priceQuote} from './fg-quotes.mjs';
 import {capabilities} from './fg-model-capabilities.mjs';
 import {teamAndStoryAPI,approvedTopics,bootstrapTeam} from './fg-team-stories.mjs';
+import {financeActions} from './fg-finance-actions.mjs';
 
 export async function initializeFG(pool){await pool.query(await fs.readFile(new URL('./fg-schema.sql',import.meta.url),'utf8'));}
 async function jsonBody(req,max=100000){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>max)throw new Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':data}));}
 export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin}){
   if(!path.pathname.startsWith('/api/fg/'))return false;
+  if(await financeActions(req,res,{pool,actor,path}))return true;
   const api=async(endpoint,method='GET',body)=>{
     const r=await fetch(new URL('/api'+endpoint,web),{method,headers:{cookie,origin:publicOrigin,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
     const j=await r.json();if(!r.ok||j.code!==0)throw new Error(j.msg||'FG 原生项目操作失败');return j.data;
@@ -48,13 +50,13 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
     if(path.pathname==='/api/fg/projects'&&req.method==='GET'){
       const {rows}=await pool.query(`SELECT p.id,p.name,p.user_id,p.status,f.topic_id,f.topic_snapshot,f.tier,f.group_name,f.budget_cny,p.updated_at,
         u.display_name owner_name,(SELECT count(*)::int FROM canvas_projects c WHERE c.project_id=p.id) canvas_count
-        FROM projects p JOIN users u ON u.id=p.user_id LEFT JOIN fg_story_projects f ON f.native_project_id=p.id WHERE p.user_id=$1 OR f.native_project_id IS NOT NULL ORDER BY p.updated_at DESC`,[actor.id]);
+        FROM projects p JOIN users u ON u.id=p.user_id JOIN fg_story_projects f ON f.native_project_id=p.id ORDER BY p.updated_at DESC`);
       await bootstrapTeam(pool,actor,platform,platformCookie);
       const legacy=[];const groups=(await pool.query('SELECT id,name FROM fg_groups WHERE archived_at IS NULL ORDER BY created_at,id')).rows;
       send(res,{projects:rows,legacy,groups});return true;
     }
     if(path.pathname==='/api/fg/projects'&&req.method==='POST'){
-      const body=await jsonBody(req);const topic=topics.find(t=>t.id===body.topicId);
+      const body=await jsonBody(req);body.budgetCny=Number(body.budgetCny||0);const topic=topics.find(t=>t.id===body.topicId);
       if(!topic||topic.blocked)throw new Error('选题不存在或暂不适合立项');
       if(!['S','A','B','C'].includes(body.tier)||!Number.isFinite(body.budgetCny)||body.budgetCny<0||body.budgetCny>10000000)throw new Error('请选择档位并填写有效预算');
       const group=String(body.groupName||'');
@@ -84,23 +86,17 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
         LEFT JOIN canvas_projects c ON c.id=t.project_id
         LEFT JOIN projects p ON p.id=t.project_id
         WHERE l.billable=true AND l.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%')
-      ), fee_candidates AS (
-        SELECT f.reference_id,min(c.id) call_id FROM fg_provider_fees f JOIN calls c ON c.model=f.model AND
-          (c.fg_fee_reference_id=f.reference_id OR c.fg_fee_references_json::jsonb ? f.reference_id OR(c.capability='video' AND c.provider_request_id=f.reference_id)) GROUP BY f.reference_id HAVING count(*)=1
-      ), matched AS (
-        SELECT reference_id,call_id FROM fee_candidates WHERE call_id IN(SELECT call_id FROM fee_candidates GROUP BY call_id HAVING count(*)=1)
-      ) SELECT c.*,p.name project_name,u.display_name user_name,COALESCE(NULLIF(c.fg_group_name,''),s.group_name) group_name,s.tier,COALESCE(s.budget_cny,aw.budget_cny) budget_cny,
-        f.usd settled_usd,f.fx settled_fx,(f.usd*f.fx) settled_cny, f.reference_id settled_reference_id
+      ) SELECT c.*,p.name project_name,u.display_name user_name,CASE WHEN aw.id IS NOT NULL THEN NULL ELSE COALESCE(NULLIF(c.fg_group_name,''),s.group_name) END group_name,s.tier,COALESCE(s.budget_cny,aw.budget_cny) budget_cny,
+        f.settled_cny,f.settled_reference_id,f.match_method
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
         LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id
-        LEFT JOIN matched m ON m.call_id=c.id LEFT JOIN fg_provider_fees f ON f.reference_id=m.reference_id
-        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1) OR EXISTS(SELECT 1 FROM fg_memberships m WHERE m.group_id=aw.group_id AND m.user_id=$1 AND m.unassigned_at IS NULL)))
+        LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,string_agg(m.method,', ') match_method FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
+        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1)))
         ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
       const settings=(await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0];
       const imports=(await pool.query('SELECT id,row_count,created_at FROM fg_fee_imports ORDER BY created_at DESC LIMIT 1')).rows;
-      const matchedReferences=rows.filter(c=>c.settled_reference_id).map(c=>c.settled_reference_id);
-      const unallocated=actor.reviewer?(await pool.query(`SELECT reference_id,model,usd,fx,occurred_at FROM fg_provider_fees WHERE NOT(reference_id=ANY($1::text[])) ORDER BY occurred_at DESC`,[matchedReferences])).rows:[];
+      const unallocated=actor.reviewer?(await pool.query(`SELECT f.reference_id,f.model,f.usd,f.fx,f.occurred_at,d.classification,d.note FROM fg_provider_fees f LEFT JOIN fg_fee_decisions d ON d.reference_id=f.reference_id WHERE NOT EXISTS(SELECT 1 FROM fg_fee_matches m WHERE m.reference_id=f.reference_id) ORDER BY occurred_at DESC`)).rows:[];
       const prices=(await pool.query('SELECT model,snapshot,collected_at FROM fg_model_prices ORDER BY model')).rows;
       const byModel=new Map(prices.map(p=>[p.model,p.snapshot]));
       const fx=Number(settings.value);

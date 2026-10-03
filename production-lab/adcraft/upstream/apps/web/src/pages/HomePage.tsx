@@ -6,9 +6,10 @@ import { HomeRecentLoading } from "./HomeRecentLoading";
 import { useHomeHeroMotionReady } from "./useHomeHeroMotionReady";
 import { useHomeSectionReveal } from "./useHomeSectionReveal";
 import "./home.css";
+import {fgURL} from '../fg-scope';
 
 const homeProductVideoUrl = import.meta.env.VITE_HOME_PRODUCT_VIDEO_URL?.trim()
-  || "/assets/home-product-film.mp4";
+  || fgURL("/assets/home-product-film.mp4");
 const HomeRecentProjects = lazy(() => import("./home/HomeRecentProjects").then((module) => ({ default: module.HomeRecentProjects })));
 const recentLoading = <HomeRecentLoading />;
 

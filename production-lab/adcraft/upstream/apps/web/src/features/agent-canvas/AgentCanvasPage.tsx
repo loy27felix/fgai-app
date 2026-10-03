@@ -11,7 +11,7 @@ const AgentCanvasPageSurface = lazy(() => import("./AgentCanvasPageSurface.tsx")
 export function AgentCanvasPage() {
   return (
     <ReactFlowProvider>
-      <Suspense fallback={<div className="agent-canvas-state" role="status">Opening project...</div>}>
+      <Suspense fallback={<div className="agent-canvas-state" role="status">正在打开广告工程…</div>}>
         <AgentCanvasPageSurface />
       </Suspense>
     </ReactFlowProvider>

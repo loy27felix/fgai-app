@@ -11,21 +11,21 @@ import {
 import { demoProjects, images, imageSrc } from "../data";
 import { DiscoverOrbit, type DiscoverOrbitItem } from "./DiscoverOrbit";
 
-const homeProductPoster = "/assets/card1.webp";
+const homeProductPoster = imageSrc('card1.webp');
 const heroTitleLines = [
-  "ONE SENTENCE",
-  "BECOMES AN",
-  "Ad film.",
+  "从一句创意",
+  "到一支",
+  "广告片。",
 ] as const;
 const discoverCards: readonly DiscoverOrbitItem[] = [
-  { title: "Campaign Flow", image: imageSrc(images[0]) },
-  { title: "Character Study", image: imageSrc(images[1]) },
-  { title: "Poster Motion", image: imageSrc(images[2]) },
-  { title: "Scene Extension", image: imageSrc(images[3]) },
-  { title: "Product Aura", image: imageSrc(images[4]) },
-  { title: "Editorial Cut", image: imageSrc(images[5]) },
-  { title: "Portrait Spark", image: imageSrc(images[6]) },
-  { title: "Color Script", image: imageSrc(images[7]) },
+  { title: "广告流程", image: imageSrc(images[0]) },
+  { title: "角色研究", image: imageSrc(images[1]) },
+  { title: "动态海报", image: imageSrc(images[2]) },
+  { title: "场景延展", image: imageSrc(images[3]) },
+  { title: "产品质感", image: imageSrc(images[4]) },
+  { title: "创意剪辑", image: imageSrc(images[5]) },
+  { title: "人物灵感", image: imageSrc(images[6]) },
+  { title: "色彩脚本", image: imageSrc(images[7]) },
 ];
 
 type RevealState = "pending" | "visible";
@@ -259,7 +259,7 @@ function CreateProjectButtonContent() {
       >
         <path d="M220,128a4,4,0,0,1-4,4H132v84a4,4,0,0,1-8,0V132H40a4,4,0,0,1,0-8h84V40a4,4,0,0,1,8,0v84h84A4,4,0,0,1,220,128Z" />
       </svg>
-      <span>Create Your Project</span>
+      <span>创建广告工程</span>
     </>
   );
 }
@@ -401,7 +401,7 @@ export function HomeShowcase({
           aria-label="Recent Projects"
         >
           <div data-reveal-item style={motionStyle("--home-reveal-delay", "0ms")}>
-            <SectionTitle title="Recent Projects" />
+            <SectionTitle title="最近的广告工程" />
           </div>
           {isInteractive ? recentContent : <StaticRecentCards />}
         </section>

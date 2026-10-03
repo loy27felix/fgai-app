@@ -28,9 +28,11 @@ func TestFGAdvertisingMembershipRevokesProjectAccess(t *testing.T) {
  }{if err=db.Exec(sql).Error;err!=nil{t.Fatal(err)}}
  if err=db.Create(&model.Project{ID:"advert",UserID:"alice",Name:"ad"}).Error;err!=nil{t.Fatal(err)}
  repo:=New(db)
+ if _,err=repo.ProjectForUser("bob","advert");!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("mythology group leaked into advertising access")}
+ if err=db.Exec("INSERT INTO fg_adcraft_members VALUES('ad','bob')").Error;err!=nil{t.Fatal(err)}
  if _,err=repo.ProjectForUser("bob","advert");err!=nil{t.Fatal(err)}
  if _,err=repo.ProjectForUser("unrelated","advert");!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("advertising project leaked")}
- if err=db.Exec("UPDATE fg_memberships SET unassigned_at='removed' WHERE user_id='bob'").Error;err!=nil{t.Fatal(err)}
+ if err=db.Exec("DELETE FROM fg_adcraft_members WHERE user_id='bob'").Error;err!=nil{t.Fatal(err)}
  if _,err=repo.ProjectForUser("bob","advert");!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("removed teammate retained access")}
  if _,err=repo.ProjectForUser("alice","advert");err!=nil{t.Fatal(err)}
 }

@@ -115,7 +115,7 @@ export function MediaPromptWorkbench({
           ariaLabel="Generation prompt"
           value={draft.prompt}
           disabled={draft.pending}
-          placeholder={`Describe the ${node.node_type} you want to create.`}
+          placeholder={`描述你想生成的${node.node_type==='video'?'视频':node.node_type==='image'?'图片':'音频'}。`}
           preparing={preparingPrompt}
           onChange={(event) => draft.setPrompt(event.currentTarget.value)}
           onBlur={() => void draft.flushPrompt()}
@@ -132,7 +132,7 @@ export function MediaPromptWorkbench({
       ) : <NodeWorkbenchError draft={draft} />}
       {audioIssue ? (
         <p className="agent-node-workbench__field-error">
-          Generate audio: {audioIssue.message}
+          同时生成声音：{audioIssue.message}
         </p>
       ) : null}
 
@@ -178,7 +178,7 @@ export function MediaPromptWorkbench({
               : node.status === "ready" || regenerating
                 ? `Regenerate ${node.node_type} node`
                 : `Run ${node.node_type} node`}
-            title={retryingExecution ? "Retry node" : node.status === "ready" || regenerating ? "Regenerate node" : "Run node"}
+            title={retryingExecution ? "重试节点" : node.status === "ready" || regenerating ? "重新生成" : "开始生成"}
             disabled={draft.pending || publishing || !draft.prompt.trim() || node.status === "working" || parametersInvalid}
             onClick={() => void draft.run()}
           >

@@ -302,6 +302,13 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 		return nil, "", err
 	}
 	ApplyDefaultOutboundHeaders(req)
+	if metadata,ok:=req.Context().Value(providerAnalyticsKey{}).(providerAnalyticsContext);ok&&metadata.Service!=nil&&providerRequestIsBillable(req.Method,requestKind){
+		var body []byte
+		if req.GetBody!=nil{reader,err:=req.GetBody();if err!=nil{return nil,"",err};body,err=io.ReadAll(io.LimitReader(reader,32<<20));reader.Close();if err!=nil{return nil,"",err}}
+		id,err:=metadata.Service.ReserveFGBudget(req.Context(),metadata.UserID,metadata.TaskID,metadata.Model,metadata.Capability,body)
+		if err!=nil{return nil,"",err}
+		req=req.WithContext(context.WithValue(req.Context(),fgBudgetKey{},id))
+	}
 	client := OutboundHTTPClient(requestTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -427,6 +434,7 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		apiFormat = "gemini"
 	}
 	callLog := model.ApiCallLog{
+		FGBudgetReservationID:fgBudgetReservationID(req.Context()),
 		UserID: metadata.UserID, TraceID: metadata.TraceID, RequestID: metadata.RequestID, ChannelID: metadata.ChannelID, TaskID: metadata.TaskID, BillingOrderID: metadata.BillingOrderID,
 		Source: "backend-task", Capability: metadata.Capability, Operation: metadata.Operation,
 		RequestKind: requestKind, Billable: providerRequestIsBillable(req.Method, requestKind),

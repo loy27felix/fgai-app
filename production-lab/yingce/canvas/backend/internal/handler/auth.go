@@ -429,12 +429,17 @@ func proxySystemRequestPath(c *gin.Context, svc *service.Service, user *model.Us
 	status := model.ApiCallStatusSucceeded
 	statusCode := 0
 	errorText := ""
+	budgetID:=""
+	if c.Request.Method==http.MethodPost{
+		budgetID,err=svc.ReserveFGBudget(c.Request.Context(),user.ID,"",strings.TrimPrefix(modelName,"models/"),capability,body)
+		if err!=nil{failService(c,err);return}
+	}
 	resp, err := svc.OutboundHTTPClientForChannel(35*time.Minute, validatedTarget).Do(upstreamReq)
 	if err != nil {
 		status = model.ApiCallStatusFailed
 		errorText = err.Error()
 		markSystemProxyBillingUncertain(svc, billingOrderID, "系统渠道连接中断，费用状态待核对")
-		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit), nil)
+		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit,"",budgetID), nil)
 		fail(c, http.StatusBadGateway, errors.New("系统渠道连接失败"))
 		return
 	}
@@ -460,7 +465,7 @@ func proxySystemRequestPath(c *gin.Context, svc *service.Service, user *model.Us
 			billingNote = "上游已响应但流式响应体超过限制，费用状态待核对"
 		}
 		markSystemProxyBillingUncertain(svc, billingOrderID, billingNote)
-		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit, resp.Header.Get("x-oneapi-request-id")), responseBody)
+		logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit, resp.Header.Get("x-oneapi-request-id"),budgetID), responseBody)
 		// SSE 响应头已经发送，流中断后只能关闭连接；非流式响应仍返回结构化错误。
 		if !streamed {
 			fail(c, http.StatusBadGateway, errors.New("系统渠道响应读取失败"))
@@ -472,7 +477,7 @@ func proxySystemRequestPath(c *gin.Context, svc *service.Service, user *model.Us
 		fail(c, http.StatusBadGateway, fmt.Errorf("系统渠道响应超过 %dMB 限制", policy.Request.SystemRelayResponseMB))
 		return
 	}
-	logErr := logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit, resp.Header.Get("x-oneapi-request-id")), responseBody)
+	logErr := logSystemProxyCall(svc, apiCallLog(user, channel, billingOrderID, capability, protocol, c.Request.Method, path, target, body, c.GetHeader("Content-Type"), status, statusCode, time.Since(startedAt), errorText, concurrencyLimit, resp.Header.Get("x-oneapi-request-id"),budgetID), responseBody)
 	if status == model.ApiCallStatusSucceeded {
 		if logErr != nil {
 			markSystemProxyBillingUncertain(svc, billingOrderID, "上游成功但调用日志写入失败，费用状态待核对")
@@ -514,6 +519,7 @@ func markSystemProxyBillingUncertain(svc *service.Service, billingOrderID string
 func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID string, capability string, protocol model.ChannelInterfaceType, method string, path string, target string, body []byte, contentType string, status model.ApiCallStatus, statusCode int, duration time.Duration, errorText string, concurrencyLimit int, feeReferenceID ...string) model.ApiCallLog {
 	feeID := ""
 	if len(feeReferenceID) > 0 { feeID = strings.TrimSpace(feeReferenceID[0]) }
+	budgetID:="";if len(feeReferenceID)>1{budgetID=feeReferenceID[1]}
 	requestKind := "create"
 	apiFormat := "openai"
 	if protocol == model.ChannelInterfaceGeminiVeo || protocol == model.ChannelInterfaceGeminiImage {
@@ -526,6 +532,7 @@ func apiCallLog(user *model.User, channel *model.ModelChannel, billingOrderID st
 		}
 	}
 	return model.ApiCallLog{
+		FGBudgetReservationID:budgetID,
 		FGFeeReferenceID: feeID,
 		UserID:             user.ID,
 		ChannelID:          channel.ID,

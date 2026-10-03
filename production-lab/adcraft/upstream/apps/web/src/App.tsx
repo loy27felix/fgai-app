@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import type { AppNavigateOptions, RouteName } from "./types";
 import { fgBasename, installFGScope } from './fg-scope';
+import {FGWorkspaceBar} from './FGWorkspaceBar';
 installFGScope();
 
 const LightweightShell = lazy(() => import("./components/Layout").then((module) => ({ default: module.LayoutRoute })));
@@ -64,6 +65,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter basename={fgBasename}>
+      <FGWorkspaceBar/>
       <AppRoutes />
     </BrowserRouter>
   );

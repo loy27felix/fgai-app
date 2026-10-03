@@ -14,17 +14,20 @@ func fgTeamEnabled() bool { return os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "tru
 
 func fgProjectScope(db *gorm.DB, table, userID string) *gorm.DB {
  if !fgTeamEnabled(){ return db.Where(table+".user_id = ?",userID) }
+ if fgSuperadmin(db,userID){return db}
  if db.Migrator().HasTable("fg_adcraft_workspaces") {
-  return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = "+table+".id) OR EXISTS (SELECT 1 FROM fg_adcraft_workspaces w WHERE w.native_project_id="+table+".id AND w.archived_at IS NULL AND (w.owner_id=? OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=?) OR EXISTS(SELECT 1 FROM fg_memberships m JOIN fg_groups g ON g.id=m.group_id WHERE m.group_id=w.group_id AND m.user_id=? AND m.unassigned_at IS NULL AND g.archived_at IS NULL))))",userID,userID,userID,userID)
+  return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = "+table+".id) OR EXISTS (SELECT 1 FROM fg_adcraft_workspaces w WHERE w.native_project_id="+table+".id AND w.archived_at IS NULL AND (w.owner_id=? OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=?))))",userID,userID,userID)
  }
  return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = "+table+".id))",userID)
 }
 func fgCanvasScope(db *gorm.DB,userID string) *gorm.DB {
  if !fgTeamEnabled(){return db.Where("canvas_projects.user_id = ?",userID)}
+ if fgSuperadmin(db,userID){return db}
  return db.Where("(canvas_projects.user_id = ? OR EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = canvas_projects.project_id))",userID)
 }
 func fgMediaScope(db *gorm.DB,table,grantTable,grantColumn,userID string) *gorm.DB {
  if !fgTeamEnabled(){return db.Where(table+".user_id = ?",userID)}
+ if fgSuperadmin(db,userID){return db}
  company:="";if table=="resources"{company=" OR EXISTS (SELECT 1 FROM fg_company_assets ca WHERE ca.resource_id=resources.id)"}
  return db.Where("("+table+".user_id = ? OR EXISTS (SELECT 1 FROM "+grantTable+" g JOIN fg_story_projects fg ON fg.native_project_id=g.project_id WHERE g."+grantColumn+"="+table+".id)"+company+")",userID)
 }
@@ -32,6 +35,11 @@ func (r *Repository) FGSharedProject(id string) bool {
  if !fgTeamEnabled() || id=="" {return false}
  var count int64
  return r.db.Table("fg_story_projects").Where("native_project_id = ?",id).Count(&count).Error==nil && count>0
+}
+func fgSuperadmin(db *gorm.DB,userID string) bool {
+ if !db.Migrator().HasTable("fg_accounts"){return false}
+ var count int64
+ return db.Table("fg_accounts").Where("user_id=? AND platform_role='superadmin'",userID).Count(&count).Error==nil&&count==1
 }
 
 // Called inside the existing canvas-save transaction after resource validation.

@@ -1,5 +1,5 @@
 import {http} from './request';
-export type AdvertisingProject = {id:string;name:string;brief:string;native_project_id:string;group_name:string|null;owner_name:string;story_id:number|null;budget_cny:string;can_manage:boolean};
+export type AdvertisingProject = {id:string;name:string;brief:string;native_project_id:string;group_name:string|null;owner_name:string;story_id:number|null;budget_cny:string;can_manage:boolean;can_budget:boolean};
 export type AdvertisingProjects = {workspaces:AdvertisingProject[];groups:Array<{id:string;name:string}>};
 export type AdvertisingQuote = {estimatedCny:number|null;lines:string[]};
 const path=(id:string)=>'/fg/advertising/'+encodeURIComponent(id);

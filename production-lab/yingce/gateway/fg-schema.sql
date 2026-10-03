@@ -40,3 +40,18 @@ CREATE TABLE IF NOT EXISTS fg_asset_grants(project_id text NOT NULL REFERENCES p
 -- Native asset/resource IDs may have prefixes and are not limited to UUID size.
 ALTER TABLE fg_resource_grants ALTER COLUMN project_id TYPE text,ALTER COLUMN resource_id TYPE text;
 ALTER TABLE fg_asset_grants ALTER COLUMN project_id TYPE text,ALTER COLUMN asset_id TYPE text;
+CREATE TABLE IF NOT EXISTS fg_fee_decisions(reference_id varchar(160) PRIMARY KEY REFERENCES fg_provider_fees(reference_id),call_id varchar(36) UNIQUE REFERENCES api_call_logs(id),classification varchar(24) NOT NULL CHECK(classification IN('matched','external','ignored')),note text NOT NULL,actor_id varchar(36) NOT NULL REFERENCES users(id),updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS fg_finance_audit(id uuid PRIMARY KEY,actor_id varchar(36) NOT NULL REFERENCES users(id),action varchar(40) NOT NULL,target text NOT NULL,before_value jsonb,after_value jsonb,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS fg_user_budgets(user_id varchar(36) PRIMARY KEY REFERENCES users(id),monthly_cny numeric(16,2) NOT NULL DEFAULT 0 CHECK(monthly_cny>=0),updated_by varchar(36) REFERENCES users(id),updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS fg_budget_reservations(id uuid PRIMARY KEY,user_id varchar(36) NOT NULL REFERENCES users(id),project_id varchar(36),task_id varchar(36),model text NOT NULL,reserved_cny numeric(20,6),created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE api_call_logs ADD COLUMN IF NOT EXISTS fg_budget_reservation_id varchar(36) NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS fg_budget_actor_time ON fg_budget_reservations(user_id,created_at);
+CREATE OR REPLACE VIEW fg_fee_matches AS
+ WITH automatic AS (
+ SELECT f.reference_id,min(c.id) call_id FROM fg_provider_fees f JOIN api_call_logs c ON c.billable AND c.model=f.model AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%')
+ AND(c.fg_fee_reference_id=f.reference_id OR c.fg_fee_references_json::jsonb ? f.reference_id OR(c.capability='video' AND c.provider_request_id=f.reference_id))
+ WHERE NOT EXISTS(SELECT 1 FROM fg_fee_decisions d WHERE d.reference_id=f.reference_id)
+ GROUP BY f.reference_id HAVING count(*)=1
+ ), manual AS (SELECT reference_id,call_id FROM fg_fee_decisions WHERE classification='matched')
+ SELECT a.reference_id,a.call_id,'automatic'::text method FROM automatic a WHERE NOT EXISTS(SELECT 1 FROM manual m WHERE m.call_id=a.call_id)
+ UNION ALL SELECT reference_id,call_id,'manual'::text FROM manual;
