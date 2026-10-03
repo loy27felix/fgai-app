@@ -1,4 +1,5 @@
-import { fgLabel } from '../../../fg-scope';
+import { fgLabel, fgWorkspace } from '../../../fg-scope';
+import {FGAgentModelPicker} from '../../../FGAgentModelPicker';
 import {
   Fragment,
   useEffect,
@@ -1124,10 +1125,11 @@ export function AgentCanvasChatPanel({
             You can also describe your own direction below.
           </div>
         ) : null}
+        {fgWorkspace&&!conceptInteraction?<FGAgentModelPicker disabled={chat.state.sending}/>:null}
         {!conceptInteraction && selectedSkillTitle ? (
           <div className="agent-chat__selected-skill" role="status" aria-label={`Selected Skill: ${selectedSkillTitle}`}>
             <img src="/imgs/ui-icons/skill.svg" alt="" aria-hidden="true" />
-            <span>{selectedSkillTitle}</span>
+            <span>{fgLabel(selectedSkillTitle)}</span>
           </div>
         ) : null}
         <textarea

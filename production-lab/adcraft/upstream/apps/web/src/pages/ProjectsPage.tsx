@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreateCard } from "../components/Cards";
+import {fgWorkspace} from '../fg-scope';
 import { PageHeader } from "../components/Layout";
 import { useApp } from "../AppContextValue";
 import type { AppNavigate } from "../types";
@@ -34,6 +35,7 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
     refreshProjects,
   } = useApp();
   const createProject = useCallback(() => {
+    if(fgWorkspace){window.location.assign('/advertising?create=1');return;}
     void startNewProject().then((created) => {
       if (created) navigate("workflow", { projectId: created });
     });

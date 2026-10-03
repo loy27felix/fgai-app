@@ -11,6 +11,7 @@ import { useNodeWorkbenchDraft } from "./useNodeWorkbenchDraft.ts";
 import type { AgentCanvasInlineWorkbenchProps } from "./workbenchTypes.ts";
 import { promptPreparationForNode } from "../model/promptPreparation.ts";
 import "./agent-canvas-inline-workbench.css";
+import {FGNodePrice} from '../../../FGNodePrice';
 
 export function AgentCanvasInlineWorkbench(props: AgentCanvasInlineWorkbenchProps) {
   return <VisibleAgentCanvasInlineWorkbench {...props} />;
@@ -78,6 +79,7 @@ function VisibleAgentCanvasInlineWorkbench(props: AgentCanvasInlineWorkbenchProp
       nodeType={node.node_type}
     >
       {references}
+      <FGNodePrice workflow={workflow} node={node} parameters={draft.parameters} modelRef={draft.modelSelectionMode==='explicit'?draft.modelRef:(node.node_type==='video'?providerDefaultModelRef:null)??node.model_summary?.model_ref??modelResolution?.model_ref??providerDefaultModelRef}/>
       {promptPreparing && node.node_type !== "image" && node.node_type !== "text" ? (
         <NodePromptPreparationState
           node={node}

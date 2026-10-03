@@ -520,7 +520,7 @@ class RealMediaProvider:
             model=model,
             canonical_prompt=prompt,
             size=_normalize_image_generation_size(
-                request.get("size") or self._settings.image_generation_size
+                '2048x2048' if os.getenv('FG_ADCRAFT_SECRET') and model.startswith('gemini-') else request.get("size") or self._settings.image_generation_size
             ),
             references=reference_assets,
             required_reference_asset_ids=list(request.get("submitted_reference_asset_ids") or []),
@@ -532,6 +532,11 @@ class RealMediaProvider:
                 "submitted_reference_asset_ids": list(wire_audit.serialized_reference_asset_ids)
             }
         ).model_dump(mode="json")
+        if os.getenv('FG_ADCRAFT_SECRET'):
+            if model.startswith('gemini-'):
+                body['size'] = str(request.get('size') or request.get('aspect_ratio') or '1:1')
+            if request.get('quality'):
+                body['quality'] = request['quality']
         response = self._submit_image_generation_request(body)
         image_url = _image_url_from_response(response)
         image_base64 = _image_base64_from_response(response)

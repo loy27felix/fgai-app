@@ -8,10 +8,12 @@ import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
 import {budgetInternalRoute} from './fg-budgets.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
-import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute} from './fg-adcraft.mjs';
+import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
+import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+const editorPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 16 });
 const platform = new URL(process.env.FG_PLATFORM_URL || 'http://fgai-app-app-1:3000');
 const web = new URL(process.env.CANVAS_WEB_URL || 'http://web:3000');
 const publicOrigin = new URL(process.env.FG_SIX_PUBLIC_URL).origin;
@@ -21,6 +23,7 @@ const creating = new Map();
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
 await initializeAdcraft(pool);
+await initializeEditorLeases(pool);
 await publishExistingStoryMedia(pool);
 startFeeSync(pool);
 
@@ -121,12 +124,14 @@ const server = http.createServer(async (req, res) => {
     }
     const cookie = await canvasSession(actor);
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
+    if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
+    if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
     if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
     if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin}))return;
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
-      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.4',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
+      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.5',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
     }
     if (path.pathname === '/api/admin/system-performance' && req.method === 'GET') {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});
@@ -159,7 +164,7 @@ const server = http.createServer(async (req, res) => {
     upstream.on('error', () => { if (!res.headersSent) respond(res,502,'画布服务暂时不可用，请稍后重试','CANVAS_UNAVAILABLE'); else res.destroy(); });
     req.on('aborted', () => upstream.destroy());
     res.on('close', () => { if (!res.writableEnded) upstream.destroy(); });
-    pipeline(req, upstream, () => {});
+    if(req.fgReplayBody)upstream.end(req.fgReplayBody);else pipeline(req, upstream, () => {});
   } catch {
     // Never log platform cookies, database URLs or provider credentials.
     console.error('FG sixth-module gateway dependency unavailable');

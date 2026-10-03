@@ -68,5 +68,12 @@ export function useDirectorDesk({nodesRef, connectionsRef, setNodes, setConnecti
         }
         node.metadata = {...node.metadata, directorDeskSourceId: parent?.id}; await commit(node, parent?.id);
     }, [nodesRef, getCanvasCenter, commit]);
-    return {open, openDesk, newDesk, libraryOpen, closeLibrary:()=>setLibraryOpen(false), closeDesk: () => setOpen(false), node: nodesRef.current.find(n => n.id === nodeId), saveDocument, saveOutput};
+    const deleteDesk = useCallback(async (node: CanvasNodeData) => {
+        const previousLinks=connectionsRef.current.filter(c=>c.fromNodeId===node.id||c.toNodeId===node.id);
+        setNodes(current=>current.filter(n=>n.id!==node.id));
+        setConnections(current=>current.filter(c=>c.fromNodeId!==node.id&&c.toNodeId!==node.id));
+        try { if(!await saveCanvasProject({requireRemote:true}))throw new Error('工程移除未保存到服务器'); }
+        catch(error){setNodes(current=>[...current.filter(n=>n.id!==node.id),node]);setConnections(current=>[...current,...previousLinks.filter(link=>!current.some(c=>c.id===link.id))]);throw error;}
+    },[connectionsRef,setNodes,setConnections,saveCanvasProject]);
+    return {open, openDesk, newDesk, libraryOpen, deleteDesk, closeLibrary:()=>setLibraryOpen(false), closeDesk: () => setOpen(false), node: nodesRef.current.find(n => n.id === nodeId), saveDocument, saveOutput};
 }

@@ -6,6 +6,7 @@ import type {
   CanvasPositionV2,
   CanvasRoleContractVersionV2,
 } from "../../../types-v2.ts";
+import {fgLabel} from '../../../fg-scope';
 
 export const AGENT_CANVAS_ROLE_CONTRACT_VERSION: CanvasRoleContractVersionV2 = "ad-media-role-v2";
 
@@ -27,12 +28,12 @@ export function isAgentCanvasVisibleNodeType(
 }
 
 export const AGENT_CANVAS_NODE_LABELS: Record<CanvasNodeTypeV2, string> = {
-  text: "Text",
-  script: "Script",
-  image: "Image",
-  video: "Video",
-  audio: "Audio",
-  editing: "Editing",
+  text: fgLabel("Text"),
+  script: fgLabel("Script"),
+  image: fgLabel("Image"),
+  video: fgLabel("Video"),
+  audio: fgLabel("Audio"),
+  editing: fgLabel("Editing"),
 };
 
 const DEFAULT_CREATIVE_ROLES: Record<CanvasNodeTypeV2, CanvasCreativeRoleV2> = {

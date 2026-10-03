@@ -1,8 +1,7 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import type { AppNavigateOptions, RouteName } from "./types";
-import { fgBasename, installFGScope } from './fg-scope';
-import {FGWorkspaceBar} from './FGWorkspaceBar';
+import { fgBasename, fgWorkspace, installFGScope } from './fg-scope';
 installFGScope();
 
 const LightweightShell = lazy(() => import("./components/Layout").then((module) => ({ default: module.LayoutRoute })));
@@ -33,6 +32,12 @@ function RouteFallback() {
   );
 }
 
+function FGProjectEntry(){
+ const [error,setError]=useState('');
+ useEffect(()=>{let active=true;fetch('/api/fg/advertising/'+fgWorkspace+'/open',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(async r=>{const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'广告工程读取失败');if(active)window.location.replace(d.data.url);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false};},[]);
+ return error?<section className="content-wrap"><p role="alert">{error}</p><a href="/advertising">返回广告项目</a></section>:<RouteFallback/>;
+}
+
 function AppRoutes() {
   const navigate = useNavigate();
   const navigateRoute = (route: RouteName, options?: AppNavigateOptions) => {
@@ -45,7 +50,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/design-lab/home-typography" element={<HomeTypographyLabPage />} />
         <Route element={<LightweightShell />}>
-          <Route path="/" element={<HomePage navigate={navigateRoute} />} />
+          <Route path="/" element={fgWorkspace?<FGProjectEntry/>:<HomePage navigate={navigateRoute} />} />
           <Route path="/home" element={<Navigate to="/" replace />} />
           <Route path="/assets" element={<AssetsPage />} />
           <Route path="/api-space" element={<ApiSpacePage />} />
@@ -65,7 +70,6 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter basename={fgBasename}>
-      <FGWorkspaceBar/>
       <AppRoutes />
     </BrowserRouter>
   );

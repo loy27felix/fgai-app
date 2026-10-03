@@ -136,7 +136,7 @@ export function MediaPromptWorkbench({
         </p>
       ) : null}
 
-      {node.node_type !== "image" && canConfigureProvider && bodyDescriptors.length ? (
+      {canConfigureProvider && bodyDescriptors.length ? (
         <ModelParameterControls
           descriptors={bodyDescriptors}
           parameters={draft.parameters}

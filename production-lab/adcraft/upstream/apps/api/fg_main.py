@@ -5,6 +5,7 @@ from dataclasses import fields, replace
 import os
 from pathlib import Path
 import re
+import httpx
 from uuid import uuid4
 from starlette.responses import JSONResponse
 from app.core.config import Settings
@@ -35,9 +36,14 @@ class FGApplication:
             if workspace not in self.apps:
                 await asyncio.to_thread(restore, workspace)
                 base = 'http://gateway:3010/internal/adcraft/' + workspace
+                from app.services.provider_model_catalog import install_fg_catalog
+                async with httpx.AsyncClient(timeout=20) as client:
+                    catalog = await client.get(base + '/models', headers={'x-fg-internal': os.environ['FG_ADCRAFT_SECRET']})
+                    catalog.raise_for_status()
+                    install_fg_catalog(catalog.json()['models'])
                 settings = Settings.from_env()
                 overrides = {f.name: 'gpt-5.6-sol-t1a' for f in fields(settings) if f.name.startswith('llm_') and f.name.endswith('_model')}
-                overrides.update(app_name='FG 广告工作台', app_version='1.2.3', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
+                overrides.update(app_name='FG 广告工作台', app_version='1.2.5', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
                     media_mode='real', agent_runtime_mode='real', skip_audio_agents=True,
                     agent_runtime_internal_token=os.environ['FG_ADCRAFT_SECRET'], agent_runtime_base_url='http://adcraft-agent:8765/w/' + workspace,
                     llm_api_key='fg-internal-only', llm_base_url=base + '/v1',

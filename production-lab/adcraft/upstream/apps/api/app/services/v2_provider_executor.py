@@ -859,6 +859,7 @@ class V2ProviderExecutor:
                         "provider_id",
                         "provider_model_id",
                         "size",
+                        "quality",
                         "aspect_ratio",
                     ):
                         if isinstance(value := provider_payload.get(field), str) and value.strip():

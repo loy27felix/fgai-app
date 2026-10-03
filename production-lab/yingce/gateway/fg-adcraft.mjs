@@ -3,6 +3,8 @@ import {createHmac, createHash, randomUUID, timingSafeEqual} from 'node:crypto';
 import {pipeline} from 'node:stream';
 import {priceQuote} from './fg-quotes.mjs';
 import {responseHeaders} from './policy.mjs';
+import {advertisingModels,selectedAdvertisingModel} from './fg-adcraft-models.mjs';
+import {admissionPrice} from './fg-budgets.mjs';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const models={text:'gpt-5.6-sol-t1a',image:'seedream-5-0-lite-260128',video:'doubao-seedance-2-0-fast-filter-off'};
@@ -53,6 +55,21 @@ async function nativeAPI(web,cookie,origin,path,method='GET',payload){
   const data=await response.json();if(!response.ok||data.code!==0)throw Error(data.msg||'FG 制作服务暂时不可用');return data.data;
 }
 export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}){
+  const deleteMatch=/^\/api\/fg\/advertising\/([^/]+)(\/restore)?$/.exec(path.pathname);
+  if(deleteMatch&&((req.method==='DELETE'&&!deleteMatch[2])||(req.method==='POST'&&deleteMatch[2]))){
+    try{
+      if(!uuid.test(deleteMatch[1]))throw Error('项目编号无效');
+      const client=await pool.connect();try{
+        await client.query('BEGIN');
+        const w=(await client.query('SELECT * FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[deleteMatch[1]])).rows[0];
+        if(!w||(!actor.reviewer&&w.owner_id!==actor.id)){await client.query('ROLLBACK');json(res,'仅所有者或超级管理员可以删除或恢复项目',403);return true;}
+        const active=(await client.query("SELECT count(*) n FROM tasks WHERE project_id=$1 AND status IN ('queued','running')",[w.native_project_id])).rows[0];if(Number(active.n))throw Error('请先结束项目中正在运行的任务');
+        const restore=Boolean(deleteMatch[2]);await client.query('UPDATE fg_adcraft_workspaces SET archived_at=$2 WHERE id=$1',[w.id,restore?null:new Date()]);
+        await client.query('UPDATE projects SET status=$2 WHERE id=$1',[w.native_project_id,restore?'active':'archived']);
+        await client.query('COMMIT');json(res,{id:w.id,restored:restore,retainedMedia:true});
+      }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+    }catch(e){json(res,e.message,400);}return true;
+  }
   const memberMatch=/^\/api\/fg\/advertising\/([^/]+)\/members$/.exec(path.pathname);
   if(memberMatch){
     try{const workspace=await advertisingAccess(pool,actor,memberMatch[1]);if(!workspace||(!actor.reviewer&&workspace.owner_id!==actor.id)){json(res,'仅项目所有者或超级管理员可管理分享',403);return true;}
@@ -75,9 +92,12 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(quoteMatch&&req.method==='POST'){
     try{
       if(!await advertisingAccess(pool,actor,quoteMatch[1])){json(res,'无权访问该项目',403);return true;}
-      const input=await body(req,4096);const model=models[input.mode];if(!model)throw Error('模型类型无效');
+      const input=await body(req,4096);const selected=await selectedAdvertisingModel(pool,input.mode,input.model||models[input.mode]);const model=selected.billingId;
       const price=(await pool.query('SELECT snapshot FROM fg_model_prices WHERE model=$1',[model])).rows[0]?.snapshot;const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0]?.value);
-      json(res,priceQuote(model,price,{capability:input.mode,inputs:{image:Number(input.images)||0,video:Number(input.videos)||0},options:input.options||{}},fx));
+      const profile=selected.profile[input.mode],options=input.options||{};
+      const normalized={...options,count:'1',size:options.size||options.aspect_ratio||profile.size?.default||profile.defaultRatio,quality:options.quality||profile.quality?.default,vquality:options.resolution||profile.defaultResolution,videoSeconds:options.duration_seconds||profile.duration?.default};
+      const inputs={image:Number(input.images)||0,video:Number(input.videos)||0,audio:Number(input.audios)||0};
+      json(res,priceQuote(model,price,{capability:input.mode,operation:inputs.video?'video_to_video':inputs.image?'image_to_video':'text_to_video',inputs,options:normalized},fx));
     }catch(error){json(res,error.message,400);}return true;
   }
   const budgetMatch=/^\/api\/fg\/advertising\/([^/]+)\/budget$/.exec(path.pathname);
@@ -102,7 +122,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(path.pathname==='/api/fg/advertising'){
     try {
       if(req.method==='GET'){
-        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE w.archived_at IS NULL AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer])).rows;
+        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE (w.archived_at IS NOT NULL)=$3 AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer,path.searchParams.get('archived')==='true'])).rows;
         const groups=[];
         for(const row of rows){row.can_manage=actor.reviewer||row.owner_id===actor.id;row.can_budget=actor.reviewer;}
         json(res,{workspaces:rows,groups,models});return true;
@@ -128,6 +148,9 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   for(const key of ['content-type','content-length','accept','range','if-match','if-none-match','idempotency-key'])if(req.headers[key])headers[key]=req.headers[key];
   if(match?.[1]==='adcraft-api'){
     const inner=decodeURIComponent(match[3]||'/');
+    if(req.method==='POST'&&/^\/api\/v2\/projects\/?$/.test(inner)){json(res,'请从 FG 广告项目页创建广告工程，避免产生未关联项目',409);return true;}
+    const deleting=/^\/api\/v2\/projects\/([^/]+)$/.exec(inner);
+    if(req.method==='DELETE'&&deleting){const w=await advertisingAccess(pool,actor,match[2]);if(deleting[1]===w.adcraft_project_id){json(res,'请返回 FG 广告项目页删除主工程；项目会进入可恢复的回收站',409);return true;}}
     if(inner.startsWith('/internal/')||(/providers|provider-settings|provider-certifications/.test(inner)&& !['GET','HEAD'].includes(req.method))){json(res,'模型渠道由 FG 管理',403);return true;}
     target=new URL('/w/'+match[2]+inner+path.search,'http://adcraft-api:8000');
   }else target=new URL(staticReference?path.pathname:path.pathname.startsWith('/adcraft-static/')?path.pathname.replace('/adcraft-static',''):'/index.html','http://adcraft-web');
@@ -163,6 +186,10 @@ export async function adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvas
   const match=/^\/internal\/adcraft\/([^/]+)(\/.*)$/.exec(path.pathname);if(!match)return false;
   try{
     if(!uuid.test(match[1]))throw Error('工作区无效');
+    if(req.method==='GET'&&match[2]==='/models'){
+      if(!secret()||req.headers['x-fg-internal']!==secret())throw Error('FG 广告服务未授权');
+      json(res,{models:await advertisingModels(pool)},200,false);return true;
+    }
     if(req.method==='GET'&&match[2].startsWith('/contents/generations/tasks/')){
       if(!secret()||req.headers['x-fg-internal']!==secret())throw Error('FG 广告服务未授权');
       const id=match[2].split('/').pop();const job=(await pool.query('SELECT j.*,w.native_project_id FROM fg_adcraft_jobs j JOIN fg_adcraft_workspaces w ON w.id=j.workspace_id WHERE j.task_id=$1 AND j.workspace_id=$2',[id,match[1]])).rows[0];if(!job)throw Error('任务不存在');
@@ -177,24 +204,28 @@ export async function adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvas
     const actor={...account,reviewer:account.platform_role==='superadmin',platformRole:account.platform_role};const workspace=await advertisingAccess(pool,actor,context.workspace);if(!workspace)throw Error('没有广告项目权限');
     const cookie=await canvasSession(actor);const api=(p,m,b)=>nativeAPI(web,cookie,publicOrigin,p,m,b);
     const payload=await body(req);const mode=match[2]==='/v1/chat/completions'?'text':match[2]==='/images/generations'?'image':match[2]==='/contents/generations/tasks'?'video':null;if(!mode)throw Error('不支持的模型接口');
-    if(mode==='text')payload.model=models.text;
-    const model=models[mode];const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name LIKE 'WeToken%' AND cm.model_key=$1 AND cm.enabled=true AND c.enabled=true AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('FG 中未启用当前广告模型');
+    const selected=await selectedAdvertisingModel(pool,mode,payload.model||models[mode]);const model=selected.billingId;payload.model=model;
+    const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name LIKE 'WeToken%' AND cm.model_key=$1 AND cm.enabled=true AND c.enabled=true AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('FG 中未启用当前广告模型');
     const references={image:[],video:[],audio:[]};const env={web,publicOrigin};
     if(mode==='text'){
       for(const message of payload.messages||[])if(Array.isArray(message.content))for(const part of message.content)if(part.type==='image_url') { const ref=await importReference(part.image_url.url,'image',context,cookie,env);references.image.push(ref);part.image_url.url=ref.storageKey; }
     }else if(mode==='image')for(const value of [payload.image||[]].flat())if(value)references.image.push(await importReference(value,'image',context,cookie,env));
     else for(const part of payload.content||[])for(const kind of ['image','video','audio'])if(part.type===kind+'_url')references[kind].push(await importReference(part[kind+'_url']?.url,kind,context,cookie,env));
     const prompt=mode==='text'?JSON.stringify(payload.messages||[]):mode==='image'?payload.prompt:(payload.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n');if(!prompt)throw Error('请填写制作内容');
-    const config={channelId:channel.channel_id,model,interfaceType:channel.protocol,apiFormat:channel.api_format||'openai',count:'1',size:mode==='image'?String(payload.size||'2048x2048'):String(payload.ratio||'16:9'),videoSeconds:String(payload.duration||5),vquality:String(payload.resolution||'480p').toUpperCase(),videoGenerateAudio:payload.generate_audio===false?'false':'true'};
+    const profile=selected.profile[mode];
+    const config={channelId:channel.channel_id,model,interfaceType:channel.protocol,apiFormat:channel.api_format||'openai',count:'1',size:mode==='image'?String(payload.size||profile.size.default):String(payload.ratio||profile.defaultRatio||'16:9'),quality:String(payload.quality||profile.quality?.default||''),videoSeconds:String(payload.duration||profile.duration?.default||5),vquality:String(payload.resolution||profile.defaultResolution||'480p').toUpperCase(),videoGenerateAudio:profile.generateAudio?.supported&&(payload.generate_audio??profile.generateAudio.default)?'true':'false'};
+    if(mode==='video'&&(!profile.duration.values.includes(Number(config.videoSeconds))||!profile.resolutions.some(v=>v.toUpperCase()===config.vquality)||!profile.ratios.includes(config.size)))throw Error('此模型不支持所选时长、分辨率或比例');
+    if(mode!=='text')for(const [kind,refs] of Object.entries(references)){const limit=profile.references['max'+kind[0].toUpperCase()+kind.slice(1)+'s']||0;if(refs.length>limit)throw Error('此模型不支持当前数量的'+kind+'参考素材');}
+    if(mode==='video'&&references.image.length<(profile.references.minImages||0))throw Error('此模型需要上传参考图片');
     const intent={capability:mode,inputs:{text:1,image:references.image.length,video:references.video.length,audio:references.audio.length},options:{...config,size:config.size,vquality:config.vquality}};
     const price=(await pool.query('SELECT snapshot FROM fg_model_prices WHERE model=$1',[model])).rows[0]?.snapshot;const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0]?.value);
-    const quote=priceQuote(model,price,intent,fx);let amount=quote.estimatedCny;
-    if(mode==='text'){const tier=price?.tiered_pricing?.[0];const inputRate=tier?.input_price_per_m??price?.pricing_rules?.input_price,outputRate=tier?.output_price_per_m??price?.pricing_rules?.output_price;if(!Number.isFinite(inputRate)||!Number.isFinite(outputRate))throw Error('当前文本费率未配置');amount=(Buffer.byteLength(JSON.stringify(payload))/2*inputRate+Number(payload.max_tokens||payload.max_completion_tokens||8192)*outputRate)/1e6*price.discount*fx;}
-    if(!(amount>=0&&Number.isFinite(amount)))throw Error('此参数档位的人民币价格尚未核验');
+    // A token-priced or partial quote has no exact pre-generation total. Only
+    // uncapped projects may submit it; native monthly admission still applies.
+    const amount=admissionPrice(model,mode,{...payload,max_tokens:payload.max_tokens||payload.max_completion_tokens||8192,size:config.size,quality:config.quality,resolution:config.vquality,duration:Number(config.videoSeconds)},price,fx);
     const logical=createHash('sha256').update(JSON.stringify([context.operation,context.actor,mode,payload])).digest('hex');
     const client=await pool.connect();let job;
     try{await client.query('BEGIN');const locked=(await client.query('SELECT budget_cny FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[workspace.id])).rows[0];if(!locked)throw Error('广告项目不存在');job=(await client.query('SELECT * FROM fg_adcraft_jobs WHERE workspace_id=$1 AND logical_key=$2',[workspace.id,logical])).rows[0];
-      if(!job){const used=await budgetUsage(client,workspace.id);if(Number(locked.budget_cny)>0&&used+amount>Number(locked.budget_cny))throw Error('广告项目预算不足，请联系超级管理员调整预算');job={id:randomUUID()};await client.query('INSERT INTO fg_adcraft_jobs(id,workspace_id,actor_id,logical_key,mode,reserved_cny) VALUES($1,$2,$3,$4,$5,$6)',[job.id,workspace.id,actor.id,logical,mode,amount]);}
+      if(!job){const used=await budgetUsage(client,workspace.id);if(Number(locked.budget_cny)>0&&(amount===null||used+amount>Number(locked.budget_cny)))throw Error(amount===null?'此规格不能确定费用上限，请联系超级管理员':'广告项目预算不足，请联系超级管理员调整预算');job={id:randomUUID()};await client.query('INSERT INTO fg_adcraft_jobs(id,workspace_id,actor_id,logical_key,mode,reserved_cny) VALUES($1,$2,$3,$4,$5,$6)',[job.id,workspace.id,actor.id,logical,mode,amount??0]);}
       await client.query('COMMIT');
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     if(!job.task_id){

@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useMatch } from "react-router-dom";
 import type { RouteName } from "../types";
 import { AssetsIcon, FolderIcon, HomeIcon, TrashIcon, TutorialIcon } from "../icons";
 import { useHealth } from "../app/useHealth";
+import {FGWorkspaceBar} from '../FGWorkspaceBar';
+import {fgWorkspace} from '../fg-scope';
+import {FGEditorLease} from '../FGEditorLease';
 import {
   v2AuthoringConflictStore,
   type V2AuthoringConflict,
@@ -31,7 +34,6 @@ export function Layout({ children, workflowControls }: LayoutProps) {
   const [resolvingConflict, setResolvingConflict] = useState(false);
   const { apiOnline, apiMessage, apiConfig, storageWarning } = useHealth();
   const location = useLocation();
-  const navigate = useNavigate();
   const isWorkflowRoute = useMatch("/workflow/*") !== null;
   const usesClearGlassRail = ["/", "/projects", "/assets", "/trash"].includes(location.pathname)
     || location.pathname.startsWith("/workflow");
@@ -89,13 +91,9 @@ export function Layout({ children, workflowControls }: LayoutProps) {
     setAccountOpen(false);
   }
 
-  function signOutDemo() {
-    setAccountOpen(false);
-    navigate("/");
-  }
-
   return (
     <>
+      <FGEditorLease/>
       <nav className={`floating-rail${usesClearGlassRail ? " floating-rail--clear-glass" : ""}`} aria-label="Primary navigation">
         {navItems.map((item) => (
           <NavLink
@@ -116,11 +114,12 @@ export function Layout({ children, workflowControls }: LayoutProps) {
         id="app"
       >
         <header className="topbar">
-          <Link className="brand" to="/" aria-label="FG 广告工作台" onClick={closeAccountMenu}>
+          <a className="brand" href={fgWorkspace?'/advertising':'/'} aria-label="FG 广告项目" onClick={closeAccountMenu}>
             <div className="brand-picture">
               <strong className="brand-logo" style={{ fontSize: 20, letterSpacing: 2 }}>FG</strong>
             </div>
-          </Link>
+          </a>
+          <FGWorkspaceBar/>
           <div className={`api-chip ${badgeState === "online" ? "is-online" : badgeState === "offline" || badgeState === "unconfigured" ? "is-offline" : badgeState === "partial" ? "is-partial" : ""}`} title={badgeTitle}>
             {badgeLabel}
           </div>
@@ -138,10 +137,10 @@ export function Layout({ children, workflowControls }: LayoutProps) {
           ) : null}
           <div className="top-actions">
             {workflowControls}
-            <Link className="ghost-btn" to="/?guide=1" onClick={closeAccountMenu}>
+            <button className="ghost-btn" onClick={()=>window.dispatchEvent(new Event('fg-ad-guide'))}>
               <TutorialIcon />
               <span>使用指南</span>
-            </Link>
+            </button>
             <button
               className="avatar-btn"
               aria-label="Account menu"
@@ -154,7 +153,7 @@ export function Layout({ children, workflowControls }: LayoutProps) {
               <Link to="/projects" onClick={closeAccountMenu}>项目工程</Link>
               <Link to="/assets" onClick={closeAccountMenu}>项目素材</Link>
               <span>公司模型渠道 · WeToken</span>
-              <button type="button" onClick={signOutDemo}>返回创意首页</button>
+              <a href="/advertising">返回广告项目</a>
             </div>
           </div>
         </header>

@@ -285,6 +285,9 @@ def _is_seedance_compatible_image_input(value: str) -> bool:
 
 def _normalize_video_resolution(value: Any) -> str:
     normalized = str(value or ARK_SEEDANCE_RESOLUTION).strip().lower()
+    import os
+    if os.getenv('FG_ADCRAFT_SECRET') and normalized in {'768p', '2k'}:
+        return normalized
     if normalized not in SUPPORTED_VIDEO_RESOLUTIONS:
         raise ValueError(
             "Unsupported video resolution. Supported values are: "
@@ -295,6 +298,9 @@ def _normalize_video_resolution(value: Any) -> str:
 
 def _normalize_video_ratio(value: Any) -> str:
     normalized = str(value or DEFAULT_VIDEO_RATIO).strip().replace("：", ":")
+    import os
+    if os.getenv('FG_ADCRAFT_SECRET') and normalized in {'adaptive', '21:9', '4:3', '3:4'}:
+        return normalized
     if normalized not in SUPPORTED_VIDEO_ASPECT_RATIOS:
         raise ValueError(
             "Unsupported video aspect ratio. Supported values are: "

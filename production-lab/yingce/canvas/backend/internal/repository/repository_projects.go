@@ -15,14 +15,14 @@ import (
 
 func (r *Repository) Projects(userID string) ([]model.Project, error) {
 	var projects []model.Project
-	err := fgProjectScope(r.db,"projects",userID).Order("updated_at desc").Find(&projects).Error
+	err := fgShortDramaListScope(fgProjectScope(r.db,"projects",userID)).Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) ProjectsPage(userID string, page int, pageSize int) ([]model.Project, int64, error) {
 	var projects []model.Project
 	var total int64
-	query := fgProjectScope(r.db.Model(&model.Project{}),"projects",userID)
+	query := fgShortDramaListScope(fgProjectScope(r.db.Model(&model.Project{}),"projects",userID))
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -56,6 +56,18 @@ func (r *Repository) UpdateProject(project *model.Project) error {
 
 func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []model.CanvasProject) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Advertising keeps its native project for immutable cost attribution.
+		if tx.Migrator().HasTable("fg_adcraft_workspaces") {
+			var count int64
+			if err := tx.Table("fg_adcraft_workspaces").Where("native_project_id = ? AND owner_id = ?",id,userID).Count(&count).Error; err != nil { return err }
+			if count > 0 {
+				var active int64
+				if err:=tx.Model(&model.Task{}).Where("project_id = ? AND status IN ?",id,[]model.TaskStatus{model.TaskStatusQueued,model.TaskStatusRunning}).Count(&active).Error;err!=nil{return err}
+				if active>0{return ErrProjectHasActiveTasks}
+				if err:=tx.Table("fg_adcraft_workspaces").Where("native_project_id = ?",id).Update("archived_at",time.Now()).Error;err!=nil{return err}
+				return tx.Model(&model.Project{}).Where("id = ?",id).Update("status",model.ProjectStatusArchived).Error
+			}
+		}
 		var canvasIDs []string
 		if err := tx.Model(&model.CanvasProject{}).
 			Where("user_id = ? AND project_id = ?", userID, id).
@@ -140,6 +152,13 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 		}
 		return tx.Delete(&model.Project{}, "id = ? AND user_id = ?", id, userID).Error
 	})
+}
+
+func fgShortDramaListScope(db *gorm.DB) *gorm.DB {
+	if db.Migrator().HasTable("fg_adcraft_workspaces") {
+		return db.Where("projects.type <> ? AND NOT EXISTS(SELECT 1 FROM fg_adcraft_workspaces a WHERE a.native_project_id = projects.id)","advertising")
+	}
+	return db
 }
 
 func (r *Repository) BumpProjectRevision(projectID string) error {

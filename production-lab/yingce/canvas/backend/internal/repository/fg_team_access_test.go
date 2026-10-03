@@ -37,6 +37,30 @@ func TestFGAdvertisingMembershipRevokesProjectAccess(t *testing.T) {
  if _,err=repo.ProjectForUser("alice","advert");err!=nil{t.Fatal(err)}
 }
 
+func TestFGAdvertisingDeletionArchivesWithoutBreakingForeignKeys(t *testing.T) {
+ t.Setenv("CANVAS_FG_TEAM_WORKSPACE","true")
+ db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"ad-delete.db")),&gorm.Config{})
+ if err!=nil{t.Fatal(err)}
+ sqlDB,_:=db.DB();defer sqlDB.Close();sqlDB.SetMaxOpenConns(1)
+ if err=db.AutoMigrate(&model.Project{},&model.Task{});err!=nil{t.Fatal(err)}
+ for _,sql:=range []string{
+  "PRAGMA foreign_keys=ON",
+  "CREATE TABLE fg_story_projects(native_project_id TEXT)",
+  "CREATE TABLE fg_adcraft_workspaces(id TEXT,native_project_id TEXT REFERENCES projects(id),owner_id TEXT,archived_at TEXT)",
+  "CREATE TABLE fg_adcraft_members(workspace_id TEXT,user_id TEXT)",
+ }{if err=db.Exec(sql).Error;err!=nil{t.Fatal(err)}}
+ if err=db.Create(&model.Project{ID:"advert",UserID:"alice",Name:"ad",Type:"advertising",Status:model.ProjectStatusActive}).Error;err!=nil{t.Fatal(err)}
+ if err=db.Create(&model.Project{ID:"drama",UserID:"alice",Name:"drama",Type:"drama",Status:model.ProjectStatusActive}).Error;err!=nil{t.Fatal(err)}
+ if err=db.Exec("INSERT INTO fg_adcraft_workspaces VALUES('ad','advert','alice',NULL)").Error;err!=nil{t.Fatal(err)}
+ repo:=New(db)
+ listed,err:=repo.Projects("alice");if err!=nil||len(listed)!=1||listed[0].ID!="drama"{t.Fatalf("mixed project list: %+v %v",listed,err)}
+ if err=repo.DeleteProject("alice","advert",nil);err!=nil{t.Fatal("archive must retain FK",err)}
+ var project model.Project
+ if err=db.First(&project,"id = ?","advert").Error;err!=nil||project.Status!=model.ProjectStatusArchived{t.Fatalf("project retained: %+v %v",project,err)}
+ var active int64
+ if err=db.Table("fg_adcraft_workspaces").Where("archived_at IS NULL").Count(&active).Error;err!=nil||active!=0{t.Fatal("workspace still active",err)}
+}
+
 func TestFGSuperadminScopePreservesCanvasSaveStatement(t *testing.T) {
  t.Setenv("CANVAS_FG_TEAM_WORKSPACE","true")
  db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"admin.db")),&gorm.Config{})

@@ -49,6 +49,13 @@ def _ensure_local_access(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
+    # FG authenticates and checks the workspace and editor lease before proxying.
+    # Only its model preferences are remote-editable; credential settings retain
+    # the native local-client policy below.
+    if request.url.path == '/api/v1/model-defaults':
+        from app.fg_context import fg_context
+        if fg_context.get().get('workspace'):
+            return
     _ensure_local_settings_access(request, settings)
 
 

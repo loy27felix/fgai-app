@@ -11,6 +11,7 @@ import type {
   VideoSkillPublicDetailV2,
 } from "../../../types-v2.ts";
 import { SkillPreview } from "./SkillPreview.tsx";
+import {fgLabel} from '../../../fg-scope';
 
 type StyleSelectorProps = {
   workflowId: string;
@@ -77,7 +78,7 @@ function StyleCard({ skill, selected, activating, disabled, onSelect }: StyleCar
         ) : null}
       </span>
       <span className="agent-chat__style-option-copy">
-        <strong>{skill.title}</strong>
+        <strong>{fgLabel(skill.title)}</strong>
         <small>{skill.summary}</small>
       </span>
     </button>

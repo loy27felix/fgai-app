@@ -49,21 +49,22 @@ import {
   AGENT_CANVAS_HANDLE_RING_SIZE,
 } from "./canvasConnectionGeometry.ts";
 import "./AgentCanvasNode.css";
+import {fgLabel} from '../../../fg-scope';
 
 const NODE_TYPE_LABELS: Record<CanvasNodeTypeV2, string> = {
-  text: "Text",
-  script: "Script",
-  image: "Image",
-  video: "Video",
-  audio: "Audio",
-  editing: "Editing",
+  text: fgLabel("Text"),
+  script: fgLabel("Script"),
+  image: fgLabel("Image"),
+  video: fgLabel("Video"),
+  audio: fgLabel("Audio"),
+  editing: fgLabel("Editing"),
 };
 
 const NODE_STATUS_LABELS: Record<CanvasNodeStatusV2, string> = {
-  draft: "Draft",
-  working: "Working",
-  ready: "Ready",
-  failed: "Failed",
+  draft: fgLabel("Draft"),
+  working: fgLabel("Working"),
+  ready: fgLabel("Ready"),
+  failed: fgLabel("Failed"),
 };
 
 export interface AgentCanvasNodeCallbacks {

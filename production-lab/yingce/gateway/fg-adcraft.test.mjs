@@ -16,6 +16,7 @@ function fixture(budget=100){
    if(sql.startsWith('SELECT w.*'))return {rows:[{id:workspace,owner_id:actor,native_project_id:'fg-project',budget_cny:budget}]};
    if(sql.startsWith('SELECT budget_cny'))return {rows:[{budget_cny:budget}]};
    if(sql.includes('FROM channel_models'))return {rows:[{channel_id:'company-wetoken',protocol:'chat-completion',api_format:'openai'}]};
+   if(sql.startsWith('SELECT DISTINCT p.model'))return {rows:['gpt-5.6-sol-t1a','claude-opus-5-5-t3a','seedream-5-0-lite-260128','doubao-seedance-2-0-fast-filter-off'].map(model=>({model,snapshot:{enabled:true,discount:1,quota_type:1,model_price:.05,pricing_rules:{input_price:2,output_price:8,type:'per_second',rules:[{resolution:'480p',price:.012,scenario:'without_video_input'}]}}}))};
    if(sql.includes('FROM fg_model_prices'))return {rows:[{snapshot:{enabled:true,discount:1,quota_type:1,model_price:.05,pricing_rules:{input_price:2,output_price:8,type:'per_second',rules:[{resolution:'480p',price:.012,scenario:'without_video_input'}]}}}]};
    if(sql.includes('FROM fg_company_settings'))return {rows:[{value:6.77}]};
    if(sql.includes('logical_key=$2'))return {rows:[...jobs.values()].filter(j=>j.logical_key===args[1])};
@@ -48,7 +49,7 @@ test('invalid workspace is rejected before database access',async()=>{
  assert.equal(await advertisingAccess({query:()=>{throw Error('DB must not be queried');}},{id:actor},'../other'),null);
 });
 for(const [mode,path,payload] of [
- ['text','/v1/chat/completions',{model:'wrong-external-model',messages:[{role:'user',content:'写广告脚本'}],max_tokens:100}],
+ ['text','/v1/chat/completions',{model:'gpt-5.6-sol-t1a',messages:[{role:'user',content:'写广告脚本'}],max_tokens:100}],
  ['image','/images/generations',{prompt:'产品广告参考',size:'2048x2048'}],
  ['video','/contents/generations/tasks',{content:[{type:'text',text:'产品特写'}],duration:5,resolution:'480p',generate_audio:true}],
 ])test(mode+' uses FG queue, project attribution and NAS result without external model calls',async()=>{
@@ -66,6 +67,12 @@ test('budget rejects a request before creating a paid task',async()=>{
 });
 test('unsigned caller cannot create a paid task',async()=>{
  const f=fixture();const result=await invoke(f,'/images/generations',{prompt:'产品图'},'invalid');assert.equal(result.status,400);assert.equal(f.submissions.length,0);
+});
+test('selected text model is preserved and unsupported IDs fail before submission',async()=>{
+ const f=fixture(),saved=global.fetch;global.fetch=f.nativeFetch;
+ try{const selected=await invoke(f,'/v1/chat/completions',{model:'claude-opus-5-5-t3a',messages:[{role:'user',content:'脚本'}],max_tokens:100});assert.equal(selected.status,200);assert.equal(f.submissions[0].model,'claude-opus-5-5-t3a');assert.equal(f.submissions[0].input.agentRequests.chatCompletion.model,'claude-opus-5-5-t3a');
+ const denied=await invoke(f,'/v1/chat/completions',{model:'gemini-3.5-pro',messages:[{role:'user',content:'脚本'}]});assert.equal(denied.status,400);assert.equal(f.submissions.length,1);
+ }finally{global.fetch=saved;}
 });
 test('budget uses fully matched receipts and releases only proven unsent work',()=>{
  assert.equal(budgetCharge({reserved_cny:20,settled_cny:1.5,billable_count:1,matched_count:1}),1.5);

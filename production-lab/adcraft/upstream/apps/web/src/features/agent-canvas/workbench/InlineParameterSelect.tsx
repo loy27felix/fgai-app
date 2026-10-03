@@ -1,4 +1,5 @@
 import { useId } from "react";
+import {fgLabel} from '../../../fg-scope';
 import { createPortal } from "react-dom";
 import { ChevronDownIcon, ChevronUpIcon } from "../../../icons.tsx";
 import { useWorkbenchMenu } from "./useWorkbenchMenu.ts";
@@ -19,7 +20,7 @@ export function InlineParameterSelect({
   const menuId = useId();
   const { open, setOpen, menuStyle, triggerRef, menuRef } = useWorkbenchMenu(disabled, options.length);
   const unsupported = Boolean(value) && !options.includes(value);
-  const selectedLabel = unsupported ? `${value} (unsupported)` : value || "Not set";
+  const selectedLabel = unsupported ? `${value} (unsupported)` : value || fgLabel("Not set");
   const select = (next: string | undefined) => {
     if (disabled) return;
     onChange(next);
@@ -59,7 +60,7 @@ export function InlineParameterSelect({
           style={menuStyle}
         >
           <button type="button" role="option" aria-selected={!value} disabled={disabled} onClick={() => select(undefined)}>
-            <strong>Not set</strong>
+            <strong>{fgLabel('Not set')}</strong>
           </button>
           {unsupported ? (
             <button type="button" role="option" aria-selected disabled>

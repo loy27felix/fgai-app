@@ -143,6 +143,7 @@ import { useCanvasHistory } from "./use-canvas-history";
 import { useCanvasKeyboard } from "./use-canvas-keyboard";
 import { useCanvasMediaTools } from "./use-canvas-media-tools";
 import { useDirectorDesk } from "./use-director-desk";
+import {CanvasEditorLease} from '@/components/canvas/canvas-editor-lease';
 import { CanvasDirectorDeskModal } from "@/components/canvas/director/canvas-director-desk-modal";
 import { CanvasDirectorLibrary } from "@/components/canvas/director/canvas-director-library";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
@@ -3105,7 +3106,8 @@ function InfiniteCanvasPage() {
                         ) : null}
 
                         {frameNode ? <CanvasVideoFrameDialog node={frameNode} open={Boolean(frameNode)} onClose={closeFrameDialog} onConfirm={(params) => void extractVideoFrames(frameNode, params)} /> : null}
-                        <CanvasDirectorLibrary open={directorDesk.libraryOpen} nodes={nodes} onClose={directorDesk.closeLibrary} onOpen={directorDesk.openDesk} onNew={directorDesk.newDesk}/>
+                        <CanvasEditorLease canvasId={projectId} draft={()=>({...currentProject,nodes:nodesRef.current,connections:connectionsRef.current})}/>
+                        <CanvasDirectorLibrary open={directorDesk.libraryOpen} nodes={nodes} onClose={directorDesk.closeLibrary} onOpen={directorDesk.openDesk} onNew={directorDesk.newDesk} onDelete={directorDesk.deleteDesk}/>
                         <CanvasDirectorDeskModal open={directorDesk.open} node={directorDesk.node} canvasId={projectId} projectId={linkedProjectId} onClose={directorDesk.closeDesk} onSave={directorDesk.saveDocument} onOutput={directorDesk.saveOutput}
                             onAgentContext={async summary => { await directorDesk.saveOutput(new File([summary], "3D 调度说明.txt", {type: "text/plain"})); setAgentPrefillPrompt(summary); openAgent(); directorDesk.closeDesk(); }} />
 

@@ -65,6 +65,7 @@ class AgentCanvasSeedanceInputCompiler:
             requested.get("duration_seconds"),
             effective.get("duration_seconds"),
             effective_parameters.normalizations if effective_parameters is not None else (),
+            maximum=30 if model_id == 'dreamina-seedance-2-5-filter-off' else 15,
         )
         text_inputs = self._compile_text_inputs(resolved_inputs)
         media_inputs = self._compile_media_inputs(delivered_media, grounding_plan=grounding_plan)
@@ -95,6 +96,7 @@ class AgentCanvasSeedanceInputCompiler:
         requested_value: object,
         effective_value: object,
         normalizations: tuple[str | VideoParameterNormalizationV2, ...],
+        maximum: int = 15,
     ) -> tuple[int, int, tuple[str, ...]]:
         requested = (
             self._default_duration_seconds
@@ -110,8 +112,8 @@ class AgentCanvasSeedanceInputCompiler:
             item.normalization_code if isinstance(item, VideoParameterNormalizationV2) else item
             for item in normalizations
         )
-        if effective > 15:
-            effective = 15
+        if effective > maximum:
+            effective = maximum
             normalization_codes = (
                 *normalization_codes,
                 "duration_clamped_to_provider_limit",

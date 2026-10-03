@@ -868,6 +868,14 @@ if _fg_os.getenv('FG_ADCRAFT_SECRET'):
                     if _descriptor['name'] == 'resolution': _descriptor['allowed_values'] = ['480p','720p']
             _fg_manifests.append(replace(_manifest, display_name='Seedream Lite · WeToken' if _manifest.capability == 'image' else 'SD2-fast · WeToken', capability_metadata=_metadata))
     _TRUSTED_MANIFESTS = tuple(_fg_manifests)
+    _FG_TEMPLATES = _TRUSTED_MANIFESTS
+
+def install_fg_catalog(models):
+    global _TRUSTED_MANIFESTS
+    if not _fg_os.getenv('FG_ADCRAFT_SECRET'):
+        raise RuntimeError('FG catalog requires the internal bridge')
+    from app.fg_catalog import manifests_for_fg
+    _TRUSTED_MANIFESTS = manifests_for_fg(_FG_TEMPLATES, models)
 
 _RETIRED_MODEL_REFS = frozenset(
     {

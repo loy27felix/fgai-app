@@ -1,4 +1,5 @@
 import type { ModelParameterDescriptorV1 } from "../../../api/providerRegistry.ts";
+import {fgLabel,fgWorkspace} from '../../../fg-scope';
 import { InlineParameterSelect } from "./InlineParameterSelect.tsx";
 import {
   modelParameterLabel,
@@ -36,11 +37,11 @@ export function ModelParameterControls({
   return (
     <div className={`agent-node-workbench__model-parameters${layout === "inline" ? " agent-node-workbench__model-parameters--inline" : ""}`} aria-label="Model parameters">
       {descriptors.map((descriptor) => {
-        const label = modelParameterLabel(descriptor.name);
+        const label = fgLabel(modelParameterLabel(descriptor.name));
         const displayLabel = layout === "inline"
           ? descriptor.name === "duration_seconds" ? "Duration (s)" : descriptor.name === "aspect_ratio" ? "Ratio" : label
           : label;
-        const value = parameters[descriptor.name];
+        const value = parameters[descriptor.name] ?? (fgWorkspace ? descriptor.default : undefined);
         const issue = issueByName.get(descriptor.name);
         if (descriptor.value_type === "boolean") {
           return (
@@ -59,7 +60,7 @@ export function ModelParameterControls({
                 />
                 <span>{label}</span>
               </label>
-              {value !== undefined ? (
+              {parameters[descriptor.name] !== undefined ? (
                 <button
                   type="button"
                   className="agent-node-workbench__parameter-clear"
@@ -67,7 +68,7 @@ export function ModelParameterControls({
                   disabled={disabled}
                   onClick={() => onChange(updateParameter(parameters, descriptor.name, undefined))}
                 >
-                  Clear
+                  {fgLabel('Clear')}
                 </button>
               ) : null}
               {issue ? <p className="agent-node-workbench__field-error">{issue}</p> : null}
@@ -77,7 +78,7 @@ export function ModelParameterControls({
         if (layout === "inline" && descriptor.value_type === "enum") {
           return (
             <div className="agent-node-workbench__parameter" key={descriptor.name}>
-              <span title={label}>{displayLabel}</span>
+              <span title={label}>{fgLabel(displayLabel)}</span>
               <InlineParameterSelect
                 label={label}
                 value={typeof value === "string" ? value : ""}
@@ -91,7 +92,7 @@ export function ModelParameterControls({
         }
         return (
           <label className="agent-node-workbench__parameter" key={descriptor.name}>
-            <span title={label}>{displayLabel}</span>
+            <span title={label}>{fgLabel(displayLabel)}</span>
             {descriptor.value_type === "enum" ? (
               <select
                 aria-label={label}
@@ -103,7 +104,7 @@ export function ModelParameterControls({
                   event.currentTarget.value || undefined,
                 ))}
               >
-                <option value="">Not set</option>
+                <option value="">{fgLabel('Not set')}</option>
                 {typeof value === "string" && !descriptor.allowed_values.includes(value) ? (
                   <option value={value}>{value} (unsupported)</option>
                 ) : null}

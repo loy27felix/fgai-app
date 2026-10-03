@@ -3,7 +3,9 @@ export type AdvertisingProject = {id:string;name:string;brief:string;native_proj
 export type AdvertisingProjects = {workspaces:AdvertisingProject[];groups:Array<{id:string;name:string}>};
 export type AdvertisingQuote = {estimatedCny:number|null;lines:string[]};
 const path=(id:string)=>'/fg/advertising/'+encodeURIComponent(id);
-export const listAdvertisingProjects=()=>http.get<AdvertisingProjects>('/fg/advertising');
+export const listAdvertisingProjects=(archived=false)=>http.get<AdvertisingProjects>('/fg/advertising',{params:{archived}});
+export const deleteAdvertisingProject=(id:string)=>http.delete(path(id));
+export const restoreAdvertisingProject=(id:string)=>http.post(path(id)+'/restore',{});
 export const openAdvertisingProject=(id:string)=>http.post<{url:string}>(path(id)+'/open',{});
 export const updateAdvertisingBudget=(id:string,budgetCny:number)=>http.patch(path(id)+'/budget',{budgetCny});
 export const importAdvertisingCompanyAsset=(id:string,assetId:string)=>http.post(path(id)+'/company-asset',{assetId});
