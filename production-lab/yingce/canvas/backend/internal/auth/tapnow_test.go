@@ -1,6 +1,28 @@
 package auth
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestTapNowStringShortIDsPreserveConnections(t *testing.T) {
+	var detail tapNowDetail
+	if err := json.Unmarshal([]byte(`{"nodes":[{"id":"image-a","short_id":"n155","type":"image","data":{"src":"https://files.tapnow.media/a.png"}},{"short_id":42,"type":"text","data":{"text":"镜头说明"}}],"connections":[{"id":"edge-a","source":"n155","target":"42"}]}`), &detail); err != nil {
+		t.Fatal(err)
+	}
+	result, err := adaptTapNowDetail(&detail, "194e1122")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ImportedNodeCount != 2 || result.ImportedConnectionCount != 1 || result.Nodes[1].Metadata.NodeID != "42" {
+		t.Fatalf("string/numeric short IDs lost nodes or connections: %#v", result)
+	}
+	for _, raw := range []string{`null`, `{}`, `1.5`, `0`} {
+		if tapNowShortID(json.RawMessage(raw)) != "" {
+			t.Fatalf("unexpected identifier accepted: %s", raw)
+		}
+	}
+}
 
 func TestAdaptTapNowDetailSupportsMediaAndTextNodes(t *testing.T) {
 	detail := &tapNowDetail{

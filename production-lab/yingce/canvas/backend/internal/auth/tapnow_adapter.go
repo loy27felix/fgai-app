@@ -50,8 +50,9 @@ func adaptTapNowDetail(detail *tapNowDetail, shareID string) (*TapNowImportResul
 			continue
 		}
 		nodeID := strings.TrimSpace(raw.ID)
-		if nodeID == "" && raw.ShortID != 0 {
-			nodeID = strconv.FormatInt(raw.ShortID, 10)
+		shortID := tapNowShortID(raw.ShortID)
+		if nodeID == "" {
+			nodeID = shortID
 		}
 		if nodeID == "" {
 			result.SkippedNodes = append(result.SkippedNodes, TapNowImportIssue{Reason: "节点缺少 ID"})
@@ -152,8 +153,8 @@ func adaptTapNowDetail(detail *tapNowDetail, shareID string) (*TapNowImportResul
 			result.PlaceholderNodeCount++
 		}
 		mapping[nodeID] = item.ID
-		if raw.ShortID != 0 {
-			mapping[strconv.FormatInt(raw.ShortID, 10)] = item.ID
+		if shortID != "" {
+			mapping[shortID] = item.ID
 		}
 		result.Nodes = append(result.Nodes, item)
 		if !positiveFiniteNumber(raw.Measured.Width) || !positiveFiniteNumber(raw.Measured.Height) {
@@ -374,6 +375,21 @@ func tapNowErrorDetails(data tapNowNodeData) string {
 	for _, key := range []string{"error", "failedReason", "message"} {
 		if value := tapNowMapString(data.TaskInfo, key); value != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+// TapNow returns both legacy numeric IDs and current IDs such as "n155".
+func tapNowShortID(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var number json.Number
+	if json.Unmarshal(raw, &number) == nil && number != "" && number != "0" {
+		if _, err := number.Int64(); err == nil {
+			return number.String()
 		}
 	}
 	return ""

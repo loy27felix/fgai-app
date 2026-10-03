@@ -26,6 +26,7 @@ import { refreshCanvasCharacterReferenceNodes } from "@/lib/canvas/canvas-charac
 import { useAssetStore } from "@/stores/use-asset-store";
 import { flushCanvasStorePersistence } from "@/stores/canvas/use-canvas-store";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
+import { persistImportedCanvasMedia } from "@/services/canvas-import-storage";
 import { useCanvasThemeStore, useCanvasThemeScope } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { App, Button } from "antd";
@@ -437,15 +438,16 @@ function InfiniteCanvasPage() {
 
     const applyLibTVImport = useCallback(
         async (importedNodes: CanvasNodeData[], importedConnections: CanvasConnection[]) => {
+            const archivedNodes = await persistImportedCanvasMedia(importedNodes);
             const previousNodes = nodesRef.current;
             const previousConnections = connectionsRef.current;
-            const nextNodes = [...nodesRef.current, ...importedNodes];
+            const nextNodes = [...nodesRef.current, ...archivedNodes];
             const nextConnections = [...connectionsRef.current, ...importedConnections];
             nodesRef.current = nextNodes;
             connectionsRef.current = nextConnections;
             setNodes(nextNodes);
             setConnections(nextConnections);
-            const saved = await saveCanvasProject({ requireRemote: false });
+            const saved = await saveCanvasProject({ requireRemote: true });
             if (!saved) {
                 nodesRef.current = previousNodes;
                 connectionsRef.current = previousConnections;
@@ -458,15 +460,16 @@ function InfiniteCanvasPage() {
     );
     const applyTapNowImport = useCallback(
         async (importedNodes: CanvasNodeData[], importedConnections: CanvasConnection[]) => {
+            const archivedNodes = await persistImportedCanvasMedia(importedNodes);
             const previousNodes = nodesRef.current;
             const previousConnections = connectionsRef.current;
-            const nextNodes = [...nodesRef.current, ...importedNodes];
+            const nextNodes = [...nodesRef.current, ...archivedNodes];
             const nextConnections = [...connectionsRef.current, ...importedConnections];
             nodesRef.current = nextNodes;
             connectionsRef.current = nextConnections;
             setNodes(nextNodes);
             setConnections(nextConnections);
-            const saved = await saveCanvasProject({ requireRemote: false });
+            const saved = await saveCanvasProject({ requireRemote: true });
             if (!saved) {
                 nodesRef.current = previousNodes;
                 connectionsRef.current = previousConnections;

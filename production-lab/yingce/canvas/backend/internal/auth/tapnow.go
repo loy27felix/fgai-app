@@ -110,7 +110,7 @@ type tapNowDetail struct {
 
 type tapNowRawNode struct {
 	ID        string          `json:"id"`
-	ShortID   int64           `json:"short_id"`
+	ShortID   json.RawMessage `json:"short_id"`
 	Type      string          `json:"type"`
 	Data      json.RawMessage `json:"data"`
 	DeletedAt string          `json:"deleted_at"`
