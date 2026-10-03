@@ -1,6 +1,7 @@
 import {randomUUID,timingSafeEqual} from 'node:crypto';
 import {priceQuote} from './fg-quotes.mjs';
 import {estimateCNY} from './fg-prices.mjs';
+const microCny=value=>Math.ceil(Number(value)*1e6-1e-8);
 
 export function admissionPrice(model,capability,payload,price,fx){
  if(!price?.enabled)return null;
@@ -61,10 +62,11 @@ export async function reserveBudget(pool,input){
   const budget=projectId?Number((await client.query('SELECT budget_cny FROM fg_story_projects WHERE native_project_id=$1 UNION ALL SELECT budget_cny FROM fg_adcraft_workspaces WHERE native_project_id=$1',[projectId])).rows[0]?.budget_cny||0):0;
   const snapshot=(await client.query('SELECT snapshot FROM fg_model_prices WHERE model=$1',[input.model])).rows[0]?.snapshot;
   const fx=Number((await client.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
-  const amount=admissionPrice(input.model,input.capability,input.payload||{},snapshot,fx);
+  const quoted=admissionPrice(input.model,input.capability,input.payload||{},snapshot,fx);
+  const amount=quoted===null?null:microCny(quoted)/1e6;
   if((limit>0||budget>0)&&(!(amount>=0)||amount===null))throw Error('本模型规格暂不能确定费用上限，限额项目中暂停提交，请联系超级管理员');
-  if(limit>0){const usage=await spendUsage(client,{userId:input.userId,since:monthStart()});if(usage.unknown||usage.used+amount>limit)throw Error('本月费用额度不足或有金额待确认，请联系超级管理员调整限额');}
-  if(budget>0){const usage=await spendUsage(client,{projectId});if(usage.unknown||usage.used+amount>budget)throw Error('项目制作预算不足或有金额待确认，请联系超级管理员调整预算');}
+  if(limit>0){const usage=await spendUsage(client,{userId:input.userId,since:monthStart()});if(usage.unknown||microCny(usage.used)+microCny(amount)>Math.round(limit*1e6))throw Error('本月费用额度不足或有金额待确认，请联系超级管理员调整限额');}
+  if(budget>0){const usage=await spendUsage(client,{projectId});if(usage.unknown||microCny(usage.used)+microCny(amount)>Math.round(budget*1e6))throw Error('项目制作预算不足或有金额待确认，请联系超级管理员调整预算');}
   const id=randomUUID();await client.query('INSERT INTO fg_budget_reservations(id,user_id,project_id,task_id,model,reserved_cny) VALUES($1,$2,$3,$4,$5,$6)',[id,input.userId,projectId,input.taskId||null,input.model,amount]);
   await client.query('COMMIT');return {id,reservedCny:amount};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
