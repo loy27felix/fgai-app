@@ -42,7 +42,7 @@ func TestFGSuperadminScopePreservesCanvasSaveStatement(t *testing.T) {
  db,err:=gorm.Open(sqlite.Open(filepath.Join(t.TempDir(),"admin.db")),&gorm.Config{})
  if err!=nil{t.Fatal(err)}
  sqlDB,_:=db.DB();defer sqlDB.Close();sqlDB.SetMaxOpenConns(1)
- if err=db.AutoMigrate(&model.Project{},&model.CanvasProject{},&model.Resource{});err!=nil{t.Fatal(err)}
+ if err=db.AutoMigrate(&model.Project{},&model.CanvasProject{},&model.Resource{},&model.CanvasSnapshot{},&model.CanvasSnapshotResource{},&model.CanvasShare{},&model.CanvasUnitLink{},&model.Task{});err!=nil{t.Fatal(err)}
  for _,sql:=range []string{
   "CREATE TABLE fg_accounts(user_id TEXT PRIMARY KEY,platform_role TEXT)",
   "INSERT INTO fg_accounts VALUES('admin','superadmin'),('alice','member'),('bob','member')",
@@ -72,6 +72,12 @@ func TestFGSuperadminScopePreservesCanvasSaveStatement(t *testing.T) {
  if err=db.Create(&resource).Error;err!=nil{t.Fatal(err)}
  if _,err=repo.ResourceForUser("admin",resource.ID);err!=nil{t.Fatal("admin media scope failed",err)}
  if _,err=repo.ResourceForUser("bob",resource.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("private media leaked",err)}
+ if !repo.FGCanManageOwner("admin","alice")||repo.FGCanManageOwner("bob","alice"){t.Fatal("owner management permissions incorrect")}
+ foreign:=model.CanvasProject{ID:"foreign-canvas",UserID:"alice",PayloadJSON:`{"nodes":[]}`}
+ if err=repo.UpsertCanvasProject(&foreign);err!=nil{t.Fatal(err)}
+ if err=repo.DeleteCanvasProject("bob",foreign.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("member deleted another owner's canvas",err)}
+ if err=repo.DeleteCanvasProject("admin",foreign.ID);err!=nil{t.Fatal("admin delete failed",err)}
+ if _,err=repo.CanvasProjectForUser("alice",foreign.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatal("admin delete did not remove canvas",err)}
 }
 
 func TestFGTeamCanvasIsolationAndAtomicMedia(t *testing.T) {

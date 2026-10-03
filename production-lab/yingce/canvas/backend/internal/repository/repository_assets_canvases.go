@@ -134,6 +134,12 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 
 func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if fgTeamEnabled(){
+			canvas,err:=New(tx).CanvasProjectForUser(userID,id)
+			if err!=nil{return err}
+			if !New(tx).FGCanManageOwner(userID,canvas.UserID){return gorm.ErrRecordNotFound}
+			userID=canvas.UserID
+		}
 		// Serialize deletion with saves before reading the history IDs to remove.
 		if err := tx.Model(&model.CanvasProject{}).Where("user_id = ? AND id = ?", userID, id).UpdateColumn("revision", gorm.Expr("revision")).Error; err != nil {
 			return err

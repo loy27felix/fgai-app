@@ -272,7 +272,7 @@ func (s *Service) upsertUserCanvasProjectWithHistory(userID string, raw json.Raw
 		if existing != nil {
 			existingBytes = int64(len([]byte(existing.PayloadJSON)))
 			project.CreatedAt = existing.CreatedAt
-			if existing.UserID != userID && existing.ProjectID != project.ProjectID {
+			if !s.repo.FGCanManageOwner(userID,existing.UserID) && existing.ProjectID != project.ProjectID {
 				return kernel.NewAppError(http.StatusForbidden, "仅画布创建者可调整所属项目")
 			}
 		}

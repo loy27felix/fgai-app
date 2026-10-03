@@ -46,6 +46,12 @@ func fgSuperadmin(db *gorm.DB,userID string) bool {
  return lookup.Table("fg_accounts").Where("user_id=? AND platform_role='superadmin'",userID).Count(&count).Error==nil&&count==1
 }
 
+// Destructive object operations remain owner-only for ordinary collaborators.
+// FG superadmins may manage another owner's object after normal access lookup.
+func (r *Repository) FGCanManageOwner(userID,ownerID string) bool {
+ return userID==ownerID || (fgTeamEnabled() && fgSuperadmin(r.db,userID))
+}
+
 // Called inside the existing canvas-save transaction after resource validation.
 // Only actor-owned or already shared media can be published, never arbitrary
 // private resource IDs supplied in a document.

@@ -93,7 +93,7 @@ describe("ProjectsPage batch selection", () => {
 
     fireEvent.change(screen.getByPlaceholderText("搜索工程"), { target: { value: "Summer" } });
 
-    expect(screen.getByText("Selection cleared because the project list changed.")).toBeTruthy();
+    expect(screen.getByText("工程列表已更新，已清除选中项。")).toBeTruthy();
     expect(screen.queryByText("已选 2 个工程")).toBeNull();
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(false);
   });

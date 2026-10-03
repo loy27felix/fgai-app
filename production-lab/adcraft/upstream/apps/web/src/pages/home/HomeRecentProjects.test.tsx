@@ -52,7 +52,7 @@ describe("HomeRecentProjects", () => {
     state.projects = []; state.loading = false;
     render(<HomeRecentProjects {...callbacks} />);
     expect(screen.getByText("暂无广告工程")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
     expect(callbacks.onCreateProject).toHaveBeenCalledOnce();
   });
 
