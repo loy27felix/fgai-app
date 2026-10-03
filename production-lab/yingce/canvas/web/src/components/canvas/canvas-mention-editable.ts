@@ -38,6 +38,14 @@ export function renderEditableContent(editor: HTMLElement, value: string, refere
     const parts = splitMentionText(value, references);
     const nodes = parts.map((part) => (part.type === "mention" ? createInlineMentionChip(part.reference, part.token) : document.createTextNode(part.text)));
     editor.replaceChildren(...nodes);
+    // Chromium needs a final line box to keep the caret after a trailing newline.
+    // This placeholder is not part of the prompt or its serialized offsets.
+    if (value.endsWith("\n")) {
+        const trailingLine = document.createElement("br");
+        trailingLine.dataset.mentionTrailingLine = "true";
+        trailingLine.setAttribute("aria-hidden", "true");
+        editor.appendChild(trailingLine);
+    }
 }
 
 export function findNextMentionIndex(value: string, tokens: string[], fromIndex: number) {
@@ -69,6 +77,7 @@ export function serializeNodeList(nodes: NodeListOf<ChildNode> | ChildNode[]) {
 export function serializeNode(node: ChildNode): string {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
     if (!(node instanceof HTMLElement)) return "";
+    if (node.dataset.mentionTrailingLine) return "";
     const token = node.dataset.mentionToken;
     if (token) return token;
     if (node.tagName === "BR") return "\n";
@@ -131,6 +140,7 @@ export function pointForOffset(root: Node, offset: number): { node: Node; offset
 export function plainTextLength(node: Node): number {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length || 0;
     if (node instanceof HTMLElement) {
+        if (node.dataset.mentionTrailingLine) return 0;
         const token = node.dataset.mentionToken;
         if (token) return token.length;
         if (node.tagName === "BR") return 1;
