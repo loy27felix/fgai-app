@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
 import {createHmac} from 'node:crypto';
-import {adcraftInternalRoute,advertisingAccess,budgetCharge,tokenContext} from './fg-adcraft.mjs';
+import {adcraftInternalRoute,adcraftUserRoute,advertisingAccess,budgetCharge,tokenContext} from './fg-adcraft.mjs';
 
 process.env.FG_ADCRAFT_SECRET='unit-test-only-secret';
 const workspace='00000000-0000-4000-8000-000000000001',actor='00000000-0000-4000-8000-000000000002';
@@ -73,4 +73,16 @@ test('budget uses fully matched receipts and releases only proven unsent work',(
  assert.equal(budgetCharge({reserved_cny:1,settled_cny:2,billable_count:2,matched_count:1}),2);
  assert.equal(budgetCharge({reserved_cny:20,billable_count:0,matched_count:0}),20);
  assert.equal(budgetCharge({reserved_cny:20,not_sent:true}),0);
+});
+test('FG project creation unwraps the native project envelope',async()=>{
+ const f=fixture(),saved=global.fetch;let inserted;
+ const query=f.pool.query;
+ f.pool.query=async(sql,args)=>{if(sql.startsWith('INSERT INTO fg_adcraft_workspaces'))inserted=args;return query(sql,args);};
+ global.fetch=async(url,options)=>{assert.equal(new URL(url).pathname,'/api/projects');assert.equal(JSON.parse(options.body).type,'advertising');return Response.json({code:0,data:{project:{id:'native-fg-project'}}});};
+ try{
+  const req=Readable.from([Buffer.from(JSON.stringify({name:'免费验收',brief:'仅验证广告工程创建',budgetCny:10}))]);req.method='POST';req.headers={};let response,status;
+  const res={writeHead(s){status=s;},end(text){response=JSON.parse(text);}};
+  assert.equal(await adcraftUserRoute(req,res,{pool:f.pool,actor:{id:actor,reviewer:false},cookie:'test-session',web:'http://mock-fg',publicOrigin:'https://fg.invalid',path:new URL('http://gateway/api/fg/advertising')}),true);
+  assert.equal(status,200,JSON.stringify(response));assert.equal(response.data.projectId,'native-fg-project');assert.equal(inserted[2],'native-fg-project');
+ }finally{global.fetch=saved;}
 });

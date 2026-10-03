@@ -1,3 +1,4 @@
+import { fgLabel } from '../../fg-scope';
 import {
   applyNodeChanges,
   Controls,
@@ -1489,7 +1490,7 @@ export function AgentCanvasPage() {
 
         {workflow.nodes.length === 0 ? (
           <div className="agent-canvas-empty">
-            <strong>Start with a node or talk to AdCraft Video Agent.</strong>
+            <strong>{fgLabel("Start with a node or talk to AdCraft Video Agent.")}</strong>
           </div>
         ) : null}
 

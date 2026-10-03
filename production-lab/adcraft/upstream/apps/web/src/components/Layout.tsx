@@ -53,7 +53,7 @@ export function Layout({ children, workflowControls }: LayoutProps) {
     : badgeState === "checking"
       ? "Checking"
       : badgeState === "online"
-        ? "API ready"
+        ? "制作服务已连接"
         : badgeState === "partial"
           ? `API config ${apiConfig?.configured.length ?? 0}/${(apiConfig?.configured.length ?? 0) + (apiConfig?.coreMissing.length ?? 0)}`
           : "API not configured";

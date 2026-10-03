@@ -1,3 +1,4 @@
+import { fgLabel } from '../../../fg-scope';
 import {
   Fragment,
   useEffect,
@@ -767,7 +768,7 @@ export function AgentCanvasChatPanel({
       <button
         className="agent-chat__collapsed-trigger"
         type="button"
-        aria-label="Open AdCraft Bot panel"
+        aria-label={fgLabel("Open AdCraft Bot panel")}
         title="Open AdCraft Bot"
         onClick={() => {
           setInternalCollapsed(false);
@@ -785,12 +786,12 @@ export function AgentCanvasChatPanel({
       ref={chatPanelRef}
       className={`agent-chat${chatPanelResizing ? " is-resizing" : ""}`}
       style={chatPanelWidth === null ? undefined : { width: `${chatPanelWidth}px` }}
-      aria-label="AdCraft Video Agent"
+      aria-label={fgLabel("AdCraft Video Agent")}
     >
       <button
         className="agent-chat__resize-handle"
         type="button"
-        aria-label="Resize AdCraft Video Agent panel"
+        aria-label={fgLabel("Resize AdCraft Video Agent panel")}
         aria-valuenow={chatPanelWidth ?? undefined}
         onPointerDown={beginChatPanelResize}
         onPointerMove={updateChatPanelResize}
@@ -801,19 +802,19 @@ export function AgentCanvasChatPanel({
       />
       <header className="agent-chat__header">
         <div className="agent-chat__identity">
-          <strong>AdCraft Video Agent</strong>
+          <strong>{fgLabel("AdCraft Video Agent")}</strong>
           <span>
             {chat.state.agentWorking
               ? chat.state.agentWaitingForModel
-                ? "Waiting for model"
-                : "Working"
+                ? fgLabel("Waiting for model")
+                : fgLabel("Working")
               : activeContinuation
                 ? continuationLabel(activeContinuation)
                 : currentTopic
                 ? `${currentTopic.title} · ${currentTopic.status.replaceAll("_", " ")}`
                 : chat.state.guidanceSession
                   ? chat.state.guidanceSession.status.replaceAll("_", " ")
-                : "Ready"}
+                : fgLabel("Ready")}
           </span>
         </div>
         <div className="agent-chat__header-actions">
@@ -825,7 +826,7 @@ export function AgentCanvasChatPanel({
           <button
             className="agent-chat__collapse"
             type="button"
-            aria-label="Collapse AdCraft Bot panel"
+            aria-label={fgLabel("Collapse AdCraft Bot panel")}
             title="Collapse AdCraft Bot"
             onClick={() => {
               setInternalCollapsed(true);
@@ -857,7 +858,7 @@ export function AgentCanvasChatPanel({
             {!chat.state.loading
               && !chat.state.items.length
               && !chat.state.currentSessionActions.length ? (
-              <div className="agent-chat__empty">Describe the ad you want to build.</div>
+              <div className="agent-chat__empty">{fgLabel("Describe the ad you want to build.")}</div>
             ) : null}
             {chat.state.continuations
               .filter((continuation) => ["queued", "leased", "retry_wait"].includes(continuation.delivery_status))
@@ -1135,8 +1136,8 @@ export function AgentCanvasChatPanel({
           value={draft}
           placeholder={conceptInteraction
             ? "Describe your own direction..."
-            : "Ask AdCraft Video Agent..."}
-          aria-label="Message AdCraft Video Agent"
+            : fgLabel("Ask AdCraft Video Agent...")}
+          aria-label={fgLabel("Message AdCraft Video Agent")}
           onChange={(event) => {
             const nextDraft = event.target.value;
             if (conceptInteraction && nextDraft.trim()) setSelectedConceptOptionId(null);
@@ -1260,8 +1261,8 @@ export function AgentWorkingRow({ waitingForModel = false }: { waitingForModel?:
       className="agent-chat__working"
       role="status"
       aria-label={waitingForModel
-        ? "AdCraft Video Agent is waiting for the model"
-        : "AdCraft Video Agent is working"}
+        ? fgLabel("AdCraft Video Agent is waiting for the model")
+        : fgLabel("AdCraft Video Agent is working")}
     >
       <InlineLoader
         variant="halo"
@@ -1289,7 +1290,7 @@ export function ContinuationActivityRow({
     <div className={`agent-chat__activity agent-chat__continuation is-${continuation.delivery_status}`}>
       <i aria-hidden="true" />
       <span>
-        AdCraft Video Agent is {continuationLabel(continuation).toLowerCase()}
+        {fgLabel("AdCraft Video Agent")} · {continuationLabel(continuation).toLowerCase()}
         {continuation.attempt_count > 0 ? ` · attempt ${continuation.attempt_count}` : ""}
       </span>
     </div>

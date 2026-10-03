@@ -1,3 +1,4 @@
+import { fgLabel } from '../../../fg-scope';
 import { useAgentCanvasExecutionSettings } from "./useAgentCanvasExecutionSettings.ts";
 import "./agent-canvas-settings.css";
 
@@ -14,7 +15,7 @@ export function AgentCanvasExecutionModeControl({
   return (
     <div className="agent-execution-mode">
       <div className="agent-execution-mode__control">
-        <span>Collaboration</span>
+        <span>{fgLabel("Collaboration")}</span>
         <button
           type="button"
           role="switch"

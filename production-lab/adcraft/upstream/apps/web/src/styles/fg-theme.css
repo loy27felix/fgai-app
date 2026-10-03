@@ -1,0 +1,60 @@
+:root[data-fg-theme] body {
+  background: radial-gradient(ellipse at 25% 0%, color-mix(in srgb, var(--brand) 8%, transparent), transparent 70%), var(--page-bg);
+}
+:root[data-fg-theme] .agent-canvas-page {
+  background: radial-gradient(ellipse at 25% 0%, color-mix(in srgb, var(--brand) 8%, transparent), transparent 65%), var(--page-bg);
+  color: var(--text-primary);
+  min-height: 360px;
+}
+:root[data-fg-theme] .agent-canvas-empty { color: var(--text-secondary); line-height: 1.8; }
+:root[data-fg-theme] .agent-chat {
+  --agent-chat-canvas: var(--page-bg);
+  --agent-chat-panel: var(--surface-card);
+  --agent-chat-raised: var(--surface-raised);
+  --agent-chat-selected: var(--brand-subtle);
+  --agent-chat-border: var(--border-default);
+  --agent-chat-strong-line: var(--border-strong);
+  --agent-chat-primary: var(--text-primary);
+  --agent-chat-secondary: var(--text-secondary);
+  --agent-chat-muted: var(--text-disabled);
+}
+:root[data-fg-theme='light'] {
+  color-scheme: light;
+  --page-bg: #f5f6fb;
+  --nav-bg: #ffffff;
+  --surface-card: #ffffff;
+  --surface-raised: #eef0f7;
+  --surface-input: #f7f8fc;
+  --surface-soft: #eff1f8;
+  --surface-contrast: #ffffff;
+  --text-primary: #252938;
+  --text-secondary: #626b80;
+  --text-disabled: #778198;
+  --text-inverse: #ffffff;
+  --border-default: #dde2ee;
+  --border-strong: #bac4d9;
+  --brand: #6265ce;
+  --brand-hover: #5358bf;
+  --brand-subtle: #eaebfb;
+  --focus-ring: #797ee0;
+  --shadow: 0 24px 70px rgb(44 55 88 / 12%);
+  --shadow-soft: 0 16px 36px rgb(44 55 88 / 8%);
+  --glass-button: #ffffff;
+  --glass-button-shadow: 0 10px 22px rgb(44 55 88 / 8%);
+}
+:root[data-fg-theme='light'] body {
+  background: radial-gradient(ellipse at 25% 0%, #e9ecfc, transparent 70%), var(--page-bg);
+}
+:root[data-fg-theme='light'] .topbar,
+:root[data-fg-theme='light'] .floating-rail--clear-glass,
+:root[data-fg-theme='light'] .clear-glass-control,
+:root[data-fg-theme='light'] .agent-canvas-toolbar,
+:root[data-fg-theme='light'] .agent-canvas-toolbar :is(button,span),
+:root[data-fg-theme='light'] .react-flow__controls-button {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+:root[data-fg-theme='light'] .agent-canvas-board { border-color: var(--border-default); }
+:root[data-fg-theme='light'] .agent-canvas-page { --agent-canvas-base-dot-color: rgb(97 109 150 / 12%); }
+:root[data-fg-theme='light'] .react-flow__controls-button svg { fill: currentColor; }

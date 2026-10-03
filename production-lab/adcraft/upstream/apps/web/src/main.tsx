@@ -4,6 +4,7 @@ import App from "./App";
 import { HealthProvider } from "./app/HealthProvider";
 import "./styles/base.css";
 import "./styles/theme.css";
+import "./styles/fg-theme.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
