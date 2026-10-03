@@ -607,7 +607,8 @@ function nullableNonNegativeNumber(value: unknown, path: string) {
 function nullableBrowserSafeUrl(value: unknown, path: string) {
   if (value === null) return null;
   const result = expectNonEmptyString(value, path);
-  if (!result.startsWith("/api/") && !result.startsWith("https://") && !result.startsWith("http://")) {
+  const isFGMediaPath = /^\/adcraft-api\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(?:api\/v[12]\/|media\/)/i.test(result);
+  if (!isFGMediaPath && !result.startsWith("/api/") && !result.startsWith("https://") && !result.startsWith("http://")) {
     fail(path, "expected browser-safe URL");
   }
   return result;

@@ -3864,6 +3864,20 @@ describe("Agent Canvas normalizers", () => {
     expect(() => normalizeProjectAssetSummaryV2({ ...validAsset, media_url: "/tmp/private.png" })).toThrowError(/media_url/i);
   });
 
+  it("accepts FG workspace media without allowing private or protocol-relative paths", () => {
+    const validAsset = validWorkflowPayload().assets[0];
+    const scoped = "/adcraft-api/14d736b1-3077-4f96-a0fb-dfa8272d4b5e/api/v2/assets/asset-1/content";
+    const assets = normalizeProjectAssetListResponseV2({
+      workflow_id: "workflow-1",
+      assets: [{ ...validAsset, preview_url: scoped, media_url: scoped }],
+    });
+    expect(assets.assets[0].preview_url).toBe(scoped);
+    expect(assets.assets[0].media_url).toBe(scoped);
+    for (const url of ["//example.com/image.png", "/adcraft-api/not-a-workspace/api/v2/assets/1/content", "/adcraft-api/14d736b1-3077-4f96-a0fb-dfa8272d4b5e/internal/database.sqlite3"]) {
+      expect(() => normalizeProjectAssetSummaryV2({ ...validAsset, media_url: url })).toThrowError(/media_url/i);
+    }
+  });
+
   it("accepts derived assets in workflow and project asset responses", () => {
     const derivedAsset = {
       ...validWorkflowPayload().assets[1],
