@@ -57,7 +57,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(assetMatch&&req.method==='POST'){
     try{
       const workspace=await advertisingAccess(pool,actor,assetMatch[1]);if(!workspace?.adcraft_workflow_id){json(res,'请先打开广告工程',409);return true;}
-      const input=await body(req,4096);if(!uuid.test(input.assetId||''))throw Error('请选择公司素材');
+      const input=await body(req,4096);if(!/^[a-zA-Z0-9_-]{1,64}$/.test(input.assetId||''))throw Error('请选择公司素材');
       const asset=(await pool.query("SELECT * FROM fg_company_assets WHERE id=$1 AND status='active'",[input.assetId])).rows[0];if(!asset)throw Error('素材已下架或不存在');
       const response=await fetch(new URL('/api/resources/'+asset.resource_id+'/file',web),{headers:{cookie},signal:AbortSignal.timeout(120000)});if(!response.ok)throw Error('公司素材读取失败');const blob=await response.blob();
       const form=new FormData();form.set('file',blob,asset.title+'.'+(asset.kind==='image'?'png':asset.kind==='video'?'mp4':'mp3'));form.set('metadata',JSON.stringify({title:asset.title,media_type:asset.kind,metadata:{fg_company_asset_id:asset.id,brand:asset.brand,style:asset.style}}));

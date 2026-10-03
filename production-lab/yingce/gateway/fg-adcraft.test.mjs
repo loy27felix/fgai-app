@@ -86,3 +86,24 @@ test('FG project creation unwraps the native project envelope',async()=>{
   assert.equal(status,200,JSON.stringify(response));assert.equal(response.data.projectId,'native-fg-project');assert.equal(inserted[2],'native-fg-project');
  }finally{global.fetch=saved;}
 });
+test('company asset imports accept native FG IDs and carry trusted project identity',async()=>{
+ const f=fixture(),saved=global.fetch,query=f.pool.query;const asset='fgAssetWithoutUuid_123';
+ f.pool.query=async(sql,args)=>{
+  if(sql.startsWith('SELECT w.*'))return {rows:[{id:workspace,owner_id:actor,adcraft_workflow_id:'native-workflow'}]};
+  if(sql.includes('FROM fg_company_assets'))return {rows:[{id:asset,resource_id:'nas-original',title:'公司角色',kind:'image'}]};
+  return query(sql,args);
+ };
+ let imported=false;
+ global.fetch=async(url,options)=>{
+  if(new URL(url).pathname==='/api/resources/nas-original/file')return new Response(new Uint8Array([1,2,3]),{headers:{'content-type':'image/png'}});
+  assert.match(String(url),new RegExp('/w/'+workspace+'/api/v2/workflows/native-workflow/assets/upload$'));
+  assert.equal(options.headers['x-fg-actor'],actor);assert.equal((await options.body.get('file').arrayBuffer()).byteLength,3);imported=true;
+  return Response.json({asset_id:'native-image'});
+ };
+ try{
+  const req=Readable.from([Buffer.from(JSON.stringify({assetId:asset}))]);req.method='POST';req.headers={'x-fg-actor':'forged'};let status,response;
+  const res={writeHead(s){status=s;},end(body){response=JSON.parse(body);}};
+  await adcraftUserRoute(req,res,{pool:f.pool,actor:{id:actor,reviewer:false},cookie:'test-session',web:'http://mock-fg',publicOrigin:'https://fg.invalid',path:new URL('http://gateway/api/fg/advertising/'+workspace+'/company-asset')});
+  assert.equal(status,200,JSON.stringify(response));assert.equal(imported,true);
+ }finally{global.fetch=saved;}
+});
