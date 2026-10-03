@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { buildLibTVImagePreviewUrl, buildLibTVVideoPreviewUrl, buildLibTVVideoSourceUrl, formatLibTVBatchTime, parseLibTVProjectUUID } from "@/lib/canvas/libtv-import";
 import { importLibTVCanvas, type LibTVImportResult } from "@/services/api/libtv";
+import type { CanvasImportProgress } from "@/services/canvas-import-storage";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
     viewport: ViewportTransform;
     viewportSize: { width: number; height: number };
     onClose: () => void;
-    onApply: (nodes: CanvasNodeData[], connections: CanvasConnection[]) => Promise<void>;
+    onApply: (nodes: CanvasNodeData[], connections: CanvasConnection[], onProgress?: (progress: CanvasImportProgress) => void) => Promise<void>;
 };
 
 function buildCanvasNodes(result: LibTVImportResult, viewport: ViewportTransform, viewportSize: { width: number; height: number }) {
@@ -49,12 +50,14 @@ export function LibTVImportDialog({ open, projectId, viewport, viewportSize, onC
     const { message } = App.useApp();
     const [value, setValue] = useState("");
     const [loading, setLoading] = useState(false);
+    const [progress, setProgress] = useState<CanvasImportProgress | null>(null);
     const [result, setResult] = useState<LibTVImportResult | null>(null);
     const uuid = useMemo(() => parseLibTVProjectUUID(value), [value]);
 
     const reset = () => {
         setValue("");
         setResult(null);
+        setProgress(null);
     };
 
     const close = () => {
@@ -87,7 +90,7 @@ export function LibTVImportDialog({ open, projectId, viewport, viewportSize, onC
         if (!result) return;
         setLoading(true);
         try {
-            await onApply(buildCanvasNodes(result, viewport, viewportSize), result.connections);
+            await onApply(buildCanvasNodes(result, viewport, viewportSize), result.connections, setProgress);
             reset();
             onClose();
             message.success(`已导入 ${result.importedNodeCount} 个节点和 ${result.importedConnectionCount} 条连接`);
@@ -95,6 +98,7 @@ export function LibTVImportDialog({ open, projectId, viewport, viewportSize, onC
             message.error(error instanceof Error ? error.message : "保存导入结果失败");
         } finally {
             setLoading(false);
+            setProgress(null);
         }
     };
 
@@ -166,7 +170,7 @@ export function LibTVImportDialog({ open, projectId, viewport, viewportSize, onC
                             </div>
                         ) : null}
                         <div className="flex flex-wrap gap-2">
-                            <Tag>等待确认导入</Tag>
+                            <Tag role="status">{loading && progress ? `正在归档到 NAS：${progress.completed}/${progress.total}${progress.waitSeconds ? ` · 等待 ${progress.waitSeconds} 秒继续` : ''}` : '等待确认导入'}</Tag>
                         </div>
                     </div>
                 ) : null}

@@ -26,7 +26,7 @@ import { refreshCanvasCharacterReferenceNodes } from "@/lib/canvas/canvas-charac
 import { useAssetStore } from "@/stores/use-asset-store";
 import { flushCanvasStorePersistence } from "@/stores/canvas/use-canvas-store";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
-import { persistImportedCanvasMedia } from "@/services/canvas-import-storage";
+import { persistImportedCanvasMedia, type CanvasImportProgress } from "@/services/canvas-import-storage";
 import { useCanvasThemeStore, useCanvasThemeScope } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { App, Button } from "antd";
@@ -437,8 +437,8 @@ function InfiniteCanvasPage() {
     }, [forceSaveCanvasProject, modal]);
 
     const applyLibTVImport = useCallback(
-        async (importedNodes: CanvasNodeData[], importedConnections: CanvasConnection[]) => {
-            const archivedNodes = await persistImportedCanvasMedia(importedNodes);
+        async (importedNodes: CanvasNodeData[], importedConnections: CanvasConnection[], onProgress?: (progress: CanvasImportProgress) => void) => {
+            const archivedNodes = await persistImportedCanvasMedia(importedNodes, undefined, { onProgress });
             const previousNodes = nodesRef.current;
             const previousConnections = connectionsRef.current;
             const nextNodes = [...nodesRef.current, ...archivedNodes];
@@ -459,8 +459,8 @@ function InfiniteCanvasPage() {
         [saveCanvasProject, setConnections, setNodes],
     );
     const applyTapNowImport = useCallback(
-        async (importedNodes: CanvasNodeData[], importedConnections: CanvasConnection[]) => {
-            const archivedNodes = await persistImportedCanvasMedia(importedNodes);
+        async (importedNodes: CanvasNodeData[], importedConnections: CanvasConnection[], onProgress?: (progress: CanvasImportProgress) => void) => {
+            const archivedNodes = await persistImportedCanvasMedia(importedNodes, undefined, { onProgress });
             const previousNodes = nodesRef.current;
             const previousConnections = connectionsRef.current;
             const nextNodes = [...nodesRef.current, ...archivedNodes];

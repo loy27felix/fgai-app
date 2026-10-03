@@ -2,9 +2,10 @@ import { expect, test } from 'bun:test';
 import { persistImportedCanvasMedia } from '../src/services/canvas-import-storage';
 import type { RemoteResource } from '../src/services/api/resources';
 import { CanvasNodeType, type CanvasNodeData } from '../src/types/canvas';
+import { ApiError } from '../src/services/api/request';
 
 function node(id: string, type: CanvasNodeType, content: string): CanvasNodeData {
-    return { id, type, title: id, x: 0, y: 0, width: 100, height: 100, metadata: { content } };
+    return { id, type, title: id, position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { content } };
 }
 
 function ready(id = 'nas-file'): RemoteResource {
@@ -43,4 +44,27 @@ test('failed or pending archive aborts before imported nodes are submitted and k
     await expect(persistImportedCanvasMedia(source, async () => ({ ...ready(), status: 'pending' }))).rejects.toThrow('未完成服务器保存');
     expect(source[0].metadata?.content).toBe('https://files.tapnow.media/a.mp4');
     expect(source[0].metadata?.storageKey).toBeUndefined();
+});
+
+test('upload throttling respects Retry-After and resumes the same idempotent media request', async () => {
+    const delays: number[] = [];
+    const keys: Array<string | undefined> = [];
+    let calls = 0;
+    const imported = await persistImportedCanvasMedia([node('image', CanvasNodeType.Image, 'https://files.tapnow.media/a.png')], async (_url, _kind, meta) => {
+        keys.push(meta?.idempotencyKey);
+        if (++calls === 1) throw new ApiError('限流', { status: 429, reason: 'rate_limited', retryAfterMs: 15000 });
+        return ready();
+    }, { wait: async milliseconds => { delays.push(milliseconds); } });
+    expect(delays).toEqual([15100]);
+    expect(keys[1]).toBe(keys[0]);
+    expect(imported[0].metadata?.storageKey).toBe('resource:nas-file');
+});
+
+test('persistent throttling stops after a bounded retry budget', async () => {
+    let calls = 0;
+    await expect(persistImportedCanvasMedia([node('image', CanvasNodeType.Image, 'https://files.tapnow.media/a.png')], async () => {
+        calls++;
+        throw new ApiError('限流', { status: 429, reason: 'rate_limited', retryAfterMs: 15000 });
+    }, { wait: async () => {} })).rejects.toThrow('导入未提交');
+    expect(calls).toBe(3);
 });
