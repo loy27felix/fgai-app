@@ -327,8 +327,9 @@ func arkVideosAdapter() Adapter {
 		}
 		body := map[string]any{"model": r.Model, "content": content, "ratio": defaultValue(r.AspectRatio, "16:9"), "resolution": defaultValue(r.Resolution, "720p"), "duration": defaultInt(r.Duration, 5)}
 		if seed25 { for _,image:=range r.Images { if image.Role=="first_frame"||image.Role=="last_frame" {body["ratio"]="adaptive";break} } }
-		if r.GenerateAudio {
-			body["generate_audio"] = true
+		// Explicit false must reach Seedance; omission would enable its default audio.
+		if r.GenerateAudio || strings.Contains(strings.ToLower(r.Model), "seedance-2") || strings.Contains(strings.ToLower(r.Model), "seedance-1-5") {
+			body["generate_audio"] = r.GenerateAudio
 		}
 		if r.Watermark {
 			body["watermark"] = true

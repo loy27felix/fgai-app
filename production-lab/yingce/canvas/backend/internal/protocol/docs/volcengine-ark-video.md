@@ -27,7 +27,7 @@ Content-Type: application/json
 - 视频：`{"type":"video_url","video_url":{"url":"..."},"role":"reference_video"}`
 - 音频：`{"type":"audio_url","audio_url":{"url":"..."},"role":"reference_audio"}`
 
-单次最多发送 9 张图片、3 个视频和 3 个音频。参考素材可以组合使用，但上游不支持纯音频或“文本 + 音频”；使用音频时必须同时提供至少一张参考图或一个参考视频。`generate_audio` 和 `watermark` 只在 true 时发送。
+单次最多发送 9 张图片、3 个视频和 3 个音频。Seedance 2.0 系列使用音频时必须同时提供至少一张参考图或一个参考视频；Seedance 2.5 支持单独参考音频。Seedance 2.x / 1.5 的 `generate_audio` 明确发送 true 或 false，避免关闭声音时因省略参数而使用上游默认值；`watermark` 只在 true 时发送。
 
 ## 创建任务示例
 

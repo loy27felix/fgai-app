@@ -405,7 +405,7 @@ export function AgentChatComposer({
                             value={prompt}
                             references={composerReferences}
                             includeAssetLibrary={includeAssetLibrary}
-                            sendOnEnter={false}
+                            sendOnEnter={canSubmit ? "both" : false}
                             disabled={disabled}
                             onChange={handlePromptChange}
                             onSubmit={() => {
@@ -496,7 +496,7 @@ export function AgentChatComposer({
                             type="button"
                             disabled={!canSubmit}
                             aria-label={sending ? "发送中" : canStop ? "插话" : "发送"}
-                            title={canStop ? "插话：Agent 下一次开口时看到它" : "回车换行；点击发送或 ⌘/Ctrl+Enter 发送"}
+                            title={canStop ? "插话：Agent 下一次开口时看到它" : "Enter 或 ⌘/Ctrl+Enter 发送；Shift+Enter 换行"}
                             onClick={() => onSubmit()}
                             whileHover={canSubmit && !reducedMotion ? { scale: 1.06, y: -1 } : undefined}
                             whileTap={canSubmit && !reducedMotion ? { scale: 0.9, y: 1 } : undefined}

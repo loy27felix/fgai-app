@@ -21,6 +21,7 @@ import (
 )
 
 func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRequest {
+	generateAudioDefault := input.Mode == "video" && input.VideoCapability != nil && input.VideoCapability.GenerateAudio.Supported && input.VideoCapability.GenerateAudio.Default
 	resolution := strings.TrimSpace(input.Config.VQuality)
 	if input.Mode == "video" {
 		if declared := videoResolutionNameRequest(input.VideoCapability, resolution); declared != "" {
@@ -42,7 +43,7 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		AspectRatio:   aspectRatio,
 		Resolution:    resolution,
 		Quality:       input.Config.Quality,
-		GenerateAudio: parseBool(input.Config.VideoGenerateAudio, false),
+		GenerateAudio: parseBool(input.Config.VideoGenerateAudio, generateAudioDefault),
 		Watermark:     parseBool(input.Config.VideoWatermark, false),
 		Operation:     firstNonEmpty(metadataString(input.Metadata, "videoEditOperation"), metadataString(input.Metadata, "videoOperation")),
 		Extra: map[string]any{
