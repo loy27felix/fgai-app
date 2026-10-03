@@ -87,11 +87,12 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
         LEFT JOIN projects p ON p.id=t.project_id
         WHERE l.billable=true AND l.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%')
       ) SELECT c.*,p.name project_name,u.display_name user_name,CASE WHEN aw.id IS NOT NULL THEN NULL ELSE COALESCE(NULLIF(c.fg_group_name,''),s.group_name) END group_name,s.tier,COALESCE(s.budget_cny,aw.budget_cny) budget_cny,
-        f.settled_cny,f.settled_reference_id,f.match_method
+        COALESCE(f.settled_cny,CASE WHEN rd.call_id IS NOT NULL THEN 0 END) settled_cny,f.settled_reference_id,COALESCE(f.match_method,CASE WHEN rd.call_id IS NOT NULL THEN 'manual_no_charge' END) match_method,rd.note no_charge_note
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
         LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id
         LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,string_agg(m.method,', ') match_method FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
+        LEFT JOIN fg_request_decisions rd ON rd.call_id=c.id
         WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1)))
         ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
       const settings=(await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0];

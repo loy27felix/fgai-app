@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"infinite-canvas/backend/internal/model"
@@ -193,6 +194,11 @@ func providerTextTaskResult(result providerTextResult) map[string]interface{} {
 }
 
 func applyTextOutputLimit(body map[string]interface{}, limit int, field string) {
+	// A finite provider-enforced ceiling lets FG reserve a bounded amount before
+	// sending a request. Preserve explicit limits and standalone upstream behavior.
+	if limit <= 0 && os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" {
+		limit = 16384
+	}
 	if limit > 0 {
 		body[field] = limit
 	}

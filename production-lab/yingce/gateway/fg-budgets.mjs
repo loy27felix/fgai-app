@@ -38,9 +38,10 @@ export async function spendUsage(pool,{userId,projectId,since}={}){
  let actual=0,pending=0,unknown=0;
  const reservations=(await pool.query(`SELECT r.*,c.id call_id,c.error_code FROM fg_budget_reservations r LEFT JOIN api_call_logs c ON c.fg_budget_reservation_id=r.id::text AND c.billable WHERE ($1::text IS NULL OR r.user_id=$1) AND($2::text IS NULL OR r.project_id=$2) AND($3::timestamptz IS NULL OR r.created_at>=$3)`,[userId||null,projectId||null,since||null])).rows;
  const byId=new Map(reservations.map(r=>[r.id,r]));
+ const confirmedFree=new Set((await pool.query('SELECT call_id FROM fg_request_decisions')).rows.map(r=>r.call_id));
  for(const c of calls){
   if(Number(c.matches)>0){actual+=Number(c.actual_cny);continue;}
-  if(c.error_code==='request_not_sent')continue;
+  if(c.error_code==='request_not_sent'||confirmedFree.has(c.id))continue;
   const reserved=byId.get(c.fg_budget_reservation_id)?.reserved_cny;
   const amount=reserved===null||reserved===undefined?estimateCNY(c,prices.get(c.model),fx):Number(reserved);
    if(amount!==null&&Number.isFinite(amount))pending+=amount;else unknown++;

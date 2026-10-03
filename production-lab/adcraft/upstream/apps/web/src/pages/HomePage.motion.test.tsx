@@ -89,7 +89,7 @@ describe("HomePage motion", () => {
 
     const title = screen.getByRole("heading", {
       level: 1,
-      name: "One Sentence Becomes an Ad film.",
+      name: "从一句创意，到一支广告片。",
     });
     const lines = Array.from(
       title.querySelectorAll<HTMLElement>(".home-product-hero__title-line"),
@@ -100,7 +100,7 @@ describe("HomePage motion", () => {
       "BECOMES AN",
     ]);
 
-    expect(lines[2]?.getAttribute("data-accent-text")).toBe("Ad film.");
+    expect(lines[2]?.getAttribute("data-accent-text")).toBe("广告片。");
     expect(lines[2]?.getAttribute("data-home-hero-accent-reveal")).toBe("diagonal");
     expect(lines[2]?.querySelector("svg")).toBeNull();
     expect(title.querySelectorAll(".home-product-hero__character")).toHaveLength(0);
@@ -133,7 +133,7 @@ describe("HomePage motion", () => {
     const hero = screen
       .getByRole("heading", {
         level: 1,
-        name: "One Sentence Becomes an Ad film.",
+        name: "从一句创意，到一支广告片。",
       })
       .closest("section");
     expect(hero?.classList.contains("is-motion-ready")).toBe(false);
@@ -152,10 +152,10 @@ describe("HomePage motion", () => {
     render(<HomePage navigate={vi.fn()} />);
 
     const recentSection = screen
-      .getByRole("heading", { level: 2, name: "Recent Projects" })
+      .getByRole("heading", { level: 2, name: "最近的广告工程" })
       .closest("section");
     const discoverSection = screen
-      .getByRole("heading", { level: 2, name: "Discover" })
+      .getByRole("heading", { level: 2, name: "创意灵感" })
       .closest("section");
 
     expect(recentSection).not.toBeNull();
@@ -195,7 +195,7 @@ describe("HomePage motion", () => {
     render(<HomePage navigate={vi.fn()} />);
 
     const discoverSection = screen
-      .getByRole("heading", { level: 2, name: "Discover" })
+      .getByRole("heading", { level: 2, name: "创意灵感" })
       .closest("section");
     const discoverObserver = IntersectionObserverMock.instances.find(
       (observer) => observer.observedTarget === discoverSection,
@@ -239,10 +239,10 @@ describe("HomePage motion", () => {
     render(<HomePage navigate={vi.fn()} />);
 
     const recentSection = screen
-      .getByRole("heading", { level: 2, name: "Recent Projects" })
+      .getByRole("heading", { level: 2, name: "最近的广告工程" })
       .closest("section");
     const discoverSection = screen
-      .getByRole("heading", { level: 2, name: "Discover" })
+      .getByRole("heading", { level: 2, name: "创意灵感" })
       .closest("section");
 
     expect(recentSection?.getAttribute("data-reveal-state")).toBe("visible");

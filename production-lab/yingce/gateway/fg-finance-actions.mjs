@@ -4,7 +4,7 @@ async function body(req){let chunks=[],n=0;for await(const c of req){n+=c.length
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':String(data)}));}
 export async function financeActions(req,res,{pool,actor,path}){
  const route=path.pathname;
- if(!['/api/fg/budgets/users','/api/fg/budgets/project','/api/fg/finance/decisions','/api/fg/finance/audit'].includes(route))return false;
+ if(!['/api/fg/budgets/users','/api/fg/budgets/project','/api/fg/finance/decisions','/api/fg/finance/request-decisions','/api/fg/finance/audit'].includes(route))return false;
  try{
   if(route==='/api/fg/budgets/users'&&req.method==='GET'){
    const users=(await pool.query(`SELECT u.id,u.display_name name,a.email,COALESCE(b.monthly_cny,0) monthly_cny FROM users u LEFT JOIN fg_accounts a ON a.user_id=u.id LEFT JOIN fg_user_budgets b ON b.user_id=u.id WHERE u.status='active' AND($2 OR u.id=$1) ORDER BY u.display_name`,[actor.id,actor.reviewer])).rows;
@@ -30,6 +30,17 @@ export async function financeActions(req,res,{pool,actor,path}){
     const before=(await client.query('SELECT budget_cny FROM fg_story_projects WHERE native_project_id=$1',[input.projectId])).rows[0];if(!before)throw Error('请选择故事项目');
     await client.query('UPDATE fg_story_projects SET budget_cny=$2 WHERE native_project_id=$1',[input.projectId,limit]);
     await client.query('INSERT INTO fg_finance_audit(id,actor_id,action,target,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor.id,'project_budget',input.projectId,before,{budgetCny:limit}]);
+   }else if(route==='/api/fg/finance/request-decisions'&&req.method==='POST'){
+    const note=String(input.note||'').trim();if(!['no_charge','reset'].includes(input.classification)||note.length<8||note.length>2000)throw Error('请填写至少 8 字的费用核查依据');
+    const call=(await client.query("SELECT id,user_id FROM api_call_logs WHERE id=$1 AND billable AND channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%') FOR UPDATE",[input.callId])).rows[0];if(!call)throw Error('请选择有效制作请求');
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-user:'||$1))",[call.user_id]);
+    const before=(await client.query('SELECT * FROM fg_request_decisions WHERE call_id=$1',[call.id])).rows[0]||null;
+    if(input.classification==='reset')await client.query('DELETE FROM fg_request_decisions WHERE call_id=$1',[call.id]);
+    else{
+     if((await client.query('SELECT 1 FROM fg_fee_matches WHERE call_id=$1',[call.id])).rowCount)throw Error('请求已有实际账单，请核对账单归属，不能改成未收费');
+     await client.query('INSERT INTO fg_request_decisions(call_id,note,actor_id) VALUES($1,$2,$3) ON CONFLICT(call_id) DO UPDATE SET note=$2,actor_id=$3,updated_at=now()',[call.id,note,actor.id]);
+    }
+    await client.query('INSERT INTO fg_finance_audit(id,actor_id,action,target,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor.id,'request_'+input.classification,call.id,before,{classification:input.classification,note}]);
    }else if(route==='/api/fg/finance/decisions'&&req.method==='POST'){
     const refs=input.referenceIds,kind=input.classification,note=String(input.note||'').trim();
     if(!Array.isArray(refs)||!refs.length||refs.length>500||!['matched','external','ignored','reset'].includes(kind)||note.length<8||note.length>2000)throw Error('请填写至少 8 字的处理依据，并选择有效流水');

@@ -63,11 +63,11 @@ describe("ProjectsPage project rename", () => {
     expect(toolbar).toBeTruthy();
     expect(document.querySelector(".page-toolbar")).toBeNull();
     expect(toolbar?.querySelectorAll(".clear-glass-control")).toHaveLength(4);
-    expect(screen.getByRole("button", { name: "Select" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "选择" })).toBeTruthy();
     expect(toolbar?.querySelector(".toolbar-new-project")).toBeNull();
-    expect(screen.getByPlaceholderText("Search projects").classList.contains("is-active")).toBe(true);
+    expect(screen.getByPlaceholderText("搜索工程").classList.contains("is-active")).toBe(true);
 
-    const createProjectCard = screen.getByRole("button", { name: "New Project" });
+    const createProjectCard = screen.getByRole("button", { name: "新建工程" });
     expect(createProjectCard.classList.contains("create-card--new-project")).toBe(true);
     expect(createProjectCard.classList.contains("clear-glass-control")).toBe(true);
     expect(screen.getByText("7/24/2026")).toBeTruthy();
@@ -122,8 +122,8 @@ describe("ProjectsPage project rename", () => {
     fireEvent.click(trigger);
 
     expect(promptSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog", { name: "Rename project" })).toBeTruthy();
-    expect((screen.getByRole("textbox", { name: "Project name" }) as HTMLInputElement).value).toBe("Summer launch");
+    expect(screen.getByRole("dialog", { name: "重命名工程" })).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "工程名称" }) as HTMLInputElement).value).toBe("Summer launch");
 
     const cancel = screen.getByRole("button", { name: "Cancel rename" });
     const confirm = screen.getByRole("button", { name: "Confirm rename" });
@@ -136,7 +136,7 @@ describe("ProjectsPage project rename", () => {
     expect(confirm.hasAttribute("disabled")).toBe(true);
 
     fireEvent.click(cancel);
-    expect(screen.queryByRole("dialog", { name: "Rename project" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "重命名工程" })).toBeNull();
     expect(actionList.getAttribute("aria-hidden")).toBe("true");
     expect(hiddenRename.tabIndex).toBe(-1);
   });
@@ -145,7 +145,7 @@ describe("ProjectsPage project rename", () => {
     render(<ProjectsPage navigate={vi.fn()} />);
     openRenameDialog();
 
-    const input = screen.getByRole("textbox", { name: "Project name" });
+    const input = screen.getByRole("textbox", { name: "工程名称" });
     fireEvent.change(input, { target: { value: "  Autumn campaign  " } });
     fireEvent.submit(input.closest("form") as HTMLFormElement);
 
@@ -153,7 +153,7 @@ describe("ProjectsPage project rename", () => {
       expect(fixture.renameProject).toHaveBeenCalledWith("project-1", "Autumn campaign");
     });
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Rename project" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "重命名工程" })).toBeNull();
     });
   });
 
@@ -161,9 +161,9 @@ describe("ProjectsPage project rename", () => {
     render(<ProjectsPage navigate={vi.fn()} />);
     const trigger = openRenameDialog();
 
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Project name" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "工程名称" }), { key: "Escape" });
 
-    expect(screen.queryByRole("dialog", { name: "Rename project" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "重命名工程" })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(fixture.renameProject).not.toHaveBeenCalled();
@@ -173,7 +173,7 @@ describe("ProjectsPage project rename", () => {
     render(<ProjectsPage navigate={vi.fn()} />);
     openRenameDialog();
 
-    const input = screen.getByRole("textbox", { name: "Project name" });
+    const input = screen.getByRole("textbox", { name: "工程名称" });
     fireEvent.change(input, { target: { value: "Autumn campaign" } });
     const confirm = screen.getByRole("button", { name: "Confirm rename" });
 
@@ -194,7 +194,7 @@ describe("ProjectsPage project rename", () => {
     render(<ProjectsPage navigate={vi.fn()} />);
     openRenameDialog();
 
-    const input = screen.getByRole("textbox", { name: "Project name" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "工程名称" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Autumn campaign" } });
     fireEvent.submit(input.closest("form") as HTMLFormElement);
 
@@ -204,7 +204,7 @@ describe("ProjectsPage project rename", () => {
 
     resolveRename?.(true);
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Rename project" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "重命名工程" })).toBeNull();
     });
   });
 
@@ -213,14 +213,14 @@ describe("ProjectsPage project rename", () => {
     render(<ProjectsPage navigate={vi.fn()} />);
     openRenameDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "Rename project" });
+    const dialog = screen.getByRole("dialog", { name: "重命名工程" });
     const backdrop = dialog.parentElement as HTMLDivElement;
     expect(backdrop.parentElement).toBe(document.body);
     expect(document.body.style.overflow).toBe("hidden");
 
     fireEvent.pointerDown(backdrop);
 
-    expect(screen.queryByRole("dialog", { name: "Rename project" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "重命名工程" })).toBeNull();
     expect(document.body.style.overflow).toBe("auto");
   });
 
@@ -229,12 +229,12 @@ describe("ProjectsPage project rename", () => {
     render(<ProjectsPage navigate={vi.fn()} />);
     openRenameDialog();
 
-    const input = screen.getByRole("textbox", { name: "Project name" });
+    const input = screen.getByRole("textbox", { name: "工程名称" });
     fireEvent.change(input, { target: { value: "Campaign retry" } });
     fireEvent.submit(input.closest("form") as HTMLFormElement);
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Rename project" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "重命名工程" })).toBeTruthy();
     expect((input as HTMLInputElement).value).toBe("Campaign retry");
   });
 });

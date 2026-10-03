@@ -16,9 +16,9 @@ const CanonicalAssetViewer = lazy(() => import("../features/assets/CanonicalAsse
 })));
 
 const ASSET_CATEGORIES: Array<{ id: V2AssetLibraryCategory; label: string }> = [
-  { id: "characters", label: "Characters" },
-  { id: "scenes", label: "Scenes" },
-  { id: "props", label: "Props" },
+  { id: "characters", label: "角色" },
+  { id: "scenes", label: "场景" },
+  { id: "props", label: "道具" },
 ];
 
 export function AssetsPage() {
@@ -89,14 +89,14 @@ export function AssetsPage() {
 
   return (
     <section ref={assetLibraryRef} className="v2-asset-library-page">
-      <PageHeader title="Assets" subtitle="Reusable visual building blocks for every workflow." />
+      <PageHeader title="广告素材" subtitle="可重复使用的角色、场景和道具。公司公共素材从上方入口引用。" />
       <div className="v2-asset-library-controls">
         <div className="v2-asset-library-tabs" role="tablist" aria-label="Asset library scope">
-          <button className={scope === "my" ? "is-active" : ""} type="button" role="tab" aria-selected={scope === "my"} onClick={() => changeScope("my")}>My Assets</button>
-          <button className={scope === "recommended" ? "is-active" : ""} type="button" role="tab" aria-selected={scope === "recommended"} onClick={() => changeScope("recommended")}>Recommended Assets</button>
+          <button className={scope === "my" ? "is-active" : ""} type="button" role="tab" aria-selected={scope === "my"} onClick={() => changeScope("my")}>我的素材</button>
+          <button className={scope === "recommended" ? "is-active" : ""} type="button" role="tab" aria-selected={scope === "recommended"} onClick={() => changeScope("recommended")}>推荐素材</button>
         </div>
         <div className="v2-asset-library-actions">
-          <input aria-label="Search assets" value={search} placeholder="Search assets" onChange={(event) => setSearch(event.currentTarget.value)} />
+          <input aria-label="搜索素材" value={search} placeholder="搜索素材" onChange={(event) => setSearch(event.currentTarget.value)} />
         </div>
       </div>
       <div className="v2-asset-library-categories" role="tablist" aria-label="Asset category">
@@ -121,8 +121,8 @@ export function AssetsPage() {
           ) : (
             <>
               {library.error ? <p className="asset-library-status is-error">{library.error}</p> : null}
-              {library.loading ? <p className="asset-library-status">Loading assets...</p> : null}
-              {!library.loading && !library.error && !displayedAssets.length ? <p className="asset-library-empty">No assets found.</p> : null}
+              {library.loading ? <p className="asset-library-status">加载素材中…</p> : null}
+              {!library.loading && !library.error && !displayedAssets.length ? <p className="asset-library-empty">暂无素材</p> : null}
               {showRecommendedSceneHologram ? (
                 <RecommendedSceneHologram
                   assets={displayedAssets}

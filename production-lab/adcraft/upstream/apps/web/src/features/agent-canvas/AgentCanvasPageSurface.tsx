@@ -1229,12 +1229,12 @@ export function AgentCanvasPage() {
   }, [clearEdgeSelection, setSelectedNodeId]);
 
   if (!session.state.workspaceHydrated) {
-    return <div className="agent-canvas-state">Opening project...</div>;
+    return <div className="agent-canvas-state">打开广告工程中…</div>;
   }
   if (!workflow) {
     return (
       <div className="agent-canvas-state agent-canvas-state--error">
-        <strong>Project canvas unavailable</strong>
+        <strong>广告画布暂不可用</strong>
         <span>{session.state.workspaceRestoreError || "Open a project or create a new one."}</span>
       </div>
     );

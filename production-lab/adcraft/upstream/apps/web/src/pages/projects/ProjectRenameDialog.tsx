@@ -94,10 +94,10 @@ export function ProjectRenameDialog({ project, onClose, onRename }: ProjectRenam
         aria-busy={isSubmitting}
       >
         <header className="project-rename-dialog__header">
-          <h2 id={titleId}>Rename project</h2>
+          <h2 id={titleId}>重命名工程</h2>
         </header>
         <form className="project-rename-form" onSubmit={submitRename}>
-          <label htmlFor={inputId}>Project name</label>
+          <label htmlFor={inputId}>工程名称</label>
           <input
             id={inputId}
             ref={inputRef}

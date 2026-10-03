@@ -31,7 +31,7 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
       key: project.project_id,
       projectId: project.project_id,
       name: project.name,
-      meta: `Deleted project · ${new Date(project.updated_at).toLocaleDateString()}`,
+      meta: `已移入回收站 · ${new Date(project.updated_at).toLocaleDateString()}`,
     })),
     [trashedProjects],
   );
@@ -119,18 +119,18 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
 
   return (
     <section className="content-wrap">
-      <PageHeader title="Trash" subtitle="Trashed projects can be restored here." />
+      <PageHeader title="回收站" subtitle="在这里恢复已移入回收站的广告工程。" />
       <div className="projects-toolbar">
         <div className="toolbar-row">
           <button className="filter-btn clear-glass-control is-active" type="button" onClick={() => navigate?.("projects")}>
-            Projects
+            广告工程
           </button>
         </div>
         <div className="project-toolbar-actions">
-          <input className="search-box clear-glass-control is-active" placeholder="Search deleted items" value={search} onChange={(event) => changeSearch(event.target.value)} />
+          <input className="search-box clear-glass-control is-active" placeholder="搜索已删除工程" value={search} onChange={(event) => changeSearch(event.target.value)} />
           {!selectionMode ? (
             <button className="filter-btn clear-glass-control" type="button" onClick={enterSelectionMode}>
-              Select
+              选择
             </button>
           ) : (
             <>
@@ -142,10 +142,10 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
                 disabled={selectionBusy || list.length === 0}
                 onClick={toggleVisibleSelection}
               >
-                {allVisibleSelected ? "Clear selection" : "Select all"}
+                {allVisibleSelected ? "取消全选" : "全选"}
               </button>
               <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy} onClick={exitSelectionMode}>
-                Done
+                完成
               </button>
             </>
           )}
@@ -154,12 +154,12 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
       {selectionMode ? (
         <div className="project-selection-toolbar" aria-busy={selectionBusy}>
           <div className="project-selection-summary">
-            <strong>{`${selectedProjects.length} selected`}</strong>
+            <strong>{`已选 ${selectedProjects.length} 个工程`}</strong>
             {selectionError ? <span className="project-selection-error" role="alert">{selectionError}</span> : null}
           </div>
           <div className="project-selection-actions">
             <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void runBatchRestore()}>
-              {selectionBusy ? "Restoring…" : "Restore selected"}
+              {selectionBusy ? "恢复中…" : "恢复选中工程"}
             </button>
           </div>
         </div>
@@ -211,13 +211,13 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
                 <div className="trash-actions">
                   <button
                     className="small-action"
-                    title="Restore project"
+                    title="恢复工程"
                     onClick={(event) => {
                       event.stopPropagation();
                       void restoreTrashedProject(item.projectId);
                     }}
                   >
-                    Restore
+                    恢复
                   </button>
                 </div>
               )}
@@ -225,7 +225,7 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
           ))}
         </div>
       ) : (
-        <EmptyState text="Trash is empty" />
+        <EmptyState text="回收站为空" />
       )}
     </section>
   );

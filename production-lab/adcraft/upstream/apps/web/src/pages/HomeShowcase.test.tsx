@@ -10,16 +10,16 @@ describe("HomeShowcase", () => {
   it("renders the Home composition without functional controls in static mode", () => {
     render(<HomeShowcase mode="static" />);
 
-    expect(screen.getByRole("heading", { level: 1, name: "One Sentence Becomes an Ad film." })).toBeTruthy();
-    expect(screen.getByTestId("home-hero-accent").textContent).toBe("Ad film.");
+    expect(screen.getByRole("heading", { level: 1, name: "从一句创意，到一支广告片。" })).toBeTruthy();
+    expect(screen.getByTestId("home-hero-accent").textContent).toBe("广告片。");
     expect(screen.getByTestId("home-hero-accent").querySelector("svg")).toBeNull();
     expect(screen.queryByRole("button", { name: /create your project/i })).toBeNull();
-    expect(screen.queryByText("Preview Case")).toBeNull();
-    expect(screen.queryByText("All")).toBeNull();
+    expect(screen.queryByText("案例预览")).toBeNull();
+    expect(screen.queryByText("全部")).toBeNull();
     expect(screen.queryByText("Pick up the latest creative thread.")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Recent Projects" }).parentElement?.querySelector("p")).toBeNull();
+    expect(screen.getByRole("heading", { name: "最近的广告工程" }).parentElement?.querySelector("p")).toBeNull();
     expect(screen.queryByText("References, templates, and generated video ideas.")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Discover" }).parentElement?.querySelector("p")).toBeNull();
+    expect(screen.getByRole("heading", { name: "创意灵感" }).parentElement?.querySelector("p")).toBeNull();
   });
 
   it("renders two linked Discover tracks and supports keyboard navigation", () => {
@@ -38,17 +38,17 @@ describe("HomeShowcase", () => {
     const orbit = within(view.container).getByLabelText("Discover inspiration gallery");
     const upperTrack = orbit.querySelector("[data-discover-track=upper]");
     const lowerTrack = orbit.querySelector("[data-discover-track=lower]");
-    const card = within(upperTrack as HTMLElement).getByRole("button", { name: "upper Scene Extension" });
+    const card = within(upperTrack as HTMLElement).getByRole("button", { name: "upper 场景延展" });
 
     expect(orbit.getAttribute("aria-roledescription")).toBe("carousel");
-    expect(screen.queryByRole("button", { name: "All" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "全部" })).toBeNull();
     expect(upperTrack).toBeTruthy();
     expect(lowerTrack).toBeTruthy();
     expect(orbit.dataset.activeIndex).toContain("upper:3");
     expect(orbit.dataset.activeIndex).toContain("lower:2");
     expect(card.getAttribute("aria-current")).toBe("true");
     expect(card.classList.contains("is-selected")).toBe(false);
-    expect(within(lowerTrack as HTMLElement).getByRole("button", { name: "lower Poster Motion" }).getAttribute("aria-current")).toBe("true");
+    expect(within(lowerTrack as HTMLElement).getByRole("button", { name: "lower 动态海报" }).getAttribute("aria-current")).toBe("true");
 
     fireEvent.keyDown(card, { key: "ArrowRight" });
     expect(orbit.dataset.activeIndex).not.toContain("upper:3");
@@ -57,7 +57,7 @@ describe("HomeShowcase", () => {
     fireEvent.keyDown(card, { key: "ArrowLeft" });
     expect(orbit.dataset.activeIndex).toContain("upper:3");
 
-    const lowerCard = within(lowerTrack as HTMLElement).getByRole("button", { name: "lower Product Aura" });
+    const lowerCard = within(lowerTrack as HTMLElement).getByRole("button", { name: "lower 产品质感" });
     fireEvent.click(lowerCard);
     expect(card.getAttribute("aria-current")).toBe("true");
     expect(card.classList.contains("is-selected")).toBe(false);

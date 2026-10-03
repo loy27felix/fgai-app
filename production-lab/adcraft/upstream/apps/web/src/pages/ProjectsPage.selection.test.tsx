@@ -72,9 +72,9 @@ describe("ProjectsPage batch selection", () => {
   it("enters selection mode without making New Project selectable", () => {
     const view = renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    expect(screen.getByRole("button", { name: "Select all" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "选择" }));
+    expect(screen.getByRole("button", { name: "全选" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "完成" })).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: "Select New Project" })).toBeNull();
 
     fireEvent.click(view.container.querySelector('[data-project-id="project-1"] .project-card-open') as HTMLElement);
@@ -87,11 +87,11 @@ describe("ProjectsPage batch selection", () => {
   it("selects only the current filtered results and clears selection when the list changes", () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择" }));
+    fireEvent.click(screen.getByRole("button", { name: "全选" }));
     expect(screen.getByText("2 selected")).toBeTruthy();
 
-    fireEvent.change(screen.getByPlaceholderText("Search projects"), { target: { value: "Summer" } });
+    fireEvent.change(screen.getByPlaceholderText("搜索工程"), { target: { value: "Summer" } });
 
     expect(screen.getByText("Selection cleared because the project list changed.")).toBeTruthy();
     expect(screen.queryByText("2 selected")).toBeNull();
@@ -101,25 +101,25 @@ describe("ProjectsPage batch selection", () => {
   it("shows a partial select-all state before completing the visible selection", () => {
     const view = renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(view.container.querySelector('[data-project-id="project-1"] .project-card-open') as HTMLElement);
 
     const selectAll = screen.getByRole("button", { name: "Select all projects" });
     expect(selectAll.classList.contains("is-partial")).toBe(true);
-    expect(selectAll.textContent).toBe("Select all");
+    expect(selectAll.textContent).toBe("全选");
   });
 
   it("runs the existing favorite operation for every selected project", async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
-    fireEvent.click(screen.getByRole("button", { name: "Favorite" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择" }));
+    fireEvent.click(screen.getByRole("button", { name: "全选" }));
+    fireEvent.click(screen.getByRole("button", { name: "收藏" }));
 
     await waitFor(() => expect(fixture.toggleProjectFavorite).toHaveBeenCalledTimes(2));
     expect(fixture.toggleProjectFavorite).toHaveBeenNthCalledWith(1, fixture.savedProjects[0]);
     expect(fixture.toggleProjectFavorite).toHaveBeenNthCalledWith(2, fixture.savedProjects[1]);
-    expect(screen.getByRole("button", { name: "Select" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "选择" })).toBeTruthy();
   });
 
   it("keeps failed projects selected after a partial trash operation", async () => {
@@ -129,9 +129,9 @@ describe("ProjectsPage batch selection", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
-    fireEvent.click(screen.getByRole("button", { name: "Move to trash" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择" }));
+    fireEvent.click(screen.getByRole("button", { name: "全选" }));
+    fireEvent.click(screen.getByRole("button", { name: "移入回收站" }));
 
     await waitFor(() => expect(fixture.moveProjectToTrash).toHaveBeenCalledTimes(2));
     expect(screen.getByText("1 project could not be moved to trash.")).toBeTruthy();

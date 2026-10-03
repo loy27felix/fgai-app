@@ -85,8 +85,8 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
   const partiallySelected = selectedProjects.length > 0 && !allVisibleSelected;
   const selectionBusy = batchAction !== null;
   const favoriteActionLabel = selectedProjects.length > 0 && selectedProjects.every((project) => project.favorite)
-    ? "Remove favorite"
-    : "Favorite";
+    ? "取消收藏"
+    : "收藏";
 
   useEffect(() => {
     if (!selectionNotice) return undefined;
@@ -168,7 +168,7 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
   const runBatchAction = useCallback(async (action: "favorite" | "trash") => {
     if (selectionBusy || selectedProjects.length === 0) return;
     if (action === "trash") {
-      const confirmed = window.confirm(`Move ${selectedProjects.length} ${selectedProjects.length === 1 ? "project" : "projects"} to trash?`);
+      const confirmed = window.confirm(`将 ${selectedProjects.length} 个工程移入回收站？`);
       if (!confirmed) return;
     }
 
@@ -202,21 +202,21 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
 
   return (
     <section className="content-wrap">
-      <PageHeader title="All Projects" subtitle="Saved campaign workflows and creative drafts." />
+      <PageHeader title="广告工程" subtitle="保存的广告制作流程和创意草稿。" />
       <div className="projects-toolbar">
         <div className="toolbar-row">
           <button className={`filter-btn clear-glass-control ${tab === "all" ? "is-active" : ""}`} onClick={() => changeTab("all")}>
-            All
+            全部
           </button>
           <button className={`filter-btn clear-glass-control ${tab === "favorite" ? "is-active" : ""}`} onClick={() => changeTab("favorite")}>
-            Favorites
+            收藏
           </button>
         </div>
         <div className="project-toolbar-actions">
-          <input className="search-box clear-glass-control is-active" placeholder="Search projects" value={search} onChange={(event) => changeSearch(event.target.value)} />
+          <input className="search-box clear-glass-control is-active" placeholder="搜索工程" value={search} onChange={(event) => changeSearch(event.target.value)} />
           {!selectionMode ? (
             <button className="filter-btn clear-glass-control" type="button" onClick={enterSelectionMode}>
-              Select
+              选择
             </button>
           ) : (
             <>
@@ -228,10 +228,10 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
                 disabled={selectionBusy || projects.length === 0}
                 onClick={toggleVisibleSelection}
               >
-                {allVisibleSelected ? "Clear selection" : "Select all"}
+                {allVisibleSelected ? "取消全选" : "全选"}
               </button>
               <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy} onClick={exitSelectionMode}>
-                Done
+                完成
               </button>
             </>
           )}
@@ -240,16 +240,16 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
       {selectionMode ? (
         <div className="project-selection-toolbar" aria-busy={selectionBusy}>
           <div className="project-selection-summary">
-            <strong>{`${selectedProjects.length} selected`}</strong>
+            <strong>{`已选 ${selectedProjects.length} 个工程`}</strong>
             {selectionNotice ? <span role="status">{selectionNotice}</span> : null}
             {selectionError ? <span className="project-selection-error" role="alert">{selectionError}</span> : null}
           </div>
           <div className="project-selection-actions">
             <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void runBatchAction("favorite")}>
-              {selectionBusy && batchAction === "favorite" ? "Saving…" : favoriteActionLabel}
+              {selectionBusy && batchAction === "favorite" ? "保存中…" : favoriteActionLabel}
             </button>
             <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void runBatchAction("trash")}>
-              {selectionBusy && batchAction === "trash" ? "Moving…" : "Move to trash"}
+              {selectionBusy && batchAction === "trash" ? "移动中…" : "移入回收站"}
             </button>
           </div>
         </div>
@@ -260,7 +260,7 @@ export function ProjectsPage({ navigate }: { navigate: AppNavigate }) {
         onRetry={refreshProjects}
       />
       <ProjectList
-        leading={<CreateCard title="New Project" onClick={createProject} />}
+        leading={<CreateCard title="新建工程" onClick={createProject} />}
         projects={projects}
         onOpenProject={openSavedProject}
         onTrashProject={trashSavedProject}

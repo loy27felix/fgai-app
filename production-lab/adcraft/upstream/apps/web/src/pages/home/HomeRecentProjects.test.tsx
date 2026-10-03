@@ -23,7 +23,7 @@ describe("HomeRecentProjects", () => {
     state.projects = ["a", "b", "c", "d"].map(fixture); state.loading = false;
     const view = render(<HomeRecentProjects {...callbacks} />);
     for (const p of state.projects) { fireEvent.click(screen.getByRole("button", { name: `Open ${p.name}` })); expect(callbacks.onOpenProject).toHaveBeenLastCalledWith(p.project_id); }
-    expect(screen.getAllByText("No cover yet")).toHaveLength(4);
+    expect(screen.getAllByText("暂无封面")).toHaveLength(4);
     expect(view.container.querySelectorAll("time[datetime='2026-09-07T00:00:00Z']")).toHaveLength(4);
     expect(view.container.querySelectorAll(".recent-card[data-reveal-item]")).toHaveLength(4);
     expect(screen.queryByRole("button", { name: "View all" })).toBeNull();
@@ -37,7 +37,7 @@ describe("HomeRecentProjects", () => {
     expect(view.container.querySelector("img[src='/poster-1.webp']")).not.toBeNull();
     expect(view.container.querySelector("video")).toBeNull();
     fireEvent.error(view.container.querySelector("img")!);
-    expect(screen.getByText("Cover unavailable")).toBeTruthy();
+    expect(screen.getByText("封面暂不可用")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Campaign a" }));
     expect(callbacks.onOpenProject).toHaveBeenCalledWith("a");
   });
@@ -61,10 +61,10 @@ describe("HomeRecentProjects", () => {
     const view = render(<HomeRecentProjects {...callbacks} />);
     expect(screen.getByRole("alert").textContent).toContain("could not be refreshed");
     expect(screen.getByText("Campaign a")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(state.refresh).toHaveBeenCalledOnce();
     state.loading = true; view.rerender(<HomeRecentProjects {...callbacks} />);
-    expect(screen.getByRole("button", { name: "Retry" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "重试" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("shows an initial error without fake or empty projects", () => {
@@ -72,6 +72,6 @@ describe("HomeRecentProjects", () => {
     render(<HomeRecentProjects {...callbacks} />);
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByText("No recent projects")).toBeNull();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
   });
 });

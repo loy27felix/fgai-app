@@ -71,7 +71,7 @@ describe("AssetsPage", () => {
     });
     expect(canonicalApi.listAgentCanvasRecommendedAssets).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Scenes" }));
+    fireEvent.click(screen.getByRole("tab", { name: "场景" }));
     await waitFor(() => {
       expect(canonicalApi.listAgentCanvasMyAssets).toHaveBeenLastCalledWith("scenes");
     });
@@ -80,7 +80,7 @@ describe("AssetsPage", () => {
   it("loads Recommended Assets through the canonical API without catalog polling", async () => {
     render(<AssetsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Recommended Assets" }));
+    fireEvent.click(screen.getByRole("tab", { name: "推荐素材" }));
     await waitFor(() => {
       expect(canonicalApi.listAgentCanvasRecommendedAssets).toHaveBeenCalledWith("characters");
     });
@@ -94,7 +94,7 @@ describe("AssetsPage", () => {
 
     const { container } = render(<AssetsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Recommended Assets" }));
+    fireEvent.click(screen.getByRole("tab", { name: "推荐素材" }));
     await screen.findByRole("button", { name: "Open asset recommended characters 1" });
 
     expect(container.querySelector('[data-testid="recommended-character-grid"]')).toBeTruthy();
@@ -105,7 +105,7 @@ describe("AssetsPage", () => {
   it("keeps Recommended Assets viewable while using their canonical content URL for the original preview", async () => {
     render(<AssetsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Recommended Assets" }));
+    fireEvent.click(screen.getByRole("tab", { name: "推荐素材" }));
     const card = await screen.findByRole("button", { name: "Open asset recommended characters" });
     fireEvent.click(card);
 
@@ -119,9 +119,9 @@ describe("AssetsPage", () => {
     render(<AssetsPage />);
 
     await screen.findByRole("button", { name: "Open asset my characters" });
-    fireEvent.change(screen.getByRole("textbox", { name: "Search assets" }), { target: { value: "not present" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索素材" }), { target: { value: "not present" } });
 
-    expect(screen.getByText("No assets found.")).toBeTruthy();
+    expect(screen.getByText("暂无素材")).toBeTruthy();
     expect(canonicalApi.listAgentCanvasMyAssets).toHaveBeenCalledTimes(1);
   });
 
@@ -151,8 +151,8 @@ describe("AssetsPage", () => {
 
     const { container } = render(<AssetsPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Recommended Assets" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Scenes" }));
+    fireEvent.click(screen.getByRole("tab", { name: "推荐素材" }));
+    fireEvent.click(screen.getByRole("tab", { name: "场景" }));
 
     await screen.findByRole("button", { name: "Open original scene recommended scenes 1" });
     expect(container.querySelector('[data-testid="recommended-scenes-hologram"]')).toBeTruthy();
@@ -194,8 +194,8 @@ describe("AssetsPage", () => {
     });
 
     const { container } = render(<AssetsPage />);
-    fireEvent.click(screen.getByRole("tab", { name: "Recommended Assets" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Scenes" }));
+    fireEvent.click(screen.getByRole("tab", { name: "推荐素材" }));
+    fireEvent.click(screen.getByRole("tab", { name: "场景" }));
 
     await screen.findByRole("button", { name: "Open original scene First scene" });
     const projection = () => container.querySelector<HTMLImageElement>(".recommended-scenes-hologram__scene");

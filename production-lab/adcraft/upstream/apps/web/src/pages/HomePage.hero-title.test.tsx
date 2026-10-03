@@ -24,7 +24,7 @@ describe("HomePage hero title", () => {
 
     const title = screen.getByRole("heading", {
       level: 1,
-      name: "One Sentence Becomes an Ad film.",
+      name: "从一句创意，到一支广告片。",
     });
     const lines = Array.from(
       title.querySelectorAll(".home-product-hero__title-line"),
@@ -32,8 +32,8 @@ describe("HomePage hero title", () => {
 
     expect(lines).toHaveLength(3);
     expect(lines.slice(0, 2).map((line) => line.textContent?.replace(/\u00a0/g, " "))).toEqual([
-      "ONE SENTENCE",
-      "BECOMES AN",
+      "从一句创意",
+      "到一支",
     ]);
     expect(lines[0]?.getAttribute("data-home-hero-queue-origin")).toBe("line-start");
     expect(lines[1]?.getAttribute("data-home-hero-queue-origin")).toBe("line-end");
@@ -50,11 +50,11 @@ describe("HomePage hero title", () => {
     expect(lines[0]?.querySelectorAll(".home-product-hero__title-character--bump-target")).toHaveLength(0);
     expect(lines[1]?.querySelectorAll(".home-product-hero__title-character--bump-target")).toHaveLength(0);
     expect(lines[2]?.classList.contains("home-product-hero__accent")).toBe(true);
-    expect(lines[2]?.getAttribute("data-accent-text")).toBe("Ad film.");
+    expect(lines[2]?.getAttribute("data-accent-text")).toBe("广告片。");
     expect(lines[2]?.getAttribute("data-home-hero-accent-reveal")).toBe("diagonal");
     expect(lines[2]?.getAttribute("data-home-typography-region")).toBe("heroAccent");
     expect(lines[2]?.querySelectorAll(".home-product-hero__character")).toHaveLength(0);
-    expect(lines[2]?.textContent).toBe("Ad film.");
+    expect(lines[2]?.textContent).toBe("广告片。");
     expect(lines[2]?.querySelector("svg")).toBeNull();
   });
 

@@ -230,7 +230,7 @@ function HeroTitle() {
     <h1
       className="home-product-hero__title"
       id="home-product-title"
-      aria-label="One Sentence Becomes an Ad film."
+      aria-label="从一句创意，到一支广告片。"
       data-home-typography-region="heroMain"
     >
       <HeroMainTitleLine line={heroTitleLines[0]} direction="from-left" />
@@ -398,7 +398,7 @@ export function HomeShowcase({
           ref={recentReveal?.sectionRef}
           className="home-reveal-section home-reveal-section--recent"
           data-reveal-state={recentState}
-          aria-label="Recent Projects"
+          aria-label="最近的广告工程"
         >
           <div data-reveal-item style={motionStyle("--home-reveal-delay", "0ms")}>
             <SectionTitle title="最近的广告工程" />
@@ -410,10 +410,10 @@ export function HomeShowcase({
           ref={discoverReveal?.sectionRef}
           className="home-reveal-section home-reveal-section--discover"
           data-reveal-state={discoverState}
-          aria-label="Discover"
+          aria-label="创意灵感"
         >
           <div data-reveal-item style={motionStyle("--home-reveal-delay", "0ms")}>
-            <SectionTitle title="Discover" />
+            <SectionTitle title="创意灵感" />
           </div>
           {isInteractive && interactions ? <InteractiveDiscover openPreview={interactions.openPreview} /> : <StaticDiscover />}
         </section>
@@ -424,8 +424,8 @@ export function HomeShowcase({
           <div className="modal-card">
             <div className="modal-preview"><span aria-hidden="true">▶</span></div>
             <div className="composer-footer" style={{ marginTop: 14 }}>
-              <strong>Preview Case</strong>
-              <button className="small-action" type="button" onClick={interactions.closePreview}>Close</button>
+              <strong>案例预览</strong>
+              <button className="small-action" type="button" onClick={interactions.closePreview}>关闭</button>
             </div>
           </div>
         </div>
