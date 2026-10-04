@@ -14,8 +14,14 @@ export async function initializeCreator(pool){
 }
 function json(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(data));}
 async function body(req,max=32<<20){let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>max)throw Error('资料过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString());}
-async function nativeAPI(web,cookie,origin,path,method='GET',payload){const r=await fetch(new URL('/api'+path,web),{method,headers:{cookie,origin,'content-type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload),signal:AbortSignal.timeout(120000)});const b=await r.json();if(!r.ok||b.code!==0)throw Error(b.msg||'FG 制作服务暂不可用');return b.data;}
+async function nativeAPI(web,cookie,origin,path,method='GET',payload){const r=await fetch(new URL('/api'+path,web),{method,headers:{cookie,origin,'content-type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload),signal:AbortSignal.timeout(120000)});const b=await r.json();if(!r.ok||b.code!==0){const error=Error(b.msg||'FG 制作服务暂不可用');error.status=r.status;throw error;}return b.data;}
 export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}){
+ const catalog=/^\/internal\/creator\/([^/]+)\/models$/.exec(path.pathname);
+ if(catalog){
+  if(req.method!=='GET'||!creatorAuthorised(catalog[1],String(req.headers.authorization||'').replace(/^Bearer /,''))){json(res,{error:{message:'创作者服务未授权'}},403);return true;}
+  const active=(await pool.query("SELECT id FROM users WHERE id=$1 AND status='active'",[catalog[1]])).rows[0];if(!active){json(res,{error:{message:'FG 账号不可用'}},403);return true;}
+  json(res,{models:(await advertisingModels(pool)).filter(m=>m.capability==='text').map(m=>({id:m.billingId,name:m.name}))});return true;
+ }
  const match=/^\/internal\/creator\/([^/]+)\/v1\/(responses|chat\/completions|images\/generations)$/.exec(path.pathname);if(!match)return false;
  let keepAlive;
  try{
@@ -42,7 +48,14 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   if(!job.task_id){
    const config={channelId:channel.channel_id,model,interfaceType:channel.protocol,apiFormat:channel.api_format||'openai',count:'1',size:payload.size||selected.profile.image?.size?.default||'1:1',quality:payload.quality||selected.profile.image?.quality?.default||''};
    const input={mode,prompt:mode==='image'?payload.prompt:'创作者工作台 Agent',config,...(mode==='text'?{agentRequests:{canonical:conversation.canonical},textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:'fg-opencreator',creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
-   const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt:input.prompt,input});job.task_id=task.id;
+   try{const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt:input.prompt,input});job.task_id=task.id;}
+   catch(error){
+    // A definite admission rejection (such as exhausted monthly allowance) has
+    // created no provider task. Permit retry after the administrator fixes it.
+    // Timeouts and uncertain server failures retain the idempotency reservation.
+    if(error.status>=400&&error.status<500)await pool.query('DELETE FROM fg_creator_jobs WHERE id=$1 AND task_id IS NULL',[job.id]);
+    throw error;
+   }
   }
   await pool.query("UPDATE fg_creator_jobs SET task_id=$2,status='submitted' WHERE id=$1",[job.id,job.task_id]);
   if(payload.stream){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store','connection':'keep-alive','x-accel-buffering':'no'});res.write(': FG task accepted\n\n');keepAlive=setInterval(()=>{if(!res.destroyed)res.write(': waiting\n\n');},10000);}
@@ -63,7 +76,6 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
  finally{if(keepAlive)clearInterval(keepAlive);}return true;
 }
 export async function creatorUserRoute(req,res,{pool,actor,path}){
- const runtime='/\.opencreator/runtime';
  if(path.pathname==='/.opencreator/runtime-config'){json(res,{baseUrl:'/.opencreator/runtime'});return true;}
  const isRuntime=path.pathname.startsWith('/.opencreator/runtime/');
  const isStatic=path.pathname==='/creator-app'||path.pathname.startsWith('/creator-static/')||path.pathname.startsWith('/creator-presets/')||path.pathname.startsWith('/fonts/opencreator/');
