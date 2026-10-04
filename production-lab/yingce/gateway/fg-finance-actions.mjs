@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {spendUsage,monthStart} from './fg-budgets.mjs';
+import {spendUsage,monthStart,monthRange} from './fg-budgets.mjs';
 async function body(req){let chunks=[],n=0;for await(const c of req){n+=c.length;if(n>100000)throw Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks));}
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':String(data)}));}
 export async function financeActions(req,res,{pool,actor,path}){
@@ -7,9 +7,13 @@ export async function financeActions(req,res,{pool,actor,path}){
  if(!['/api/fg/budgets/users','/api/fg/budgets/project','/api/fg/finance/decisions','/api/fg/finance/request-decisions','/api/fg/finance/audit'].includes(route))return false;
  try{
   if(route==='/api/fg/budgets/users'&&req.method==='GET'){
+   const range=monthRange(path.searchParams.get('month')||undefined),historical=range.month!==monthStart().slice(0,7);
    const users=(await pool.query(`SELECT u.id,u.display_name name,a.email,COALESCE(b.monthly_cny,0) monthly_cny FROM users u LEFT JOIN fg_accounts a ON a.user_id=u.id LEFT JOIN fg_user_budgets b ON b.user_id=u.id WHERE u.status='active' AND($2 OR u.id=$1) ORDER BY u.display_name`,[actor.id,actor.reviewer])).rows;
-   for(const u of users)Object.assign(u,await spendUsage(pool,{userId:u.id,since:monthStart()}));
-   send(res,{users,month:monthStart().slice(0,7),canManage:actor.reviewer});return true;
+   for(const u of users){
+    Object.assign(u,await spendUsage(pool,{userId:u.id,since:range.since,until:range.until}));
+    if(historical){const audit=(await pool.query("SELECT after_value FROM fg_finance_audit WHERE action='monthly_budget' AND target=$1 AND created_at<$2 ORDER BY created_at DESC LIMIT 1",[u.id,range.until])).rows[0];u.monthly_cny=audit?.after_value?.monthlyCny??null;}
+   }
+   send(res,{users,month:range.month,historical,canManage:actor.reviewer&&!historical});return true;
   }
   if(!actor.reviewer){send(res,'仅超级管理员可调整费用额度或处理账单',403);return true;}
   if(route==='/api/fg/finance/audit'&&req.method==='GET'){

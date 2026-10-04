@@ -19,6 +19,8 @@
 
 文本与媒体渠道统一走 FG WeToken 中转。CLI 所需 Responses / tools 协议必须先做免费模拟适配验证，不能把 Chat Completions 模型任意伪装成 Codex 模型。字幕识别、配音服务还需要确认公司实际可用渠道，未配置的能力应明确停用。
 
+源码已核实 `apps/daemon/src/codex/provider-config.ts`：可保存自定义 Base URL、API Key 和模型，也读取 `model_providers` 配置；Codex 是运行引擎，并非只允许官方账号。创作工具还有独立 AI 服务配置与 OpenAI-compatible 图片接口。因此接 WeToken 是可行的适配方向，但尚未完成协议、用户隔离与人民币账单集成，不能标为已上线。Codex 专用生图路径存在主动隔离自定义凭据的实现，不应宣称每个功能都直接遵循同一 Base URL。
+
 所有收费调用在发送前做人民币报价和月额度预留；执行时保留操作人、项目、模型和供应商请求编号，出账按 Reference ID 核销。Codex 原生登录产生的订阅用量不能混报为 WeToken 人民币账单。
 
 ## 上线验收

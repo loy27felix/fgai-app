@@ -38,6 +38,8 @@ function FGProjectEntry(){
  return error?<section className="content-wrap"><p role="alert">{error}</p><a href="/advertising">返回广告项目</a></section>:<RouteFallback/>;
 }
 
+function FGAdvertisingDirectory(){useEffect(()=>{window.location.replace("/advertising");},[]);return <RouteFallback/>;}
+
 function AppRoutes() {
   const navigate = useNavigate();
   const navigateRoute = (route: RouteName, options?: AppNavigateOptions) => {
@@ -52,14 +54,14 @@ function AppRoutes() {
         <Route element={<LightweightShell />}>
           <Route path="/" element={fgWorkspace?<FGProjectEntry/>:<HomePage navigate={navigateRoute} />} />
           <Route path="/home" element={<Navigate to="/" replace />} />
-          <Route path="/assets" element={<AssetsPage />} />
-          <Route path="/api-space" element={<ApiSpacePage />} />
+          <Route path="/assets" element={fgWorkspace?<FGAdvertisingDirectory/>:<AssetsPage />} />
+          <Route path="/api-space" element={fgWorkspace?<FGAdvertisingDirectory/>:<ApiSpacePage />} />
         </Route>
         <Route element={<WorkspaceRoute />}>
-          <Route path="/projects" element={<ProjectsPage navigate={navigateRoute} />} />
+          <Route path="/projects" element={fgWorkspace?<FGAdvertisingDirectory/>:<ProjectsPage navigate={navigateRoute} />} />
           <Route path="/workflow/:projectId" element={<WorkflowPage />} />
           <Route path="/workflow" element={<WorkflowPage />} />
-          <Route path="/trash" element={<TrashPage navigate={navigateRoute} />} />
+          <Route path="/trash" element={fgWorkspace?<FGAdvertisingDirectory/>:<TrashPage navigate={navigateRoute} />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

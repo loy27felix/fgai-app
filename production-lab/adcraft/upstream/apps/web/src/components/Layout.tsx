@@ -95,7 +95,7 @@ export function Layout({ children, workflowControls }: LayoutProps) {
     <>
       <FGEditorLease/>
       <nav className={`floating-rail${usesClearGlassRail ? " floating-rail--clear-glass" : ""}`} aria-label="Primary navigation">
-        {navItems.map((item) => (
+        {!fgWorkspace && navItems.map((item) => (
           <NavLink
             key={item.route}
             className={({ isActive }) => `rail-item${usesClearGlassRail ? " clear-glass-control" : ""} ${isActive ? "is-active" : ""}`}

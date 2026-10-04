@@ -43,7 +43,7 @@ class FGApplication:
                     install_fg_catalog(catalog.json()['models'])
                 settings = Settings.from_env()
                 overrides = {f.name: 'gpt-5.6-sol-t1a' for f in fields(settings) if f.name.startswith('llm_') and f.name.endswith('_model')}
-                overrides.update(app_name='FG 广告工作台', app_version='1.2.5', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
+                overrides.update(app_name='FG 广告工作台', app_version='1.2.6', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
                     media_mode='real', agent_runtime_mode='real', skip_audio_agents=True,
                     agent_runtime_internal_token=os.environ['FG_ADCRAFT_SECRET'], agent_runtime_base_url='http://adcraft-agent:8765/w/' + workspace,
                     llm_api_key='fg-internal-only', llm_base_url=base + '/v1',

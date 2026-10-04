@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useState} from 'react';
-import {App,Button,Form,Input,InputNumber,Segmented,Spin} from 'antd';
+import {Alert,App,Button,Form,Input,InputNumber,Segmented,Spin} from 'antd';
 import {ArrowUpRight,Clapperboard,Plus,RefreshCw,Trash2,Undo2} from 'lucide-react';
 import {useSearchParams} from 'react-router';
 import {WorkspacePage,PageHeader} from '@/components/layout/workspace-page';
@@ -20,6 +20,7 @@ export default function AdvertisingPage(){
  const remove=(w:AdvertisingProject)=>modal.confirm({title:`删除 ${w.name}？`,content:'项目移入回收站；画布、NAS 素材与人民币账单保留，可在回收站恢复。',okText:'移入回收站',cancelText:'取消',okButtonProps:{danger:true},onOk:async()=>{await deleteAdvertisingProject(w.id);await load();message.success('项目已移入回收站');}});
  return <WorkspacePage className="fg-advertising-page">
   <PageHeader title="广告工作台" description="独立广告工程。默认仅自己可见，按需邀请同事协作。" actions={<><Button onClick={()=>void load()} icon={<RefreshCw size={15}/>}>刷新</Button><Button type="primary" icon={<Plus size={16}/>} onClick={()=>{form.resetFields();setOpen(true);}}>新建广告项目</Button></>}/>
+  {search.get("editorTakenOver")&&<Alert type="info" showIcon closable message="画布已由同事接管" description={search.get("editorTakenOver")}/>}
   <section className="fg-advertising-intro"><div><span>FG / ADVERTISING</span><h2>让创意，成为下一支广告。</h2><p>从产品、卖点到分镜与成片，工程和素材持续保存在服务器与 NAS。</p></div></section>
   <Segmented className="mb-5" value={archived?'trash':'active'} onChange={v=>{setData(undefined);setArchived(v==='trash');}} options={[{value:'active',label:'广告项目'},{value:'trash',label:'回收站'}]}/>
   {error?<p role="alert">{error}</p>:!data?<Spin/>:data.workspaces.length?<div className="fg-advertising-cards">{data.workspaces.map(w=><article key={w.id}>

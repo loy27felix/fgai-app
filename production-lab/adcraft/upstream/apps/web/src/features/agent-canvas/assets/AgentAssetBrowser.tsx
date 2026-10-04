@@ -27,6 +27,7 @@ import {
 import { useAgentCanvasAssets } from "./useAgentCanvasAssets.ts";
 import { StableMediaPreview } from "../../../workflow/StableMediaPreview.tsx";
 import "./AgentAssetBrowser.css";
+import {fgLabel,fgWorkspace} from "../../../fg-scope";
 
 export type {
   AgentAssetReferenceSelection,
@@ -99,10 +100,10 @@ function AssetPreview({ item }: { item: AgentAssetBrowserItem }) {
 }
 
 function emptyLabel(scope: AgentAssetScope, hasQuery: boolean): string {
-  if (hasQuery) return "No matching assets";
-  if (scope === "project") return "No project assets yet";
-  if (scope === "my") return "No saved images";
-  return "No recommended images";
+  if (hasQuery) return fgLabel("No matching assets");
+  if (scope === "project") return fgLabel("No project assets yet");
+  if (scope === "my") return fgLabel("No saved images");
+  return fgLabel("No recommended images");
 }
 
 export function AgentAssetBrowser({
@@ -222,18 +223,18 @@ export function AgentAssetBrowser({
   };
 
   return (
-    <section className="agent-asset-browser" aria-label="Agent Canvas assets">
+    <section className="agent-asset-browser" aria-label={fgLabel("Agent Canvas assets")}>
       <header className="agent-asset-browser__header">
         {onClose ? (
-          <button type="button" className="agent-asset-browser__close" aria-label="Close assets" title="Close assets" onClick={onClose}>
+          <button type="button" className="agent-asset-browser__close" aria-label={fgLabel("Close assets")} title={fgLabel("Close assets")} onClick={onClose}>
             <span aria-hidden="true">×</span>
           </button>
         ) : null}
         <div className="agent-asset-browser__title">
           <AssetsIcon aria-hidden="true" />
           <div>
-            <h2>Assets</h2>
-            <p>Attach references or place ready media on the canvas.</p>
+            <h2>{fgLabel("Assets")}</h2>
+            <p>{fgLabel("Attach references or place ready media on the canvas.")}</p>
           </div>
         </div>
       </header>
@@ -249,16 +250,17 @@ export function AgentAssetBrowser({
               className={scope === option.value ? "is-active" : ""}
               onClick={() => selectScope(option.value)}
             >
-              {option.label}
+              {fgLabel(option.label)}
             </button>
           ))}
         </div>
+        {fgWorkspace&&<button type="button" onClick={()=>{onClose?.();window.dispatchEvent(new Event("fg-ad-company-assets"));}}>公司素材库</button>}
         <input
           className="agent-asset-browser__search"
           type="search"
           value={search}
-          aria-label="Search assets"
-          placeholder="Search assets"
+          aria-label={fgLabel("Search assets")}
+          placeholder={fgLabel("Search assets")}
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
       </div>
@@ -272,12 +274,12 @@ export function AgentAssetBrowser({
             aria-pressed={mediaType === filter.value}
             onClick={() => setMediaType(filter.value)}
           >
-            {filter.label}
+            {fgLabel(filter.label)}
           </button>
         )) : (
           <span className="agent-asset-browser__image-only">
             <ImageIcon aria-hidden="true" />
-            Images only
+            {fgLabel("Images only")}
           </span>
         )}
       </div>
@@ -289,13 +291,13 @@ export function AgentAssetBrowser({
         {loading ? (
           <div className="agent-asset-browser__state" role="status">
             <span className="agent-asset-browser__spinner" aria-hidden="true" />
-            Loading assets
+            {fgLabel("Loading assets")}
           </div>
         ) : error ? (
           <div className="agent-asset-browser__state agent-asset-browser__state--error" role="alert">
             <p>{error}</p>
             <button type="button" aria-label="Retry loading assets" onClick={() => void retry()}>
-              Retry
+              {fgLabel("Retry")}
             </button>
           </div>
         ) : items.length === 0 ? (
@@ -305,7 +307,7 @@ export function AgentAssetBrowser({
             {scope === "project" && !search.trim() ? (
               <button type="button" onClick={() => fileInputRef.current?.click()}>
                 <UploadIcon aria-hidden="true" />
-                Upload media
+                {fgLabel("Upload media")}
               </button>
             ) : null}
           </div>
@@ -341,7 +343,7 @@ export function AgentAssetBrowser({
                   </div>
                   <div className="agent-asset-card__meta">
                     <strong title={item.displayName}>{item.displayName}</strong>
-                    <span>{item.status === "ready" ? item.mediaType : "Unavailable"}</span>
+                    <span>{fgLabel(item.status === "ready" ? item.mediaType === "image" ? "Image" : item.mediaType === "video" ? "Video" : "Audio" : "Unavailable")}</span>
                   </div>
                   {sourceSelection ? (
                     <button
@@ -352,7 +354,7 @@ export function AgentAssetBrowser({
                       onClick={() => void createSourceNode(item)}
                     >
                       <PlusIcon aria-hidden="true" />
-                      {pendingSourceIds.has(item.id) ? "Adding" : `Add ${item.mediaType} node`}
+                      {pendingSourceIds.has(item.id) ? fgLabel("Adding") : fgWorkspace ? `添加${fgLabel(item.mediaType === "image" ? "Image" : item.mediaType === "video" ? "Video" : "Audio")}节点` : `Add ${item.mediaType} node`}
                     </button>
                   ) : null}
                 </article>
@@ -365,13 +367,13 @@ export function AgentAssetBrowser({
       <footer className="agent-asset-browser__footer">
         <span>
           {selectedReferences.length
-            ? `${selectedReferences.length} image${selectedReferences.length === 1 ? "" : "s"} selected`
-            : "Select compatible images to attach"}
+            ? fgWorkspace ? `已选 ${selectedReferences.length} 张图片` : `${selectedReferences.length} image${selectedReferences.length === 1 ? "" : "s"} selected`
+            : fgLabel("Select compatible images to attach")}
         </span>
         {scope === "project" ? (
           <label className={`agent-asset-browser__upload${uploading ? " is-busy" : ""}`}>
             <UploadIcon aria-hidden="true" />
-            <span>{uploading ? "Uploading" : "Upload"}</span>
+            <span>{fgLabel(uploading ? "Uploading" : "Upload")}</span>
             <input
               ref={fileInputRef}
               type="file"
@@ -391,8 +393,8 @@ export function AgentAssetBrowser({
         >
           <PlusIcon aria-hidden="true" />
           {addingReferences
-            ? "Adding references"
-            : `Add ${selectedReferences.length || ""} reference${selectedReferences.length === 1 ? "" : "s"}`}
+            ? fgLabel("Adding references")
+            : fgWorkspace ? `添加${selectedReferences.length || ""}参考素材` : `Add ${selectedReferences.length || ""} reference${selectedReferences.length === 1 ? "" : "s"}`}
         </button>
       </footer>
     </section>

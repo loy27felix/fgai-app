@@ -27,16 +27,16 @@ export function admissionPrice(model,capability,payload,price,fx){
  if(result.estimateKind==='partial'||result.estimateKind==='lower_bound')return null;
  return result.estimatedCny;
 }
-export async function spendUsage(pool,{userId,projectId,since}={}){
+export async function spendUsage(pool,{userId,projectId,since,until}={}){
  const prices=new Map((await pool.query('SELECT model,snapshot FROM fg_model_prices')).rows.map(r=>[r.model,r.snapshot]));
  const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
  const calls=(await pool.query(`SELECT c.*,t.status task_status,COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id) project_id, COALESCE(f.cny,0) actual_cny,f.matches
  FROM api_call_logs c LEFT JOIN tasks t ON t.id=c.task_id LEFT JOIN canvas_projects cv ON cv.id=t.project_id LEFT JOIN projects p ON p.id=t.project_id
  LEFT JOIN fg_budget_reservations r ON r.id::text=c.fg_budget_reservation_id
  LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) cny,count(*) matches FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
- WHERE c.billable AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%') AND($1::text IS NULL OR c.user_id=$1) AND($2::text IS NULL OR COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id)=$2) AND($3::timestamptz IS NULL OR c.created_at>=$3)`,[userId||null,projectId||null,since||null])).rows;
+ WHERE c.billable AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%') AND($1::text IS NULL OR c.user_id=$1) AND($2::text IS NULL OR COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id)=$2) AND($3::timestamptz IS NULL OR c.created_at>=$3) AND($4::timestamptz IS NULL OR c.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
  let actual=0,pending=0,unknown=0;
- const reservations=(await pool.query(`SELECT r.*,c.id call_id,c.error_code FROM fg_budget_reservations r LEFT JOIN api_call_logs c ON c.fg_budget_reservation_id=r.id::text AND c.billable WHERE ($1::text IS NULL OR r.user_id=$1) AND($2::text IS NULL OR r.project_id=$2) AND($3::timestamptz IS NULL OR r.created_at>=$3)`,[userId||null,projectId||null,since||null])).rows;
+ const reservations=(await pool.query(`SELECT r.*,c.id call_id,c.error_code FROM fg_budget_reservations r LEFT JOIN api_call_logs c ON c.fg_budget_reservation_id=r.id::text AND c.billable WHERE ($1::text IS NULL OR r.user_id=$1) AND($2::text IS NULL OR r.project_id=$2) AND($3::timestamptz IS NULL OR r.created_at>=$3) AND($4::timestamptz IS NULL OR r.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
  const byId=new Map(reservations.map(r=>[r.id,r]));
  const confirmedFree=new Set((await pool.query('SELECT call_id FROM fg_request_decisions')).rows.map(r=>r.call_id));
  for(const c of calls){
@@ -50,6 +50,12 @@ export async function spendUsage(pool,{userId,projectId,since}={}){
  return {actual,pending,unknown,used:actual+pending};
 }
 export function monthStart(){const now=new Date();const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).formatToParts(now);return `${parts.find(p=>p.type==='year').value}-${parts.find(p=>p.type==='month').value}-01T00:00:00+08:00`;}
+export function monthRange(value=monthStart().slice(0,7)){
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)||value<'2000-01'||value>monthStart().slice(0,7))throw Error('请选择有效的历史月份或本月');
+ const [year,month]=value.split('-').map(Number);
+ const next=month===12?`${year+1}-01`:`${year}-${String(month+1).padStart(2,'0')}`;
+ return {month:value,since:value+'-01T00:00:00+08:00',until:next+'-01T00:00:00+08:00'};
+}
 export async function reserveBudget(pool,input){
  const client=await pool.connect();
  try{

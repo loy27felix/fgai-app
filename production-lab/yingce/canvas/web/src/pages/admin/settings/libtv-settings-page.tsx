@@ -333,6 +333,17 @@ export default function LibTVSettingsPage() {
                             </div>
                         </div>
                         <div className="admin-third-party-credential-panel">
+                            <details className="mb-4 text-sm leading-7">
+                                <summary className="cursor-pointer font-medium">如何取得 Token，以及全局配置的作用</summary>
+                                <ol className="list-decimal pl-5 mt-2">
+                                    <li>使用公司专用账号登录 liblib.tv，打开要导入的分享画布。</li>
+                                    <li>按 F12 打开开发者工具，进入 Network（网络），刷新画布，筛选 canvas/project/detail 请求。</li>
+                                    <li>在 Headers → Request Headers 中复制名为 token 的请求头值，仅粘贴到下方密码框；不要复制整份请求或在聊天、截图中公开。</li>
+                                    <li>保存后，用分享链接测试连接，再开启用户导入。Token 过期时重新登录并替换。</li>
+                                </ol>
+                                <p className="mt-2">这是全局凭据，启用后平台成员无需逐人配置。服务器只读取并校验画布的读取、复制权限，不调用 LibTV 生成接口；Token 加密保存且不回传给用户。</p>
+                                <p className="mt-2">登录 Token 本身代表该 LibTV 账号的权限，并不是仅限导入的专用密钥。成员可能导入该账号有权限读取与复制的画布，凭据泄露也存在账号风险。请使用公司专用账号，避免配置存有私人项目的个人账号；可随时停用并清除凭据。</p>
+                            </details>
                             <label className="admin-third-party-field-label" htmlFor="admin-libtv-token">
                                 LibTV Token
                             </label>

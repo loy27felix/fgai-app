@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import {CanvasTakeoverNotice} from "@/components/canvas/canvas-takeover-notice";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { App, Button, Dropdown, Input, Modal } from "antd";
 import { Select } from "@/components/ui/base/select";
@@ -409,6 +410,7 @@ export default function CanvasPage() {
 
     return (
         <WorkspacePage className="studio-collection-page">
+            <CanvasTakeoverNotice/>
             <div className="studio-band">
                 <PageHeader
                     title="我的画布"

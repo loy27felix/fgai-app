@@ -4,6 +4,13 @@ export const fgBasename = fgWorkspace ? '/advertising-app/' + fgWorkspace : unde
 let editorToken='';
 export function setFGEditorToken(token:string){editorToken=token;}
 const labels: Record<string, string> = {
+  'Choose model':'选择模型','Compatible models':'可用模型',
+  Assets:'项目素材', 'Project Assets':'工程素材','My Assets':'我的图片','Recommended':'推荐图片','All media':'全部类型',Images:'图片',Videos:'视频',
+  'Agent Canvas assets':'广告项目素材','Close assets':'关闭素材窗口','Search assets':'搜索素材','Images only':'仅图片',
+  'Attach references or place ready media on the canvas.':'选择参考素材，或把已有图片、视频和音频放入画布。工程素材默认私有，公司素材可按需导入。',
+  'No matching assets':'没有匹配的素材','No project assets yet':'工程中还没有素材','No saved images':'还没有收藏图片','No recommended images':'暂无推荐图片',
+  'Loading assets':'正在加载素材',Retry:'重试','Upload media':'上传素材',Unavailable:'暂不可用',Adding:'正在添加',
+  'Select compatible images to attach':'选择图片作为参考素材',Uploading:'上传中',Upload:'上传','Adding references':'正在添加参考素材',
   Text:'文本',Script:'脚本',Image:'图片',Video:'视频',Audio:'音频',Editing:'剪辑',Draft:'草稿',Failed:'失败',
   'Platform Default':'通用广告风格',
   'Size':'尺寸','Aspect ratio':'比例','Duration seconds':'时长（秒）','Duration (s)':'时长（秒）','Ratio':'比例','Resolution':'清晰度','Quality':'画质','Generate audio':'同时生成声音','Not set':'使用默认值','Clear':'恢复默认值',

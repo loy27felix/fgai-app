@@ -1,4 +1,6 @@
 import { createPortal } from "react-dom";
+import "./agent-canvas-inline-workbench.css";
+import {fgLabel} from '../../../fg-scope';
 import { ChevronDownIcon, ChevronUpIcon } from "../../../icons.tsx";
 import { useMemo } from "react";
 import { useWorkbenchMenu } from "./useWorkbenchMenu.ts";
@@ -88,7 +90,7 @@ export function CanvasModelPicker({
       ref={menuRef}
       className={`agent-node-workbench__model-menu${appearance === "monochrome" ? " agent-node-workbench__model-menu--monochrome" : ""}`}
       role="listbox"
-      aria-label="Compatible models"
+      aria-label={fgLabel('Compatible models')}
       style={menuStyle}
     >
       <button
@@ -152,7 +154,7 @@ export function CanvasModelPicker({
       >
         <summary
           ref={triggerRef}
-          aria-label="Choose model"
+          aria-label={fgLabel('Choose model')}
           aria-expanded={open}
           aria-disabled={disabled || loading}
           title={!showStatusDetails ? error ?? (selectedModel ? modelEligibility(selectedModel, "diagnostic").reason ?? selectedLabel : selectedLabel) : undefined}
@@ -164,7 +166,7 @@ export function CanvasModelPicker({
             setOpen((current) => !current);
           }}
         >
-          <span>{loading ? "Loading compatible models..." : selectedLabel}</span>
+          <span>{loading ? "正在读取可用模型…" : selectedLabel}</span>
           {showStatusDetails && selectedModel ? <small className={`is-${selectedModel.availability}`}>{selectedModel.availability}</small> : null}
           {appearance === "monochrome" ? (
             <span className="agent-node-workbench__model-chevron" aria-hidden="true">
