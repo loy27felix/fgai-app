@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { api } from "../api/client";
+import { fgLabel } from "../fg-scope";
 import { createOperationKey } from "../api/operationKey.ts";
 import { isV2ContractValidationError } from "../api/v2ContractValidationError.ts";
 import {
@@ -496,11 +497,11 @@ export function WorkspaceProvider({
           } catch (error) {
             if (!isV2ApiError(error) || error.code !== "project_not_found") {
               if (isV2ContractValidationError(error)) {
-                setWorkspaceRestoreError("The backend workflow data does not match this frontend. Your project selection was preserved; update the frontend and refresh the page.");
+                setWorkspaceRestoreError(fgLabel("The backend workflow data does not match this frontend. Your project selection was preserved; update the frontend and refresh the page."));
               } else if (isNetworkError(error)) {
-                setWorkspaceRestoreError("The backend could not be reached. Your project selection was preserved; retry when the service is available.");
+                setWorkspaceRestoreError(fgLabel("The backend could not be reached. Your project selection was preserved; retry when the service is available."));
               } else {
-                setWorkspaceRestoreError("The backend project could not be restored. Your project selection was preserved; retry when the service is available.");
+                setWorkspaceRestoreError(fgLabel("The backend project could not be restored. Your project selection was preserved; retry when the service is available."));
               }
               setWorkspaceHydrated(true);
               return;
@@ -508,7 +509,7 @@ export function WorkspaceProvider({
           }
           if (restoreRequest.source === "storage") saveActiveProjectId(window.localStorage, null);
           setActiveProjectId(null);
-          setWorkspaceRestoreError("The backend project could not be restored.");
+          setWorkspaceRestoreError(fgLabel("The backend project could not be restored."));
         } else {
           setWorkspaceRestoreError(null);
         }
@@ -519,7 +520,7 @@ export function WorkspaceProvider({
         setWorkspaceHydrated(true);
       } catch {
         if (cancelled || !shouldApplyWorkspaceRestoreRequest(restoreRequest)) return;
-        setWorkspaceRestoreError("Saved project could not be restored.");
+        setWorkspaceRestoreError(fgLabel("Saved project could not be restored."));
         setWorkspaceHydrated(true);
       }
     }

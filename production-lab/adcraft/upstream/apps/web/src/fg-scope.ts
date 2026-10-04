@@ -4,6 +4,11 @@ export const fgBasename = fgWorkspace ? '/advertising-app/' + fgWorkspace : unde
 let editorToken='';
 export function setFGEditorToken(token:string){editorToken=token;}
 const labels: Record<string, string> = {
+  'The backend workflow data does not match this frontend. Your project selection was preserved; update the frontend and refresh the page.':'广告工程数据与当前页面版本不一致，工程关联已保留；请刷新页面或联系管理员更新。',
+  'The backend could not be reached. Your project selection was preserved; retry when the service is available.':'暂时无法连接广告服务，工程关联已保留；请返回广告项目页重试。',
+  'The backend project could not be restored. Your project selection was preserved; retry when the service is available.':'广告工程暂时无法恢复，工程关联已保留；请返回广告项目页重试，或联系管理员检查 NAS 连接。',
+  'The backend project could not be restored.':'广告工程暂时无法恢复，请联系管理员恢复原工程。',
+  'Saved project could not be restored.':'已保存的广告工程暂时无法恢复，请返回广告项目页重试。',
   'Choose model':'选择模型','Compatible models':'可用模型',
   'Default model':'默认模型','Name unavailable':'名称不可用','Not configured':'未配置','Loading compatible models...':'正在读取可用模型…',
   Assets:'项目素材', 'Project Assets':'工程素材','My Assets':'我的图片','Recommended':'推荐图片','All media':'全部类型',Images:'图片',Videos:'视频',

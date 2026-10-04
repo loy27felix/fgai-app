@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useBlocker } from "react-router";
 
 import { cn } from "@/lib/utils";
+import { parseLibTVProjectUUID } from "@/lib/canvas/libtv-import";
 import { getAdminLibTVSetting, testAdminLibTV, updateAdminLibTVSetting, type AdminLibTVSetting } from "@/services/api/libtv";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { AdminPageFrame } from "../components/admin-shell";
@@ -218,13 +219,13 @@ export default function LibTVSettingsPage() {
     };
 
     const test = async () => {
-        const uuid = testUuid.trim();
+        const uuid = parseLibTVProjectUUID(testUuid);
         if (!setting?.hasToken) {
             message.error("请先保存 LibTV Token，再验证连接");
             return;
         }
         if (!uuid) {
-            message.error("请填写用于验证的 LibTV 画布 UUID");
+            message.error("请填写有效的 LibTV 分享链接或画布 UUID；分享链接使用 projectId，不是 spaceId");
             return;
         }
         setTestStatus("testing");
@@ -430,7 +431,7 @@ export default function LibTVSettingsPage() {
                         >
                             <div className="admin-third-party-test-controls">
                                 <div className="admin-third-party-test-input">
-                                    <label htmlFor="admin-libtv-test-uuid">可访问的 LibTV 画布 UUID</label>
+                                    <label htmlFor="admin-libtv-test-uuid">可访问的 LibTV 分享链接或画布 UUID</label>
                                     <Input
                                         id="admin-libtv-test-uuid"
                                         value={testUuid}
@@ -439,9 +440,12 @@ export default function LibTVSettingsPage() {
                                             setTestStatus("idle");
                                             setTestError("");
                                         }}
-                                        placeholder="输入画布 UUID，仅用于本次只读验证"
+                                        placeholder="粘贴 LibTV 分享链接或 32 位画布 UUID"
                                         disabled={testStatus === "testing"}
                                     />
+                                    <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                                        {parseLibTVProjectUUID(testUuid) ? `验证画布：${parseLibTVProjectUUID(testUuid)}` : "分享链接会自动提取 projectId；验证使用服务端已保存的凭据。"}
+                                    </p>
                                 </div>
                                 <Button icon={<Wifi className="size-4" />} loading={testStatus === "testing"} disabled={!setting.hasToken || saving || refreshing} onClick={() => void test()}>
                                     验证连接

@@ -10,7 +10,7 @@ from uuid import uuid4
 from starlette.responses import JSONResponse
 from app.core.config import Settings
 from app.fg_context import fg_context
-from app.fg_backup import backup, restore, require_nas
+from app.fg_backup import backup, restore, require_nas, require_workspace, purge_workspace
 from app.fg_cpu import install as install_render_limit
 from app.main import create_app
 
@@ -23,12 +23,19 @@ class FGApplication:
         self.lock = asyncio.Lock()
         self.stack = AsyncExitStack()
         self.backup_task = None
+        self.storage_locks = {}
+        self.inflight = {}
+        self.cleaning = set()
+
+    async def snapshot(self, workspace):
+        async with self.storage_locks.setdefault(workspace, asyncio.Lock()):
+            await asyncio.to_thread(backup, workspace)
 
     async def snapshots(self):
         while True:
             await asyncio.sleep(60)
             for workspace in list(self.apps):
-                try: await asyncio.to_thread(backup, workspace)
+                try: await self.snapshot(workspace)
                 except Exception as error: print('FG NAS backup failed:', type(error).__name__, flush=True)
 
     async def workspace(self, workspace):
@@ -43,7 +50,7 @@ class FGApplication:
                     install_fg_catalog(catalog.json()['models'])
                 settings = Settings.from_env()
                 overrides = {f.name: 'gpt-5.6-sol-t1a' for f in fields(settings) if f.name.startswith('llm_') and f.name.endswith('_model')}
-                overrides.update(app_name='FG 广告工作台', app_version='1.2.6', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
+                overrides.update(app_name='FG 广告工作台', app_version='1.2.7', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
                     media_mode='real', agent_runtime_mode='real', skip_audio_agents=True,
                     agent_runtime_internal_token=os.environ['FG_ADCRAFT_SECRET'], agent_runtime_base_url='http://adcraft-agent:8765/w/' + workspace,
                     llm_api_key='fg-internal-only', llm_base_url=base + '/v1',
@@ -78,7 +85,7 @@ class FGApplication:
                 elif message['type'] == 'lifespan.shutdown':
                     if self.backup_task: self.backup_task.cancel()
                     await self.stack.aclose()
-                    for workspace in list(self.apps): await asyncio.to_thread(backup, workspace)
+                    for workspace in list(self.apps): await self.snapshot(workspace)
                     await send({'type': 'lifespan.shutdown.complete'})
                     return
         if scope['type'] != 'http': return
@@ -86,23 +93,43 @@ class FGApplication:
             try: require_nas()
             except RuntimeError: return await JSONResponse({'status': 'NAS unavailable'}, status_code=503)(scope, receive, send)
             return await JSONResponse({'status': 'ready', 'workspaces': len(self.apps)})(scope, receive, send)
-        match = re.match(r'^/w/([^/]+)(/.*)$', scope['path'])
         headers = dict(scope['headers'])
+        cleanup = re.fullmatch(r'/internal/fg/cleanup/(' + ID.pattern.removeprefix('^').removesuffix('$') + ')', scope['path'])
+        if cleanup:
+            if scope['method'] != 'POST' or headers.get(b'x-fg-internal', b'').decode() != os.environ['FG_ADCRAFT_SECRET']:
+                return await JSONResponse({'detail': 'FG access denied'}, status_code=403)(scope, receive, send)
+            workspace = cleanup[1]
+            if self.inflight.get(workspace, 0) or workspace in self.cleaning:
+                return await JSONResponse({'detail': 'Workspace busy'}, status_code=409)(scope, receive, send)
+            self.cleaning.add(workspace)
+            try:
+                async with self.storage_locks.setdefault(workspace, asyncio.Lock()):
+                    result = await asyncio.to_thread(purge_workspace, workspace)
+                return await JSONResponse(result)(scope, receive, send)
+            except Exception:
+                return await JSONResponse({'detail': 'Advertising cleanup deferred'}, status_code=503)(scope, receive, send)
+            finally:
+                self.cleaning.discard(workspace)
+        match = re.match(r'^/w/([^/]+)(/.*)$', scope['path'])
         if not match or not ID.fullmatch(match[1]) or headers.get(b'x-fg-internal', b'').decode() != os.environ['FG_ADCRAFT_SECRET']:
             return await JSONResponse({'detail': 'FG access denied'}, status_code=403)(scope, receive, send)
         if match[2].startswith('/media/') and (any(part.startswith('.') or part in {'v2','fg-context','database-backup','backups','logs'} for part in match[2].split('/')[2:]) or '.sqlite' in match[2]):
             return await JSONResponse({'detail': 'Not a public media file'}, status_code=403)(scope, receive, send)
+        if match[1] in self.cleaning:
+            return await JSONResponse({'detail': 'Workspace busy'}, status_code=503)(scope, receive, send)
+        self.inflight[match[1]] = self.inflight.get(match[1], 0) + 1
         context = {'workspace': match[1], 'actor': headers.get(b'x-fg-actor', b'').decode(), 'operation': headers.get(b'x-fg-operation', b'').decode() or str(uuid4())}
         token = fg_context.set(context)
         try:
-            try: require_nas()
+            try: require_workspace(match[1])
             except RuntimeError as error: return await JSONResponse({'detail': str(error)}, status_code=503)(scope, receive, send)
             app = await self.workspace(match[1])
             inner = dict(scope, path=match[2], raw_path=match[2].encode(), root_path='')
             await app(inner, receive, send)
             if scope['method'] not in ('GET','HEAD','OPTIONS'):
-                await asyncio.to_thread(backup, match[1])
+                await self.snapshot(match[1])
         finally:
+            self.inflight[match[1]] -= 1
             fg_context.reset(token)
 
 app = FGApplication()

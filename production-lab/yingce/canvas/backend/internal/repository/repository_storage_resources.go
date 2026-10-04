@@ -154,6 +154,13 @@ func (r *Repository) SaveResource(resource *model.Resource) error {
 	return r.db.Save(resource).Error
 }
 
+func (r *Repository) UpdateResourceMIMEType(userID string, id string, mimeType string) (bool, error) {
+	result := r.db.Model(&model.Resource{}).
+		Where("id = ? AND user_id = ? AND status = ?", id, userID, model.ResourceStatusReady).
+		Update("mime_type", mimeType)
+	return result.RowsAffected == 1, result.Error
+}
+
 // UpdateResourceThumbnail only updates a still-ready row and cannot resurrect a deleted resource.
 func (r *Repository) UpdateResourceThumbnail(userID string, id string, values map[string]any) (bool, error) {
 	result := r.db.Model(&model.Resource{}).

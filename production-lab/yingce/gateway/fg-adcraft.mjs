@@ -23,6 +23,7 @@ export async function initializeAdcraft(pool){
     CREATE TABLE IF NOT EXISTS fg_adcraft_members(workspace_id uuid REFERENCES fg_adcraft_workspaces(id),user_id varchar(36) REFERENCES users(id),PRIMARY KEY(workspace_id,user_id));
     CREATE TABLE IF NOT EXISTS fg_adcraft_jobs(id uuid PRIMARY KEY,workspace_id uuid REFERENCES fg_adcraft_workspaces(id),actor_id varchar(36) NOT NULL REFERENCES users(id),logical_key varchar(64) NOT NULL,task_id varchar(36) REFERENCES tasks(id),mode varchar(12) NOT NULL,reserved_cny numeric(16,6) NOT NULL,status varchar(16) NOT NULL DEFAULT 'reserved',error varchar(300) NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(workspace_id,logical_key));`);
   await pool.query('ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_project_id varchar(80); ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_workflow_id varchar(80); ALTER TABLE fg_adcraft_workspaces DROP CONSTRAINT IF EXISTS fg_adcraft_workspaces_budget_cny_check; ALTER TABLE fg_adcraft_workspaces ADD CONSTRAINT fg_adcraft_workspaces_budget_cny_check CHECK(budget_cny>=0)');
+  await pool.query('ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS purged_at timestamptz');
 }
 export async function advertisingAccess(pool,actor,id){
   if(!uuid.test(id))return null;
@@ -64,7 +65,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
         const w=(await client.query('SELECT * FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[deleteMatch[1]])).rows[0];
         if(!w||(!actor.reviewer&&w.owner_id!==actor.id)){await client.query('ROLLBACK');json(res,'仅所有者或超级管理员可以删除或恢复项目',403);return true;}
         const active=(await client.query("SELECT count(*) n FROM tasks WHERE project_id=$1 AND status IN ('queued','running')",[w.native_project_id])).rows[0];if(Number(active.n))throw Error('请先结束项目中正在运行的任务');
-        const restore=Boolean(deleteMatch[2]);await client.query('UPDATE fg_adcraft_workspaces SET archived_at=$2 WHERE id=$1',[w.id,restore?null:new Date()]);
+        const restore=Boolean(deleteMatch[2]);if(w.purged_at)throw Error('该广告项目已到期清理，不能恢复');await client.query('UPDATE fg_adcraft_workspaces SET archived_at=$2 WHERE id=$1',[w.id,restore?null:w.archived_at||new Date()]);
         await client.query('UPDATE projects SET status=$2 WHERE id=$1',[w.native_project_id,restore?'active':'archived']);
         await client.query('COMMIT');json(res,{id:w.id,restored:restore,retainedMedia:true});
       }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
@@ -113,8 +114,13 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
       const workspace=await advertisingAccess(pool,actor,openMatch[1]);if(!workspace){json(res,'没有这个广告项目的访问权限',403);return true;}
       if(!workspace.adcraft_project_id){
         const response=await fetch('http://adcraft-api:8000/w/'+workspace.id+'/api/v2/projects',{method:'POST',headers:{'content-type':'application/json','x-fg-internal':secret(),'x-fg-actor':actor.id,'x-fg-operation':'init-'+workspace.id,'idempotency-key':'fg-'+workspace.id+'-init'},body:JSON.stringify({name:workspace.name,description:workspace.brief}),signal:AbortSignal.timeout(120000)});
-        const created=await response.json();if(!response.ok||!created.project_id||!created.workflow_id)throw Error(created.detail?.message||'广告工程启动失败，请重试');
+        const created=await response.json();if(!response.ok||!created.project_id||!created.workflow_id)throw Error(adcraftServiceFailure(created,response.status));
         await pool.query('UPDATE fg_adcraft_workspaces SET adcraft_project_id=$2,adcraft_workflow_id=$3 WHERE id=$1',[workspace.id,created.project_id,created.workflow_id]);workspace.adcraft_project_id=created.project_id;
+      }else{
+        // Restore the mapped project; never replace a missing or temporarily
+        // unavailable project with an empty project.
+        const response=await fetch('http://adcraft-api:8000/w/'+workspace.id+'/api/v2/projects/'+encodeURIComponent(workspace.adcraft_project_id),{headers:{'x-fg-internal':secret(),'x-fg-actor':actor.id},signal:AbortSignal.timeout(20000)});
+        if(!response.ok)throw Error(adcraftServiceFailure(await response.json().catch(()=>null),response.status));
       }
       json(res,{url:'/advertising-app/'+workspace.id+'/workflow/'+workspace.adcraft_project_id});
     }catch(error){json(res,error.message,503);}return true;
@@ -122,7 +128,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(path.pathname==='/api/fg/advertising'){
     try {
       if(req.method==='GET'){
-        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE (w.archived_at IS NOT NULL)=$3 AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer,path.searchParams.get('archived')==='true'])).rows;
+        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE w.purged_at IS NULL AND (w.archived_at IS NOT NULL)=$3 AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer,path.searchParams.get('archived')==='true'])).rows;
         const groups=[];
         for(const row of rows){row.can_manage=actor.reviewer||row.owner_id===actor.id;row.can_budget=actor.reviewer;}
         json(res,{workspaces:rows,groups,models});return true;
@@ -157,6 +163,14 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   const upstream=http.request(target,{method:req.method,headers},remote=>{res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':target.pathname.endsWith('index.html')?'no-store':remote.headers['cache-control']||'private, no-cache'});pipeline(remote,res,()=>{});});
   upstream.on('error',()=>{if(!res.headersSent)json(res,'广告工作台正在启动，请稍后重试',503);else res.destroy();});
   req.on('aborted',()=>upstream.destroy());res.on('close',()=>{if(!res.writableEnded)upstream.destroy();});pipeline(req,upstream,()=>{});return true;
+}
+
+export function adcraftServiceFailure(payload,status){
+  const detail=typeof payload?.detail==='string'?payload.detail:payload?.detail?.message||'';
+  if(status===503&&detail.includes('NAS'))return 'NAS 连接暂不可用，广告工程已停止写入；工程数据保留，请恢复 NAS 连接后重试';
+  if(status===404)return '广告工程未找到，已保留原工程关联，请联系管理员恢复备份';
+  if(status===403)return '广告服务拒绝访问，请联系管理员检查工程权限';
+  return '广告服务暂不可用，请稍后重试（HTTP '+status+'）';
 }
 
 async function importReference(value,kind,context,cookie,env){

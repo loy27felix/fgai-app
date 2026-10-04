@@ -9,6 +9,7 @@ import {startFeeSync} from './fg-fee-sync.mjs';
 import {budgetInternalRoute} from './fg-budgets.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
+import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
@@ -26,6 +27,7 @@ await initializeAdcraft(pool);
 await initializeEditorLeases(pool);
 await publishExistingStoryMedia(pool);
 startFeeSync(pool);
+startAdvertisingRetention(pool);
 
 function respond(res, status, message, reason) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -131,7 +133,7 @@ const server = http.createServer(async (req, res) => {
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
-      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.6',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
+      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.7',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
     }
     if (path.pathname === '/api/admin/system-performance' && req.method === 'GET') {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});

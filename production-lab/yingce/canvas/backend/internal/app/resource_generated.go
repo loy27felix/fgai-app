@@ -202,18 +202,32 @@ func downloadRemoteResource(rawURL string, maxBytes int64) (remoteResourcePayloa
 	if int64(len(data)) >= maxBytes {
 		return remoteResourcePayload{}, BadAuthRequest(fmt.Sprintf("远程资源必须小于 %s", formatStorageLimit(maxBytes)))
 	}
-	mimeType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if idx := strings.Index(mimeType, ";"); idx >= 0 {
-		mimeType = strings.TrimSpace(mimeType[:idx])
-	}
-	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = http.DetectContentType(data)
-	}
+	mimeType := remoteResourceMIMEType(resp.Header.Get("Content-Type"), data)
 	fileName := path.Base(parsed.Path)
 	if fileName == "" || fileName == "." || !strings.Contains(fileName, ".") {
 		fileName = "resource." + extensionFromMimeType(mimeType)
 	}
 	return remoteResourcePayload{url: parsed.String(), endpoint: parsed.Host, fileName: fileName, mimeType: mimeType, data: data}, nil
+}
+
+func remoteResourceMIMEType(header string, data []byte) string {
+	declared := strings.ToLower(strings.TrimSpace(strings.Split(header, ";")[0]))
+	detected := http.DetectContentType(data)
+	// Some media CDNs return text/plain for PNG and MP4. Recognized binary
+	// signatures take precedence; a filename alone is never proof of format.
+	if mediaMIMEKind(detected) != "" || declared == "" || declared == "application/octet-stream" {
+		return detected
+	}
+	return declared
+}
+
+func mediaMIMEKind(value string) string {
+	for _, kind := range []string{"image", "video", "audio"} {
+		if strings.HasPrefix(value, kind+"/") {
+			return kind
+		}
+	}
+	return ""
 }
 
 func openRemoteResource(rawURL string) (io.ReadCloser, error) {

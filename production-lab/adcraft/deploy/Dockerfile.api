@@ -15,6 +15,7 @@ COPY upstream/apps/api/scripts ./scripts
 COPY upstream/apps/api/alembic ./alembic
 COPY upstream/apps/api/alembic.ini ./alembic.ini
 COPY upstream/apps/api/fg_main.py ./fg_main.py
+RUN python -m unittest app.fg_backup_test
 RUN python -c "import subprocess,pathlib; e=subprocess.check_output(['ffmpeg','-hide_banner','-encoders']).decode(); assert 'libx264' in e and ' aac ' in e; assert pathlib.Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc').is_file()"
 EXPOSE 8000
 CMD ["uvicorn", "fg_main:app", "--host", "0.0.0.0", "--port", "8000"]

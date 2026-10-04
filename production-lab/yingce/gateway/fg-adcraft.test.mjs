@@ -2,9 +2,33 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
 import {createHmac} from 'node:crypto';
-import {adcraftInternalRoute,adcraftUserRoute,advertisingAccess,budgetCharge,tokenContext} from './fg-adcraft.mjs';
+import {adcraftInternalRoute,adcraftUserRoute,advertisingAccess,budgetCharge,tokenContext,adcraftServiceFailure} from './fg-adcraft.mjs';
 
 process.env.FG_ADCRAFT_SECRET='unit-test-only-secret';
+test('NAS unavailability is visible without exposing upstream private errors',()=>{
+ assert.match(adcraftServiceFailure({detail:'NAS 未挂载，广告工程已停止写入'},503),/NAS 连接暂不可用/);
+ assert.match(adcraftServiceFailure({detail:{message:'NAS 未挂载'}},503),/NAS 连接暂不可用/);
+ assert.doesNotMatch(adcraftServiceFailure({detail:'token=private-secret'},500),/private-secret/);
+ assert.match(adcraftServiceFailure(null,404),/保留原工程关联/);
+});
+test('opening an existing advertising project preserves its mapping during a NAS outage',async()=>{
+ const f=fixture(),saved=global.fetch,query=f.pool.query;let writes=0;
+ f.pool.query=async(sql,args)=>{
+  if(sql.startsWith('SELECT w.*'))return {rows:[{id:workspace,owner_id:actor,adcraft_project_id:'native-existing'}]};
+  if(sql.startsWith('UPDATE'))writes++;
+  return query(sql,args);
+ };
+ global.fetch=async(url,options)=>{
+  assert.equal(options.method,undefined);assert.match(String(url),/projects\/native-existing$/);
+  return Response.json({detail:'NAS 未挂载，广告工程已停止写入'},{status:503});
+ };
+ try{
+  const req=Readable.from([]);req.method='POST';req.headers={};let status,response;
+  const res={writeHead(s){status=s;},end(body){response=JSON.parse(body);}};
+  await adcraftUserRoute(req,res,{pool:f.pool,actor:{id:actor},cookie:'test',web:'http://mock',publicOrigin:'https://fg.invalid',path:new URL('http://gateway/api/fg/advertising/'+workspace+'/open')});
+  assert.equal(status,503);assert.match(response.msg,/NAS 连接暂不可用/);assert.equal(writes,0);
+ }finally{global.fetch=saved;}
+});
 const workspace='00000000-0000-4000-8000-000000000001',actor='00000000-0000-4000-8000-000000000002';
 function token(operation='test-operation'){
  const raw=Buffer.from(JSON.stringify({workspace,actor,operation})).toString('base64url');return raw+'.'+createHmac('sha256',process.env.FG_ADCRAFT_SECRET).update(raw).digest('hex');

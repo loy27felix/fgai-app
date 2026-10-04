@@ -75,6 +75,37 @@ func (s *Service) uploadResource(userID string, header *multipart.FileHeader, ki
 	return resource, err
 }
 
+func (s *Service) repairImportedResourceMIMEType(userID string, resource *model.Resource) (*model.Resource, error) {
+	if resource.Kind != "image" && resource.Kind != "video" && resource.Kind != "audio" {
+		return resource, nil
+	}
+	if mediaMIMEKind(resource.MimeType) == resource.Kind {
+		return resource, nil
+	}
+	stream, err := s.OpenResourceRange(userID, resource.ID, "bytes=0-511")
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(stream.Body, 512))
+	if err != nil {
+		return nil, err
+	}
+	detected := http.DetectContentType(data)
+	if mediaMIMEKind(detected) != resource.Kind {
+		return resource, nil
+	}
+	updated, err := s.repo.UpdateResourceMIMEType(userID, resource.ID, detected)
+	if err != nil {
+		return nil, err
+	}
+	if !updated {
+		return nil, gorm.ErrRecordNotFound
+	}
+	resource.MimeType = detected
+	return resource, nil
+}
+
 // UploadResourceFile 接收已完整落盘的本地文件（分片上传合并后调用）。
 // 它与 UploadResource 共享资源幂等、媒体探测、配额和持久化语义，唯一差异是分片会话已在 handler 校验单文件上限，
 // 因而此处不再重复该上限检查；uploadIdentity 用于跨请求重试时复用同一逻辑资源，避免重复对象。
@@ -136,7 +167,7 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 		return nil, err
 	}
 	if existing != nil && existing.Status == model.ResourceStatusReady {
-		return existing, nil
+		return s.repairImportedResourceMIMEType(userID, existing)
 	}
 	if existing != nil && existing.Status == model.ResourceStatusPending {
 		return nil, resourceUploadInProgress()
