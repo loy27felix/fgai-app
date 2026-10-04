@@ -28,8 +28,12 @@ def storage(action, day='', content=None):
         input=content, capture_output=True)
 
 def container_ready(service, marker):
-    # The official backend image has shell builtins but no /bin/test executable.
-    return subprocess.run([DOCKER, 'exec', 'fg-six-yingce-' + service + '-1', 'sh', '-c', 'test -f "$1"', 'fg-nas-probe', marker], capture_output=True, timeout=10).returncode == 0
+    # SMB can cache marker metadata even after a Docker bind becomes stale.
+    # Use one stable file to verify reads and writes in the actual service bind.
+    probe = str(pathlib.PurePosixPath(marker).parent / 'yingce/.fg-six-container-probe')
+    return subprocess.run([DOCKER, 'exec', 'fg-six-yingce-' + service + '-1', 'sh', '-c',
+        'grep -qx "fg-studio-media:v1" "$1" || exit 10; printf probe > "$2" || exit 11; grep -qx probe "$2" || exit 12',
+        'fg-nas-probe', marker, probe], capture_output=True, timeout=10).returncode == 0
 
 def rebind_storage(services):
     # A recovered host SMB mount does not repair existing Docker bind mounts.
@@ -94,7 +98,12 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
                 run(DOCKER, 'stop', '--timeout', '30', 'fg-six-yingce-backend-1', capture_output=True)
                 print('Sixth backend stopped: NAS read/write unavailable', flush=True)
             raise SystemExit(0)
-        stale = [service for service, marker in [('backend','/data/.fg-studio-nas-ready'),('adcraft-api','/nas/.fg-studio-nas-ready')] if not container_ready(service, marker)]
+        stale = []
+        for service, marker in [('backend','/data/.fg-studio-nas-ready'),('adcraft-api','/nas/.fg-studio-nas-ready')]:
+            try:
+                if not container_ready(service, marker): stale.append(service)
+            except subprocess.TimeoutExpired:
+                stale.append(service)
         if stale and not rebind_storage(stale): raise SystemExit(0)
         creator_provision = ROOT / 'provision-creator.py'
         if creator_provision.is_file():
@@ -121,5 +130,8 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
             print('Sixth database backup verified: ' + day + '.dump', flush=True)
     except subprocess.CalledProcessError:
         print('Sixth maintenance deferred: Docker service not ready', flush=True)
-    except subprocess.TimeoutExpired:
-        print('Sixth maintenance deferred: dependency timeout', flush=True)
+    except subprocess.TimeoutExpired as error:
+        # Only the executable and operation are reported; never private argv.
+        command = error.cmd if isinstance(error.cmd, list) else []
+        operation = pathlib.Path(command[0]).name + ':' + (command[1] if len(command) > 1 else '') if command else 'dependency'
+        print('Sixth maintenance deferred: dependency timeout (' + operation + ')', flush=True)

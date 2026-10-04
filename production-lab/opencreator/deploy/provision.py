@@ -10,7 +10,10 @@ for line in (ROOT/'.env').read_text().splitlines():
 nas=pathlib.Path(env['NAS_MEDIA_PATH'])
 assert (nas/'.fg-studio-nas-ready').is_file(),'NAS unavailable; no runtime provisioned'
 def run(args,optional=False):
- result=subprocess.run([DOCKER,*args],capture_output=True,text=True,timeout=30)
+ try:result=subprocess.run([DOCKER,*args],capture_output=True,text=True,timeout=30)
+ except subprocess.TimeoutExpired:
+  if optional:return None
+  raise RuntimeError('Creator Docker operation timed out; private arguments omitted') from None
  if result.returncode and not optional:raise RuntimeError('Creator Docker operation failed; private arguments omitted')
  return result.stdout.strip() if result.returncode==0 else None
 users=json.loads(run(['exec','fg-six-yingce-postgres-1','psql','-U','fg_yingce','-d','fg_yingce','-tAc',"SELECT COALESCE(json_agg(id),'[]') FROM users WHERE status='active' AND id IN(SELECT user_id FROM fg_accounts)"]))
@@ -27,7 +30,7 @@ for user in users:
  existing=run(['inspect',name],optional=True)
  if existing:
   state=json.loads(existing)[0]
-  rebound=run(['exec',name,'test','-f','/workspace/.fg-creator-ready'],optional=True) is not None
+  rebound=run(['exec',name,'python3','-c',"from pathlib import Path; import os; Path('/workspace/.fg-creator-ready').read_text(); p=Path('/workspace/.fg-creator-probe'); p.write_text('FG creator write check'); assert p.read_text()=='FG creator write check'"],optional=True) is not None
   if state['Image']!=image_id or not state['State']['Running'] or not rebound:
    # Preserve the private state volume when updating an image or stale SMB bind.
    run(['rm','-f',name]);existing=None
