@@ -1,0 +1,7 @@
+# Rebuild only Web when the tested runtime and its dependency lock are unchanged.
+FROM fg-six-creator-runtime:v128 AS build
+COPY upstream/apps/web/src/ /app/apps/web/src/
+ENV OPENCREATOR_WEB_BASE=/creator-static/ VITE_FG_MANAGED=1
+RUN pnpm --filter @opencreator/web exec vitest run src/features/settings/StartupAgentSetup.test.tsx && pnpm --filter @opencreator/web typecheck && pnpm --filter @opencreator/web build
+FROM nginx:stable-alpine
+COPY --from=build /app/apps/web/dist/ /usr/share/nginx/html/

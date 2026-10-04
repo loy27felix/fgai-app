@@ -8,7 +8,7 @@ WORKDIR /app
 COPY upstream/ ./
 RUN pnpm install --frozen-lockfile
 RUN pnpm krillinai:build && pnpm --filter @opencreator/daemon build && pnpm templates:compile
-ENV OPENCREATOR_WEB_BASE=/creator-static/
+ENV OPENCREATOR_WEB_BASE=/creator-static/ VITE_FG_MANAGED=1
 RUN pnpm --filter @opencreator/web build
 RUN npm install -g @openai/codex@0.149.0 && codex --version
 COPY deploy/entry.mjs /app/fg-entry.mjs

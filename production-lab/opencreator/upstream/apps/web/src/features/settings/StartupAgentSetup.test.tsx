@@ -43,7 +43,17 @@ function mount(service: AgentSetupService, initialSnapshot?: AgentSetupSnapshot)
 }
 
 describe('StartupAgentSetup', () => {
-  afterEach(() => { cleanup(); window.localStorage.clear(); });
+  afterEach(() => { cleanup(); window.localStorage.clear(); vi.unstubAllEnvs(); });
+
+  it('uses a ready company-managed provider without asking for a personal Codex account', () => {
+    vi.stubEnv('VITE_FG_MANAGED', '1');
+    const provider: CodexProviderConfig = { baseUrl: 'http://fg-gateway:3010/internal/creator/00000000-0000-4000-8000-000000000001/v1', model: 'gpt-5.6-sol-t1a', apiKeyConfigured: true, authentication: 'api_key' };
+    expect(isAgentSetupConfirmed({ readiness: readiness('signed_out', 'degraded'), provider })).toBe(true);
+    expect(isAgentSetupConfirmed({ readiness: readiness('signed_out', 'blocked'), provider })).toBe(false);
+    expect(isAgentSetupConfirmed({ readiness: readiness('signed_out'), provider: { ...provider, baseUrl: 'https://personal.example.test/v1' } })).toBe(false);
+    vi.stubEnv('VITE_FG_MANAGED', '0');
+    expect(isAgentSetupConfirmed({ readiness: readiness('signed_out'), provider })).toBe(false);
+  });
 
   it('only offers reuse for a ready Codex with usable credentials', () => {
     const provider: CodexProviderConfig = { baseUrl: 'https://gateway.example.test/v1', model: 'model-1', apiKeyConfigured: true, authentication: 'api_key' };

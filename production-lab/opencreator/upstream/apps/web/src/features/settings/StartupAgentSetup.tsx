@@ -43,7 +43,9 @@ function confirmationValue(snapshot: AgentSetupSnapshot): string {
 
 export function isAgentSetupConfirmed(snapshot: AgentSetupSnapshot): boolean {
   return availableAgentMode(snapshot) !== null
-    && readJsonFromStorage<string>(confirmationKey) === confirmationValue(snapshot);
+    && (import.meta.env.VITE_FG_MANAGED === '1'
+      && /^http:\/\/fg-gateway:3010\/internal\/creator\/[0-9a-f-]{36}\/v1$/.test(snapshot.provider.baseUrl)
+      || readJsonFromStorage<string>(confirmationKey) === confirmationValue(snapshot));
 }
 
 export function confirmAgentSetup(snapshot: AgentSetupSnapshot): void {
