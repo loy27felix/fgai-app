@@ -35,7 +35,7 @@ child.stderr.on('data',()=>{});
 child.on('exit',code=>process.exit(code||1));
 http.createServer(async(req,res)=>{
  try{await fs.access('/workspace/.fg-creator-ready');}catch{res.writeHead(503);res.end('NAS unavailable');return;}
- if(req.url==='/healthz'){res.writeHead(connection?200:503);res.end(connection?'ready':'starting');return;}
+ if(req.url==='/healthz'){res.writeHead(connection?200:503,{'content-type':'application/json'});res.end(JSON.stringify({ok:!!connection}));return;}
  if(req.headers['x-fg-runtime']!==capability){res.writeHead(403);res.end('Forbidden');return;}
  if(!connection){res.writeHead(503);res.end('Creator starting');return;}
  const headers={...req.headers,authorization:'Bearer '+connection.token};for(const k of ['host','origin','referer','cookie','x-fg-runtime'])delete headers[k];
