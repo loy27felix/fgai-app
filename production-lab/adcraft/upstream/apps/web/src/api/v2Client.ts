@@ -1349,6 +1349,9 @@ export const v2Api = {
   trashProject(projectId: string): Promise<void> {
     return requestV2(`/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
   },
+  purgeProject(projectId: string): Promise<unknown> {
+    return requestV2(`/projects/${encodeURIComponent(projectId)}/purge`, { method: "POST" });
+  },
 
   restoreProject(projectId: string): Promise<V2EtaggedResponse<ProjectV2>> {
     return requestV2WithEtag(`/projects/${encodeURIComponent(projectId)}/restore`, { method: "POST" }, normalizeProjectV2);

@@ -15,14 +15,14 @@ import (
 
 func (r *Repository) Projects(userID string) ([]model.Project, error) {
 	var projects []model.Project
-	err := fgShortDramaListScope(fgProjectScope(r.db,"projects",userID)).Order("updated_at desc").Find(&projects).Error
+	err := fgShortDramaListScope(fgProjectScope(r.db, "projects", userID)).Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) ProjectsPage(userID string, page int, pageSize int) ([]model.Project, int64, error) {
 	var projects []model.Project
 	var total int64
-	query := fgShortDramaListScope(fgProjectScope(r.db.Model(&model.Project{}),"projects",userID))
+	query := fgShortDramaListScope(fgProjectScope(r.db.Model(&model.Project{}), "projects", userID))
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -34,7 +34,7 @@ func (r *Repository) ProjectsPage(userID string, page int, pageSize int) ([]mode
 
 func (r *Repository) ProjectForUser(userID string, id string) (*model.Project, error) {
 	var project model.Project
-	if err := fgProjectScope(r.db,"projects",userID).First(&project, "id = ?", id).Error; err != nil {
+	if err := fgProjectScope(r.db, "projects", userID).First(&project, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &project, nil
@@ -59,13 +59,21 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 		// Advertising keeps its native project for immutable cost attribution.
 		if tx.Migrator().HasTable("fg_adcraft_workspaces") {
 			var count int64
-			if err := tx.Table("fg_adcraft_workspaces").Where("native_project_id = ? AND owner_id = ?",id,userID).Count(&count).Error; err != nil { return err }
+			if err := tx.Table("fg_adcraft_workspaces").Where("native_project_id = ? AND owner_id = ?", id, userID).Count(&count).Error; err != nil {
+				return err
+			}
 			if count > 0 {
 				var active int64
-				if err:=tx.Model(&model.Task{}).Where("project_id = ? AND status IN ?",id,[]model.TaskStatus{model.TaskStatusQueued,model.TaskStatusRunning}).Count(&active).Error;err!=nil{return err}
-				if active>0{return ErrProjectHasActiveTasks}
-				if err:=tx.Table("fg_adcraft_workspaces").Where("native_project_id = ?",id).Update("archived_at",time.Now()).Error;err!=nil{return err}
-				return tx.Model(&model.Project{}).Where("id = ?",id).Update("status",model.ProjectStatusArchived).Error
+				if err := tx.Model(&model.Task{}).Where("project_id = ? AND status IN ?", id, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&active).Error; err != nil {
+					return err
+				}
+				if active > 0 {
+					return ErrProjectHasActiveTasks
+				}
+				if err := tx.Table("fg_adcraft_workspaces").Where("native_project_id = ?", id).Update("archived_at", time.Now()).Error; err != nil {
+					return err
+				}
+				return tx.Model(&model.Project{}).Where("id = ?", id).Update("status", model.ProjectStatusArchived).Error
 			}
 		}
 		var canvasIDs []string
@@ -156,7 +164,7 @@ func (r *Repository) DeleteProject(userID string, id string, canvasUpdates []mod
 
 func fgShortDramaListScope(db *gorm.DB) *gorm.DB {
 	if db.Migrator().HasTable("fg_adcraft_workspaces") {
-		return db.Where("projects.type <> ? AND NOT EXISTS(SELECT 1 FROM fg_adcraft_workspaces a WHERE a.native_project_id = projects.id)","advertising")
+		return db.Where("projects.type NOT IN ? AND NOT EXISTS(SELECT 1 FROM fg_adcraft_workspaces a WHERE a.native_project_id = projects.id)", []string{"advertising", "creator"})
 	}
 	return db
 }
@@ -308,13 +316,13 @@ func (r *Repository) UpsertCanvasUnitLink(link *model.CanvasUnitLink) error {
 
 func (r *Repository) ProjectCanvasSummaries(userID string, projectID string) ([]model.CanvasProject, error) {
 	var canvases []model.CanvasProject
-	err := fgCanvasScope(r.db,userID).Select("id", "user_id", "project_id", "title", "revision", "created_at", "updated_at").Where("project_id = ?", projectID).Order("updated_at desc").Find(&canvases).Error
+	err := fgCanvasScope(r.db, userID).Select("id", "user_id", "project_id", "title", "revision", "created_at", "updated_at").Where("project_id = ?", projectID).Order("updated_at desc").Find(&canvases).Error
 	return canvases, err
 }
 
 func (r *Repository) ProjectCanvasDocuments(userID string, projectID string) ([]model.CanvasProject, error) {
 	var canvases []model.CanvasProject
-	err := fgCanvasScope(r.db,userID).Select("id", "title", "payload_json", "revision").Where("project_id = ?", projectID).Find(&canvases).Error
+	err := fgCanvasScope(r.db, userID).Select("id", "title", "payload_json", "revision").Where("project_id = ?", projectID).Find(&canvases).Error
 	return canvases, err
 }
 
@@ -361,7 +369,7 @@ func (r *Repository) UnassignCanvasFromProject(userID string, projectID string, 
 
 func (r *Repository) ProjectAssets(userID string, projectID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := fgMediaScope(r.db.Table("assets"),"assets","fg_asset_grants","asset_id",userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID).Order("assets.updated_at desc").Scan(&assets).Error
+	err := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID).Order("assets.updated_at desc").Scan(&assets).Error
 	return assets, err
 }
 
@@ -504,8 +512,12 @@ func (r *Repository) LinkProjectAsset(asset *model.Asset, version *model.AssetVe
 		}
 		if New(tx).FGSharedProject(link.ProjectID) {
 			payload, err := json.Marshal(map[string]any{"nodes": []any{map[string]any{"metadata": map[string]any{"assetId": asset.ID}}}, "asset": json.RawMessage(asset.PayloadJSON)})
-			if err != nil { return err }
-			if err := New(tx).fgPublishCanvasMedia(&model.CanvasProject{ProjectID: link.ProjectID, UserID: asset.UserID, PayloadJSON: string(payload)}); err != nil { return err }
+			if err != nil {
+				return err
+			}
+			if err := New(tx).fgPublishCanvasMedia(&model.CanvasProject{ProjectID: link.ProjectID, UserID: asset.UserID, PayloadJSON: string(payload)}); err != nil {
+				return err
+			}
 		}
 		return tx.Model(&model.Project{}).Where("id = ?", link.ProjectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
 	})

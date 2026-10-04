@@ -1,0 +1,86 @@
+import http from 'node:http';
+import {pipeline} from 'node:stream';
+import {createHash,createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
+import {advertisingModels,selectedAdvertisingModel} from './fg-adcraft-models.mjs';
+import {creatorConversation,creatorResponse,creatorStreamEvents} from './fg-creator-protocol.mjs';
+import {responseHeaders} from './policy.mjs';
+
+const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+export const creatorCapability=id=>createHmac('sha256',process.env.FG_ADCRAFT_SECRET||'').update('fg-creator-v1:'+id).digest('hex');
+export function creatorAuthorised(id,given){const expected=creatorCapability(id);return uuid.test(id)&&!!process.env.FG_ADCRAFT_SECRET&&typeof given==='string'&&given.length===expected.length&&timingSafeEqual(Buffer.from(given),Buffer.from(expected));}
+export async function initializeCreator(pool){
+ await pool.query(`CREATE TABLE IF NOT EXISTS fg_creator_workspaces(owner_id varchar(36) PRIMARY KEY REFERENCES users(id),native_project_id varchar(36) UNIQUE NOT NULL REFERENCES projects(id),created_at timestamptz NOT NULL DEFAULT now());
+ CREATE TABLE IF NOT EXISTS fg_creator_jobs(id uuid PRIMARY KEY,owner_id varchar(36) NOT NULL REFERENCES users(id),logical_key varchar(64) NOT NULL,task_id varchar(36) REFERENCES tasks(id),status varchar(16) NOT NULL DEFAULT 'reserved',created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(owner_id,logical_key));`);
+}
+function json(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(data));}
+async function body(req,max=32<<20){let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>max)throw Error('资料过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString());}
+async function nativeAPI(web,cookie,origin,path,method='GET',payload){const r=await fetch(new URL('/api'+path,web),{method,headers:{cookie,origin,'content-type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload),signal:AbortSignal.timeout(120000)});const b=await r.json();if(!r.ok||b.code!==0)throw Error(b.msg||'FG 制作服务暂不可用');return b.data;}
+export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}){
+ const match=/^\/internal\/creator\/([^/]+)\/v1\/(responses|chat\/completions|images\/generations)$/.exec(path.pathname);if(!match)return false;
+ let keepAlive;
+ try{
+  if(req.method!=='POST'||!creatorAuthorised(match[1],String(req.headers.authorization||'').replace(/^Bearer /,''))){json(res,{error:{message:'创作者服务未授权'}},403);return true;}
+  const actor=(await pool.query(`SELECT u.id,u.display_name name,a.email,a.platform_role FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.id=$1 AND u.status='active'`,[match[1]])).rows[0];if(!actor)throw Error('FG 账号不可用');
+  const cookie=await canvasSession({...actor,reviewer:actor.platform_role==='superadmin',platformRole:actor.platform_role});const api=(p,m,b)=>nativeAPI(web,cookie,publicOrigin,p,m,b);
+  const payload=await body(req),mode=match[2]==='images/generations'?'image':'text';const selected=await selectedAdvertisingModel(pool,mode,payload.model||(mode==='image'?'gpt-image-2':'gpt-5.6-sol-t1a'));const model=selected.billingId;
+  if(payload.stream&&match[2]!=='responses')throw Error('此创作工具接口暂支持非流式请求');
+  const conversation=mode==='image'?null:match[2]==='responses'?creatorConversation(payload):{canonical:{messages:payload.messages,tools:payload.tools||[],toolChoice:payload.tool_choice||'auto'},custom:new Set()};
+  if(mode==='image'&&(!payload.prompt||Number(payload.n||1)!==1||payload.image))throw Error('当前创作者图片中转支持单张文生图，参考图请使用 FG 自由画布');
+  const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name LIKE 'WeToken%' AND cm.model_key=$1 AND cm.enabled AND c.enabled AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('公司模型暂不可用');
+  // PostgreSQL serialises initial project mapping and duplicate transport retries.
+  const client=await pool.connect();let workspace,job,newJob=false;
+  const logical=createHash('sha256').update(JSON.stringify([req.headers['session_id']||req.headers['x-codex-session-id']||'',payload])).digest('hex');
+  try{
+   await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-creator:'||$1))",[actor.id]);
+   workspace=(await client.query('SELECT * FROM fg_creator_workspaces WHERE owner_id=$1',[actor.id])).rows[0];
+   if(!workspace){const {project}=await api('/projects','POST',{name:'创作者工作台 · '+actor.name,type:'creator',aspectRatio:'16:9',sourceType:'text',description:'OpenCreator 公司统一渠道；每位成员的原生工程单独保存。'});workspace={native_project_id:project.id};await client.query('INSERT INTO fg_creator_workspaces(owner_id,native_project_id) VALUES($1,$2)',[actor.id,project.id]);}
+   job=(await client.query('SELECT * FROM fg_creator_jobs WHERE owner_id=$1 AND logical_key=$2',[actor.id,logical])).rows[0];
+   if(!job){job={id:randomUUID()};newJob=true;await client.query('INSERT INTO fg_creator_jobs(id,owner_id,logical_key) VALUES($1,$2,$3)',[job.id,actor.id,logical]);}
+   await client.query('COMMIT');
+  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+  if(!job.task_id&&!newJob){const recovered=(await pool.query("SELECT id FROM tasks WHERE user_id=$1 AND project_id=$2 AND input_json::jsonb #>> '{metadata,clientOperationId}'=$3 LIMIT 1",[actor.id,workspace.native_project_id,'creator-'+job.id])).rows[0];if(!recovered)throw Error('请求已登记，正在恢复；不会重复提交付费任务');job.task_id=recovered.id;}
+  if(!job.task_id){
+   const config={channelId:channel.channel_id,model,interfaceType:channel.protocol,apiFormat:channel.api_format||'openai',count:'1',size:payload.size||selected.profile.image?.size?.default||'1:1',quality:payload.quality||selected.profile.image?.quality?.default||''};
+   const input={mode,prompt:mode==='image'?payload.prompt:'创作者工作台 Agent',config,...(mode==='text'?{agentRequests:{canonical:conversation.canonical},textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:'fg-opencreator',creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
+   const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt:input.prompt,input});job.task_id=task.id;
+  }
+  await pool.query("UPDATE fg_creator_jobs SET task_id=$2,status='submitted' WHERE id=$1",[job.id,job.task_id]);
+  if(payload.stream){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store','connection':'keep-alive','x-accel-buffering':'no'});res.write(': FG task accepted\n\n');keepAlive=setInterval(()=>{if(!res.destroyed)res.write(': waiting\n\n');},10000);}
+  let task;for(let i=0;i<1800;i++){const data=await api('/tasks/'+job.task_id);task=data.task||data;if(['succeeded','failed','cancelled'].includes(task.status))break;await new Promise(r=>setTimeout(r,1000));}
+  if(task.status!=='succeeded')throw Error(task.error||'任务仍在运行，请从创作历史查看；未重复提交');
+  const nativeResult=JSON.parse(task.resultJson||'{}');
+  if(mode==='image'){
+   const output=[...(nativeResult.images||[]),nativeResult.image,nativeResult].filter(Boolean).find(v=>v.resourceId||v.storageKey);let id=output?.resourceId||String(output?.storageKey||'').replace(/^resource:/,'');
+   if(!id&&nativeResult.assetId)id=(await pool.query('SELECT resource_id FROM assets WHERE id=$1',[nativeResult.assetId])).rows[0]?.resource_id;
+   if(!id)throw Error('图片已生成，等待 NAS 归档，请从创作历史恢复');
+   const access=await api('/resources/access','POST',[{resourceId:id,purpose:'provider-input',variant:'original'}]);const url=new URL(access.items?.[0]?.access?.url);const image=await fetch(new URL(url.pathname+url.search,web));if(!image.ok)throw Error('图片归档暂不可读');
+   json(res,{created:Math.floor(Date.now()/1000),data:[{b64_json:Buffer.from(await image.arrayBuffer()).toString('base64')}]});return true;
+  }
+  if(match[2]==='chat/completions'){json(res,{id:'chatcmpl-'+job.id,object:'chat.completion',model,choices:[{index:0,message:{role:'assistant',content:nativeResult.text||null,...(nativeResult.toolCalls?.length?{tool_calls:nativeResult.toolCalls}:{})},finish_reason:nativeResult.toolCalls?.length?'tool_calls':'stop'}]});return true;}
+  const result=creatorResponse(nativeResult,{id:'resp_'+job.id,model,custom:conversation.custom});
+  if(payload.stream){for(const event of creatorStreamEvents(result))res.write('event: '+event.type+'\ndata: '+JSON.stringify(event)+'\n\n');res.end();}else json(res,result);
+ }catch(e){if(!res.headersSent)json(res,{error:{message:e.message,type:'fg_creator_error'}},400);else if(!res.destroyed){res.write('event: error\ndata: '+JSON.stringify({type:'error',error:{message:e.message,code:'fg_creator_error'}})+'\n\n');res.end();}}
+ finally{if(keepAlive)clearInterval(keepAlive);}return true;
+}
+export async function creatorUserRoute(req,res,{pool,actor,path}){
+ const runtime='/\.opencreator/runtime';
+ if(path.pathname==='/.opencreator/runtime-config'){json(res,{baseUrl:'/.opencreator/runtime'});return true;}
+ const isRuntime=path.pathname.startsWith('/.opencreator/runtime/');
+ const isStatic=path.pathname==='/creator-app'||path.pathname.startsWith('/creator-static/')||path.pathname.startsWith('/creator-presets/')||path.pathname.startsWith('/fonts/opencreator/');
+ if(!isRuntime&&!isStatic)return false;
+ if(isRuntime&&path.pathname==='/.opencreator/runtime/codex/models'){
+  const models=(await advertisingModels(pool)).filter(m=>m.capability==='text').map(m=>({id:m.billingId,model:m.billingId,displayName:m.name,description:'公司 WeToken 渠道 · 纳入 FG 人民币账单和月额度',supportedReasoningEfforts:[],defaultReasoningEffort:null,inputModalities:['text','image'],isDefault:m.billingId==='gpt-5.6-sol-t1a'}));json(res,{models});return true;
+ }
+ const inner=isRuntime?path.pathname.slice('/.opencreator/runtime'.length):'';
+ if(isRuntime&&((/^\/codex\/(?:provider|login|logout)/.test(inner)&&!['GET','HEAD'].includes(req.method))||(/^\/(?:settings\/storage|creator-services\/config|config)/.test(inner)&&!['GET','HEAD'].includes(req.method)))){json(res,{error:{code:'FG_MANAGED_PROVIDER',message:'模型与存储由公司统一管理，无需个人 Codex 账号'}},403);return true;}
+ const destination=isRuntime?'http://fg-creator-'+actor.id.replaceAll('-','')+':8060':'http://creator-web';
+ const target=new URL(isRuntime?inner+path.search:path.pathname==='/creator-app'?'/index.html':path.pathname.replace(/^\/creator-static/,''),destination);
+ const headers=isRuntime?{'x-fg-runtime':creatorCapability(actor.id)}:{};
+ for(const key of ['content-type','content-length','accept','range','last-event-id'])if(req.headers[key])headers[key]=req.headers[key];
+ const upstream=http.request(target,{method:req.method,headers},remote=>{
+  if(path.pathname==='/creator-app'&&remote.statusCode===200){const chunks=[];remote.on('data',c=>chunks.push(c));remote.on('end',()=>{let html=Buffer.concat(chunks).toString();html=html.replace('</head>','<style>body{padding-top:38px!important;height:100dvh!important;box-sizing:border-box}#root{height:calc(100dvh - 38px)!important}.fg-creator-header{position:fixed;z-index:9999;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:18px;padding:0 18px;background:#171a20;color:#e4e5e9;font:13px system-ui;border-bottom:1px solid #30343b}.fg-creator-header a{color:inherit}.fg-creator-header small{color:#a8afbb}</style></head>').replace('<body>','<body><nav class="fg-creator-header"><a href="/">← FG 工作台</a><strong>创作者工作台</strong><small>工程仅本人可见 · 公司模型计费与月额度 · 字幕识别和配音需先配置可用服务</small></nav>');res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(html);});return;}
+  res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':'no-store'});pipeline(remote,res,()=>{});
+ });
+ upstream.on('error',()=>{if(!res.headersSent)json(res,{error:{code:'CREATOR_STARTING',message:'个人创作者运行环境正在启动，请稍后重试'}},503);else res.destroy();});
+ req.on('aborted',()=>upstream.destroy());res.on('close',()=>{if(!res.writableEnded)upstream.destroy();});pipeline(req,upstream,()=>{});return true;
+}

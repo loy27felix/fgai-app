@@ -5,6 +5,7 @@ import {priceQuote} from './fg-quotes.mjs';
 import {responseHeaders} from './policy.mjs';
 import {advertisingModels,selectedAdvertisingModel} from './fg-adcraft-models.mjs';
 import {admissionPrice} from './fg-budgets.mjs';
+import {purgeArchivedAdvertising} from './fg-adcraft-retention.mjs';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const models={text:'gpt-5.6-sol-t1a',image:'seedream-5-0-lite-260128',video:'doubao-seedance-2-0-fast-filter-off'};
@@ -56,6 +57,11 @@ async function nativeAPI(web,cookie,origin,path,method='GET',payload){
   const data=await response.json();if(!response.ok||data.code!==0)throw Error(data.msg||'FG 制作服务暂时不可用');return data.data;
 }
 export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}){
+  const purgeMatch=/^\/api\/fg\/advertising\/([^/]+)\/purge$/.exec(path.pathname);
+  if(purgeMatch&&req.method==='POST'){
+    try{if(!uuid.test(purgeMatch[1]))throw Error('项目编号无效');await purgeArchivedAdvertising(pool,purgeMatch[1],{actor});json(res,{id:purgeMatch[1],purged:true});}
+    catch(error){json(res,error.message,400);}return true;
+  }
   const deleteMatch=/^\/api\/fg\/advertising\/([^/]+)(\/restore)?$/.exec(path.pathname);
   if(deleteMatch&&((req.method==='DELETE'&&!deleteMatch[2])||(req.method==='POST'&&deleteMatch[2]))){
     try{
@@ -154,6 +160,13 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   for(const key of ['content-type','content-length','accept','range','if-match','if-none-match','idempotency-key'])if(req.headers[key])headers[key]=req.headers[key];
   if(match?.[1]==='adcraft-api'){
     const inner=decodeURIComponent(match[3]||'/');
+    const nativePurge=/^\/api\/v2\/projects\/(proj_[A-Za-z0-9_-]{1,100})\/purge$/.exec(inner);
+    if(req.method==='POST'&&nativePurge){
+      const w=await advertisingAccess(pool,actor,match[2]);
+      if((!actor.reviewer&&w.owner_id!==actor.id)||w.adcraft_project_id===nativePurge[1]){json(res,'请在 FG 广告项目回收站管理主工程；只有所有者或超级管理员可以彻底删除',403,false);return true;}
+      const response=await fetch('http://adcraft-api:8000/internal/fg/project-cleanup/'+w.id+'/'+nativePurge[1],{method:'POST',headers:{'x-fg-internal':secret()},signal:AbortSignal.timeout(120000)});
+      json(res,await response.json(),response.status,false);return true;
+    }
     if(req.method==='POST'&&/^\/api\/v2\/projects\/?$/.test(inner)){json(res,'请从 FG 广告项目页创建广告工程，避免产生未关联项目',409);return true;}
     const deleting=/^\/api\/v2\/projects\/([^/]+)$/.exec(inner);
     if(req.method==='DELETE'&&deleting){const w=await advertisingAccess(pool,actor,match[2]);if(deleting[1]===w.adcraft_project_id){json(res,'请返回 FG 广告项目页删除主工程；项目会进入可恢复的回收站',409);return true;}}

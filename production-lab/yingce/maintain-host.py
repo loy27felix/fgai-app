@@ -87,12 +87,18 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
                 raise
             ready = False
         if not ready:
+            creator_names = run(DOCKER, 'ps', '--filter', 'name=fg-creator-', '--format', '{{.Names}}', capture_output=True, text=True).stdout.split()
+            if creator_names:
+                run(DOCKER, 'stop', '--timeout', '10', *creator_names, capture_output=True)
             if running:
                 run(DOCKER, 'stop', '--timeout', '30', 'fg-six-yingce-backend-1', capture_output=True)
                 print('Sixth backend stopped: NAS read/write unavailable', flush=True)
             raise SystemExit(0)
         stale = [service for service, marker in [('backend','/data/.fg-studio-nas-ready'),('adcraft-api','/nas/.fg-studio-nas-ready')] if not container_ready(service, marker)]
         if stale and not rebind_storage(stale): raise SystemExit(0)
+        creator_provision = ROOT / 'provision-creator.py'
+        if creator_provision.is_file():
+            subprocess.run(['/usr/bin/env', 'python3', str(creator_provision)], check=True, timeout=180, capture_output=True)
         # The host owns the SMB mount; Docker's virtual statfs may overflow.
         fields = run('/bin/df', '-k', str(NAS), capture_output=True, text=True).stdout.splitlines()[-1].split()
         total, used, free = (int(value) * 1024 for value in fields[1:4])

@@ -733,7 +733,7 @@ function PersonalAssetsPage() {
                                     </div>
                                 </div>
                             ) : null}
-                            {selectedAssets.length ? (
+                            {visibleAssets.length || selectedAssets.length ? (
                                 <AssetsBatchBar
                                     count={selectedAssets.length}
                                     isTrash={viewMode === "trash"}

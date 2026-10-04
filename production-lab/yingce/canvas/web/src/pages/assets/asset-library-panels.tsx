@@ -42,27 +42,27 @@ export function AssetsBatchBar({
                 <Button size="small" icon={<CheckCheck className="size-3.5" />} disabled={allSelected} onClick={onSelectAll}>
                     全选
                 </Button>
-                <Button size="small" onClick={onClear}>
+                <Button size="small" disabled={!count} onClick={onClear}>
                     取消选择
                 </Button>
                 {isTrash ? (
                     <>
-                        <Button size="small" type="primary" icon={<RotateCcw className="size-3.5" />} onClick={onRestore}>
+                        <Button size="small" type="primary" disabled={!count} icon={<RotateCcw className="size-3.5" />} onClick={onRestore}>
                             还原已选
                         </Button>
-                        <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
+                        <Button size="small" danger disabled={!count} icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
                             彻底删除已选
                         </Button>
                     </>
                 ) : (
                     <>
-                        <Button size="small" icon={<Download className="size-3.5" />} onClick={onExport}>
+                        <Button size="small" disabled={!count} icon={<Download className="size-3.5" />} onClick={onExport}>
                             导出
                         </Button>
-                        <Button size="small" icon={<Trash2 className="size-3.5 text-amber-500" />} onClick={onArchive}>
+                        <Button size="small" disabled={!count} icon={<Trash2 className="size-3.5 text-amber-500" />} onClick={onArchive}>
                             移入回收站
                         </Button>
-                        <Button size="small" danger icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
+                        <Button size="small" danger disabled={!count} icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
                             彻底删除
                         </Button>
                     </>

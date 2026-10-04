@@ -10,6 +10,7 @@ import {budgetInternalRoute} from './fg-budgets.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
 import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
+import {initializeCreator,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
@@ -24,6 +25,7 @@ const creating = new Map();
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
 await initializeAdcraft(pool);
+await initializeCreator(pool);
 await initializeEditorLeases(pool);
 await publishExistingStoryMedia(pool);
 startFeeSync(pool);
@@ -96,6 +98,7 @@ const server = http.createServer(async (req, res) => {
     const path = parsed.url;
     if(await budgetInternalRoute(req,res,{pool,path}))return;
     if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
+    if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if (publicResourceRead(req.method, path)) {
       // The native backend verifies the expiring HMAC capability before reading
       // NAS bytes. No browser or FG credentials are forwarded on this route.
@@ -125,6 +128,7 @@ const server = http.createServer(async (req, res) => {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     const cookie = await canvasSession(actor);
+    if(await creatorUserRoute(req,res,{pool,actor,path}))return;
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
     if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
@@ -133,7 +137,7 @@ const server = http.createServer(async (req, res) => {
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
-      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.7',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
+      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.8',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
     }
     if (path.pathname === '/api/admin/system-performance' && req.method === 'GET') {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});

@@ -62,6 +62,51 @@ def restore(workspace):
             raise RuntimeError('广告工程备份校验失败，请恢复备份')
         source.backup(target)
 
+def purge_trashed_project(workspace, project_id):
+    """Remove a legacy orphan project and its FK-owned workflow records.
+
+    The reusable asset catalog is independent of projects and remains protected.
+    Its files are removed by library/workspace deletion, never by a workflow FK.
+    """
+    require_workspace(workspace)
+    if not re.fullmatch(r'proj_[A-Za-z0-9_-]{1,100}', project_id):
+        raise ValueError('Invalid project')
+    active, _ = database_paths(workspace)
+    with closing(sqlite3.connect(active, timeout=30)) as db:
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA foreign_keys=ON')
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('PRAGMA defer_foreign_keys=ON')
+        project = db.execute('SELECT rowid,* FROM projects WHERE project_id=?', (project_id,)).fetchone()
+        if not project or project['status'] != 'trashed':
+            raise RuntimeError('Only trashed projects can be permanently removed')
+        tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        tables = [t for t in tables if re.fullmatch(r'[A-Za-z0-9_]+', t)]
+        for table in ('agent_runs','agent_canvas_chat_turns','agent_canvas_provider_tasks','agent_canvas_skill_runs'):
+            if table not in tables: continue
+            columns = {r[1] for r in db.execute('PRAGMA table_info("'+table+'")')}
+            if 'status' in columns and db.execute('SELECT count(*) FROM "'+table+'" WHERE status IN (?,?,?,?,?,?)', ('queued','running','submitted','processing','pending','waiting')).fetchone()[0]:
+                raise RuntimeError('Workspace has running tasks')
+        owned = {'projects': {project['rowid']: project}}
+        changed = True
+        while changed:
+            changed = False
+            for table in tables:
+                for fk in db.execute('PRAGMA foreign_key_list("'+table+'")').fetchall():
+                    parent, child_column, parent_column = fk[2], fk[3], fk[4]
+                    if parent not in owned or not parent_column: continue
+                    values = list({r[parent_column] for r in owned[parent].values() if r[parent_column] is not None})
+                    for offset in range(0,len(values),400):
+                        batch = values[offset:offset+400]
+                        for row in db.execute('SELECT rowid,* FROM "'+table+'" WHERE "'+child_column+'" IN ('+','.join('?' for _ in batch)+')', batch).fetchall():
+                            selected = owned.setdefault(table,{})
+                            if row['rowid'] not in selected: selected[row['rowid']] = row; changed = True
+        for table, rows in reversed(list(owned.items())):
+            for rowid in rows: db.execute('DELETE FROM "'+table+'" WHERE rowid=?', (rowid,))
+        db.commit()
+    backup(workspace)
+    return {'purged': True, 'libraryFilesRetained': True}
+
 def backup(workspace):
     require_nas()
     if purge_marker(workspace).exists(): return

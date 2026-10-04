@@ -17,6 +17,27 @@ func fgCompanyPage(c *gin.Context, key string, fallback int) int {
 }
 
 func registerFGCompanyAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
+	r.POST("/fg-company-assets/:id/purge", func(c *gin.Context) {
+		actor, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+		var req struct {
+			ExpectedRevision int64 `json:"expectedRevision"`
+		}
+		if err = c.ShouldBindJSON(&req); err != nil {
+			failService(c, service.BadAuthRequest("素材版本无效"))
+			return
+		}
+		result, err := svc.PurgeFGCompanyAsset(actor, c.Param("id"), req.ExpectedRevision)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
 	r.GET("/fg-company-assets", func(c *gin.Context) {
 		actor, err := currentUser(c, svc)
 		if err != nil {

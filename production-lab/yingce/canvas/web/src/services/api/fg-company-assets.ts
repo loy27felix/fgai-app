@@ -10,3 +10,4 @@ export function listCompanyAssets(input: { page?:number; pageSize?:number; query
 export function publishCompanyAsset(input:CompanyAssetInput) {return http.post<{asset:CompanyAsset}>("/fg-company-assets",input)}
 export function updateCompanyAsset(item:CompanyAsset,input:CompanyAssetInput) {return http.patch<{asset:CompanyAsset}>(`/fg-company-assets/${encodeURIComponent(item.id)}`,{...input,expectedRevision:item.revision})}
 export function useCompanyAsset(id:string) {return http.post<{asset:Asset}>(`/fg-company-assets/${encodeURIComponent(id)}/use`)}
+export function purgeCompanyAsset(item:CompanyAsset) {return http.post<{fileRetained:boolean;cleanupQueued:boolean}>(`/fg-company-assets/${encodeURIComponent(item.id)}/purge`,{expectedRevision:item.revision})}

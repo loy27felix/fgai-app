@@ -63,10 +63,19 @@ func (r *Repository) AssetsResourceRecords(assetIDs []string) ([]model.AssetVers
 func (r *Repository) OtherAssetResourceReferences(userID string, excludedAssetIDs []string) (ResourceReferenceSnapshot, error) {
 	snapshot := ResourceReferenceSnapshot{}
 	companyRefs, err := fgCompanyReferences(r.db)
-	if err != nil { return snapshot, err }
+	if err != nil {
+		return snapshot, err
+	}
 	snapshot.Direct = append(snapshot.Direct, companyRefs...)
 	var assets []model.Asset
-	if err := r.db.Where("user_id = ? AND id NOT IN ?", userID, excludedAssetIDs).Find(&assets).Error; err != nil {
+	query := r.db.Model(&model.Asset{})
+	if len(excludedAssetIDs) > 0 {
+		query = query.Where("id NOT IN ?", excludedAssetIDs)
+	}
+	if !fgTeamEnabled() {
+		query = query.Where("user_id = ?", userID)
+	}
+	if err := query.Find(&assets).Error; err != nil {
 		return snapshot, err
 	}
 	ids := make([]string, 0, len(assets))
@@ -96,7 +105,7 @@ func (r *Repository) ResourcesForUserIDs(userID string, resourceIDs []string) ([
 		return []model.Resource{}, nil
 	}
 	var resources []model.Resource
-	err := fgMediaScope(r.db,"resources","fg_resource_grants","resource_id",userID).Where("id IN ?",resourceIDs).Find(&resources).Error
+	err := fgMediaScope(r.db, "resources", "fg_resource_grants", "resource_id", userID).Where("id IN ?", resourceIDs).Find(&resources).Error
 	return resources, err
 }
 
@@ -133,7 +142,9 @@ func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID s
 func (r *Repository) ResourceReferenceSnapshotExcludingAssets(userID string, excludingAssetIDs []string, resourceIDs []string) (ResourceReferenceSnapshot, error) {
 	snapshot := ResourceReferenceSnapshot{Documents: []ResourceReferenceDocument{}, Direct: []ResourceDirectReference{}}
 	companyRefs, companyErr := fgCompanyReferences(r.db)
-	if companyErr != nil { return snapshot, companyErr }
+	if companyErr != nil {
+		return snapshot, companyErr
+	}
 	snapshot.Direct = append(snapshot.Direct, companyRefs...)
 	if len(resourceIDs) == 0 {
 		return snapshot, nil

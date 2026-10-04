@@ -83,11 +83,22 @@ func (s *Service) UserAsset(userID string, id string) (json.RawMessage, error) {
 }
 
 func (s *Service) UpsertUserAsset(userID string, raw json.RawMessage) (UserDataSummary, error) {
+	return s.UpsertUserAssetValidated(userID, raw, nil)
+}
+
+// Validation runs under the same storage lock as the asset write. A promoted
+// company resource cannot be purged between authorisation and copying it.
+func (s *Service) UpsertUserAssetValidated(userID string, raw json.RawMessage, validate func() error) (UserDataSummary, error) {
 	asset, err := AssetFromJSON(userID, raw)
 	if err != nil {
 		return UserDataSummary{}, err
 	}
 	err = s.host.WithStorageLock(func() error {
+		if validate != nil {
+			if err := validate(); err != nil {
+				return err
+			}
+		}
 		if asset.FolderID != "" {
 			if _, err := s.repo.AssetFolderForUser(userID, asset.FolderID); err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -272,7 +283,7 @@ func (s *Service) upsertUserCanvasProjectWithHistory(userID string, raw json.Raw
 		if existing != nil {
 			existingBytes = int64(len([]byte(existing.PayloadJSON)))
 			project.CreatedAt = existing.CreatedAt
-			if !s.repo.FGCanManageOwner(userID,existing.UserID) && existing.ProjectID != project.ProjectID {
+			if !s.repo.FGCanManageOwner(userID, existing.UserID) && existing.ProjectID != project.ProjectID {
 				return kernel.NewAppError(http.StatusForbidden, "仅画布创建者可调整所属项目")
 			}
 		}

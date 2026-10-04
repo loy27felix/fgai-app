@@ -14492,7 +14492,7 @@ html:not(.dark) .creation-history-drawer-root {
     background: rgba(10, 10, 10, .42);
     cursor: pointer;
     backdrop-filter: blur(6px);
-    opacity: 0;
+    opacity: 1;
     transition: opacity 180ms ease-out, background-color 180ms ease-out, border-color 180ms ease-out, transform 180ms var(--motion-ease-out);
 }
 .assets-select-check::after {

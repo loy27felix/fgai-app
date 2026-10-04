@@ -4,6 +4,7 @@ import { useApp } from "../AppContextValue";
 import type { RouteName } from "../types";
 import { ProjectCatalogNotice } from "./projects/ProjectCatalogNotice";
 import "./projects.css";
+import { v2Api } from "../api/v2Client";
 
 type TrashListItem = {
   key: string;
@@ -17,7 +18,7 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [selectionError, setSelectionError] = useState<string | null>(null);
-  const [batchAction, setBatchAction] = useState<"restore" | null>(null);
+  const [batchAction, setBatchAction] = useState<"restore" | "purge" | null>(null);
   const {
     trashedProjects,
     restoreTrashedProject,
@@ -117,6 +118,16 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
     setSelectionMode(false);
   }, [restoreTrashedProject, selectedProjects, selectionBusy]);
 
+  const purge = async (items: TrashListItem[]) => {
+    if (!items.length || selectionBusy) return;
+    if (!window.confirm(`彻底删除 ${items.length} 个广告工程？此操作不可恢复。素材库中仍可复用的文件会保留。`)) return;
+    setBatchAction("purge"); setSelectionError(null);
+    const failed = new Set<string>();
+    for (const item of items) { try { await v2Api.purgeProject(item.projectId); } catch { failed.add(item.projectId); } }
+    await refreshProjects(); setBatchAction(null); setSelectedProjectIds(failed);
+    if (failed.size) setSelectionError(`${failed.size} 个工程暂未删除，请结束运行中的任务后重试。`);
+  };
+
   return (
     <section className="content-wrap">
       <PageHeader title="回收站" subtitle="在这里恢复已移入回收站的广告工程。" />
@@ -161,6 +172,7 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
             <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void runBatchRestore()}>
               {selectionBusy ? "恢复中…" : "恢复选中工程"}
             </button>
+            <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void purge(selectedProjects)}>彻底删除选中工程</button>
           </div>
         </div>
       ) : null}
@@ -209,6 +221,7 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
                 />
               ) : (
                 <div className="trash-actions">
+                  <button className="small-action" disabled={selectionBusy} onClick={() => void purge([item])}>彻底删除</button>
                   <button
                     className="small-action"
                     title="恢复工程"

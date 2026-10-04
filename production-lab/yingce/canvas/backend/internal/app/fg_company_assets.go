@@ -138,6 +138,8 @@ func (s *Service) UpdateFGCompanyAsset(actor *model.User, id string, req FGCompa
 	if err := fgCompanyActor(actor, true); err != nil {
 		return nil, err
 	}
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
 	item, err := s.repo.FGCompanyAsset(id)
 	if err != nil {
 		return nil, NotFound("公司素材不存在")
@@ -155,6 +157,80 @@ func (s *Service) UpdateFGCompanyAsset(actor *model.User, id string, req FGCompa
 		return nil, creationConflict("素材已被其他管理员更新，请刷新后再试")
 	}
 	return item, err
+}
+
+type FGCompanyAssetPurgeResult struct {
+	FileRetained  bool `json:"fileRetained"`
+	CleanupQueued bool `json:"cleanupQueued"`
+}
+
+func (s *Service) PurgeFGCompanyAsset(actor *model.User, id string, expected int64) (FGCompanyAssetPurgeResult, error) {
+	result := FGCompanyAssetPurgeResult{}
+	if err := fgCompanyActor(actor, true); err != nil {
+		return result, err
+	}
+	if expected <= 0 {
+		return result, BadAuthRequest("缺少素材版本，请刷新后再删除")
+	}
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	err := s.repo.PurgeFGCompanyAsset(id, expected, func(tx *repository.Repository, item *model.FGCompanyAsset) ([]model.Resource, []model.ResourceDeletionJob, error) {
+		resource, err := tx.Resource(item.ResourceID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		owners, err := tx.CompanyResourceReferenceOwners()
+		if err != nil {
+			return nil, nil, err
+		}
+		candidate := map[string]struct{}{resource.ID: {}}
+		for _, owner := range owners {
+			snapshot, err := tx.ResourceReferenceSnapshot(owner, "", []string{resource.ID})
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, direct := range snapshot.Direct {
+				if direct.ResourceID == resource.ID {
+					result.FileRetained = true
+					return nil, nil, nil
+				}
+			}
+			for _, document := range snapshot.Documents {
+				if documentReferencesResources(document.PrimaryJSON, candidate) || documentReferencesResources(document.SecondaryJSON, candidate) {
+					result.FileRetained = true
+					return nil, nil, nil
+				}
+			}
+		}
+		count, err := tx.ResourceStorageReferenceCount(resource, []string{resource.ID})
+		if err != nil {
+			return nil, nil, err
+		}
+		var jobs []model.ResourceDeletionJob
+		if count == 0 {
+			jobs = resourceDeletionJobs(resource.UserID, map[string]*model.Resource{resourceStorageIdentity(resource): resource})
+			result.CleanupQueued = len(jobs) > 0
+		} else {
+			result.FileRetained = true
+		}
+		return []model.Resource{*resource}, jobs, nil
+	})
+	if errors.Is(err, repository.ErrFGCompanyAssetConflict) {
+		return result, creationConflict("素材已重新上架或被更新，请刷新后再删除")
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return result, NotFound("公司素材不存在")
+	}
+	if err != nil {
+		return result, err
+	}
+	if result.CleanupQueued {
+		s.runWorkerTask(func() { s.drainResourceDeletionJobs(1) })
+	}
+	return result, nil
 }
 func (s *Service) UseFGCompanyAsset(actor *model.User, id string) (json.RawMessage, error) {
 	if err := fgCompanyActor(actor, false); err != nil {
@@ -210,7 +286,13 @@ func (s *Service) UseFGCompanyAsset(actor *model.User, id string) (json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.UpsertUserAsset(actor.ID, raw); err != nil {
+	if _, err = s.canvasDomain().UpsertUserAssetValidated(actor.ID, raw, func() error {
+		current, readErr := s.repo.FGCompanyAsset(id)
+		if readErr != nil || current.Status != "active" || current.Revision != item.Revision {
+			return NotFound("公司素材已下架或更新，请刷新后再使用")
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return s.UserAsset(actor.ID, assetID)

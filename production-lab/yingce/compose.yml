@@ -189,6 +189,14 @@ services:
       interval: 10s
       timeout: 3s
       retries: 15
+  creator-web:
+    image: ${CREATOR_WEB_IMAGE:-fg-six-creator-web:v128}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
 networks:
   fg-platform:
     name: fg-studio

@@ -10,7 +10,7 @@ from uuid import uuid4
 from starlette.responses import JSONResponse
 from app.core.config import Settings
 from app.fg_context import fg_context
-from app.fg_backup import backup, restore, require_nas, require_workspace, purge_workspace
+from app.fg_backup import backup, restore, require_nas, require_workspace, purge_workspace, purge_trashed_project
 from app.fg_cpu import install as install_render_limit
 from app.main import create_app
 
@@ -94,6 +94,22 @@ class FGApplication:
             except RuntimeError: return await JSONResponse({'status': 'NAS unavailable'}, status_code=503)(scope, receive, send)
             return await JSONResponse({'status': 'ready', 'workspaces': len(self.apps)})(scope, receive, send)
         headers = dict(scope['headers'])
+        project_cleanup = re.fullmatch(r'/internal/fg/project-cleanup/([^/]+)/([^/]+)', scope['path'])
+        if project_cleanup:
+            workspace, project_id = project_cleanup.groups()
+            if scope['method'] != 'POST' or not ID.fullmatch(workspace) or headers.get(b'x-fg-internal', b'').decode() != os.environ['FG_ADCRAFT_SECRET']:
+                return await JSONResponse({'detail': 'FG access denied'}, status_code=403)(scope, receive, send)
+            if self.inflight.get(workspace, 0) or workspace in self.cleaning:
+                return await JSONResponse({'detail': 'Workspace busy'}, status_code=409)(scope, receive, send)
+            self.cleaning.add(workspace)
+            try:
+                async with self.storage_locks.setdefault(workspace, asyncio.Lock()):
+                    result = await asyncio.to_thread(purge_trashed_project, workspace, project_id)
+                return await JSONResponse(result)(scope, receive, send)
+            except Exception:
+                return await JSONResponse({'detail': 'Project cleanup deferred'}, status_code=409)(scope, receive, send)
+            finally:
+                self.cleaning.discard(workspace)
         cleanup = re.fullmatch(r'/internal/fg/cleanup/(' + ID.pattern.removeprefix('^').removesuffix('$') + ')', scope['path'])
         if cleanup:
             if scope['method'] != 'POST' or headers.get(b'x-fg-internal', b'').decode() != os.environ['FG_ADCRAFT_SECRET']:

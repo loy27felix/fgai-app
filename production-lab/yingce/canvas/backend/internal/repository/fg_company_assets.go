@@ -85,6 +85,38 @@ func (r *Repository) UpdateFGCompanyAsset(item *model.FGCompanyAsset, expected i
 	item.Revision = expected + 1
 	return nil
 }
+
+// Removing the catalog entry and enqueueing any unreferenced object deletion
+// are atomic. A failed inspection leaves the recoverable entry intact.
+func (r *Repository) PurgeFGCompanyAsset(id string, expected int64, inspect func(*Repository, *model.FGCompanyAsset) ([]model.Resource, []model.ResourceDeletionJob, error)) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var item model.FGCompanyAsset
+		q := tx.Where("id = ?", id)
+		if r.Dialect() == "postgres" {
+			q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		if err := q.First(&item).Error; err != nil {
+			return err
+		}
+		if item.Revision != expected || item.Status != "archived" {
+			return ErrFGCompanyAssetConflict
+		}
+		if err := tx.Delete(&item).Error; err != nil {
+			return err
+		}
+		resources, jobs, err := inspect(New(tx), &item)
+		if err != nil {
+			return err
+		}
+		return New(tx).DeleteDetachedResources(resources, jobs)
+	})
+}
+
+func (r *Repository) CompanyResourceReferenceOwners() ([]string, error) {
+	var ids []string
+	err := r.db.Raw(`SELECT id FROM users UNION SELECT user_id FROM resources UNION SELECT user_id FROM assets UNION SELECT user_id FROM canvas_projects UNION SELECT user_id FROM tasks UNION SELECT user_id FROM projects`).Scan(&ids).Error
+	return ids, err
+}
 func fgCompanyReferences(db *gorm.DB) ([]ResourceDirectReference, error) {
 	if !fgTeamEnabled() {
 		return nil, nil

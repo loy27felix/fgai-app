@@ -7,8 +7,86 @@ import (
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestFGCompanyPurgeAuthorizationRevisionAndSharedFiles(t *testing.T) {
+	t.Setenv("CANVAS_FG_TEAM_WORKSPACE", "true")
+	for _, shared := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unreferenced", true: "member-reference"}[shared], func(t *testing.T) {
+			db := newSQLiteTestDB(t)
+			if err := database.MigrateSchema(db); err != nil {
+				t.Fatal(err)
+			}
+			repo := repository.New(db)
+			root := t.TempDir()
+			svc := New(repo, root)
+			svc.BeginDrain()
+			admin := &model.User{ID: "publisher", Role: model.UserRoleAdmin}
+			member := &model.User{ID: "member", Role: model.UserRoleUser}
+			resource := model.Resource{ID: "company-file", UserID: admin.ID, Kind: "image", Provider: "local", Status: model.ResourceStatusReady, ObjectKey: "company.png", Width: 16, Height: 16}
+			if err := db.Create(&resource).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(root, "resources"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(root, "resources", "company.png")
+			if err := os.WriteFile(file, []byte("test"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			item, err := svc.PublishFGCompanyAsset(admin, FGCompanyAssetInput{ResourceID: resource.ID, Title: "贝瓦", Category: "character"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = svc.PurgeFGCompanyAsset(member, item.ID, item.Revision); err == nil {
+				t.Fatal("member could purge")
+			}
+			if _, err = svc.PurgeFGCompanyAsset(admin, item.ID, item.Revision); err == nil {
+				t.Fatal("active item could purge")
+			}
+			if shared {
+				asset := model.Asset{ID: "member-copy", UserID: member.ID, Title: "成员引用", PayloadJSON: `{"data":{"storageKey":"resource:company-file"}}`}
+				if err = db.Create(&asset).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			item, err = svc.UpdateFGCompanyAsset(admin, item.ID, FGCompanyAssetInput{Title: item.Title, Category: item.Category, Status: "archived", ExpectedRevision: item.Revision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = svc.PurgeFGCompanyAsset(admin, item.ID, item.Revision-1); err == nil {
+				t.Fatal("stale revision could purge")
+			}
+			result, err := svc.PurgeFGCompanyAsset(admin, item.ID, item.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.FileRetained != shared || result.CleanupQueued == shared {
+				t.Fatalf("unexpected cleanup: %+v", result)
+			}
+			svc.drainResourceDeletionJobs(10)
+			_, fileErr := os.Stat(file)
+			if shared {
+				if fileErr != nil {
+					t.Fatal("shared file removed", fileErr)
+				}
+				if _, err = repo.Resource(resource.ID); err != nil {
+					t.Fatal("shared resource removed", err)
+				}
+			} else {
+				if !os.IsNotExist(fileErr) {
+					t.Fatal("unreferenced file remains", fileErr)
+				}
+			}
+			if _, err = repo.FGCompanyAsset(item.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatal("catalog item remains", err)
+			}
+		})
+	}
+}
 
 func TestFGCompanyLibraryPermissionsReuseAndRetirement(t *testing.T) {
 	t.Setenv("CANVAS_FG_TEAM_WORKSPACE", "true")

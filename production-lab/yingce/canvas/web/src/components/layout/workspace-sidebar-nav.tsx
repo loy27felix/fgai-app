@@ -48,6 +48,7 @@ function buildNav(features: FeatureAvailability, isAdmin: boolean): { groups: Wo
                 { id: "fg-stories", title: "故事与项目", icon: BookOpenText, to: "/fg-production" },
                 { ...toolItem("projects", "/projects"), title: "短剧 Agent" },
                 { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: "广告工作台" },
+                { ...toolItem("create", "/creator-app"), id: "fg-creator", title: "创作者工作台" },
                 { ...toolItem("canvas", "/canvas"), title: "自由画布" },
             ],
         },
@@ -222,7 +223,7 @@ function NavItem({
                     style={rowStyle}
                     aria-label={collapsed ? item.title : undefined}
                     title={collapsed ? item.title : undefined}
-                    onClick={handleClick}
+                    onClick={(event) => { if (item.id === "fg-creator") { event.preventDefault(); window.location.assign(linkTo); } else { handleClick(); } }}
                     onFocus={() => preloadWorkspaceRoute(linkTo)}
                     onPointerDown={() => preloadWorkspaceRoute(linkTo)}
                     onPointerEnter={() => preloadWorkspaceRoute(linkTo)}
