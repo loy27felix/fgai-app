@@ -5,6 +5,7 @@ let editorToken='';
 export function setFGEditorToken(token:string){editorToken=token;}
 const labels: Record<string, string> = {
   'Choose model':'选择模型','Compatible models':'可用模型',
+  'Default model':'默认模型','Name unavailable':'名称不可用','Not configured':'未配置','Loading compatible models...':'正在读取可用模型…',
   Assets:'项目素材', 'Project Assets':'工程素材','My Assets':'我的图片','Recommended':'推荐图片','All media':'全部类型',Images:'图片',Videos:'视频',
   'Agent Canvas assets':'广告项目素材','Close assets':'关闭素材窗口','Search assets':'搜索素材','Images only':'仅图片',
   'Attach references or place ready media on the canvas.':'选择参考素材，或把已有图片、视频和音频放入画布。工程素材默认私有，公司素材可按需导入。',

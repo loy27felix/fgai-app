@@ -75,8 +75,8 @@ export function CanvasModelPicker({
   );
   const defaultModelName = models.find((model) => model.model_ref === defaultModelRef)?.display_name;
   const defaultLabel = defaultModelRef === undefined
-    ? "默认模型"
-    : `默认模型 · ${error ? "暂不可用" : defaultModelName ?? (defaultModelRef ? "名称不可用" : "未配置")}`;
+    ? fgLabel("Default model")
+    : `${fgLabel("Default model")} · ${error ? fgLabel("Unavailable") : defaultModelName ?? (defaultModelRef ? fgLabel("Name unavailable") : fgLabel("Not configured"))}`;
   const selectedLabel = selectionMode === "default"
     ? defaultLabel
     : selectedModel
@@ -166,7 +166,7 @@ export function CanvasModelPicker({
             setOpen((current) => !current);
           }}
         >
-          <span>{loading ? "正在读取可用模型…" : selectedLabel}</span>
+          <span>{loading ? fgLabel("Loading compatible models...") : selectedLabel}</span>
           {showStatusDetails && selectedModel ? <small className={`is-${selectedModel.availability}`}>{selectedModel.availability}</small> : null}
           {appearance === "monochrome" ? (
             <span className="agent-node-workbench__model-chevron" aria-hidden="true">
