@@ -4,9 +4,13 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 COPY upstream/frontend/package.json upstream/frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
+ARG BUILD_COMMIT
+RUN test -n "$BUILD_COMMIT" && printf '%s' "$BUILD_COMMIT" > /build/fg-source-commit
 COPY upstream/frontend/ ./
+# Upstream fixtures use their original product name; the shipped bundle uses FG.
+RUN VITE_BRAND_NAME=ArcReel pnpm check
 ENV VITE_BRAND_NAME="FG FOR DIRECTOR"
-RUN pnpm check && pnpm build
+RUN pnpm build
 
 FROM fg-six-arcreel:upstream-9aaf4413
 USER root
