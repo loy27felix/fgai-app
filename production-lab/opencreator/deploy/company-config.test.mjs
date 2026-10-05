@@ -4,6 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {readOpenCreatorConfig,updateOpenCreatorConfig} from '/app/packages/config/dist/index.js';
+import {managedTextDefault} from './company-config.mjs';
+
+test('Sonnet migration runs once and later enabled user defaults survive restarts', () => {
+  const document={creatorServices:{llm:{model:'gpt-5.6-sol-t1a'}}};
+  const catalog={models:[{id:'gpt-5.6-sol-t1a'},{id:'claude-sonnet-5-5-t3a'}]};
+  assert.equal(managedTextDefault(document,catalog,false),'claude-sonnet-5-5-t3a');
+  assert.equal(managedTextDefault(document,catalog,true),'gpt-5.6-sol-t1a');
+  assert.equal(managedTextDefault(document,{models:[]},true),'claude-sonnet-5-5-t3a');
+});
 
 test('managed defaults replace the native snake_case config and preserve storage', () => {
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'fg-config-fixture-'));

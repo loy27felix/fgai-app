@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import {pipeline} from 'node:stream';
 import {trashRoute} from './fg-trash.mjs';
 import {companyMediaFetch} from './company-media.mjs';
+import {managedTextDefault} from './company-config.mjs';
 
 const capability=process.env.FG_CREATOR_CAPABILITY;
 const actor=process.env.FG_CREATOR_ACTOR;
@@ -26,23 +27,28 @@ if(!catalog?.models?.length)throw Error('Company model catalog unavailable');
 await fs.writeFile('/state/codex/models.json',JSON.stringify({models:catalog.models.map(m=>({...template,slug:m.id,display_name:m.name,supports_search_tool:false,tool_mode:null}))}));
 // The only model credential in this isolated container authorises this FG user.
 // No provider account key, platform cookie, host home or Docker socket is mounted.
-const config=`model = "claude-sonnet-5-5-t3a"\nmodel_provider = "fg"\nmodel_catalog_json = "/state/codex/models.json"\nweb_search = "disabled"\n[features]\nmulti_agent = false\nmulti_agent_v1 = false\n[model_providers.fg]\nname = "FG WeToken"\nbase_url = "http://fg-gateway:3010/internal/creator/${actor}/v1"\nenv_key = "FG_CREATOR_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n`;
-await fs.writeFile('/state/codex/config.toml',config,{mode:0o600});
 const {createDefaultCreatorServicesConfig}=await import('/app/packages/protocol/dist/index.js');
 const {readOpenCreatorConfig,updateOpenCreatorConfig}=await import('/app/packages/config/dist/index.js');
 // The native config package normalizes legacy camelCase and canonical snake_case
 // TOML keys. Writing raw camelCase left an older creator_services table active.
 const document=readOpenCreatorConfig('/state/opencreator/config.toml').document;
+const defaultsMarker='/state/opencreator/fg-defaults-v1212';
+let initialized=false;
+try{await fs.access(defaultsMarker);initialized=true;}catch(error){if(error.code!=='ENOENT')throw error;}
+const textModel=managedTextDefault(document,catalog,initialized);
+const config=`model = "${textModel}"\nmodel_provider = "fg"\nmodel_catalog_json = "/state/codex/models.json"\nweb_search = "disabled"\n[features]\nmulti_agent = false\nmulti_agent_v1 = false\n[model_providers.fg]\nname = "FG WeToken"\nbase_url = "http://fg-gateway:3010/internal/creator/${actor}/v1"\nenv_key = "FG_CREATOR_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n`;
+await fs.writeFile('/state/codex/config.toml',config,{mode:0o600});
 const services={...createDefaultCreatorServicesConfig(),...document.creatorServices};
 // Docker is the external boundary: only this user's NAS directory and private
 // state volume are mounted, all Linux capabilities and privilege escalation
 // are disabled. Nested bubblewrap namespaces are unavailable in Docker.
 document.ui={...document.ui,language:!document.ui?.language||document.ui.language==='system'?'zh-CN':document.ui.language,defaultPermission:'danger-full-access'};
-services.llm={baseUrl:`http://fg-gateway:3010/internal/creator/${actor}/v1`,apiKey:'',model:'claude-sonnet-5-5-t3a',source:'custom',jsonMode:false};
+services.llm={baseUrl:`http://fg-gateway:3010/internal/creator/${actor}/v1`,apiKey:'',model:textModel,source:'custom',jsonMode:false};
 services.image={...services.image,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='image'&&m.billingId===services.image?.openai?.model)?services.image.openai.model:'gpt-image-2'}};
 services.video={...services.video,provider:'seedance',seedance:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='video'&&m.billingId===services.video?.seedance?.model)?services.video.seedance.model:'doubao-seedance-2-0-fast-filter-off'}};
 updateOpenCreatorConfig('/state/opencreator/config.toml',()=>({...document,creatorServices:services}));
 await fs.chmod('/state/opencreator/config.toml',0o600);
+await fs.writeFile(defaultsMarker,'v1\n',{mode:0o600});
 let credentials={version:1};
 try{credentials=JSON.parse(await fs.readFile('/state/opencreator/credentials.json','utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
 credentials.creatorServices={...credentials.creatorServices,'llm.apiKey':capability,'image.openai.apiKey':capability,'video.seedance.apiKey':capability};
