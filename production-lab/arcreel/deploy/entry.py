@@ -8,6 +8,8 @@ import urllib.request
 actor = os.environ['FG_ARC_ACTOR']
 capability = os.environ['FG_ARC_CAPABILITY']
 base = 'http://fg-gateway:3010/internal/arcreel/' + actor
+from company_request import install as install_company_request
+install_company_request(base)
 
 if os.getuid() == 0:
     raise RuntimeError('Director must run as the unprivileged FG user')

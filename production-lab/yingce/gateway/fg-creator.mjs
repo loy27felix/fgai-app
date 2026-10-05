@@ -35,7 +35,14 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    const price=(await pool.query('SELECT snapshot FROM fg_model_prices WHERE model=$1',[selected.billingId])).rows[0]?.snapshot;
    const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0]?.value);
    if(input.estimate){json(res,priceQuote(selected.billingId,price,{capability:selected.capability,operation:input.operation||'text_to_video',options:input.options||{},inputs:input.inputs||{}},fx));}
-   else{const amount=estimateCNY({...input.call,model:selected.billingId,capability:selected.capability},price,fx);json(res,{estimatedCny:amount,estimateKind:'usage_estimate',notes:['此处为用量估算；实际支出以 FG 匹配的 WeToken 账单为准。']});}
+   else{
+    if(!uuid.test(input.taskId||''))throw Error('尚未取得 FG 制作任务；不能凭缺失用量计算费用');
+    const owner=(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN fg_arcreel_workspaces w ON w.owner_id=j.owner_id JOIN tasks t ON t.id=j.task_id AND t.project_id=w.native_project_id WHERE j.owner_id=$1 AND j.task_id=$2',[active.id,input.taskId])).rows[0];if(!owner)throw Error('制作任务不属于此工作区');
+    const calls=(await pool.query('SELECT * FROM api_call_logs WHERE task_id=$1 AND user_id=$2 AND billable',[input.taskId,active.id])).rows;
+    const amounts=calls.map(call=>estimateCNY({...call,input_tokens:Number(call.input_tokens),output_tokens:Number(call.output_tokens),cached_tokens:Number(call.cached_tokens||0),model:selected.billingId,capability:selected.capability},price,fx));
+    const amount=amounts.length&&amounts.every(n=>Number.isFinite(n))?amounts.reduce((a,b)=>a+b,0):null;
+    json(res,{estimatedCny:amount,estimateKind:'usage_estimate',notes:['读取 FG 原始请求及用量估算；实际支出以 FG 匹配的 WeToken 账单为准。']});
+   }
   }catch(e){json(res,{error:{message:e.message}},400);}return true;
  }
  const catalog=/^\/internal\/creator\/([^/]+)\/models$/.exec(routePath);
@@ -55,11 +62,13 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    const valid=(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN fg_arcreel_workspaces w ON w.owner_id=j.owner_id JOIN tasks t ON t.id=j.task_id AND t.project_id=w.native_project_id WHERE j.owner_id=$1 AND j.task_id=$2',[actor.id,id])).rows[0];if(!valid)throw Error('视频任务不存在');
    const data=await api('/tasks/'+id),task=data.task||data;let content;
    if(task.status==='succeeded')content={video_url:await creatorResourceURL(pool,api,JSON.parse(task.resultJson||'{}'))};
-   json(res,{id,status:task.status,content,error:task.error?{message:task.error}:undefined});return true;
+   res.setHeader('x-fg-task-id',id);json(res,{id,status:task.status,content,error:task.error?{message:task.error}:undefined});return true;
   }
   if(req.method!=='POST')throw Error('不支持的制作操作');
   const payload=match[2]==='images/edits'?await creatorMultipart(req):await body(req,50<<20);
   if(match[2]==='messages/count_tokens'){json(res,{error:{type:'not_supported_error',message:'公司渠道不提供精确的预请求 Token 计数；实际用量见 FG 账单'}},501);return true;}
+  const operationId=String(req.headers['x-fg-operation-id']||'');
+  if(arc&&!uuid.test(operationId))throw Error('导演制作请求缺少操作标识；未提交模型任务');
   const mode=match[2].startsWith('images/')?'image':match[2]==='contents/generations/tasks'?'video':'text';
   let requested=payload.model||(mode==='image'?'gpt-image-2':mode==='video'?'doubao-seedance-2-0-fast-filter-off':'gpt-5.6-sol-t1a');
   if(arc&&mode==='video'){const alias=(await advertisingModels(pool)).find(m=>m.capability==='video'&&m.billingId.replace(/-filter-off$/,'').replace(/seedance-2-0/,'seedance-2.0')===requested);if(alias)requested=alias.billingId;}
@@ -78,7 +87,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name LIKE 'WeToken%' AND cm.model_key=$1 AND cm.enabled AND c.enabled AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('公司模型暂不可用');
   // PostgreSQL serialises initial project mapping and duplicate transport retries.
   const client=await pool.connect();let workspace,job,newJob=false;
-  const logical=createHash('sha256').update(JSON.stringify([arc?'arcreel':'creator',req.headers['session_id']||req.headers['x-codex-session-id']||'',payload])).digest('hex');
+  const logical=createHash('sha256').update(JSON.stringify([arc?'arcreel':'creator',arc?operationId:req.headers['session_id']||req.headers['x-codex-session-id']||'',payload])).digest('hex');
   const workspaceTable=arc?'fg_arcreel_workspaces':'fg_creator_workspaces';
   try{
    await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-creator:'||$1))",[actor.id]);
@@ -105,6 +114,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    }
   }
   await pool.query("UPDATE fg_creator_jobs SET task_id=$2,status='submitted' WHERE id=$1",[job.id,job.task_id]);
+  res.setHeader('x-fg-task-id',job.task_id);
   if(mode==='video'){json(res,{id:job.task_id,status:'queued'});return true;}
   if(payload.stream){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store','connection':'keep-alive','x-accel-buffering':'no'});res.write(': FG task accepted\n\n');keepAlive=setInterval(()=>{if(!res.destroyed)res.write(': waiting\n\n');},10000);}
   let task;for(let i=0;i<1800;i++){const data=await api('/tasks/'+job.task_id);task=data.task||data;if(['succeeded','failed','cancelled'].includes(task.status))break;await new Promise(r=>setTimeout(r,1000));}
