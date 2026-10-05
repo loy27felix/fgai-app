@@ -2,7 +2,6 @@ import http from 'node:http';
 import {spawn,execFileSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import {pipeline} from 'node:stream';
-import {createRequire} from 'node:module';
 import {trashRoute} from './fg-trash.mjs';
 import {companyMediaFetch} from './company-media.mjs';
 
@@ -30,18 +29,20 @@ await fs.writeFile('/state/codex/models.json',JSON.stringify({models:catalog.mod
 const config=`model = "claude-sonnet-5-5-t3a"\nmodel_provider = "fg"\nmodel_catalog_json = "/state/codex/models.json"\nweb_search = "disabled"\n[features]\nmulti_agent = false\nmulti_agent_v1 = false\n[model_providers.fg]\nname = "FG WeToken"\nbase_url = "http://fg-gateway:3010/internal/creator/${actor}/v1"\nenv_key = "FG_CREATOR_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n`;
 await fs.writeFile('/state/codex/config.toml',config,{mode:0o600});
 const {createDefaultCreatorServicesConfig}=await import('/app/packages/protocol/dist/index.js');
-const {parse,stringify}=createRequire('/app/apps/daemon/dist/main.js')('@iarna/toml');
-let document={version:1,ui:{language:'zh-CN',colorMode:'dark',accentColor:'red',defaultPermission:'workspace-write'}};
-try{document=parse(await fs.readFile('/state/opencreator/config.toml','utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
+const {readOpenCreatorConfig,updateOpenCreatorConfig}=await import('/app/packages/config/dist/index.js');
+// The native config package normalizes legacy camelCase and canonical snake_case
+// TOML keys. Writing raw camelCase left an older creator_services table active.
+const document=readOpenCreatorConfig('/state/opencreator/config.toml').document;
 const services={...createDefaultCreatorServicesConfig(),...document.creatorServices};
 // Docker is the external boundary: only this user's NAS directory and private
 // state volume are mounted, all Linux capabilities and privilege escalation
 // are disabled. Nested bubblewrap namespaces are unavailable in Docker.
-document.ui={...document.ui,defaultPermission:'danger-full-access'};
+document.ui={...document.ui,language:!document.ui?.language||document.ui.language==='system'?'zh-CN':document.ui.language,defaultPermission:'danger-full-access'};
 services.llm={baseUrl:`http://fg-gateway:3010/internal/creator/${actor}/v1`,apiKey:'',model:'claude-sonnet-5-5-t3a',source:'custom',jsonMode:false};
 services.image={...services.image,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='image'&&m.billingId===services.image?.openai?.model)?services.image.openai.model:'gpt-image-2'}};
 services.video={...services.video,provider:'seedance',seedance:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='video'&&m.billingId===services.video?.seedance?.model)?services.video.seedance.model:'doubao-seedance-2-0-fast-filter-off'}};
-await fs.writeFile('/state/opencreator/config.toml',stringify({...document,creatorServices:services}),{mode:0o600});
+updateOpenCreatorConfig('/state/opencreator/config.toml',()=>({...document,creatorServices:services}));
+await fs.chmod('/state/opencreator/config.toml',0o600);
 let credentials={version:1};
 try{credentials=JSON.parse(await fs.readFile('/state/opencreator/credentials.json','utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
 credentials.creatorServices={...credentials.creatorServices,'llm.apiKey':capability,'image.openai.apiKey':capability,'video.seedance.apiKey':capability};
@@ -57,7 +58,7 @@ try{
  if(command.includes('apps/daemon/dist/main.js'))throw Error('An existing creator daemon owns the private state');
  await fs.unlink(lock);
 }catch(error){if(error.code!=='ENOENT')throw error;}
-const child=spawn(process.execPath,['apps/daemon/dist/main.js'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});
+const child=spawn(process.execPath,['--import','/app/company-media-preload.mjs','apps/daemon/dist/main.js'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});
 let buffer='';
 child.stdout.on('data',chunk=>{buffer=(buffer+chunk).slice(-1048576);let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const parsed=JSON.parse(line);if(parsed.address&&parsed.token)connection=parsed;else if(parsed.type==='opencreator_daemon_bootstrap_error')console.error('Creator bootstrap failed',/^[A-Z_]+$/.test(parsed.code||'')?parsed.code:'UNKNOWN');}catch{}}});
 // Upstream output may contain provider URLs or prompts. Keep runtime logs private.
