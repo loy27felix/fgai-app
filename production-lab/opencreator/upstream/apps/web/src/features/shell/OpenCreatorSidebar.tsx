@@ -267,7 +267,7 @@ export function OpenCreatorSidebar(props: {
         ) : (
           <>
             <div className="sidebar-logo-lockup">
-              <span className="sidebar-logo-word">OpenCreator</span>
+              <span className="sidebar-logo-word">FG FOR CREATER</span>
             </div>
             <div className="sidebar-brand-actions">
               <button

@@ -5245,7 +5245,7 @@ function readDroppedDirectory(dataTransfer: DataTransfer): File | undefined {
 function PlaceholderView(props: { label: string }) {
   return (
     <section className="placeholder-page" aria-labelledby="placeholder-title">
-      <h1 id="placeholder-title">OpenCreator：{props.label}</h1>
+      <h1 id="placeholder-title">FG FOR CREATER：{props.label}</h1>
     </section>
   );
 }

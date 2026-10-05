@@ -68,7 +68,7 @@ export default function AgentDiagnosticsPanel(props: {
     <aside className="agent-diagnostics-panel" aria-label={localize('Agent 诊断', 'Agent diagnostics', 'Agent-diagnostik')}>
       <header>
         <span aria-hidden="true"><OpenCreatorMark size={18} /></span>
-        <strong>OpenCreator</strong>
+        <strong>FG FOR CREATER</strong>
         <button type="button" onClick={() => setOpen(false)} aria-label={localize('收起诊断', 'Close diagnostics', 'Stäng diagnostiken')} title={localize('收起诊断', 'Close diagnostics', 'Stäng diagnostiken')}><X size={17} aria-hidden="true" /></button>
       </header>
       <div className="agent-diagnostics-timeline" role="log" aria-label={localize('诊断对话', 'Diagnostic conversation', 'Diagnostiksamtal')} aria-live="polite">

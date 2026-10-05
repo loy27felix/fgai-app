@@ -153,7 +153,7 @@ export function StartupAgentSetup(props: {
   return (
     <main className="startup-agent-setup">
       <section className="startup-agent-setup__card" aria-labelledby="startup-agent-title">
-        <span className="startup-agent-setup__eyebrow">OpenCreator · Agent</span>
+        <span className="startup-agent-setup__eyebrow">FG FOR CREATER · Agent</span>
         <h1 id="startup-agent-title">{l('开始使用 Agent', 'Get started with Agent')}</h1>
         {loading ? <p role="status">{l('正在检查本机 Codex…', 'Checking local Codex…')}</p> : null}
         {!loading && existingMode !== null ? (

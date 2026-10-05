@@ -221,7 +221,7 @@ export default function CreatorCollaborationPanel(props: {
       <header className="creator-collaboration-header">
         <span aria-hidden="true"><OpenCreatorMark size={18} /></span>
         <div>
-          <h2>OpenCreator</h2>
+          <h2>FG FOR CREATER</h2>
           <p>{l('正在协助：', 'Helping with: ')}{props.stepLabel}</p>
         </div>
         {session?.agentBusy ? (
@@ -421,7 +421,7 @@ function CollaborationIssueView(props: {
     <article className="creator-collaboration-message creator-collaboration-issue" data-role="system" data-source="diagnostic" data-status={props.issue.status} data-issue-id={props.issue.id}>
       <header>
         <span aria-hidden="true"><OpenCreatorMark size={14} /></span>
-        <strong>OpenCreator</strong>
+        <strong>FG FOR CREATER</strong>
         <small>{l('系统诊断', 'System diagnosis')}</small>
       </header>
       <div className="creator-collaboration-bubble">
@@ -455,7 +455,7 @@ function CollaborationMessageView(props: { message: CollaborationMessage }) {
       {message.role !== 'user' ? (
         <header>
           <span aria-hidden="true"><OpenCreatorMark size={14} /></span>
-          <strong>OpenCreator</strong>
+          <strong>FG FOR CREATER</strong>
           <small>{message.role === 'system' ? l('系统诊断', 'System diagnosis') : l('Agent 回复', 'Agent reply')}</small>
         </header>
       ) : null}
