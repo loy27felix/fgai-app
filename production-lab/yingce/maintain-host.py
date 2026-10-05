@@ -21,11 +21,21 @@ def storage(action, day='', content=None):
     # must not interpret its own host filesystem permission as a NAS outage.
     script = (ROOT / 'maintenance-storage.mjs').read_text(encoding='utf-8')
     image = json.loads(run(DOCKER, 'inspect', 'fg-six-yingce-gateway-1', capture_output=True, text=True).stdout)[0]['Config']['Image']
-    return run(DOCKER, 'run', '--rm', '-i', '--pull=never', '--user=0:0',
-        '--mount', 'type=bind,source=' + str(NAS) + ',target=/data',
-        '--entrypoint', 'node', image,
-        '--input-type=module', '-e', script, action, day,
-        input=content, capture_output=True)
+    name = 'fg-six-maintenance-storage-' + str(os.getpid())
+    try:
+        return run(DOCKER, 'run', '--rm', '--name', name, '-i', '--pull=never', '--user=0:0',
+            '--label', 'com.fgstudio.maintenance=storage',
+            '--mount', 'type=bind,source=' + str(NAS) + ',target=/data',
+            '--entrypoint', 'node', image,
+            '--input-type=module', '-e', script, action, day,
+            input=content, capture_output=True)
+    finally:
+        # A timed-out Docker CLI can leave its container running against stale
+        # SMB. Remove only this operation's named temporary container.
+        try:
+            subprocess.run([DOCKER, 'rm', '-f', name], capture_output=True, timeout=8)
+        except subprocess.TimeoutExpired:
+            pass
 
 def container_ready(service, marker):
     # SMB can cache marker metadata even after a Docker bind becomes stale.
@@ -105,9 +115,6 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
             except subprocess.TimeoutExpired:
                 stale.append(service)
         if stale and not rebind_storage(stale): raise SystemExit(0)
-        creator_provision = ROOT / 'provision-creator.py'
-        if creator_provision.is_file():
-            subprocess.run(['/usr/bin/env', 'python3', str(creator_provision)], check=True, timeout=180, capture_output=True)
         # The host owns the SMB mount; Docker's virtual statfs may overflow.
         fields = run('/bin/df', '-k', str(NAS), capture_output=True, text=True).stdout.splitlines()[-1].split()
         total, used, free = (int(value) * 1024 for value in fields[1:4])
@@ -120,6 +127,9 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
         snapshot.write_text(json.dumps({'totalBytes': total, 'usedBytes': used, 'freeBytes': free, 'collectedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}))
         snapshot.chmod(0o644)
         snapshot.replace(metrics / 'nas.json')
+        creator_provision = ROOT / 'provision-creator.py'
+        if creator_provision.is_file():
+            subprocess.run(['/usr/bin/env', 'python3', str(creator_provision)], check=True, timeout=180, capture_output=True)
         day = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
         if storage('exists', day).stdout.strip() == b'missing':
             dump = run(DOCKER, 'exec', 'fg-six-yingce-postgres-1', 'pg_dump', '-U', 'fg_yingce', '-d', 'fg_yingce', '--format=custom', capture_output=True).stdout
@@ -128,8 +138,10 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
             run(DOCKER, 'exec', '-i', 'fg-six-yingce-postgres-1', 'pg_restore', '--list', input=dump, capture_output=True)
             storage('backup', day, dump)
             print('Sixth database backup verified: ' + day + '.dump', flush=True)
-    except subprocess.CalledProcessError:
-        print('Sixth maintenance deferred: Docker service not ready', flush=True)
+    except subprocess.CalledProcessError as error:
+        command = error.cmd
+        operation = pathlib.Path(command[0]).name + ':' + (command[1] if len(command) > 1 and not command[1].startswith('/') else 'provision')
+        print('Sixth maintenance deferred: dependency not ready (' + operation + ', exit=' + str(error.returncode) + ')', flush=True)
     except subprocess.TimeoutExpired as error:
         # Only the executable and operation are reported; never private argv.
         command = error.cmd if isinstance(error.cmd, list) else []

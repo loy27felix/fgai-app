@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { getAuthSession, type AuthSessionPayload } from "@/services/api/auth";
 import { FullScreenLoader } from "@/components/ui/aceternity/full-screen-loader";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { useUserStore } from "@/stores/use-user-store";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
+import { FGSessionRecovery } from "./fg-session-recovery";
 
 export function AuthSessionHydrator({ children }: { children: ReactNode }) {
     const hydrated = useUserStore((state) => state.hydrated);
+    const [connectionFailed, setConnectionFailed] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -50,12 +52,12 @@ export function AuthSessionHydrator({ children }: { children: ReactNode }) {
             })
             .catch(() => {
                 if (!cancelled) {
-                    applyAnonymousSession({ user: null });
+                    setConnectionFailed(true);
                     recordDiagnosticEvent({
                         category: "navigation",
                         level: "warning",
                         code: "startup.auth_session_failed",
-                        message: "认证会话恢复失败，已降级为匿名页面",
+                        message: "FG 认证连接失败，等待重新连接",
                         durationMs: performance.now() - startedAt,
                     });
                 }
@@ -65,6 +67,7 @@ export function AuthSessionHydrator({ children }: { children: ReactNode }) {
         };
     }, []);
 
+    if (connectionFailed) return <FGSessionRecovery unavailable />;
     return hydrated ? children : <FullScreenLoader />;
 }
 

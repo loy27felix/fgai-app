@@ -4,6 +4,7 @@ import {createHash,createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import {advertisingModels,selectedAdvertisingModel} from './fg-adcraft-models.mjs';
 import {creatorConversation,creatorResponse,creatorStreamEvents} from './fg-creator-protocol.mjs';
 import {responseHeaders} from './policy.mjs';
+import fs from 'node:fs/promises';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const creatorCapability=id=>createHmac('sha256',process.env.FG_ADCRAFT_SECRET||'').update('fg-creator-v1:'+id).digest('hex');
@@ -85,7 +86,17 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
  }
  const inner=isRuntime?path.pathname.slice('/.opencreator/runtime'.length):'';
  if(isRuntime&&((/^\/codex\/(?:provider|login|logout)/.test(inner)&&!['GET','HEAD'].includes(req.method))||(/^\/(?:settings\/storage|creator-services\/config|config)/.test(inner)&&!['GET','HEAD'].includes(req.method)))){json(res,{error:{code:'FG_MANAGED_PROVIDER',message:'模型与存储由公司统一管理，无需个人 Codex 账号'}},403);return true;}
- const destination=isRuntime?'http://fg-creator-'+actor.id.replaceAll('-','')+':8060':'http://creator-web';
+ let runtimeIP;
+ if(isRuntime){
+  const endpoints=JSON.parse(await fs.readFile('/host-metrics/creator-runtimes.json','utf8'));
+  runtimeIP=endpoints[actor.id];
+  if(!/^10\.(?:20[89]|21[0-9]|22[0-3])\.(?:\d{1,3})\.(?:\d{1,3})$/.test(runtimeIP||'')){
+   json(res,{error:{message:'创作者工作区正在启动，请稍后重新连接'}},503);return true;
+  }
+ }
+ // Docker Desktop can forward unresolved internal names through a VPN's fake
+ // DNS. The host supplies only this user's managed private bridge address.
+ const destination=isRuntime?'http://'+runtimeIP+':8060':'http://creator-web';
  const target=new URL(isRuntime?inner+path.search:path.pathname==='/creator-app'?'/index.html':path.pathname.replace(/^\/creator-static/,''),destination);
  const headers=isRuntime?{'x-fg-runtime':creatorCapability(actor.id)}:{};
  for(const key of ['content-type','content-length','accept','range','last-event-id'])if(req.headers[key])headers[key]=req.headers[key];

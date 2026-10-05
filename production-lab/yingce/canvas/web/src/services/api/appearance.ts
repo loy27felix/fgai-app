@@ -4,7 +4,10 @@ import type { CanvasAppearance } from "@/lib/canvas/agent-appearance";
 import { apiBaseURL } from "@/services/api/request";
 import { DEFAULT_CANVAS_APPEARANCE } from "@/lib/canvas/agent-appearance";
 
+import type { UpdateAnnouncement } from "@/lib/update-announcement";
+
 export type PublicAppearance = {
+    updates?: UpdateAnnouncement;
     canvas?: CanvasAppearance;
     schemaVersion: number;
     brandName: string;
@@ -35,6 +38,7 @@ export type PublicAppearance = {
 };
 
 export type AdminAppearance = {
+    updates?: UpdateAnnouncement;
     canvas?: CanvasAppearance;
     schemaVersion: number;
     brandName: string;
@@ -87,6 +91,7 @@ export async function updateAdminAppearance(
         AdminAppearance,
         | "brandName"
         | "canvas"
+        | "updates"
         | "brandSlug"
         | "authHeroTitle"
         | "authHeroDescription"
@@ -123,15 +128,20 @@ export async function resetAdminAppearance() {
     });
 }
 
-export async function uploadAppearanceAsset(slot: AppearanceAssetSlot, file: File) {
+export async function uploadAppearanceAsset(slot: AppearanceAssetSlot | "update-image" | "update-video", file: File) {
     const body = new FormData();
     body.append("file", file);
     const result = await http.post<{ resource: AppearanceResource }>(`/admin/settings/appearance/assets/${slot}`, body);
     return result.resource;
 }
 
+export function updateAnnouncementPreviewURL(resourceId: string) {
+    return `${apiBaseURL.replace(/\/$/, "")}/admin/settings/appearance/updates/${encodeURIComponent(resourceId)}`;
+}
+
 export async function uploadLive2D(file: File) {
-    const body = new FormData(); body.append("file", file);
+    const body = new FormData();
+    body.append("file", file);
     const result = await http.post<{ model: { resourceId: string; entry: string } }>("/admin/settings/appearance/live2d", body);
     return result.model;
 }

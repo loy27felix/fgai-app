@@ -15,7 +15,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { defaultPriceTier, normalizeUpstreamModelKey, priceTierPayloadFromForm } from "./channel-model-price-tier-form";
 import { PriceTierFields } from "./channel-model-price-tier-fields";
 import { ChannelModelTagsEditor } from "./channel-model-tags-editor";
-import { changeChannelModelCapability, editorSectionForField, initialChannelModelValues, validateChannelModelPrices, validateChannelModelProtocol, type ChannelModelFormValues as FormValues, type EditorSection } from "./channel-model-editor-form";
+import { changeChannelModelCapability, editorSectionForField, initialChannelModelValues, updateChannelModelUpstreamCapabilities, validateChannelModelPrices, validateChannelModelProtocol, type ChannelModelFormValues as FormValues, type EditorSection } from "./channel-model-editor-form";
 
 export function ChannelModelEditor({
     channel,
@@ -79,6 +79,13 @@ export function ChannelModelEditor({
         } else if (changed.protocol) {
             form.setFieldValue("capabilityConfig", modelCapability === "audio" ? undefined : defaultModelCapabilityConfig(changed.protocol, providerModelKey.trim() || modelKey.trim()));
             setConfigurationChanged(true);
+        } else if (changed.providerModelKey !== undefined || changed.modelKey !== undefined) {
+            const values = form.getFieldsValue(true);
+            const next = updateChannelModelUpstreamCapabilities(values);
+            if (next !== values) {
+                form.setFieldValue("capabilityConfig", next.capabilityConfig);
+                setConfigurationChanged(true);
+            }
         }
     };
 
@@ -335,6 +342,7 @@ export function ChannelModelEditor({
                                                     model={providerModelKey || modelKey}
                                                     protocol={form.getFieldValue("protocol")}
                                                     section="references"
+                                                    workflows={protocols.find((item) => item.value === modelProtocol)?.workflows}
                                                     value={capabilityConfig}
                                                     onChange={(next) => {
                                                         dirtyRef.current = true;
@@ -353,6 +361,7 @@ export function ChannelModelEditor({
                                                     model={providerModelKey || modelKey}
                                                     protocol={form.getFieldValue("protocol")}
                                                     section="protocol"
+                                                    workflows={protocols.find((item) => item.value === modelProtocol)?.workflows}
                                                     value={capabilityConfig}
                                                     onChange={(next) => {
                                                         dirtyRef.current = true;

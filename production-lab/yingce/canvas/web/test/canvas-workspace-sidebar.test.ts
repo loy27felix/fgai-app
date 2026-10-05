@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { canvasDockStyle } from "../src/lib/canvas/canvas-aceternity-style";
 import { canvasThemes } from "../src/lib/canvas-theme";
 
-const component = (name: string) => readFileSync(new URL(`../src/components/canvas/${name}`, import.meta.url), "utf8");
+const component = (name: string) => readFileSync(new URL(`../src/components/canvas/${name}`, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 
 test("canvas removes the standalone asset tray while retaining sidebar assets and zoom controls", () => {
     const page = readFileSync(new URL("../src/pages/canvas/project.tsx", import.meta.url), "utf8");
@@ -56,7 +56,7 @@ test("history explicitly describes its bounded dataset", () => {
 test("cleared tool references do not fall back to the original generation prompt", () => {
     const source = readFileSync(new URL("../src/pages/canvas/use-canvas-render-model.ts", import.meta.url), "utf8");
     const toolReferences = source.split("const toolMentionReferencesByNodeId = useMemo")[1].split("const tokens =")[0];
-    expect(toolReferences).toContain('node.metadata?.composerContent ?? node.metadata?.prompt ?? ""');
+    expect(toolReferences).toContain("const text = nodeGenerationPrompt(node);");
     expect(toolReferences).not.toContain("||");
 });
 

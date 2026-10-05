@@ -43,9 +43,19 @@ try{credentials=JSON.parse(await fs.readFile('/state/opencreator/credentials.jso
 credentials.creatorServices={...credentials.creatorServices,'llm.apiKey':capability,'image.openai.apiKey':capability};
 await fs.writeFile('/state/opencreator/credentials.json',JSON.stringify(credentials),{mode:0o600});
 let connection;
+// PIDs are reused when an isolated container is recreated. An old lock PID
+// may now identify the new bootstrap process rather than an old daemon.
+const lock='/state/opencreator/data/opencreator-runtime.lock';
+try{
+ const pid=Number((await fs.readFile(lock,'utf8')).trim());
+ let command='';
+ if(Number.isInteger(pid)&&pid>0)try{command=await fs.readFile(`/proc/${pid}/cmdline`,'utf8');}catch(error){if(error.code!=='ENOENT')throw error;}
+ if(command.includes('apps/daemon/dist/main.js'))throw Error('An existing creator daemon owns the private state');
+ await fs.unlink(lock);
+}catch(error){if(error.code!=='ENOENT')throw error;}
 const child=spawn(process.execPath,['apps/daemon/dist/main.js'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});
 let buffer='';
-child.stdout.on('data',chunk=>{buffer=(buffer+chunk).slice(-1048576);let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const parsed=JSON.parse(line);if(parsed.address&&parsed.token)connection=parsed;else if(parsed.type==='bootstrap-error')console.error('Creator bootstrap failed',parsed.code);}catch{}}});
+child.stdout.on('data',chunk=>{buffer=(buffer+chunk).slice(-1048576);let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const parsed=JSON.parse(line);if(parsed.address&&parsed.token)connection=parsed;else if(parsed.type==='opencreator_daemon_bootstrap_error')console.error('Creator bootstrap failed',/^[A-Z_]+$/.test(parsed.code||'')?parsed.code:'UNKNOWN');}catch{}}});
 // Upstream output may contain provider URLs or prompts. Keep runtime logs private.
 child.stderr.on('data',()=>{});
 child.on('exit',code=>process.exit(code||1));
