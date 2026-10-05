@@ -42,6 +42,7 @@ services:
     environment:
       YINGCE_AGENT_TOKEN: ${YINGCE_AGENT_TOKEN:?required}
       MAX_CONCURRENT_SESSIONS: "100"
+      YINGCE_DISABLE_PROVIDER_RETRIES: "true"
       NODE_MAX_OLD_SPACE_SIZE: "512"
     healthcheck:
       test: [CMD, wget, -qO-, "http://127.0.0.1:8081/healthz"]

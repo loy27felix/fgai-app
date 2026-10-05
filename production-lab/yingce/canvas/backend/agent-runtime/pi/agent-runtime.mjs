@@ -320,7 +320,7 @@ async function run() {
     compaction: compactionConfig,
     // 重试只由 Go 模型桥决定（按上游真实 HTTP 状态区分临时故障与参数错误）；
     // 这里再重试一层会让 400 也被重发、让 500 被重试 3×3 次。
-    retry: { enabled: false },
+    retry: { enabled: process.env.YINGCE_DISABLE_PROVIDER_RETRIES !== "true" },
   });
 
   let runtimeError = null;

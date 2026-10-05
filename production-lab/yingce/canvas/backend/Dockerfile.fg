@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1.7
 FROM ghcr.io/ddcat-ai/open-ai-canvas-backend@sha256:11b34ae00f4afc3fab3f5d75a782cea807069f49091c63c6019f1d1e791628b6 AS official
+FROM node:24-alpine AS agent-dependencies
+WORKDIR /agent
+COPY backend/agent-runtime/pi/package.json backend/agent-runtime/pi/package-lock.json ./
+RUN npm ci --ignore-scripts
 FROM golang:1.25-alpine AS build
 RUN apk add --no-cache build-base zip nodejs
 WORKDIR /src/backend
@@ -7,6 +11,8 @@ COPY backend/go.mod backend/go.sum ./
 COPY backend/third_party ./third_party
 RUN go mod download
 COPY backend ./
+COPY --from=agent-dependencies /usr/local/bin/node /usr/local/bin/node
+COPY --from=agent-dependencies /agent/node_modules ./agent-runtime/pi/node_modules
 COPY --from=official /app/plugin-packages /src/plugin-packages
 COPY plugin-packages /src/plugin-packages
 RUN --mount=type=cache,target=/root/.cache/go-build sed -i 's/\r$//' /src/plugin-packages/build-packages.sh && sh /src/plugin-packages/build-packages.sh --payments-only
