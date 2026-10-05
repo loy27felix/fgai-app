@@ -3,6 +3,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import {pipeline} from 'node:stream';
 import {createRequire} from 'node:module';
+import {trashRoute} from './fg-trash.mjs';
 
 const capability=process.env.FG_CREATOR_CAPABILITY;
 const actor=process.env.FG_CREATOR_ACTOR;
@@ -64,6 +65,7 @@ http.createServer(async(req,res)=>{
  if(req.url==='/healthz'){res.writeHead(connection?200:503,{'content-type':'application/json'});res.end(JSON.stringify({ok:!!connection}));return;}
  if(req.headers['x-fg-runtime']!==capability){res.writeHead(403);res.end('Forbidden');return;}
  if(!connection){res.writeHead(503);res.end('Creator starting');return;}
+ try{if(await trashRoute(req,res,connection))return;}catch{res.writeHead(503);res.end('Creator cleanup unavailable');return;}
  const headers={...req.headers,authorization:'Bearer '+connection.token};for(const k of ['host','origin','referer','cookie','x-fg-runtime'])delete headers[k];
  const upstream=http.request(new URL(req.url,connection.address),{method:req.method,headers},remote=>{res.writeHead(remote.statusCode||502,remote.headers);pipeline(remote,res,()=>{});});
  upstream.on('error',()=>{if(!res.headersSent){res.writeHead(503);res.end('Creator unavailable');}else res.destroy();});

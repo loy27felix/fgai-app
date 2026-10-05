@@ -1,0 +1,3 @@
+FROM fg-six-creator-runtime:v129
+COPY deploy/entry.mjs /app/fg-entry.mjs
+COPY deploy/trash.mjs /app/fg-trash.mjs

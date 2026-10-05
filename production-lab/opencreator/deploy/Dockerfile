@@ -12,6 +12,7 @@ ENV OPENCREATOR_WEB_BASE=/creator-static/ VITE_FG_MANAGED=1
 RUN pnpm --filter @opencreator/web build
 RUN npm install -g @openai/codex@0.149.0 && codex --version
 COPY deploy/entry.mjs /app/fg-entry.mjs
+COPY deploy/trash.mjs /app/fg-trash.mjs
 FROM build AS runtime
 ENV OPENCREATOR_HOME=/state/opencreator OPENCREATOR_DATA_DIR=/state/opencreator/data OPENCREATOR_CODEX_HOME=/state/codex OPENCREATOR_DEFAULT_CWD=/workspace OPENCREATOR_DEFAULT_PROJECT_ROOT=/workspace OPENCREATOR_CREATOR_DIR=/workspace/creator OPENCREATOR_CODEX_BIN=/usr/local/bin/codex OPENCREATOR_CREATOR_RUNTIME_ROOT=/app/.runtime/build/krillinai/linux-arm64 OPENCREATOR_PRESET_CATALOG_ROOT=/app/.runtime/generated/creator-presets
 EXPOSE 8060
