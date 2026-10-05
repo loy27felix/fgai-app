@@ -40,7 +40,7 @@ describe("ExternalChangeNotice", () => {
       .mockResolvedValue({ status: "applied", impact: { ...NO_IMPACT, changed_without_products: [1] } });
     render(<ExternalChangeNotice projectName="demo" changes={[CHANGED]} onLocate={() => {}} />);
 
-    expect(screen.getByRole("heading", { name: "「上卷.txt」在 ArcReel 之外被改动过" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "「上卷.txt」在 FG FOR DIRECTOR 之外被改动过" })).toBeInTheDocument();
     expect(screen.getByText("原文有变化、还没有产物，标为「原文已重新规划」：下山")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "更新分集账本" }));
 

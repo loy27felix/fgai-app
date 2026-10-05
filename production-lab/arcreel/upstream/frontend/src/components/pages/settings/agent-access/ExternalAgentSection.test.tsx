@@ -48,7 +48,7 @@ describe("ExternalAgentSection", () => {
     await user.click(screen.getByRole("button", { name: "复制提示词" }));
     // 提示词只给安装指引地址，不夹带任何令牌
     expect(writeText).toHaveBeenLastCalledWith(
-      `帮我接入 ArcReel。请阅读并执行 ${window.location.origin}/agent-installation-guide.md`,
+      `帮我接入 FG FOR DIRECTOR。请阅读并执行 ${window.location.origin}/agent-installation-guide.md`,
     );
   });
 

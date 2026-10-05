@@ -125,7 +125,7 @@ describe("EditTimelineView", () => {
 
     renderView();
 
-    expect(await screen.findByText("ArcReel Agent 刚刚修改")).toBeInTheDocument();
+    expect(await screen.findByText("FG FOR DIRECTOR Agent 刚刚修改")).toBeInTheDocument();
   });
 
   it("opens the most recently edited timeline and loads the first clip with the next one preloaded", async () => {
@@ -140,7 +140,7 @@ describe("EditTimelineView", () => {
     renderView();
 
     expect(await screen.findByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/ArcReel Agent 修改于/)).toBeInTheDocument();
+    expect(screen.getByText(/FG FOR DIRECTOR Agent 修改于/)).toBeInTheDocument();
     await screen.findByTestId("edit-clip-c1");
     expect(read).toHaveBeenCalledWith("demo", "tl-00000002", expect.anything());
     expect(screen.getByTestId("edit-player-video-0")).toHaveAttribute(

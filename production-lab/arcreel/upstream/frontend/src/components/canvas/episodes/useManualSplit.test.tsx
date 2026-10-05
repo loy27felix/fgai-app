@@ -52,7 +52,7 @@ describe("useManualSplit on a file changed outside ArcReel", () => {
 
     expect(hook.result.current.pending).toBeNull();
     expect(useAppStore.getState().toast?.text).toBe(
-      "这个文件在 ArcReel 之外被改动过。先在页面顶部更新分集账本，再在这个文件上切分",
+      "这个文件在 FG FOR DIRECTOR 之外被改动过。先在页面顶部更新分集账本，再在这个文件上切分",
     );
   });
 });

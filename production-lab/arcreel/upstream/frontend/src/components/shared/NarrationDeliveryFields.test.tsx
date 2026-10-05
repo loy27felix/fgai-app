@@ -38,7 +38,7 @@ describe("NarrationDeliveryFields", () => {
     renderFields({ ...ttsProject, delivery: "post_production" });
 
     expect(screen.queryByLabelText("旁白音色 ID")).not.toBeInTheDocument();
-    expect(screen.getByText(/ArcReel 不生成旁白配音/)).toBeInTheDocument();
+    expect(screen.getByText(/FG FOR DIRECTOR 不生成旁白配音/)).toBeInTheDocument();
   });
 
   it("disables the speed input with a reason when the model cannot take a speed", async () => {

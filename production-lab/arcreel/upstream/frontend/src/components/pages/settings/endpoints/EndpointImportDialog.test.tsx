@@ -75,13 +75,13 @@ describe("EndpointImportDialog", () => {
   it("tells the user which ArcReel version the definition needs when the app is older", () => {
     renderDialog(validation({ min_app_version: { required: "0.31.0", current: "0.30.0", satisfied: false } }));
 
-    expect(screen.getByText("该定义需要 ArcReel ≥ 0.31.0，当前为 0.30.0，导入后可能无法正常使用。")).toBeInTheDocument();
+    expect(screen.getByText("该定义需要 FG FOR DIRECTOR ≥ 0.31.0，当前为 0.30.0，导入后可能无法正常使用。")).toBeInTheDocument();
   });
 
   it("stays quiet when the app meets the requirement", () => {
     renderDialog(validation({ min_app_version: { required: "0.30.0", current: "0.30.0", satisfied: true } }));
 
-    expect(screen.queryByText(/该定义需要 ArcReel/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/该定义需要 FG FOR DIRECTOR/)).not.toBeInTheDocument();
   });
 
   it("says a raw ComfyUI workflow was wrapped and still needs its bindings", () => {
