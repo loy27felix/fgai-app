@@ -23,7 +23,7 @@ export function purgeProjects(db,root,ids){
   if(db.prepare("SELECT 1 FROM creator_stage_runs WHERE status IN ('pending','queued','running','canceling') LIMIT 1").get())throw Error('请等待制作步骤结束后清理');
   const candidates=unique.map(id=>{
    const row=db.prepare('SELECT id,name,cwd,status FROM projects WHERE id=?').get(id);
-   if(!row||!['archived','purging'].includes(row.status))throw Error('只能彻底删除已归档工程');
+   if(!row||row.status!=='archived')throw Error('只能彻底删除已归档工程');
    const folder=safeDirectory(root,row.cwd);
    const all=db.prepare('SELECT id,cwd FROM projects WHERE id<>? AND status<>?').all(id,'purged');
    if(all.some(other=>path.resolve(other.cwd)===folder||inside(folder,path.resolve(other.cwd))||inside(path.resolve(other.cwd),folder)))throw Error('工程目录仍被其他工程引用');
@@ -33,8 +33,9 @@ export function purgeProjects(db,root,ids){
    // Files are scoped to this actor's mounted directory. Shared company assets,
    // other actor namespaces, credentials and central billing are never touched.
    if(fs.existsSync(row.folder))fs.rmSync(row.folder,{recursive:true,force:false});
-   db.prepare("UPDATE projects SET status='purged',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(row.id);
-   db.prepare("UPDATE threads SET status='archived',archived_at=CURRENT_TIMESTAMP WHERE project_id=?").run(row.id);
+   db.prepare('DELETE FROM creator_jobs WHERE project_id=?').run(row.id);
+   db.prepare("UPDATE threads SET project_id=NULL,status='archived',archived_at=CURRENT_TIMESTAMP WHERE project_id=?").run(row.id);
+   db.prepare('DELETE FROM projects WHERE id=?').run(row.id);
    results.push({id:row.id,name:row.name});
   }
  }).immediate();
