@@ -12,6 +12,7 @@ const appChangelog = readFileSync(resolve(webDir, "../FG-CHANGELOG.md"), "utf8")
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
 
 export default defineConfig({
+    base: process.env.FG_CANVAS_BASE_PATH || "/",
     plugins: [react()],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),

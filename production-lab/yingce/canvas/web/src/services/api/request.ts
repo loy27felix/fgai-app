@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";
+import {fgWorkspaceBasePath} from "@/lib/fg-entry-url";
 
 export type ApiParams = Record<string, string | string[] | number | number[] | undefined>;
 
@@ -38,7 +39,7 @@ export class ApiError extends Error {
 }
 
 // 所有后端 JSON 请求共用同一实例，避免认证、Base URL 和错误语义在模块间漂移。
-export const apiBaseURL = import.meta.env.VITE_CANVAS_BACKEND_URL || "/api";
+export const apiBaseURL = import.meta.env.VITE_CANVAS_BACKEND_URL || `${fgWorkspaceBasePath(typeof window === "undefined" ? "" : window.location.pathname)}/api`;
 export const apiClient = axios.create({ baseURL: apiBaseURL, withCredentials: true });
 
 /**

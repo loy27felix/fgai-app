@@ -15,7 +15,8 @@ import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
 import {initializeCreator,creatorCapability,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
 import {initializeArcReel,createArcReelServer} from './fg-arcreel.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
-import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
+import { platformToken, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
+import {publicEntryOrigins, workspaceRequestPath, workspaceEntryURL} from './fg-public-entry.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const editorPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 16 });
@@ -23,6 +24,7 @@ const platform = new URL(process.env.FG_PLATFORM_URL || 'http://fgai-app-app-1:3
 const web = new URL(process.env.CANVAS_WEB_URL || 'http://web:3000');
 const publicOrigin = new URL(process.env.FG_SIX_PUBLIC_URL).origin;
 const platformOrigin = new URL(process.env.FG_PLATFORM_PUBLIC_URL).origin;
+const externalOrigins = publicEntryOrigins(process.env.FG_EXTERNAL_PUBLIC_URL);
 const sessions = new Map();
 const creating = new Map();
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -99,7 +101,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/health/live') { res.writeHead(200); res.end('ok'); return; }
   try {
     let parsed;
-    try { parsed = requestPath(req.url, publicOrigin); }
+    try { parsed = workspaceRequestPath(req.url, publicOrigin); }
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
     if(await budgetInternalRoute(req,res,{pool,path}))return;
@@ -122,8 +124,10 @@ const server = http.createServer(async (req, res) => {
     if (!actor) { respond(res,403,'请先登录 FG Studio','FG_ACCESS_DENIED'); return; }
     if(path.pathname.startsWith('/api/admin/')&&!actor.reviewer){respond(res,403,'仅超级管理员可管理平台','FG_ADMIN_REQUIRED');return;}
     if (path.pathname === '/fg/entry' && req.method === 'GET') {
+      const entryURL = workspaceEntryURL(req.headers.host, externalOrigins, publicOrigin);
+      const workspaceOrigin = entryURL.startsWith('/') ? externalOrigins.find(origin => new URL(origin).host === req.headers.host) : publicOrigin;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FG Studio · 制作工作区</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#101114}iframe{display:block;width:100%;height:100dvh;border:0}</style></head><body><iframe name="fg-canvas-workspace" title="FG 制作工作区" src="${publicOrigin}/" allow="clipboard-read; clipboard-write; fullscreen; microphone ${publicOrigin}" allowfullscreen></iframe></body></html>`);
+      res.end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FG Studio · 制作工作区</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#101114}iframe{display:block;width:100%;height:100dvh;border:0}</style></head><body><iframe name="fg-canvas-workspace" title="FG 制作工作区" src="${entryURL}" allow="clipboard-read; clipboard-write; fullscreen; microphone ${workspaceOrigin}" allowfullscreen></iframe></body></html>`);
       return;
     }
     if (parsed.managedAuth) { respond(res,403,'账号登录由 FG Studio 管理，请返回平台处理','FG_MANAGED_AUTH'); return; }
@@ -131,7 +135,7 @@ const server = http.createServer(async (req, res) => {
     if (path.pathname === '/api/admin/settings/appearance' && req.method === 'DELETE') {
       respond(res,409,'请使用 FG 外观页面恢复默认设置','FG_BRAND_RESET'); return;
     }
-    if (!trustedOrigin(req.method, req.headers.origin, [publicOrigin, platformOrigin])) {
+    if (!trustedOrigin(req.method, req.headers.origin, [publicOrigin, platformOrigin, ...externalOrigins])) {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     const cookie = await canvasSession(actor);
@@ -145,6 +149,7 @@ const server = http.createServer(async (req, res) => {
     }}))return;
     if(await creatorUserRoute(req,res,{pool,actor,path}))return;
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
+    if (req.headers.origin) headers.origin = publicOrigin;
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
     if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
     if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
@@ -196,7 +201,7 @@ server.requestTimeout = 0;
 server.headersTimeout = 60000;
 server.listen(3010, '0.0.0.0');
 const arcOrigin=new URL(publicOrigin);arcOrigin.port='3017';
-const arcServer=createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin:arcOrigin.origin});
+const arcServer=createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin:arcOrigin.origin,externalOrigins});
 arcServer.requestTimeout=0;
 arcServer.headersTimeout=60000;
 arcServer.listen(3020,'0.0.0.0');

@@ -35,6 +35,7 @@ export function fgLabel(text: string): string {
 }
 export function fgURL(input: string): string {
   if (!fgWorkspace) return input;
+  if (/^\/api\/fg(?:[-/]|$)/.test(input)) return '/fg-six' + input;
   if (/^\/(?:api\/v[12](?:\/|$)|media(?:\/|$))/.test(input)) return '/adcraft-api/' + fgWorkspace + input;
   if (/^\/(?:brand|agent-icons|agent-roles|video-skills|showcase|imgs|icon|fonts)(?:\/|$)/.test(input) || /^\/assets\/.*\.(?:webp|png|jpg|svg|mp4)$/.test(input)) return '/adcraft-static' + input;
   return input;
@@ -52,7 +53,7 @@ export function installFGScope() {
   const fetchNative = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const requested = typeof input === 'string' ? fgURL(input) : input;
-    if(editorToken&&typeof requested==='string'&&(requested.startsWith('/adcraft-api/')||requested==='/api/fg/advertising/'+fgWorkspace+'/company-asset')){
+    if(editorToken&&typeof requested==='string'&&(requested.startsWith('/adcraft-api/')||requested==='/fg-six/api/fg/advertising/'+fgWorkspace+'/company-asset')){
       const headers=new Headers(init?.headers);headers.set('X-FG-Editor-Key','ad:'+fgWorkspace);headers.set('X-FG-Editor-Token',editorToken);init={...init,headers};
     }
     const response = await fetchNative(requested, init);

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { ROUTE_APP_ASSETS, ROUTE_APP_SETTINGS, settingsSectionPath } from "@/app-routes";
 import { BRAND } from "@/branding";
+import { fgCompanyLinks } from "@/fg-links";
 import { PageHeader } from "@/components/shared/page-shell/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -95,8 +96,8 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
       }
     >
       <div className="flex shrink-0 items-center gap-2 pl-1">
-        <a href="https://192.168.0.99:3000/production-lab" target="_top" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">← FG 工作台</a>
-        <a href="https://192.168.0.99:3016/fg-audio-tools" target="_blank" rel="noreferrer" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">{t("dashboard:fg_audio_tools")}</a>
+        <a href={fgCompanyLinks(window.location.origin).workspace} target="_top" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">← FG 工作台</a>
+        <a href={fgCompanyLinks(window.location.origin).audio} target="_blank" rel="noreferrer" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">{t("dashboard:fg_audio_tools")}</a>
         <img src="/logo.svg" alt="" className="size-7" />
         <span className="text-base font-medium">{BRAND.name}</span>
       </div>

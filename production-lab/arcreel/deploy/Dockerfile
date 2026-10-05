@@ -10,7 +10,7 @@ COPY upstream/frontend/ ./
 # Upstream fixtures use their original product name; the shipped bundle uses FG.
 RUN VITE_BRAND_NAME=ArcReel pnpm check --maxWorkers=2
 ENV VITE_BRAND_NAME="FG FOR DIRECTOR"
-RUN pnpm build
+RUN FG_DIRECTOR_BASE_PATH=/fg-director/ pnpm build
 
 FROM fg-six-arcreel:upstream-9aaf4413
 USER root

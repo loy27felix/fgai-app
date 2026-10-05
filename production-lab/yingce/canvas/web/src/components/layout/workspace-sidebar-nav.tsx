@@ -11,6 +11,7 @@ import { useWorkspaceLogout } from "@/hooks/use-workspace-logout";
 import { SystemAnnouncementCenter } from "@/components/layout/system-announcement-center";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { cn } from "@/lib/utils";
+import {fgPlatformURL} from "@/lib/fg-entry-url";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -332,7 +333,7 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
             </LayoutGroup>
 
             <div className="app-workspace-sidebar-footer shrink-0 px-3 py-3">
-                <a href="https://192.168.0.99:3000/workspace" target="_top" className="mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" title="返回 FG 工作区"><ArrowLeft className="size-4" />{!collapsed && "返回 FG 工作区"}</a>
+                <a href={fgPlatformURL(window.location.origin)} target="_top" className="mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" title="返回 FG 工作区"><ArrowLeft className="size-4" />{!collapsed && "返回 FG 工作区"}</a>
                 <WorkspaceSidebarProfile collapsed={collapsed} user={user} />
                 {footer.length ? <div className="mt-2 flex flex-col gap-0.5">
                     {footer.map((item) => (

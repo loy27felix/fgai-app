@@ -35,9 +35,10 @@ RUN bun test test/fg-nas-upload.test.ts
 RUN bun test test/fg-skill-catalog.test.ts test/skills-api.test.ts
 RUN bun test test/fg-team-policy.test.ts test/workspace-sidebar-storage.test.ts
 RUN bun test test/audio-generation.test.ts
+RUN bun test test/fg-entry-url.test.ts
 RUN bun test test/canvas-video-frame.test.ts
 RUN bun test test/document-storage.test.ts test/canvas-appearance.test.ts test/canvas-video-segment-args.test.ts test/tapnow-import.test.ts test/skill-runtime.test.ts
-RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build
+RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && FG_CANVAS_BASE_PATH=/fg-six/ bun --bun ./node_modules/vite/bin/vite.js build
 
 # 运行镜像：nginx 托管静态前端，并在 Compose 中把 /api 转发到后端服务。
 FROM nginx:1.27-alpine

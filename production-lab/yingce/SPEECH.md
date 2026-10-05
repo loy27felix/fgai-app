@@ -1,4 +1,4 @@
-# 公司语音接入 · 1.2.13
+# 公司语音接入 · 1.2.14
 
 公司渠道使用火山引擎的 Seed Audio 1.0（提示词描述音乐、对白、环境音）、豆包 TTS 2.0（固定音色配音）、录音文件识别 2.0（异步识别及字幕）和机器翻译。新增“公司音频工具”入口；复用原工作区布局、账户和素材存储。
 
@@ -21,9 +21,10 @@
 ## 部署
 
 1. 保持前五板块容器不变，核对 NAS 标记文件内容为 `fg-studio-media:v1`，备份第六板块数据库。
-2. 使用公司提交中的 Dockerfile 构建，传 `BUILD_VERSION=v1.2.13`、`APP_DEPLOYMENT_VERSION=1.2.13`、`BUILD_COMMIT=<公司提交>`。网关需要上述私有卷，后端仅允许固定 `gateway` 主机；网关需要同一 `CANVAS_PUBLIC_BASE_URL`。
+2. 使用公司提交中的 Dockerfile 构建，传 `BUILD_VERSION=v1.2.14`、`APP_DEPLOYMENT_VERSION=1.2.14`、`BUILD_COMMIT=<公司提交>`。网关需要上述私有卷，后端仅允许固定 `gateway` 主机；网关需要同一 `CANVAS_PUBLIC_BASE_URL`。
 3. 新网关健康后运行 `node configure-speech.mjs` 注册两项原生音频模型，再更新创作台、导演台各用户运行环境。
 4. 核验版本、24 项公司生成模型（5 文本、8 图片、9 视频、2 音频）、字幕任务、音色列表和预算拦截。新增识别、翻译为工具能力，不计入原生生成模型数。
+5. 设置 `FG_EXTERNAL_PUBLIC_URL=https://218.61.196.139:8300`，用 `apply-public-entry.py` 校验并热加载主站第六板块专属路径；前五板块容器保持不变。外网画布用 `/fg-six/`，导演台、广告和创作台保留同一外网来源。
 
 ## 当前边界
 

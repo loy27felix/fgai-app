@@ -6,6 +6,7 @@ import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceterni
 import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadProjectDetailPage, loadProjectsPage } from "@/lib/workspace-route-modules";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { FGSessionRecovery } from "@/components/auth/fg-session-recovery";
+import {fgWorkspaceBasePath} from "@/lib/fg-entry-url";
 import RouteErrorPage from "@/pages/route-error";
 
 const AdminPage = lazy(() => import("@/pages/admin"));
@@ -223,4 +224,4 @@ export const router = createBrowserRouter([
         ],
     },
     { path: "*", element: fullScreenDeferred(<NotFound />) },
-]);
+], {basename: fgWorkspaceBasePath(window.location.pathname) || "/"});

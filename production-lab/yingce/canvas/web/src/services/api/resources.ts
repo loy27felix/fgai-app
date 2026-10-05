@@ -1,6 +1,7 @@
 import { getActiveUserScope } from "@/lib/user-scope";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
 import { http, apiBaseURL, ApiError } from "@/services/api/request";
+import { fgResourceAccessURL } from "@/lib/fg-entry-url";
 import type { OSSConnectionTestInput, OSSConnectionTestResult, OSSProvider, S3Preset } from "@/lib/oss-settings";
 
 export type RemoteResource = {
@@ -433,10 +434,7 @@ export async function getResourceInputURL(storageKey?: string) {
  * path here prevents a Blob read from accidentally targeting the web origin.
  */
 export function resolveResourceAccessURL(url: string) {
-    if (!url || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return url;
-    const base = String(apiBaseURL).trim();
-    if (!/^https?:\/\//i.test(base)) return url;
-    return new URL(url, `${base.replace(/\/+$/, "")}/`).toString();
+    return fgResourceAccessURL(url, String(apiBaseURL));
 }
 
 function resourceCacheKey(id: string) {

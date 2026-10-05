@@ -2,7 +2,8 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import {pipeline} from 'node:stream';
 import {creatorCapability} from './fg-creator.mjs';
-import {requestPath,responseHeaders,trustedOrigin} from './policy.mjs';
+import {responseHeaders,trustedOrigin} from './policy.mjs';
+import {workspaceRequestPath} from './fg-public-entry.mjs';
 
 export async function initializeArcReel(pool){
  await pool.query(`CREATE TABLE IF NOT EXISTS fg_arcreel_runtimes(actor_id varchar(36) PRIMARY KEY REFERENCES users(id),requested_at timestamptz NOT NULL DEFAULT now());`);
@@ -18,14 +19,14 @@ export function waitingPage(req,res,message='首次打开需要约一分钟，�
  res.writeHead(503,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','retry-after':'5'});
  res.end('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>启动导演工作台</title><body style="background:#171a20;color:#e7e9ed;font:16px system-ui;display:grid;place-content:center;min-height:95vh"><h2>正在准备你的导演工作台</h2><p>'+message+'</p></body></html>');return true;
 }
-export function createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin}){
+export function createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin,externalOrigins=[]}){
  return http.createServer(async(req,res)=>{
   if(req.url==='/health/live'){res.writeHead(200);res.end('ok');return;}
   try{
-   const path=requestPath(req.url,publicOrigin).url;
+   const path=workspaceRequestPath(req.url,publicOrigin,'/fg-director').url;
    const actor=await platformActor(req);
    if(!actor){failure(res,403,'请从 FG 工作台登录后打开导演工作台');return;}
-   if(!trustedOrigin(req.method,req.headers.origin,[publicOrigin,platformOrigin])){failure(res,403,'请求来源无效');return;}
+   if(!trustedOrigin(req.method,req.headers.origin,[publicOrigin,platformOrigin,...externalOrigins])){failure(res,403,'请求来源无效');return;}
    if(managedArcWrite(req.method,path.pathname)){failure(res,403,'公司渠道、密钥和存储由 FG 统一管理；可在导演助手中切换已配置模型');return;}
    await canvasSession(actor);
    await pool.query('INSERT INTO fg_arcreel_runtimes(actor_id) VALUES($1) ON CONFLICT(actor_id) DO UPDATE SET requested_at=now()',[actor.id]);
