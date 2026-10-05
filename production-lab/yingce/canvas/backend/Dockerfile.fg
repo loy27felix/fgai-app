@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM ghcr.io/ddcat-ai/open-ai-canvas-backend@sha256:11b34ae00f4afc3fab3f5d75a782cea807069f49091c63c6019f1d1e791628b6 AS official
 FROM golang:1.25-alpine AS build
-RUN apk add --no-cache build-base zip
+RUN apk add --no-cache build-base zip unzip
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 COPY backend/third_party ./third_party
@@ -9,8 +9,8 @@ RUN go mod download
 COPY backend ./
 COPY --from=official /app/plugin-packages /src/plugin-packages
 COPY plugin-packages /src/plugin-packages
-RUN for package in official-payment-wechat-native official-payment-alipay-page official-payment-xunhupay official-payment-zhifufm official-payment-epay; do \
-      cd /src/plugin-packages/$package && cp backend/provider-linux-amd64 backend/provider && \
+RUN set -eu; for package in official-payment-wechat-native official-payment-alipay-page official-payment-xunhupay official-payment-zhifufm official-payment-epay; do \
+      cd /src/plugin-packages/$package && unzip -qo /src/plugin-packages/$package.yingce-plugin 'backend/*' && cp backend/provider-linux-amd64 backend/provider && \
       zip -q /src/plugin-packages/$package.yingce-plugin backend/provider; \
     done
 WORKDIR /src/backend
