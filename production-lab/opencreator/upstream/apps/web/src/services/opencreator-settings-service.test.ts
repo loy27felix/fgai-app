@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeClient } from '../runtime/client.js';
 import { createOpenCreatorSettingsService } from './opencreator-settings-service.js';
 
-describe('OpenCreator settings service', () => {
+describe('FG FOR CREATER settings service', () => {
   it('uses the Runtime settings endpoints', async () => {
     const get = vi.fn(async () => ({
       configured: true,

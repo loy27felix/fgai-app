@@ -25,7 +25,7 @@ if(!catalog?.models?.length)throw Error('Company model catalog unavailable');
 await fs.writeFile('/state/codex/models.json',JSON.stringify({models:catalog.models.map(m=>({...template,slug:m.id,display_name:m.name,supports_search_tool:false,tool_mode:null}))}));
 // The only model credential in this isolated container authorises this FG user.
 // No provider account key, platform cookie, host home or Docker socket is mounted.
-const config=`model = "gpt-5.6-sol-t1a"\nmodel_provider = "fg"\nmodel_catalog_json = "/state/codex/models.json"\nweb_search = "disabled"\n[features]\nmulti_agent = false\nmulti_agent_v1 = false\n[model_providers.fg]\nname = "FG WeToken"\nbase_url = "http://fg-gateway:3010/internal/creator/${actor}/v1"\nenv_key = "FG_CREATOR_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n`;
+const config=`model = "claude-sonnet-5-5-t3a"\nmodel_provider = "fg"\nmodel_catalog_json = "/state/codex/models.json"\nweb_search = "disabled"\n[features]\nmulti_agent = false\nmulti_agent_v1 = false\n[model_providers.fg]\nname = "FG WeToken"\nbase_url = "http://fg-gateway:3010/internal/creator/${actor}/v1"\nenv_key = "FG_CREATOR_CAPABILITY"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n`;
 await fs.writeFile('/state/codex/config.toml',config,{mode:0o600});
 const {createDefaultCreatorServicesConfig}=await import('/app/packages/protocol/dist/index.js');
 const {parse,stringify}=createRequire('/app/apps/daemon/dist/main.js')('@iarna/toml');
@@ -36,12 +36,13 @@ const services={...createDefaultCreatorServicesConfig(),...document.creatorServi
 // state volume are mounted, all Linux capabilities and privilege escalation
 // are disabled. Nested bubblewrap namespaces are unavailable in Docker.
 document.ui={...document.ui,defaultPermission:'danger-full-access'};
-services.llm={baseUrl:`http://fg-gateway:3010/internal/creator/${actor}/v1`,apiKey:'',model:'gpt-5.6-sol-t1a',source:'custom',jsonMode:false};
-services.image={...services.image,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:'gpt-image-2'}};
+services.llm={baseUrl:`http://fg-gateway:3010/internal/creator/${actor}/v1`,apiKey:'',model:'claude-sonnet-5-5-t3a',source:'custom',jsonMode:false};
+services.image={...services.image,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='image'&&m.billingId===services.image?.openai?.model)?services.image.openai.model:'gpt-image-2'}};
+services.video={...services.video,provider:'seedance',seedance:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='video'&&m.billingId===services.video?.seedance?.model)?services.video.seedance.model:'doubao-seedance-2-0-fast-filter-off'}};
 await fs.writeFile('/state/opencreator/config.toml',stringify({...document,creatorServices:services}),{mode:0o600});
 let credentials={version:1};
 try{credentials=JSON.parse(await fs.readFile('/state/opencreator/credentials.json','utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-credentials.creatorServices={...credentials.creatorServices,'llm.apiKey':capability,'image.openai.apiKey':capability};
+credentials.creatorServices={...credentials.creatorServices,'llm.apiKey':capability,'image.openai.apiKey':capability,'video.seedance.apiKey':capability};
 await fs.writeFile('/state/opencreator/credentials.json',JSON.stringify(credentials),{mode:0o600});
 let connection;
 // PIDs are reused when an isolated container is recreated. An old lock PID

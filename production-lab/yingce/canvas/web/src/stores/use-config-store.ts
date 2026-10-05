@@ -113,6 +113,7 @@ export type ModelChannel = {
 };
 
 export type AiConfig = {
+    fgTextDefaultRevision?: number;
     channelMode: "remote";
     baseUrl: string;
     apiKey: string;
@@ -178,7 +179,7 @@ export const defaultConfig: AiConfig = {
     model: "",
     imageModel: "",
     videoModel: "",
-    textModel: "",
+    textModel: "claude-sonnet-5-5-t3a",
     audioModel: "",
     audioVoice: "alloy",
     audioFormat: "mp3",
@@ -427,9 +428,14 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
     const textModels = filterModelsByCapability(models, "text", channels);
     const audioModels = filterModelsByCapability(models, "audio", channels);
     const model = normalizeSelectedModel(config.model || config.imageModel || config.textModel, channels, models);
+    const sonnet = textModels.find((option) => modelOptionName(option) === "claude-sonnet-5-5-t3a");
+    const savedText = config.textModel;
+    const preferredText = sonnet && !config.fgTextDefaultRevision
+        ? sonnet : savedText || sonnet || model;
     return {
         config: {
             ...config,
+            fgTextDefaultRevision: sonnet ? 1 : config.fgTextDefaultRevision,
             channelMode: "remote" as const,
             apiFormat: normalizeApiFormat(config.apiFormat),
             channels,
@@ -437,7 +443,7 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
             model,
             imageModel: normalizeSelectedModel(config.imageModel || model, channels, imageModels),
             videoModel: normalizeSelectedModel(config.videoModel, channels, videoModels),
-            textModel: normalizeSelectedModel(config.textModel || model, channels, textModels),
+            textModel: normalizeSelectedModel(preferredText, channels, textModels),
             audioModel: normalizeSelectedModel(config.audioModel || defaultConfig.audioModel, channels, audioModels),
             audioVoice: config.audioVoice || defaultConfig.audioVoice,
             audioFormat: config.audioFormat || defaultConfig.audioFormat,

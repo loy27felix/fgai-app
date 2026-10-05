@@ -2,7 +2,7 @@ export type AppLanguagePreference = 'system' | 'zh-CN' | 'en-US' | 'sv-SE';
 export type AppLanguage = Exclude<AppLanguagePreference, 'system'>;
 
 export const languagePreferenceStorageKey = 'opencreator.preferences.language';
-export const defaultLanguagePreference: AppLanguagePreference = 'system';
+export const defaultLanguagePreference: AppLanguagePreference = 'zh-CN';
 
 export function readLanguagePreference(): AppLanguagePreference {
   try {

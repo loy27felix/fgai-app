@@ -40,14 +40,7 @@ export function createArcReelServer({pool,platformActor,canvasSession,platformOr
    for(const name of ['content-type','content-length','accept','range','last-event-id','accept-language'])if(req.headers[name])headers[name]=req.headers[name];
    const upstream=http.request(target,{method:req.method,headers},remote=>{
     if((remote.statusCode||502)>=500&&waitingPage(req,res)){remote.resume();return;}
-    if(remote.headers['content-type']?.includes('text/html')&&remote.statusCode===200){
-     const chunks=[];remote.on('data',c=>chunks.push(c));remote.on('end',()=>{
-      let html=Buffer.concat(chunks).toString();
-      const bar=`<nav class="fg-arc-bar"><a href="${platformOrigin}/production-lab" target="_top">← FG 工作台</a><strong>导演工作台</strong><span>公司 WeToken · 用户月额度 · 工程独立保存到 NAS</span><a href="/fg-source.tar.gz">ArcReel 源码</a></nav>`;
-      html=html.replace('</head>','<style>body{padding-top:40px!important;box-sizing:border-box}.h-screen,.h-dvh{height:calc(100dvh - 40px)!important}.fg-arc-bar{position:fixed;inset:0 0 auto;z-index:10000;height:40px;display:flex;align-items:center;gap:18px;padding:0 18px;background:#171a20;color:#e7e9ed;font:13px system-ui;border-bottom:1px solid #343942}.fg-arc-bar a{color:inherit}.fg-arc-bar span{flex:1;color:#aab1be}</style></head>').replace(/<body([^>]*)>/,'<body$1>'+bar);
-      res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(html);
-     });return;
-    }
+
     res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':'no-store'});pipeline(remote,res,()=>{});
    });
    upstream.on('error',()=>{if(!res.headersSent){if(!waitingPage(req,res,'服务正在恢复，稍后自动重试。'))failure(res,503,'导演工作台正在恢复，请稍后刷新');}else res.destroy();});

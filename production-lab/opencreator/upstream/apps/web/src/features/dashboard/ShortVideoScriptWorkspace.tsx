@@ -428,7 +428,7 @@ function readLatestResult(artifacts: CreatorArtifact[]): {
   if (artifact === undefined) return undefined;
   return {
     artifact,
-    fileName: readString(artifact.metadata.fileName) || 'OpenCreator-short-video-script.md',
+    fileName: readString(artifact.metadata.fileName) || 'FG FOR CREATER-short-video-script.md',
     title: readString(artifact.metadata.title) || '短视频脚本'
   };
 }

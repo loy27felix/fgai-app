@@ -179,7 +179,7 @@ describe('VideoDownloadWorkspace', () => {
     expect(screen.getByLabelText('已完成 1080p')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '下载 1080p' }))
       .not.toBeInTheDocument();
-    expect(screen.queryByText('OpenCreator 视频示例')).not.toBeInTheDocument();
+    expect(screen.queryByText('FG FOR CREATER 视频示例')).not.toBeInTheDocument();
     expect(screen.queryByText(/Vimeo/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '作品' }));
@@ -407,7 +407,7 @@ describe('VideoDownloadWorkspace', () => {
 
     expect(await screen.findByText('可重新加载预览或保存到本机'))
       .toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'OpenCreator' }).querySelector('.creator-collaboration-issue')).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'FG FOR CREATER' }).querySelector('.creator-collaboration-issue')).toBeInTheDocument();
     expect(screen.queryByText(/诊断编号：OC-/)).not.toBeInTheDocument();
     expect(screen.queryByText('preview unavailable')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
@@ -920,7 +920,7 @@ function probeArtifact(): CreatorArtifact {
       requestedUrl: 'https://www.youtube.com/watch?v=demo',
       url: 'https://www.youtube.com/watch?v=demo',
       platform: 'youtube',
-      uploader: 'OpenCreator',
+      uploader: 'FG FOR CREATER',
       thumbnailUrl: 'https://i.ytimg.com/vi/demo/hqdefault.jpg',
       duration: 120,
       width: 1920,

@@ -430,8 +430,8 @@ describe('SkillMarketView', () => {
     const card = getSkillCard('test-skill');
     expect(within(card).queryByLabelText('标签')).not.toBeInTheDocument();
     expect(card.querySelector('.skill-market-card__cover')).not.toBeInTheDocument();
-    expect(within(card).getByAltText('OpenCreator')).toBeInTheDocument();
-    expect(within(card).getByText('OpenCreator')).toHaveClass('skill-market-card__author');
+    expect(within(card).getByAltText('FG FOR CREATER')).toBeInTheDocument();
+    expect(within(card).getByText('FG FOR CREATER')).toHaveClass('skill-market-card__author');
     expect(within(card).queryByRole('button', { name: /收藏/ })).not.toBeInTheDocument();
     expect(within(card).queryByLabelText('使用人数')).not.toBeInTheDocument();
 
@@ -954,7 +954,7 @@ function createMarketEntry(overrides: Partial<SkillMarketEntry> = {}): SkillMark
     platforms: ['Web'],
     tasks: ['测试任务'],
     creator: {
-      name: 'OpenCreator',
+      name: 'FG FOR CREATER',
       avatarUrl: 'https://example.com/avatar.png',
     },
     examples: [],

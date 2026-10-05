@@ -14,11 +14,11 @@ export function creatorGenerationConfig(selected,payload,mode,{standardImageQual
   if(!profile.size.values.includes(size)&&!profile.size.allowCustom)throw Error('此模型不支持该图片尺寸');
   // ArcReel's generic OpenAI adapter supplies a quality tier even for models
   // without that field. Such models use their declared size tier only.
-  const quality=standardImageQuality&&!profile.quality.supported?profile.quality.default:payload.quality||profile.quality.default;
+  const quality=standardImageQuality&&!profile.quality.supported?profile.quality.default:(standardImageQuality&&!profile.quality.values.includes(payload.quality)?profile.quality.default:payload.quality)||profile.quality.default;
   if(quality&&(!profile.quality.supported||!profile.quality.values.includes(quality)))throw Error('此模型不支持该图片质量');
   return {size,quality};
  }
- const seconds=Number(payload.duration??profile.duration.default),size=payload.ratio||profile.defaultRatio,resolution=String(payload.resolution||profile.defaultResolution);
+ const seconds=Number(payload.duration??profile.duration.default),size=profile.ratios.length===1&&profile.ratios[0]==='adaptive'?'adaptive':payload.ratio||profile.defaultRatio,resolution=String(payload.resolution||profile.defaultResolution);
  if(!profile.duration.values.includes(seconds)||!profile.ratios.includes(size)||!profile.resolutions.some(x=>x.toLowerCase()===resolution.toLowerCase()))throw Error('此模型不支持当前时长、比例或分辨率');
  if(payload.generate_audio===true&&!profile.generateAudio.supported)throw Error('此模型不支持同时生成声音');
  return {size,videoSeconds:String(seconds),vquality:resolution.toUpperCase(),videoGenerateAudio:profile.generateAudio.supported&&(payload.generate_audio??profile.generateAudio.default)?'true':'false'};

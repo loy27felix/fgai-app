@@ -855,7 +855,7 @@ function timeline(): CreatorAgentTimelineResponse {
         runtimeItemId: 'runtime_reasoning_1',
         kind: 'reasoning' as const,
         status: 'completed' as const,
-        text: 'OpenCreator Context Projection: internal prompt',
+        text: 'FG FOR CREATER Context Projection: internal prompt',
         data: { private: true },
         sequence: 1,
         createdAt: '2026-08-21T00:00:02.000Z',

@@ -246,7 +246,7 @@ export function OpenCreatorSidebar(props: {
   }, [taskMenuId]);
 
   return (
-    <nav className="opencreator-sidebar" aria-label="OpenCreator" data-collapsed={collapsed ? 'true' : 'false'}>
+    <nav className="opencreator-sidebar" aria-label="FG FOR CREATER" data-collapsed={collapsed ? 'true' : 'false'}>
       <div className="sidebar-brand">
         {collapsed ? (
           <button
@@ -285,6 +285,10 @@ export function OpenCreatorSidebar(props: {
       </div>
 
       <div className="sidebar-primary">
+        {import.meta.env.VITE_FG_MANAGED === '1' ? <>
+          <a className="sidebar-row" href="https://192.168.0.99:3000/production-lab" target="_top"><span className="sidebar-row-label">← FG 工作台</span></a>
+          <a className="sidebar-row" href="/.opencreator/runtime/fg-trash"><span className="sidebar-row-label">回收站</span></a>
+        </> : null}
         {globalActions.map((action) => {
           const Icon = action.icon;
           return (
@@ -849,7 +853,7 @@ export function OpenCreatorSidebar(props: {
         title="移除项目"
         description={projectPendingRemoval === undefined
           ? '项目目录和文件不会被删除。'
-          : `确认从 OpenCreator 中移除“${projectPendingRemoval.name}”？项目目录和文件不会被删除。`}
+          : `确认从 FG FOR CREATER 中移除“${projectPendingRemoval.name}”？项目目录和文件不会被删除。`}
         confirmLabel="移除项目"
         destructive
         onCancel={() => setProjectPendingRemoval(undefined)}

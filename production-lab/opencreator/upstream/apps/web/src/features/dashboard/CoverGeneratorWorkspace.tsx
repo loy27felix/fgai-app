@@ -1395,7 +1395,7 @@ function coverFileName(artifact: CreatorArtifact, version: number, candidate: nu
     : artifact.metadata.mimeType === 'image/webp'
       ? 'webp'
       : 'png';
-  return `OpenCreator-cover-V${version}-${candidate}.${extension}`;
+  return `FG FOR CREATER-cover-V${version}-${candidate}.${extension}`;
 }
 
 function qualityLabel(

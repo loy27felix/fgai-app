@@ -16,7 +16,7 @@ const runtimeStatus = {
   lastCheckedAt: '2026-07-07 10:00'
 };
 
-describe('OpenCreatorSettingsView', () => {
+describe('FG FOR CREATERSettingsView', () => {
   it('renders default navigation and general settings without old work mode copy', () => {
     render(<OpenCreatorSettingsView runtimeStatus={runtimeStatus} onBack={vi.fn()} />);
 
@@ -34,7 +34,7 @@ describe('OpenCreatorSettingsView', () => {
     expect(screen.getByRole('button', { name: 'Profiles' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '清理' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '诊断' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '关于 OpenCreator' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关于 FG FOR CREATER' })).toBeInTheDocument();
 
     expect(screen.getByText('默认权限')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '默认权限' })).toHaveValue('follow-project');
@@ -264,8 +264,8 @@ describe('OpenCreatorSettingsView', () => {
           getStorageSettings: async () => ({
             configured: false,
             settings: {
-              defaultProjectRoot: '/Users/demo/Documents/OpenCreator',
-              outputRoot: '/Users/demo/Documents/OpenCreator/Exports'
+              defaultProjectRoot: '/Users/demo/Documents/FG FOR CREATER',
+              outputRoot: '/Users/demo/Documents/FG FOR CREATER/Exports'
             }
           }),
           updateStorageSettings
@@ -276,7 +276,7 @@ describe('OpenCreatorSettingsView', () => {
     );
 
     expect(await screen.findByRole('textbox', { name: '默认项目位置' }))
-      .toHaveValue('/Users/demo/Documents/OpenCreator');
+      .toHaveValue('/Users/demo/Documents/FG FOR CREATER');
     await user.click(screen.getByRole('button', { name: '选择完成产物位置' }));
     expect(onSelectStorageDirectory).toHaveBeenCalledWith('output-root');
     expect(updateStorageSettings).toHaveBeenCalledWith({
@@ -291,8 +291,8 @@ describe('OpenCreatorSettingsView', () => {
     const updateStorageSettings = vi.fn(async (update: { outputRoot?: string }) => ({
       configured: true,
       settings: {
-        defaultProjectRoot: '/Users/demo/Documents/OpenCreator',
-        outputRoot: update.outputRoot ?? '/Users/demo/Documents/OpenCreator/Exports'
+        defaultProjectRoot: '/Users/demo/Documents/FG FOR CREATER',
+        outputRoot: update.outputRoot ?? '/Users/demo/Documents/FG FOR CREATER/Exports'
       }
     }));
     render(
@@ -302,8 +302,8 @@ describe('OpenCreatorSettingsView', () => {
           getStorageSettings: async () => ({
             configured: false,
             settings: {
-              defaultProjectRoot: '/Users/demo/Documents/OpenCreator',
-              outputRoot: '/Users/demo/Documents/OpenCreator/Exports'
+              defaultProjectRoot: '/Users/demo/Documents/FG FOR CREATER',
+              outputRoot: '/Users/demo/Documents/FG FOR CREATER/Exports'
             }
           }),
           updateStorageSettings
@@ -403,9 +403,9 @@ describe('OpenCreatorSettingsView', () => {
   it('shows Codex CLI details only in the about advanced information section', () => {
     render(<OpenCreatorSettingsView runtimeStatus={runtimeStatus} onBack={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '关于 OpenCreator' }));
+    fireEvent.click(screen.getByRole('button', { name: '关于 FG FOR CREATER' }));
 
-    expect(screen.getByText('OpenCreator 版本')).toBeInTheDocument();
+    expect(screen.getByText('FG FOR CREATER 版本')).toBeInTheDocument();
     expect(screen.getByText(runtimeStatus.appVersion)).toBeInTheDocument();
     expect(screen.getByText('Runtime 版本')).toBeInTheDocument();
     expect(screen.getByText('数据目录')).toBeInTheDocument();
@@ -466,7 +466,7 @@ describe('OpenCreatorSettingsView', () => {
   it('shows disconnected local runtime status in about advanced information', () => {
     render(<OpenCreatorSettingsView runtimeStatus={{ ...runtimeStatus, connected: false }} onBack={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '关于 OpenCreator' }));
+    fireEvent.click(screen.getByRole('button', { name: '关于 FG FOR CREATER' }));
 
     const advanced = screen.getByRole('region', { name: '高级信息' });
     expect(within(advanced).getByText('本地运行内核状态')).toBeInTheDocument();

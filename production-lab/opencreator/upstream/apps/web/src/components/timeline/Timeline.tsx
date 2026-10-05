@@ -95,7 +95,7 @@ function getTimelineTitle(item: TimelineItem): string {
     case 'schedule_trigger':
       return '定时执行';
     case 'assistant_message':
-      return 'OpenCreator';
+      return 'FG FOR CREATER';
     case 'change_card':
       return '文件变更';
     case 'approval':

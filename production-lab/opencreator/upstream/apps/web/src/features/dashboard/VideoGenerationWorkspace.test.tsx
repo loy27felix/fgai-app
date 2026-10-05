@@ -101,7 +101,7 @@ describe('VideoGenerationWorkspace', () => {
     expect(screen.getByRole('heading', { name: '生成视频' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /项目 V/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开始生成' })).toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'OpenCreator' })).toHaveTextContent('视频生成未完成，请检查模型服务配置后重试');
+    expect(screen.getByRole('complementary', { name: 'FG FOR CREATER' })).toHaveTextContent('视频生成未完成，请检查模型服务配置后重试');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('The provider rejected the prompt')).not.toBeInTheDocument();
   });
@@ -150,7 +150,7 @@ describe('VideoGenerationWorkspace', () => {
       ))
     });
 
-    expect(screen.getByRole('complementary', { name: 'OpenCreator' })).toHaveTextContent(
+    expect(screen.getByRole('complementary', { name: 'FG FOR CREATER' })).toHaveTextContent(
       '当前账号未开通 Seedance 2.5，请切换模型版本或前往方舟控制台开通'
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -452,7 +452,7 @@ function videoArtifact(version: number): CreatorArtifact {
       videoSize: version === 1 ? '1280x720' : '720x1280',
       requestedDuration: version === 1 ? 5 : 8,
       duration: version === 1 ? 5 : 8,
-      fileName: `OpenCreator-video-V${version}.mp4`,
+      fileName: `FG FOR CREATER-video-V${version}.mp4`,
       mimeType: 'video/mp4',
       bytes: version * 1024,
       resultVersion: version

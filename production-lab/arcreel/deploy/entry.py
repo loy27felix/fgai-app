@@ -48,11 +48,27 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 
 text = [m for m in models if m['capability'] == 'text']
 images = [m for m in models if m['capability'] == 'image']
-videos = [m for m in models if m['capability'] == 'video' and 'seedance' in m['billingId']]
+videos = [m for m in models if m['capability'] == 'video']
+# Resolve the imported backend's admission gates from the same FG catalog.
+from lib.backends.video_backends.ark import ArkVideoBackend
+from arcreel_market_core.video_backend_contract import VideoCapabilities, ReferenceAudioMode, VideoAudioMode
+_video_profiles = {m['billingId'].removesuffix('-filter-off').replace('seedance-2-0', 'seedance-2.0'): m['profile']['video'] for m in videos}
+def company_video_capabilities(model):
+    p = _video_profiles.get(model)
+    if p is None: raise ValueError('Company video model is not enabled')
+    r = p['references']; operations = p['operations']
+    return VideoCapabilities(text_to_video='text_to_video' in operations, first_frame='image_to_video' in operations,
+        last_frame='seedance' in model, max_reference_images=r['maxImages'] if 'reference_to_video' in operations else 0,
+        reference_audio_mode=ReferenceAudioMode.DIRECT if r['maxAudios'] else ReferenceAudioMode.NONE,
+        max_reference_audio_count=r['maxAudios'], max_reference_audio_total_seconds=r.get('maxTotalAudioDurationSeconds', r.get('maxAudioDurationSeconds')),
+        first_frame_ratio_adaptive_only=p['ratios']==['adaptive'],
+        audio_track=VideoAudioMode.CONTROLLABLE if p['generateAudio']['supported'] else VideoAudioMode.ALWAYS_OFF)
+ArkVideoBackend.video_capabilities_for_model = staticmethod(company_video_capabilities)
+
 if not text or not images or not videos:
     raise RuntimeError('Company director models are not configured')
 
-openai_models = {m['billingId']: ModelInfo(display_name=m['name'], media_type='text', capabilities=['text_generation', 'structured_output', 'vision'], max_output_tokens=32768, default=m['billingId']=='claude-opus-5-5-t3a') for m in text}
+openai_models = {m['billingId']: ModelInfo(display_name=m['name'], media_type='text', capabilities=['text_generation', 'structured_output', 'vision'], max_output_tokens=32768, default=m['billingId']=='claude-sonnet-5-5-t3a') for m in text}
 openai_models.update({m['billingId']: ModelInfo(display_name=m['name'], media_type='image', capabilities=['text_to_image', 'image_to_image'], default=m['billingId']=='seedream-5-0-lite-260128') for m in images})
 video_models = {}
 for m in videos:
@@ -69,7 +85,7 @@ def provider(name, entries):
 # Replace the contents of the existing registry, rather than add a competing
 # source of model capabilities. ArcReel's native gates continue to apply.
 PROVIDER_REGISTRY.clear()
-PROVIDER_REGISTRY.update({'openai': provider('WeToken 文本与图片', openai_models), 'ark': provider('WeToken Seedance 视频', video_models)})
+PROVIDER_REGISTRY.update({'openai': provider('WeToken 文本与图片', openai_models), 'ark': provider('WeToken 视频', video_models)})
 from company_cost import install as install_company_cost
 install_company_cost(base, capability)
 
@@ -96,10 +112,12 @@ async def configure():
                 existing[model['billingId']] = await agents.create(preset_id='custom', display_name=model['name'], base_url=base, api_key=capability, model=model['billingId'], haiku_model=model['billingId'], sonnet_model=model['billingId'], opus_model=model['billingId'], subagent_model=model['billingId'])
             else:
                 await agents.update(existing[model['billingId']].id, base_url=base, api_key=capability)
-        if await agents.get_active() is None:
-            default = existing.get('claude-opus-5-5-t3a') or next(iter(existing.values()))
+        if await settings.get('fg_sonnet_default_v1212') != 'true':
+            default = existing.get('claude-sonnet-5-5-t3a') or next(iter(existing.values()))
             await agents.set_active(default.id)
-        defaults = {'default_text_backend': 'openai/claude-opus-5-5-t3a', 'default_image_backend': 'openai/seedream-5-0-lite-260128', 'default_video_backend': 'ark/'+next(k for k in video_models if 'fast' in k)}
+            await settings.set('fg_sonnet_default_v1212', 'true')
+            await settings.set('default_text_backend', 'openai/claude-sonnet-5-5-t3a')
+        defaults = {'default_text_backend': 'openai/claude-sonnet-5-5-t3a', 'default_image_backend': 'openai/seedream-5-0-lite-260128', 'default_video_backend': 'ark/'+next(k for k in video_models if 'fast' in k)}
         for key, value in defaults.items():
             if not await settings.get(key):
                 await settings.set(key, value)

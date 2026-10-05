@@ -79,6 +79,7 @@ export const i18nReady = i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
+    lng: typeof localStorage !== 'undefined' ? localStorage.getItem('i18nextLng') || 'zh' : 'zh',
     fallbackLng: 'zh',
     supportedLngs: SUPPORTED_LANGUAGES,
     debug: false,

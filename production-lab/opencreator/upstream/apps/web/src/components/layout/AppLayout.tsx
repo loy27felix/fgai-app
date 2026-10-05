@@ -73,7 +73,7 @@ export function AppLayout(props: {
       ) : null}
       {props.immersive ? null : <aside
         className="opencreator-sidebar-pane"
-        aria-label="OpenCreator 导航"
+        aria-label="FG FOR CREATER 导航"
         data-collapsed={props.sidebarCollapsed ? 'true' : 'false'}
         data-mobile-open={mobileSidebarOpen ? 'true' : 'false'}
         ref={sidebarRef}
@@ -91,7 +91,7 @@ export function AppLayout(props: {
       </aside>}
       <section
         className="opencreator-main-pane"
-        aria-label="OpenCreator 工作区"
+        aria-label="FG FOR CREATER 工作区"
         data-has-main-header={props.mainHeader === undefined ? undefined : 'true'}
       >
         {props.mainHeader === undefined ? null : (

@@ -68,7 +68,7 @@ describe('Timeline', () => {
     );
 
     expect(container.querySelector('.timeline-approval-overlay')).not.toBeInTheDocument();
-    expect(screen.queryByText('允许 OpenCreator 执行这条命令？')).not.toBeInTheDocument();
+    expect(screen.queryByText('允许 FG FOR CREATER 执行这条命令？')).not.toBeInTheDocument();
     expect(container.querySelector('.timeline-approval')).not.toBeInTheDocument();
     expect(screen.getByTestId('virtuoso-scroller').scrollTop).toBe(0);
   });
@@ -469,7 +469,7 @@ describe('Timeline', () => {
 
     expect(screen.getByText('please inspect the run')).toBeInTheDocument();
     expect(screen.getByText('I am checking the logs')).toBeInTheDocument();
-    expect(screen.queryByText('OpenCreator')).not.toBeInTheDocument();
+    expect(screen.queryByText('FG FOR CREATER')).not.toBeInTheDocument();
     expect(container.querySelector('.timeline-user_message .timeline-item-header')).not.toBeInTheDocument();
     expect(container.querySelector('.timeline-assistant_message .timeline-item-header')).not.toBeInTheDocument();
     expect(container.querySelector('.timeline-assistant_message .timeline-avatar-logo')).not.toBeInTheDocument();
@@ -1272,7 +1272,7 @@ describe('Timeline', () => {
     expect(container.querySelectorAll('.process-milestone-icon')).toHaveLength(1);
   });
 
-  it('folds intermediate Codex agent messages into the run process and leaves only the final answer as OpenCreator reply', async () => {
+  it('folds intermediate Codex agent messages into the run process and leaves only the final answer as FG FOR CREATER reply', async () => {
     const user = userEvent.setup();
     const items: TimelineItem[] = [
       {
@@ -1702,11 +1702,11 @@ describe('Timeline', () => {
     expect(screen.queryByRole('button', { name: '有新内容' })).not.toBeInTheDocument();
   });
 
-  it('renders the OpenCreator empty state', () => {
+  it('renders the FG FOR CREATER empty state', () => {
     render(<Timeline items={[]} />);
 
     expect(screen.getByText('暂无任务记录')).toBeInTheDocument();
-    expect(screen.getByText('发送任务后，OpenCreator 会在这里展示处理过程和结果。')).toBeInTheDocument();
+    expect(screen.getByText('发送任务后，FG FOR CREATER 会在这里展示处理过程和结果。')).toBeInTheDocument();
   });
 
   it('keeps long histories virtualized and exposes older-page loading', async () => {

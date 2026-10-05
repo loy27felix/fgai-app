@@ -200,6 +200,7 @@ export function AboutSection() {
               https://github.com/ArcReel/ArcReel
             </a>
           </p>
+          <a href="/fg-source.tar.gz" className="text-primary">FG 修改版本对应源码</a>
         </div>
       </section>
     </div>

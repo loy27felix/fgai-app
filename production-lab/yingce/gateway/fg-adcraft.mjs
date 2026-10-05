@@ -8,7 +8,7 @@ import {admissionPrice} from './fg-budgets.mjs';
 import {purgeArchivedAdvertising} from './fg-adcraft-retention.mjs';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
-const models={text:'gpt-5.6-sol-t1a',image:'seedream-5-0-lite-260128',video:'doubao-seedance-2-0-fast-filter-off'};
+const models={text:'claude-sonnet-5-5-t3a',image:'seedream-5-0-lite-260128',video:'doubao-seedance-2-0-fast-filter-off'};
 const secret=()=>process.env.FG_ADCRAFT_SECRET||'';
 export function tokenContext(token,workspace){
   if(!secret()||typeof token!=='string')throw Error('FG 广告服务未授权');

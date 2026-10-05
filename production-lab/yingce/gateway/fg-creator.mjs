@@ -49,20 +49,29 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
  if(catalog){
   if(req.method!=='GET'||!creatorAuthorised(catalog[1],capability)){json(res,{error:{message:'创作者服务未授权'}},403);return true;}
   const active=(await pool.query("SELECT id FROM users WHERE id=$1 AND status='active'",[catalog[1]])).rows[0];if(!active){json(res,{error:{message:'FG 账号不可用'}},403);return true;}
-  json(res,{models:arc?await advertisingModels(pool):(await advertisingModels(pool)).filter(m=>m.capability==='text').map(m=>({id:m.billingId,name:m.name}))});return true;
+  const all=await advertisingModels(pool);json(res,{models:arc?all:all.filter(m=>m.capability==='text').map(m=>({id:m.billingId,name:m.name})),allModels:all});return true;
  }
- const match=/^\/internal\/creator\/([^/]+)\/v1\/(responses|messages|messages\/count_tokens|chat\/completions|images\/generations|images\/edits|contents\/generations\/tasks(?:\/[^/]+)?)$/.exec(routePath);if(!match)return false;
+ const match=/^\/internal\/creator\/([^/]+)\/v1\/(responses|messages|messages\/count_tokens|chat\/completions|images\/generations|images\/edits|contents\/generations\/tasks(?:\/[^/]+)?|media\/[^/]+)$/.exec(routePath);if(!match)return false;
  let keepAlive;
  try{
   if(!creatorAuthorised(match[1],capability)){json(res,{error:{message:'创作者服务未授权'}},403);return true;}
   const actor=(await pool.query(`SELECT u.id,u.display_name name,a.email,a.platform_role FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.id=$1 AND u.status='active'`,[match[1]])).rows[0];if(!actor)throw Error('FG 账号不可用');
   const cookie=await canvasSession({...actor,reviewer:actor.platform_role==='superadmin',platformRole:actor.platform_role});const api=(p,m,b)=>nativeAPI(web,cookie,publicOrigin,p,m,b);
-  if(req.method==='GET'&&arc&&match[2].startsWith('contents/generations/tasks/')){
+  if(req.method==='GET'&&match[2].startsWith('contents/generations/tasks/')){
    const id=match[2].split('/').pop();
-   const valid=(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN fg_arcreel_workspaces w ON w.owner_id=j.owner_id JOIN tasks t ON t.id=j.task_id AND t.project_id=w.native_project_id WHERE j.owner_id=$1 AND j.task_id=$2',[actor.id,id])).rows[0];if(!valid)throw Error('视频任务不存在');
+   const valid=(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN tasks t ON t.id=j.task_id AND t.user_id=j.owner_id WHERE j.owner_id=$1 AND j.task_id=$2 AND t.project_id IN (SELECT native_project_id FROM fg_arcreel_workspaces WHERE owner_id=$1 UNION SELECT native_project_id FROM fg_creator_workspaces WHERE owner_id=$1)',[actor.id,id])).rows[0];if(!valid)throw Error('视频任务不存在');
    const data=await api('/tasks/'+id),task=data.task||data;let content;
-   if(task.status==='succeeded')content={video_url:await creatorResourceURL(pool,api,JSON.parse(task.resultJson||'{}'))};
+   if(task.status==='succeeded')content={video_url:`http://fg-gateway:3010/internal/${arc?'arcreel':'creator'}/${actor.id}/v1/media/${id}`};
    res.setHeader('x-fg-task-id',id);json(res,{id,status:task.status,content,error:task.error?{message:task.error}:undefined});return true;
+  }
+  if(req.method==='GET'&&match[2].startsWith('media/')){
+   const id=match[2].split('/').pop();
+   if(!uuid.test(id)||(await pool.query('SELECT 1 FROM fg_creator_jobs WHERE owner_id=$1 AND task_id=$2',[actor.id,id])).rowCount!==1)throw Error('结果不属于此工作区');
+   const data=await api('/tasks/'+id),task=data.task||data;if(task.status!=='succeeded')throw Error('结果尚未就绪');
+   const signed=new URL(await creatorResourceURL(pool,api,JSON.parse(task.resultJson||'{}')));
+   const output=await fetch(new URL(signed.pathname+signed.search,web));if(!output.ok)throw Error('NAS 结果暂不可读');
+   res.writeHead(200,{'content-type':output.headers.get('content-type')||'video/mp4','cache-control':'no-store'});
+   for await(const chunk of output.body)res.write(chunk);res.end();return true;
   }
   if(req.method!=='POST')throw Error('不支持的制作操作');
   const payload=match[2]==='images/edits'?await creatorMultipart(req):await body(req,50<<20);
@@ -70,17 +79,17 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   const operationId=String(req.headers['x-fg-operation-id']||'');
   if(arc&&!uuid.test(operationId))throw Error('导演制作请求缺少操作标识；未提交模型任务');
   const mode=match[2].startsWith('images/')?'image':match[2]==='contents/generations/tasks'?'video':'text';
-  let requested=payload.model||(mode==='image'?'gpt-image-2':mode==='video'?'doubao-seedance-2-0-fast-filter-off':'gpt-5.6-sol-t1a');
+  let requested=payload.model||(mode==='image'?'gpt-image-2':mode==='video'?'doubao-seedance-2-0-fast-filter-off':'claude-sonnet-5-5-t3a');
   if(arc&&mode==='video'){const alias=(await advertisingModels(pool)).find(m=>m.capability==='video'&&m.billingId.replace(/-filter-off$/,'').replace(/seedance-2-0/,'seedance-2.0')===requested);if(alias)requested=alias.billingId;}
   const selected=await selectedAdvertisingModel(pool,mode,requested),model=selected.billingId;
-  const generationConfig=creatorGenerationConfig(selected,payload,mode,{standardImageQuality:arc});
+  const generationConfig=creatorGenerationConfig(selected,payload,mode,{standardImageQuality:true});
   if(payload.stream&&!['responses','messages'].includes(match[2]))throw Error('此创作工具接口暂支持非流式请求');
   const conversation=mode!=='text'?null:match[2]==='messages'?anthropicConversation(payload):match[2]==='responses'?creatorConversation(payload):{canonical:{messages:payload.messages,tools:payload.tools||[],toolChoice:payload.tool_choice||'auto'},custom:new Set()};
-  if(mode==='image'&&(!payload.prompt||Number(payload.n||1)!==1||(!arc&&payload.image)))throw Error('当前图片中转每次支持单张生成');
+  if(mode==='image'&&(!payload.prompt||Number(payload.n||1)!==1||false))throw Error('当前图片中转每次支持单张生成');
   const references={image:[],video:[],audio:[]};
-  if(arc&&mode==='image'&&[payload.image||[]].flat().filter(Boolean).length>selected.profile.image.references.maxImages)throw Error('参考图片数量超过当前模型上限');
-  if(arc&&mode==='video')for(const kind of ['image','video','audio'])if((payload.content||[]).filter(x=>x.type===kind+'_url').length>(selected.profile.video.references[{image:'maxImages',video:'maxVideos',audio:'maxAudios'}[kind]]||0))throw Error('参考素材数量超过当前模型上限');
-  if(arc){
+  if(mode==='image'&&[payload.image||[]].flat().filter(Boolean).length>selected.profile.image.references.maxImages)throw Error('参考图片数量超过当前模型上限');
+  if(mode==='video')for(const kind of ['image','video','audio'])if((payload.content||[]).filter(x=>x.type===kind+'_url').length>(selected.profile.video.references[{image:'maxImages',video:'maxVideos',audio:'maxAudios'}[kind]]||0))throw Error('参考素材数量超过当前模型上限');
+  if(mode!=='text'){
    if(mode==='image')for(const value of [payload.image||[]].flat())if(value)references.image.push(await creatorReference(value,'image',api,{web,cookie,publicOrigin}));
    if(mode==='video')for(const part of payload.content||[])for(const kind of Object.keys(references))if(part.type===kind+'_url'){const ref=await creatorReference(part[kind+'_url']?.url,kind,api,{web,cookie,publicOrigin});if(part.role)ref.role=part.role;references[kind].push(ref);}
   }
@@ -103,7 +112,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    const prompt=mode==='image'?payload.prompt:mode==='video'?(payload.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n'):'创作者工作台 Agent';
    if(!prompt)throw Error('请填写制作内容');
    const agentRequests=match[2]==='chat/completions'?{chatCompletion:{...payload,stream:false}}:{canonical:conversation?.canonical};
-   const input={mode,prompt,config,...(arc?{referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio}:{}),...(mode==='text'?{agentRequests,textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens||payload.max_completion_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:arc?'fg-arcreel':'fg-opencreator',creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
+   const input={mode,prompt,config,...(mode!=='text'?{referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio}:{}),...(mode==='text'?{agentRequests,textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens||payload.max_completion_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:arc?'fg-arcreel':'fg-opencreator',creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
    try{const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt:input.prompt,input});job.task_id=task.id;}
    catch(error){
     // A definite admission rejection (such as exhausted monthly allowance) has
@@ -160,10 +169,10 @@ async function creatorResourceURL(pool,api,result){
 export async function creatorUserRoute(req,res,{pool,actor,path}){
  if(path.pathname==='/.opencreator/runtime-config'){json(res,{baseUrl:'/.opencreator/runtime'});return true;}
  const isRuntime=path.pathname.startsWith('/.opencreator/runtime/');
- const isStatic=path.pathname==='/creator-app'||path.pathname.startsWith('/creator-static/')||path.pathname.startsWith('/creator-presets/')||path.pathname.startsWith('/fonts/opencreator/');
+ const isStatic=path.pathname==='/creator-app'||path.pathname.startsWith('/creator-static/')||path.pathname.startsWith('/creator-presets/')||path.pathname.startsWith('/fonts/opencreator/')||/^\/(?:dashboard|platforms|site-icons|skill-market|auth)\/.+\.(?:png|jpe?g|webp|svg|mp4)$/.test(path.pathname);
  if(!isRuntime&&!isStatic)return false;
  if(isRuntime&&path.pathname==='/.opencreator/runtime/codex/models'){
-  const models=(await advertisingModels(pool)).filter(m=>m.capability==='text').map(m=>({id:m.billingId,model:m.billingId,displayName:m.name,description:'公司 WeToken 渠道 · 纳入 FG 人民币账单和月额度',supportedReasoningEfforts:[],defaultReasoningEffort:null,inputModalities:['text','image'],isDefault:m.billingId==='gpt-5.6-sol-t1a'}));json(res,{models});return true;
+  const models=(await advertisingModels(pool)).filter(m=>m.capability==='text').map(m=>({id:m.billingId,model:m.billingId,displayName:m.name,description:'公司 WeToken 渠道 · 纳入 FG 人民币账单和月额度',supportedReasoningEfforts:[],defaultReasoningEffort:null,inputModalities:['text','image'],isDefault:m.billingId==='claude-sonnet-5-5-t3a'}));json(res,{models});return true;
  }
  const inner=isRuntime?path.pathname.slice('/.opencreator/runtime'.length):'';
  if(isRuntime&&((/^\/codex\/(?:provider|login|logout)/.test(inner)&&!['GET','HEAD'].includes(req.method))||(/^\/(?:settings\/storage|creator-services\/config|config)/.test(inner)&&!['GET','HEAD'].includes(req.method)))){json(res,{error:{code:'FG_MANAGED_PROVIDER',message:'模型与存储由公司统一管理，无需个人 Codex 账号'}},403);return true;}
@@ -175,6 +184,26 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
    json(res,{error:{message:'创作者工作区正在启动，请稍后重新连接'}},503);return true;
   }
  }
+ if(isRuntime&&['/fg-models','/fg-model-selection'].includes(inner)){
+  try{
+   const models=await advertisingModels(pool),runtime='http://'+runtimeIP+':8060',headers={'x-fg-runtime':creatorCapability(actor.id)};
+   const response=await fetch(runtime+'/creator-services/config',{headers});if(!response.ok)throw Error('个人工作区尚未就绪');
+   const current=await response.json(),config=current.config;
+   if(inner==='/fg-model-selection'){
+    if(req.method!=='POST')throw Error('不支持的模型设置操作');
+    const input=await body(req,4096);await selectedAdvertisingModel(pool,input.capability,input.model);
+    if(!['text','image','video'].includes(input.capability))throw Error('不支持的能力');
+    if(input.capability==='text')config.llm.model=input.model;
+    if(input.capability==='image')config.image.openai.model=input.model;
+    if(input.capability==='video')config.video.seedance.model=input.model;
+    // Public configuration redacts credentials. Restore only this actor's
+    // internal capability, never a supplier account key, before native save.
+    for(const service of [config.llm,config.image.openai,config.video.seedance]){service.apiKey=creatorCapability(actor.id);service.baseUrl=`http://fg-gateway:3010/internal/creator/${actor.id}/v1`;}
+    const saved=await fetch(runtime+'/creator-services/config',{method:'PATCH',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(config)});if(!saved.ok)throw Error('模型设置未保存');
+   }else if(req.method!=='GET')throw Error('只支持读取模型目录');
+   json(res,{models,defaults:{text:config.llm.model,image:config.image.openai.model,video:config.video.seedance.model}});
+  }catch(e){json(res,{error:{message:e.message}},400);}return true;
+ }
  // Docker Desktop can forward unresolved internal names through a VPN's fake
  // DNS. The host supplies only this user's managed private bridge address.
  const destination=isRuntime?'http://'+runtimeIP+':8060':'http://creator-web';
@@ -182,7 +211,7 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
  const headers=isRuntime?{'x-fg-runtime':creatorCapability(actor.id)}:{};
  for(const key of ['content-type','content-length','accept','range','last-event-id'])if(req.headers[key])headers[key]=req.headers[key];
  const upstream=http.request(target,{method:req.method,headers},remote=>{
-  if(path.pathname==='/creator-app'&&remote.statusCode===200){const chunks=[];remote.on('data',c=>chunks.push(c));remote.on('end',()=>{let html=Buffer.concat(chunks).toString();html=html.replace('</head>','<style>body{padding-top:38px!important;height:100dvh!important;box-sizing:border-box}#root{height:calc(100dvh - 38px)!important}.fg-creator-header{position:fixed;z-index:9999;top:0;left:0;right:0;height:38px;display:flex;align-items:center;gap:18px;padding:0 18px;background:#171a20;color:#e4e5e9;font:13px system-ui;border-bottom:1px solid #30343b}.fg-creator-header a{color:inherit}.fg-creator-header small{color:#a8afbb}</style></head>').replace('<body>','<body><nav class="fg-creator-header"><a href="https://192.168.0.99:3000/production-lab" target="_top">← FG 工作台</a><strong>创作者工作台</strong><a href="/.opencreator/runtime/fg-trash">回收站</a><small>工程仅本人可见 · 公司模型计费与月额度 · 字幕识别和配音需先配置可用服务</small></nav>');res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(html);});return;}
+
   res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':'no-store'});pipeline(remote,res,()=>{});
  });
  upstream.on('error',()=>{if(!res.headersSent)json(res,{error:{code:'CREATOR_STARTING',message:'个人创作者运行环境正在启动，请稍后重试'}},503);else res.destroy();});

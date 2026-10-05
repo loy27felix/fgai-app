@@ -344,7 +344,7 @@ function createEntry(
     platforms: ['Web'],
     tasks: ['课程课件'],
     creator: {
-      name: 'OpenCreator',
+      name: 'FG FOR CREATER',
       avatarUrl: 'https://example.com/avatar.png',
     },
     examples: [],

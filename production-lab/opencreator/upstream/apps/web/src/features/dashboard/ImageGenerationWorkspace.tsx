@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocalizedCopy } from '../../i18n/useLocalizedCopy.js';
 import CreatorResultVersionMenu from './CreatorResultVersionMenu.js';
 import CreatorTaskSummary from './CreatorTaskSummary.js';
+import FGImageModelSelect from '../settings/FGImageModelSelect.js';
 import CreatorToolShell from './CreatorToolShell.js';
 import type { CreatorServicesSettingsService } from '../../services/creator-services-service.js';
 import {
@@ -548,8 +549,9 @@ export default function ImageGenerationWorkspace(props: {
               </div>
               <div className="media-generation-control">
                 <span>{l('图像服务', 'Image provider')}</span>
+                {import.meta.env.VITE_FG_MANAGED === '1' ? <FGImageModelSelect /> : null}
                 <div className="creator-tool-segmented" role="radiogroup" aria-label={l('图像服务', 'Image provider')}>
-                  {providers.map(item => (
+                  {(import.meta.env.VITE_FG_MANAGED === '1' ? providers.filter(p => p.value === 'openai') : providers).map(item => (
                     <button type="button" role="radio" aria-checked={provider === item.value} aria-selected={provider === item.value} key={item.value} onClick={() => updateProvider(item.value)}>
                       {l(item.zh, item.en)}
                     </button>
@@ -821,7 +823,7 @@ function artifactFileName(artifact: CreatorArtifact, version: number, candidate:
     : artifact.metadata.mimeType === 'image/webp'
       ? 'webp'
       : 'png';
-  return `OpenCreator-image-V${version}-${candidate}.${extension}`;
+  return `FG FOR CREATER-image-V${version}-${candidate}.${extension}`;
 }
 
 function formatBytes(size: number) {

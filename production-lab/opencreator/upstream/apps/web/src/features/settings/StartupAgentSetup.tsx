@@ -158,7 +158,7 @@ export function StartupAgentSetup(props: {
         {loading ? <p role="status">{l('正在检查本机 Codex…', 'Checking local Codex…')}</p> : null}
         {!loading && existingMode !== null ? (
           <>
-            <p>{l('本机 Codex 已有可用配置，可直接用于 OpenCreator。', 'Your local Codex is ready to use with OpenCreator.')}</p>
+            <p>{l('本机 Codex 已有可用配置，可直接用于 FG FOR CREATER。', 'Your local Codex is ready to use with FG FOR CREATER.')}</p>
             <div className="startup-agent-setup__detected" role="status">
               <strong>{l('已找到本机 Codex', 'Local Codex found')}</strong>
               <span>{existingMode === 'chatgpt'

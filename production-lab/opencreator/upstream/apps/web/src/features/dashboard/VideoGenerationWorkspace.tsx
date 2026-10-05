@@ -55,7 +55,7 @@ const sizes: Array<{ value: VideoGenerationSize; zh: string; en: string; ratio: 
 ];
 
 const providers: Array<{ value: VideoGenerationProvider; zh: string; en: string }> = [
-  { value: 'seedance', zh: 'Seedance', en: 'Seedance' },
+  { value: 'seedance', zh: import.meta.env.VITE_FG_MANAGED === '1' ? 'WeToken 视频' : 'Seedance', en: import.meta.env.VITE_FG_MANAGED === '1' ? 'WeToken Video' : 'Seedance' },
   { value: 'kling', zh: '可灵', en: 'Kling' },
   { value: 'veo', zh: 'Veo', en: 'Veo' }
 ];
@@ -126,12 +126,21 @@ export default function VideoGenerationWorkspace(props: {
   const characterCount = useMemo(() => [...prompt.trim()].length, [prompt]);
   const selectedSize = sizes.find(item => item.value === size) ?? sizes[0]!;
   const selectedProvider = providers.find(item => item.value === provider) ?? providers[0]!;
+  const [companyModels, setCompanyModels] = useState<Array<{billingId: string; name: string; profile: {video: {duration: {values: number[]; default: number}}}}>>([]);
+  useEffect(() => {
+    if (import.meta.env.VITE_FG_MANAGED !== '1') return;
+    void fetch('/.opencreator/runtime/fg-models').then(async r => {
+      if (!r.ok) throw Error('公司模型读取失败');
+      const data = await r.json(); setCompanyModels(data.models.filter((m: {capability: string}) => m.capability === 'video'));
+      if (!session?.state.model) {setModel(data.defaults.video);setProvider('seedance');session?.updateDraft({model: data.defaults.video,provider: 'seedance'});}
+    }).catch(e => setError(e.message));
+  }, []);
   const modelOptions = useMemo(
-    () => createVideoModelOptions(provider, modelDefaults[provider], model),
-    [model, modelDefaults, provider]
+    () => import.meta.env.VITE_FG_MANAGED === '1' ? companyModels.map(m => ({value: m.billingId,label: m.name})) : createVideoModelOptions(provider, modelDefaults[provider], model),
+    [model, modelDefaults, provider, companyModels]
   );
   const selectedModelLabel = videoModelLabel(model);
-  const durations = providerDurations[provider];
+  const durations = import.meta.env.VITE_FG_MANAGED === '1' ? (companyModels.find(m => m.billingId === model)?.profile.video.duration.values || [5,10]).filter(v => [4,5,6,8,10].includes(v)) : providerDurations[provider];
   const resultVersions = useMemo(
     () => createVideoResultVersions(session?.job.artifacts ?? [], session?.state.resultSnapshots),
     [session?.job.artifacts, session?.state.resultSnapshots]
@@ -353,7 +362,10 @@ export default function VideoGenerationWorkspace(props: {
   function updateModel(nextModel: string) {
     settingsRevision.current += 1;
     setModel(nextModel);
-    session?.updateDraft({ model: nextModel });
+    const available = companyModels.find(m => m.billingId === nextModel)?.profile.video.duration.values.filter(v => [4,5,6,8,10].includes(v));
+    const nextDuration = available?.includes(duration) ? duration : available?.[0] as VideoGenerationDuration | undefined;
+    if(nextDuration !== undefined) setDuration(nextDuration);
+    session?.updateDraft({ model: nextModel, ...(nextDuration !== undefined ? {duration: nextDuration} : {}) });
     setError('');
   }
 
@@ -687,7 +699,7 @@ export default function VideoGenerationWorkspace(props: {
                 <label className="creator-tool-field">
                   <span>{l('视频服务', 'Video provider')}</span>
                   <NativeSelect value={provider} onChange={event => updateProvider(event.target.value as VideoGenerationProvider)}>
-                    {providers.map(item => <option key={item.value} value={item.value}>{l(item.zh, item.en)}</option>)}
+                    {(import.meta.env.VITE_FG_MANAGED === '1' ? providers.filter(p => p.value === 'seedance') : providers).map(item => <option key={item.value} value={item.value}>{l(item.zh, item.en)}</option>)}
                   </NativeSelect>
                 </label>
                 <label className="creator-tool-field">
@@ -1100,7 +1112,7 @@ function readNeedsInputDeepLink(value: CreatorJson | undefined): string {
 
 function artifactFileName(artifact: CreatorArtifact, version: number): string {
   return readArtifactString(artifact, 'fileName')
-    ?? `OpenCreator-video-V${version}.mp4`;
+    ?? `FG FOR CREATER-video-V${version}.mp4`;
 }
 
 function videoPhaseLabel(

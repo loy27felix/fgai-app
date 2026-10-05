@@ -205,7 +205,7 @@ describe('CoverGeneratorWorkspace', () => {
     );
   });
 
-  it('shows the OpenCreator display language as the concrete default option', () => {
+  it('shows the FG FOR CREATER display language as the concrete default option', () => {
     const fixture = createFixture();
     renderWorkspace(fixture, fixture.currentJob(), 'en-US');
     const workspace = screen.getByRole('region', { name: 'Thumbnail Generator workspace' });

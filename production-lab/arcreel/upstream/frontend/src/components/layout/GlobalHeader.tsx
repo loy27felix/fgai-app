@@ -95,6 +95,7 @@ export function GlobalHeader() {
   return (
     <header className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(min-content,1fr)] items-center gap-3 border-b border-border bg-background px-2">
       <div className="flex min-w-0 items-center gap-1">
+        <a href="https://192.168.0.99:3000/production-lab" target="_top" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">← FG 工作台</a>
         <Link href={`~${ROUTE_APP_PROJECTS}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
           <ChevronLeft aria-hidden data-icon="inline-start" />
           {t("dashboard:projects")}

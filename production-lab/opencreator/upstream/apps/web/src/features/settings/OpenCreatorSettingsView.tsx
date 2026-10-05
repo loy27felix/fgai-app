@@ -37,7 +37,8 @@ import { usePageIssueState } from '../issues/page-issue-state.js';
 
 const CreatorServicesSettingsView = lazy(async () => {
   const module = await import('./CreatorServicesSettingsView.js');
-  return { default: module.CreatorServicesSettingsView };
+  const Managed = (await import('./FGCompanyModels.js')).default;
+  return { default: (props: Parameters<typeof module.CreatorServicesSettingsView>[0]) => import.meta.env.VITE_FG_MANAGED === '1' ? <Managed /> : <module.CreatorServicesSettingsView {...props} /> };
 });
 
 export type RuntimeStatus = {
@@ -113,7 +114,7 @@ export function OpenCreatorSettingsView(props: OpenCreatorSettingsViewProps) {
     { id: 'profiles', label: t('settings.tab.profiles') },
     { id: 'cleanup', label: t('settings.tab.cleanup') },
     { id: 'diagnostics', label: t('settings.tab.diagnostics') },
-    { id: 'about', label: t('settings.tab.about') }
+    ...(import.meta.env.VITE_FG_MANAGED === '1' ? [] : [{ id: 'about' as const, label: t('settings.tab.about') }])
   ];
 
   useEffect(() => {
@@ -389,7 +390,11 @@ function GeneralSettings(props: {
         <p>{t('settings.general.description')}</p>
       </header>
       <div className="settings-card">
-        {storage === undefined || storageDraft === undefined ? null : (
+        {import.meta.env.VITE_FG_MANAGED === '1' ? <>
+          <SettingsRow label="项目与产物" value="公司 NAS · 按 FG 账号隔离保存" />
+          <SettingsRow label="存储说明" value="服务器容器中的 /workspace 映射到 NAS，文件不保存在你的电脑。" />
+          <SettingsRow label="删除与恢复" value="移入回收站可恢复；彻底删除只清理本人工程，仍被引用的素材保留。" />
+        </> : storage === undefined || storageDraft === undefined ? null : (
           <>
             <StorageDirectoryRow
               id="settings-default-project-root"
@@ -451,7 +456,7 @@ function GeneralSettings(props: {
             props.onDefaultPermissionChange?.(permission);
           }}
         />
-        <SettingsRow label={t('settings.defaultFileApp')} value={t('settings.systemDefaultApp')} />
+        {import.meta.env.VITE_FG_MANAGED === '1' ? null : <SettingsRow label={t('settings.defaultFileApp')} value={t('settings.systemDefaultApp')} />}
         <SettingsSelectRow
           id="settings-display-language"
           label={t('settings.language')}

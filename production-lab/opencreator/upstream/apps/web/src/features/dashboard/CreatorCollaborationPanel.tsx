@@ -216,7 +216,7 @@ export default function CreatorCollaborationPanel(props: {
   return (
     <aside
       className="creator-collaboration creator-collaboration-panel"
-      aria-label="OpenCreator"
+      aria-label="FG FOR CREATER"
     >
       <header className="creator-collaboration-header">
         <span aria-hidden="true"><OpenCreatorMark size={18} /></span>
