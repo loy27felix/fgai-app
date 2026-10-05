@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {admissionPrice,monthStart,monthRange,spendUsage} from './fg-budgets.mjs';
+import {admissionPrice,monthStart,monthRange,spendUsage,reserveBudget} from './fg-budgets.mjs';
 test('text budget reserves declared maximum output',()=>{
  const price={enabled:true,discount:.85,pricing_rules:{input_price:2,output_price:8}};
  const payload={messages:[{role:'user',content:'测试'}],max_tokens:2000};
@@ -24,4 +24,26 @@ test('an incomplete multimodal quote cannot authorize a capped request',()=>{
  const price={enabled:true,discount:1,pricing_rules:{rules:[{tier:'standard',token_type:'Output image',image_size:'1K',price:.04}]}};
  assert.equal(admissionPrice('gemini-3-pro-image-preview','image',{quality:'1K'},price,6.77),null);
  assert.match(monthStart(),/^\d{4}-\d{2}-01T00:00:00\+08:00$/);
+});
+
+function speechBudgetPool({access=true,monthly=0,project=0}={}){
+ const queries=[];
+ const client={release(){},async query(sql,params){queries.push({sql,params});
+  const rows=sql.includes("status='active'")?[{id:'member'}]:sql.includes('w.native_project_id')?(access?[{id:'ad-project'}]:[]):sql.includes('SELECT monthly_cny')?[{monthly_cny:monthly}]:sql.includes('SELECT budget_cny')?[{budget_cny:project}]:sql.includes('SELECT snapshot')?[{snapshot:{enabled:true,provider:'volcengine',pricing_rules:{}}}]:sql.includes("key='usdCnyRate'")?[{value:6.77}]:[];
+  return {rows};
+ }};return {queries,connect:async()=>client};
+}
+test('audio utilities reject inaccessible advertising contexts before reserving charges',async()=>{
+ const pool=speechBudgetPool({access:false});
+ await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'foreign',model:'volc.seedasr.auc',capability:'transcription'}),/无权/);
+ assert.ok(pool.queries.some(q=>q.sql==='ROLLBACK'));assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
+});
+test('unverified speech rates fail closed for either monthly or advertising limits',async()=>{
+ for(const constraints of [{monthly:10},{project:10}]){
+  const pool=speechBudgetPool(constraints);
+  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model:'volc.speech.mt',capability:'translation'}),/费用上限/);
+  assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
+ }
+ const pool=speechBudgetPool();const result=await reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model:'volc.speech.mt',capability:'translation'});
+ assert.equal(result.reservedCny,null);assert.equal(pool.queries.find(q=>q.sql.includes('INSERT INTO')).params[2],'ad-project');
 });

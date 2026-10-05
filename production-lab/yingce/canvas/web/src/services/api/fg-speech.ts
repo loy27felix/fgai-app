@@ -1,0 +1,26 @@
+import {ApiError,http} from "@/services/api/request";
+export type SpeechJob={id:string;kind:"transcription"|"translation";status:string;error?:string;result?:{text:string;segments?:{start:number;end:number;text:string}[]};createdAt:string};
+export const speechJobs=()=>http.get<{jobs:SpeechJob[]}>("/fg/speech/jobs");
+export const createSpeechJob=(input:Record<string,unknown>)=>http.post<SpeechJob>("/fg/speech/jobs",input);
+export async function generateCompanySpeech(input:Record<string,unknown>,operationId:string){
+ try{
+ const response=await http.raw<Blob>({method:"POST",url:"/fg/speech/generate",data:input,responseType:"blob",timeout:330000,headers:{"x-fg-operation-id":operationId}});
+ if(!response.data.type.startsWith("audio/"))throw Error("音频结果尚未就绪，请查看制作历史");
+ return response.data;
+ }catch(error){
+  if(error instanceof ApiError){
+   const cause=error.cause as {response?:{data?:unknown}}|undefined;
+   if(cause?.response?.data instanceof Blob && cause.response.data.size<65536){
+    let envelope:{msg?:string;error?:string}|undefined;
+    try{envelope=JSON.parse(await cause.response.data.text());}catch{/* Preserve the existing transport error. */}
+    const message=envelope?.msg||envelope?.error;
+    if(message)throw new ApiError(message,{status:error.status,code:error.code,retryable:false,cause:error});
+   }
+  }
+  throw error;
+ }
+}
+export function speechSRT(segments:{start:number;end:number;text:string}[]){
+ const stamp=(seconds:number)=>{const total=Math.max(0,Math.round(seconds*1000));return `${String(Math.floor(total/3600000)).padStart(2,"0")}:${String(Math.floor(total/60000)%60).padStart(2,"0")}:${String(Math.floor(total/1000)%60).padStart(2,"0")},${String(total%1000).padStart(3,"0")}`;};
+ return segments.map((s,i)=>`${i+1}\n${stamp(s.start)} --> ${stamp(s.end)}\n${s.text}\n`).join("\n");
+}

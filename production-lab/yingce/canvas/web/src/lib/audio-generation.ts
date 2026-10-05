@@ -1,6 +1,7 @@
 import { doubaoAudioVoiceOptions, doubaoDefaultAudioVoice } from "@/lib/doubao-audio-voices";
 import { resolveModelRequestConfig } from "@/stores/use-config-store";
 import type { AiConfig } from "@/stores/use-config-store";
+import {fgSpeechVoices,fgDefaultSpeechVoice} from "@/lib/fg-speech-voices";
 
 export { doubaoAudioVoiceOptions, doubaoDefaultAudioVoice };
 
@@ -88,16 +89,21 @@ export function isDoubaoAudioConfig(config: AiConfig) {
 }
 
 export function audioVoiceOptionsForConfig(config: AiConfig) {
+    if ((config.model || config.audioModel) === "seed-tts-2.0") return fgSpeechVoices;
+    if ((config.model || config.audioModel) === "seed-audio-1.0" && !isDoubaoAudioConfig(config)) return [{value:"prompt",label:"由提示词描述声音"}];
     return isDoubaoAudioConfig(config) ? doubaoAudioVoiceOptions : openAIAudioVoiceOptions;
 }
 
 export function audioFormatOptionsForConfig(config: AiConfig) {
+    if (["seed-tts-2.0","seed-audio-1.0"].includes(config.model || config.audioModel) && !isDoubaoAudioConfig(config)) return [{value:"mp3",label:"MP3"},{value:"wav",label:"WAV"}];
     return isDoubaoAudioConfig(config) ? doubaoAudioFormatOptions : openAIAudioFormatOptions;
 }
 
 export function normalizeAudioVoiceForConfig(config: AiConfig, value: string) {
     const options = audioVoiceOptionsForConfig(config);
     const normalized = String(value || "").trim();
+    if ((config.model || config.audioModel) === "seed-tts-2.0") return options.some(item=>item.value===normalized)?normalized:fgDefaultSpeechVoice;
+    if ((config.model || config.audioModel) === "seed-audio-1.0" && !isDoubaoAudioConfig(config)) return "prompt";
     if (isDoubaoAudioConfig(config)) {
         if (!normalized || normalized === "alloy") return "";
         return normalized;

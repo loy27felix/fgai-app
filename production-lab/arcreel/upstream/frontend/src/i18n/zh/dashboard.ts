@@ -1,6 +1,15 @@
 import type enDashboard from '../en/dashboard';
 
 export default {
+  fg_audio_tools: '音频工具',
+  fg_managed_market_title: '公司模型与工具',
+  fg_managed_market_policy: '导演台使用 FG 统一配置的模型渠道，当前未启用第三方调用端点市场。',
+  fg_managed_market_empty: '市场条目不是公司素材，也不是已接入模型；没有安装条目时显示为空是正常的。',
+  fg_managed_market_models: '可用模型可以在导演助手和项目设置中选择。渠道密钥与存储由公司管理。',
+  fg_managed_market_link: '查看默认模型',
+  fg_license_source: '许可与源码',
+  fg_original_source: '原始源码',
+  fg_modified_source: 'FG 修改版对应源码',
   reference_prompt_draft_replaced: "本集有新的提示词草稿，保存或放弃修改后查看草稿。",
   episode_externally_removed: "本集已被删除，保存会失败；可以复制内容后放弃修改。",
   episode_script_removed: "本集脚本已被移除，保存会失败；可以复制内容后放弃修改。",

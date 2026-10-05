@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { doubaoAudioVoiceOptions, isDoubaoAudioConfig, normalizeAudioVoiceForConfig, normalizeAudioVoiceValue } from "../src/lib/audio-generation";
+import { audioVoiceOptionsForConfig, audioFormatOptionsForConfig, doubaoAudioVoiceOptions, isDoubaoAudioConfig, normalizeAudioVoiceForConfig, normalizeAudioVoiceValue } from "../src/lib/audio-generation";
 
 const config = (protocol: string) =>
     ({
@@ -12,6 +12,14 @@ const config = (protocol: string) =>
     }) as any;
 
 describe("audio voice protocol handling", () => {
+    test("company Seed Audio uses prompt voices while TTS 2 uses compatible speaker IDs", () => {
+        const seed = {...config("openai-audio"),model:"seed-audio-1.0",audioModel:"seed-audio-1.0"};
+        const tts = {...seed,model:"seed-tts-2.0",audioModel:"seed-tts-2.0"};
+        expect(normalizeAudioVoiceForConfig(seed,"alloy")).toBe("prompt");
+        expect(audioVoiceOptionsForConfig(tts)).toHaveLength(7);
+        expect(normalizeAudioVoiceForConfig(tts,"alloy")).toBe("zh_female_gaolengyujie_uranus_bigtts");
+        expect(audioFormatOptionsForConfig(seed).map(option=>option.value)).toEqual(["mp3","wav"]);
+    });
     test("keeps custom voice identifiers for non-OpenAI channels", () => {
         expect(normalizeAudioVoiceValue("voice_001")).toBe("voice_001");
     });

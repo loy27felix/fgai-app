@@ -9,6 +9,9 @@ import {responseHeaders} from './policy.mjs';
 import fs from 'node:fs/promises';
 import {priceQuote} from './fg-quotes.mjs';
 import {estimateCNY} from './fg-prices.mjs';
+import {createSpeechJob,refreshTranscription} from './fg-speech-jobs.mjs';
+import {advertisingAccess} from './fg-adcraft.mjs';
+import {speechVoices} from './fg-speech-provider.mjs';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const creatorCapability=id=>createHmac('sha256',process.env.FG_ADCRAFT_SECRET||'').update('fg-creator-v1:'+id).digest('hex');
@@ -51,12 +54,25 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   const active=(await pool.query("SELECT id FROM users WHERE id=$1 AND status='active'",[catalog[1]])).rows[0];if(!active){json(res,{error:{message:'FG 账号不可用'}},403);return true;}
   const all=await advertisingModels(pool);json(res,{models:arc?all:all.filter(m=>m.capability==='text').map(m=>({id:m.billingId,name:m.name})),allModels:all});return true;
  }
- const match=/^\/internal\/creator\/([^/]+)\/v1\/(responses|messages|messages\/count_tokens|chat\/completions|images\/generations|images\/edits|contents\/generations\/tasks(?:\/[^/]+)?|media\/[^/]+)$/.exec(routePath);if(!match)return false;
+ const match=/^\/internal\/creator\/([^/]+)\/v1\/(responses|messages|messages\/count_tokens|chat\/completions|audio\/speech|audio\/transcriptions|images\/generations|images\/edits|contents\/generations\/tasks(?:\/[^/]+)?|media\/[^/]+)$/.exec(routePath);if(!match)return false;
  let keepAlive;
  try{
   if(!creatorAuthorised(match[1],capability)){json(res,{error:{message:'创作者服务未授权'}},403);return true;}
   const actor=(await pool.query(`SELECT u.id,u.display_name name,a.email,a.platform_role FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.id=$1 AND u.status='active'`,[match[1]])).rows[0];if(!actor)throw Error('FG 账号不可用');
   const cookie=await canvasSession({...actor,reviewer:actor.platform_role==='superadmin',platformRole:actor.platform_role});const api=(p,m,b)=>nativeAPI(web,cookie,publicOrigin,p,m,b);
+  if(req.method==='POST'&&match[2]==='audio/transcriptions'){
+   const payload=await creatorMultipart(req);
+   if(payload.model!=='volc.seedasr.auc'||!payload.file)throw Error('请上传录音文件并选择公司语音识别模型');
+   const reference=await creatorReference(payload.file,'audio',api,{web,cookie,publicOrigin});
+   const token=createHash('sha256').update(actor.id+payload.file).digest('hex');
+   const stableId=`${token.slice(0,8)}-${token.slice(8,12)}-4${token.slice(13,16)}-a${token.slice(17,20)}-${token.slice(20,32)}`;
+   const operation=String(req.headers['x-fg-operation-id']||'');
+   let job=await createSpeechJob(pool,actor,{kind:'transcription',resourceId:reference.id,operationId:uuid.test(operation)?operation:stableId},api);
+   res.setHeader('x-fg-speech-job-id',job.id);
+   for(let i=0;i<900&&['submitted','sending'].includes(job.status);i++){await new Promise(r=>setTimeout(r,2000));job=await refreshTranscription(pool,job);}
+   if(job.status!=='succeeded')throw Error('录音识别仍在处理或失败，请从音频工具查看原任务；不会重复提交');
+   json(res,{text:job.result.text,segments:job.result.segments,duration:Number(job.result.usage?.duration)/1000||undefined});return true;
+  }
   if(req.method==='GET'&&match[2].startsWith('contents/generations/tasks/')){
    const id=match[2].split('/').pop();
    const valid=(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN tasks t ON t.id=j.task_id AND t.user_id=j.owner_id WHERE j.owner_id=$1 AND j.task_id=$2 AND t.project_id IN (SELECT native_project_id FROM fg_arcreel_workspaces WHERE owner_id=$1 UNION SELECT native_project_id FROM fg_creator_workspaces WHERE owner_id=$1)',[actor.id,id])).rows[0];if(!valid)throw Error('视频任务不存在');
@@ -68,7 +84,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    const id=match[2].split('/').pop();
    if(!uuid.test(id)||(await pool.query('SELECT 1 FROM fg_creator_jobs WHERE owner_id=$1 AND task_id=$2',[actor.id,id])).rowCount!==1)throw Error('结果不属于此工作区');
    const data=await api('/tasks/'+id),task=data.task||data;if(task.status!=='succeeded')throw Error('结果尚未就绪');
-   const signed=new URL(await creatorResourceURL(pool,api,JSON.parse(task.resultJson||'{}')));
+   const signed=new URL(await creatorResourceURL(pool,api,JSON.parse(task.resultJson||'{}')),web);
    const output=await fetch(new URL(signed.pathname+signed.search,web));if(!output.ok)throw Error('NAS 结果暂不可读');
    res.writeHead(200,{'content-type':output.headers.get('content-type')||'video/mp4','cache-control':'no-store'});
    for await(const chunk of output.body)res.write(chunk);res.end();return true;
@@ -78,10 +94,12 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   if(match[2]==='messages/count_tokens'){json(res,{error:{type:'not_supported_error',message:'公司渠道不提供精确的预请求 Token 计数；实际用量见 FG 账单'}},501);return true;}
   const operationId=String(req.headers['x-fg-operation-id']||'');
   if(arc&&!uuid.test(operationId))throw Error('导演制作请求缺少操作标识；未提交模型任务');
-  const mode=match[2].startsWith('images/')?'image':match[2]==='contents/generations/tasks'?'video':'text';
+  const mode=match[2].startsWith('images/')?'image':match[2]==='contents/generations/tasks'?'video':match[2]==='audio/speech'?'audio':'text';
   let requested=payload.model||(mode==='image'?'gpt-image-2':mode==='video'?'doubao-seedance-2-0-fast-filter-off':'claude-sonnet-5-5-t3a');
   if(arc&&mode==='video'){const alias=(await advertisingModels(pool)).find(m=>m.capability==='video'&&m.billingId.replace(/-filter-off$/,'').replace(/seedance-2-0/,'seedance-2.0')===requested);if(alias)requested=alias.billingId;}
   const selected=await selectedAdvertisingModel(pool,mode,requested),model=selected.billingId;
+  const adWorkspace=payload.fgAdWorkspaceId?await advertisingAccess(pool,{...actor,reviewer:actor.platform_role==='superadmin'},payload.fgAdWorkspaceId):null;
+  if(payload.fgAdWorkspaceId&&(!adWorkspace||mode!=='audio'))throw Error('广告音频项目不存在或无权使用');
   const generationConfig=creatorGenerationConfig(selected,payload,mode,{standardImageQuality:true});
   if(payload.stream&&!['responses','messages'].includes(match[2]))throw Error('此创作工具接口暂支持非流式请求');
   const conversation=mode!=='text'?null:match[2]==='messages'?anthropicConversation(payload):match[2]==='responses'?creatorConversation(payload):{canonical:{messages:payload.messages,tools:payload.tools||[],toolChoice:payload.tool_choice||'auto'},custom:new Set()};
@@ -93,14 +111,14 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    if(mode==='image')for(const value of [payload.image||[]].flat())if(value)references.image.push(await creatorReference(value,'image',api,{web,cookie,publicOrigin}));
    if(mode==='video')for(const part of payload.content||[])for(const kind of Object.keys(references))if(part.type===kind+'_url'){const ref=await creatorReference(part[kind+'_url']?.url,kind,api,{web,cookie,publicOrigin});if(part.role)ref.role=part.role;references[kind].push(ref);}
   }
-  const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name LIKE 'WeToken%' AND cm.model_key=$1 AND cm.enabled AND c.enabled AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('公司模型暂不可用');
+  const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE (c.name LIKE 'WeToken%' OR c.name='火山语音 · FG') AND cm.model_key=$1 AND cm.enabled AND c.enabled AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('公司模型暂不可用');
   // PostgreSQL serialises initial project mapping and duplicate transport retries.
   const client=await pool.connect();let workspace,job,newJob=false;
-  const logical=createHash('sha256').update(JSON.stringify([arc?'arcreel':'creator',arc?operationId:req.headers['session_id']||req.headers['x-codex-session-id']||'',payload])).digest('hex');
+  const logical=createHash('sha256').update(JSON.stringify([arc?'arcreel':'creator',operationId||req.headers['session_id']||req.headers['x-codex-session-id']||'',payload])).digest('hex');
   const workspaceTable=arc?'fg_arcreel_workspaces':'fg_creator_workspaces';
   try{
    await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-creator:'||$1))",[actor.id]);
-   workspace=(await client.query('SELECT * FROM '+workspaceTable+' WHERE owner_id=$1',[actor.id])).rows[0];
+   workspace=adWorkspace||(await client.query('SELECT * FROM '+workspaceTable+' WHERE owner_id=$1',[actor.id])).rows[0];
    if(!workspace){const {project}=await api('/projects','POST',{name:(arc?'ArcReel 导演工作台':'创作者工作台')+' · '+actor.name,type:'creator',aspectRatio:'16:9',sourceType:'text',description:'公司统一渠道；每位成员的原生工程单独保存。'});workspace={native_project_id:project.id};await client.query('INSERT INTO '+workspaceTable+'(owner_id,native_project_id) VALUES($1,$2)',[actor.id,project.id]);}
    job=(await client.query('SELECT * FROM fg_creator_jobs WHERE owner_id=$1 AND logical_key=$2',[actor.id,logical])).rows[0];
    if(!job){job={id:randomUUID()};newJob=true;await client.query('INSERT INTO fg_creator_jobs(id,owner_id,logical_key) VALUES($1,$2,$3)',[job.id,actor.id,logical]);}
@@ -109,10 +127,10 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   if(!job.task_id&&!newJob){const recovered=(await pool.query("SELECT id FROM tasks WHERE user_id=$1 AND project_id=$2 AND input_json::jsonb #>> '{metadata,clientOperationId}'=$3 LIMIT 1",[actor.id,workspace.native_project_id,'creator-'+job.id])).rows[0];if(!recovered)throw Error('请求已登记，正在恢复；不会重复提交付费任务');job.task_id=recovered.id;}
   if(!job.task_id){
    const config={channelId:channel.channel_id,model,interfaceType:channel.protocol,apiFormat:channel.api_format||'openai',count:'1',...generationConfig};
-   const prompt=mode==='image'?payload.prompt:mode==='video'?(payload.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n'):'创作者工作台 Agent';
+   const prompt=mode==='audio'?payload.input:mode==='image'?payload.prompt:mode==='video'?(payload.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n'):'创作者工作台 Agent';
    if(!prompt)throw Error('请填写制作内容');
    const agentRequests=match[2]==='chat/completions'?{chatCompletion:{...payload,stream:false}}:{canonical:conversation?.canonical};
-   const input={mode,prompt,config,...(mode!=='text'?{referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio}:{}),...(mode==='text'?{agentRequests,textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens||payload.max_completion_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:arc?'fg-arcreel':'fg-opencreator',creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
+   const input={mode,prompt,config,...(mode!=='text'?{referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio}:{}),...(mode==='text'?{agentRequests,textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens||payload.max_completion_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:adWorkspace?'fg-adcraft':arc?'fg-arcreel':'fg-opencreator',...(adWorkspace?{adcraftWorkspaceId:adWorkspace.id}:{}),creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
    try{const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt:input.prompt,input});job.task_id=task.id;}
    catch(error){
     // A definite admission rejection (such as exhausted monthly allowance) has
@@ -129,11 +147,17 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   let task;for(let i=0;i<1800;i++){const data=await api('/tasks/'+job.task_id);task=data.task||data;if(['succeeded','failed','cancelled'].includes(task.status))break;await new Promise(r=>setTimeout(r,1000));}
   if(task.status!=='succeeded')throw Error(task.error||'任务仍在运行，请从创作历史查看；未重复提交');
   const nativeResult=JSON.parse(task.resultJson||'{}');
+  if(mode==='audio'){
+   const signed=new URL(await creatorResourceURL(pool,api,nativeResult),web);
+   const output=await fetch(new URL(signed.pathname+signed.search,web));if(!output.ok)throw Error('音频已生成，等待 NAS 归档');
+   res.writeHead(200,{'content-type':output.headers.get('content-type')||'audio/mpeg','cache-control':'no-store','x-fg-task-id':job.task_id});
+   for await(const chunk of output.body)res.write(chunk);res.end();return true;
+  }
   if(mode==='image'){
    const output=[...(nativeResult.images||[]),nativeResult.image,nativeResult].filter(Boolean).find(v=>v.resourceId||v.storageKey);let id=output?.resourceId||String(output?.storageKey||'').replace(/^resource:/,'');
    if(!id&&nativeResult.assetId)id=(await pool.query('SELECT r.resource_id FROM asset_representations r JOIN asset_versions v ON v.id=r.asset_version_id JOIN assets a ON a.primary_version_id=v.id WHERE a.id=$1 AND a.user_id=$2 ORDER BY r.created_at DESC LIMIT 1',[nativeResult.assetId,actor.id])).rows[0]?.resource_id;
    if(!id)throw Error('图片已生成，等待 NAS 归档，请从创作历史恢复');
-   const access=await api('/resources/access','POST',[{resourceId:id,purpose:'provider-input',variant:'original'}]);const url=new URL(access.items?.[0]?.access?.url);const image=await fetch(new URL(url.pathname+url.search,web));if(!image.ok)throw Error('图片归档暂不可读');
+   const access=await api('/resources/access','POST',[{resourceId:id,purpose:'copy',variant:'original'}]);const url=new URL(access.items?.[0]?.access?.url,web);const image=await fetch(new URL(url.pathname+url.search,web));if(!image.ok)throw Error('图片归档暂不可读');
    json(res,{created:Math.floor(Date.now()/1000),data:[{b64_json:Buffer.from(await image.arrayBuffer()).toString('base64')}]});return true;
   }
   if(match[2]==='messages'){
@@ -149,22 +173,22 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
  finally{if(keepAlive)clearInterval(keepAlive);}return true;
 }
 async function creatorMultipart(req){
- let length=0;const chunks=[];for await(const chunk of req){length+=chunk.length;if(length>50<<20)throw Error('参考素材上限 50 MB');chunks.push(chunk);}
+ let length=0;const chunks=[];for await(const chunk of req){length+=chunk.length;if(length>(50<<20))throw Error('参考素材上限 50 MB');chunks.push(chunk);}
  const form=await new Request('http://fg-internal/',{method:'POST',headers:{'content-type':req.headers['content-type']},body:Buffer.concat(chunks)}).formData();
- const payload={image:[]};for(const [key,value] of form){if(typeof value==='string')payload[key]=value;else if(/^image(?:\[\])?$/.test(key))payload.image.push('data:'+value.type+';base64,'+Buffer.from(await value.arrayBuffer()).toString('base64'));else throw Error('不支持的参考文件字段');}return payload;
+ const payload={image:[]};for(const [key,value] of form){if(typeof value==='string')payload[key]=value;else if(key==='file'&&(value.type.startsWith('audio/')||/\.(mp3|wav|m4a|ogg|flac)$/i.test(value.name))){const mime=value.type.startsWith('audio/')?value.type:({mp3:'audio/mpeg',wav:'audio/wav',m4a:'audio/mp4',ogg:'audio/ogg',flac:'audio/flac'}[value.name.split('.').pop().toLowerCase()]);payload.file='data:'+mime+';base64,'+Buffer.from(await value.arrayBuffer()).toString('base64');}else if(/^image(?:\[\])?$/.test(key))payload.image.push('data:'+value.type+';base64,'+Buffer.from(await value.arrayBuffer()).toString('base64'));else throw Error('不支持的参考文件字段');}return payload;
 }
 async function creatorReference(value,kind,api,{web,cookie,publicOrigin}){
  const match=typeof value==='string'&&/^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/.exec(value);if(!match||!match[1].startsWith(kind+'/'))throw Error('请先上传导演参考素材；不读取任意外部链接');
- const bytes=Buffer.from(match[2],'base64');if(bytes.length>50<<20)throw Error('参考素材上限 50 MB');
+ const bytes=Buffer.from(match[2],'base64');if(bytes.length>(50<<20))throw Error('参考素材上限 50 MB');
  const form=new FormData();form.set('kind',kind);form.set('file',new Blob([bytes],{type:match[1]}),kind+'.'+(kind==='image'?'png':kind==='video'?'mp4':'wav'));
  const r=await fetch(new URL('/api/resources',web),{method:'POST',headers:{cookie,origin:publicOrigin,'x-idempotency-key':'arc-ref-'+createHash('sha256').update(bytes).digest('hex')},body:form,signal:AbortSignal.timeout(120000)}),result=await r.json();if(!r.ok||result.code!==0)throw Error(result.msg||'参考素材未保存到 NAS');
  return {id:result.data.resource.id,storageKey:'resource:'+result.data.resource.id,name:'导演参考素材',type:match[1]};
 }
 async function creatorResourceURL(pool,api,result){
- const output=[...(result.videos||[]),...(result.images||[]),result.video,result.image,result].filter(Boolean).find(x=>x.resourceId||x.storageKey);let id=output?.resourceId||String(output?.storageKey||'').replace(/^resource:/,'');
+ const output=[...(result.videos||[]),...(result.images||[]),...(result.audios||[]),result.video,result.image,result.audio,result].filter(Boolean).find(x=>x.resourceId||x.storageKey);let id=output?.resourceId||String(output?.storageKey||'').replace(/^resource:/,'');
  if(!id&&result.assetId)id=(await pool.query('SELECT r.resource_id FROM asset_representations r JOIN asset_versions v ON v.id=r.asset_version_id JOIN assets a ON a.primary_version_id=v.id WHERE a.id=$1 ORDER BY r.created_at DESC LIMIT 1',[result.assetId])).rows[0]?.resource_id;
  if(!id)throw Error('结果等待 NAS 归档，请从创作历史恢复');
- const access=await api('/resources/access','POST',[{resourceId:id,purpose:'provider-input',variant:'original'}]);const url=access.items?.[0]?.access?.url;if(!url)throw Error('结果暂不可读');return url;
+ const access=await api('/resources/access','POST',[{resourceId:id,purpose:'copy',variant:'original'}]);const url=access.items?.[0]?.access?.url;if(!url)throw Error('结果暂不可读');return url;
 }
 export async function creatorUserRoute(req,res,{pool,actor,path}){
  if(path.pathname==='/.opencreator/runtime-config'){json(res,{baseUrl:'/.opencreator/runtime'});return true;}
@@ -184,6 +208,9 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
    json(res,{error:{message:'创作者工作区正在启动，请稍后重新连接'}},503);return true;
   }
  }
+ if(isRuntime&&inner==='/creator-services/tts/voices'&&req.method==='GET'&&path.searchParams.get('provider')==='openai'&&['seed-tts-2.0','seed-audio-1.0'].includes(path.searchParams.get('model'))){
+  const model=path.searchParams.get('model');json(res,{provider:'openai',model,voices:model==='seed-tts-2.0'?speechVoices:[{id:'prompt',name:'由提示词描述声音',language:'multi',provider:'openai',kind:'builtin'}]});return true;
+ }
  if(isRuntime&&['/fg-models','/fg-model-selection'].includes(inner)){
   try{
    const models=await advertisingModels(pool),runtime='http://'+runtimeIP+':8060',headers={'x-fg-runtime':creatorCapability(actor.id)};
@@ -192,16 +219,17 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
    if(inner==='/fg-model-selection'){
     if(req.method!=='POST')throw Error('不支持的模型设置操作');
     const input=await body(req,4096);await selectedAdvertisingModel(pool,input.capability,input.model);
-    if(!['text','image','video'].includes(input.capability))throw Error('不支持的能力');
+    if(!['text','image','video','audio'].includes(input.capability))throw Error('不支持的能力');
     if(input.capability==='text')config.llm.model=input.model;
     if(input.capability==='image')config.image.openai.model=input.model;
     if(input.capability==='video')config.video.seedance.model=input.model;
+    if(input.capability==='audio')config.tts.openai.model=input.model;
     // Public configuration redacts credentials. Restore only this actor's
     // internal capability, never a supplier account key, before native save.
-    for(const service of [config.llm,config.image.openai,config.video.seedance]){service.apiKey=creatorCapability(actor.id);service.baseUrl=`http://fg-gateway:3010/internal/creator/${actor.id}/v1`;}
+    for(const service of [config.llm,config.image.openai,config.video.seedance,config.tts.openai,config.transcription.openai]){service.apiKey=creatorCapability(actor.id);service.baseUrl=`http://fg-gateway:3010/internal/creator/${actor.id}/v1`;}
     const saved=await fetch(runtime+'/creator-services/config',{method:'PATCH',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(config)});if(!saved.ok)throw Error('模型设置未保存');
    }else if(req.method!=='GET')throw Error('只支持读取模型目录');
-   json(res,{models,defaults:{text:config.llm.model,image:config.image.openai.model,video:config.video.seedance.model}});
+   json(res,{models,defaults:{text:config.llm.model,image:config.image.openai.model,video:config.video.seedance.model,audio:config.tts.openai.model}});
   }catch(e){json(res,{error:{message:e.message}},400);}return true;
  }
  // Docker Desktop can forward unresolved internal names through a VPN's fake

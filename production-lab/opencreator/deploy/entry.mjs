@@ -46,12 +46,18 @@ document.ui={...document.ui,language:!document.ui?.language||document.ui.languag
 services.llm={baseUrl:`http://fg-gateway:3010/internal/creator/${actor}/v1`,apiKey:'',model:textModel,source:'custom',jsonMode:false};
 services.image={...services.image,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='image'&&m.billingId===services.image?.openai?.model)?services.image.openai.model:'gpt-image-2'}};
 services.video={...services.video,provider:'seedance',seedance:{baseUrl:services.llm.baseUrl,apiKey:'',model:catalog.allModels?.some(m=>m.capability==='video'&&m.billingId===services.video?.seedance?.model)?services.video.seedance.model:'doubao-seedance-2-0-fast-filter-off'}};
+if(catalog.allModels?.some(m=>m.billingId==='seed-tts-2.0')){
+ const audioModel=catalog.allModels.some(m=>m.capability==='audio'&&m.billingId===services.tts?.openai?.model)?services.tts.openai.model:'seed-tts-2.0';
+ services.tts={...services.tts,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:audioModel,defaultVoiceId:audioModel==='seed-audio-1.0'?'prompt':services.tts?.openai?.defaultVoiceId||'zh_female_gaolengyujie_uranus_bigtts'}};
+ services.transcription={...services.transcription,provider:'openai',openai:{baseUrl:services.llm.baseUrl,apiKey:'',model:'volc.seedasr.auc'}};
+}
 updateOpenCreatorConfig('/state/opencreator/config.toml',()=>({...document,creatorServices:services}));
 await fs.chmod('/state/opencreator/config.toml',0o600);
 await fs.writeFile(defaultsMarker,'v1\n',{mode:0o600});
 let credentials={version:1};
 try{credentials=JSON.parse(await fs.readFile('/state/opencreator/credentials.json','utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
 credentials.creatorServices={...credentials.creatorServices,'llm.apiKey':capability,'image.openai.apiKey':capability,'video.seedance.apiKey':capability};
+if(catalog.allModels?.some(m=>m.billingId==='seed-tts-2.0'))Object.assign(credentials.creatorServices,{'tts.openai.apiKey':capability,'transcription.openai.apiKey':capability});
 await fs.writeFile('/state/opencreator/credentials.json',JSON.stringify(credentials),{mode:0o600});
 let connection;
 // PIDs are reused when an isolated container is recreated. An old lock PID

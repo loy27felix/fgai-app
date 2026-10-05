@@ -308,6 +308,8 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 		id,err:=metadata.Service.ReserveFGBudget(req.Context(),metadata.UserID,metadata.TaskID,metadata.Model,metadata.Capability,body)
 		if err!=nil{return nil,"",err}
 		req=req.WithContext(context.WithValue(req.Context(),fgBudgetKey{},id))
+		// Only the company speech adapter receives the reservation capability.
+		applyFGSpeechReservation(req, id)
 	}
 	client := OutboundHTTPClient(requestTimeout)
 	resp, err := client.Do(req)

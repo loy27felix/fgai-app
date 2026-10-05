@@ -10,6 +10,7 @@ const ratios=['16:9','4:3','1:1','3:4','9:16','21:9'];
 const number=v=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
 export function priceQuote(model,price,intent,fx){
  const d=number(price?.discount),result={model,estimatedCny:null,estimateKind:'estimate',discount:d,fx,lines:[],notes:['最终费用以 WeToken 消费账单核销，预计费用不计入实际花费。']};
+ if(price?.provider==='volcengine'){result.notes=['费用以火山引擎账单确认；当前账户音频费率待核验，暂不显示金额。'];result.estimateKind='unknown';return result;}
  if(!price?.enabled||d===null||d<=0){result.notes.unshift('当前账户费率尚未核验。');return result;}
  const money=v=>'¥'+(v*d*fx).toLocaleString('zh-CN',{maximumFractionDigits:6});
  const options=intent.options||{},inputs=intent.inputs||{},rules=price.pricing_rules?.rules||[];

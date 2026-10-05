@@ -6,7 +6,7 @@ COPY upstream/frontend/package.json upstream/frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY upstream/frontend/ ./
 ENV VITE_BRAND_NAME="FG FOR DIRECTOR"
-RUN pnpm build
+RUN pnpm check && pnpm build
 
 FROM fg-six-arcreel:upstream-9aaf4413
 USER root

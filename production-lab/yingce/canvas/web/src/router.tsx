@@ -33,6 +33,7 @@ const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-p
 const FGProductionPage = lazy(() => import("@/pages/fg-production"));
 const AdvertisingPage = lazy(() => import("@/pages/advertising"));
 const ArcReelPage = lazy(() => import("@/pages/arcreel"));
+const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
 const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
@@ -106,6 +107,7 @@ export const router = createBrowserRouter([
             { path: "/fg-production", element: <RequireAuth>{deferred(<FGProductionPage />)}</RequireAuth> },
             { path: "/advertising", element: <RequireAuth>{deferred(<AdvertisingPage />)}</RequireAuth> },
             { path: "/arcreel", element: <RequireAuth>{deferred(<ArcReelPage />)}</RequireAuth> },
+            { path: "/fg-audio-tools", element: <RequireAuth>{deferred(<FGAudioToolsPage />)}</RequireAuth> },
             { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
             {
                 path: "/tasks",

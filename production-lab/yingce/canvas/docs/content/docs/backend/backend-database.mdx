@@ -7,6 +7,8 @@ description: 影策后端核心持久化表与状态边界
 
 ## FG 第六板块费用扩展
 
+语音接入增加 `fg_speech_usage`（按费用预留 ID 唯一登记的提供商生成请求、实际用量和结果状态）及 `fg_speech_jobs`（账号独占的录音识别、机器翻译记录）。`fg_speech_jobs` 的账号与操作 UUID 唯一，输入散列阻止同一操作更换参数；异步查询通过更新时间租约防止并发重复查询。两表关联 `fg_budget_reservations`，未知费用不会记为零或已核销，广告工具调用保留广告项目预算归属。
+
 FG 独立数据库增加 `fg_user_budgets`（用户月限额）、`fg_budget_reservations`（计费请求在途预留）、`fg_fee_decisions`（人工流水归属）、`fg_request_decisions`（经核实未收费的请求依据）和 `fg_finance_audit`（处理及额度调整记录）。`api_call_logs.fg_budget_reservation_id` 将调用绑定预留；`fg_fee_matches` 统一唯一流水自动匹配和有审计依据的人工匹配。原始供应商账单保留，不因人工归属而改写金额。项目预算及用户月限额为 0 时不限额；按北京时间自然月统计用户费用。未收费确认不改写原调用日志，可撤回；迟到的精确匹配账单优先计费。
 
 ## FG 试用分支扩展

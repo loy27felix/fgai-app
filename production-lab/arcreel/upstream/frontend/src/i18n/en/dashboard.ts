@@ -1,5 +1,14 @@
 
 export default {
+  fg_audio_tools: 'Audio tools',
+  fg_managed_market_title: 'Company models and tools',
+  fg_managed_market_policy: 'The director uses FG-managed model channels. Third-party endpoint markets are not enabled.',
+  fg_managed_market_empty: 'Market entries are separate from company assets and configured models. An empty list means no entries are installed.',
+  fg_managed_market_models: 'Choose available models in the director assistant and project settings. Credentials and storage are managed by the company.',
+  fg_managed_market_link: 'View default models',
+  fg_license_source: 'License and source',
+  fg_original_source: 'Original source',
+  fg_modified_source: 'FG corresponding source',
   reference_prompt_draft_replaced: "A new prompt draft is available for this episode. Save or discard your changes to view it.",
   episode_externally_removed: "This episode was deleted. Saving will fail; copy your content before discarding changes.",
   episode_script_removed: "The episode script was removed. Saving will fail; copy your content before discarding changes.",

@@ -34,6 +34,7 @@ RUN bun test test/fg-official-limits.test.ts test/fg-reference-model.test.ts tes
 RUN bun test test/fg-nas-upload.test.ts
 RUN bun test test/fg-skill-catalog.test.ts test/skills-api.test.ts
 RUN bun test test/fg-team-policy.test.ts test/workspace-sidebar-storage.test.ts
+RUN bun test test/audio-generation.test.ts
 RUN bun test test/canvas-video-frame.test.ts
 RUN bun test test/document-storage.test.ts test/canvas-appearance.test.ts test/canvas-video-segment-args.test.ts test/tapnow-import.test.ts test/skill-runtime.test.ts
 RUN bun --bun ./node_modules/typescript/bin/tsc --noEmit && bun --bun ./node_modules/vite/bin/vite.js build

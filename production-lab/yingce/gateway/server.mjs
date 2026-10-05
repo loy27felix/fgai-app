@@ -7,10 +7,12 @@ import {applyHostDiskMetrics} from './host-metrics.mjs';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
 import {budgetInternalRoute} from './fg-budgets.mjs';
+import {initializeSpeech,speechInternalRoute} from './fg-speech.mjs';
+import {initializeSpeechJobs,speechJobRoute} from './fg-speech-jobs.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
 import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
-import {initializeCreator,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
+import {initializeCreator,creatorCapability,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
 import {initializeArcReel,createArcReelServer} from './fg-arcreel.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
@@ -25,6 +27,8 @@ const sessions = new Map();
 const creating = new Map();
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
+await initializeSpeech(pool);
+await initializeSpeechJobs(pool);
 await initializeAdcraft(pool);
 await initializeCreator(pool);
 await initializeArcReel(pool);
@@ -99,6 +103,7 @@ const server = http.createServer(async (req, res) => {
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
     if(await budgetInternalRoute(req,res,{pool,path}))return;
+    if(await speechInternalRoute(req,res,{pool,path}))return;
     if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if (publicResourceRead(req.method, path)) {
@@ -130,6 +135,14 @@ const server = http.createServer(async (req, res) => {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     const cookie = await canvasSession(actor);
+    if(path.pathname==='/api/fg/speech/generate'){
+      if(req.method!=='POST'||!/^[0-9a-f-]{36}$/.test(String(req.headers['x-fg-operation-id']||''))){respond(res,400,'缺少音频操作标识','SPEECH_INVALID_INPUT');return;}
+      req.headers.authorization='Bearer '+creatorCapability(actor.id);
+      await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path:new URL(`/internal/creator/${actor.id}/v1/audio/speech`,publicOrigin)});return;
+    }
+    if(await speechJobRoute(req,res,{pool,actor,path,api:async(p,m='GET',b)=>{
+      const r=await fetch(new URL('/api'+p,web),{method:m,headers:{cookie,origin:publicOrigin,'content-type':'application/json'},body:b===undefined?undefined:JSON.stringify(b),signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'音频资源不可用');return d.data;
+    }}))return;
     if(await creatorUserRoute(req,res,{pool,actor,path}))return;
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;

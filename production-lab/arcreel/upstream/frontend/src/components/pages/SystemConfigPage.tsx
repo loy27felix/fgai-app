@@ -29,13 +29,12 @@ import { useConfigStatusStore, useSectionConfigIssues } from "@/stores/config-st
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ProviderSection } from "./ProviderSection";
-import { AboutSection } from "./settings/AboutSection";
 import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
 import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
 import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
 import { GeneralSection } from "./settings/GeneralSection";
-import { MarketSection } from "./settings/market/MarketSection";
+import { FGManagedMarketSection } from "./settings/FGManagedMarketSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
 
@@ -69,7 +68,7 @@ const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection
     sections: ["arcreel-agent", "agent-memory", "external-agent", "access-tokens"],
   },
   { id: "standalone", sections: ["market", "usage"] },
-  { id: "system", labelKey: "dashboard:settings_group_system", sections: ["general", "prompt-templates", "about"] },
+  { id: "system", labelKey: "dashboard:settings_group_system", sections: ["general", "prompt-templates"] },
 ];
 
 /** 引导第 4、5 步指向的侧栏入口。 */
@@ -80,6 +79,7 @@ const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
 
 function parseSection(search: string): SettingsSection {
   const value = new URLSearchParams(search).get("section");
+  if (value === "about") return "general";
   return SETTINGS_SECTIONS.find((section) => section === value) ?? "providers";
 }
 
@@ -158,7 +158,7 @@ function SectionContent({ section }: { section: SettingsSection }) {
     case "access-tokens":
       return <AccessTokensSection />;
     case "market":
-      return <MarketSection />;
+      return <FGManagedMarketSection />;
     case "usage":
       return <UsageRecordsSection />;
     case "general":
@@ -166,6 +166,6 @@ function SectionContent({ section }: { section: SettingsSection }) {
     case "prompt-templates":
       return <PromptTemplatesSection />;
     case "about":
-      return <AboutSection />;
+      return <GeneralSection />;
   }
 }

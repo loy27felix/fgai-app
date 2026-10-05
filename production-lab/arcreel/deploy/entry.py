@@ -49,6 +49,7 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 text = [m for m in models if m['capability'] == 'text']
 images = [m for m in models if m['capability'] == 'image']
 videos = [m for m in models if m['capability'] == 'video']
+audio = [m for m in models if m['capability'] == 'audio']
 # Resolve the imported backend's admission gates from the same FG catalog.
 from lib.backends.video_backends.ark import ArkVideoBackend
 from arcreel_market_core.video_backend_contract import VideoCapabilities, ReferenceAudioMode, VideoAudioMode
@@ -70,6 +71,19 @@ if not text or not images or not videos:
 
 openai_models = {m['billingId']: ModelInfo(display_name=m['name'], media_type='text', capabilities=['text_generation', 'structured_output', 'vision'], max_output_tokens=32768, default=m['billingId']=='claude-sonnet-5-5-t3a') for m in text}
 openai_models.update({m['billingId']: ModelInfo(display_name=m['name'], media_type='image', capabilities=['text_to_image', 'image_to_image'], default=m['billingId']=='seedream-5-0-lite-260128') for m in images})
+openai_models.update({m['billingId']: ModelInfo(display_name=m['name'], media_type='audio', capabilities=['text_to_speech', 'speech_speed'], default=m['billingId']=='seed-tts-2.0') for m in audio})
+from lib.backends.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.audio_backends import register_backend as register_audio_backend, VoiceOption
+from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY, _simple_spec
+
+class CompanySpeechBackend(OpenAIAudioBackend):
+    def list_voices(self):
+        if self.model == 'seed-audio-1.0':
+            return [VoiceOption(id='prompt', label='由提示词描述声音')]
+        return [VoiceOption(id=v['id'], label=v['name']+' · 普通话') for m in audio if m['billingId']==self.model for v in m.get('voices', [])]
+
+register_audio_backend('openai', CompanySpeechBackend)
+PROVIDER_SPEC_REGISTRY[('openai', 'audio')] = _simple_spec('openai', 'audio')
 video_models = {}
 for m in videos:
     key = m['billingId'].removesuffix('-filter-off').replace('seedance-2-0', 'seedance-2.0')
@@ -95,6 +109,8 @@ async def configure():
         credentials = CredentialRepository(session)
         config = ProviderConfigRepository(session)
         settings = SystemSettingRepository(session)
+        if audio and not await settings.get('default_audio_backend'):
+            await settings.set('default_audio_backend', 'openai/seed-tts-2.0')
         for name in ('openai', 'ark'):
             active = await credentials.get_active(name)
             if active is None:

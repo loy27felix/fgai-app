@@ -34,7 +34,7 @@ export async function spendUsage(pool,{userId,projectId,since,until}={}){
  FROM api_call_logs c LEFT JOIN tasks t ON t.id=c.task_id LEFT JOIN canvas_projects cv ON cv.id=t.project_id LEFT JOIN projects p ON p.id=t.project_id
  LEFT JOIN fg_budget_reservations r ON r.id::text=c.fg_budget_reservation_id
  LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) cny,count(*) matches FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
- WHERE c.billable AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%') AND($1::text IS NULL OR c.user_id=$1) AND($2::text IS NULL OR COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id)=$2) AND($3::timestamptz IS NULL OR c.created_at>=$3) AND($4::timestamptz IS NULL OR c.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
+ WHERE c.billable AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%' OR name='火山语音 · FG') AND($1::text IS NULL OR c.user_id=$1) AND($2::text IS NULL OR COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id)=$2) AND($3::timestamptz IS NULL OR c.created_at>=$3) AND($4::timestamptz IS NULL OR c.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
  let actual=0,pending=0,unknown=0;
  const reservations=(await pool.query(`SELECT r.*,c.id call_id,c.error_code FROM fg_budget_reservations r LEFT JOIN api_call_logs c ON c.fg_budget_reservation_id=r.id::text AND c.billable WHERE ($1::text IS NULL OR r.user_id=$1) AND($2::text IS NULL OR r.project_id=$2) AND($3::timestamptz IS NULL OR r.created_at>=$3) AND($4::timestamptz IS NULL OR r.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
  const byId=new Map(reservations.map(r=>[r.id,r]));
@@ -62,7 +62,11 @@ export async function reserveBudget(pool,input){
   await client.query('BEGIN');
   const actor=(await client.query("SELECT id FROM users WHERE id=$1 AND status='active'",[input.userId])).rows[0];if(!actor)throw Error('预算检查身份无效');
   const task=input.taskId?(await client.query('SELECT project_id FROM tasks WHERE id=$1 AND user_id=$2',[input.taskId,input.userId])).rows[0]:null;
-  const projectId=task?(await client.query("SELECT COALESCE((SELECT NULLIF(project_id,'') FROM canvas_projects WHERE id=$1),(SELECT id FROM projects WHERE id=$1)) id",[task.project_id])).rows[0]?.id:null;
+  let projectId=task?(await client.query("SELECT COALESCE((SELECT NULLIF(project_id,'') FROM canvas_projects WHERE id=$1),(SELECT id FROM projects WHERE id=$1)) id",[task.project_id])).rows[0]?.id:null;
+  if(!task&&input.advertisingWorkspaceId){
+   projectId=(await client.query(`SELECT w.native_project_id id FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND (w.owner_id=$2 OR EXISTS(SELECT 1 FROM fg_adcraft_members m WHERE m.workspace_id=w.id AND m.user_id=$2) OR EXISTS(SELECT 1 FROM fg_accounts a WHERE a.user_id=$2 AND a.platform_role='superadmin'))`,[input.advertisingWorkspaceId,input.userId])).rows[0]?.id;
+   if(!projectId)throw Error('广告音频项目不存在或无权使用');
+  }
   await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-user:'||$1))",[input.userId]);
   if(projectId)await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-project:'||$1))",[projectId]);
   const limit=Number((await client.query('SELECT monthly_cny FROM fg_user_budgets WHERE user_id=$1',[input.userId])).rows[0]?.monthly_cny||0);
@@ -82,6 +86,6 @@ export async function budgetInternalRoute(req,res,{pool,path}){
  if(path.pathname!=='/internal/fg/budget-admission')return false;
  const expected=process.env.FG_ADCRAFT_SECRET||'',given=String(req.headers['x-fg-budget-secret']||'');
  if(req.method!=='POST'||!expected||given.length!==expected.length||!timingSafeEqual(Buffer.from(given),Buffer.from(expected))){res.writeHead(403);res.end();return true;}
- try{let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>32<<20)throw Error('预算检查请求过大');chunks.push(chunk);}const data=await reserveBudget(pool,JSON.parse(Buffer.concat(chunks)));res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(data));}
+ try{let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>(32<<20))throw Error('预算检查请求过大');chunks.push(chunk);}const data=await reserveBudget(pool,JSON.parse(Buffer.concat(chunks)));res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(data));}
  catch(e){res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({error:String(e.message)}));}return true;
 }

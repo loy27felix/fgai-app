@@ -1,6 +1,15 @@
 import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
+  fg_audio_tools: 'Công cụ âm thanh',
+  fg_managed_market_title: 'Mô hình và công cụ công ty',
+  fg_managed_market_policy: 'Đạo diễn sử dụng các kênh mô hình do FG quản lý. Thị trường điểm cuối bên thứ ba chưa được bật.',
+  fg_managed_market_empty: 'Mục thị trường khác với tài sản công ty và mô hình đã cấu hình. Danh sách trống nghĩa là chưa cài đặt mục nào.',
+  fg_managed_market_models: 'Chọn mô hình trong trợ lý đạo diễn và cài đặt dự án. Công ty quản lý thông tin xác thực và lưu trữ.',
+  fg_managed_market_link: 'Xem mô hình mặc định',
+  fg_license_source: 'Giấy phép và mã nguồn',
+  fg_original_source: 'Mã nguồn gốc',
+  fg_modified_source: 'Mã nguồn tương ứng FG',
   reference_prompt_draft_replaced: "Tập này có bản nháp lời nhắc mới. Lưu hoặc bỏ thay đổi để xem bản nháp.",
   episode_externally_removed: "Tập này đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
   episode_script_removed: "Kịch bản của tập đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",

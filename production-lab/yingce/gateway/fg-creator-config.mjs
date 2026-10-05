@@ -2,6 +2,7 @@ const ratioOf=size=>{const m=/^(\d+)x(\d+)$/.exec(size||'');if(!m)return null;co
 export function creatorGenerationConfig(selected,payload,mode,{standardImageQuality=false}={}){
  const profile=selected.profile[mode];
  if(mode==='text')return {};
+ if(mode==='audio')return {audioFormat:payload.response_format||'mp3',audioVoice:payload.voice||'alloy',audioSpeed:String(payload.speed||1),audioInstructions:payload.instructions||''};
  if(mode==='image'){
   let size=payload.size||profile.size.default;
   const ratio=ratioOf(size);
