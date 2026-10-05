@@ -1,8 +1,18 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {managedArcWrite} from './fg-arcreel.mjs';
+import {managedArcWrite,waitingPage} from './fg-arcreel.mjs';
 import {creatorInternalRoute} from './fg-creator.mjs';
 import {Readable} from 'node:stream';
+
+test('unavailable document requests render a retryable HTML page while APIs retain JSON errors',()=>{
+ let status,headers,body;
+ const res={writeHead(code,value){status=code;headers=value;},end(value){body=value;}};
+ assert.equal(waitingPage({method:'GET',url:'/app/projects'},res),true);
+ assert.equal(status,503);assert.match(headers['content-type'],/text\/html/);
+ assert.match(body,/http-equiv="refresh" content="5"/);assert.match(body,/正在准备你的导演工作台/);
+ assert.equal(waitingPage({method:'GET',url:'/api/v1/projects'},res),false);
+ assert.equal(waitingPage({method:'POST',url:'/app/projects'},res),false);
+});
 
 test('an untrusted actor cannot use the private director catalog or costing endpoint',async()=>{
  for(const path of ['/internal/arcreel/00000000-0000-0000-0000-000000000001/models','/internal/arcreel/00000000-0000-0000-0000-000000000001/cost']){
