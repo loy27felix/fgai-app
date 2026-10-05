@@ -49,7 +49,7 @@ const CREATED_TOKEN: ApiOverrides = {
 };
 
 async function settingsReady(page: Page) {
-  await page.getByRole("navigation", { name: "设置" }).getByRole("link", { name: "关于" }).waitFor();
+  await page.getByRole("navigation", { name: "设置" }).getByRole("link", { name: "通用" }).waitFor();
 }
 
 async function externalAgentReady(page: Page) {
