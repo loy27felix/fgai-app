@@ -436,7 +436,7 @@ function GeneralSettings(props: {
           onChange={(color) => props.onAccentColorChange?.(color)}
           onCustomColorChange={(color) => props.onCustomAccentColorChange?.(color)}
         />
-        <SettingsSelectRow
+        {import.meta.env.VITE_FG_MANAGED === '1' ? <SettingsRow label="工程访问范围" value="本人隔离的工程目录；不授予整台服务器或整个 NAS 的访问权限。" /> : <SettingsSelectRow
           id="settings-default-permission"
           label={t('settings.permission')}
           value={props.defaultPermission}
@@ -455,7 +455,7 @@ function GeneralSettings(props: {
             }
             props.onDefaultPermissionChange?.(permission);
           }}
-        />
+        />}
         {import.meta.env.VITE_FG_MANAGED === '1' ? null : <SettingsRow label={t('settings.defaultFileApp')} value={t('settings.systemDefaultApp')} />}
         <SettingsSelectRow
           id="settings-display-language"

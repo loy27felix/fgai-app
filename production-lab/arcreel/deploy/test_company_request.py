@@ -5,9 +5,20 @@ import httpx
 from company_request import install, fg_task
 
 BASE = 'http://fg-gateway:3010/internal/arcreel/test'
-install(BASE)
+install(BASE, 'fixture-capability')
 
 class RequestTests(unittest.IsolatedAsyncioTestCase):
+    async def test_download_auth_never_reaches_another_actor_or_external_url(self):
+        seen = []
+        def respond(request):
+            seen.append(request.headers.get('authorization'))
+            return httpx.Response(200)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            await client.get(BASE+'/v1/media/result')
+            await client.get(BASE+'-other/v1/media/result')
+            await client.get('http://other/result')
+        self.assertEqual(seen, ['Bearer fixture-capability', None, None])
+
     async def test_explicit_regeneration_and_transport_replay(self):
         seen = []
         def respond(request):

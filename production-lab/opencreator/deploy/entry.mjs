@@ -4,10 +4,12 @@ import fs from 'node:fs/promises';
 import {pipeline} from 'node:stream';
 import {createRequire} from 'node:module';
 import {trashRoute} from './fg-trash.mjs';
+import {companyMediaFetch} from './company-media.mjs';
 
 const capability=process.env.FG_CREATOR_CAPABILITY;
 const actor=process.env.FG_CREATOR_ACTOR;
 if(!capability||!/^[0-9a-f-]{36}$/.test(actor||''))throw Error('FG creator identity missing');
+globalThis.fetch=companyMediaFetch(globalThis.fetch,`http://fg-gateway:3010/internal/creator/${actor}`,capability);
 await fs.access('/workspace/.fg-creator-ready');
 await fs.mkdir('/state/codex',{recursive:true});
 await fs.mkdir('/state/opencreator',{recursive:true});
