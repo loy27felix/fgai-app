@@ -6,6 +6,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
+import { FGManagedMarketSection } from "@/components/pages/settings/FGManagedMarketSection";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
@@ -97,6 +98,12 @@ function renderPage(path = "/app/settings", searchPath?: string) {
 // ---------------------------------------------------------------------------
 
 describe("SystemConfigPage", () => {
+  it("company market explains the empty state and directs members to configured models", () => {
+    render(<FGManagedMarketSection />);
+    expect(screen.getByRole("heading", {name:"公司模型与工具"})).toBeInTheDocument();
+    expect(screen.getByRole("link", {name:"查看默认模型"})).toHaveAttribute("href","/app/settings?section=default-models");
+    expect(screen.queryByRole("button", {name:/安装/})).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
