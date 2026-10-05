@@ -134,7 +134,7 @@ services:
   tls:
     image: nginx:stable-alpine
     restart: unless-stopped
-    ports: ["${FG_SIX_PORT:-3016}:3000"]
+    ports: ["${FG_SIX_PORT:-3016}:3000", "${FG_ARCREEL_PORT:-3017}:3001"]
     volumes:
       - ./tls.conf:/etc/nginx/conf.d/default.conf:ro
       - ${FG_TLS_CERT:?required}:/etc/nginx/tls/server.crt:ro

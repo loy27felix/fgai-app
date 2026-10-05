@@ -11,6 +11,7 @@ import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
 import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
 import {initializeCreator,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
+import {initializeArcReel,createArcReelServer} from './fg-arcreel.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
@@ -26,6 +27,7 @@ const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
 await initializeAdcraft(pool);
 await initializeCreator(pool);
+await initializeArcReel(pool);
 await initializeEditorLeases(pool);
 await publishExistingStoryMedia(pool);
 startFeeSync(pool);
@@ -180,4 +182,9 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 0;
 server.headersTimeout = 60000;
 server.listen(3010, '0.0.0.0');
-process.on('SIGTERM', () => server.close(async () => { await pool.end(); process.exit(0); }));
+const arcOrigin=new URL(publicOrigin);arcOrigin.port='3017';
+const arcServer=createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin:arcOrigin.origin});
+arcServer.requestTimeout=0;
+arcServer.headersTimeout=60000;
+arcServer.listen(3020,'0.0.0.0');
+process.on('SIGTERM', () => {arcServer.close();server.close(async () => { await pool.end(); await editorPool.end(); process.exit(0); });});

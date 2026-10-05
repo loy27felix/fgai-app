@@ -12,6 +12,21 @@ export function estimateUSD(call,price){
     if(!price?.enabled||!Number.isFinite(price.discount)||call.status!=='succeeded'||call.task_status==='failed')return null;
     const discount=price.discount;
     let request,response;try{request=JSON.parse(call.request_body||'{}');response=JSON.parse(call.response_body||'{}');}catch{return null;}
+    if(call.capability==='image'&&String(call.model).startsWith('gpt-image-')&&response.usage){
+        const u=response.usage,details=u.input_tokens_details,out=u.output_tokens_details;
+        const counts={textInput:details?.text_tokens,imageInput:details?.image_tokens,imageOutput:out?.image_tokens,textOutput:out?.text_tokens};
+        const rules=price.pricing_rules?.rules||[];
+        const labels={textInput:['Text','Input'],imageInput:['Image','Input'],imageOutput:['Image','Output'],textOutput:['Text','Output']};
+        let amount=0;
+        for(const [key,[modality,type]] of Object.entries(labels)){
+            const count=counts[key];if(!Number.isFinite(count)||count<0)return null;
+            if(count===0)continue;
+            const rate=rules.find(r=>r.modality===modality&&r.token_type===type)?.price;
+            if(!Number.isFinite(rate))return null;
+            amount+=count*rate/1e6;
+        }
+        return amount*discount;
+    }
     if(call.capability==='video'&&String(call.model).includes('seedance')&&call.usage_available&&Number(call.output_tokens)>0){
         // Final polling usage already includes reference input / minimum usage.
         // Never reconstruct actual video tokens from rounded integer seconds.

@@ -1,4 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {estimateUSD,estimateCNY} from './fg-prices.mjs';
+
+test('image token estimates require complete modality usage and the matching company rates',()=>{
+ const price={enabled:true,discount:.8,pricing_rules:{rules:[{modality:'Text',token_type:'Input',price:5},{modality:'Image',token_type:'Input',price:8},{modality:'Image',token_type:'Output',price:30}]}};
+ const call={model:'gpt-image-2',capability:'image',status:'succeeded',response_body:JSON.stringify({usage:{input_tokens_details:{text_tokens:100,image_tokens:1000},output_tokens_details:{text_tokens:0,image_tokens:2000}}})};
+ assert.ok(Math.abs(estimateUSD(call,price)-.0548)<1e-12);
+ assert.equal(estimateUSD({...call,response_body:'{"usage":{"output_tokens":2000}}'},price),null);
+ assert.equal(estimateUSD(call,{...price,pricing_rules:{rules:[]}}),null);
+});
 test('Seedance final usage includes minimum billable tokens and source video rate',()=>{
  const p={enabled:true,discount:.85,pricing_rules:{rules:[{resolution:'480p/720p',scenario:'with_video_input',price:6.4},{resolution:'480p/720p',scenario:'without_video_input',price:10.7}]}};
  const c={model:'dreamina-seedance-2-5-filter-off',capability:'video',status:'succeeded',task_status:'succeeded',usage_available:true,output_tokens:77260,request_body:'{"resolution":"480p","content":[{"type":"video_url"}]}'};

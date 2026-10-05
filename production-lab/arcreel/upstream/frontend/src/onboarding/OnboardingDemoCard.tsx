@@ -1,0 +1,40 @@
+/**
+ * 引导期间注入大厅的演示卡（大厅第 3 步的锚点）。
+ *
+ * 用的是大厅真实的 `ProjectCard`，只切到只读形态 —— 「项目推进后长这样」这句话只有在
+ * 演示卡与真实卡片是同一份实现时才不会随时间说谎。上方一行 eyebrow 与大厅其它分区同款，
+ * 讲清它是演示、不是用户的项目。
+ *
+ * 只在引导运行期间挂载：调用方按 store 的 `active` 决定渲染与否，退出即卸载，不留痕迹。
+ */
+
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { ProjectCard } from "@/components/pages/lobby/ProjectCard";
+import { ONBOARDING_ANCHORS } from "./anchors";
+import { buildDemoProject } from "./demo-project";
+
+export function OnboardingDemoCard() {
+  const { t } = useTranslation("onboarding");
+
+  const project = useMemo(() => buildDemoProject(t), [t]);
+
+  return (
+    <section className="mb-7" aria-labelledby="onboarding-demo-heading">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2
+          id="onboarding-demo-heading"
+          className="m-0 font-mono text-[12.5px] font-semibold uppercase tracking-[0.06em] text-primary"
+        >
+          {t("demo_section_eyebrow")}
+        </h2>
+        <span className="font-mono text-[10.5px] text-muted-foreground">{t("demo_section_note")}</span>
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+        <div data-onboarding={ONBOARDING_ANCHORS.lobbyDemoCard} className="flex min-w-0 flex-col">
+          <ProjectCard project={project} readOnly />
+        </div>
+      </div>
+    </section>
+  );
+}

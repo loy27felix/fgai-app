@@ -104,6 +104,9 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
             creator_names = run(DOCKER, 'ps', '--filter', 'name=fg-creator-', '--format', '{{.Names}}', capture_output=True, text=True).stdout.split()
             if creator_names:
                 run(DOCKER, 'stop', '--timeout', '10', *creator_names, capture_output=True)
+            director_names = run(DOCKER, 'ps', '--filter', 'name=fg-arcreel-', '--format', '{{.Names}}', capture_output=True, text=True).stdout.split()
+            if director_names:
+                run(DOCKER, 'stop', '--timeout', '10', *director_names, capture_output=True)
             if running:
                 run(DOCKER, 'stop', '--timeout', '30', 'fg-six-yingce-backend-1', capture_output=True)
                 print('Sixth backend stopped: NAS read/write unavailable', flush=True)
@@ -130,6 +133,9 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
         creator_provision = ROOT / 'provision-creator.py'
         if creator_provision.is_file():
             subprocess.run(['/usr/bin/env', 'python3', str(creator_provision)], check=True, timeout=180, capture_output=True)
+        director_provision = ROOT / 'provision-arcreel.py'
+        if director_provision.is_file():
+            subprocess.run(['/usr/bin/env', 'python3', str(director_provision)], check=True, timeout=180, capture_output=True)
         day = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
         if storage('exists', day).stdout.strip() == b'missing':
             dump = run(DOCKER, 'exec', 'fg-six-yingce-postgres-1', 'pg_dump', '-U', 'fg_yingce', '-d', 'fg_yingce', '--format=custom', capture_output=True).stdout

@@ -49,6 +49,7 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
                 { ...toolItem("projects", "/projects"), title: "短剧 Agent" },
                 { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: "广告工作台" },
                 { ...toolItem("create", "/creator-app"), id: "fg-creator", title: "创作者工作台" },
+                { ...toolItem("projects", "/arcreel"), id: "fg-arcreel", title: "导演工作台" },
                 { ...toolItem("canvas", "/canvas"), title: "自由画布" },
             ],
         },

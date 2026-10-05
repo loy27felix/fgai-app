@@ -5,6 +5,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"time"
 
 	"gorm.io/gorm"
@@ -14,19 +15,19 @@ import (
 
 func (r *Repository) Assets(userID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).Order("updated_at desc").Find(&assets).Error
+	err := fgMediaScope(r.db, "assets", "fg_asset_grants", "asset_id", userID).Order("updated_at desc").Find(&assets).Error
 	return assets, err
 }
 
 func (r *Repository) AssetSummaries(userID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).Select("id", "folder_id", "kind", "category", "status", "primary_version_id", "title", "created_at", "updated_at").Order("updated_at desc").Find(&assets).Error
+	err := fgMediaScope(r.db, "assets", "fg_asset_grants", "asset_id", userID).Select("id", "folder_id", "kind", "category", "status", "primary_version_id", "title", "created_at", "updated_at").Order("updated_at desc").Find(&assets).Error
 	return assets, err
 }
 
 func (r *Repository) AssetForUser(userID string, id string) (*model.Asset, error) {
 	var asset model.Asset
-	if err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).First(&asset, "id = ?", id).Error; err != nil {
+	if err := fgMediaScope(r.db, "assets", "fg_asset_grants", "asset_id", userID).First(&asset, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &asset, nil
@@ -37,7 +38,7 @@ func (r *Repository) AssetsForUserIDs(userID string, ids []string) ([]model.Asse
 		return nil, nil
 	}
 	var assets []model.Asset
-	err := fgMediaScope(r.db,"assets","fg_asset_grants","asset_id",userID).Find(&assets, "id IN ?", ids).Error
+	err := fgMediaScope(r.db, "assets", "fg_asset_grants", "asset_id", userID).Find(&assets, "id IN ?", ids).Error
 	return assets, err
 }
 
@@ -81,19 +82,19 @@ func (r *Repository) ReplaceAssets(userID string, assets []model.Asset) error {
 
 func (r *Repository) CanvasProjects(userID string) ([]model.CanvasProject, error) {
 	var projects []model.CanvasProject
-	err := fgCanvasScope(r.db,userID).Order("updated_at desc").Find(&projects).Error
+	err := fgCanvasScope(r.db, userID).Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) CanvasProjectSummaries(userID string) ([]model.CanvasProject, error) {
 	var projects []model.CanvasProject
-	err := fgCanvasScope(r.db,userID).Select("id", "title", "revision", "created_at", "updated_at").Order("updated_at desc").Find(&projects).Error
+	err := fgCanvasScope(r.db, userID).Select("id", "title", "revision", "created_at", "updated_at").Order("updated_at desc").Find(&projects).Error
 	return projects, err
 }
 
 func (r *Repository) CanvasProjectForUser(userID string, id string) (*model.CanvasProject, error) {
 	var project model.CanvasProject
-	if err := fgCanvasScope(r.db,userID).First(&project, "id = ?", id).Error; err != nil {
+	if err := fgCanvasScope(r.db, userID).First(&project, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &project, nil
@@ -119,7 +120,7 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 	}
 	// The revision predicate and increment must be in the same SQL statement.
 	// A missing row is a conflict, never an invitation to recreate a deleted canvas.
-	result := fgCanvasScope(r.db.Model(&model.CanvasProject{}),project.UserID).
+	result := fgCanvasScope(r.db.Model(&model.CanvasProject{}), project.UserID).
 		Where("id = ? AND revision = ?", project.ID, expected).
 		Updates(map[string]any{"project_id": project.ProjectID, "title": project.Title, "payload_json": project.PayloadJSON, "updated_at": project.UpdatedAt, "revision": expected + 1})
 	if result.Error != nil {
@@ -134,11 +135,15 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 
 func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if fgTeamEnabled(){
-			canvas,err:=New(tx).CanvasProjectForUser(userID,id)
-			if err!=nil{return err}
-			if !New(tx).FGCanManageOwner(userID,canvas.UserID){return gorm.ErrRecordNotFound}
-			userID=canvas.UserID
+		if fgTeamEnabled() {
+			canvas, err := New(tx).CanvasProjectForUser(userID, id)
+			if err != nil {
+				return err
+			}
+			if !New(tx).FGCanManageOwner(userID, canvas.UserID) {
+				return gorm.ErrRecordNotFound
+			}
+			userID = canvas.UserID
 		}
 		// Serialize deletion with saves before reading the history IDs to remove.
 		if err := tx.Model(&model.CanvasProject{}).Where("user_id = ? AND id = ?", userID, id).UpdateColumn("revision", gorm.Expr("revision")).Error; err != nil {
@@ -161,6 +166,77 @@ func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 		if err := tx.Model(&model.Task{}).Where("user_id = ? AND project_id = ?", userID, id).Update("project_id", "").Error; err != nil {
 			return err
 		}
-		return tx.Delete(&model.CanvasProject{}, "id = ? AND user_id = ?", id, userID).Error
+		if err := tx.Delete(&model.CanvasProject{}, "id = ? AND user_id = ?", id, userID).Error; err != nil {
+			return err
+		}
+		return archiveDeletedCanvasAssets(tx, userID, id)
 	})
+}
+
+// Incremental clients do not load every asset or canvas. Archive on the server
+// in the deletion transaction, preserving assets still used by other canvases.
+// Physical cleanup remains exclusively in the existing reference-checked purge.
+func archiveDeletedCanvasAssets(tx *gorm.DB, userID, canvasID string) error {
+	if !tx.Migrator().HasTable(&model.Asset{}) {
+		return nil
+	}
+	var assets []model.Asset
+	if err := tx.Where("user_id = ? AND status <> ?", userID, model.AssetVersionStatusArchived).Find(&assets).Error; err != nil {
+		return err
+	}
+	var remaining []model.CanvasProject
+	if err := tx.Find(&remaining).Error; err != nil {
+		return err
+	}
+	used := map[string]bool{}
+	var collect func(any)
+	collect = func(value any) {
+		switch item := value.(type) {
+		case map[string]any:
+			if id, ok := item["assetId"].(string); ok {
+				used[id] = true
+			}
+			for _, nested := range item {
+				collect(nested)
+			}
+		case []any:
+			for _, nested := range item {
+				collect(nested)
+			}
+		}
+	}
+	for _, canvas := range remaining {
+		if canvas.PayloadJSON == "" {
+			continue
+		}
+		var payload any
+		if err := json.Unmarshal([]byte(canvas.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		collect(payload)
+	}
+	now := time.Now().UTC()
+	for _, asset := range assets {
+		if used[asset.ID] {
+			continue
+		}
+		var payload map[string]any
+		if json.Unmarshal([]byte(asset.PayloadJSON), &payload) != nil {
+			continue
+		}
+		metadata, ok := payload["metadata"].(map[string]any)
+		if !ok || metadata["canvasId"] != canvasID {
+			continue
+		}
+		payload["status"] = "archived"
+		payload["updatedAt"] = now.Format(time.RFC3339Nano)
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&model.Asset{}).Where("id = ? AND user_id = ?", asset.ID, userID).Updates(map[string]any{"status": model.AssetVersionStatusArchived, "payload_json": string(encoded), "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
