@@ -1,3 +1,5 @@
+import {fgWorkspaceBasePath} from "@/lib/fg-entry-url";
+
 export type SettingsSection = "channels" | "models" | "preferences" | "prompts" | "storage";
 
 export function settingsPath(section: SettingsSection = "channels", continueCreation = false) {
@@ -12,5 +14,5 @@ export function settingsPath(section: SettingsSection = "channels", continueCrea
 export function navigateToSettings(options?: { section?: SettingsSection; continueCreation?: boolean }) {
     const to = settingsPath(options?.section, options?.continueCreation);
     const event = new CustomEvent<{ to: string }>("workspace:navigate", { detail: { to }, cancelable: true });
-    if (window.dispatchEvent(event)) window.location.assign(to);
+    if (window.dispatchEvent(event)) window.location.assign(fgWorkspaceBasePath(window.location.pathname) + to);
 }
