@@ -1,0 +1,127 @@
+/* FG control room: independent tokens also follow Ant's portal containers. */
+:is([data-admin-root], body.admin-overlays, .admin-drawer, .admin-secondary-drawer, .admin-modal-root, .admin-channel-modal-root, .admin-mobile-navigation-menu) {
+    --admin-canvas: transparent;
+    --admin-sidebar: rgba(248, 251, 255, .62);
+    --admin-surface: rgba(255, 255, 255, .79);
+    --admin-surface-2: rgba(226, 236, 249, .72);
+    --admin-surface-3: #dce8f7;
+    --admin-text: #142b45;
+    --admin-text-secondary: #405c7a;
+    --admin-text-muted: #617a95;
+    --admin-text-placeholder: #778ca3;
+    --admin-border: rgba(112, 147, 190, .17);
+    --admin-border-strong: rgba(91, 133, 183, .29);
+    --admin-divider: rgba(107, 141, 183, .14);
+    --admin-row-border: rgba(107, 141, 183, .1);
+    --admin-row-hover: #edf4fd;
+    --admin-nav-hover: rgba(255, 255, 255, .54);
+    --admin-nav-active: rgba(255, 255, 255, .85);
+    --admin-nav-active-border: rgba(255, 255, 255, .95);
+    --admin-accent: #3567b2;
+    --admin-accent-fg: #ffffff;
+    --admin-focus: #4f82c9;
+    --admin-chart-primary: #678dc9;
+    --admin-chart-secondary: #3b9b9f;
+    --admin-chart-warning: #ae7936;
+    --admin-radius-sm: 7px;
+    --admin-radius: 11px;
+    --admin-radius-lg: 20px;
+    --admin-control-h: 36px;
+    --admin-sidebar-width: 250px;
+    --admin-sidebar-collapsed: 70px;
+    --admin-motion: 220ms cubic-bezier(.2, .8, .2, 1);
+    --admin-card-shadow: 0 8px 26px rgba(41, 78, 127, .05);
+    --admin-shadow-overlay: 0 18px 52px rgba(20, 53, 92, .18);
+    --fg-admin-glass-line: rgba(255, 255, 255, .8);
+    --fg-spotlight: rgba(101, 165, 245, .2);
+    --theme-admin-card-shadow: var(--admin-card-shadow);
+}
+.dark :is([data-admin-root], body.admin-overlays, .admin-drawer, .admin-secondary-drawer, .admin-modal-root, .admin-channel-modal-root, .admin-mobile-navigation-menu) {
+    --admin-sidebar: rgba(23, 43, 63, .7);
+    --admin-surface: rgba(24, 44, 65, .87);
+    --admin-surface-2: rgba(43, 67, 94, .8);
+    --admin-surface-3: #324d6c;
+    --admin-text: #e6f0fc;
+    --admin-text-secondary: #b9cce2;
+    --admin-text-muted: #97afc9;
+    --admin-text-placeholder: #839bb6;
+    --admin-border: rgba(156, 192, 231, .14);
+    --admin-border-strong: rgba(163, 205, 244, .26);
+    --admin-divider: rgba(156, 192, 231, .13);
+    --admin-row-border: rgba(156, 192, 231, .09);
+    --admin-row-hover: #243f5d;
+    --admin-nav-hover: rgba(126, 168, 213, .12);
+    --admin-nav-active: rgba(108, 155, 209, .2);
+    --admin-nav-active-border: rgba(157, 199, 240, .19);
+    --admin-accent: #9ac1f8;
+    --admin-accent-fg: #142b45;
+    --admin-focus: #9ac1f8;
+    --admin-chart-primary: #97bafa;
+    --admin-chart-secondary: #67c3c6;
+    --admin-chart-warning: #ddb67a;
+    --admin-card-shadow: 0 10px 32px rgba(0, 9, 22, .16);
+    --fg-admin-glass-line: rgba(164, 201, 238, .16);
+}
+[data-admin-root].fg-glass-admin { position: relative; gap: 18px; padding: 16px; background: linear-gradient(120deg, rgba(226, 237, 251, .7), rgba(235, 243, 252, .4)), url('/fg-visual/glass-atmosphere.png') center / cover; }
+.dark [data-admin-root].fg-glass-admin { background: linear-gradient(115deg, rgba(7, 20, 35, .94), rgba(9, 28, 47, .84)), url('/fg-visual/glass-atmosphere.png') center / cover; }
+[data-admin-root].fg-glass-admin .admin-sidebar { border: 1px solid var(--fg-admin-glass-line); border-radius: 23px !important; backdrop-filter: blur(24px); box-shadow: 0 14px 40px rgba(20, 55, 100, .07); }
+[data-admin-root].fg-glass-admin .admin-sidebar-identity { height: 68px; padding: 0 18px; }
+[data-admin-root].fg-glass-admin .admin-sidebar-brand-mark { width: 36px; height: 36px; border: 1px solid var(--fg-admin-glass-line); border-radius: 11px; background: var(--admin-surface); color: var(--admin-accent); }
+[data-admin-root].fg-glass-admin .admin-sidebar-brand-mark svg { width: 27px; height: 22px; }
+[data-admin-root].fg-glass-admin .admin-sidebar-brand-title { font-size: 16px; letter-spacing: .045em; }
+.fg-admin-identity { padding: 8px 24px 20px; border-bottom: 1px solid var(--admin-divider); }
+.fg-admin-identity > span { display: block; font-size: 9px; letter-spacing: .2em; color: var(--admin-text-muted); font-weight: 650; }
+.fg-admin-identity strong { display: block; margin-top: 9px; font-size: 23px; font-weight: 600; letter-spacing: -.025em; }
+.fg-admin-identity p { margin: 6px 0 0; color: var(--admin-text-muted); font-size: 11px; }
+[data-admin-root].fg-glass-admin .admin-sidebar-nav { padding: 20px 12px; scrollbar-width: thin; }
+[data-admin-root].fg-glass-admin .admin-nav-group + .admin-nav-group { margin-top: 24px; }
+[data-admin-root].fg-glass-admin .admin-nav-group-label { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; margin-bottom: 9px; }
+[data-admin-root].fg-glass-admin .admin-nav-group-label span { margin: 0; padding: 0; letter-spacing: .06em; font-size: 10px; }
+[data-admin-root].fg-glass-admin .admin-nav-group-label small { font-size: 9px; color: var(--admin-text-placeholder); font-variant-numeric: tabular-nums; }
+[data-admin-root].fg-glass-admin .admin-nav-group-items { gap: 4px; }
+[data-admin-root].fg-glass-admin .admin-nav-link { height: 37px; padding-inline: 12px; border: 1px solid transparent; font-size: 12px; }
+[data-admin-root].fg-glass-admin .admin-nav-link.is-active { border: 1px solid var(--admin-nav-active-border); box-shadow: 0 3px 13px rgba(35, 77, 129, .07); color: var(--admin-accent); }
+[data-admin-root].fg-glass-admin .admin-nav-link.is-active svg { color: var(--admin-accent); }
+[data-admin-root].fg-glass-admin .admin-sidebar-footer { padding: 13px 12px; background: transparent; }
+[data-admin-root].fg-glass-admin .admin-sidebar-edge-toggle { left: calc(var(--admin-sidebar-width) + 5px); width: 23px; border-color: var(--fg-admin-glass-line); box-shadow: var(--admin-card-shadow); }
+[data-admin-root].fg-glass-admin .admin-sidebar-edge-toggle.is-collapsed { left: calc(var(--admin-sidebar-collapsed) + 5px); }
+[data-admin-root].fg-glass-admin .fg-admin-stage { border: 1px solid var(--fg-admin-glass-line); border-radius: 23px; background: rgba(255, 255, 255, .27); box-shadow: 0 14px 48px rgba(31, 64, 110, .07); }
+.dark [data-admin-root].fg-glass-admin .fg-admin-stage { background: rgba(12, 30, 48, .23); }
+[data-admin-root].fg-glass-admin .admin-page-frame { padding: 26px 28px 28px; }
+[data-admin-root].fg-glass-admin .admin-page-header { min-height: 65px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--admin-divider); }
+[data-admin-root].fg-glass-admin .admin-page-title { font-size: 25px; font-weight: 600; letter-spacing: -.04em; line-height: 1.25; }
+[data-admin-root].fg-glass-admin .admin-page-location { gap: 10px; }
+[data-admin-root].fg-glass-admin .admin-page-description { margin-top: 7px; font-size: 12px; }
+[data-admin-root].fg-glass-admin :is(.admin-icon-button, .admin-page-theme-toggle, .admin-density-toggle) { background: var(--admin-surface); border: 1px solid var(--fg-admin-glass-line); border-radius: 11px; height: 35px; box-shadow: var(--admin-card-shadow); }
+[data-admin-root].fg-glass-admin .admin-analytics-panel { gap: 20px; }
+[data-admin-root].fg-glass-admin .admin-analytics-health-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; border: 0; background: transparent; }
+[data-admin-root].fg-glass-admin .admin-analytics-health-card { min-width: 0; min-height: 141px; padding: 19px 18px; border: 1px solid var(--fg-admin-glass-line); border-radius: 18px; background: var(--admin-surface); box-shadow: var(--admin-card-shadow); overflow: hidden; }
+[data-admin-root].fg-glass-admin .admin-analytics-health-card-heading { gap: 8px; color: var(--admin-text-secondary); font-size: 11px; }
+[data-admin-root].fg-glass-admin .admin-analytics-health-card-heading > span:first-child { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 9px; background: var(--admin-surface-2); color: var(--admin-accent); }
+[data-admin-root].fg-glass-admin .admin-analytics-health-card-value { margin-top: 13px; font-size: clamp(23px, 1.6vw, 32px); font-weight: 600; letter-spacing: -.045em; line-height: 1.3; font-variant-numeric: tabular-nums; }
+[data-admin-root].fg-glass-admin .admin-analytics-health-card-meta { margin-top: 11px; font-size: 10px; line-height: 1.6; gap: 4px; flex-wrap: wrap; }
+[data-admin-root].fg-glass-admin .admin-analytics-overview-grid { gap: 20px; grid-template-columns: minmax(0, 2.1fr) minmax(280px, 1fr); }
+[data-admin-root].fg-glass-admin :is(.admin-analytics-trend-section, .admin-analytics-attention, .admin-analytics-analysis-section) { border: 1px solid var(--fg-admin-glass-line); border-radius: 20px; background: var(--admin-surface); box-shadow: var(--admin-card-shadow); overflow: hidden; }
+[data-admin-root].fg-glass-admin :is(.admin-analytics-section-heading, .admin-analytics-attention-heading, .admin-analytics-analysis-heading) { padding: 23px 23px 15px; }
+[data-admin-root].fg-glass-admin :is(.admin-analytics-section-heading, .admin-analytics-attention-heading, .admin-analytics-analysis-heading) h2 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+[data-admin-root].fg-glass-admin :is(.admin-analytics-section-heading, .admin-analytics-attention-heading, .admin-analytics-analysis-heading) p { margin-top: 5px; font-size: 11px; color: var(--admin-text-muted); }
+[data-admin-root].fg-glass-admin .admin-analytics-chart { height: 250px; padding: 12px 18px 12px; }
+[data-admin-root].fg-glass-admin .admin-analytics-attention-list { padding: 0 20px 12px; }
+[data-admin-root].fg-glass-admin .admin-analytics-attention-item { min-height: 75px; gap: 12px; padding-block: 17px; }
+[data-admin-root].fg-glass-admin .admin-analytics-attention-icon { width: 34px; height: 34px; border-radius: 11px; }
+[data-admin-root].fg-glass-admin .admin-analytics-attention-label { font-size: 12px; }
+[data-admin-root].fg-glass-admin .admin-analytics-attention-description { font-size: 10px; line-height: 1.6; }
+[data-admin-root].fg-glass-admin .admin-analytics-range-presets, [data-admin-root].fg-glass-admin .admin-analytics-trend-switch { padding: 4px; border: 1px solid var(--fg-admin-glass-line); border-radius: 11px; background: var(--admin-surface-2); }
+[data-admin-root].fg-glass-admin :is(.admin-analytics-range-presets, .admin-analytics-trend-switch) button { border-radius: 8px; }
+[data-admin-root].fg-glass-admin :is(.admin-analytics-range-presets, .admin-analytics-trend-switch) button.is-active { background: var(--admin-surface); color: var(--admin-accent); box-shadow: 0 2px 7px rgba(35, 71, 119, .08); }
+[data-admin-root].fg-glass-admin .admin-analytics-tabs { padding: 0 20px 18px; }
+[data-admin-root].fg-glass-admin .admin-data-table { border-radius: 15px; border: 1px solid var(--admin-border); background: var(--admin-surface); overflow: hidden; }
+[data-admin-root].fg-glass-admin .admin-data-table .ant-table { background: transparent; color: var(--admin-text); }
+[data-admin-root].fg-glass-admin .admin-data-table .ant-table-thead > tr > th { background: var(--admin-surface-2); color: var(--admin-text-secondary); font-size: 11px; font-weight: 600; padding-block: 12px; }
+[data-admin-root].fg-glass-admin .admin-data-table .ant-table-tbody > tr > td { border-bottom-color: var(--admin-row-border); }
+[data-admin-root].fg-glass-admin .admin-list-toolbar { margin-bottom: 18px; }
+[data-admin-root].fg-glass-admin :is(.admin-card, .admin-settings-card, .admin-form-section) { border-radius: 18px; border-color: var(--fg-admin-glass-line); box-shadow: var(--admin-card-shadow); }
+@media (max-width: 1600px) { [data-admin-root].fg-glass-admin { --admin-sidebar-width: 228px; } [data-admin-root].fg-glass-admin .admin-analytics-health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } [data-admin-root].fg-glass-admin .admin-analytics-health-card { min-height: 122px; } }
+@media (max-width: 1200px) { [data-admin-root].fg-glass-admin .admin-analytics-overview-grid { grid-template-columns: minmax(0, 1fr); } [data-admin-root].fg-glass-admin .admin-page-frame { padding: 22px; } }
+@media (max-width: 1023px) { [data-admin-root].fg-glass-admin { padding: 8px; } [data-admin-root].fg-glass-admin .admin-mobile-navigation { height: 56px; background: var(--admin-sidebar); } }
+@media (max-width: 640px) { [data-admin-root].fg-glass-admin .admin-page-frame { padding: 18px 14px; } [data-admin-root].fg-glass-admin .admin-page-title { font-size: 22px; } [data-admin-root].fg-glass-admin .admin-analytics-health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; } [data-admin-root].fg-glass-admin .admin-analytics-health-card { padding: 15px; } [data-admin-root].fg-glass-admin .admin-analytics-section-heading { gap: 12px; flex-wrap: wrap; } }

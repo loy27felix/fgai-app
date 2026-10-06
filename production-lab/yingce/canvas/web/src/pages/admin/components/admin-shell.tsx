@@ -50,6 +50,7 @@ import { AdminDensityProvider, useAdminDensity } from "./admin-density";
 import "@/styles/admin-ui.css";
 import "../theme/admin-tokens.css";
 import "../theme/admin-chrome.css";
+import "../theme/admin-glass.css";
 
 type AdminNavigationItem = {
     path: string;
@@ -151,7 +152,7 @@ function AdminShellLayout() {
     return (
         <ConfigProvider theme={getIsolatedAdminAntTheme(dark, appearance.activeSkin)} getPopupContainer={(node) => adminPopupContainer(node)}>
             <App>
-                <main id="admin-root" data-admin-root data-admin-density={density} className="admin-shell flex h-full min-h-0 overflow-hidden">
+                <main id="admin-root" data-admin-root data-admin-density={density} className="admin-shell fg-glass-admin flex h-full min-h-0 overflow-hidden">
                     <aside className={cn("admin-sidebar hidden shrink-0 flex-col overflow-hidden lg:flex", collapsed && "is-collapsed")}>
                         <div className="admin-sidebar-identity shrink-0">
                             <AdminTooltip title={collapsed ? (appearance.updates?.enabled ? "查看更新公告" : "查看更新日志") : undefined} placement="right">
@@ -166,6 +167,7 @@ function AdminShellLayout() {
                                 />
                             </AdminTooltip>
                         </div>
+                        {!collapsed ? <div className="fg-admin-identity"><span>CONTROL ROOM</span><strong>管理中心</strong><p>运营洞察 · 团队与平台</p></div> : null}
                         <AdminNavigation collapsed={collapsed} />
                         <div className="admin-sidebar-footer shrink-0">
                             <AdminTooltip title={collapsed ? "返回创作台" : undefined} placement="right">
@@ -181,7 +183,7 @@ function AdminShellLayout() {
                             {collapsed ? <ChevronRight className="size-3.5" aria-hidden="true" /> : <ChevronLeft className="size-3.5" aria-hidden="true" />}
                         </button>
                     </AdminTooltip>
-                    <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                    <section className="fg-admin-stage flex min-w-0 flex-1 flex-col overflow-hidden">
                         <MobileAdminNavigation />
                         <Suspense
                             fallback={
@@ -327,7 +329,7 @@ function AdminNavigation({ collapsed }: { collapsed: boolean }) {
                     <div key={group.label} className="admin-nav-group">
                         {!collapsed ? (
                             <div className="admin-nav-group-label">
-                                <span>{group.label}</span>
+                                <span>{group.label}</span><small>{visibleItems.length.toString().padStart(2, "0")}</small>
                             </div>
                         ) : (
                             <div className="admin-nav-collapsed-separator" />

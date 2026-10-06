@@ -13,6 +13,7 @@ import { exportAdminAnalytics, getAdminAnalytics, listAdminUsers, type AdminRefe
 import { analyticsFinanceColumns, formatCredits, formatFinanceCost, formatFinanceMargin } from "./analytics-finance";
 import { Select } from "@/components/ui/base/select";
 import { useUserStore } from "@/stores/use-user-store";
+import { SpotlightCard } from "@/components/ui/fg-glass-effects";
 
 type Props = {
     users: AdminReferenceData["users"];
@@ -512,7 +513,7 @@ export default function AnalyticsPanel({ users, channels }: Props) {
 
 function AnalyticsHealthCard({ icon, label, value, trend, detail, tone = "neutral" }: { icon: ReactNode; label: string; value: ReactNode; trend?: { value: string; tone?: AdminStatusTone }; detail?: string; tone?: AdminStatusTone }) {
     return (
-        <article className="admin-analytics-health-card" data-tone={tone}>
+        <SpotlightCard as="article" className="admin-analytics-health-card" data-tone={tone}>
             <div className="admin-analytics-health-card-heading">
                 <span aria-hidden="true">{icon}</span>
                 <span>{label}</span>
@@ -522,7 +523,7 @@ function AnalyticsHealthCard({ icon, label, value, trend, detail, tone = "neutra
                 {trend ? <AdminStatusBadge label={trend.value} tone={trend.tone || "neutral"} /> : null}
                 {detail ? <span>{detail}</span> : null}
             </div>
-        </article>
+        </SpotlightCard>
     );
 }
 

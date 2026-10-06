@@ -18,8 +18,8 @@ export function BrandLogo({ className, alt = "", theme = "auto" }: BrandLogoProp
     const source = appearanceLogoURL(appearance, theme === "auto" ? currentTheme : theme);
     const [failedSource, setFailedSource] = useState<string | null>(null);
     if (!appearance.logoConfigured) return (
-        <svg viewBox="0 0 64 64" className={cn("block", className)} role={alt ? "img" : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : true}>
-            <path d="M6 14h21v7H13v9h12v7H13v13H6V14Zm52 5-4 5c-2-2-5-3-8-3-7 0-11 4-11 11s4 11 11 11c2 0 4 0 5-1v-7h-7v-6h14v17c-4 3-8 4-12 4-11 0-18-7-18-18s7-18 18-18c5 0 9 2 12 5Z" fill="currentColor" />
+        <svg viewBox="0 0 80 52" className={cn("block", className)} role={alt ? "img" : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : true}>
+            <path d="M3 47V12a7 7 0 0 1 7-7h27v8H13v5h23v8H13v5h21v8H13v8H3Zm76-29H52a5 5 0 0 0-5 5v11a5 5 0 0 0 5 5h17v-7H58v-8h21v17a7 7 0 0 1-7 7H45a9 9 0 0 1-9-9V18h43Zm-41-5a9 9 0 0 1 9-8h25a7 7 0 0 1 7 7v1H38Z" fill="currentColor" />
         </svg>
     );
     // A configured custom logo must never fall through to the built-in brand

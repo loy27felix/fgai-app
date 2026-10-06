@@ -33,6 +33,7 @@ import { defaultCreationMode, modeLabels, type CreationConversation, type Creati
 import { attachCreationTaskContexts, completedCreationGenerationTask, conversationTimestamp, creationShotRail, creationVideoShotOrdinal, isImageAttachment, isVideoAttachment, materializeCreationTaskResults, newConversation, newMessage, reconcileCreationTaskMessages } from "./creation-conversations";
 import { CreationComposer, CreationEmptySuggest, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
 import { CreationAgentEntry } from "./creation-agent-entry";
+import { GlassAgent, Magnet } from "@/components/ui/fg-glass-effects";
 import { createCreationSubmitGate } from "./creation-submit-gate";
 import { creationVideoConfig } from "./creation-generation-config";
 
@@ -1051,6 +1052,7 @@ export default function CreatePage() {
                 </AnimatePresence>
                 <main ref={threadScrollRef} onScroll={handleThreadScroll} className="creation-empty-workspace creation-scrollbar">
                 <div className="creation-home-heading">
+                    <div className="fg-creation-signature"><Magnet><GlassAgent size={76} /></Magnet><span>FG / CREATIVE STUDIO</span></div>
                     <h1>和{brandName}聊聊创作想法</h1>
                     <p>从一个画面、一个角色或一句话开始，继续你的创作。</p>
                 </div>

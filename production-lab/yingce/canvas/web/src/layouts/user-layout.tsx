@@ -9,6 +9,7 @@ import { getWorkspaceAntThemeConfig } from "@/lib/app-theme";
 import { useWorkspaceButtonFeedback } from "@/hooks/use-workspace-button-feedback";
 import "@/styles/workspace-product.css";
 import "@/styles/workspace-menus.css";
+import "@/styles/fg-glass-workspace.css";
 
 const workspaceTheme = getWorkspaceAntThemeConfig();
 
@@ -40,7 +41,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
             dropdown={productWorkspace ? { classNames: { root: "workspace-quiet-popup" } } : undefined}
             popover={productWorkspace ? { classNames: { root: "workspace-quiet-popup" } } : undefined}
         >
-            <div className={cn("app-user-workspace h-dvh overflow-hidden text-foreground", spatialWorkbench && "app-spatial-workspace", productWorkspace && "app-product-workspace")}>
+            <div className={cn("app-user-workspace h-dvh overflow-hidden text-foreground", spatialWorkbench && "app-spatial-workspace", productWorkspace && "app-product-workspace fg-glass-workspace")}>
                 <AppWorkspaceShell>{children}</AppWorkspaceShell>
             </div>
         </ConfigProvider>

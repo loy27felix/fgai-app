@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { Live2DAvatar } from "./live2d-avatar";
 import { live2DModelURL } from "@/services/api/appearance";
 import { FluidOrb } from "@/components/ui/fluid-orb";
+import { GlassAgent } from "@/components/ui/fg-glass-effects";
 import { ArrowLeft, Check, CircleDot, Clock3, Download, History, LoaderCircle, MessageSquarePlus, RotateCcw, Settings2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 import { Button, Dropdown, Input, Popover } from "antd";
 import type { AgentContextPhase, AgentContextUsageView } from "@/lib/canvas/agent-context-usage";
@@ -64,7 +65,7 @@ export function AgentLauncher({ theme, statusColor, approvalPending, reducedMoti
             {live ? (
                 <Live2DAvatar url={live2DModelURL(appearance.live2dResourceId, appearance.live2dEntry)} width={width} height={height} reducedMotion={reducedMotion} fallback={<FluidOrb size={60} color="#7164f6" />} />
             ) : (
-                <FluidOrb size={60} color="#7164f6" />
+                <GlassAgent size={60} />
             )}
             {appearance.launcherLabel ? <span className="canvas-agent-launcher-label">{appearance.launcherLabel}</span> : null}
             <span className={cn("canvas-agent-launcher-status", approvalPending && "is-pending")} style={{ "--canvas-agent-status-color": statusColor } as CSSProperties} />
