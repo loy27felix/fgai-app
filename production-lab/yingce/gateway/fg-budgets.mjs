@@ -2,7 +2,7 @@ import {randomUUID,timingSafeEqual} from 'node:crypto';
 import {priceQuote} from './fg-quotes.mjs';
 import {estimateCNY} from './fg-prices.mjs';
 const microCny=value=>Math.ceil(Number(value)*1e6-1e-8);
-const volcSpeechModels=new Set(['seed-audio-1.0','seed-tts-2.0','volc.seedasr.auc','volc.speech.mt']);
+const volcSpeechModels=new Set(['seed-audio-1.0','seed-tts-2.0','volc.seedasr.auc','volc.speech.mt','volc.seedasr.sauc.duration']);
 // The company temporarily exempts these server-configured speech services from
 // spending caps. Never accept a provider or exemption flag from a client.
 const capExemptSpeech=(model,snapshot)=>volcSpeechModels.has(model)&&snapshot?.enabled===true&&snapshot.provider==='volcengine';

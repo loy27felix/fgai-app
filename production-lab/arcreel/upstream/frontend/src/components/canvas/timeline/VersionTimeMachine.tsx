@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Download, History } from "lucide-react";
 import { cn } from "cn";
@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { useTrackWrite } from "@/components/canvas/lorebook/useAssetWrites";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 
 interface VersionTimeMachineProps {
@@ -40,6 +41,13 @@ interface VersionTimeMachineProps {
    * 仍会发出恢复请求，与在跑的任务并发写同一个资源文件。返回 true 即拒绝本次恢复。
    */
   checkBusy?: () => boolean;
+  /**
+   * 受控打开：由外部（如卡片的「更多」菜单）决定开合，不渲染自己的触发按钮，
+   * 弹层按 `anchor` 定位，关闭后焦点回到它。
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchor?: RefObject<HTMLElement | null>;
 }
 
 function getImagePreviewHeightClass(
@@ -64,8 +72,12 @@ export function VersionTimeMachine({
   busy = false,
   onRestoringChange,
   checkBusy,
+  open: controlledOpen,
+  onOpenChange,
+  anchor,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const track = useTrackWrite();
   const titleId = useId();
   const busyHintId = useId();
   const resourcePath =
@@ -78,15 +90,24 @@ export function VersionTimeMachine({
     resourceType === "character_derivatives" ? `characters/derivatives/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
+    resourceType === "products" ? `products/${resourceId}.png` :
     `props/${resourceId}.png`;
   const resourceFp = useProjectsStore((s) => s.getAssetFingerprint(resourcePath));
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : uncontrolledOpen;
+
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const setOpen = (next: boolean) => {
+    if (!next && restoringVersion !== null) return;
+    if (controlled) onOpenChange?.(next);
+    else setUncontrolledOpen(next);
+  };
 
   const loadVersions = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
@@ -127,14 +148,16 @@ export function VersionTimeMachine({
     setRestoringVersion(version);
     onRestoringChange?.(true);
     try {
-      const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
-      if (result.asset_fingerprints) {
-        useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
-      }
-      await onRestore?.(version);
-      setReload((current) => current + 1);
-      // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
-      setSelectedVersion(version);
+      await track((async () => {
+        const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
+        if (result.asset_fingerprints) {
+          useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+        }
+        await onRestore?.(version);
+        setReload((current) => current + 1);
+        // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
+        setSelectedVersion(version);
+      })());
     } catch (err) {
       useAppStore
         .getState()
@@ -154,7 +177,7 @@ export function VersionTimeMachine({
       : null;
   const label = t("version_mgmt");
 
-  const trigger = iconOnly ? (
+  const trigger = controlled ? null : iconOnly ? (
     <Tooltip>
       <TooltipTrigger
         render={<PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label={label} />} />}
@@ -178,7 +201,7 @@ export function VersionTimeMachine({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       {trigger}
-      <PopoverContent align="end">
+      <PopoverContent align="end" anchor={anchor} finalFocus={anchor}>
         <div className="flex items-center justify-between gap-2">
           <PopoverTitle id={titleId}>{t("history_versions")}</PopoverTitle>
           {currentVersion > 0 && (

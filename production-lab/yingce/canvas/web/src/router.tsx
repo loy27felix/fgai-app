@@ -21,6 +21,7 @@ const AgentLessonsPage = lazy(() => import("@/pages/admin/admin-route-pages").th
 const ChannelsPage = lazy(() => import("@/pages/admin/channels/channels-page"));
 const LogicalModelsPage = lazy(() => import("@/pages/admin/logical-models/logical-models-page"));
 const AdminPluginsPage = lazy(() => import("@/pages/admin/plugins/plugins-page"));
+const SkillCurationPage = lazy(() => import("@/pages/admin/skill-curation-page"));
 const LogsPage = lazy(() => import("@/pages/admin/logs/logs-page"));
 const RuntimePolicySettingsPage = lazy(() => import("@/pages/admin/settings/runtime-policy-settings-page"));
 const AppearanceSettingsPage = lazy(() => import("@/pages/admin/settings/appearance-settings-page"));
@@ -35,6 +36,7 @@ const FGProductionPage = lazy(() => import("@/pages/fg-production"));
 const AdvertisingPage = lazy(() => import("@/pages/advertising"));
 const ArcReelPage = lazy(() => import("@/pages/arcreel"));
 const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
+const FGInspirationPage = lazy(() => import("@/pages/fg-inspiration"));
 const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
@@ -80,10 +82,10 @@ function AuthenticatedWorkspaceLayout() {
  */
 function devRoutes() {
     const FolderPreviewLab = lazy(() => import("@/pages/dev/folder-preview-lab"));
-    const DirectorReproLab = lazy(() => import("@/pages/dev/director-repro-lab"));
+    const PrevisReproLab = lazy(() => import("@/pages/dev/previs-repro-lab"));
     return [
         { path: "/dev/folders", element: fullScreenDeferred(<FolderPreviewLab />), errorElement: <RouteErrorPage /> },
-        { path: "/dev/director-repro", element: fullScreenDeferred(<DirectorReproLab />), errorElement: <RouteErrorPage /> },
+        { path: "/dev/previs-repro", element: fullScreenDeferred(<PrevisReproLab />), errorElement: <RouteErrorPage /> },
     ];
 }
 
@@ -109,6 +111,7 @@ export const router = createBrowserRouter([
             { path: "/advertising", element: <RequireAuth>{deferred(<AdvertisingPage />)}</RequireAuth> },
             { path: "/arcreel", element: <RequireAuth>{deferred(<ArcReelPage />)}</RequireAuth> },
             { path: "/fg-audio-tools", element: <RequireAuth>{deferred(<FGAudioToolsPage />)}</RequireAuth> },
+            { path: "/fg-inspiration", element: <RequireAuth>{deferred(<FGInspirationPage />)}</RequireAuth> },
             { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
             {
                 path: "/tasks",
@@ -193,6 +196,7 @@ export const router = createBrowserRouter([
                     { path: "channels", element: <ChannelsPage /> },
                     { path: "models", element: <RequireFeature feature="frontendModelsEnabled"><LogicalModelsPage /></RequireFeature> },
                     { path: "plugins", element: <AdminPluginsPage /> },
+                    { path: "skill-curation", element: <SkillCurationPage /> },
                     { path: "payments", element: <Navigate to="/admin" replace /> },
                     { path: "prompt-templates", element: <StoryboardPromptsPage /> },
                     { path: "storyboard-prompts", element: <Navigate to="/admin/prompt-templates" replace /> },

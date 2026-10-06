@@ -1,7 +1,7 @@
 # FG 创作者工作台 · OpenCreator 接入
 
 2026-10-04；上线源码位于 `production-lab/opencreator/upstream`。
-上游：https://github.com/krillinai/OpenCreator ，提交 `a5117d7b7c4273d7c71d94d33efb9d6230a9558d`，Apache-2.0。
+上游：https://github.com/krillinai/OpenCreator ，2026-10-06 同步至提交 `b674f255febad350afd64600d19c8279523c5769`，Apache-2.0。
 
 1.2.8 接入独立入口 `/creator-app`；外层主站入口仍为 3000。文本、图片通过 FG 统一任务渠道，字幕识别、配音与独立视频生成服务尚未配置，不能作为可用能力交付。
 

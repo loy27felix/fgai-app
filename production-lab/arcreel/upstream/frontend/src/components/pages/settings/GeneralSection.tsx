@@ -63,12 +63,6 @@ export function GeneralSection() {
           </Button>
         </SettingRow>
       </div>
-      <details className="text-xs text-muted-foreground">
-        <summary className="cursor-pointer">{t("dashboard:fg_license_source")}</summary>
-        <p className="mt-2">Copyright © 2026 Pollo3470 and ArcReel contributors · AGPL-3.0</p>
-        <a className="underline" href="https://github.com/ArcReel/ArcReel" target="_blank" rel="noreferrer">{t("dashboard:fg_original_source")}</a>
-        {" · "}<a className="underline" href="/fg-source.tar.gz">{t("dashboard:fg_modified_source")}</a>
-      </details>
     </div>
   );
 }

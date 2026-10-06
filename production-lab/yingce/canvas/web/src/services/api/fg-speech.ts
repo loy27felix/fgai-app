@@ -1,5 +1,5 @@
 import {ApiError,http} from "@/services/api/request";
-export type SpeechJob={id:string;kind:"transcription"|"translation";status:string;error?:string;result?:{text:string;segments?:{start:number;end:number;text:string}[]};createdAt:string};
+export type SpeechJob={id:string;kind:"transcription"|"translation"|"streaming";status:string;error?:string;result?:{text:string;segments?:{start:number;end:number;text:string}[]};createdAt:string};
 export const speechJobs=()=>http.get<{jobs:SpeechJob[]}>("/fg/speech/jobs");
 export const companyMusicStatus=()=>http.get<{available:boolean;configured:boolean;enabled:boolean}>("/fg/music/status");
 export const createSpeechJob=(input:Record<string,unknown>)=>http.post<SpeechJob>("/fg/speech/jobs",input);

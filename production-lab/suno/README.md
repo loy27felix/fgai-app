@@ -1,23 +1,15 @@
 # FG 公司 Suno 音乐服务
 
-本服务复用 gcui-art/suno-api 的服务端库，固定上游提交 `a2e6a823428903af715d3835d1cb44ffa336021d`，通过 FG 的原生音频任务、用户权限、制作历史和 NAS 归档接入公司账号。没有另开 Suno 网页后台或公网端口。原始许可证及修改来源保留在 `vendor/`。
+FG 的当前适配器位于 `current-api.mjs`，直接使用公司订阅账号的网页接口。提交前读取账号模型目录，只选 `can_use` 的默认模型；`SUNO_MODEL=auto` 不再固定旧版 `chirp-v3-5`。最新网页模型可用与否由公司账号实时返回的目录决定，不能只凭页面上写着 v6 就宣称生成验收通过。
 
-## 当前边界
+旧 gcui-art/suno-api 库及许可证保留在 `vendor/`，当前请求不调用旧库的验证码或生成脚本。协议参考来自 Suno 当前网页和公开的 [suno-cli 源码](https://github.com/paperfoot/suno-cli)；这不是 Suno 官方承诺稳定的 API。网页登录、模型目录、真实生成和下载都需要公司凭据验收。接口发生变化时明确失败，不自动重放收费请求。
 
-- 服务和 FG 调用入口可以在没有账号凭据时部署，但保持生成关闭。真实登录、验证码流程、音乐生成、v6 兼容性必须在公司填写凭据后验证，不能由单元测试替代。
-- `SUNO_COOKIE` 是公司专用账号的登录 Cookie，需要包含 `__client`；`TWOCAPTCHA_KEY` 是独立的验证码服务 Key。Suno 订阅不能替代这两项配置。
-- `SUNO_MODEL` 初始为旧库的 `chirp-v3-5`。不猜测 v6 模型标识，不把页面上显示 v6 当成库协议验证成功。
-- 所有账号凭据只读挂载到服务，不发送给成员。服务没有 FG/NAS 文件挂载、Docker socket 或宿主机端口。生成音频返回 FG 后，由原生任务保存到 NAS。
-- 同一操作持久保存提交记录，只允许一项音乐生成同时运行；请求结果不明时不会重新提交。一次生成可能由 Suno 返回两个作品，当前选择首个完成作品，同时记录全部作品 ID。
-- 内部积分传输价格为 0，不代表 Suno 免费。订阅额度、验证码费用和人民币支出待核验。用户临时豁免的四个火山模型额度策略不扩大到 Suno。
+## 公司 Cookie 获取与填写
 
-## 服务器配置与启用
-
-工作目录：`/Users/server/work/fg-six-yingce`。
-
-1. 编辑 `private-data/suno.private.env`，照 `account.env.example` 填入公司账号 Cookie、2Captcha Key；不要加引号。文件必须保持 `0600`，目录保持 `0700`。
-2. 第一次接入先保留可确认的模型键。填写完毕后设置 `SUNO_ENABLED=true`。
-3. 重启只有 Suno 服务的独立 Compose 工程：
+1. 在公司专用浏览器登录 [Suno](https://suno.com/)，确认订阅、生成额度和作品下载权限。
+2. F12 → Application（应用）→ Storage → Cookies → `https://auth.suno.com`，复制 `__client` 的 Value。若该域不在列表，在 Network 找 `auth.suno.com/v1/client` 请求，从 Request Headers 复制 Cookie，其中必须包含 `__client`。不要复制短期 JWT 代替 Cookie。
+3. 只在服务器 `/Users/server/work/fg-six-yingce/private-data/suno.private.env` 中填写 `SUNO_COOKIE=__client=<值>`，或完整 Cookie 请求头。不要加引号。保留 `SUNO_MODEL=auto`，首次先保留 `SUNO_ENABLED=false`。文件权限保持 `0600`、目录 `0700`。
+4. 仅重建独立 Suno 服务，调用 FG 的只读验证。验证检查余额和模型权限，不产生歌曲：
 
    ```sh
    cd /Users/server/work/fg-six-yingce
@@ -25,13 +17,20 @@
    /usr/local/bin/docker exec fg-six-yingce-gateway-1 node configure-suno.mjs
    ```
 
-4. 后一个命令只检查账号余额/读取权限并登记渠道，不产生歌曲。验证失败时不会开放 FG 音乐模型。
-5. 成功后刷新公司音频工具，制作一项短测试音乐，并从原生制作历史核对真实可播放文件、NAS 归档和 Suno 作品 ID。此步骤才算真实生成验收。
+5. 验证成功后将 `SUNO_ENABLED=true` 并重建 Suno、再次执行配置命令。制作一项短测试音乐，核对可播放 MP3、NAS 归档和 Suno 作品 ID，才算真实生成验收。
 
-平台成员在音频工具选择“音乐与歌曲 · Suno”；有原生音频模型选择器的画布、创作台使用同一 `suno-company-music` 渠道。广告和导演台通过其“音频工具”入口使用，并保留广告项目归属。没有个人 Codex 或个人 Suno 账号的成员也能使用已启用的公司渠道。
+Cookie 属于账号登录凭据，不进入 GitHub、聊天、截图、浏览器响应或公开日志；失效后替换私密文件并重建 Suno 服务。成员无需个人 Suno 或 Codex 账号。
 
-## 查询结果不明的操作
+## 验证码与费用
 
-`fg_speech_usage` 保留 FG 请求 ID，Suno 服务在 `/state/<requestId>.json` 保留全部作品 ID。受内部服务密钥保护的 `GET /operations/<requestId>` 只返回状态与作品 ID，方便管理员在公司 Suno 账号核对原作品。不要通过创建新任务试探旧任务是否成功。
+当前适配器先检查验证码。如果公司账号要求验证码，返回 `SUNO_CAPTCHA_REQUIRED`，管理员需在 Suno 网页处理后再发起新的任务。不会自动购买验证码、不调用旧脚本，也不会在不确定是否提交成功时再次生成。
 
-Cookie 过期时更新私密文件并仅重建 Suno 服务。任何账号信息、验证码费用或供应商错误正文均不应写入公开日志、GitHub、聊天或浏览器。
+**当前不需要配置或购买 2Captcha Key。** `TWOCAPTCHA_KEY` 仅为保留配置，当前代码不使用。2Captcha 账号可注册取得 Key，调用解题需要另行充值；这与 Suno 订阅、歌曲额度是两笔费用。2026-10-06 官网报价：Cloudflare Turnstile 为每 1,000 次成功解答 1.45 美元；reCAPTCHA V2 为 1–2.99 美元。Suno 当前是否使用对应挑战、自动解题是否兼容仍未验证，不能按每首歌固定费用计算。来源：[2Captcha 价格](https://2captcha.com/zh/pricing)。
+
+## 平台范围与提交记录
+
+公司音频工具、原生音频模型选择器及广告、导演台、创作台的音频入口使用同一 `suno-company-music` 渠道。广告任务保留项目归属。Suno 不属于火山渠道的额度豁免范围；内部积分价格 0 不代表 Suno 免费。
+
+每次任务使用持久操作 ID，仅允许一项音乐生成同时运行。提交前明确失败记为 `rejected`，发送后结果不明记为 `uncertain`；已有 ID 不重新提交。一次请求可能返回多个作品，记录全部 ID 并保存首个完成且可下载的音频。管理员可用受内部密钥保护的 `GET /operations/<requestId>` 核对状态和作品 ID。
+
+服务无宿主机公网端口、NAS 文件挂载或 Docker socket。账号 Cookie 仅服务端只读挂载；返回的音频由 FG 原生任务归档到 NAS。没有凭据时可以部署，但音乐生成保持关闭。

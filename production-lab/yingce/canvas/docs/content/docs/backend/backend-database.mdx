@@ -33,6 +33,13 @@ FG 网关在独立第六板块数据库维护 `fg_schema_versions`，不改动�
 | `fg_company_settings` | 当前 USD/CNY 折算配置；已核销费用保留原汇率 |
 
 金额使用 PostgreSQL numeric，导入事务遇到编号、模型、时间或金额冲突时回滚。账单与请求必须相互唯一；图片 REQ 和视频 TASK 按真实消费编号精确匹配。GPT 回执差异尚待解决的流水显示待核销。详见 [FG 第六板块接入](/docs/backend/fg-six-integration)。
+## 分片上传预留
+
+Schema 45 新增 `upload_reservations`：`id`、`user_id`、`size`、`day`、`expires_at`。创建会话时在数据库事务内检查并行会话数、现有资源容量、未到期预留和每日上传用量，更新既有 `user_daily_upload_usages` 后插入预留。SQLite 先取得写锁，PostgreSQL 使用账号级事务 advisory lock。
+
+资源变为 ready 与删除对应预留在同一事务中提交；普通资源上传及生成结果的容量提交也使用同一锁，并计入分片预留。沿用 `UserStoredFileBytes` 的 ready 物理对象去重口径，不改变容量配置。跨 UTC 日期完成时重新预留当天日额度并释放原日额度，失败则整体回滚。
+
+预留有效期 90 分钟。失败或会话删除时释放原日额度；再次创建该账号会话时清理已到期预留。进程重启不批量删除其他实例的预留。分片文件与路由会话仍在本机，需要粘性路由；崩溃后的残片需要部署侧临时目录清理策略，未增加跨实例文件恢复或启动时全局清扫。
 
 ## 更新公告配置
 
@@ -342,3 +349,8 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 | `api_call_logs.fg_fee_references_json` | 允许的公开追踪头及响应中明确的异步任务编号数组 |
 
 账单与调用必须同时匹配模型及明确编号，并且双方唯一。多对一和一对多均不自动归集。未知费用保留为空；已核销、估算和未归集账单分别统计。账号和素材所有权沿用原生外键及服务端权限合同。
+## 可选技能策展
+
+迁移 46 新增 skill_curation_settings、skill_curation_categories、skill_curation_assignments；默认关闭，不导入技能内容。表结构与事务规则见 [平台技能策展](./skill-curation)。
+
+迁移 47 依赖 46，新增 skill_curation_roots 与 skill_curation_root_assignments；保留原五个根 ID，根停用时使用派生默认桶，根表为空回落固定五类。

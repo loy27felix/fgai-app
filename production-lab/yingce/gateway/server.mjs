@@ -18,6 +18,8 @@ import {initializeArcReel,createArcReelServer} from './fg-arcreel.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
 import {publicEntryOrigins, workspaceRequestPath, workspaceEntryURL} from './fg-public-entry.mjs';
+import {initializeInspiration,startInspirationSync,inspirationRoute} from './fg-inspiration.mjs';
+import {registerSpeechStream} from './fg-speech-stream.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const editorPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 16 });
@@ -36,9 +38,11 @@ await initializeAdcraft(pool);
 await initializeCreator(pool);
 await initializeArcReel(pool);
 await initializeEditorLeases(pool);
+await initializeInspiration(pool);
 await publishExistingStoryMedia(pool);
 startFeeSync(pool);
 startAdvertisingRetention(pool);
+startInspirationSync(pool);
 
 function respond(res, status, message, reason) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -140,6 +144,7 @@ const server = http.createServer(async (req, res) => {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     const cookie = await canvasSession(actor);
+    if(await inspirationRoute(req,res,{pool,actor,path}))return;
     if(path.pathname==='/api/fg/music/status'&&req.method==='GET'){
       const status=await musicStatus();const registered=(await pool.query(`SELECT 1 FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name='Suno 音乐 · FG' AND cm.model_key='suno-company-music' AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rowCount>0;
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({code:0,data:{...status,enabled:status.enabled&&registered},msg:''}));return;
@@ -204,10 +209,11 @@ const server = http.createServer(async (req, res) => {
 });
 server.requestTimeout = 0;
 server.headersTimeout = 60000;
+const speechStreams=registerSpeechStream(server,{pool,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:async req=>{const actor=await platformActor(req);if(actor)await canvasSession(actor);return actor;}});
 server.listen(3010, '0.0.0.0');
 const arcOrigin=new URL(publicOrigin);arcOrigin.port='3017';
 const arcServer=createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin:arcOrigin.origin,externalOrigins});
 arcServer.requestTimeout=0;
 arcServer.headersTimeout=60000;
 arcServer.listen(3020,'0.0.0.0');
-process.on('SIGTERM', () => {arcServer.close();server.close(async () => { await pool.end(); await editorPool.end(); process.exit(0); });});
+process.on('SIGTERM', async () => {await speechStreams.shutdown();arcServer.close();server.close(async () => { await pool.end(); await editorPool.end(); process.exit(0); });});

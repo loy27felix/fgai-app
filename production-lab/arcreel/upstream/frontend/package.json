@@ -40,7 +40,6 @@
     "cn": "^0.4.0",
     "driver.js": "^1.8.0",
     "eventsource-parser": "4.1.1",
-    "framer-motion": "^13.1.0",
     "i18next": "^26.3.6",
     "i18next-browser-languagedetector": "^8.2.1",
     "i18next-resources-to-backend": "^1.2.3",
@@ -93,7 +92,8 @@
     "overrides": {
       "mermaid": "11.16.1",
       "esbuild": "0.28.1",
-      "lodash-es": "4.18.1"
+      "lodash-es": "4.18.1",
+      "@lobehub/icons>@lobehub/ui": "-"
     }
   }
 }

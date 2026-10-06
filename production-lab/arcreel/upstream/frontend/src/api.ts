@@ -185,6 +185,7 @@ import {
 } from "./api/errors";
 import type {
   AgentProfileStatus,
+  AssetDeletionPreview,
   AssetMergeResult,
   AssetRenameResult,
   AssistantEntriesStreamOptions,
@@ -215,6 +216,7 @@ export {
 } from "./api/errors";
 export type {
   AgentProfileStatus,
+  AssetDeletionPreview,
   AssetMergeEpisodeImpact,
   AssetMergeResult,
   AssetRenameResult,
@@ -883,18 +885,6 @@ class API {
     );
   }
 
-  static async deleteCharacter(
-    projectName: string,
-    charName: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}`,
-      {
-        method: "DELETE",
-      }
-    );
-  }
-
   // ==================== 角色衍生管理 ====================
 
   /**
@@ -1001,11 +991,13 @@ class API {
   /** 规划一批但不建任务：要生成的名单、跳过项与能算出时的预估费用。 */
   static async previewAssetSheetBatch(
     projectName: string,
-    scope: AssetSheetBatchScope
+    scope: AssetSheetBatchScope,
+    options?: { signal?: AbortSignal }
   ): Promise<AssetSheetBatchPreview> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/batch/preview`, {
       method: "POST",
       body: JSON.stringify(scope),
+      signal: options?.signal,
     });
   }
 
@@ -1049,11 +1041,13 @@ class API {
     projectName: string,
     assetType: AssetSheetType,
     name: string,
-    derivativeName?: string
+    derivativeName?: string,
+    options?: { signal?: AbortSignal },
   ): Promise<AssetRegenerationImpact> {
     const query = derivativeName ? `?${new URLSearchParams({ derivative_name: derivativeName })}` : "";
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/asset-sheets/${assetType}/${encodeURIComponent(name)}/regeneration-impact${query}`
+      `/projects/${encodeURIComponent(projectName)}/asset-sheets/${assetType}/${encodeURIComponent(name)}/regeneration-impact${query}`,
+      { signal: options?.signal },
     );
   }
 
@@ -1083,18 +1077,6 @@ class API {
       {
         method: "PATCH",
         body: JSON.stringify(updates),
-      }
-    );
-  }
-
-  static async deleteProjectScene(
-    projectName: string,
-    sceneName: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/scenes/${encodeURIComponent(sceneName)}`,
-      {
-        method: "DELETE",
       }
     );
   }
@@ -1129,31 +1111,25 @@ class API {
     );
   }
 
-  static async deleteProjectProp(
-    projectName: string,
-    propName: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/props/${encodeURIComponent(propName)}`,
-      {
-        method: "DELETE",
-      }
-    );
-  }
-
   // ==================== 项目商品管理 ====================
 
   static async addProjectProduct(
     projectName: string,
     name: string,
     description: string,
-    brand?: string
+    brand?: string,
+    sellingPoints?: string[]
   ): Promise<SuccessResponse> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/products`,
       {
         method: "POST",
-        body: JSON.stringify(brand ? { name, description, brand } : { name, description }),
+        body: JSON.stringify({
+          name,
+          description,
+          ...(brand ? { brand } : {}),
+          ...(sellingPoints?.length ? { selling_points: sellingPoints } : {}),
+        }),
       }
     );
   }
@@ -1168,18 +1144,6 @@ class API {
       {
         method: "PATCH",
         body: JSON.stringify(updates),
-      }
-    );
-  }
-
-  static async deleteProjectProduct(
-    projectName: string,
-    productName: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/products/${encodeURIComponent(productName)}`,
-      {
-        method: "DELETE",
       }
     );
   }
@@ -1229,6 +1193,33 @@ class API {
         }),
         signal: options.signal,
       }
+    );
+  }
+
+  /**
+   * 删除项目内资产前的引用预览：脚本与草稿里有多少处引用会在删除后悬空，按集列出。只读，
+   * 与重命名同一套扫描。删除本身不改写这些引用，也不因有引用而拒绝。
+   */
+  static async previewProjectAssetDeletion(
+    projectName: string,
+    assetType: ProjectAssetType,
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<AssetDeletionPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}?dry_run=true`,
+      { method: "DELETE", signal: options.signal }
+    );
+  }
+
+  static async deleteProjectAsset(
+    projectName: string,
+    assetType: ProjectAssetType,
+    name: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}`,
+      { method: "DELETE" }
     );
   }
 

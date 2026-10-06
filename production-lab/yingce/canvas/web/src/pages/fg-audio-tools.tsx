@@ -4,6 +4,7 @@ import {generateCompanySpeech,companyMusicStatus,createSpeechJob,speechJobs,spee
 import {uploadResourceFile} from "@/services/api/resources";
 import {fgSpeechVoices,fgDefaultSpeechVoice} from "@/lib/fg-speech-voices";
 import {useSearchParams} from "react-router";
+import {FGStreamingSpeech} from "@/components/fg-streaming-speech";
 
 export default function FGAudioToolsPage(){
  const [params]=useSearchParams();const context=params.get("advertising")?{fgAdWorkspaceId:params.get("advertising")}:{};
@@ -36,10 +37,10 @@ export default function FGAudioToolsPage(){
   <Typography.Title level={3}>公司音频工具</Typography.Title>
   <Typography.Paragraph>画布、广告、创作台和导演台共用公司渠道。音频生成结果保存到 NAS 和制作历史；录音识别记录保存到服务器，可导出字幕。</Typography.Paragraph>
   <Alert type="info" title="费用待核验" description="火山音频、配音、语音识别和翻译暂不受月额度及项目预算上限拦截，费用与用量保留，等待火山账单核验。Suno 使用公司订阅账号制作独立音乐和歌曲，费用另行核验。"/>
-  <Tabs activeKey={tab} onChange={setTab} items={[{key:"speech",label:"角色配音 · TTS 2.0"},{key:"music",label:"音乐与歌曲 · Suno"},{key:"sound",label:"对白与音效 · Seed Audio"},{key:"transcription",label:"录音识别与字幕"},{key:"translation",label:"文本翻译"}]}/>
+  <Tabs activeKey={tab} onChange={setTab} items={[{key:"speech",label:"角色配音 · TTS 2.0"},{key:"music",label:"音乐与歌曲 · Suno"},{key:"sound",label:"对白与音效 · Seed Audio"},{key:"streaming",label:"实时语音识别"},{key:"transcription",label:"录音识别与字幕"},{key:"translation",label:"文本翻译"}]}/>
   {tab==="music"&&!musicReady&&<Alert type="info" title="公司 Suno 音乐渠道待开通" description="服务已接入，等待管理员填写公司账号凭据并通过验证后开放制作。其他成员无需配置个人账号。"/>}
   <Card>
-   {tab==="transcription"?<Space direction="vertical"><Typography.Text>上传录音后异步识别，不需要一直停留在本页。再次打开可以查看原任务。</Typography.Text><Upload accept="audio/*" showUploadList={false} beforeUpload={file=>transcribe(file)} disabled={busy}><Button loading={busy}>上传录音并识别</Button></Upload></Space>:<Space direction="vertical" style={{width:"100%"}}>
+   {tab==="streaming"?<FGStreamingSpeech advertising={params.get("advertising")} onComplete={()=>void refresh().catch(()=>{})}/>:tab==="transcription"?<Space direction="vertical"><Typography.Text>上传录音后异步识别，不需要一直停留在本页。再次打开可以查看原任务。</Typography.Text><Upload accept="audio/*" showUploadList={false} beforeUpload={file=>transcribe(file)} disabled={busy}><Button loading={busy}>上传录音并识别</Button></Upload></Space>:<Space direction="vertical" style={{width:"100%"}}>
     {tab==="speech"&&<Select aria-label="配音音色" value={voice} onChange={setVoice} options={fgSpeechVoices} style={{width:"100%"}}/>}
     {tab==="music"&&<Select aria-label="音乐类型" value={musicVoice} onChange={setMusicVoice} options={[{value:"instrumental",label:"纯音乐 / 配乐"},{value:"song",label:"带人声歌曲"}]} style={{width:220}}/>}
     {tab==="translation"&&<Select aria-label="翻译目标语言" value={target} onChange={setTarget} options={[{value:"en",label:"中文 → 英语"},{value:"ja",label:"中文 → 日语"},{value:"ko",label:"中文 → 韩语"}]} style={{width:220}}/>}
@@ -50,6 +51,6 @@ export default function FGAudioToolsPage(){
   </Card>
   {error&&<Alert type="error" title={error}/>}
   <Typography.Title level={4}>识别与翻译记录</Typography.Title>
-  {jobs.map(job=><Card key={job.id} size="small" title={job.kind==="transcription"?"录音识别":"文本翻译"} extra={job.status==="succeeded"?<Button onClick={()=>download(job)}>导出{job.result?.segments?.length?"字幕":"文本"}</Button>:null}><Typography.Paragraph style={{whiteSpace:"pre-wrap"}}>{job.result?.text||job.error||({reserved:"正在登记",sending:"等待供应商确认",submitted:"正在识别",failed:"处理失败"}[job.status]||job.status)}</Typography.Paragraph></Card>)}
+  {jobs.map(job=><Card key={job.id} size="small" title={job.kind==="streaming"?"实时语音识别":job.kind==="transcription"?"录音识别":"文本翻译"} extra={job.status==="succeeded"?<Button onClick={()=>download(job)}>导出{job.result?.segments?.length?"字幕":"文本"}</Button>:null}><Typography.Paragraph style={{whiteSpace:"pre-wrap"}}>{job.result?.text||job.error||({reserved:"正在登记",sending:"等待供应商确认",submitted:"正在识别",failed:"处理失败"}[job.status]||job.status)}</Typography.Paragraph></Card>)}
  </main>;
 }

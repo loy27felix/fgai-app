@@ -16,6 +16,7 @@ export type NormalizedCreatorActivity = {
 export type CreatorStageProgressView = {
   detailsHref?: string;
   showMessage?: boolean;
+  showTiming?: boolean;
   percent: number | null;
   indeterminate?: boolean;
   phase: string | null;
@@ -73,12 +74,14 @@ const genericAdapter: CreatorPanelAdapter = {
 export const videoTranslationPanelAdapter: CreatorPanelAdapter = {
   id: 'video-translation',
   failedProgressText(stage, l) {
+    if (stage.stageId === 'preview-source-video') return l('原视频预览准备失败，可重试', 'Source video preview preparation failed. You can retry.', 'Förberedelsen av originalvideons förhandsvisning misslyckades. Du kan försöka igen.');
     if (stage.stageId === 'prepare-source-video') return l('原视频准备失败，已有字幕未受影响，可重试', 'Source video preparation failed; subtitles are preserved. You can retry.');
     return stage.errorCode === 'creator_dependency_prepare_failed'
       ? l('本地转录组件准备失败，可前往组件页查看原因并重试', 'Local transcription preparation failed. View the component page and retry.')
       : null;
   },
   succeededProgressText(stage, localize) {
+    if (stage.stageId === 'preview-source-video') return localize('原视频预览已就绪', 'Source video preview ready', 'Originalvideons förhandsvisning är redo');
     return stage.stageId === 'prepare-source-video'
       ? localize('原视频已就绪，已有字幕保持不变', 'Source video ready; existing subtitles are unchanged')
       : null;
@@ -89,7 +92,7 @@ export const videoTranslationPanelAdapter: CreatorPanelAdapter = {
   ),
   stageLabel(stageId, l) {
     if (stageId === 'subtitle') return l('字幕翻译', 'Subtitle translation');
-    if (stageId === 'prepare-source-video') return l('原视频预览准备', 'Source video preview preparation');
+    if (stageId === 'prepare-source-video' || stageId === 'preview-source-video') return l('原视频预览准备', 'Source video preview preparation');
     if (stageId === 'tts') return l('配音生成', 'Dubbing');
     if (stageId === 'render-horizontal') return l('横屏成片', 'Landscape render');
     if (stageId === 'render-vertical') return l('竖屏成片', 'Portrait render');
@@ -126,6 +129,7 @@ export const videoTranslationPanelAdapter: CreatorPanelAdapter = {
   normalizeActivity(activity, l) {
     if (activity.action === 'run-stage') {
       const stageId = readActivityStageId(activity);
+      if (stageId === 'preview-source-video') return { label: l('开始下载原视频预览', 'Started downloading the source video preview', 'Nedladdningen av originalvideons förhandsvisning har startat'), fields: [] };
       if (stageId === 'prepare-source-video') return { label: l('开始准备原视频预览，保留已有字幕', 'Started preparing source video preview; existing subtitles are preserved'), fields: [] };
       return {
         label: stageId === null
@@ -143,10 +147,17 @@ export const videoTranslationPanelAdapter: CreatorPanelAdapter = {
   },
   readStageProgress(stage, localize) {
     const standard = readStandardProgress(stage);
-    if (stage.stageId === 'prepare-source-video') {
+    if (stage.stageId === 'prepare-source-video' || stage.stageId === 'preview-source-video') {
       const bytes = readFiniteNumber(stage.progress.downloadedBytes) ?? 0;
       const total = readFiniteNumber(stage.progress.totalBytes);
       const amount = `${(bytes / 1024 ** 2).toFixed(1)} MiB${total === null ? '' : ` / ${(total / 1024 ** 2).toFixed(1)} MiB`}`;
+      if (stage.stageId === 'preview-source-video') return { ...standard,
+        showMessage: true,
+        percent: standard.phase === 'downloading' || standard.phase === 'completed' ? standard.percent : null,
+        indeterminate: standard.phase !== 'completed' && (standard.phase !== 'downloading' || standard.percent === null),
+        message: standard.phase === 'downloading'
+          ? localize(`正在下载原视频：${amount}`, `Downloading the source video: ${amount}`, `Laddar ned originalvideon: ${amount}`)
+          : localize('正在准备原视频预览', 'Preparing the source video preview', 'Förbereder originalvideons förhandsvisning') };
       return { ...standard,
         showMessage: true,
         percent: standard.phase === 'downloading' || standard.phase === 'completed' ? standard.percent : null,
@@ -483,6 +494,8 @@ export const stickmanVideoPanelAdapter: CreatorPanelAdapter = {
       measuring: l('测量真实音频时长', 'Measuring real audio timing'),
       validating_media: l('检查视频轨、音频轨与抽帧', 'Checking video, audio, and sampled frames'),
       rendering: l('渲染视频', 'Rendering video'),
+      preparing_dependencies: l('准备 Remotion 渲染组件', 'Preparing Remotion rendering components'),
+      dependencies_ready: l('渲染组件已就绪', 'Rendering components are ready'),
       packaging: l('整理成片与字幕', 'Packaging video and subtitles'),
       failed: l('阶段执行失败', 'Stage failed'),
       completed: l('阶段已完成', 'Stage completed')
@@ -542,6 +555,9 @@ export const stickmanVideoPanelAdapter: CreatorPanelAdapter = {
     return representative === undefined ? [] : [representative];
   },
   runningProgressText(stage, progress, l) {
+    if (stage.stageId === 'render-clean' && (progress.phase === 'preparing_dependencies' || progress.phase === 'dependencies_ready')) {
+      return stickmanVideoPanelAdapter.phaseLabel(progress.phase, l);
+    }
     if (stage.stageId === 'script' && progress.phase !== null) {
       return stickmanVideoPanelAdapter.phaseLabel(progress.phase, l);
     }
@@ -854,18 +870,38 @@ export const videoGenerationPanelAdapter: CreatorPanelAdapter = {
       videoGenerationFieldLabel
     );
   },
-  readStageProgress(stage) {
+  readStageProgress(stage, localize) {
     const progress = readStandardProgress(stage);
-    if (
-      progress.percent === null
-      && (progress.phase === 'queued' || progress.phase === 'generating')
-    ) {
-      return {
-        ...progress,
-        indeterminate: stage.status === 'running'
-      };
+    const active = stage.status === 'queued' || stage.status === 'running';
+    const retry = readFiniteNumber(stage.progress.refreshRetry);
+    let message: string | null = null;
+    if (active && progress.phase === 'generating' && retry !== null && retry > 0
+      && progress.message === 'The provider status connection was interrupted and will be retried') {
+      message = localize(
+        `视频服务状态查询暂时失败，正在自动重试（第 ${retry} 次）。不会重复提交生成任务。`,
+        `The provider status check failed temporarily. Retrying automatically (attempt ${retry}) without submitting another generation task.`,
+        `Kontrollen av leverantörens status misslyckades tillfälligt. Försöker automatiskt igen (försök ${retry}) utan att skicka en ny genereringsuppgift.`
+      );
+    } else if (active && progress.phase === 'queued') {
+      message = localize(
+        '任务正在服务商队列中，服务商未提供排队位置或精确进度。',
+        'The task is queued with the provider. Queue position and exact progress are not available.',
+        'Uppgiften ligger i kö hos leverantören. Köposition och exakt förlopp är inte tillgängliga.'
+      );
+    } else if (active && progress.phase === 'generating' && progress.percent === null) {
+      message = localize(
+        '服务商未提供精确进度；后台正在持续查询生成状态，完成后会自动下载视频。',
+        'The provider does not report exact progress. Status checks continue in the background, and the video will download automatically when ready.',
+        'Leverantören rapporterar inte exakt förlopp. Statuskontroller fortsätter i bakgrunden och videon laddas ner automatiskt när den är klar.'
+      );
     }
-    return progress;
+    return {
+      ...progress,
+      indeterminate: active && progress.percent === null,
+      showTiming: active,
+      showMessage: message !== null,
+      message: message ?? progress.message
+    };
   },
   runningProgressText(_stage, progress, l) {
     return progress.phase === null

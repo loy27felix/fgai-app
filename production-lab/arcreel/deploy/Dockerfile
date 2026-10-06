@@ -15,6 +15,8 @@ RUN FG_DIRECTOR_BASE_PATH=/fg-director/ pnpm build
 FROM fg-six-arcreel:upstream-9aaf4413
 USER root
 RUN groupadd -g 1000 fg && useradd -u 1000 -g 1000 -m fg && mkdir -p /state /workspace && chown fg:fg /state /workspace
+COPY upstream/ /app/
+RUN uv sync --locked --no-dev --no-install-project
 COPY deploy/entry.py /app/fg-entry.py
 COPY deploy/company_cost.py /app/company_cost.py
 COPY deploy/company_request.py /app/company_request.py

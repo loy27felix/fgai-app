@@ -12,6 +12,7 @@ export const speechModels = [
  {id:'seed-tts-2.0',billingId:'seed-tts-2.0',name:'豆包语音合成 2.0 · 火山引擎',capability:'audio',profile:{version:1},voices:speechVoices},
 ];
 export const speechUtilities = [
+ {id:'volc.seedasr.sauc.duration',name:'豆包流式语音识别 2.0',capability:'streaming'},
  {id:'volc.seedasr.auc',name:'豆包录音文件识别 2.0',capability:'transcription'},
  {id:'volc.speech.mt',name:'豆包机器翻译',capability:'translation'},
 ];

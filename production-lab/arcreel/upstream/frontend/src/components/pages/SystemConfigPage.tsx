@@ -34,7 +34,6 @@ import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSecti
 import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
 import { GeneralSection } from "./settings/GeneralSection";
-import { FGManagedMarketSection } from "./settings/FGManagedMarketSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
 import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
 
@@ -59,7 +58,7 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
   about: { labelKey: "dashboard:about", icon: Info, tier: "constrained" },
 };
 
-/** 侧栏分组与顺序。市场与使用记录各自单独成项，不设分组标题。 */
+/** 侧栏分组与顺序。使用记录单独成项，不设分组标题。 */
 const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection[] }[] = [
   { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints"] },
   {
@@ -67,7 +66,7 @@ const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection
     labelKey: "dashboard:settings_group_agent",
     sections: ["arcreel-agent", "agent-memory", "external-agent", "access-tokens"],
   },
-  { id: "standalone", sections: ["market", "usage"] },
+  { id: "standalone", sections: ["usage"] },
   { id: "system", labelKey: "dashboard:settings_group_system", sections: ["general", "prompt-templates"] },
 ];
 
@@ -79,7 +78,7 @@ const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
 
 function parseSection(search: string): SettingsSection {
   const value = new URLSearchParams(search).get("section");
-  if (value === "about") return "general";
+  if (value === "about" || value === "market") return "general";
   return SETTINGS_SECTIONS.find((section) => section === value) ?? "providers";
 }
 
@@ -158,7 +157,7 @@ function SectionContent({ section }: { section: SettingsSection }) {
     case "access-tokens":
       return <AccessTokensSection />;
     case "market":
-      return <FGManagedMarketSection />;
+      return <GeneralSection />;
     case "usage":
       return <UsageRecordsSection />;
     case "general":
