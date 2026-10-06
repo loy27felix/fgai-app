@@ -55,6 +55,7 @@ body.app-product-overlays {
 }
 .app-user-workspace.fg-glass-workspace { background: linear-gradient(115deg, rgba(233, 241, 250, .73), rgba(235, 242, 249, .2)), url('/fg-visual/glass-atmosphere.png') center / cover; }
 .dark .app-user-workspace.fg-glass-workspace { background: linear-gradient(115deg, rgba(7, 19, 34, .94), rgba(9, 29, 47, .84)), url('/fg-visual/glass-atmosphere.png') center / cover; }
+.app-user-workspace.fg-glass-workspace :is(.app-workspace-shell, .app-workspace-sidebar-nav) { background: transparent !important; }
 .fg-glass-workspace .app-workspace-main-row { padding: 14px; gap: 14px; }
 .app-user-workspace.fg-glass-workspace .app-workspace-stage { border: 1px solid var(--fg-glass-line); border-radius: 26px; background: rgba(255, 255, 255, .16) !important; box-shadow: var(--fg-glass-shadow); }
 .dark .app-user-workspace.fg-glass-workspace .app-workspace-stage { background: rgba(8, 26, 43, .18) !important; }
