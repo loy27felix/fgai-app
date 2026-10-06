@@ -25,7 +25,7 @@ Cookie 属于账号登录凭据，不进入 GitHub、聊天、截图、浏览器
 
 当前适配器先检查验证码。如果公司账号要求验证码，返回 `SUNO_CAPTCHA_REQUIRED` 并停止提交。管理员可在 Suno 网页检查账号状态；网页通过验证并不保证程序请求获准，需要重新做只读检查。是否能无人值守生成，必须用公司账号实测。不会自动购买验证码、不调用旧脚本，也不会在不确定是否提交成功时再次生成。
 
-**当前不需要配置或购买 2Captcha Key。** `TWOCAPTCHA_KEY` 仅为保留配置，当前代码不使用。2Captcha 账号可注册取得 Key，调用解题需要另行充值；这与 Suno 订阅、歌曲额度是两笔费用。2026-10-06 官网报价：Cloudflare Turnstile 为每 1,000 次成功解答 1.45 美元；reCAPTCHA V2 为 1–2.99 美元。Suno 当前是否使用对应挑战、自动解题是否兼容仍未验证，不能按每首歌固定费用计算。来源：[2Captcha 价格](https://2captcha.com/zh/pricing)。
+**当前不需要配置或购买 2Captcha Key。** `TWOCAPTCHA_KEY` 仅为保留配置，当前代码不使用。[注册 2Captcha](https://2captcha.com/auth/register) 后可在账号面板取得 Key，调用解题需要另行充值；这与 Suno 订阅、歌曲额度是两笔费用。2026-10-06 官网当前页面以英镑显示：Cloudflare Turnstile 为每 1,000 次成功解答 £1.20；reCAPTCHA V2 为 £0.80–£2.45。付款时以账号的币种与实时价格为准。Suno 当前是否使用对应挑战、自动解题是否兼容仍未验证，不能按每首歌固定费用计算。来源：[2Captcha 价格](https://2captcha.com/zh/pricing)。
 
 ## 平台范围与提交记录
 
