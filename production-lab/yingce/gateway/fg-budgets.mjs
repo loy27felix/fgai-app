@@ -2,6 +2,10 @@ import {randomUUID,timingSafeEqual} from 'node:crypto';
 import {priceQuote} from './fg-quotes.mjs';
 import {estimateCNY} from './fg-prices.mjs';
 const microCny=value=>Math.ceil(Number(value)*1e6-1e-8);
+const volcSpeechModels=new Set(['seed-audio-1.0','seed-tts-2.0','volc.seedasr.auc','volc.speech.mt']);
+// The company temporarily exempts these server-configured speech services from
+// spending caps. Never accept a provider or exemption flag from a client.
+const capExemptSpeech=(model,snapshot)=>volcSpeechModels.has(model)&&snapshot?.enabled===true&&snapshot.provider==='volcengine';
 
 export function admissionPrice(model,capability,payload,price,fx){
  if(!price?.enabled)return null;
@@ -27,7 +31,7 @@ export function admissionPrice(model,capability,payload,price,fx){
  if(result.estimateKind==='partial'||result.estimateKind==='lower_bound')return null;
  return result.estimatedCny;
 }
-export async function spendUsage(pool,{userId,projectId,since,until}={}){
+export async function spendUsage(pool,{userId,projectId,since,until,excludeVolcSpeech=false}={}){
  const prices=new Map((await pool.query('SELECT model,snapshot FROM fg_model_prices')).rows.map(r=>[r.model,r.snapshot]));
  const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
  const calls=(await pool.query(`SELECT c.*,t.status task_status,COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id) project_id, COALESCE(f.cny,0) actual_cny,f.matches
@@ -40,13 +44,14 @@ export async function spendUsage(pool,{userId,projectId,since,until}={}){
  const byId=new Map(reservations.map(r=>[r.id,r]));
  const confirmedFree=new Set((await pool.query('SELECT call_id FROM fg_request_decisions')).rows.map(r=>r.call_id));
  for(const c of calls){
+  if(excludeVolcSpeech&&capExemptSpeech(c.model,prices.get(c.model)))continue;
   if(Number(c.matches)>0){actual+=Number(c.actual_cny);continue;}
   if(c.error_code==='request_not_sent'||confirmedFree.has(c.id))continue;
   const reserved=byId.get(c.fg_budget_reservation_id)?.reserved_cny;
   const amount=reserved===null||reserved===undefined?estimateCNY(c,prices.get(c.model),fx):Number(reserved);
    if(amount!==null&&Number.isFinite(amount))pending+=amount;else unknown++;
  }
- for(const r of reservations)if(!r.call_id){if(r.reserved_cny!==null)pending+=Number(r.reserved_cny);else unknown++;}
+ for(const r of reservations)if(!r.call_id){if(excludeVolcSpeech&&capExemptSpeech(r.model,prices.get(r.model)))continue;if(r.reserved_cny!==null)pending+=Number(r.reserved_cny);else unknown++;}
  return {actual,pending,unknown,used:actual+pending};
 }
 export function monthStart(){const now=new Date();const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).formatToParts(now);return `${parts.find(p=>p.type==='year').value}-${parts.find(p=>p.type==='month').value}-01T00:00:00+08:00`;}
@@ -75,9 +80,11 @@ export async function reserveBudget(pool,input){
   const fx=Number((await client.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
   const quoted=admissionPrice(input.model,input.capability,input.payload||{},snapshot,fx);
   const amount=quoted===null?null:microCny(quoted)/1e6;
-  if((limit>0||budget>0)&&(!(amount>=0)||amount===null))throw Error('本模型规格暂不能确定费用上限，限额项目中暂停提交，请联系超级管理员');
-  if(limit>0){const usage=await spendUsage(client,{userId:input.userId,since:monthStart()});if(usage.unknown||microCny(usage.used)+microCny(amount)>Math.round(limit*1e6))throw Error('本月费用额度不足或有金额待确认，请联系超级管理员调整限额');}
-  if(budget>0){const usage=await spendUsage(client,{projectId});if(usage.unknown||microCny(usage.used)+microCny(amount)>Math.round(budget*1e6))throw Error('项目制作预算不足或有金额待确认，请联系超级管理员调整预算');}
+  if(!capExemptSpeech(input.model,snapshot)){
+   if((limit>0||budget>0)&&(!(amount>=0)||amount===null))throw Error('本模型规格暂不能确定费用上限，限额项目中暂停提交，请联系超级管理员');
+   if(limit>0){const usage=await spendUsage(client,{userId:input.userId,since:monthStart(),excludeVolcSpeech:true});if(usage.unknown||microCny(usage.used)+microCny(amount)>Math.round(limit*1e6))throw Error('本月费用额度不足或有金额待确认，请联系超级管理员调整限额');}
+   if(budget>0){const usage=await spendUsage(client,{projectId,excludeVolcSpeech:true});if(usage.unknown||microCny(usage.used)+microCny(amount)>Math.round(budget*1e6))throw Error('项目制作预算不足或有金额待确认，请联系超级管理员调整预算');}
+  }
   const id=randomUUID();await client.query('INSERT INTO fg_budget_reservations(id,user_id,project_id,task_id,model,reserved_cny) VALUES($1,$2,$3,$4,$5,$6)',[id,input.userId,projectId,input.taskId||null,input.model,amount]);
   await client.query('COMMIT');return {id,reservedCny:amount};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}

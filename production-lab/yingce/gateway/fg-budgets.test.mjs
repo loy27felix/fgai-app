@@ -26,10 +26,10 @@ test('an incomplete multimodal quote cannot authorize a capped request',()=>{
  assert.match(monthStart(),/^\d{4}-\d{2}-01T00:00:00\+08:00$/);
 });
 
-function speechBudgetPool({access=true,monthly=0,project=0}={}){
+function speechBudgetPool({access=true,monthly=0,project=0,snapshot={enabled:true,provider:'volcengine',pricing_rules:{}}}={}){
  const queries=[];
  const client={release(){},async query(sql,params){queries.push({sql,params});
-  const rows=sql.includes("status='active'")?[{id:'member'}]:sql.includes('w.native_project_id')?(access?[{id:'ad-project'}]:[]):sql.includes('SELECT monthly_cny')?[{monthly_cny:monthly}]:sql.includes('SELECT budget_cny')?[{budget_cny:project}]:sql.includes('SELECT snapshot')?[{snapshot:{enabled:true,provider:'volcengine',pricing_rules:{}}}]:sql.includes("key='usdCnyRate'")?[{value:6.77}]:[];
+  const rows=sql.includes("status='active'")?[{id:'member'}]:sql.includes('w.native_project_id')?(access?[{id:'ad-project'}]:[]):sql.includes('SELECT monthly_cny')?[{monthly_cny:monthly}]:sql.includes('SELECT budget_cny')?[{budget_cny:project}]:sql.includes('SELECT snapshot')?[{snapshot}]:sql.includes("key='usdCnyRate'")?[{value:6.77}]:[];
   return {rows};
  }};return {queries,connect:async()=>client};
 }
@@ -38,14 +38,45 @@ test('audio utilities reject inaccessible advertising contexts before reserving 
  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'foreign',model:'volc.seedasr.auc',capability:'transcription'}),/无权/);
  assert.ok(pool.queries.some(q=>q.sql==='ROLLBACK'));assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
 });
-test('unverified speech rates fail closed for either monthly or advertising limits',async()=>{
- for(const constraints of [{monthly:10},{project:10}])for(const [model,capability] of [['volc.speech.mt','translation'],['seed-tts-2.0','audio'],['seed-audio-1.0','audio']]){
+test('all four registered company speech services retain unknown costs without cap rejection',async()=>{
+ for(const constraints of [{monthly:10},{project:10},{monthly:10,project:10},{}])for(const [model,capability] of [['volc.speech.mt','translation'],['volc.seedasr.auc','transcription'],['seed-tts-2.0','audio'],['seed-audio-1.0','audio']]){
   const pool=speechBudgetPool(constraints);
-  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model,capability}),/费用上限/);
+  const result=await reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model,capability});
+  assert.equal(result.reservedCny,null);assert.equal(pool.queries.find(q=>q.sql.includes('INSERT INTO')).params[2],'ad-project');
+  assert.ok(pool.queries.some(q=>q.sql==='COMMIT'));
+ }
+});
+
+test('speech exemption cannot be forged by client flags or unregistered model metadata',async()=>{
+ for(const constraint of [{monthly:10},{project:10}])for(const [model,snapshot] of [
+  ['ordinary-text',{enabled:true,provider:'volcengine',pricing_rules:{}}],
+  ['seed-tts-2.0',{enabled:true,provider:'wetoken',pricing_rules:{}}],
+  ['seed-tts-2.0',{enabled:false,provider:'volcengine',pricing_rules:{}}],
+  ['volc.speech.mt',null],
+ ]){
+  const pool=speechBudgetPool({...constraint,snapshot});
+  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model,capability:'audio',provider:'volcengine',capExempt:true}),/费用上限/);
   assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
  }
- for(const [model,capability] of [['volc.speech.mt','translation'],['seed-tts-2.0','audio'],['seed-audio-1.0','audio']]){
- const pool=speechBudgetPool();const result=await reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model,capability});
- assert.equal(result.reservedCny,null);assert.equal(pool.queries.find(q=>q.sql.includes('INSERT INTO')).params[2],'ad-project');
+});
+
+test('reporting retains speech charges while cap checks exclude only registered speech usage',async()=>{
+ const speech={enabled:true,provider:'volcengine',pricing_rules:{}};
+ const calls=[{id:'speech-paid',model:'seed-tts-2.0',matches:1,actual_cny:'12'},
+  {id:'speech-unknown',model:'seed-audio-1.0',matches:0},
+  {id:'other-unknown',model:'ordinary-text',matches:0}];
+ const reservations=[{id:'speech-reserve',model:'volc.speech.mt',call_id:null,reserved_cny:null},
+  {id:'ordinary-reserve',model:'ordinary-text',call_id:null,reserved_cny:'2'}];
+ const pool={query:async(sql)=>({rows:sql.includes('SELECT model,snapshot')?['seed-tts-2.0','seed-audio-1.0','volc.speech.mt'].map(model=>({model,snapshot:speech})):sql.includes("key='usdCnyRate'")?[{value:6.77}]:sql.includes('FROM api_call_logs c')?calls:sql.includes('SELECT r.*')?reservations:[]})};
+ assert.deepEqual(await spendUsage(pool),{actual:12,pending:2,unknown:3,used:14});
+ assert.deepEqual(await spendUsage(pool,{excludeVolcSpeech:true}),{actual:0,pending:2,unknown:1,used:2});
+});
+
+test('verified non-speech models still enforce monthly and project spending caps',async()=>{
+ const snapshot={enabled:true,provider:'wetoken',discount:1,pricing_rules:{input_price:1000,output_price:1000}};
+ for(const constraint of [{monthly:.01},{project:.01}]){
+  const pool=speechBudgetPool({...constraint,snapshot});
+  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model:'ordinary-text',capability:'text',payload:{messages:[],max_tokens:1000}}),/不足/);
+  assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
  }
 });

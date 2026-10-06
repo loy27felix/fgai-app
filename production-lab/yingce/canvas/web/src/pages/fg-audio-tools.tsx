@@ -33,7 +33,7 @@ export default function FGAudioToolsPage(){
  return <main className="mx-auto w-full max-w-5xl space-y-5 overflow-y-auto p-6">
   <Typography.Title level={3}>公司音频工具</Typography.Title>
   <Typography.Paragraph>画布、广告、创作台和导演台共用公司渠道。音频生成结果保存到 NAS 和制作历史；录音识别记录保存到服务器，可导出字幕。</Typography.Paragraph>
-  <Alert type="info" title="费用待核验" description="音频费用按火山账单确认。费率未核验前，有月额度或项目预算上限的生成会被拦截。Suno 自动接口尚未启用，可先使用 Seed Audio 生成音乐和音效。"/>
+  <Alert type="info" title="费用待核验" description="火山音频、配音、语音识别和翻译暂不受月额度及项目预算上限拦截，费用与用量保留，等待火山账单核验。Suno 自动接口尚未启用，可先使用 Seed Audio 生成音乐和音效。"/>
   <Tabs activeKey={tab} onChange={setTab} items={[{key:"speech",label:"角色配音 · TTS 2.0"},{key:"music",label:"音乐、对白与音效 · Seed Audio"},{key:"transcription",label:"录音识别与字幕"},{key:"translation",label:"文本翻译"}]}/>
   <Card>
    {tab==="transcription"?<Space direction="vertical"><Typography.Text>上传录音后异步识别，不需要一直停留在本页。再次打开可以查看原任务。</Typography.Text><Upload accept="audio/*" showUploadList={false} beforeUpload={file=>transcribe(file)} disabled={busy}><Button loading={busy}>上传录音并识别</Button></Upload></Space>:<Space direction="vertical" style={{width:"100%"}}>
