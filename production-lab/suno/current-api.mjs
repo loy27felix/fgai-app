@@ -6,13 +6,15 @@ const origin='https://studio-api-prod.suno.com',authOrigin='https://auth.suno.co
 const clerkQuery='?__clerk_api_version=2025-11-10&_clerk_js_version=5.117.0';
 export function selectSunoModel(billing,preferred='auto'){
  const available=(Array.isArray(billing.models)?billing.models:[]).filter(m=>m.can_use===true&&typeof m.external_key==='string');
- const model=preferred&&preferred!=='auto'?available.find(m=>m.external_key===preferred):available.find(m=>m.is_default_model)||available[0];
+ const model=preferred&&preferred!=='auto'?available.find(m=>m.external_key===preferred||m.name===preferred):available.find(m=>m.is_default_model)||available[0];
  if(!model)throw Error('SUNO_MODEL_UNAVAILABLE');return model;
 }
 export function currentMusicPayload(input,model,operationId){
- const limit=Number(model.max_lengths?.gpt_description_prompt||3000);if(input.prompt.length>limit)throw Error('SUNO_PROMPT_TOO_LONG');
- return {token:null,generation_type:'TEXT',title:'',tags:'',negative_tags:'',mv:model.external_key,prompt:input.prompt,make_instrumental:input.instrumental,
-  user_uploaded_images_b64:null,metadata:{web_client_pathname:'/create',is_max_mode:false,is_mumble:false,create_mode:'inspiration',user_tier:'',create_session_token:randomUUID(),disable_volume_normalization:false},
+ const custom=input.mode==='custom',prompt=custom?input.lyrics:input.prompt;
+ const limits=model.max_lengths||{};
+ for(const [value,limit] of [[prompt,custom?limits.prompt||5000:limits.gpt_description_prompt||3000],[input.styles||'',limits.tags||1000],[input.title||'',limits.title||100],[input.negativeStyles||'',limits.negative_tags||1000]])if(value.length>Number(limit))throw Error('SUNO_PROMPT_TOO_LONG');
+ return {token:null,generation_type:'TEXT',title:input.title||'',tags:input.styles||'',negative_tags:input.negativeStyles||'',mv:model.external_key,prompt,make_instrumental:input.instrumental,
+  user_uploaded_images_b64:null,metadata:{web_client_pathname:'/create',is_max_mode:false,is_mumble:false,create_mode:custom?'custom':'inspiration',user_tier:'',create_session_token:randomUUID(),disable_volume_normalization:false},
   override_fields:[],cover_clip_id:null,cover_start_s:null,cover_end_s:null,persona_id:null,artist_clip_id:null,artist_start_s:null,artist_end_s:null,continue_clip_id:null,continued_aligned_prompt:null,continue_at:null,transaction_uuid:operationId};
 }
 export class CurrentSunoAPI{
@@ -28,7 +30,9 @@ export class CurrentSunoAPI{
   const headers={authorization:client,cookie:'__client='+client,origin:'https://suno.com',referer:'https://suno.com/'};
   const info=await this.requestURL(authOrigin+'/v1/client'+clerkQuery,{headers});
   const session=info.response?.last_active_session_id||info.response?.sessions?.find(s=>s.status==='active')?.id;
-  if(!/^sess_[a-zA-Z0-9]+$/.test(session||''))throw Error('SUNO_AUTH_OR_PERMISSION_FAILED');
+  // Suno's current auth response uses session_; older accounts used sess_.
+  // Both remain bounded path segments, so upstream data cannot alter this URL.
+  if(!/^(?:sess|session)_[a-zA-Z0-9]{1,128}$/.test(session||''))throw Error('SUNO_AUTH_OR_PERMISSION_FAILED');
   const token=await this.requestURL(authOrigin+'/v1/client/sessions/'+session+'/tokens'+clerkQuery,{method:'POST',headers});
   if(typeof token.jwt!=='string'||!token.jwt.includes('.'))throw Error('SUNO_AUTH_OR_PERMISSION_FAILED');
   this.jwt=token.jwt;this.expires=Date.now()+25000;return this.jwt;
@@ -38,10 +42,11 @@ export class CurrentSunoAPI{
   return this.requestURL(origin+path,{...options,headers:{authorization:'Bearer '+await this.token(),'device-id':device,'browser-token':JSON.stringify({token:Buffer.from(JSON.stringify({timestamp:Date.now()})).toString('base64')}),origin:'https://suno.com',referer:'https://suno.com/'}});
  }
  async account(){const b=await this.request('/api/billing/info/');if(!Array.isArray(b.models)||!Number.isFinite(Number(b.total_credits_left)))throw Error('SUNO_PROTOCOL_CHANGED');return b;}
+ async captchaRequired(){const c=await this.request('/api/c/check',{method:'POST',body:{ctype:'generation'}});if(typeof c.required!=='boolean')throw Error('SUNO_PROTOCOL_CHANGED');return c.required;}
  async preflight(input,preferred,operationId){
-  const b=await this.account(),model=selectSunoModel(b,preferred);if(Number(b.total_credits_left)<=0)throw Error('SUNO_CREDITS_EXHAUSTED');
-  const payload=currentMusicPayload(input,model,operationId),captcha=await this.request('/api/c/check',{method:'POST',body:{ctype:'generation'}});
-  if(captcha.required)throw Error('SUNO_CAPTCHA_REQUIRED');
+  const b=await this.account(),model=selectSunoModel(b,input.sunoModel||preferred);if(Number(b.total_credits_left)<=0)throw Error('SUNO_CREDITS_EXHAUSTED');
+  const payload=currentMusicPayload(input,model,operationId);
+  if(await this.captchaRequired())throw Error('SUNO_CAPTCHA_REQUIRED');
   return {payload,model};
  }
  async generate(payload){

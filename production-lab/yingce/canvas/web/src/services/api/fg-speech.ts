@@ -1,11 +1,15 @@
 import {ApiError,http} from "@/services/api/request";
 export type SpeechJob={id:string;kind:"transcription"|"translation"|"streaming";status:string;error?:string;result?:{text:string;segments?:{start:number;end:number;text:string}[]};createdAt:string};
 export const speechJobs=()=>http.get<{jobs:SpeechJob[]}>("/fg/speech/jobs");
-export const companyMusicStatus=()=>http.get<{available:boolean;configured:boolean;enabled:boolean}>("/fg/music/status");
+export type CompanyMusicStatus={available:boolean;configured:boolean;enabled:boolean;accountReadable?:boolean;captchaRequired?:boolean;models?:{id:string;name:string}[]};
+export const companyMusicStatus=()=>http.get<CompanyMusicStatus>("/fg/music/status");
 export const createSpeechJob=(input:Record<string,unknown>)=>http.post<SpeechJob>("/fg/speech/jobs",input);
 export async function generateCompanySpeech(input:Record<string,unknown>,operationId:string){
  try{
- const response=await http.raw<Blob>({method:"POST",url:"/fg/speech/generate",data:input,responseType:"blob",timeout:330000,headers:{"x-fg-operation-id":operationId}});
+ // Preserve structured Suno fields through the native audio task's existing
+ // instructions field. Plain TTS instructions keep their original meaning.
+ const data=input.model==="suno-company-music"&&input.suno?{...input,instructions:JSON.stringify({fgSuno:input.suno})}:input;
+ const response=await http.raw<Blob>({method:"POST",url:"/fg/speech/generate",data,responseType:"blob",timeout:330000,headers:{"x-fg-operation-id":operationId}});
  if(!response.data.type.startsWith("audio/"))throw Error("音频结果尚未就绪，请查看制作历史");
  return response.data;
  }catch(error){

@@ -6,6 +6,16 @@ test('music input accepts a deliberate song/score request and no external provid
  assert.equal(musicInput({model:'suno-company-music',input:'歌词',voice:'song'}).instrumental,false);
  assert.throws(()=>musicInput({model:'foreign',input:'a'}));assert.throws(()=>musicInput({model:'suno-company-music',input:'a',response_format:'wav'}));
 });
+test('custom music survives the native audio instructions field without mixing style text into lyrics',()=>{
+ const options={mode:'custom',model:'v6-wild',lyrics:'[Verse]\n一束光',styles:'folk, 90 BPM',title:'光'};
+ const input={model:'suno-company-music',input:'folk, 90 BPM',voice:'song'};
+ const parsed=musicInput({...input,instructions:JSON.stringify({fgSuno:options})});
+ assert.equal(parsed.lyrics,options.lyrics);assert.equal(parsed.styles,options.styles);assert.equal(parsed.sunoModel,'v6-wild');assert.equal(parsed.instrumental,false);
+ assert.deepEqual(parsed,musicInput({...input,suno:options}));
+ for(const broken of [{...options,lyrics:''},{...options,styles:''},{...options,lyrics:'a'.repeat(5001)},{...options,styles:['folk']},{...options,model:'https://foreign'}])assert.throws(()=>musicInput({...input,suno:broken}),/SUNO_INVALID_INPUT/);
+ assert.throws(()=>musicInput({...input,instructions:'{"fgSuno":broken'}),/SUNO_INVALID_INPUT/);
+ assert.equal(musicInput({...input,voice:'instrumental',suno:{...options,lyrics:''}}).instrumental,true);
+});
 test('result URLs never fetch credentials, private hosts or arbitrary redirects',()=>{
  assert.equal(audioURL('https://cdn1.suno.ai/song.mp3'),'https://cdn1.suno.ai/song.mp3');
  for(const url of ['http://cdn1.suno.ai/a.mp3','https://127.0.0.1/a.mp3','https://cdn1.suno.ai.evil.com/a.mp3','https://user:pass@cdn1.suno.ai/a.mp3'])assert.throws(()=>audioURL(url));

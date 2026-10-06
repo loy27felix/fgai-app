@@ -14,12 +14,22 @@ FG 的当前适配器位于 `current-api.mjs`，直接使用公司订阅账号�
    ```sh
    cd /Users/server/work/fg-six-yingce
    /usr/local/bin/docker compose --env-file .env -p fg-six-suno -f suno-compose.yml up -d --force-recreate suno
-   /usr/local/bin/docker exec fg-six-yingce-gateway-1 node configure-suno.mjs
+   /usr/local/bin/docker exec fg-six-yingce-gateway-1 node validate-suno.mjs
    ```
 
 5. 验证成功后将 `SUNO_ENABLED=true` 并重建 Suno、再次执行配置命令。制作一项短测试音乐，核对可播放 MP3、NAS 归档和 Suno 作品 ID，才算真实生成验收。
 
 Cookie 属于账号登录凭据，不进入 GitHub、聊天、截图、浏览器响应或公开日志；失效后替换私密文件并重建 Suno 服务。成员无需个人 Suno 或 Codex 账号。
+
+## 2026-10-07 公司账号验证
+
+服务器使用公司提供的 `__client` 成功完成登录刷新和账号读取，确认有可用生成积分。当前账号返回 v6（`chirp-hawk`，默认）、v6-wild（`chirp-hawk-wild`）、v6-mini（`chirp-goose`）。登录响应使用 `session_` 会话 ID，适配器已兼容该格式及旧的 `sess_` 格式，并保持路径字符校验。
+
+生成前检查返回 `required=true`、验证码版本 2。此次未调用生成接口、没有扣积分，生成及 NAS 音频归档仍未验收。账号凭据已配置，`SUNO_ENABLED=false`，等待验证码流程和真实生成验证；只读登录成功不等于无人值守制作可用。该记录是当时的验证结果，后续以重新运行 `validate-suno.mjs` 为准。
+
+音乐表单包含纯音乐/歌曲、自填歌词/描述创作、模型、标题、Styles 和 Lyrics。自填模式使用独立的歌词 `prompt`、风格 `tags` 和标题 `title`，描述模式使用 `create_mode=inspiration`。字段上限和模型权限在提交前按账号目录再次检查。
+
+内部 `POST /v1/audio/speech` 可以在标准输入之外提供 `suno: {mode, model, title, styles, lyrics, negativeStyles}`。平台请求通过原生音频任务的已有 `instructions` 字段传递 `{"fgSuno": {...}}`；这不会改变火山 TTS 指令。自填带人声歌曲要求填写歌词和风格，纯音乐不要求歌词。请求支持账号返回的模型 ID 或名称，不硬编码未开放的模型。
 
 ## 验证码与费用
 

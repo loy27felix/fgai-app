@@ -6,7 +6,7 @@ import {CurrentSunoAPI,selectSunoModel} from './current-api.mjs';
 try{for(const line of (await readFile('/run/fg-suno/account.env','utf8')).split(/\r?\n/)){if(!line||line.startsWith('#'))continue;const at=line.indexOf('=');const key=line.slice(0,at);if(['SUNO_COOKIE','TWOCAPTCHA_KEY','SUNO_MODEL','SUNO_ENABLED'].includes(key))process.env[key]=line.slice(at+1);}}catch{}
 const configured=()=>!!process.env.SUNO_COOKIE?.includes('__client=');
 const enabled=()=>configured()&&process.env.SUNO_ENABLED==='true';
-const state='/state';let apiPromise:Promise<any>|undefined;let active=false;
+const state='/state';let apiPromise:Promise<any>|undefined;let active=false;let verification:any;
 async function api(){return apiPromise??=Promise.resolve(new CurrentSunoAPI({cookie:process.env.SUNO_COOKIE}));}
 function json(res:any,status:number,data:any){res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));}
 http.createServer(async(req,res)=>{
@@ -14,15 +14,15 @@ http.createServer(async(req,res)=>{
  const supplied=String(req.headers.authorization||'').replace(/^Bearer /,'');const expected=process.env.SUNO_SERVICE_SECRET||'';
  const givenBytes=Buffer.from(supplied),expectedBytes=Buffer.from(expected);
  if(!expected||givenBytes.length!==expectedBytes.length||!timingSafeEqual(givenBytes,expectedBytes)){json(res,403,{error:{code:'SUNO_FORBIDDEN'}});return;}
- if(req.url==='/status'&&req.method==='GET'){json(res,200,{configured:configured(),enabled:enabled(),model:process.env.SUNO_MODEL||'auto',adapter:'fg-current-web-20261006',captchaMode:'company-manual',generationVerified:false});return;}
+ if(req.url==='/status'&&req.method==='GET'){json(res,200,{configured:configured(),enabled:enabled(),model:process.env.SUNO_MODEL||'auto',adapter:'fg-current-web-20261007',captchaMode:'company-manual',generationVerified:false,...verification});return;}
  const operation=/^\/operations\/([0-9a-f-]{36})$/.exec(req.url||'');
  if(operation&&req.method==='GET'){
   try{const record=JSON.parse(await readFile(join(state,operation[1]+'.json'),'utf8'));json(res,200,{id:record.id,status:record.status,clipIds:record.clipIds||[],primaryClipId:record.primaryClipId||null});}catch{json(res,404,{error:{code:'SUNO_OPERATION_NOT_FOUND'}});}return;
  }
  if(req.url==='/validate'&&req.method==='POST'){
   if(!configured()){json(res,503,{error:{code:'SUNO_NOT_CONFIGURED'}});return;}
-  try{const account=await api();const billing=await account.account();const model=selectSunoModel(billing,process.env.SUNO_MODEL||'auto');json(res,200,{accountReadable:true,creditsLeft:billing.total_credits_left,model:model.external_key,models:billing.models.filter((m:any)=>m.can_use).map((m:any)=>({id:m.external_key,name:m.name})),generationVerified:false});}
-  catch{json(res,502,{error:{code:'SUNO_AUTH_OR_PROTOCOL_FAILED'}});}return;
+  try{const account=await api();const billing=await account.account();const model=selectSunoModel(billing,process.env.SUNO_MODEL||'auto');const captchaRequired=await account.captchaRequired();verification={accountReadable:true,checkedAt:new Date().toISOString(),captchaRequired,models:billing.models.filter((m:any)=>m.can_use===true).map((m:any)=>({id:m.external_key,name:m.name}))};json(res,200,{...verification,creditsLeft:billing.total_credits_left,model:model.external_key,generationVerified:false});}
+  catch(error){verification={accountReadable:false,models:[]};const code=error instanceof Error&&/^SUNO_[A-Z_]+$/.test(error.message)?error.message:'SUNO_AUTH_OR_PROTOCOL_FAILED';json(res,502,{error:{code}});}return;
  }
  if(req.url!=='/v1/audio/speech'||req.method!=='POST'){json(res,404,{error:{code:'SUNO_ROUTE_NOT_FOUND'}});return;}
  if(!enabled()){json(res,503,{error:{code:'SUNO_NOT_CONFIGURED'}});return;}
