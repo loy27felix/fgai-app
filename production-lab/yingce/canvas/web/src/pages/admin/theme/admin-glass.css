@@ -87,6 +87,7 @@
 [data-admin-root].fg-glass-admin .admin-sidebar-edge-toggle.is-collapsed { left: calc(var(--admin-sidebar-collapsed) + 5px); }
 [data-admin-root].fg-glass-admin .fg-admin-stage { border: 1px solid var(--fg-admin-glass-line); border-radius: 23px; background: rgba(255, 255, 255, .27); box-shadow: 0 14px 48px rgba(31, 64, 110, .07); }
 .dark [data-admin-root].fg-glass-admin .fg-admin-stage { background: rgba(12, 30, 48, .23); }
+[data-admin-root].fg-glass-admin :is(.admin-page-root, .admin-page-frame) { background: transparent !important; }
 [data-admin-root].fg-glass-admin .admin-page-frame { padding: 26px 28px 28px; }
 [data-admin-root].fg-glass-admin .admin-page-header { min-height: 65px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--admin-divider); }
 [data-admin-root].fg-glass-admin .admin-page-title { font-size: 25px; font-weight: 600; letter-spacing: -.04em; line-height: 1.25; }
