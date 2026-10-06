@@ -1,4 +1,10 @@
 FROM fg-six-creator-runtime:v129
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --break-system-packages --no-cache-dir 'yt-dlp[default]==2026.8.19'
+COPY deploy/package-media-runtime.mjs /app/package-media-runtime.mjs
+RUN node /app/package-media-runtime.mjs
+# yt-dlp requires an explicit JavaScript runtime for current YouTube extraction.
+RUN printf '%s\n' '--js-runtimes node' > /etc/yt-dlp.conf
 COPY deploy/entry.mjs /app/fg-entry.mjs
 COPY deploy/trash.mjs /app/fg-trash.mjs
 COPY deploy/company-media.mjs /app/company-media.mjs

@@ -8,7 +8,12 @@ def manifests_for_fg(templates, models):
     result = []
     for row in models:
         capability = row['capability']
-        template = by_capability[capability]
+        # The shared company catalog also contains speech models. AdCraft's
+        # native adapters cover text/image/video; speech uses FG's audio tools.
+        # A newly enabled capability must not prevent existing projects opening.
+        template = by_capability.get(capability)
+        if template is None:
+            continue
         metadata = deepcopy(template.capability_metadata)
         model_ref = 'volcengine_ark:' + row['id']
         profile = row['profile'][capability]

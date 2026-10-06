@@ -16,7 +16,9 @@ COPY upstream/apps/api/alembic ./alembic
 COPY upstream/apps/api/alembic.ini ./alembic.ini
 COPY upstream/apps/api/fg_main.py ./fg_main.py
 COPY upstream/apps/api/tests/test_fg_project_purge.py ./tests/test_fg_project_purge.py
+COPY upstream/apps/api/tests/test_fg_catalog_projection.py ./tests/test_fg_catalog_projection.py
 RUN python -m unittest app.fg_backup_test tests.test_fg_project_purge
+RUN python -c "import runpy; runpy.run_path('tests/test_fg_catalog_projection.py')['test_unhandled_company_capabilities_do_not_break_existing_models']()"
 RUN python -c "import subprocess,pathlib; e=subprocess.check_output(['ffmpeg','-hide_banner','-encoders']).decode(); assert 'libx264' in e and ' aac ' in e; assert pathlib.Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc').is_file()"
 EXPOSE 8000
 CMD ["uvicorn", "fg_main:app", "--host", "0.0.0.0", "--port", "8000"]
