@@ -1,9 +1,10 @@
 // Activate only after the company fills the private account file and the
 // read-only account check succeeds. No generation or CAPTCHA purchase here.
 import pg from 'pg';import {withNativeAdmin} from './native-admin.mjs';
+import {musicServiceSecret} from './fg-music-provider.mjs';
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,max:2});
 try{
- const headers={authorization:'Bearer '+process.env.FG_ADCRAFT_SECRET};
+ const headers={authorization:'Bearer '+musicServiceSecret()};
  const status=await fetch('http://suno:3050/status',{headers}).then(r=>r.json());
  if(!status.configured||!status.enabled)throw Error('Suno 私密账号配置尚未完成或未开启');
  const check=await fetch('http://suno:3050/validate',{method:'POST',headers,signal:AbortSignal.timeout(45000)});

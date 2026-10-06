@@ -10,7 +10,7 @@ async function api(){return apiPromise??=import('./vendor/SunoApi.ts').then(m=>m
 function json(res:any,status:number,data:any){res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));}
 http.createServer(async(req,res)=>{
  if(req.url==='/health/live'){json(res,200,{ok:true});return;}
- const supplied=String(req.headers.authorization||'').replace(/^Bearer /,'');const expected=process.env.FG_ADCRAFT_SECRET||'';
+ const supplied=String(req.headers.authorization||'').replace(/^Bearer /,'');const expected=process.env.SUNO_SERVICE_SECRET||'';
  const givenBytes=Buffer.from(supplied),expectedBytes=Buffer.from(expected);
  if(!expected||givenBytes.length!==expectedBytes.length||!timingSafeEqual(givenBytes,expectedBytes)){json(res,403,{error:{code:'SUNO_FORBIDDEN'}});return;}
  if(req.url==='/status'&&req.method==='GET'){json(res,200,{configured:configured(),enabled:enabled(),model:process.env.SUNO_MODEL||null,upstreamCommit:'a2e6a823428903af715d3835d1cb44ffa336021d'});return;}

@@ -1,8 +1,10 @@
 import {SpeechError,validateSpeechAudio} from './fg-speech-provider.mjs';
+import {createHmac} from 'node:crypto';
 
 export const musicModels=[{id:'suno-company-music',billingId:'suno-company-music',name:'Suno 音乐 · FG',capability:'audio',profile:{version:1}}];
 const endpoint='http://suno:3050';
-const headers=()=>({authorization:'Bearer '+(process.env.FG_ADCRAFT_SECRET||''),'content-type':'application/json'});
+export const musicServiceSecret=()=>createHmac('sha256',process.env.FG_ADCRAFT_SECRET||'').update('fg-company-suno-service-v1').digest('hex');
+const headers=()=>({authorization:'Bearer '+musicServiceSecret(),'content-type':'application/json'});
 export async function musicStatus({fetcher=fetch}={}){
  try{const r=await fetcher(endpoint+'/status',{headers:headers(),signal:AbortSignal.timeout(3000),redirect:'error'});if(!r.ok)throw Error();const b=await r.json();return {available:true,configured:b.configured===true,enabled:b.enabled===true};}
  catch{return {available:false,configured:false,enabled:false};}

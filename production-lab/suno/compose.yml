@@ -3,7 +3,7 @@ services:
     image: ${SUNO_IMAGE:?required}
     restart: unless-stopped
     environment:
-      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      SUNO_SERVICE_SECRET: ${SUNO_SERVICE_SECRET:?required}
     volumes:
       - ./private-data/suno.private.env:/run/fg-suno/account.env:ro
       - suno-state:/state
