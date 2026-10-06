@@ -61,7 +61,7 @@ func (r *Repository) ReserveUploadSession(reservation *model.UploadReservation, 
 		if err := tx.Model(&model.UploadReservation{}).Select("COALESCE(SUM(size),0)").Where("user_id = ?", reservation.UserID).Scan(&pending).Error; err != nil {
 			return err
 		}
-		if reservation.Size <= 0 || stored >= storedLimit || pending >= storedLimit-stored || reservation.Size >= storedLimit-stored-pending {
+		if reservation.Size <= 0 || storedLimit < 0 || (storedLimit > 0 && (stored >= storedLimit || pending >= storedLimit-stored || reservation.Size >= storedLimit-stored-pending)) {
 			return ErrUploadStorageLimit
 		}
 		if err := repo.ReserveDailyUpload(reservation.UserID, reservation.Day, reservation.Size, dailyLimit); err != nil {
@@ -130,7 +130,7 @@ func (r *Repository) SaveResourceWithinStorageLimit(resource *model.Resource, li
 		if err := tx.Model(&model.UploadReservation{}).Select("COALESCE(SUM(size),0)").Where("user_id = ? AND id <> ? AND expires_at > ?", resource.UserID, reservationID, now).Scan(&pending).Error; err != nil {
 			return err
 		}
-		if stored >= limit || pending >= limit-stored {
+		if limit < 0 || (limit > 0 && (stored >= limit || pending >= limit-stored)) {
 			return ErrUploadStorageLimit
 		}
 		if reservationID != "" {

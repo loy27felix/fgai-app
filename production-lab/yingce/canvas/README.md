@@ -165,6 +165,7 @@ curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/script
 - 用户 API Key 不应出现在 URL、日志、错误上报或服务端长期明文存储中；只在可信部署和 HTTPS 链路中使用真实密钥。
 - 后端 `8080` 应留在 Compose 网络内，不要直接暴露到公网；限制 `.env`、数据库、上传目录、备份和 `.settings-key` 的权限。
 - 媒体资源可使用后端数据目录、阿里云 OSS 或腾讯云 COS；删除素材前会检查业务引用。
+- FG 的 `resource.storedFileGB=0` 表示账号文件存储不限额；上传预留和最终提交均遵循该语义。每日上传、并发上传和单文件大小仍按各自配置校验。账号额度与 NAS 实际剩余空间是两项独立检查，3D 工程也通过同一资源上传流程保存。
 
 安全问题请按 [`SECURITY.md`](SECURITY.md) 报告，不要在公开 Issue 中粘贴密钥、Cookie、数据库或生产日志。
 

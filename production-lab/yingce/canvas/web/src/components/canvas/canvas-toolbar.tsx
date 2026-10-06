@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Switch } from "@/components/ui/base/switch";
-import { Palette, Info, Box } from "lucide-react";
+import { Palette, Info, Box, AudioLines } from "lucide-react";
+import { fgWorkspaceBasePath } from "@/lib/fg-entry-url";
 
 import { FloatingDock } from "@/components/ui/aceternity/floating-dock";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
@@ -196,6 +197,7 @@ export function CanvasToolbar({
 
     // 中央空白起点与主工具栏共用同一份命令解析，避免素材类型和插件节点逐渐分叉。
     const createCommands = useCanvasCreateCommands(ctx, runAddAction);
+    createCommands.push({id: "fg-company-audio", label: "音乐、配音与字幕", icon: <AudioLines className="size-4" />, section: "workflow", onClick: () => runAddAction(() => window.open(`${fgWorkspaceBasePath(location.pathname)}/fg-audio-tools?tab=music`, "_blank", "noopener,noreferrer"))});
 
     return (
         <div ref={rootRef} data-canvas-no-zoom className="pointer-events-none absolute inset-x-[var(--canvas-inset-x)] bottom-[var(--canvas-inset-y)] flex justify-center" style={{ zIndex }} onPointerDownCapture={bringToFront} onFocusCapture={bringToFront}>

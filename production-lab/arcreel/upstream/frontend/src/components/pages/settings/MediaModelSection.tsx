@@ -5,6 +5,8 @@ import { Link } from "wouter";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { settingsSectionPath } from "@/app-routes";
+import { fgCompanyLinks } from "@/fg-links";
+import { buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -464,6 +466,9 @@ export function MediaModelSection() {
 
       {/* 旁白配音：模型、音色与语速只是新建 TTS 配音项目的预填值，说明放在通道开头。 */}
       <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_defaults_prefill_hint")}>
+        <a href={fgCompanyLinks(window.location.origin).audio + "?tab=music"} target="_blank" rel="noopener noreferrer" className={buttonVariants({variant: "outline"})}>
+          {t("fg_audio_tools")}
+        </a>
         {audioBackends.length > 0 ? (
           <ProviderModelSelect
             value={currentAudioBackend}

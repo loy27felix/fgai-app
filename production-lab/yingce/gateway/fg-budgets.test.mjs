@@ -69,7 +69,28 @@ test('reporting retains speech charges while cap checks exclude only registered 
   {id:'ordinary-reserve',model:'ordinary-text',call_id:null,reserved_cny:'2'}];
  const pool={query:async(sql)=>({rows:sql.includes('SELECT model,snapshot')?['seed-tts-2.0','seed-audio-1.0','volc.speech.mt'].map(model=>({model,snapshot:speech})):sql.includes("key='usdCnyRate'")?[{value:6.77}]:sql.includes('FROM api_call_logs c')?calls:sql.includes('SELECT r.*')?reservations:[]})};
  assert.deepEqual(await spendUsage(pool),{actual:12,pending:2,unknown:3,used:14});
- assert.deepEqual(await spendUsage(pool,{excludeVolcSpeech:true}),{actual:0,pending:2,unknown:1,used:2});
+ assert.deepEqual(await spendUsage(pool,{excludeCapExemptAudio:true}),{actual:0,pending:2,unknown:1,used:2});
+});
+
+test('company Suno is free to members with caps while retaining project ownership',async()=>{
+ for(const constraints of [{monthly:.01},{project:.01},{monthly:.01,project:.01}]){
+  const pool=speechBudgetPool({...constraints,snapshot:{enabled:true,provider:'suno',pricing_rules:{}}});
+  const result=await reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model:'suno-company-music',capability:'audio'});
+  assert.equal(result.reservedCny,0);
+  assert.equal(pool.queries.find(q=>q.sql.includes('INSERT INTO')).params[2],'ad-project');
+ }
+ const foreign=speechBudgetPool({access:false,snapshot:{enabled:true,provider:'suno'}});
+ await assert.rejects(()=>reserveBudget(foreign,{userId:'member',advertisingWorkspaceId:'foreign',model:'suno-company-music',capability:'audio'}),/无权/);
+ for(const [model,snapshot] of [['ordinary-text',{enabled:true,provider:'suno'}],['suno-company-music',{enabled:true,provider:'wetoken'}],['suno-company-music',{enabled:false,provider:'suno'}]]){
+  const pool=speechBudgetPool({monthly:1,snapshot});
+  await assert.rejects(()=>reserveBudget(pool,{userId:'member',model,capability:'audio',free:true,provider:'suno'}),/费用上限/);
+ }
+});
+
+test('company music usage stays in reports but never consumes admission caps',async()=>{
+ const pool={query:async sql=>({rows:sql.includes('SELECT model,snapshot')?[{model:'suno-company-music',snapshot:{enabled:true,provider:'suno'}}]:sql.includes("key='usdCnyRate'")?[{value:6.77}]:sql.includes('FROM api_call_logs c')?[{id:'music',model:'suno-company-music',matches:0}]:sql.includes('SELECT r.*')?[{id:'music-pending',model:'suno-company-music',call_id:null,reserved_cny:null}]:[]})};
+ assert.equal((await spendUsage(pool)).unknown,2);
+ assert.deepEqual(await spendUsage(pool,{excludeCapExemptAudio:true}),{actual:0,pending:0,unknown:0,used:0});
 });
 
 test('verified non-speech models still enforce monthly and project spending caps',async()=>{

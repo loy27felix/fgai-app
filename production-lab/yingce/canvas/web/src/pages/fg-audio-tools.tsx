@@ -8,8 +8,11 @@ import {FGStreamingSpeech} from "@/components/fg-streaming-speech";
 
 export default function FGAudioToolsPage(){
  const [params]=useSearchParams();const context=params.get("advertising")?{fgAdWorkspaceId:params.get("advertising")}:{};
- const [tab,setTab]=useState("speech"),[text,setText]=useState(""),[voice,setVoice]=useState<string>(fgDefaultSpeechVoice),[busy,setBusy]=useState(false),[error,setError]=useState(""),[audio,setAudio]=useState(""),[jobs,setJobs]=useState<SpeechJob[]>([]),[target,setTarget]=useState("en");
- const [musicStatus,setMusicStatus]=useState<CompanyMusicStatus>(),[musicVoice,setMusicVoice]=useState("instrumental"),[musicMode,setMusicMode]=useState("custom"),[musicModel,setMusicModel]=useState("auto"),[musicTitle,setMusicTitle]=useState(""),[musicStyles,setMusicStyles]=useState(""),[musicLyrics,setMusicLyrics]=useState("");
+ const initialTab=params.get("tab")||"music";
+ const [tab,setTab]=useState(["speech","music","sound","streaming","transcription","translation"].includes(initialTab)?initialTab:"music"),[text,setText]=useState(""),[voice,setVoice]=useState<string>(fgDefaultSpeechVoice),[busy,setBusy]=useState(false),[error,setError]=useState(""),[audio,setAudio]=useState(""),[jobs,setJobs]=useState<SpeechJob[]>([]),[target,setTarget]=useState("en");
+ const [musicStatus,setMusicStatus]=useState<CompanyMusicStatus>(),[musicVoice,setMusicVoice]=useState("song"),[musicMode,setMusicMode]=useState("custom"),[musicModel,setMusicModel]=useState("auto"),[musicTitle,setMusicTitle]=useState(""),[musicStyles,setMusicStyles]=useState(""),[musicLyrics,setMusicLyrics]=useState("");
+ const [copied,setCopied]=useState(false);
+ useEffect(()=>setCopied(false),[musicVoice,musicMode,musicModel,musicTitle,musicStyles,musicLyrics,text]);
  const musicReady=musicStatus?.enabled===true,content=tab==="music"&&musicMode==="custom"?musicStyles:text;
  const canSubmit=!!content.trim()&&!(tab==="music"&&musicMode==="custom"&&musicVoice==="song"&&!musicLyrics.trim());
  const refresh=async()=>{const data=await speechJobs();setJobs(data.jobs);};
@@ -36,11 +39,11 @@ export default function FGAudioToolsPage(){
   const url=URL.createObjectURL(new Blob([value],{type:"text/plain;charset=utf-8"}));const link=document.createElement("a");link.href=url;link.download=`FG-${job.id}.${hasSegments?"srt":"txt"}`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  }
  return <main className="mx-auto w-full max-w-5xl space-y-5 overflow-y-auto p-6">
-  <Typography.Title level={3}>公司音频工具</Typography.Title>
+  <Typography.Title level={3}>音乐、配音与字幕</Typography.Title>
   <Typography.Paragraph>画布、广告、创作台和导演台共用公司渠道。音频生成结果保存到 NAS 和制作历史；录音识别记录保存到服务器，可导出字幕。</Typography.Paragraph>
-  <Alert type="info" title="费用待核验" description="火山音频、配音、语音识别和翻译暂不受月额度及项目预算上限拦截，费用与用量保留，等待火山账单核验。Suno 使用公司订阅账号制作独立音乐和歌曲，费用另行核验。"/>
+  <Alert type="info" title="公司提供音频服务" description="Suno 音乐对成员免费，不占个人月额度或项目预算，消耗公司的 Suno 订阅积分。火山音频、配音、语音识别和翻译也不受月额度及项目预算上限拦截；用量记录仍保留。"/>
   <Tabs activeKey={tab} onChange={setTab} items={[{key:"speech",label:"角色配音 · TTS 2.0"},{key:"music",label:"音乐与歌曲 · Suno"},{key:"sound",label:"对白与音效 · Seed Audio"},{key:"streaming",label:"实时语音识别"},{key:"transcription",label:"录音识别与字幕"},{key:"translation",label:"文本翻译"}]}/>
-  {tab==="music"&&!musicReady&&<Alert type="info" title={musicStatus?.accountReadable?"公司 Suno 账号已连接，等待生成验证":"公司 Suno 音乐渠道待开通"} description={musicStatus?.captchaRequired?"Suno 当前要求完成验证码。管理员处理并验证真实音乐生成后开放制作；其他成员无需配置个人账号。":"账号、生成和作品归档验证完成后开放制作。其他成员无需配置个人账号。"}/>}
+  {tab==="music"&&!musicReady&&<Alert type="info" title={musicStatus?.accountReadable?"公司 Suno 账号已连接，等待生成验证":"公司 Suno 音乐渠道待开通"} description={musicStatus?.captchaRequired?"Suno 要求这次生成完成验证码。需要由管理员在公司账号浏览器处理，再核验服务器请求；网页通过不代表服务器已经获准。可先填写并复制下面的创作内容，在 Suno 官网继续。":"账号、生成和作品归档验证完成后开放制作。其他成员无需配置个人账号。"}/>}
   <Card>
    {tab==="streaming"?<FGStreamingSpeech advertising={params.get("advertising")} onComplete={()=>void refresh().catch(()=>{})}/>:tab==="transcription"?<Space direction="vertical"><Typography.Text>上传录音后异步识别，不需要一直停留在本页。再次打开可以查看原任务。</Typography.Text><Upload accept="audio/*" showUploadList={false} beforeUpload={file=>transcribe(file)} disabled={busy}><Button loading={busy}>上传录音并识别</Button></Upload></Space>:<Space direction="vertical" style={{width:"100%"}}>
     {tab==="speech"&&<Select aria-label="配音音色" value={voice} onChange={setVoice} options={fgSpeechVoices} style={{width:"100%"}}/>}
@@ -54,12 +57,16 @@ export default function FGAudioToolsPage(){
      {musicMode==="custom"&&<>
       <Typography.Text>风格 · Styles</Typography.Text>
       <Input.TextArea aria-label="音乐风格 Styles" value={musicStyles} onChange={e=>setMusicStyles(e.target.value)} maxLength={1000} showCount rows={3} placeholder="例如：温暖独立流行，90 BPM，木吉他与钢琴，轻快鼓点，清晰女声"/>
-      {musicVoice==="song"&&<><Typography.Text>歌词 · Lyrics</Typography.Text><Input.TextArea aria-label="歌曲歌词 Lyrics" value={musicLyrics} onChange={e=>setMusicLyrics(e.target.value)} maxLength={5000} showCount rows={8} placeholder={"[Verse]\n填写主歌歌词\n\n[Chorus]\n填写副歌歌词"}/></>}
+      <Typography.Text>歌词 · Lyrics</Typography.Text>
+      {musicVoice==="instrumental"&&<Typography.Text type="secondary">纯音乐不使用歌词。切换上方“带人声歌曲”即可填写。</Typography.Text>}
+      <Input.TextArea aria-label="歌曲歌词 Lyrics" disabled={musicVoice==="instrumental"} value={musicLyrics} onChange={e=>setMusicLyrics(e.target.value)} maxLength={5000} showCount rows={8} placeholder={"[Verse]\n填写主歌歌词\n\n[Chorus]\n填写副歌歌词"}/>
      </>}
     </>}
     {tab==="translation"&&<Select aria-label="翻译目标语言" value={target} onChange={setTarget} options={[{value:"en",label:"中文 → 英语"},{value:"ja",label:"中文 → 日语"},{value:"ko",label:"中文 → 韩语"}]} style={{width:220}}/>}
     {(tab!=="music"||musicMode!=="custom")&&<Input.TextArea aria-label="音频制作内容" value={text} onChange={e=>setText(e.target.value)} maxLength={tab==="music"?3000:12000} rows={7} placeholder={tab==="music"?"描述音乐风格、乐器、情绪和节奏；歌曲可说明歌词主题。":tab==="sound"?"描述人物对白、环境声音或音效，例如：脚步声、关门声与一句低声对白。":"输入需要配音或翻译的文本"}/>}
-    <Button type="primary" loading={busy} disabled={!canSubmit||(tab==="music"&&!musicReady)} onClick={()=>void run()}>{tab==="translation"?"翻译":tab==="music"?"制作音乐":"生成音频"}</Button>
+    <Space wrap><Button type="primary" loading={busy} disabled={!canSubmit||(tab==="music"&&!musicReady)} onClick={()=>void run()}>{tab==="translation"?"翻译":tab==="music"?"制作音乐":"生成音频"}</Button>
+    {tab==="music"&&<><Button disabled={!canSubmit} onClick={()=>void navigator.clipboard.writeText(musicMode==="custom"?`Title: ${musicTitle}\nModel: ${musicModel}\nType: ${musicVoice}\n\nStyles:\n${musicStyles}\n\nLyrics:\n${musicVoice==="song"?musicLyrics:"[Instrumental]"}`:`Title: ${musicTitle}\nModel: ${musicModel}\nType: ${musicVoice}\n\nDescription:\n${text}`).then(()=>setCopied(true)).catch(()=>setError("复制失败，请手动复制风格和歌词"))}>{copied?"已复制创作内容":"复制 Suno 创作内容"}</Button><Button href="https://suno.com/create" target="_blank" rel="noopener noreferrer">在 Suno 官网继续</Button></>}
+    </Space>
    </Space>}
    {audio&&<audio controls src={audio} className="mt-4 w-full"/>}
   </Card>

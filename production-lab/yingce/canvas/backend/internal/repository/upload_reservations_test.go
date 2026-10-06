@@ -113,6 +113,37 @@ func TestUploadReservationAtomicCapacityCommit(t *testing.T) {
 	}
 }
 
+func TestUploadReservationUnlimitedStorageStillEnforcesUploadRules(t *testing.T) {
+	db, repo, _ := uploadReservationTestDB(t)
+	for i := 0; i < 2; i++ {
+		lease := model.UploadReservation{ID: fmt.Sprint(i), UserID: "user", Size: 60, ExpiresAt: time.Now().Add(time.Hour)}
+		if err := repo.ReserveUploadSession(&lease, 200, 0, 2); err != nil {
+			t.Fatalf("unlimited reservation: %v", err)
+		}
+		resource := model.Resource{ID: fmt.Sprint(i), UserID: "user", ObjectKey: fmt.Sprint(i), Status: model.ResourceStatusReady, Size: 60}
+		if err := repo.SaveResourceWithinStorageLimit(&resource, 0, 200, lease.ID); err != nil {
+			t.Fatalf("unlimited commit: %v", err)
+		}
+	}
+	ordinary := model.Resource{ID: "ordinary", UserID: "user", ObjectKey: "ordinary", Status: model.ResourceStatusReady, Size: 60}
+	if err := repo.SaveResourceWithinStorageLimit(&ordinary, 0, 200, ""); err != nil {
+		t.Fatalf("ordinary upload with unlimited storage: %v", err)
+	}
+	if used, _ := repo.UserStoredFileBytes("user"); used != 180 {
+		t.Fatalf("stored bytes=%d", used)
+	}
+	if err := repo.ReserveUploadSession(&model.UploadReservation{ID: "daily", UserID: "user", Size: 100, ExpiresAt: time.Now().Add(time.Hour)}, 200, 0, 2); !errors.Is(err, ErrDailyUploadLimitExceeded) {
+		t.Fatalf("daily limit bypassed: %v", err)
+	}
+	if err := repo.ReserveUploadSession(&model.UploadReservation{ID: "invalid", UserID: "user", Size: 1, ExpiresAt: time.Now().Add(time.Hour)}, 200, -1, 2); !errors.Is(err, ErrUploadStorageLimit) {
+		t.Fatalf("negative storage limit accepted: %v", err)
+	}
+	var count int64
+	if err := db.Model(&model.UploadReservation{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("reservation rows=%d err=%v", count, err)
+	}
+}
+
 func TestUploadReservationCommitAndExpiry(t *testing.T) {
 	db, r, peer := uploadReservationTestDB(t)
 	old := model.UploadReservation{ID: "old", UserID: "user", Size: 60, Day: "2026-10-04", ExpiresAt: time.Now().Add(-time.Hour)}

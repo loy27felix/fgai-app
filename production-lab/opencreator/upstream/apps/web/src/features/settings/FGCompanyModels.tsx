@@ -31,7 +31,7 @@ export default function FGCompanyModels() {
     finally {setSaving(false);}
   }
   return <section className="settings-section">
-    <header><h1>公司 AI 服务</h1><p>使用 FG 统一渠道，无需个人 Codex 账号；费用计入本人月额度。对话模型可在助手中单独切换。</p></header>
+    <header><h1>公司 AI 服务</h1><p>使用 FG 统一渠道，无需个人 Codex 账号；Suno 音乐对成员免费，火山语音不受制作额度拦截。其他模型费用计入本人月额度。</p></header>
     <div className="settings-card">
       {(['text', 'image', 'video', 'audio'] as const).map(capability => {
         const available = models.filter(m => m.capability === capability);
@@ -43,7 +43,7 @@ export default function FGCompanyModels() {
           {available.map(m => <option key={m.billingId} value={m.billingId}>{m.name}</option>)}
         </select>
       </label>;})}
-      <div className="settings-row"><span>音乐、配音与语音识别</span><a href="/fg-audio-tools" target="_blank">打开公司音频工具</a></div>
+      <div className="settings-row"><span>音乐、配音与字幕</span><a href={`${window.location.port === '3016' ? '' : '/fg-six'}/fg-audio-tools?tab=music`} target="_blank" rel="noopener noreferrer">打开音乐与歌词工作区</a></div>
     </div>
     {error ? <div role="alert"><p>{error}。恢复连接后可重新读取模型。</p><button type="button" className="settings-button" disabled={loading} onClick={() => setRevision(value => value + 1)}>重新读取</button></div> : null}
   </section>;
