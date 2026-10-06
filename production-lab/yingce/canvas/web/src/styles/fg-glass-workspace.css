@@ -56,8 +56,8 @@ body.app-product-overlays {
 .app-user-workspace.fg-glass-workspace { background: linear-gradient(115deg, rgba(233, 241, 250, .73), rgba(235, 242, 249, .2)), url('/fg-visual/glass-atmosphere.png') center / cover; }
 .dark .app-user-workspace.fg-glass-workspace { background: linear-gradient(115deg, rgba(7, 19, 34, .94), rgba(9, 29, 47, .84)), url('/fg-visual/glass-atmosphere.png') center / cover; }
 .fg-glass-workspace .app-workspace-main-row { padding: 14px; gap: 14px; }
-.app-user-workspace.fg-glass-workspace .app-workspace-stage { border: 1px solid var(--fg-glass-line); border-radius: 26px; background: rgba(255, 255, 255, .16); box-shadow: var(--fg-glass-shadow); }
-.dark .app-user-workspace.fg-glass-workspace .app-workspace-stage { background: rgba(8, 26, 43, .18); }
+.app-user-workspace.fg-glass-workspace .app-workspace-stage { border: 1px solid var(--fg-glass-line); border-radius: 26px; background: rgba(255, 255, 255, .16) !important; box-shadow: var(--fg-glass-shadow); }
+.dark .app-user-workspace.fg-glass-workspace .app-workspace-stage { background: rgba(8, 26, 43, .18) !important; }
 .app-user-workspace.fg-glass-workspace .app-workspace-sidebar { border: 1px solid var(--fg-glass-line) !important; border-radius: 26px; background: var(--user-surface) !important; backdrop-filter: blur(24px) saturate(1.2); box-shadow: var(--fg-glass-shadow); }
 .app-user-workspace.fg-glass-workspace .app-workspace-sidebar-brand-row { padding: 24px 16px 0; }
 .app-user-workspace.fg-glass-workspace .app-workspace-brand-mark { width: 38px; height: 38px; border-radius: 12px; color: #294d79; background: rgba(255, 255, 255, .76); border: 1px solid var(--fg-glass-line); box-shadow: 0 4px 12px rgba(48, 85, 126, .08); }
