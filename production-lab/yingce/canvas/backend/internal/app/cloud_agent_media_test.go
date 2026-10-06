@@ -15,6 +15,9 @@ import (
 func agentMediaFixture(t *testing.T) (*Service, *gorm.DB, cloudAgentMediaArgs) {
 	t.Helper()
 	s, db, _, _ := creationTestService(t)
+	// These fixtures advance checkpoints explicitly. A background approval
+	// waiter would race that advancement instead of testing the intended path.
+	s.approvedMediaClosed = true
 	capability := DefaultModelCapabilityConfigForModel(string(model.ChannelInterfaceVolcengineArkVideo), "seedance-test")
 	capability.Video.References.PromptMaxChars = 16000
 	for _, row := range []any{
