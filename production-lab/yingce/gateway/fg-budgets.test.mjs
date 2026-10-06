@@ -39,11 +39,13 @@ test('audio utilities reject inaccessible advertising contexts before reserving 
  assert.ok(pool.queries.some(q=>q.sql==='ROLLBACK'));assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
 });
 test('unverified speech rates fail closed for either monthly or advertising limits',async()=>{
- for(const constraints of [{monthly:10},{project:10}]){
+ for(const constraints of [{monthly:10},{project:10}])for(const [model,capability] of [['volc.speech.mt','translation'],['seed-tts-2.0','audio'],['seed-audio-1.0','audio']]){
   const pool=speechBudgetPool(constraints);
-  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model:'volc.speech.mt',capability:'translation'}),/费用上限/);
+  await assert.rejects(()=>reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model,capability}),/费用上限/);
   assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
  }
- const pool=speechBudgetPool();const result=await reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model:'volc.speech.mt',capability:'translation'});
+ for(const [model,capability] of [['volc.speech.mt','translation'],['seed-tts-2.0','audio'],['seed-audio-1.0','audio']]){
+ const pool=speechBudgetPool();const result=await reserveBudget(pool,{userId:'member',advertisingWorkspaceId:'ad',model,capability});
  assert.equal(result.reservedCny,null);assert.equal(pool.queries.find(q=>q.sql.includes('INSERT INTO')).params[2],'ad-project');
+ }
 });
