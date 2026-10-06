@@ -102,7 +102,7 @@ class SunoApi {
     this.client.interceptors.request.use(config => {
       if (this.currentToken && !config.headers.Authorization)
         config.headers.Authorization = `Bearer ${this.currentToken}`;
-      const cookiesArray = Object.entries(this.cookies).map(([key, value]) => 
+      const cookiesArray = Object.entries(this.cookies).map(([key, value]) =>
         cookie.serialize(key, value as string)
       );
       config.headers.Cookie = cookiesArray.join('; ');
@@ -217,7 +217,7 @@ class SunoApi {
   private async click(target: Locator|Page, position?: { x: number, y: number }): Promise<void> {
     if (this.ghostCursorEnabled) {
       let pos: any = isPage(target) ? { x: 0, y: 0 } : await target.boundingBox();
-      if (position) 
+      if (position)
         pos = {
           ...pos,
           x: pos.x + position.x,
@@ -365,7 +365,7 @@ class SunoApi {
               else
                 throw err;
             }
-          } 
+          }
           if (drag) {
             const challengeBox = await challenge.boundingBox();
             if (challengeBox == null)
@@ -541,7 +541,7 @@ class SunoApi {
    * @param wait_audio Indicates if the method should wait for the audio file to be fully generated before returning.
    * @param negative_tags Negative tags that should not be included in the generated audio.
    * @param task Optional indication of what to do. Enter 'extend' if extending an audio, otherwise specify null.
-   * @param continue_clip_id 
+   * @param continue_clip_id
    * @returns A promise that resolves to an array of AudioInfo objects representing the generated songs.
    */
   private async generateSongs(
