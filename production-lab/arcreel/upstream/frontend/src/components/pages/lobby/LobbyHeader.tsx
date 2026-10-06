@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "wouter";
-import { Bot, ChevronDown, FileArchive, Library, Loader2, Plus, Search, Settings } from "lucide-react";
+import { ArrowLeft, Bot, ChevronDown, FileArchive, Library, Loader2, Plus, Search, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { ROUTE_APP_ASSETS, ROUTE_APP_SETTINGS, settingsSectionPath } from "@/app-routes";
@@ -95,13 +95,14 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
         </>
       }
     >
-      <div className="flex shrink-0 items-center gap-2 pl-1">
-        <a href={fgCompanyLinks(window.location.origin).workspace} target="_top" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">← FG 工作台</a>
-        <a href={fgCompanyLinks(window.location.origin).audio} target="_blank" rel="noreferrer" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">{t("dashboard:fg_audio_tools")}</a>
-        <img src="/logo.svg" alt="" className="size-7" />
-        <span className="text-base font-medium">{BRAND.name}</span>
+      <div className="flex shrink-0 items-center gap-3">
+        <a href={fgCompanyLinks(window.location.origin).workspace} target="_top" className={buttonVariants({variant:"ghost",size:"sm"})}>
+          <ArrowLeft aria-hidden data-icon="inline-start" /><span>FG 工作台</span>
+        </a>
+        <span aria-hidden className="h-5 w-px bg-border" />
+        <span className="text-sm font-semibold tracking-wide">{BRAND.name}</span>
       </div>
-      <InputGroup className="ml-3 max-w-80">
+      <InputGroup className="ml-5 max-w-72">
         <InputGroupAddon>
           <Search aria-hidden />
         </InputGroupAddon>

@@ -6,12 +6,21 @@ export default function FGCompanyModels() {
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
-    void fetch('/.opencreator/runtime/fg-models').then(async r => {
-      if (!r.ok) throw Error('公司模型读取失败');
-      const data = await r.json(); setModels(data.models); setSelected(data.defaults);
-    }).catch(e => setError(String(e.message)));
-  }, []);
+    const controller = new AbortController();
+    setLoading(true); setError('');
+    void fetch('/.opencreator/runtime/fg-models', {signal: controller.signal}).then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw Error(data.error?.message || '公司模型读取失败');
+      if (!Array.isArray(data.models) || !data.defaults) throw Error('公司模型列表暂不可用');
+      if (!controller.signal.aborted) {setModels(data.models); setSelected(data.defaults);}
+    }).catch(e => {
+      if (!controller.signal.aborted) setError(e instanceof Error ? e.message : '公司模型读取失败');
+    }).finally(() => {if (!controller.signal.aborted) setLoading(false);});
+    return () => controller.abort();
+  }, [revision]);
   async function choose(capability: string, model: string) {
     setSaving(true); setError('');
     try {
@@ -24,14 +33,18 @@ export default function FGCompanyModels() {
   return <section className="settings-section">
     <header><h1>公司 AI 服务</h1><p>使用 FG 统一渠道，无需个人 Codex 账号；费用计入本人月额度。对话模型可在助手中单独切换。</p></header>
     <div className="settings-card">
-      {(['text', 'image', 'video', 'audio'] as const).map(capability => <label className="settings-row" key={capability}>
+      {(['text', 'image', 'video', 'audio'] as const).map(capability => {
+        const available = models.filter(m => m.capability === capability);
+        const value = available.some(m => m.billingId === selected[capability]) ? selected[capability] : '';
+        return <label className="settings-row" key={capability}>
         <span>{{text: '默认文本模型', image: '默认图片模型', video: '默认视频模型',audio:'默认配音模型'}[capability]}</span>
-        <select className="settings-select" aria-label={{text: '默认文本模型', image: '默认图片模型', video: '默认视频模型',audio:'默认配音模型'}[capability]} value={selected[capability] || ''} disabled={saving || !models.length} onChange={e => void choose(capability, e.target.value)}>
-          {models.filter(m => m.capability === capability).map(m => <option key={m.billingId} value={m.billingId}>{m.name}</option>)}
+        <select className="settings-select" aria-label={{text: '默认文本模型', image: '默认图片模型', video: '默认视频模型',audio:'默认配音模型'}[capability]} value={value} disabled={saving || loading || !!error || !available.length} onChange={e => void choose(capability, e.target.value)}>
+          <option value="" disabled>{loading ? '正在读取模型…' : available.length ? '请选择默认模型' : error ? '工作区连接未就绪' : '暂无可用模型'}</option>
+          {available.map(m => <option key={m.billingId} value={m.billingId}>{m.name}</option>)}
         </select>
-      </label>)}
+      </label>;})}
       <div className="settings-row"><span>音乐、配音与语音识别</span><a href="/fg-audio-tools" target="_blank">打开公司音频工具</a></div>
     </div>
-    {error ? <p role="alert">{error}</p> : null}
+    {error ? <div role="alert"><p>{error}。恢复连接后可重新读取模型。</p><button type="button" className="settings-button" disabled={loading} onClick={() => setRevision(value => value + 1)}>重新读取</button></div> : null}
   </section>;
 }

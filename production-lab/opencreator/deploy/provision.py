@@ -8,7 +8,7 @@ for line in (ROOT/'.env').read_text().splitlines():
  if '=' in line and not line.startswith('#'):
   key,value=line.split('=',1);env[key]=value
 nas=pathlib.Path(env['NAS_MEDIA_PATH'])
-assert (nas/'.fg-studio-nas-ready').is_file(),'NAS unavailable; no runtime provisioned'
+assert (nas/'.fg-studio-nas-ready').read_text().strip()=='fg-studio-media:v1','NAS unavailable; no runtime provisioned'
 def run(args,optional=False):
  try:result=subprocess.run([DOCKER,*args],capture_output=True,text=True,timeout=30)
  except subprocess.TimeoutExpired:
@@ -30,8 +30,20 @@ def idle(name):
  # A restart loop has no running process to interrupt. Keep its state volume
  # while replacing the broken bootstrap connection with a pinned address.
  if state.get('Restarting') and state.get('Pid')==0:return True
- script="""fetch('http://127.0.0.1:8060/runs',{headers:{'x-fg-runtime':process.env.FG_CREATOR_CAPABILITY},signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)process.exit(2);const d=await r.json();const terminal=new Set(['succeeded','failed','canceled','cancelled','orphaned']);process.exit(Array.isArray(d.runs)&&d.runs.every(r=>terminal.has(r.status))?0:2);}).catch(()=>process.exit(2));"""
- return run(['exec',name,'node','-e',script],optional=True) is not None
+ # Check all native jobs, provider requests and Agent turns in private state.
+ # HTTP /runs covers only Codex runs and may fail when the SMB bind is stale.
+ # Unknown schemas and unavailable databases fail closed.
+ script='''import pathlib,sqlite3,sys
+p=pathlib.Path('/state/opencreator/data/app.sqlite')
+if not p.is_file():sys.exit(2)
+with sqlite3.connect(p.as_uri()+'?mode=ro',uri=True) as db:
+ db.execute('BEGIN')
+ active=db.execute("SELECT count(*) FROM runs WHERE public_status IN ('queued','running') OR internal_status IN ('created','queued','spawning','running','canceling')").fetchone()[0]
+ for table,condition in [('creator_jobs',"status='running'"),('creator_stage_runs',"status IN ('queued','running')"),('creator_agent_turns',"status IN ('queued','running','waiting_approval')"),('creator_provider_requests',"status IN ('registered','submitting','waiting_remote','unknown_remote_acceptance')")]:
+  active+=db.execute('SELECT count(*) FROM '+table+' WHERE '+condition).fetchone()[0]
+ sys.exit(0 if active==0 else 2)
+'''
+ return run(['exec',name,'python3','-c',script],optional=True) is not None
 
 def safe_subnet(user):
  # Docker's automatic pools reach 192.168.0.0/20 after many user bridges,

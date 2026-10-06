@@ -1,7 +1,19 @@
 import {createHash} from 'node:crypto';
 import {DEFAULT_PROMPT_SOURCES,parseJsonSource,parseMarkdownSource,promptImageOriginalUrl} from './fg-inspiration-parser.mjs';
 
-export const inspirationSources=DEFAULT_PROMPT_SOURCES;
+export const inspirationSources=DEFAULT_PROMPT_SOURCES.map(s=>({...s,kind:/seedance/i.test(s.id)?'video':'image'}));
+export const inspirationCategories=[
+ {id:'portrait',name:'人物与角色',pattern:/人像|头像|肖像|人物|角色|portrait|character|selfie/i},
+ {id:'product',name:'产品与广告',pattern:/广告|产品|商品|电商|品牌|advertis|product|commercial|brand/i},
+ {id:'poster',name:'海报与设计',pattern:/海报|设计|排版|封面|poster|design|typography|thumbnail/i},
+ {id:'anime',name:'动漫与插画',pattern:/动漫|漫画|插画|手绘|水彩|anime|cartoon|illustrat|watercolor/i},
+ {id:'cinema',name:'电影与故事',pattern:/电影|剧情|短片|故事|cinema|film|story|trailer/i},
+ {id:'action',name:'动作与运镜',pattern:/动作|跑酷|运镜|镜头|武侠|战斗|action|camera|parkour|battle/i},
+ {id:'nature',name:'自然与旅行',pattern:/自然|风景|旅行|植物|nature|landscape|travel|botanical/i},
+ {id:'space',name:'建筑与空间',pattern:/建筑|城市|室内|空间|architecture|interior|city|room/i},
+ {id:'food',name:'美食与生活',pattern:/美食|食物|饮品|生活|food|cooking|drink|lifestyle|vlog/i}
+];
+export function categoriesFor(item){const text=[item.title,item.description,...item.tags].join(' ');return inspirationCategories.filter(c=>c.pattern.test(text)).map(c=>c.id);}
 export const refreshInterval=30*60*1000;
 const publicURL=value=>{try{const u=new URL(promptImageOriginalUrl(value)||value);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port?u.href:'';}catch{return '';}};
 export function normalizeInspiration(items,source){
@@ -9,7 +21,7 @@ export function normalizeInspiration(items,source){
   const media=item.previewMedia.map(m=>({kind:m.kind,url:publicURL(m.url)})).filter(m=>m.url);
   const prompt=String(item.prompt||'').slice(0,60000);
   return {id:createHash('sha256').update(source.id+'\0'+String(item.id)).digest('hex').slice(0,24),title:String(item.title||'').slice(0,240),prompt,description:String(item.description||'').slice(0,2000),
-   kind:media.some(m=>m.kind==='video')?'video':'image',cover:publicURL(item.coverUrl)||media.find(m=>m.kind==='image')?.url||'',media,
+   kind:source.kind==='video'||media.some(m=>m.kind==='video')?'video':'image',playable:media.some(m=>m.kind==='video'),cover:publicURL(item.coverUrl)||media.find(m=>m.kind==='image')?.url||'',media,
    tags:item.tags.slice(0,16).map(t=>String(t).slice(0,80)),author:String(item.author||'').slice(0,120),sourceId:source.id,sourceName:source.name,
    sourceUrl:publicURL(item.sourceUrl)||source.homepage,model:item.imageModel||(/seedance/i.test(source.id)?'Seedance 2.0':/banana/i.test(source.id)?'Nano Banana':'GPT Image'),updatedAt:item.updatedAt||item.createdAt||''};
  }).filter(item=>item.prompt&&item.title&&item.media.length);
@@ -48,8 +60,8 @@ export function startInspirationSync(pool){
  run();const timer=setInterval(run,60000);timer.unref();return()=>clearInterval(timer);
 }
 export function filterInspiration(entries,params){
- const kind=params.get('kind'),source=params.get('source'),q=(params.get('q')||'').trim().toLowerCase().slice(0,100);
- const filtered=entries.filter(e=>(!kind||e.kind===kind)&&(!source||e.sourceId===source)&&(!q||[e.title,e.prompt,e.description,...e.tags,e.sourceName].join(' ').toLowerCase().includes(q)));
+ const kind=params.get('kind'),source=params.get('source'),category=params.get('category'),model=params.get('model'),q=(params.get('q')||'').trim().toLowerCase().slice(0,100);
+ const filtered=entries.filter(e=>(!kind||e.kind===kind)&&(!source||e.sourceId===source)&&(!model||e.model===model)&&(!category||categoriesFor(e).includes(category))&&(!q||[e.title,e.prompt,e.description,...e.tags,e.sourceName].join(' ').toLowerCase().includes(q)));
  return filtered.sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt))||a.sourceId.localeCompare(b.sourceId));
 }
 export async function inspirationRoute(req,res,{pool,actor,path}){
@@ -62,12 +74,19 @@ export async function inspirationRoute(req,res,{pool,actor,path}){
  }
  if(req.method!=='GET'){send(null,405);return true;}
  const rows=(await pool.query('SELECT * FROM fg_inspiration_sources')).rows;
- const entries=rows.flatMap(r=>r.entries);
+ // Apply source semantics to cached entries too, so a cover-only video prompt
+ // remains in the video section before the next source refresh completes.
+ const entries=rows.flatMap(r=>{
+  const source=inspirationSources.find(s=>s.id===r.id);
+  return r.entries.map(e=>({...e,kind:source?.kind==='video'?'video':e.kind,playable:e.media.some(m=>m.kind==='video')}));
+ });
  const id=path.pathname.match(/^\/api\/fg\/inspiration\/items\/([a-f0-9]{24})$/)?.[1];
  if(id){const item=entries.find(e=>e.id===id);send(item||null,item?200:404);return true;}
  if(path.pathname!=='/api/fg/inspiration'){send(null,404);return true;}
  const filtered=filterInspiration(entries,path.searchParams),page=Math.max(1,Math.min(200,Number(path.searchParams.get('page'))||1)),limit=36;
  const sources=inspirationSources.map(s=>{const state=rows.find(r=>r.id===s.id);return {id:s.id,name:s.name,homepage:s.homepage,count:state?.entries.length||0,lastSuccess:state?.last_success||null,lastAttempt:state?.last_attempt||null,error:state?.error||null};});
+ const kindEntries=entries.filter(e=>!path.searchParams.get('kind')||e.kind===path.searchParams.get('kind'));
  send({items:filtered.slice((page-1)*limit,page*limit).map(({prompt,...item})=>item),total:filtered.length,page,pageSize:limit,
-  counts:{image:entries.filter(e=>e.kind==='image').length,video:entries.filter(e=>e.kind==='video').length},sources,refreshMinutes:30});return true;
+  categories:inspirationCategories.map(c=>({id:c.id,name:c.name,count:kindEntries.filter(e=>categoriesFor(e).includes(c.id)).length})),models:[...new Set(kindEntries.map(e=>e.model))].sort(),
+  counts:{image:entries.filter(e=>e.kind==='image').length,video:entries.filter(e=>e.kind==='video').length,playableVideo:entries.filter(e=>e.kind==='video'&&e.media.some(m=>m.kind==='video')).length},sources,refreshMinutes:30});return true;
 }

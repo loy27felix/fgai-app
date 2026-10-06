@@ -77,7 +77,10 @@ child.stdout.on('data',chunk=>{buffer=(buffer+chunk).slice(-1048576);let index;w
 child.stderr.on('data',()=>{});
 child.on('exit',code=>process.exit(code||1));
 http.createServer(async(req,res)=>{
- try{await fs.access('/workspace/.fg-creator-ready');}catch{res.writeHead(503);res.end('NAS unavailable');return;}
+ // Status/configuration reads use the private state volume and remain available
+ // during a stale SMB bind, so host recovery can detect idle runtimes safely.
+ const stateRead=req.method==='GET'&&['/runs','/creator-services/config'].includes(req.url?.split('?')[0]);
+ if(!stateRead)try{if((await fs.readFile('/workspace/.fg-creator-ready','utf8')).trim()!=='FG private creator workspace')throw Error('NAS marker mismatch');}catch{res.writeHead(503);res.end('NAS unavailable');return;}
  if(req.url==='/healthz'){res.writeHead(connection?200:503,{'content-type':'application/json'});res.end(JSON.stringify({ok:!!connection}));return;}
  if(req.headers['x-fg-runtime']!==capability){res.writeHead(403);res.end('Forbidden');return;}
  if(!connection){res.writeHead(503);res.end('Creator starting');return;}

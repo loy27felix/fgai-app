@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {App,Button,InputNumber,Select,Spin} from 'antd';
-import {ArrowLeft,ArrowUpRight,Library,Wallet} from 'lucide-react';
+import {ArrowLeft,ArrowUpRight,Library,SlidersHorizontal,Wallet} from 'lucide-react';
 import {Link} from 'react-router';
 import {WorkspacePage} from '@/components/layout/workspace-page';
 import {AppModal} from '@/components/ui/product/app-modal';
@@ -17,6 +17,7 @@ export function AdvertisingWorkspace({project,onBack,onRefresh}:{project:Adverti
  const [budgetOpen,setBudgetOpen]=useState(false);const [budget,setBudget]=useState(Number(project.budget_cny));
  const [assetsOpen,setAssetsOpen]=useState(false);const [assets,setAssets]=useState<CompanyAsset[]>([]);const [assetId,setAssetId]=useState<string>();const [busy,setBusy]=useState(false);
  const [prices,setPrices]=useState<string[]>([]);
+ const [modelsOpen,setModelsOpen]=useState(false);
  useEffect(()=>{let cancelled=false;void openAdvertisingProject(project.id).then(r=>{if(!cancelled)setURL(r.url);}).catch(e=>{if(!cancelled)setError(e instanceof Error?e.message:'广告工程启动失败');});
   void Promise.all([advertisingQuote(project.id,'text'),advertisingQuote(project.id,'image',{size:'2048x2048'}),advertisingQuote(project.id,'video',{size:'16:9',vquality:'480P',videoSeconds:'5'})]).then(([text,image,video])=>{if(!cancelled)setPrices(['GPT 5.6 · '+(text.lines[0]||'价格暂不可用'),'Seedream Lite · '+(image.estimatedCny===null?'价格暂不可用':money(image.estimatedCny)+'/张'),'SD2-fast · '+(video.estimatedCny===null?'价格暂不可用':money(video.estimatedCny)+'/5秒 · 480P')]);}).catch(()=>{});
   return()=>{cancelled=true;};
@@ -24,10 +25,16 @@ export function AdvertisingWorkspace({project,onBack,onRefresh}:{project:Adverti
  return <WorkspacePage fluid scroll={false} className="fg-advertising-workbench"><div className="fg-advertising-frame-shell">
   <header className="fg-advertising-frame-header"><Button icon={<ArrowLeft size={15}/>} onClick={onBack}>广告项目</Button><div className="min-w-0 flex-1"><strong className="block truncate">{project.name}</strong><span className="text-xs opacity-60">{project.group_name||'个人项目'} · {project.owner_name} · 预算 {money(Number(project.budget_cny))}</span></div>
    <Button disabled={!url} icon={<Library size={15}/>} onClick={async()=>{try{const result=await listCompanyAssets({pageSize:120});setAssets(result.assets);setAssetId(undefined);setAssetsOpen(true);}catch(e){message.error(e instanceof Error?e.message:'公司素材读取失败');}}}>公司素材</Button>
+   <Button icon={<SlidersHorizontal size={15}/>} onClick={()=>setModelsOpen(true)}>模型设置</Button>
    {project.can_manage?<Button icon={<Wallet size={15}/>} onClick={()=>{setBudget(Number(project.budget_cny));setBudgetOpen(true);}}>预算</Button>:null}<Link to="/fg-finance" className="shrink-0 text-xs">制作费用 <ArrowUpRight className="inline size-3.5"/></Link>
   </header>{prices.length?<div className="fg-advertising-prices">{prices.map(price=><span key={price}>{price}</span>)}</div>:null}
   {url?<iframe key={url} ref={frame} onLoad={syncTheme} className="fg-advertising-frame" title={'广告制作 · '+project.name} src={url+'?fgTheme='+initialTheme.current} allow="clipboard-read; clipboard-write; fullscreen" allowFullScreen/>:error?<p role="alert" className="p-6">{error}</p>:<Spin className="p-12"/>}
  </div>
+ <AppModal title="广告模型设置" open={modelsOpen} onCancel={()=>setModelsOpen(false)} footer={null}>
+  <p className="mb-4">对话模型：点击右侧广告助手输入区上方的模型名称，选择公司已启用的文本模型。</p>
+  <p className="mb-4">图片、视频与配音：选中画布节点，在制作面板中切换对应模型和生成参数。</p>
+  <p>可用模型由 FG 管理后台的「系统渠道」统一配置，管理员启用后会同步到广告工作台。</p>
+ </AppModal>
  <AppModal title="项目制作预算" open={budgetOpen} onCancel={()=>setBudgetOpen(false)} confirmLoading={busy} okText="保存预算" onOk={async()=>{try{setBusy(true);await updateAdvertisingBudget(project.id,budget);await onRefresh();setBudgetOpen(false);}catch(e){message.error(e instanceof Error?e.message:'预算修改失败');}finally{setBusy(false);}}}><p className="mb-4 text-sm opacity-60">预算由项目负责人或超级管理员管理。</p><InputNumber min={0.01} max={1000000} precision={2} prefix="¥" value={budget} onChange={v=>setBudget(Number(v)||0)} style={{width:'100%'}}/></AppModal>
  <AppModal title="从公司素材库导入" open={assetsOpen} onCancel={()=>setAssetsOpen(false)} confirmLoading={busy} okText="导入项目素材" onOk={async()=>{if(!assetId){message.info('请选择素材');return;}try{setBusy(true);await importAdvertisingCompanyAsset(project.id,assetId);setAssetsOpen(false);message.success('已保存到广告项目素材库，可在素材侧栏刷新查看');}catch(e){message.error(e instanceof Error?e.message:'素材导入失败');}finally{setBusy(false);}}}><p className="mb-4 text-sm opacity-60">选择角色、场景、视频或声线，保留在本项目中使用。</p><Select showSearch optionFilterProp="label" placeholder={assets.length?'搜索素材、角色或风格':'公司素材库暂无素材'} value={assetId} onChange={setAssetId} options={assets.map(a=>({value:a.id,label:[a.title,a.brand,a.style,a.kind==='audio'?'音频':a.kind==='video'?'视频':'图片'].filter(Boolean).join(' · ')}))} style={{width:'100%'}}/></AppModal>
  </WorkspacePage>;

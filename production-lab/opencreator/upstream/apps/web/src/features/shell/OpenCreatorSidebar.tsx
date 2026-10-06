@@ -289,7 +289,6 @@ export function OpenCreatorSidebar(props: {
         {import.meta.env.VITE_FG_MANAGED === '1' ? <>
           <a className="sidebar-row" href={new URL('/production-lab', window.location.hostname === '192.168.0.99' && window.location.port === '3016' ? 'https://192.168.0.99:3000' : window.location.origin).href} target="_top" title="FG 工作台"><span className="sidebar-nav-icon" aria-hidden="true"><ArrowLeft size={18}/></span><span className="sidebar-row-label">FG 工作台</span></a>
           <a className="sidebar-row" href="/.opencreator/runtime/fg-trash" title="回收站"><span className="sidebar-nav-icon" aria-hidden="true"><Trash2 size={18}/></span><span className="sidebar-row-label">回收站</span></a>
-          <a className="sidebar-row" href="/fg-audio-tools" target="_blank" title="公司音频工具"><span className="sidebar-nav-icon" aria-hidden="true"><SlidersHorizontal size={18}/></span><span className="sidebar-row-label">音频工具</span></a>
         </> : null}
         {globalActions.map((action) => {
           const Icon = action.icon;
