@@ -217,18 +217,15 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "旧关于地址进入通用设置，许可内容展开后可完整访问",
+    name: "旧关于地址进入通用设置，不再显示关于及许可入口",
     path: settings("about"),
     ready: settingsReady,
     act: async (page) => {
       await expect(page.getByRole("navigation", {name:"设置"}).getByRole("link", {name:"关于"})).toHaveCount(0);
       await expect(page.getByRole("link", {name:"通用"})).toHaveAttribute("aria-current","page");
-      const disclosure=page.getByText("许可与源码",{exact:true});
-      await disclosure.scrollIntoViewIfNeeded();
-      await disclosure.click();
-      const source=page.getByRole("link", {name:"FG 修改版对应源码"});
-      await source.scrollIntoViewIfNeeded();
-      await expect(source).toBeInViewport();
+      await expect(page.getByRole("combobox", {name:"界面语言"})).toBeInViewport();
+      await expect(page.getByText("许可与源码", {exact:true})).toHaveCount(0);
+      await expect(page.getByRole("link", {name:"FG 修改版对应源码"})).toHaveCount(0);
     },
   },
   {
