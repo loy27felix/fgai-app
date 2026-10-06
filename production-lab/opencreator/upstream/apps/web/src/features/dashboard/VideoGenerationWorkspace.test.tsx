@@ -39,7 +39,7 @@ describe('VideoGenerationWorkspace', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
       expect(document.querySelector('.creator-collaboration-stage[data-status="running"]')).toBeNull();
       expect(document.querySelector('.creator-collaboration-stage[data-status="failed"]')).not.toBeNull();
-      const panel = screen.getByRole('complementary', { name: 'OpenCreator' });
+      const panel = screen.getByRole('complementary', { name: 'FG FOR CREATER' });
       expect(panel).toHaveTextContent('InputImageSensitiveContentDetected.PrivacyInformation');
       expect(panel).toHaveTextContent('Input image may contain real person');
       expect(screen.queryByText('视频生成任务已提交，可以离开当前页面，完成后会保留在项目中')).not.toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('VideoGenerationWorkspace', () => {
         upstreamMessage: 'Reference image was rejected', requestId: 'provider-request-123' }
     }];
     renderWorkspace(failed, { language });
-    const panel = screen.getByRole('complementary', { name: 'OpenCreator' });
+    const panel = screen.getByRole('complementary', { name: 'FG FOR CREATER' });
     expect(panel).toHaveTextContent('HTTP 400');
     expect(panel).toHaveTextContent('InputImageSensitiveContentDetected.SensitiveContent');
     expect(panel).toHaveTextContent('Reference image was rejected');

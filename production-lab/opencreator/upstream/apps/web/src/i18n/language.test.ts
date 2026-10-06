@@ -27,11 +27,11 @@ describe('display language preference', () => {
     expect(resolveSystemLanguage(['sv-SE', 'zh-CN'])).toBe('sv-SE');
   });
 
-  it('defaults to the system and ignores invalid stored values', () => {
+  it('defaults to Chinese and ignores invalid stored values', () => {
     expect(readLanguagePreference()).toBe(defaultLanguagePreference);
 
     window.localStorage.setItem(languagePreferenceStorageKey, 'fr-FR');
-    expect(readLanguagePreference()).toBe('system');
+    expect(readLanguagePreference()).toBe('zh-CN');
   });
 
   it('persists explicit choices and applies the resolved document language', () => {
