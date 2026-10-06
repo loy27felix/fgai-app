@@ -104,6 +104,12 @@ body.app-product-overlays {
 .fg-settings-identity p { margin: 0; font-size: 11px; color: var(--user-ink-muted); line-height: 1.7; }
 .app-user-workspace.fg-glass-workspace .settings-nav-item { border: 1px solid transparent; padding: 13px 14px; border-radius: 13px; }
 .app-user-workspace.fg-glass-workspace .settings-nav-item.is-active { background: var(--workspace-nav-active-bg) !important; border-color: var(--fg-glass-line); color: var(--user-accent) !important; box-shadow: 0 4px 14px rgba(32, 66, 114, .05); }
+@media (min-width: 768px) {
+    .app-user-workspace.fg-glass-workspace .settings-nav-panel { display: flex; min-height: 0; flex-direction: column; }
+    .app-user-workspace.fg-glass-workspace .settings-nav-panel nav { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+    .app-user-workspace.fg-glass-workspace .settings-nav-item > span:last-child { flex: 1; }
+    .app-user-workspace.fg-glass-workspace .settings-nav-item > span:last-child > span:first-child { white-space: normal; }
+}
 .app-user-workspace.fg-glass-workspace .settings-content { background: transparent !important; }
 .app-user-workspace.fg-glass-workspace .settings-content > .app-workspace-scroll { padding: 32px; }
 .app-user-workspace.fg-glass-workspace .settings-pane-header { padding-bottom: 22px; margin-bottom: 22px; border-bottom: 1px solid var(--user-border-strong); }
