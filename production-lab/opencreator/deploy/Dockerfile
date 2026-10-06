@@ -1,6 +1,6 @@
 FROM golang:1.25-bookworm AS go
 FROM node:22-bookworm-slim AS build
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ffmpeg ca-certificates git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-certifi make g++ ffmpeg curl fonts-noto-cjk ca-certificates git && rm -rf /var/lib/apt/lists/*
 COPY --from=go /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:$PATH
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
