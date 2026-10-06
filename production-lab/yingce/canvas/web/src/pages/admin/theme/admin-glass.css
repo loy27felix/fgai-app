@@ -107,6 +107,8 @@
 [data-admin-root].fg-glass-admin :is(.admin-analytics-section-heading, .admin-analytics-attention-heading, .admin-analytics-analysis-heading) h2 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 [data-admin-root].fg-glass-admin :is(.admin-analytics-section-heading, .admin-analytics-attention-heading, .admin-analytics-analysis-heading) p { margin-top: 5px; font-size: 11px; color: var(--admin-text-muted); }
 [data-admin-root].fg-glass-admin .admin-analytics-chart { height: 250px; padding: 12px 18px 12px; }
+[data-admin-root].fg-glass-admin .admin-analytics-chart .recharts-cartesian-axis-tick-value { fill: var(--admin-text-muted); }
+[data-admin-root].fg-glass-admin .admin-analytics-chart :is(.recharts-cartesian-axis-line, .recharts-cartesian-axis-tick-line) { stroke: var(--admin-border-strong); }
 [data-admin-root].fg-glass-admin .admin-analytics-attention-list { padding: 0 20px 12px; }
 [data-admin-root].fg-glass-admin .admin-analytics-attention-item { min-height: 75px; gap: 12px; padding-block: 17px; }
 [data-admin-root].fg-glass-admin .admin-analytics-attention-icon { width: 34px; height: 34px; border-radius: 11px; }
