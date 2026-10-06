@@ -40,5 +40,5 @@ export function Magnet({ children, className }: { children: ReactNode; className
 }
 
 export function GlassAgent({ size = 64, className }: { size?: number; className?: string }) {
-    return <span className={cn("fg-glass-agent", className)} style={{ width: size, height: size }} aria-hidden="true"><img src="/fg-visual/agent-glass-orb.png" width={size} height={size} alt="" draggable={false} /><span className="fg-glass-agent-light" /></span>;
+    return <span className={cn("fg-glass-agent", className)} style={{ width: size, height: size }} aria-hidden="true"><img src={`${import.meta.env.BASE_URL}fg-visual/agent-glass-orb.png`} width={size} height={size} alt="" draggable={false} /><span className="fg-glass-agent-light" /></span>;
 }
