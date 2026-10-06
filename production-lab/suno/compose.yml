@@ -1,0 +1,26 @@
+services:
+  suno:
+    image: ${SUNO_IMAGE:?required}
+    restart: unless-stopped
+    environment:
+      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:?required}
+    volumes:
+      - ./private-data/suno.private.env:/run/fg-suno/account.env:ro
+      - suno-state:/state
+    networks: [fg-six]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1536m
+    cpus: 1
+    pids_limit: 256
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3050/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+networks:
+  fg-six:
+    name: fg-six-yingce_default
+    external: true
+volumes:
+  suno-state:

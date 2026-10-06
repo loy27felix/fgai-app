@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {internalSpeechAuthorised,synthesizeSpeech,speechModels,speechUtilities,SpeechError} from './fg-speech-provider.mjs';
+import {musicModels,synthesizeMusic} from './fg-music-provider.mjs';
 
 export async function initializeSpeech(pool){
  await pool.query(`CREATE TABLE IF NOT EXISTS fg_speech_usage(
@@ -8,8 +9,8 @@ export async function initializeSpeech(pool){
  usage jsonb NOT NULL DEFAULT '{}',error_code varchar(60),created_at timestamptz NOT NULL DEFAULT now());`);
 }
 export async function enabledSpeechModels(pool){
- const rows=(await pool.query(`SELECT cm.model_key FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name='火山语音 · FG' AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rows;
- return speechModels.filter(m=>rows.some(r=>r.model_key===m.id));
+ const rows=(await pool.query(`SELECT cm.model_key FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name IN ('火山语音 · FG','Suno 音乐 · FG') AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rows;
+ return [...speechModels,...musicModels].filter(m=>rows.some(r=>r.model_key===m.id));
 }
 export async function speechInternalRoute(req,res,{pool,path}){
  if(path.pathname!=='/internal/fg/speech/v1/audio/speech')return false;
@@ -26,7 +27,7 @@ export async function speechInternalRoute(req,res,{pool,path}){
   requestId=randomUUID();
   const inserted=await pool.query("INSERT INTO fg_speech_usage(reservation_id,request_id,model,status) VALUES($1,$2,$3,'submitted') ON CONFLICT DO NOTHING",[reservationId,requestId,input.model]);
   if(!inserted.rowCount)throw Error('语音请求已提交；请查看原任务，不会重复生成');
-  const output=await synthesizeSpeech(input,{requestId});
+  const output=await (input.model==='suno-company-music'?synthesizeMusic:synthesizeSpeech)(input,{requestId});
   await pool.query("UPDATE fg_speech_usage SET status='succeeded',usage=$2 WHERE reservation_id=$1",[reservationId,JSON.stringify(output.usage)]);
   res.writeHead(200,{'content-type':output.format==='wav'?'audio/wav':'audio/mpeg','content-length':output.bytes.length,'cache-control':'no-store','x-fg-speech-request-id':requestId});res.end(output.bytes);
  }catch(error){

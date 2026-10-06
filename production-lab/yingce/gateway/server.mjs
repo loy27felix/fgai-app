@@ -8,6 +8,7 @@ import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
 import {budgetInternalRoute} from './fg-budgets.mjs';
 import {initializeSpeech,speechInternalRoute} from './fg-speech.mjs';
+import {musicStatus} from './fg-music-provider.mjs';
 import {initializeSpeechJobs,speechJobRoute} from './fg-speech-jobs.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
@@ -139,6 +140,10 @@ const server = http.createServer(async (req, res) => {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     const cookie = await canvasSession(actor);
+    if(path.pathname==='/api/fg/music/status'&&req.method==='GET'){
+      const status=await musicStatus();const registered=(await pool.query(`SELECT 1 FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name='Suno 音乐 · FG' AND cm.model_key='suno-company-music' AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rowCount>0;
+      res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({code:0,data:{...status,enabled:status.enabled&&registered},msg:''}));return;
+    }
     if(path.pathname==='/api/fg/speech/generate'){
       if(req.method!=='POST'||!/^[0-9a-f-]{36}$/.test(String(req.headers['x-fg-operation-id']||''))){respond(res,400,'缺少音频操作标识','SPEECH_INVALID_INPUT');return;}
       req.headers.authorization='Bearer '+creatorCapability(actor.id);

@@ -111,7 +111,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    if(mode==='image')for(const value of [payload.image||[]].flat())if(value)references.image.push(await creatorReference(value,'image',api,{web,cookie,publicOrigin}));
    if(mode==='video')for(const part of payload.content||[])for(const kind of Object.keys(references))if(part.type===kind+'_url'){const ref=await creatorReference(part[kind+'_url']?.url,kind,api,{web,cookie,publicOrigin});if(part.role)ref.role=part.role;references[kind].push(ref);}
   }
-  const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE (c.name LIKE 'WeToken%' OR c.name='火山语音 · FG') AND cm.model_key=$1 AND cm.enabled AND c.enabled AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('公司模型暂不可用');
+  const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE (c.name LIKE 'WeToken%' OR c.name IN ('火山语音 · FG','Suno 音乐 · FG')) AND cm.model_key=$1 AND cm.enabled AND c.enabled AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('公司模型暂不可用');
   // PostgreSQL serialises initial project mapping and duplicate transport retries.
   const client=await pool.connect();let workspace,job,newJob=false;
   const logical=createHash('sha256').update(JSON.stringify([arc?'arcreel':'creator',operationId||req.headers['session_id']||req.headers['x-codex-session-id']||'',payload])).digest('hex');
@@ -208,8 +208,8 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
    json(res,{error:{message:'创作者工作区正在启动，请稍后重新连接'}},503);return true;
   }
  }
- if(isRuntime&&inner==='/creator-services/tts/voices'&&req.method==='GET'&&path.searchParams.get('provider')==='openai'&&['seed-tts-2.0','seed-audio-1.0'].includes(path.searchParams.get('model'))){
-  const model=path.searchParams.get('model');json(res,{provider:'openai',model,voices:model==='seed-tts-2.0'?speechVoices:[{id:'prompt',name:'由提示词描述声音',language:'multi',provider:'openai',kind:'builtin'}]});return true;
+ if(isRuntime&&inner==='/creator-services/tts/voices'&&req.method==='GET'&&path.searchParams.get('provider')==='openai'&&['seed-tts-2.0','seed-audio-1.0','suno-company-music'].includes(path.searchParams.get('model'))){
+  const model=path.searchParams.get('model');json(res,{provider:'openai',model,voices:model==='seed-tts-2.0'?speechVoices:model==='suno-company-music'?[{id:'instrumental',name:'纯音乐',language:'multi',provider:'openai',kind:'builtin'},{id:'song',name:'带人声歌曲',language:'multi',provider:'openai',kind:'builtin'}]:[{id:'prompt',name:'由提示词描述声音',language:'multi',provider:'openai',kind:'builtin'}]});return true;
  }
  if(isRuntime&&['/fg-models','/fg-model-selection'].includes(inner)){
   try{
