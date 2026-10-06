@@ -9,7 +9,7 @@ import (
 // validator remains the authoritative boundary for null, whitespace and
 // decoded-value checks that JSON Schema cannot reliably express across all
 // provider adapters.
-const cloudAgentModelSelectionDescription = "模型选择：复制 model_list 的 selection 到顶层。媒体生成必须显式提供 logicalModelId，或同时提供 channelId 与 channelModelKey，二者互斥。未使用字段省略或传空字符串，不得传 null/空白；混用或不完整均拒绝，不会使用项目默认模型或随机选模。"
+const cloudAgentModelSelectionDescription = "复制 model_list.selection 到顶层。媒体生成必填 logicalModelId 或 channelId+channelModelKey，二者互斥。未使用字段省略或传空字符串，禁止 null/空白；混用或缺项拒绝，不回退默认或随机模型。"
 
 // A model can occasionally omit the copied selection even after reading
 // model_list. We may repair that omission only when the exact same query has a

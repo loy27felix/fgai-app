@@ -198,7 +198,17 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 		return nil, err
 	}
 	if existing != nil && existing.Status == model.ResourceStatusReady {
-		return s.repairImportedResourceMIMEType(userID, existing)
+		previousMIME := existing.MimeType
+		repaired, repairErr := s.repairImportedResourceMIMEType(userID, existing)
+		if repairErr != nil {
+			return nil, repairErr
+		}
+		// Repair legacy metadata from the durable object even if its source URL
+		// has expired. Normal retries still verify the new bytes and MIME type.
+		if repaired.MimeType != previousMIME {
+			return repaired, nil
+		}
+		existing = repaired
 	}
 	if existing != nil && existing.Status == model.ResourceStatusPending {
 		return nil, resourceUploadInProgress()

@@ -1389,7 +1389,7 @@ func TestRunGrokImageTaskUsesJSONEditContract(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		if body.Model != "grok-imagine-image-quality" || body.N != 1 || body.ResponseFormat != "url" {
+		if body.Model != "grok-imagine-image-quality" || body.N != 1 || body.ResponseFormat != "b64_json" {
 			t.Fatalf("request body = %#v", body)
 		}
 		if body.Image == nil || body.Image.URL != testReferenceImageDataURL {

@@ -48,7 +48,7 @@ const (
 	defaultAppearanceVideoURL  = "https://boss-shjd.biliapi.net/updream/aniforge/video/video_bbcb00bd-650d-4249-9346-5cd21fd2484c_m1hc-u0-1pu13x-3v1s.mp4"
 	defaultAppearancePosterURL = "https://i0.hdslb.com/bfs/aitool/aniforge/image/02933f26-5f1b-49ff-a811-b7f95ee5e5b8_m1hc-u0-sau.jpg"
 	defaultAppearanceHeroTitle = "让一个故事，\n从文字走向银幕。"
-	defaultRedeemPurchaseURL   = "暂未配置"
+	defaultRedeemPurchaseURL   = ""
 )
 
 type AppearanceSetting struct {
@@ -210,6 +210,9 @@ func (s *Service) UpdateAppearance(actor *model.User, value AppearanceSetting) (
 	value.FooterCopyright = normalizeAppearanceSingleLine(value.FooterCopyright)
 	value.ICPFilingNumber = normalizeAppearanceSingleLine(value.ICPFilingNumber)
 	value.RedeemPurchaseURL = strings.TrimSpace(value.RedeemPurchaseURL)
+	if value.RedeemPurchaseURL == "暂未配置" {
+		value.RedeemPurchaseURL = ""
+	}
 	if err := validateAppearanceSetting(value); err != nil {
 		return nil, err
 	}
@@ -449,6 +452,9 @@ func (s *Service) readAppearance() (*model.SystemSetting, AppearanceSetting, err
 	value.FooterCopyright = normalizeAppearanceSingleLine(value.FooterCopyright)
 	value.ICPFilingNumber = normalizeAppearanceSingleLine(value.ICPFilingNumber)
 	value.RedeemPurchaseURL = strings.TrimSpace(value.RedeemPurchaseURL)
+	if value.RedeemPurchaseURL == "暂未配置" {
+		value.RedeemPurchaseURL = ""
+	}
 	return setting, value, nil
 }
 

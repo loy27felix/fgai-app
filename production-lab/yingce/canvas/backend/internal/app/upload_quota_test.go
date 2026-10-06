@@ -101,7 +101,12 @@ func TestFGUnlimitedStorageKeepsUsageAndUploadSafeguards(t *testing.T) {
 	if _, err := svc.reserveUserUploadQuota("user-1", 50<<20); err == nil {
 		t.Fatal("single-file limit was lost")
 	}
-	if _, err := svc.reserveChunkedUploadQuota("user-1", 100<<20); err == nil || !strings.Contains(err.Error(), "每日") && !strings.Contains(err.Error(), "自然日") {
+	for range 2 {
+		if _, err := svc.reserveChunkedUploadQuota("user-1", 40<<20); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.reserveChunkedUploadQuota("user-1", 30<<20); err == nil || !strings.Contains(err.Error(), "每日") && !strings.Contains(err.Error(), "自然日") {
 		t.Fatalf("daily-upload limit was lost: %v", err)
 	}
 }
