@@ -8,6 +8,7 @@ import { UsageHeaderEntry } from "@/components/usage/UsageHeaderEntry";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { DemoReadOnlyBadge } from "@/onboarding/DemoReadOnlyBadge";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
@@ -24,7 +25,7 @@ import { WorkspaceNotifications } from "./WorkspaceNotificationsDrawer";
 
 /**
  * 工作区顶栏，三段：
- * - 左：回到项目大厅 + 项目切换器
+ * - 左：回到项目大厅 + 项目切换器（演示项目另带「演示 · 只读」徽标）
  * - 中：ProjectStatusBar（集进度与项目层的下一步；数据升级失败时是迁移重试）
  * - 右：通知 / 使用记录 / 导出 / 资产库 / 全局设置 / Agent 面板开关
  */
@@ -94,7 +95,7 @@ export function GlobalHeader() {
   };
 
   return (
-    <header className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(min-content,1fr)] items-center gap-3 border-b border-border bg-background px-2">
+    <header className="@container/header grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(min-content,1fr)] items-center gap-3 border-b border-border bg-background px-2">
       <div className="flex min-w-0 items-center gap-1">
         <a href={fgCompanyLinks(window.location.origin).workspace} target="_top" className="shrink-0 rounded px-2 py-1 text-sm hover:bg-muted">← FG 工作台</a>
         <Link href={`~${ROUTE_APP_PROJECTS}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>
@@ -103,6 +104,7 @@ export function GlobalHeader() {
         </Link>
         <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
         <ProjectMenu />
+        {demoMode && <DemoReadOnlyBadge />}
       </div>
 
       <div className="flex justify-center">

@@ -8,7 +8,7 @@ ARG BUILD_COMMIT
 RUN test -n "$BUILD_COMMIT" && printf '%s' "$BUILD_COMMIT" > /build/fg-source-commit
 COPY upstream/frontend/ ./
 # Upstream fixtures use their original product name; the shipped bundle uses FG.
-RUN VITE_BRAND_NAME=ArcReel pnpm check --maxWorkers=2
+RUN VITE_BRAND_NAME=ArcReel pnpm check --maxWorkers=1 --testTimeout=20000
 ENV VITE_BRAND_NAME="FG FOR DIRECTOR"
 RUN FG_DIRECTOR_BASE_PATH=/fg-director/ pnpm build
 

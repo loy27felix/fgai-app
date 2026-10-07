@@ -73,11 +73,6 @@ function manyModelsOverrides(): ApiOverrides {
 
 const PROMPT_TEMPLATES = settings("prompt-templates");
 
-async function waitForAnimations(page: Page) {
-  // 弹层淡入时的半透明文字会被 axe 判为对比度不足，等动画结束再探测。
-  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
-}
-
 async function settingsReady(page: Page) {
   await page.getByRole("navigation", { name: "设置" }).getByRole("link", { name: "通用" }).waitFor();
 }
@@ -193,7 +188,6 @@ defineRegionScenarios("全局设置", [
       await page.getByRole("combobox", { name: "默认视频模型" }).click();
       const listbox = page.getByRole("listbox");
       await expect(page.getByRole("combobox", { name: "搜索模型或供应商" })).toBeFocused();
-      await waitForAnimations(page);
       await expect(listbox).toBeInViewport({ ratio: 1 });
       await listbox.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(listbox.getByRole("option").last()).toBeInViewport();
@@ -212,7 +206,6 @@ defineRegionScenarios("全局设置", [
       await page.getByRole("navigation", { name: "设置" }).getByRole("link", { name: "通用" }).click();
       const dialog = page.getByRole("alertdialog", { name: "有未保存的修改" });
       await expect(dialog).toBeVisible();
-      await waitForAnimations(page);
       await expect(page).toHaveURL(/section=default-models/);
     },
   },
@@ -284,7 +277,6 @@ defineRegionScenarios("全局设置", [
       const main = page.getByRole("main");
       await main.getByRole("button", { name: /variant\("text\/episode_plan\/intro"/ }).click();
       await main.getByRole("combobox", { name: "源文件类型" }).click();
-      await waitForAnimations(page);
       await expect(page.getByRole("listbox")).toBeInViewport({ ratio: 1 });
     },
   },
