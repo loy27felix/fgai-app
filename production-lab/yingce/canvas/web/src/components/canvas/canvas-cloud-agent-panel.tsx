@@ -57,6 +57,7 @@ import { CanvasCloudAgentSettings, type AgentContextKey } from "./canvas-cloud-a
 import { useAgentPanelLayout } from "./use-agent-panel-layout";
 import "./canvas-cloud-agent.css";
 import {uploadDocument, documentPromptContext} from '@/services/document-storage';
+import { uploadImage, type UploadedImage } from '@/services/image-storage';
 import type {CloudAgentChatAttachment} from './canvas-cloud-agent-attachments';
 import { appendAgentError, appendUniqueMessage, applyAgentEvent, positiveNumber, type ApprovalState } from "./canvas-cloud-agent-events";
 import { AgentContextRing, AgentConversation, AgentHeader, AgentHistory, AgentLauncher, ComposerControls } from "./canvas-cloud-agent-panel-parts";
@@ -77,10 +78,11 @@ type CloudAgentPanelProps = {
     /** 画布节点快照：用于识别审批目标节点是否已被用户直接提交生成。 */
     canvasNodes?: readonly CanvasNodeData[];
     runningNodeId?: string | null;
+    onAddReferenceImage: (name: string, image: UploadedImage) => Promise<string>;
 };
 type AgentPanelView = "chat" | "history" | "settings";
 
-export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, selectedNodeIds, references, open, prefillRequest, onOpen, onCollapse, onFocusNode, canvasNodes, runningNodeId }: CloudAgentPanelProps) {
+export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, selectedNodeIds, references, open, prefillRequest, onOpen, onCollapse, onFocusNode, canvasNodes, runningNodeId, onAddReferenceImage }: CloudAgentPanelProps) {
     const userId = useUserStore((state) => state.user?.id);
     const theme = canvasThemes[useActiveTheme()];
     const config = useEffectiveConfig();
@@ -88,7 +90,17 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
     const [uploadingDocuments,setUploadingDocuments]=useState(false);
     const addDocuments=async(files:FileList|File[]|null)=>{
         if(!files||uploadingDocuments)return;setUploadingDocuments(true);
-        try{for(const file of Array.from(files)){const upload=await uploadDocument(file);setDocuments(current=>[...current,{id:upload.storageKey,name:file.name,url:upload.url,storageKey:upload.storageKey,text:upload.text,kind:'text'}]);}}
+        try{for(const file of Array.from(files)){
+            if(file.type.startsWith('image/')){
+                const upload=await uploadImage(file);
+                if(upload.pendingRemoteUpload)throw Error('图片尚未保存到 NAS，请重试上传');
+                const nodeId=await onAddReferenceImage(file.name,upload);
+                setDocuments(current=>[...current,{id:upload.storageKey,name:file.name,url:upload.url,storageKey:upload.storageKey,text:`图片参考节点 ID：${nodeId}；使用 canvas_inspect_image 查看实际画面。`,kind:'image'}]);
+            }else{
+                const upload=await uploadDocument(file);
+                setDocuments(current=>[...current,{id:upload.storageKey,name:file.name,url:upload.url,storageKey:upload.storageKey,text:upload.text,kind:'text'}]);
+            }
+        }}
         catch(cause){setMessages(current=>appendAgentError(current,`document-${Date.now()}`,cause,'资料上传失败'));}
         finally{setUploadingDocuments(false);}
     };

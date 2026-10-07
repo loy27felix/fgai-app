@@ -14,6 +14,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { Button } from "antd";
 import { agentAttachmentReferences, type CloudAgentChatAttachment } from "./canvas-cloud-agent-attachments";
+import { DOCUMENT_ACCEPT } from "@/services/document-storage";
 
 export const MIN_AGENT_PROMPT_HEIGHT = 60;
 
@@ -327,7 +328,7 @@ export function AgentChatComposer({
     // 保留粘贴图片成附件（contentEditable 模式内部会把粘贴转纯文本，capture 阶段先拦截图片）
     const handlePasteCapture = (event: ReactClipboardEvent) => {
         if (!onAddFiles) return;
-        const documents = Array.from(event.clipboardData.files).filter((file) => /\.(docx|pdf|md|txt|csv|json)$/i.test(file.name));
+        const documents = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/") || /\.(docx|pdf|md|txt|csv|json)$/i.test(file.name));
         if (!documents.length) return;
         event.preventDefault();
         event.stopPropagation();
@@ -458,14 +459,15 @@ export function AgentChatComposer({
                                         ref={fileInputRef}
                                         hidden
                                         type="file"
-                                        accept="image/*"
+                                        accept={`image/*,${DOCUMENT_ACCEPT}`}
+                                        aria-label="上传图片或文档"
                                         multiple
                                         onChange={(event) => {
                                             void onAddFiles(event.target.files);
                                             event.target.value = "";
                                         }}
                                     />
-                                    <Tooltip title="上传图片">
+                                    <Tooltip title="上传图片或文档 · Word、PDF、Markdown、TXT、CSV、JSON">
                                         <Button
                                             type="text"
                                             shape="circle"

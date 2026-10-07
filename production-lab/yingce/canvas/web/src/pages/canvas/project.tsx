@@ -2808,7 +2808,13 @@ function InfiniteCanvasPage() {
                             </div>
 
                             <div className={versions.open ? "hidden" : "contents"}>
-                            <CanvasCloudAgentPanel canvasId={projectId} domainProjectId={currentProject?.projectId} canvasNodes={nodes} runningNodeId={runningNodeId} nodeCount={nodes.length} selectedNodeIds={Array.from(selectedNodeIds)} references={agentMentionReferences} prefillRequest={agentPrefillRequest} open={assistantOpen} onOpen={openAgent} onCollapse={closeAgent} onFocusNode={(nodeId) => {
+                            <CanvasCloudAgentPanel canvasId={projectId} domainProjectId={currentProject?.projectId} canvasNodes={nodes} runningNodeId={runningNodeId} nodeCount={nodes.length} selectedNodeIds={Array.from(selectedNodeIds)} references={agentMentionReferences} prefillRequest={agentPrefillRequest} open={assistantOpen} onOpen={openAgent} onCollapse={closeAgent} onAddReferenceImage={async (name, image) => {
+                                const node=createCanvasNode(CanvasNodeType.Image,getCanvasCenter(),{content:image.url,storageKey:image.storageKey,status:NODE_STATUS_SUCCESS,naturalWidth:image.width,naturalHeight:image.height,bytes:image.bytes,mimeType:image.mimeType});
+                                node.title=name;
+                                setNodes(current=>[...current,node]);
+                                if(!await saveCanvasProject({requireRemote:true}))throw Error('图片已上传，但画布参考节点尚未同步，请重试保存');
+                                return node.id;
+                            }} onFocusNode={(nodeId) => {
                                 const currentNodes = nodesRef.current;
                                 const target = currentNodes.find((node) => node.id === nodeId);
                                 if (!target) { message.info("该节点已删除或尚未同步到画布"); return; }

@@ -10,6 +10,7 @@ import { useWorkspaceButtonFeedback } from "@/hooks/use-workspace-button-feedbac
 import "@/styles/workspace-product.css";
 import "@/styles/workspace-menus.css";
 import "@/styles/fg-glass-workspace.css";
+import { WorkspaceAtmosphere } from "@/components/ui/fg-workspace-atmosphere";
 
 const workspaceTheme = getWorkspaceAntThemeConfig();
 
@@ -42,6 +43,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
             popover={productWorkspace ? { classNames: { root: "workspace-quiet-popup" } } : undefined}
         >
             <div className={cn("app-user-workspace h-dvh overflow-hidden text-foreground", spatialWorkbench && "app-spatial-workspace", productWorkspace && "app-product-workspace fg-glass-workspace")}>
+                {productWorkspace && <WorkspaceAtmosphere />}
                 <AppWorkspaceShell>{children}</AppWorkspaceShell>
             </div>
         </ConfigProvider>

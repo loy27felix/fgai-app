@@ -62,8 +62,8 @@
     --admin-card-shadow: 0 10px 32px rgba(0, 9, 22, .16);
     --fg-admin-glass-line: rgba(164, 201, 238, .16);
 }
-[data-admin-root].fg-glass-admin { position: relative; gap: 18px; padding: 16px; background: linear-gradient(120deg, rgba(226, 237, 251, .7), rgba(235, 243, 252, .4)), url('/fg-visual/glass-atmosphere.png') center / cover; }
-.dark [data-admin-root].fg-glass-admin { background: linear-gradient(115deg, rgba(7, 20, 35, .94), rgba(9, 28, 47, .84)), url('/fg-visual/glass-atmosphere.png') center / cover; }
+[data-admin-root].fg-glass-admin { position: relative; gap: 18px; padding: 16px; background: linear-gradient(120deg, rgba(226, 237, 251, .7), rgba(235, 243, 252, .4)), url('/fg-six/fg-visual/atelier-atmosphere.png') center / cover; }
+.dark [data-admin-root].fg-glass-admin { background: linear-gradient(115deg, rgba(7, 20, 35, .94), rgba(9, 28, 47, .84)), url('/fg-six/fg-visual/atelier-atmosphere.png') center / cover; }
 [data-admin-root].fg-glass-admin .admin-sidebar { border: 1px solid var(--fg-admin-glass-line); border-radius: 23px !important; backdrop-filter: blur(24px); box-shadow: 0 14px 40px rgba(20, 55, 100, .07); }
 [data-admin-root].fg-glass-admin .admin-sidebar-identity { height: 68px; padding: 0 18px; }
 [data-admin-root].fg-glass-admin .admin-sidebar-brand-mark { width: 36px; height: 36px; border: 1px solid var(--fg-admin-glass-line); border-radius: 11px; background: var(--admin-surface); color: var(--admin-accent); }

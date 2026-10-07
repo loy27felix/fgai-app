@@ -18,8 +18,10 @@ export function BrandLogo({ className, alt = "", theme = "auto" }: BrandLogoProp
     const source = appearanceLogoURL(appearance, theme === "auto" ? currentTheme : theme);
     const [failedSource, setFailedSource] = useState<string | null>(null);
     if (!appearance.logoConfigured) return (
-        <svg viewBox="0 0 80 52" className={cn("block", className)} role={alt ? "img" : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : true}>
-            <path d="M3 47V12a7 7 0 0 1 7-7h27v8H13v5h23v8H13v5h21v8H13v8H3Zm76-29H52a5 5 0 0 0-5 5v11a5 5 0 0 0 5 5h17v-7H58v-8h21v17a7 7 0 0 1-7 7H45a9 9 0 0 1-9-9V18h43Zm-41-5a9 9 0 0 1 9-8h25a7 7 0 0 1 7 7v1H38Z" fill="currentColor" />
+        <svg viewBox="0 0 80 76" className={cn("block", className)} role={alt ? "img" : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : true}>
+            <path d="M5 71V26C5 11 15 3 30 3h39c0 7-5 12-12 12H30c-8 0-13 5-13 13v5h22L28 45H17v26Z" fill="currentColor" />
+            <path d="M73 33C67 23 58 21 49 23 33 26 24 37 24 51c0 15 11 23 25 23 18 0 29-11 29-26H51c0 6 4 10 10 10h4c-3 5-8 7-15 7-9 0-15-6-15-14 0-10 8-19 18-19h20Z" fill="currentColor" />
+            <path d="m65 35 12 0c1 3 1 6 1 9-5-1-9-4-13-9Z" fill="#8faebf" />
         </svg>
     );
     // A configured custom logo must never fall through to the built-in brand
