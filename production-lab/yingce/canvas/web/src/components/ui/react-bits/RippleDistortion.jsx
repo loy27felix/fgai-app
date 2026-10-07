@@ -438,4 +438,3 @@ const RippleDistortion = ({
 };
 
 export default RippleDistortion;
-

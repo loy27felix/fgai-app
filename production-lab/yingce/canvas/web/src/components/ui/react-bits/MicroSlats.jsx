@@ -920,4 +920,3 @@ const MicroSlats = ({
 };
 
 export default MicroSlats;
-
