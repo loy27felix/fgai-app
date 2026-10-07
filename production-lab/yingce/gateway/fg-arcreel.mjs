@@ -14,6 +14,17 @@ export function managedArcWrite(method,path){
  return /^\/api\/v1\/(?:auth|api-keys|providers|custom-providers|custom-endpoints|agent\/credentials|agent\/preset-providers|system\/config|official-service|market)/.test(path);
 }
 function failure(res,status,message){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({detail:message}));}
+export function publicArcResponseHeaders(headers,target){
+ const output=responseHeaders(headers);
+ if(typeof output.location==='string'){
+  try{
+   const redirect=new URL(output.location,target);
+   // FastAPI slash redirects must remain on the authenticated public gateway.
+   if(redirect.origin===target.origin)output.location=redirect.pathname+redirect.search+redirect.hash;
+  }catch{}
+ }
+ return {...output,'cache-control':'no-store'};
+}
 export function waitingPage(req,res,message='首次打开需要约一分钟，准备好后自动进入。', failed=false){
  if(req.method!=='GET'||new URL(req.url,'http://localhost').pathname.startsWith('/api/'))return false;
  res.writeHead(503,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','retry-after':'5'});
@@ -46,7 +57,7 @@ export function createArcReelServer({pool,platformActor,canvasSession,platformOr
     clearTimeout(headerDeadline);
     if((remote.statusCode||502)>=500&&waitingPage(req,res)){remote.resume();return;}
 
-    res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':'no-store'});pipeline(remote,res,()=>{});
+    res.writeHead(remote.statusCode||502,publicArcResponseHeaders(remote.headers,target));pipeline(remote,res,()=>{});
    });
    // Limit a dead runtime's connection/header wait, while preserving long SSE streams.
    const headerDeadline=setTimeout(()=>upstream.destroy(new Error('Runtime response timeout')),20000);

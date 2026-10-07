@@ -1,8 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {managedArcWrite,waitingPage} from './fg-arcreel.mjs';
+import {managedArcWrite,waitingPage,publicArcResponseHeaders} from './fg-arcreel.mjs';
 import {creatorInternalRoute} from './fg-creator.mjs';
 import {Readable} from 'node:stream';
+
+test('director slash redirects stay on the public gateway instead of exposing the private runtime',()=>{
+ const target=new URL('http://10.209.151.242:1241/app');
+ assert.equal(publicArcResponseHeaders({location:'http://10.209.151.242:1241/app/?tab=projects'},target).location,'/app/?tab=projects');
+ assert.equal(publicArcResponseHeaders({location:'/app/projects'},target).location,'/app/projects');
+ assert.equal(publicArcResponseHeaders({location:'https://example.test/help'},target).location,'https://example.test/help');
+});
 
 test('unavailable document requests render a retryable HTML page while APIs retain JSON errors',()=>{
  let status,headers,body;
