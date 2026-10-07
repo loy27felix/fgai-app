@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import {fgPlatformURL} from "@/lib/fg-entry-url";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store";
-import { useAppearanceStore } from "@/stores/use-appearance-store";
+
 import { WorkspaceAccountCard } from "./workspace-account-card";
 import { WorkspaceSidebarCheckin } from "./workspace-sidebar-checkin";
 import { WorkspaceSidebarStorageMeter } from "./workspace-sidebar-storage-meter";
@@ -45,14 +45,14 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
-                { ...toolItem("create", "/"), id: "home", title: "创作" },
+                { ...toolItem("create", "/"), id: "home", title: "超级创作" },
                 { id: "fg-stories", title: "故事与项目", icon: BookOpenText, to: "/fg-production" },
-                { ...toolItem("projects", "/projects"), title: "短剧 Agent" },
+                ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: "短剧 Agent" }] : []),
                 { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: "广告工作台" },
-                { ...toolItem("create", "/creator-app"), id: "fg-creator", title: "FG FOR CREATER" },
-                { ...toolItem("projects", "/arcreel"), id: "fg-arcreel", title: "FG FOR DIRECTOR" },
-                { ...toolItem("assets", "/fg-inspiration"), id: "fg-inspiration", title: "灵感库" },
-                { ...toolItem("canvas", "/canvas"), title: "自由画布" },
+                { ...toolItem("create", "/creator-app"), id: "fg-creator", title: "超级综合工作台" },
+                { ...toolItem("projects", "/arcreel"), id: "fg-arcreel", title: "超级小说转视频" },
+                { ...toolItem("assets", "/fg-inspiration"), id: "fg-inspiration", title: "超级灵感库" },
+                { ...toolItem("canvas", "/canvas"), title: "超级自由画布" },
             ],
         },
         {
@@ -90,7 +90,7 @@ function WorkspaceSidebarProfile({ collapsed, user }: { collapsed: boolean; user
                 <Popover open={menuOpen} onOpenChange={setMenuOpen} trigger="click" placement="topLeft" arrow={false} rootClassName="workspace-account-popover" content={content}>
                     <button type="button" className={cn("app-workspace-sidebar-profile", collapsed && "is-collapsed")} aria-label="打开账户菜单" title={profileName}>
                         <span className="app-workspace-sidebar-profile-avatar">{avatar}</span>
-                        {!collapsed ? <span className="app-workspace-sidebar-profile-copy"><strong>{profileName}</strong><span>创作工作台</span></span> : null}
+                        {!collapsed ? <span className="app-workspace-sidebar-profile-copy"><strong>{profileName}</strong><span>公司创作空间</span></span> : null}
                     </button>
                 </Popover>
                 {!collapsed ? <SystemAnnouncementCenter userId={user.id} className="app-workspace-sidebar-notification" /> : <span className="app-workspace-sidebar-notification-spacer" aria-hidden />}
@@ -100,7 +100,7 @@ function WorkspaceSidebarProfile({ collapsed, user }: { collapsed: boolean; user
 }
 
 function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { collapsed: boolean; onNavigate: () => void; onExpand: () => void; onCollapse: () => void }) {
-    const appearance = useAppearanceStore((state) => state.appearance);
+
 
     if (collapsed) {
         return (
@@ -114,12 +114,12 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
 
     return (
         <div className="app-workspace-sidebar-brand-row relative shrink-0 px-3 pt-3">
-            <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={`${appearance.brandName}首页`}>
+            <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label="FG超级工作台首页">
                 <span className="flex min-w-0 items-center gap-2">
                     <BrandLogoFrame className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm" logoClassName="size-5 object-contain" alt="" fallback={<InfinityIcon className="size-4" strokeWidth={2.2} />} />
                     <span className="flex min-w-0 flex-col">
-                        <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-semibold">{appearance.brandName}</span>
-                        <span className="mt-1 truncate text-[var(--fs-label)] leading-none text-foreground/60">创作工作台</span>
+                        <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-semibold">FG超级工作台</span>
+                        <span className="mt-1 truncate text-[var(--fs-label)] leading-none text-foreground/60">公司创作空间</span>
                     </span>
                 </span>
             </Link>
@@ -160,7 +160,7 @@ function NavItem({
     const Icon = item.icon;
     const rowStyle = collapsed ? undefined : ({ paddingLeft: `${level * 12 + 10}px` } as CSSProperties);
 
-    const collapsedTitle = item.id === "home" ? "创作" : item.id === "projects" ? "短剧" : item.id === "canvas" ? "画布" : item.id === "assets" ? "资产" : item.id === "skills" ? "技能" : item.id === "plugins" ? "插件" : item.id === "tasks" ? "历史" : item.title.slice(0, 2);
+    const collapsedTitle = item.id === "home" ? "创作" : item.id === "fg-creator" ? "综合" : item.id === "fg-arcreel" ? "小说" : item.id === "fg-inspiration" ? "灵感" : item.id === "fg-audio-settings" ? "音频" : item.id === "projects" ? "短剧" : item.id === "canvas" ? "画布" : item.id === "assets" ? "资产" : item.id === "skills" ? "技能" : item.id === "plugins" ? "插件" : item.id === "tasks" ? "历史" : item.title.slice(0, 2);
     const rowContent = (
         <>
             <span className="app-workspace-nav-main flex min-w-0 items-center gap-2.5">
@@ -300,7 +300,8 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
 
     const slug = pathname.split("/").filter(Boolean)[0] || "home";
     const section = searchParams.get("section");
-    const activeId = slug === "settings" && section ? `settings:${section}` : slug;
+    const routeNavIds: Record<string, string> = { "fg-production": "fg-stories", advertising: "fg-advertising", "creator-app": "fg-creator", arcreel: "fg-arcreel", "fg-audio-tools": "fg-audio-settings" };
+    const activeId = slug === "settings" && section ? `settings:${section}` : routeNavIds[slug] || slug;
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [scrollState, setScrollState] = useState({ hasTopFade: false, hasBottomFade: false });

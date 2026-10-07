@@ -1,54 +1,32 @@
-.admin-skill-curation-section-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    border-bottom: 1px solid var(--admin-divider);
-    padding-bottom: 10px;
-}
 
-.admin-skill-curation-section-heading h3 {
-    margin: 0;
-    color: var(--admin-text-primary);
-    font-size: 13px;
-    font-weight: 650;
-    line-height: 20px;
-}
-
-.admin-skill-curation-section-heading p {
-    margin: 2px 0 0;
-    color: var(--admin-text-muted);
-    font-size: 11px;
-    line-height: 17px;
-}
-
-.admin-skill-curation-fields-root {
-    grid-template-columns: minmax(180px, 1.4fr) minmax(180px, 1fr) 96px 110px;
-}
-
-.admin-skill-curation-icon-option {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.admin-skill-curation-subsection {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    margin-top: 8px;
-    border-top: 1px solid var(--admin-divider);
-    padding-top: 18px;
-}
-
-@media (max-width: 1199px) {
-    .admin-skill-curation-fields-root {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 639px) {
-    .admin-skill-curation-fields-root {
-        grid-template-columns: minmax(0, 1fr);
-    }
-}
+.admin-skill-curation { display: grid; gap: 24px; width: 100%; max-width: 1640px; margin-inline: auto; }
+.admin-skill-curation-policy { display: flex; align-items: center; gap: 18px; padding: 24px 26px; border: 1px solid var(--admin-border); border-radius: 20px; background: var(--admin-surface); }
+.admin-skill-curation-policy-icon { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 14px; background: var(--admin-surface-2); color: var(--admin-accent); }
+.admin-skill-curation-policy-copy { flex: 1; min-width: 0; }
+.admin-skill-curation-policy-title { font-size: 16px; font-weight: 600; }
+.admin-skill-curation-policy-copy p { margin: 7px 0 0; font-size: 13px; line-height: 1.8; color: var(--admin-text-muted); }
+.admin-skill-curation-policy-control { display: flex; align-items: center; gap: 14px; }
+.admin-skill-curation-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(340px, 1fr); align-items: start; gap: 24px; }
+.admin-skill-curation-panel { min-width: 0; border-radius: 22px !important; }
+.admin-skill-curation-panel .admin-settings-section-content { padding: 24px; }
+.admin-skill-curation-grid > :last-child { position: sticky; top: 0; }
+.admin-skill-curation-form, .admin-skill-curation-subsection, .admin-skill-curation-assignment-form { display: grid; gap: 24px; }
+.admin-skill-curation-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.admin-skill-curation-section-heading h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.admin-skill-curation-section-heading p { margin: 7px 0 0; color: var(--admin-text-muted); font-size: 13px; line-height: 1.8; }
+.admin-skill-curation-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 18px; }
+.admin-skill-curation-field { display: flex; flex-direction: column; min-width: 0; gap: 10px; }
+.admin-skill-curation-field > span { color: var(--admin-text-secondary); font-size: 13px; font-weight: 500; }
+.admin-skill-curation-control { width: 100%; }
+.admin-skill-curation-panel :is(.ant-input, .ant-input-affix-wrapper, .ant-input-number, .ant-select-selector) { min-height: 42px; border-radius: 11px; }
+.admin-skill-curation-switch-row { display: flex; align-items: center; gap: 12px; min-height: 42px; }
+.admin-skill-curation-form-actions, .admin-skill-curation-assignment-footer { display: flex; align-items: flex-start; flex-direction: column; gap: 16px; border-top: 1px solid var(--admin-divider); padding-top: 20px; }
+.admin-skill-curation-action-buttons { display: flex; gap: 12px; align-self: flex-end; }
+.admin-skill-curation-assignment-footer .ant-btn { align-self: stretch; min-height: 44px; }
+.admin-skill-curation-hint { color: var(--admin-text-muted); font-size: 12px; line-height: 1.8; }
+.admin-skill-curation-table-wrap { margin-top: 26px; }
+.admin-skill-curation-icon-option { display: inline-flex; align-items: center; gap: 8px; }
+.admin-skill-curation-table .ant-table-tbody > tr > td { padding-block: 17px; }
+.admin-skill-curation-panel [hidden] { display: none; }
+@media (max-width: 1200px) { .admin-skill-curation-grid { grid-template-columns: 1fr; } .admin-skill-curation-grid > :last-child { position: static; } }
+@media (max-width: 767px) { .admin-skill-curation-policy { flex-wrap: wrap; padding: 20px; } .admin-skill-curation-policy-control { margin-left: 60px; } .admin-skill-curation-fields { grid-template-columns: 1fr; } .admin-skill-curation-section-heading { flex-wrap: wrap; } }

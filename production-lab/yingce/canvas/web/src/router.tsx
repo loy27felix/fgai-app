@@ -14,7 +14,6 @@ const AnalyticsPage = lazy(() => import("@/pages/admin/admin-route-pages").then(
 const AnnouncementsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AnnouncementsPage })));
 const BannerAnnouncementsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.BannerAnnouncementsPage })));
 const StorageResourcesPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.StorageResourcesPage })));
-const AccessSettingsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AccessSettingsPage })));
 const EmailSettingsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.EmailSettingsPage })));
 const FeatureAvailabilityPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.FeatureAvailabilityPage })));
 const AgentLessonsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AgentLessonsPage })));
@@ -214,7 +213,7 @@ export const router = createBrowserRouter([
                     { path: "settings/concurrency", element: <Navigate to="/admin/settings/runtime-policy" replace /> },
                     { path: "settings/runtime-policy", element: <RuntimePolicySettingsPage /> },
                     { path: "settings/features", element: <FeatureAvailabilityPage /> },
-                    { path: "settings/access", element: <AccessSettingsPage /> },
+                    { path: "settings/access", element: <Navigate to="/admin/settings/features" replace /> },
                     { path: "settings/email", element: <EmailSettingsPage /> },
                     { path: "settings/storage", element: <StorageSettingsPage /> },
                     { path: "settings/ark-private-assets", element: <ArkPrivateAssetsSettingsPage /> },

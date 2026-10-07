@@ -474,6 +474,7 @@ export function AgentChatComposer({
                                             className="!h-8 !w-8 !min-w-8 !transition-transform hover:!scale-105 active:!scale-95"
                                             disabled={sending}
                                             style={{ color: theme.node.muted }}
+                                            aria-label="上传图片或文档"
                                             icon={<ImagePlus className="size-4" />}
                                             onClick={() => fileInputRef.current?.click()}
                                         />

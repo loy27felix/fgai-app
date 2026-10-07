@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, App, Button, Input, InputNumber, Select } from "antd";
+import { Alert, App, Button, Input, InputNumber, Select, Tabs } from "antd";
 import { Check, Edit3, Plus, RefreshCw, Shapes, SlidersHorizontal } from "lucide-react";
 import { AdminPageFrame } from "./components/admin-shell";
 import { AdminDataTable, AdminStatusBadge, AdminTableEmpty, SettingsSectionCard } from "./components/admin-ui";
@@ -19,6 +19,7 @@ export default function SkillCurationPage() {
     const [busy, setBusy] = useState(false);
     const [root, setRoot] = useState<CurationRoot>(emptyRoot);
     const [category, setCategory] = useState<CurationCategory>(emptyCategory);
+    const [classificationTab, setClassificationTab] = useState("roots");
     const [search, setSearch] = useState("");
     const [skills, setSkills] = useState<Skill[]>([]);
     const [skillId, setSkillId] = useState("");
@@ -118,6 +119,8 @@ export default function SkillCurationPage() {
                         description="先维护一级分类和子分类，再把公开技能归入对应分类。"
                         status={<AdminStatusBadge label={`${(data?.roots?.length ?? 0) + (data?.categories.length ?? 0)} 个分类`} tone="info" />}
                     >
+                        <Tabs activeKey={classificationTab} onChange={setClassificationTab} items={[{key: 'roots', label: `一级分类 · ${data?.roots?.length ?? 0}`}, {key: 'categories', label: `子分类 · ${data?.categories.length ?? 0}`}]} />
+                        <div hidden={classificationTab !== 'roots'}>
                         <div className="admin-skill-curation-form" aria-label="一级分类编辑表单">
                             <div className="admin-skill-curation-section-heading">
                                 <div>
@@ -222,6 +225,8 @@ export default function SkillCurationPage() {
                             />
                         </div>
 
+                        </div>
+                        <div hidden={classificationTab !== "categories"}>
                         <div className="admin-skill-curation-subsection">
                             <div className="admin-skill-curation-section-heading">
                                 <div>
@@ -307,13 +312,14 @@ export default function SkillCurationPage() {
                                 }
                             />
                         </div>
+                        </div>
                     </SettingsSectionCard>
 
                     <SettingsSectionCard
                         layout="stacked"
                         className="admin-skill-curation-panel"
                         icon={<Check className="size-4" aria-hidden="true" />}
-                        title="技能归类"
+                        title="技能分配"
                         description="搜索公开技能，选择一级分类和它应该出现的子分类。"
                         status={<AdminStatusBadge label={skillId ? "已选择技能" : "等待选择"} tone={skillId ? "success" : "neutral"} />}
                     >

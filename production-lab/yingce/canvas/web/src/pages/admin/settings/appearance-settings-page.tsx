@@ -5,7 +5,6 @@ import { AdminPageFrame } from "@/pages/admin/components/admin-shell";
 import { Palette, RefreshCw, Undo2, RotateCcw, Save, Sun, Moon, MonitorPlay, Globe2, Search, Copyright, Type } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/pages/admin/ui/controls";
-import { WelcomeSetting } from "@/pages/admin/settings/components/welcome-setting";
 import { SkinThemeEditor } from "@/pages/admin/settings/components/skin-theme-editor";
 import { CanvasAppearanceEditor } from "./components/canvas-appearance-editor";
 import { UpdateAnnouncementEditor } from "./components/update-announcement-editor";
@@ -449,7 +448,7 @@ export default function AppearanceSettingsPage() {
     };
 
     return (
-        <AdminPageFrame title="站点及外观" description="统一管理品牌身份、登录页、搜索信息、备案展示与全站皮肤主题" scroll>
+        <AdminPageFrame title="站点及外观" description="统一管理品牌身份、搜索信息、备案展示与全站皮肤主题" scroll>
             {loading ? (
                 <AppearanceSkeleton />
             ) : loadError || !setting ? (
@@ -476,7 +475,7 @@ export default function AppearanceSettingsPage() {
                                     <strong>{dirty ? "站点配置有调整待保存" : "站点及外观已与服务端同步"}</strong>
                                     <AdminStatusBadge label={dirty ? "尚未生效" : "服务端当前值"} tone={dirty ? "warning" : "neutral"} />
                                 </div>
-                                <p>{dirty ? "切换分类保留草稿；保存修改会一次应用品牌、登录页、更新公告、SEO、备案和皮肤调整。" : "按分类管理站点配置；欢迎页开关独立即时保存，其余修改统一保存。"}</p>
+                                <p>{dirty ? "切换分类保留草稿；保存修改会一次应用品牌、更新公告、SEO、备案和皮肤调整。" : "按分类管理站点配置，所有修改统一保存。"}</p>
                             </div>
                         </div>
                         <div className="admin-appearance-command-actions">
@@ -530,9 +529,7 @@ export default function AppearanceSettingsPage() {
                                                         onChange={(event) => setBrandSlug(event.target.value.toLocaleLowerCase().replace(/[^a-z0-9-]/g, ""))}
                                                     />
                                                 </Form.Item>
-                                                <Form.Item label="兑换码购买链接" extra="填写 HTTPS 购买页面地址；留空则不显示“获取兑换码”入口。">
-                                                    <Input value={redeemPurchaseUrl} maxLength={500} showCount placeholder="例如：https://wzyp.cn/shop/xxx" onChange={(event) => setRedeemPurchaseUrl(event.target.value)} />
-                                                </Form.Item>
+
                                             </Form>
                                             <div className="admin-appearance-brand-logo admin-appearance-logo-stack">
                                                 <AssetPicker
@@ -580,113 +577,6 @@ export default function AppearanceSettingsPage() {
                                                     <LogoThemePreview label="深色界面" icon={<Moon />} src={previews.logoDark} dark frameEnabled={logoFrameEnabled} />
                                                 </div>
                                             </div>
-                                        </div>
-                                    </SettingsSectionCard>
-                                ),
-                            },
-                            {
-                                key: "auth",
-                                label: "登录页",
-                                destroyOnHidden: true,
-                                children: (
-                                    <SettingsSectionCard
-                                        className="admin-appearance-section admin-appearance-auth-section"
-                                        icon={<MonitorPlay className="size-4" aria-hidden="true" />}
-                                        title="登录页内容与媒体"
-                                        description="登录、注册与找回密码共享左侧品牌文案和影片；更换视频会同时取消旧封面，避免品牌串帧。"
-                                        status={
-                                            <AdminStatusBadge
-                                                label={copyCustomized || setting.authVideoResourceId || setting.authVideoPosterResourceId ? "已配置" : "使用原始内容"}
-                                                tone={copyCustomized || setting.authVideoResourceId || setting.authVideoPosterResourceId ? "success" : "neutral"}
-                                            />
-                                        }
-                                    >
-                                        <div className="admin-appearance-auth-layout">
-                                            <div className="admin-appearance-auth-controls">
-                                                <Form className="admin-appearance-form" layout="vertical" requiredMark={false} disabled={saving || refreshing || restoring}>
-                                                    <Form.Item label="登录页主标题" extra="1–80 个字符，可换行；登录、注册和找回密码页面共用。">
-                                                        <Input.TextArea value={authHeroTitle} maxLength={80} showCount autoSize={{ minRows: 2, maxRows: 4 }} placeholder="输入登录页主标题" onChange={(event) => setAuthHeroTitle(event.target.value)} />
-                                                    </Form.Item>
-                                                    <Form.Item label="登录页说明文案（可选）" extra="最多 160 个字符，可换行；留空时不显示说明。">
-                                                        <Input.TextArea
-                                                            value={authHeroDescription}
-                                                            maxLength={160}
-                                                            showCount
-                                                            autoSize={{ minRows: 2, maxRows: 5 }}
-                                                            placeholder="补充一句品牌介绍或产品定位"
-                                                            onChange={(event) => setAuthHeroDescription(event.target.value)}
-                                                        />
-                                                    </Form.Item>
-                                                </Form>
-                                                <div className="admin-appearance-media-list">
-                                                    <div className="admin-appearance-video-autoplay-option">
-                                                        <span className="admin-appearance-video-autoplay-copy">
-                                                            <strong>登录页视频自动播放</strong>
-                                                            <small>默认开启并静音循环播放；访客启用“减少动态效果”时仍尊重其系统偏好。</small>
-                                                        </span>
-                                                        <span className="admin-appearance-video-autoplay-control">
-                                                            <span>{authVideoAutoplay ? "已开启" : "已关闭"}</span>
-                                                            <Switch checked={authVideoAutoplay} disabled={saving || refreshing || restoring} aria-label="登录页视频自动播放" onChange={setAuthVideoAutoplay} />
-                                                        </span>
-                                                    </div>
-                                                    <AssetPicker
-                                                        slot="video"
-                                                        title="品牌视频"
-                                                        description="支持 MP4 或 WebM，最多 256MB；服务器运行时上传配额仍会同时生效。"
-                                                        configured={Boolean(setting.authVideoResourceId) && !resets.video}
-                                                        file={files.video}
-                                                        inputRef={inputRefs.video}
-                                                        onSelect={selectFile}
-                                                        onReset={resetAsset}
-                                                        disabled={saving || refreshing || restoring}
-                                                    />
-                                                    <AssetPicker
-                                                        slot="poster"
-                                                        title="视频封面（可选）"
-                                                        description="自定义视频未设置封面时保持中性背景，不显示原品牌封面。"
-                                                        configured={Boolean(setting.authVideoPosterResourceId) && !resets.poster}
-                                                        file={files.poster}
-                                                        inputRef={inputRefs.poster}
-                                                        onSelect={selectFile}
-                                                        onReset={resetAsset}
-                                                        disabled={saving || refreshing || restoring}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="admin-appearance-preview" aria-label="登录页实时预览">
-                                                <div className="admin-appearance-preview-heading">
-                                                    <div>
-                                                        <span>登录页实时预览</span>
-                                                        <strong>{brandName.trim() || "未命名品牌"}</strong>
-                                                    </div>
-                                                    <AdminStatusBadge label={dirty ? "未保存" : "线上版本"} tone={dirty ? "warning" : "success"} />
-                                                </div>
-                                                <div className="admin-appearance-preview-stage">
-                                                    <video key={`${previews.video}-${authVideoAutoplay}`} src={previews.video} poster={previews.poster || undefined} muted loop playsInline autoPlay={authVideoAutoplay} preload="metadata" />
-                                                    <span className="admin-appearance-preview-shade" />
-                                                    <span className="admin-appearance-preview-brand">
-                                                        <img src={previews.logoDark} alt="" />
-                                                        <strong>{brandName.trim() || "未命名品牌"}</strong>
-                                                    </span>
-                                                    <span className="admin-appearance-preview-copy">
-                                                        <small>{(brandSlug.trim() || "brand-studio").replace(/-+/g, " ").toLocaleUpperCase()}</small>
-                                                        <strong>{normalizeDraftCopy(authHeroTitle) || "请输入登录页主标题"}</strong>
-                                                        {normalizeDraftCopy(authHeroDescription) ? <span>{normalizeDraftCopy(authHeroDescription)}</span> : null}
-                                                    </span>
-                                                </div>
-                                                <p>预览与正式登录页使用同一文案和媒体。正式页面会先解析公开配置，再渲染品牌内容。</p>
-                                            </div>
-                                        </div>
-                                    </SettingsSectionCard>
-                                ),
-                            },
-                            {
-                                key: "welcome",
-                                label: "欢迎页",
-                                children: (
-                                    <SettingsSectionCard className="admin-appearance-section" icon={<Globe2 className="size-4" aria-hidden="true" />} title="欢迎页" description="控制访客是否可以访问欢迎页，开关修改后立即保存。">
-                                        <div className="admin-appearance-section-form">
-                                            <WelcomeSetting />
                                         </div>
                                     </SettingsSectionCard>
                                 ),

@@ -234,12 +234,18 @@ export default function FeatureAvailabilityPanel() {
                 </div>
             ) : null}
 
+            <section className="admin-feature-coverage" aria-label="公司工作区控制范围">
+                <div><h2>公司工作区</h2><p>以下工作区不受下方三个入口开关控制。成员身份由公司登录校验，模型和运行组件由服务器提供。</p></div>
+                <div className="admin-feature-coverage-grid">
+                    {[['超级创作 / 超级自由画布', '模型选择来自系统渠道或前台模型目录'], ['超级综合工作台 / 超级小说转视频', '服务器运行环境与组件配置'], ['超级灵感库', '来源同步与公司登录'], ['音频设置区', '公司音频服务配置；Suno 另需完成生成验证']].map(([name, scope]) => <article key={name}><strong>{name}</strong><span>{scope}</span></article>)}
+                </div>
+            </section>
             <div className="admin-feature-board" aria-label="功能开放控制台">
                 <FeatureDomainPanel
                     title="1. 用户工作台入口"
                     description="先决定普通用户能进入哪些核心工作区"
                     icon={<MonitorCog className="size-4" aria-hidden="true" />}
-                    status={<AdminStatusBadge label={`${enabledWorkspaceFeatures}/4 开放`} tone={enabledWorkspaceFeatures === 4 ? "success" : "neutral"} />}
+                    status={<AdminStatusBadge label={`${enabledWorkspaceFeatures}/${workspaceFeatureRows.length} 开放`} tone={enabledWorkspaceFeatures === workspaceFeatureRows.length ? "success" : "neutral"} />}
                 >
                     {workspaceFeatureRows.map((row) => (
                         <FeatureSettingRow key={row.key} row={row} saved={savedFeatures} draft={draftFeatures} saving={saving} onChange={requestFeatureChange} />

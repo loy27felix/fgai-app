@@ -208,7 +208,10 @@ test("task-first settings reveal dependent configuration only after the primary 
     expect(featureSource).toContain('title="1. 用户工作台入口"');
     expect(featureSource).toContain('title="2. 插件开放范围"');
     expect(featureSource).toContain('title="3. 用户模型来源"');
-    expect(appearanceSource).toContain("<WelcomeSetting />");
+    expect(appearanceSource).not.toContain("<WelcomeSetting />");
+    expect(appearanceSource).not.toContain('key: "auth"');
+    expect(appearanceSource).not.toContain('key: "welcome"');
+    expect(appearanceSource).not.toContain('label="兑换码购买链接"');
     expect(welcomeSource).toContain("<strong>启用欢迎页</strong>");
     expect(welcomeSource).toContain("updateAdminFeatureAvailability({ welcomeEnabled: value })");
 
