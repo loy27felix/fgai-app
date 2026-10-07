@@ -6,3 +6,8 @@ node_modules
 !.env.docker.example
 coverage
 tsconfig.tsbuildinfo
+# Independent workspaces build their own images. Keep production-lab/migrations.
+production-lab/opencreator
+production-lab/arcreel
+production-lab/suno
+production-lab/yingce
