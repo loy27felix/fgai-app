@@ -1,0 +1,10 @@
+{
+  "slug": "acting",
+  "skillId": "fg-2ad0acb649d2c730cc017f32",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "ce9c240fea55c5141b0353a66cd5636a12c42cf8fe9de190ddfa9d8576803db2",
+  "omitted": [],
+  "imageStyle": null
+}

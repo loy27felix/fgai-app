@@ -1,4 +1,5 @@
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { composeFGImageStylePrompt, fgImageStyle } from './fg-image-styles';
 import {
     getSkillFile,
     listSkillFiles,
@@ -67,6 +68,7 @@ export type PrepareSkillRuntimeInput<P extends keyof SkillRuntimeResultByProfile
     prompt: string;
     skills: Skill[];
     selectedSkillIds?: string[];
+    capability?: string;
 };
 
 export type SkillRuntimeToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
@@ -148,6 +150,22 @@ export function createSkillRuntime(dependencies: SkillRuntimeDependencies = {
         async prepare<P extends keyof SkillRuntimeResultByProfile>(input: PrepareSkillRuntimeInput<P>): Promise<SkillRuntimeResultByProfile[P]> {
             const config = SKILL_RUNTIME_PROFILES[input.profile];
             const selectedSkills = resolveSkillMentions(input.prompt, input.skills, input.selectedSkillIds).slice(0, config.maxSkills);
+            if (selectedSkills.some(skill => skill.skillName === 'framewright') && selectedSkills.length > 1) {
+                throw new Error('Framewright 是独立的分镜编译流程，请单独选择此 Skill。');
+            }
+            if (input.capability === 'image') {
+                const imagePrompt = composeFGImageStylePrompt(input.prompt, selectedSkills.map(skill => skill.skillId));
+                if (imagePrompt) {
+                    if (selectedSkills.some(skill => !fgImageStyle(skill.skillId))) {
+                        throw new Error('图片风格请与图片风格单独搭配；剧本、导演或工具流程请在 Agent 模式运行。');
+                    }
+                    const versions = await Promise.all(selectedSkills.map(async skill => {
+                        const file = await dependencies.getFile(skill.skillId, 'PLATFORM.json');
+                        return { skill, files: [{ path: 'PLATFORM.json', sha256: file.file.file.sha256 }] };
+                    }));
+                    return linkedResult(imagePrompt, selectedSkills, provenanceFromLoaded(versions)) as SkillRuntimeResultByProfile[P];
+                }
+            }
             const adapter = deliveryAdapters[config.delivery as keyof typeof deliveryAdapters];
             if (!adapter) throw new Error(`技能运行模式 ${config.delivery} 不支持直接准备上下文`);
             return adapter.prepare({ prompt: normalizeSkillTokens(input.prompt, input.skills), selectedSkills, config }) as Promise<SkillRuntimeResultByProfile[P]>;

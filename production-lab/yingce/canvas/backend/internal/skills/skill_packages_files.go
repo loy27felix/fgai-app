@@ -140,10 +140,16 @@ func (s *Service) loadSkillPackageSnapshot(userID string, skillID string) (*skil
 	if len(files) == 0 {
 		return legacySkillPackageSnapshot(skill)
 	}
-	if err := validateSkillPackageSnapshot(s, skill, version, files); err != nil {
+	// A bundle may contain hundreds of references. Read the ZIP once per
+	// snapshot instead of reopening and scanning it for every requested file.
+	contents, err := readSkillArchiveEntries(s.dataDir, version.PackageKey)
+	if err != nil {
 		return nil, err
 	}
-	return &skillPackageSnapshot{skill: skill, version: version, files: files}, nil
+	if err := validateSkillPackageSnapshotContents(skill, version, files, contents); err != nil {
+		return nil, err
+	}
+	return &skillPackageSnapshot{skill: skill, version: version, files: files, contents: contents}, nil
 }
 
 func (s *Service) readSkillPackageSnapshotEntry(snapshot *skillPackageSnapshot, filePath string) ([]byte, error) {
@@ -220,6 +226,17 @@ func (s *Service) syncSkillPackageMetadata(skill *model.Skill, version *model.Sk
 }
 
 func validateSkillPackageSnapshot(s *Service, skill *model.Skill, version *model.SkillVersion, files []model.SkillFile) error {
+	if version.PackageKey == "" {
+		return fmt.Errorf("技能 %s 当前版本缺少 ZIP 包", skill.ID)
+	}
+	contents, err := readSkillArchiveEntries(s.dataDir, version.PackageKey)
+	if err != nil {
+		return fmt.Errorf("读取技能 %s ZIP 包失败: %w", skill.ID, err)
+	}
+	return validateSkillPackageSnapshotContents(skill, version, files, contents)
+}
+
+func validateSkillPackageSnapshotContents(skill *model.Skill, version *model.SkillVersion, files []model.SkillFile, contents map[string][]byte) error {
 	if len(files) == 0 || version.FileCount != len(files) || version.TotalBytes < 0 {
 		return fmt.Errorf("技能 %s 文件元数据不完整", skill.ID)
 	}
@@ -234,10 +251,6 @@ func validateSkillPackageSnapshot(s *Service, skill *model.Skill, version *model
 	}
 	if version.PackageKey == "" {
 		return fmt.Errorf("技能 %s 当前版本缺少 ZIP 包", skill.ID)
-	}
-	contents, err := readSkillArchiveEntries(s.dataDir, version.PackageKey)
-	if err != nil {
-		return fmt.Errorf("读取技能 %s ZIP 包失败: %w", skill.ID, err)
 	}
 	byPath := make(map[string]model.SkillFile, len(files))
 	var total int64

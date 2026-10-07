@@ -360,13 +360,30 @@ func parseBuiltinTime(value string) time.Time {
 }
 
 func builtinSeedSkillIDs() ([]string, error) {
-	packages, err := loadBuiltinSkillPackages(nil)
+	entries, err := fs.ReadDir(builtinSkillFiles, ".")
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(packages))
-	for _, item := range packages {
-		ids = append(ids, item.skill.ID)
+	// Preset lookup needs catalog IDs only. Full archives are validated and
+	// synced by EnsureBuiltinSkills at startup, not rebuilt for each GET.
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		body, err := fs.ReadFile(builtinSkillFiles, path.Join(entry.Name(), "SKILL.md"))
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := parseBuiltinSkillMetadata(body)
+		if err != nil {
+			return nil, err
+		}
+		id := metadata.SkillID
+		if id == "" {
+			id = entry.Name()
+		}
+		ids = append(ids, id)
 	}
 	if len(ids) == 0 {
 		return nil, kernel.BadAuthRequest("内置技能不能为空")

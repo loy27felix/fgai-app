@@ -5,8 +5,15 @@ export const musicModels=[{id:'suno-company-music',billingId:'suno-company-music
 const endpoint='http://suno:3050';
 export const musicServiceSecret=()=>createHmac('sha256',process.env.FG_ADCRAFT_SECRET||'').update('fg-company-suno-service-v1').digest('hex');
 const headers=()=>({authorization:'Bearer '+musicServiceSecret(),'content-type':'application/json'});
+export async function downloadCompanyMusic(clipId,{fetcher=fetch}={}){
+ if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(clipId||''))throw Error('作品 ID 格式无效');
+ const r=await fetcher(endpoint+'/clips/'+clipId+'/download',{headers:headers(),signal:AbortSignal.timeout(90000),redirect:'error'});
+ if(!r.ok){const body=await r.json().catch(()=>({}));const error=Error('作品尚未完成、并非公司账号作品或下载未获准；请核对原作品后重试归档');if(body.error?.code==='SUNO_CLIP_NOT_OWNED')error.code='SUNO_CLIP_NOT_OWNED';throw error;}
+ let size=0;const chunks=[];for await(const c of r.body){size+=c.length;if(size>(80<<20))throw Error('音频文件过大');chunks.push(c);}
+ return validateSpeechAudio(Buffer.concat(chunks),'mp3');
+}
 export async function musicStatus({fetcher=fetch}={}){
- try{const r=await fetcher(endpoint+'/status',{headers:headers(),signal:AbortSignal.timeout(3000),redirect:'error'});if(!r.ok)throw Error();const b=await r.json();return {available:true,configured:b.configured===true,enabled:b.enabled===true,...(b.accountReadable===true?{accountReadable:true,captchaRequired:b.captchaRequired===true,models:(Array.isArray(b.models)?b.models:[]).filter(m=>typeof m.id==='string'&&typeof m.name==='string').map(m=>({id:m.id,name:m.name}))}:{})};}
+ try{const r=await fetcher(endpoint+'/status',{headers:headers(),signal:AbortSignal.timeout(15000),redirect:'error'});if(!r.ok)throw Error();const b=await r.json();return {available:true,configured:b.configured===true,enabled:b.enabled===true,...(b.accountReadable===true?{accountReadable:true,captchaRequired:b.captchaRequired===true,models:(Array.isArray(b.models)?b.models:[]).filter(m=>typeof m.id==='string'&&typeof m.name==='string').map(m=>({id:m.id,name:m.name}))}:{})};}
  catch{return {available:false,configured:false,enabled:false};}
 }
 export async function synthesizeMusic(input,{requestId,fetcher=fetch}={}){

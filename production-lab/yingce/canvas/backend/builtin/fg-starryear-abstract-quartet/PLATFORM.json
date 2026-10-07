@@ -1,0 +1,16 @@
+{
+  "slug": "starryear-abstract-quartet",
+  "skillId": "fg-b00e8a51cab246fd5aa9da29",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "6946d360f97c14f17fa45349e9f40e716365e9f4eb2a1c0091e7c78229cd6449",
+  "omitted": [
+    "Starryear-Abstract-Quartet-Skill.zip"
+  ],
+  "imageStyle": {
+    "label": "记忆四联画",
+    "prompt": "Source-driven four-panel artwork: reality, memory, structural abstraction and hybrid interpretation; lock the source photograph and compose the panels after separate generation.",
+    "direct": false
+  }
+}

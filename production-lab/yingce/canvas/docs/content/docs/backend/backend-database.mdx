@@ -9,6 +9,8 @@ description: 影策后端核心持久化表与状态边界
 
 语音接入增加 `fg_speech_usage`（按费用预留 ID 唯一登记的提供商生成请求、实际用量和结果状态）及 `fg_speech_jobs`（账号独占的录音识别、机器翻译记录）。`fg_speech_jobs` 的账号与操作 UUID 唯一，输入散列阻止同一操作更换参数；异步查询通过更新时间租约防止并发重复查询。两表关联 `fg_budget_reservations`，未知费用不会记为零或已核销，广告工具调用保留广告项目预算归属。
 
+`fg_music_jobs` 保存公司 Suno 制作队列。`owner_id` 是提交成员，`operator_id` 是领取任务的管理员；`operation_id` 与成员唯一，`input_hash` 阻止同一操作替换创作内容。状态依次为 `queued`、`processing`、`importing`、`succeeded`。只有管理员可领取和归档，且归档前核验作品属于公司 Suno 工作区。`clip_id` 唯一，`resource_id` 指向提交成员的 NAS 音频；下载或上传失败回到原任务处理状态，不自动重新生成。Suno 官网验证码仍由管理员处理，队列可用不表示全自动生成已通过。
+
 FG 独立数据库增加 `fg_user_budgets`（用户月限额）、`fg_budget_reservations`（计费请求在途预留）、`fg_fee_decisions`（人工流水归属）、`fg_request_decisions`（经核实未收费的请求依据）和 `fg_finance_audit`（处理及额度调整记录）。`api_call_logs.fg_budget_reservation_id` 将调用绑定预留；`fg_fee_matches` 统一唯一流水自动匹配和有审计依据的人工匹配。原始供应商账单保留，不因人工归属而改写金额。项目预算及用户月限额为 0 时不限额；按北京时间自然月统计用户费用。未收费确认不改写原调用日志，可撤回；迟到的精确匹配账单优先计费。
 
 ## FG 试用分支扩展

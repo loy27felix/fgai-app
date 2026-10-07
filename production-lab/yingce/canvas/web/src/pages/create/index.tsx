@@ -636,6 +636,7 @@ export default function CreatePage() {
         try {
             skillExecution = await runtime.skillRuntime.prepare({
                 profile: "creation",
+                capability: mode,
                 prompt: expandCreationPrompt(text, references, attachments),
                 skills: skillReferences,
                 selectedSkillIds: skillReferences.map((skill) => skill.skillId),

@@ -1,0 +1,10 @@
+{
+  "slug": "xiaotang-ai-prompt-architect",
+  "skillId": "fg-52a9d2e498eb1166e1fa3db3",
+  "version": "1.0.0",
+  "tag": "ecommerce",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "5f8bb4c80f112a7222396b7ea725c0704aa4ec73b533841a5a03ad641ab73d57",
+  "omitted": [],
+  "imageStyle": null
+}

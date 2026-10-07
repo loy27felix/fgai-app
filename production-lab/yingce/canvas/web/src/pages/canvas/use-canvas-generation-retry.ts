@@ -161,7 +161,7 @@ export function useCanvasGenerationRetry({
             let context = rawContext;
             if (rawContext) {
                 try {
-                    const skillExecution = await skillRuntime.prepare({ profile: "canvas", prompt: rawContext.prompt, skills: addedSkills });
+                    const skillExecution = await skillRuntime.prepare({ profile: "canvas", capability: retryMode, prompt: rawContext.prompt, skills: addedSkills });
                     context = { ...rawContext, prompt: skillExecution.prompt };
                     skillMetadata = skillExecution.metadata;
                 } catch (error) {

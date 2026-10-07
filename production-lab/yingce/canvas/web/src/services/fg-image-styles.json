@@ -1,0 +1,107 @@
+[
+  {
+    "slug": "zy-cinematic-realism",
+    "skillId": "fg-854d8b8422c4b6247dad0a29",
+    "label": "电影写实",
+    "prompt": "Photographic cinematic realism, physically credible materials and lighting, coherent camera perspective, restrained film color and natural texture. Preserve the requested subject and composition; avoid plastic CGI, oversmoothing and arbitrary cinematic props.",
+    "direct": true
+  },
+  {
+    "slug": "lira-image-prompts",
+    "skillId": "fg-52571a97a9a8e3b311cbc090",
+    "label": "人物与场景设计",
+    "prompt": "Refined character and environment concept artwork, deliberate composition, consistent anatomy and identity, specific material and lighting details. Follow the user-selected medium and palette; preserve reference identity.",
+    "direct": true
+  },
+  {
+    "slug": "cinema-dna-21x9x3",
+    "skillId": "fg-2908e4e7de490f3980a4c407",
+    "label": "电影关键帧",
+    "prompt": "Cinematic keyframe with purposeful lens, motivated light, foreground/midground/background separation, clear visual storytelling and continuous screen direction. One shot only; keep the requested aspect ratio.",
+    "direct": true
+  },
+  {
+    "slug": "deepwhite-image-prompt-builder",
+    "skillId": "fg-87e6bd5e376c73f618b84a73",
+    "label": "静态分镜画面",
+    "prompt": "Production-ready still frame: explicit subject action, spatial relationships, camera position, light direction and material fidelity. Depict a frozen instant, no movement arrows, no storyboard labels unless requested.",
+    "direct": true
+  },
+  {
+    "slug": "gpt-image-2-style-library",
+    "skillId": "fg-7d123d031b3462c769f4a549",
+    "label": "风格探索",
+    "prompt": "Develop an image style from the user brief: distinguish subject, composition, medium, material, lighting and palette, with one coherent visual language. Do not impose a stock style or change the subject.",
+    "direct": true
+  },
+  {
+    "slug": "tiangong-celestial-prompt-studio",
+    "skillId": "fg-9a7aaadc1e901426713e323e",
+    "label": "东方天宫",
+    "prompt": "Chinese celestial atmosphere, luminous layered clouds, graceful immortal architecture and flowing fabrics, restrained blue-white and warm-gold accents; clear subject and generous spatial depth. No unrelated religious symbols or lettering.",
+    "direct": true
+  },
+  {
+    "slug": "fantasy-movie-poster",
+    "skillId": "fg-4a91984edf158e6a36e29398",
+    "label": "电影海报",
+    "prompt": "Premium cinematic poster composition, one strong protagonist or narrative symbol, purposeful foreground/background depth, dramatic but credible light, controlled visual hierarchy and negative space for title. Only render exact user-provided wording; no invented credits or mockup.",
+    "direct": true
+  },
+  {
+    "slug": "gc-minimal-zine-poster-v0-3",
+    "skillId": "fg-d0bd36c77a7ff255b9aac0f9",
+    "label": "纸感拼贴海报",
+    "prompt": "Minimal editorial zine poster, tactile paper and clean cut collage, asymmetrical composition, generous negative space, selective overprint texture and experimental typography only from exact user-provided text. Avoid generic grunge and busy decoration.",
+    "direct": true
+  },
+  {
+    "slug": "odyssey-photo-diptych",
+    "skillId": "fg-8ce80ac9d15c8913a70a9c77",
+    "label": "照片与抽象双联画",
+    "prompt": "Requires a user photograph: preserve the source photographic panel, interpret its actual structure into a separate abstract counterpart, then compose the two panels deterministically.",
+    "direct": false
+  },
+  {
+    "slug": "starryear-abstract-quartet",
+    "skillId": "fg-b00e8a51cab246fd5aa9da29",
+    "label": "记忆四联画",
+    "prompt": "Source-driven four-panel artwork: reality, memory, structural abstraction and hybrid interpretation; lock the source photograph and compose the panels after separate generation.",
+    "direct": false
+  },
+  {
+    "slug": "starryear-threefold-memory",
+    "skillId": "fg-684a051b8dd3c3f2f6fb2679",
+    "label": "三段式记忆",
+    "prompt": "Three equal panels: fragmented geometric memory, untouched source photograph, spatial signal map derived from the photograph. Generate top and bottom separately, preserve the middle, then compose deterministically.",
+    "direct": false
+  },
+  {
+    "slug": "culture-fragment-poster-engine",
+    "skillId": "fg-8f05d870c4f6450467f8d878",
+    "label": "文化碎片海报",
+    "prompt": "Derive a contemporary cultural poster from user-supplied visual material: isolate its distinctive forms and symbols, reorganize them into bold collage with controlled scale, restrained palette and clean editorial hierarchy. Do not invent generic cultural motifs.",
+    "direct": true
+  },
+  {
+    "slug": "regional-culture-poster",
+    "skillId": "fg-545aaeca896027fdbd799565",
+    "label": "地域文化海报",
+    "prompt": "Contemporary regional-culture poster grounded in the named place and supplied reference: recognizable local visual anchors, deliberate geometry and material texture, restrained palette and hierarchy. Avoid generic landmarks and unsupported historical details.",
+    "direct": true
+  },
+  {
+    "slug": "RuiC-card-skill",
+    "skillId": "fg-4819f9edbb36e79d8f64cbd4",
+    "label": "角色卡与交互作品",
+    "prompt": "Layered character card with protected exact wording, clear foreground/background asset roles, safe area and small-size legibility. Interactive output needs separate web composition, not a single generated image.",
+    "direct": false
+  },
+  {
+    "slug": "minimal-logo-design",
+    "skillId": "fg-6ccfc4335b76d1f65e94111c",
+    "label": "极简 Logo",
+    "prompt": "Minimal flat logo exploration, one memorable geometric idea, balanced negative space, precise silhouette, reproducible at small sizes, no mockups, gradients, shadows or decorative background. Preserve exact user-provided brand lettering if requested.",
+    "direct": true
+  }
+]

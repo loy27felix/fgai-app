@@ -10,6 +10,7 @@ import {budgetInternalRoute} from './fg-budgets.mjs';
 import {initializeSpeech,speechInternalRoute} from './fg-speech.mjs';
 import {musicStatus} from './fg-music-provider.mjs';
 import {initializeSpeechJobs,speechJobRoute} from './fg-speech-jobs.mjs';
+import {initializeMusicQueue,musicQueueRoute} from './fg-music-queue.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
 import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
@@ -34,6 +35,7 @@ const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 await initializeFG(pool);
 await initializeSpeech(pool);
 await initializeSpeechJobs(pool);
+await initializeMusicQueue(pool);
 await initializeAdcraft(pool);
 await initializeCreator(pool);
 await initializeArcReel(pool);
@@ -144,6 +146,13 @@ const server = http.createServer(async (req, res) => {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     const cookie = await canvasSession(actor);
+    if(await musicQueueRoute(req,res,{pool,actor,path,ownerAPI:async(ownerId,p,m,payload,extra)=>{
+      const owner=(await pool.query('SELECT u.id,u.display_name name,a.email,a.platform_role FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.id=$1 AND u.status=\'active\'',[ownerId])).rows[0];
+      if(!owner)throw Error('作品所属成员账号不可用');
+      const ownerCookie=await canvasSession({...owner,reviewer:owner.platform_role==='superadmin',platformRole:owner.platform_role});
+      const output=await fetch(new URL('/api'+p,web),{method:m,headers:{cookie:ownerCookie,origin:publicOrigin,...extra},body:payload,signal:AbortSignal.timeout(120000)});
+      const envelope=await output.json();if(!output.ok||envelope.code!==0)throw Error(envelope.msg||'作品归档未完成');return envelope.data;
+    }}))return;
     if(await inspirationRoute(req,res,{pool,actor,path}))return;
     if(path.pathname==='/api/fg/music/status'&&req.method==='GET'){
       const status=await musicStatus();const registered=(await pool.query(`SELECT 1 FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name='Suno 音乐 · FG' AND cm.model_key='suno-company-music' AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rowCount>0;
@@ -167,7 +176,7 @@ const server = http.createServer(async (req, res) => {
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
-      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.2.9',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
+      res.end(JSON.stringify({code:0,data:{supported:false,connected:true,repository:'loy27felix/fgai-app',deployment:'fg-six-yingce',currentVersion:'v1.3.0',updateAvailable:false,checks:[],operation:{phase:'idle',logs:[]}},msg:''})); return;
     }
     if (path.pathname === '/api/admin/system-performance' && req.method === 'GET') {
       const response = await fetch(new URL(path.pathname,web),{headers,signal:AbortSignal.timeout(10000)});

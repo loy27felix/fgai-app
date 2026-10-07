@@ -1,0 +1,14 @@
+{
+  "slug": "zy-cinematic-realism",
+  "skillId": "fg-854d8b8422c4b6247dad0a29",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "fc99817a647ef70977cbd07fbb4dcef52c2c327c53241c3860fcea3a2c69429e",
+  "omitted": [],
+  "imageStyle": {
+    "label": "电影写实",
+    "prompt": "Photographic cinematic realism, physically credible materials and lighting, coherent camera perspective, restrained film color and natural texture. Preserve the requested subject and composition; avoid plastic CGI, oversmoothing and arbitrary cinematic props.",
+    "direct": true
+  }
+}

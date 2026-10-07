@@ -88,6 +88,15 @@ export function isDoubaoAudioConfig(config: AiConfig) {
     return resolveModelRequestConfig(config, config.model || config.audioModel).interfaceType === "doubao-streaming-tts";
 }
 
+export function isSeedAudioConfig(config: AiConfig) {
+    return (config.model || config.audioModel) === "seed-audio-1.0" && !isDoubaoAudioConfig(config);
+}
+
+export function audioSettingsSummary(config: AiConfig) {
+    const format = audioFormatLabelForConfig(config, config.audioFormat);
+    return isSeedAudioConfig(config) ? format : `${audioVoiceLabelForConfig(config, config.audioVoice) || "不指定音色"} · ${format} · ${audioSpeedLabel(config.audioSpeed)}`;
+}
+
 export function audioVoiceOptionsForConfig(config: AiConfig) {
     if ((config.model || config.audioModel) === "seed-tts-2.0") return fgSpeechVoices;
     if ((config.model || config.audioModel) === "seed-audio-1.0" && !isDoubaoAudioConfig(config)) return [{value:"prompt",label:"由提示词描述声音"}];

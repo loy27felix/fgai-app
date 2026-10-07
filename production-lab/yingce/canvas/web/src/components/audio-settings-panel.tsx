@@ -1,7 +1,9 @@
 import { type ReactNode } from "react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { audioFormatOptionsForConfig, audioSpeedLabel, audioVoiceOptionsForConfig, isDoubaoAudioConfig, normalizeAudioFormatForConfig, normalizeAudioSpeedValue, normalizeAudioVoiceForConfig } from "@/lib/audio-generation";
+import { audioFormatOptionsForConfig, audioSpeedLabel, audioVoiceOptionsForConfig, isDoubaoAudioConfig, isSeedAudioConfig, normalizeAudioFormatForConfig, normalizeAudioSpeedValue, normalizeAudioVoiceForConfig } from "@/lib/audio-generation";
+import { FGVoicePreview } from "@/components/fg-voice-preview";
+import { fgSpeechVoices } from "@/lib/fg-speech-voices";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -35,6 +37,7 @@ type AudioSettingsPanelProps = {
 
 export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[var(--panel-width-compact)] space-y-4 rounded-2xl px-1 py-0.5" }: AudioSettingsPanelProps) {
     const isDoubao = isDoubaoAudioConfig(config);
+    const seedAudio = isSeedAudioConfig(config);
     const voice = normalizeAudioVoiceForConfig(config, config.audioVoice);
     const voiceOptions = audioVoiceOptionsForConfig(config);
     const visibleVoiceOptions = voiceOptions.some((item) => item.value === voice) ? voiceOptions : [{ value: voice, label: `当前音色（${voice}）` }, ...voiceOptions];
@@ -46,7 +49,8 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">音频设置</div> : null}
-                <SettingGroup title="音色" color={theme.node.muted}>
+                {seedAudio && <p className="text-xs leading-6" style={{color:theme.node.muted}}>直接在输入框描述声音、对白和情绪即可生成。提示词最多 3,000 字符；长篇旁白请使用豆包语音合成 2.0。</p>}
+                {!seedAudio && <SettingGroup title="音色" color={theme.node.muted}>
                     {isDoubao ? (
                         <div className="space-y-3">
                             <div className="rounded-xl border px-3 py-2 text-sm leading-6" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
@@ -83,14 +87,15 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             </datalist>
                             <div className="grid grid-cols-3 gap-2.5">
                                 {visibleVoiceOptions.map((item) => (
-                                    <OptionPill key={item.value} selected={voice === item.value} theme={theme} onClick={() => onConfigChange("audioVoice", item.value)}>
-                                        {item.label}
-                                    </OptionPill>
+                                    <div key={item.value} className="flex min-w-0 flex-col gap-1">
+                                        <OptionPill selected={voice === item.value} theme={theme} onClick={() => onConfigChange("audioVoice", item.value)}>{item.label}</OptionPill>
+                                        {fgSpeechVoices.some(v=>v.value===item.value) && <FGVoicePreview voice={item.value} compact/>}
+                                    </div>
                                 ))}
                             </div>
                         </>
                     )}
-                </SettingGroup>
+                </SettingGroup>}
                 <SettingGroup title="格式" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {formatOptions.map((item) => (
@@ -100,7 +105,7 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         ))}
                     </div>
                 </SettingGroup>
-                <SettingGroup title="语速" color={theme.node.muted}>
+                {!seedAudio && <SettingGroup title="语速" color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-2.5">
                         {speedOptions.map((value) => (
                             <OptionPill key={value} selected={speed === value} theme={theme} onClick={() => onConfigChange("audioSpeed", value)}>
@@ -120,8 +125,8 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         onBlur={(event) => onConfigChange("audioSpeed", normalizeAudioSpeedValue(event.target.value))}
                         onMouseDown={(event) => event.stopPropagation()}
                     />
-                </SettingGroup>
-                {!isDoubao ? (
+                </SettingGroup>}
+                {!isDoubao && !seedAudio ? (
                     <SettingGroup title="声音指令" color={theme.node.muted}>
                         <textarea
                             value={config.audioInstructions || ""}

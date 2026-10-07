@@ -33,6 +33,14 @@ test('provider key travels only to the fixed official host with redirects reject
  const bad=()=>synthesizeSpeech({model:'seed-audio-1.0',input:'提示音'}, {key:'test-key',fetcher:async()=>respond({url:'http://127.0.0.1/private'})});
  await assert.rejects(bad,e=>e.code==='SPEECH_INVALID_RESULT');
 });
+test('Seed Audio validates combined prompt length and ignores preset voice and speed',()=>{
+ const spec=speechPayload({model:'seed-audio-1.0',input:'台词',voice:'alloy',speed:1.5});
+ assert.equal(spec.body.audio_config.speech_rate,0);assert.equal(spec.body.voice,undefined);
+ assert.throws(()=>speechPayload({model:'seed-audio-1.0',input:'a'.repeat(2990),instructions:'x'.repeat(20)}),e=>e.code==='SPEECH_PROMPT_TOO_LONG');
+});
+test('provider duration error is actionable and never exposed as a generic 502',async()=>{
+ await assert.rejects(()=>synthesizeSpeech({model:'seed-audio-1.0',input:'long narration'},{key:'test-key',fetcher:async()=>new Response(JSON.stringify({code:40000020,message:'secret-never-returned duration'}),{status:402})}),e=>e.code==='SPEECH_DURATION_LIMIT'&&e.status===400&&!e.message.includes('secret'));
+});
 test('translation validates before charging and extracts official translation objects',async()=>{
  assert.throws(()=>translationPayload([], 'zh','en'));assert.throws(()=>translationPayload(['a'],'../../private','en'));
  const result=await translateSpeech(['你好'],'zh','en',{key:'test-key',fetcher:async()=>respond({code:20000000,data:{translation_list:[{translation:'Hello',usage:{total_tokens:27}}]}},{'x-api-status-code':'20000000'})});

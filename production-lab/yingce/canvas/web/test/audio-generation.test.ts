@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { audioVoiceOptionsForConfig, audioFormatOptionsForConfig, doubaoAudioVoiceOptions, isDoubaoAudioConfig, normalizeAudioVoiceForConfig, normalizeAudioVoiceValue } from "../src/lib/audio-generation";
+import { audioSettingsSummary, audioVoiceOptionsForConfig, audioFormatOptionsForConfig, doubaoAudioVoiceOptions, isDoubaoAudioConfig, normalizeAudioVoiceForConfig, normalizeAudioVoiceValue } from "../src/lib/audio-generation";
 
 const config = (protocol: string) =>
     ({
@@ -19,6 +19,12 @@ describe("audio voice protocol handling", () => {
         expect(audioVoiceOptionsForConfig(tts)).toHaveLength(7);
         expect(normalizeAudioVoiceForConfig(tts,"alloy")).toBe("zh_female_gaolengyujie_uranus_bigtts");
         expect(audioFormatOptionsForConfig(seed).map(option=>option.value)).toEqual(["mp3","wav"]);
+    });
+    test("Seed Audio does not show an unrelated preset voice or speed in the canvas footer", () => {
+        const seed = {...config("openai-audio"),model:"seed-audio-1.0",audioModel:"seed-audio-1.0",audioVoice:"alloy",audioSpeed:"1",audioFormat:"wav"};
+        expect(audioSettingsSummary(seed)).toBe("WAV");
+        const tts = {...seed,model:"seed-tts-2.0",audioModel:"seed-tts-2.0"};
+        expect(audioSettingsSummary(tts)).toBe("高冷御姐 · 2.0 · WAV · 1x");
     });
     test("keeps custom voice identifiers for non-OpenAI channels", () => {
         expect(normalizeAudioVoiceValue("voice_001")).toBe("voice_001");

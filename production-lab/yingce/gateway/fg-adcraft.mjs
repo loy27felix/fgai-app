@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {creatorMediaOperation} from './fg-creator-config.mjs';
 import {createHmac, createHash, randomUUID, timingSafeEqual} from 'node:crypto';
 import {pipeline} from 'node:stream';
 import {priceQuote} from './fg-quotes.mjs';
@@ -232,6 +233,7 @@ export async function adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvas
     const cookie=await canvasSession(actor);const api=(p,m,b)=>nativeAPI(web,cookie,publicOrigin,p,m,b);
     const payload=await body(req);const mode=match[2]==='/v1/chat/completions'?'text':match[2]==='/images/generations'?'image':match[2]==='/contents/generations/tasks'?'video':null;if(!mode)throw Error('不支持的模型接口');
     const selected=await selectedAdvertisingModel(pool,mode,payload.model||models[mode]);const model=selected.billingId;payload.model=model;
+    const mediaOperation=creatorMediaOperation(selected,payload,mode);
     const channel=(await pool.query(`SELECT cm.channel_id,cm.protocol,c.api_format FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name LIKE 'WeToken%' AND cm.model_key=$1 AND cm.enabled=true AND c.enabled=true AND cm.deleted_at IS NULL AND c.deleted_at IS NULL LIMIT 1`,[model])).rows[0];if(!channel)throw Error('FG 中未启用当前广告模型');
     const references={image:[],video:[],audio:[]};const env={web,publicOrigin};
     if(mode==='text'){
@@ -263,8 +265,8 @@ export async function adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvas
       }
     }
     if(!job.task_id){
-      const input={mode,prompt,config,referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio,metadata:{clientOperationId:'adcraft-'+job.id,source:'fg-advertising',adcraftWorkspaceId:workspace.id},...(mode==='text'?{agentRequests:{chatCompletion:{...payload,stream:false}},textOptions:{stream:false,maxOutputTokens:Number(payload.max_tokens||payload.max_completion_tokens||8192)}}:{})};
-      let task;try{task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt,input});}catch(error){await pool.query("UPDATE fg_adcraft_jobs SET status='uncertain',error=$2 WHERE id=$1",[job.id,String(error.message).slice(0,300)]);throw error;}
+      const input={mode,prompt,config,referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio,metadata:{clientOperationId:'adcraft-'+job.id,source:'fg-advertising',adcraftWorkspaceId:workspace.id,...(mode==='video'?{videoEditOperation:mediaOperation}:{})},...(mode==='text'?{agentRequests:{chatCompletion:{...payload,stream:false}},textOptions:{stream:false,maxOutputTokens:Number(payload.max_tokens||payload.max_completion_tokens||8192)}}:{})};
+      let task;try{task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mediaOperation,model,prompt,input});}catch(error){await pool.query("UPDATE fg_adcraft_jobs SET status='uncertain',error=$2 WHERE id=$1",[job.id,String(error.message).slice(0,300)]);throw error;}
       job.task_id=task.id;await pool.query("UPDATE fg_adcraft_jobs SET task_id=$2,status='submitted' WHERE id=$1",[job.id,task.id]);
     }
     if(mode==='video'){json(res,{id:job.task_id,status:'queued'},200,false);return true;}
@@ -274,9 +276,11 @@ export async function adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvas
     json(res,{id:'chatcmpl-'+task.id,object:'chat.completion',created:Math.floor(Date.now()/1000),model,choices:[{index:0,message,finish_reason:result.toolCalls?.length?'tool_calls':'stop'}]},200,false);return true;
   }catch(error){json(res,{error:{message:error.message,type:'fg_adcraft_error'}},400,false);return true;}
 }
-async function resultURL(pool,cookie,env,result){
+export async function resultURL(pool,cookie,env,result){
   const output=outputResource(result);let id=output.resourceId||String(output.storageKey||'').replace(/^resource:/,'');
   if(!id&&result.assetId){id=(await pool.query('SELECT resource_id FROM assets WHERE id=$1',[result.assetId])).rows[0]?.resource_id;}
   if(!id)throw Error('制作结果尚未归档到 NAS，请从任务记录恢复');
-  const data=await nativeAPI(env.web,cookie,env.publicOrigin,'/resources/access','POST',[{resourceId:id,purpose:'provider-input',variant:'original'}]);const url=data.items?.[0]?.access?.url;if(!url)throw Error('制作素材链接暂时不可用');return url;
+  // The browser resource API permits signed copy access. Provider-only access is
+  // reserved for the native execution service and is rejected by this endpoint.
+  const data=await nativeAPI(env.web,cookie,env.publicOrigin,'/resources/access','POST',[{resourceId:id,purpose:'copy',variant:'original'}]);const url=data.items?.[0]?.access?.url;if(!url)throw Error('制作素材链接暂时不可用');return new URL(url,process.env.CANVAS_PUBLIC_BASE_URL||env.publicOrigin).href;
 }

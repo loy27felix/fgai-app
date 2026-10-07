@@ -1,0 +1,10 @@
+{
+  "slug": "xiaotang-aigc-tvc-sop",
+  "skillId": "fg-c1ce0d35edb8efd430eb3b50",
+  "version": "1.0.0",
+  "tag": "ecommerce",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "ab960636d4473dbac7074d809bfcce19815ae7863876058689252a7db4bb447a",
+  "omitted": [],
+  "imageStyle": null
+}

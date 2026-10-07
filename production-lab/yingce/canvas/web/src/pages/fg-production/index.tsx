@@ -1,6 +1,6 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {App,Button,Form,Input,InputNumber,Select,Tag,Tabs,Alert} from 'antd';
-import {ArrowUpRight,BookOpenText,Clapperboard,Search,Plus} from 'lucide-react';
+import {ArrowUpRight,BookOpenText,Clapperboard,Search,Plus,Layers,CheckCircle2} from 'lucide-react';
 import {Link,useNavigate} from 'react-router';
 import {WorkspacePage,PageHeader} from '@/components/layout/workspace-page';
 import {WorkspaceLoadingState} from '@/components/layout/workspace-state';
@@ -15,14 +15,15 @@ export default function FGProductionPage(){
  const [error,setError]=useState(''),[loading,setLoading]=useState(true),[keyword,setKeyword]=useState(''),[tab,setTab]=useState('projects'),[filter,setFilter]=useState('all'),[selected,setSelected]=useState<FGTopic|null>(null),[details,setDetails]=useState<FGTopic|null>(null),[saving,setSaving]=useState(false);
  const [form]=Form.useForm();const {message}=App.useApp();const navigate=useNavigate();
  const [budgetProject,setBudgetProject]=useState<FGProject|null>(null),[budget,setBudget]=useState<number|null>(0),[budgetSaving,setBudgetSaving]=useState(false);
- const load=async()=>{setLoading(true);try{const roster=await getFGTeam();const [t,p,s]=await Promise.all([getFGTopics(),getFGProjects(),getFGStories()]);setTeam(roster);setTopics(t.topics);setProjects(p.projects);setStories(s.stories);setError('');}catch(e){setError(e instanceof Error?e.message:'读取失败');}finally{setLoading(false);}};
- useEffect(()=>{void load();},[]);
+ const requestRef=useRef<AbortController|null>(null);
+ const load=useCallback(async()=>{requestRef.current?.abort();const controller=new AbortController();requestRef.current=controller;setLoading(true);try{const [roster,t,p,s]=await Promise.all([getFGTeam(controller.signal),getFGTopics(controller.signal),getFGProjects(controller.signal),getFGStories(controller.signal)]);if(controller.signal.aborted)return;setTeam(roster);setTopics(t.topics);setProjects(p.projects);setStories(s.stories);setError('');}catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:'读取失败');}finally{if(!controller.signal.aborted)setLoading(false);}},[]);
+ useEffect(()=>{void load();return()=>requestRef.current?.abort();},[load]);
  const visible=useMemo(()=>topics.filter(t=>(filter==='all'||t.selection_group===filter)&&[t.title,t.original,t.characters,t.plot,t.selected_by,t.selection_group,t.selected_by_email].join(' ').toLowerCase().includes(keyword.toLowerCase())).sort((a,b)=>Number(!!b.selected_by)-Number(!!a.selected_by)||a.id-b.id),[topics,keyword,filter]);
  const open=(topic:FGTopic)=>{setDetails(null);setSelected(topic);form.setFieldsValue({tier:'A',budgetCny:0,groupName:team?.groups.find(g=>g.id===team.currentGroup)?.name||''});};
  const currentGroup=team?.groups.find(g=>g.id===team.currentGroup)?.name;
  return <WorkspacePage className="fg-production-page">
   <PageHeader title="故事与项目" description="经典原型 × 现代冲突 × 视觉风格。选题、分集画布与费用留在同一个项目。" actions={<Button onClick={()=>void load()} loading={loading}>刷新</Button>}/>
-  <section className="fg-story-intro"><div><span className="fg-eyebrow">FG / STORY PRODUCTION</span><h2>一起，把故事做成作品。</h2><p>故事投稿与审核 → 立项 → 分集画布 → 制作与交付</p>{team&&<Tag>我的小组：{currentGroup||'未分组'}</Tag>}</div><Link to="/fg-finance">制作费用 <ArrowUpRight size={17}/></Link></section>
+  <section className="fg-story-intro fg-story-studio"><div className="fg-story-studio-copy"><span className="fg-eyebrow">FG / STORY STUDIO</span><h2>好故事，从这里成为作品。</h2><p>把灵感、团队与制作连在一起。<br/>从选定一个故事，到交付下一部作品。</p><div className="fg-story-studio-actions"><Button type="primary" icon={<Plus size={16}/>} onClick={()=>setTab('topics')}>从故事开始</Button><Link to="/fg-finance">查看制作费用 <ArrowUpRight size={16}/></Link></div>{team&&<span className="fg-story-team-label">我的小组 · {currentGroup||'未分组'}</span>}</div><div className="fg-story-studio-flow" aria-label="故事制作流程"><div className="fg-story-studio-metrics"><span><strong>{loading?'—':topics.length}</strong> 个故事</span><span><strong>{loading?'—':projects.length}</strong> 个制作项目</span></div><ol>{[{icon:BookOpenText,title:'选定故事',detail:'原型、冲突与人物'},{icon:Clapperboard,title:'建立项目',detail:'小组协作与预算'},{icon:Layers,title:'分集制作',detail:'剧本、分镜与画布'},{icon:CheckCircle2,title:'完成交付',detail:'作品与费用归档'}].map((step,index)=><li key={step.title}><span className="fg-story-step-icon"><step.icon size={19}/></span><div><small>0{index+1}</small><strong>{step.title}</strong><p>{step.detail}</p></div></li>)}</ol></div></section>
   {error&&<Alert type="error" showIcon title={error} action={<Button onClick={()=>void load()}>重试</Button>}/>}
   <Tabs activeKey={tab} onChange={setTab} items={[{key:'projects',label:'制作项目 · '+projects.length},{key:'topics',label:'故事库 · '+topics.length},{key:'submissions',label:team?.canManage?'投稿与审核':'我的投稿'},{key:'team',label:'小组与成员'}]}/>
   {loading?<WorkspaceLoadingState/>:tab==='projects'?<><div className="fg-section-heading"><p>故事项目为团队共享。一部故事可创建多张分集、试片和制作画布。</p><Button icon={<Plus size={15}/>} onClick={()=>setTab('topics')}>从故事立项</Button></div><div className="fg-project-grid">

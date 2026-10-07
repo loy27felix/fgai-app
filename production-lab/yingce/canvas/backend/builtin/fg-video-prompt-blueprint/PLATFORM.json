@@ -1,0 +1,10 @@
+{
+  "slug": "video-prompt-blueprint",
+  "skillId": "fg-f757343c5f1e98c0367156ad",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "e4ce74f6e3ca14574cd5b13f5e897216cf0bb39470693b24c6d042ea3f4a746a",
+  "omitted": [],
+  "imageStyle": null
+}

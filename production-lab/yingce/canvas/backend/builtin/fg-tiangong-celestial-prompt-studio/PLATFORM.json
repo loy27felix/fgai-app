@@ -1,0 +1,14 @@
+{
+  "slug": "tiangong-celestial-prompt-studio",
+  "skillId": "fg-9a7aaadc1e901426713e323e",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "e9d2703ece379345410f4b17b2bd4c5dcfe4d929ef9b0307b4c6058d71808b8f",
+  "omitted": [],
+  "imageStyle": {
+    "label": "东方天宫",
+    "prompt": "Chinese celestial atmosphere, luminous layered clouds, graceful immortal architecture and flowing fabrics, restrained blue-white and warm-gold accents; clear subject and generous spatial depth. No unrelated religious symbols or lettering.",
+    "direct": true
+  }
+}

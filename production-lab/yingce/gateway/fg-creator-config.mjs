@@ -1,4 +1,14 @@
 const ratioOf=size=>{const m=/^(\d+)x(\d+)$/.exec(size||'');if(!m)return null;const a=Number(m[1]),b=Number(m[2]);const gcd=(a,b)=>b?gcd(b,a%b):a;const g=gcd(a,b);return g?`${a/g}:${b/g}`:null;};
+export function creatorMediaOperation(selected,payload,mode){
+ if(mode!=='video')return mode;
+ const profile=selected.profile.video,content=payload.content||[];
+ const images=content.filter(p=>p.type==='image_url');
+ const references=content.some(p=>['video_url','audio_url'].includes(p.type))||images.length>1||images.some(p=>p.role==='reference_image');
+ const inferred=references?'reference_to_video':images.length?'image_to_video':profile.defaultOperation;
+ const operation=payload.operation||inferred;
+ if(!profile.operations.includes(operation))throw Error('此模型不支持当前视频制作方式');
+ return operation;
+}
 export function creatorGenerationConfig(selected,payload,mode,{standardImageQuality=false}={}){
  const profile=selected.profile[mode];
  if(mode==='text')return {};

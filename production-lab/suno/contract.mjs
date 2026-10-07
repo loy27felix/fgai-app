@@ -17,7 +17,10 @@ export function musicInput(input){
 }
 export function audioURL(value){
  const url=new URL(value);
- if(url.protocol!=='https:'||url.username||url.password||url.port||!/^cdn\d*\.suno\.(?:ai|com)$/.test(url.hostname)||!url.pathname.endsWith('.mp3'))throw Error('SUNO_INVALID_RESULT');
+ // The current download endpoint also returns signed files from this exact
+ // Suno-owned bucket. Never permit arbitrary S3 buckets or redirects.
+ const allowedHost=/^cdn\d*\.suno\.(?:ai|com)$/.test(url.hostname)||url.hostname==='suno-data-uploads.s3.amazonaws.com';
+ if(url.protocol!=='https:'||url.username||url.password||url.port||!allowedHost||!url.pathname.endsWith('.mp3'))throw Error('SUNO_INVALID_RESULT');
  return url.href;
 }
 export async function claim(root,id,input){

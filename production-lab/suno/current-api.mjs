@@ -56,6 +56,15 @@ export class CurrentSunoAPI{
  async get(ids){
   const data=await this.request('/api/feed/?ids='+encodeURIComponent(ids.join(',')));if(!Array.isArray(data))throw Error('SUNO_PROTOCOL_CHANGED');return data;
  }
+ async ownedClip(id){
+  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id||''))throw Error('SUNO_INVALID_INPUT');
+  const clip=(await this.get([id])).find(c=>c.id===id);
+  const claims=JSON.parse(Buffer.from((await this.token()).split('.')[1],'base64url').toString());
+  const owner=claims['suno.com/claims/user_id']||claims.sub;
+  if(!clip||!owner||clip.user_id!==owner)throw Error('SUNO_CLIP_NOT_OWNED');
+  if(clip.status!=='complete'||!clip.audio_url)throw Error('SUNO_RESULT_PENDING');
+  return clip;
+ }
  async downloadURL(id){
   const until=Date.now()+45000;while(Date.now()<until){const result=await this.request('/api/download/clip/'+id+'?format=mp3');
    if(result.ok&&result.status==='ready'&&result.download_url)return result.download_url;

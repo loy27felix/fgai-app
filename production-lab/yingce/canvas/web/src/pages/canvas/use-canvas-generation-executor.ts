@@ -177,7 +177,7 @@ export function useCanvasGenerationExecutor({
 
                     let skillExecution: Awaited<ReturnType<typeof skillRuntime.prepare<"canvas">>>;
                     try {
-                        skillExecution = await skillRuntime.prepare({ profile: "canvas", prompt: rawGenerationContext.prompt, skills: addedSkills });
+                        skillExecution = await skillRuntime.prepare({ profile: "canvas", capability: mode, prompt: rawGenerationContext.prompt, skills: addedSkills });
                     } catch (error) {
                         message.error(error instanceof Error ? error.message : "技能上下文加载失败");
                         return;

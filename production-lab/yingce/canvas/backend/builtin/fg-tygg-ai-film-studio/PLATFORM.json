@@ -1,0 +1,10 @@
+{
+  "slug": "tygg-ai-film-studio",
+  "skillId": "fg-4339c6675d6bc6943316e393",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "c5ed20882a8c1f89a140fc623701973081cae351b83f0ee20a52e7b046144ac7",
+  "omitted": [],
+  "imageStyle": null
+}

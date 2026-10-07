@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build set -eu; \
     PAYMENT_PLUGIN_GOOS="$TARGETOS" \
     PAYMENT_PLUGIN_GOARCH="$TARGETARCH" \
     PAYMENT_PLUGIN_CGO_ENABLED=0 \
-      ./plugin-packages/build-packages.sh --payments-only; \
+      sh ./plugin-packages/build-packages.sh --payments-only; \
     sh ./plugin-packages/verify-payment-packages.sh "$TARGETOS" "$TARGETARCH"
 
 FROM alpine:3.22 AS payment-package-smoke

@@ -1,0 +1,10 @@
+{
+  "slug": "framewright",
+  "skillId": "fg-692c8a49803d17b12c27aa01",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "3d62992083e43a5863b02afa405731a20709429a87e8c4e39a9c62d3ad3917b4",
+  "omitted": [],
+  "imageStyle": null
+}

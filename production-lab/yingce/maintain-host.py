@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import json
+import sys
 
 os.umask(0o077)
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -130,12 +131,26 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
         snapshot.write_text(json.dumps({'totalBytes': total, 'usedBytes': used, 'freeBytes': free, 'collectedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}))
         snapshot.chmod(0o644)
         snapshot.replace(metrics / 'nas.json')
-        creator_provision = ROOT / 'provision-creator.py'
-        if creator_provision.is_file():
-            subprocess.run(['/usr/bin/env', 'python3', str(creator_provision)], check=True, timeout=180, capture_output=True)
-        director_provision = ROOT / 'provision-arcreel.py'
-        if director_provision.is_file():
-            subprocess.run(['/usr/bin/env', 'python3', str(director_provision)], check=True, timeout=180, capture_output=True)
+        # One workspace's bootstrap failure must not starve other workspaces or backups.
+        # Reuse this LaunchAgent's Python rather than resolving a different interpreter.
+        provision_status = {}
+        for kind in ('creator', 'arcreel'):
+            script = ROOT / ('provision-' + kind + '.py')
+            if not script.is_file(): continue
+            try:
+                result = subprocess.run([sys.executable, str(script)], timeout=180, capture_output=True)
+                provision_status[kind] = 'ready' if result.returncode == 0 else 'failed'
+            except subprocess.TimeoutExpired:
+                provision_status[kind] = 'timeout'
+            except OSError:
+                provision_status[kind] = 'failed'
+            if provision_status[kind] != 'ready':
+                print('Sixth ' + kind + ' preparation deferred: ' + provision_status[kind], flush=True)
+        provision_status['collectedAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        snapshot = metrics / '.provision.new'
+        snapshot.write_text(json.dumps(provision_status))
+        snapshot.chmod(0o644)
+        snapshot.replace(metrics / 'runtime-provision.json')
         day = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
         if storage('exists', day).stdout.strip() == b'missing':
             dump = run(DOCKER, 'exec', 'fg-six-yingce-postgres-1', 'pg_dump', '-U', 'fg_yingce', '-d', 'fg_yingce', '--format=custom', capture_output=True).stdout

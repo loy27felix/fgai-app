@@ -1,0 +1,10 @@
+{
+  "slug": "seedance-director",
+  "skillId": "fg-73121377ea19cda4a1441599",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "2ccbef0fc9456d9733fe74dab8cc53ca0852193fd3527bcf02d615d189d979ff",
+  "omitted": [],
+  "imageStyle": null
+}

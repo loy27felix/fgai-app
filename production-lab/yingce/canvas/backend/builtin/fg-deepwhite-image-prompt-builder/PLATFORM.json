@@ -1,0 +1,14 @@
+{
+  "slug": "deepwhite-image-prompt-builder",
+  "skillId": "fg-87e6bd5e376c73f618b84a73",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "be8001b558e35fe2503ce8b67d329517c35fe24783038120dafbefaa13952eba",
+  "omitted": [],
+  "imageStyle": {
+    "label": "静态分镜画面",
+    "prompt": "Production-ready still frame: explicit subject action, spatial relationships, camera position, light direction and material fidelity. Depict a frozen instant, no movement arrows, no storyboard labels unless requested.",
+    "direct": true
+  }
+}

@@ -4,6 +4,11 @@ export const speechJobs=()=>http.get<{jobs:SpeechJob[]}>("/fg/speech/jobs");
 export type CompanyMusicStatus={available:boolean;configured:boolean;enabled:boolean;accountReadable?:boolean;captchaRequired?:boolean;models?:{id:string;name:string}[]};
 export const companyMusicStatus=()=>http.get<CompanyMusicStatus>("/fg/music/status");
 export const createSpeechJob=(input:Record<string,unknown>)=>http.post<SpeechJob>("/fg/speech/jobs",input);
+export type MusicJob={id:string;ownerName?:string;status:string;resourceId?:string;clipId?:string;brief:{title:string;model:string;mode:string;voice:string;styles:string;lyrics:string;description:string};createdAt:string};
+export const musicJobs=()=>http.get<{canManage:boolean;jobs:MusicJob[]}>("/fg/music/jobs");
+export const createMusicJob=(input:Record<string,unknown>)=>http.post<MusicJob>("/fg/music/jobs",input);
+export const startMusicJob=(id:string)=>http.post<MusicJob>(`/fg/music/jobs/${encodeURIComponent(id)}/start`,{});
+export const completeMusicJob=(id:string,clipId:string)=>http.post<MusicJob>(`/fg/music/jobs/${encodeURIComponent(id)}/complete`,{clipId});
 export async function generateCompanySpeech(input:Record<string,unknown>,operationId:string){
  try{
  // Preserve structured Suno fields through the native audio task's existing

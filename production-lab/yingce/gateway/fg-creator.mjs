@@ -4,7 +4,7 @@ import {createHash,createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import {advertisingModels,selectedAdvertisingModel} from './fg-adcraft-models.mjs';
 import {creatorConversation,creatorResponse,creatorStreamEvents} from './fg-creator-protocol.mjs';
 import {anthropicConversation,anthropicResponse,anthropicStreamEvents} from './fg-anthropic.mjs';
-import {creatorGenerationConfig} from './fg-creator-config.mjs';
+import {creatorGenerationConfig,creatorMediaOperation} from './fg-creator-config.mjs';
 import {responseHeaders} from './policy.mjs';
 import fs from 'node:fs/promises';
 import {priceQuote} from './fg-quotes.mjs';
@@ -101,6 +101,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   const adWorkspace=payload.fgAdWorkspaceId?await advertisingAccess(pool,{...actor,reviewer:actor.platform_role==='superadmin'},payload.fgAdWorkspaceId):null;
   if(payload.fgAdWorkspaceId&&(!adWorkspace||mode!=='audio'))throw Error('广告音频项目不存在或无权使用');
   const generationConfig=creatorGenerationConfig(selected,payload,mode,{standardImageQuality:true});
+  const mediaOperation=creatorMediaOperation(selected,payload,mode);
   if(payload.stream&&!['responses','messages'].includes(match[2]))throw Error('此创作工具接口暂支持非流式请求');
   const conversation=mode!=='text'?null:match[2]==='messages'?anthropicConversation(payload):match[2]==='responses'?creatorConversation(payload):{canonical:{messages:payload.messages,tools:payload.tools||[],toolChoice:payload.tool_choice||'auto'},custom:new Set()};
   if(mode==='image'&&(!payload.prompt||Number(payload.n||1)!==1||false))throw Error('当前图片中转每次支持单张生成');
@@ -130,8 +131,8 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    const prompt=mode==='audio'?payload.input:mode==='image'?payload.prompt:mode==='video'?(payload.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n'):'创作者工作台 Agent';
    if(!prompt)throw Error('请填写制作内容');
    const agentRequests=match[2]==='chat/completions'?{chatCompletion:{...payload,stream:false}}:{canonical:conversation?.canonical};
-   const input={mode,prompt,config,...(mode!=='text'?{referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio}:{}),...(mode==='text'?{agentRequests,textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens||payload.max_completion_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:adWorkspace?'fg-adcraft':arc?'fg-arcreel':'fg-opencreator',...(adWorkspace?{adcraftWorkspaceId:adWorkspace.id}:{}),creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
-   try{const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mode,model,prompt:input.prompt,input});job.task_id=task.id;}
+   const input={mode,prompt,config,...(mode!=='text'?{referenceImages:references.image,referenceVideos:references.video,referenceAudios:references.audio}:{}),...(mode==='text'?{agentRequests,textOptions:{stream:false,maxOutputTokens:Math.min(32768,Math.max(1,Number(payload.max_output_tokens||payload.max_tokens||payload.max_completion_tokens)||8192))}}:{}),metadata:{clientOperationId:'creator-'+job.id,source:adWorkspace?'fg-adcraft':arc?'fg-arcreel':'fg-opencreator',...(mode==='video'?{videoEditOperation:mediaOperation}:{}),...(adWorkspace?{adcraftWorkspaceId:adWorkspace.id}:{}),creatorSession:String(req.headers['session_id']||'').slice(0,160)}};
+   try{const task=await api('/tasks','POST',{projectId:workspace.native_project_id,type:'canvas_'+mode,operation:mediaOperation,model,prompt:input.prompt,input});job.task_id=task.id;}
    catch(error){
     // A definite admission rejection (such as exhausted monthly allowance) has
     // created no provider task. Permit retry after the administrator fixes it.

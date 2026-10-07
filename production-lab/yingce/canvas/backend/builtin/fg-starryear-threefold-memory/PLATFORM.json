@@ -1,0 +1,36 @@
+{
+  "slug": "starryear-threefold-memory",
+  "skillId": "fg-684a051b8dd3c3f2f6fb2679",
+  "version": "2.2.1",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "c31f0987ebf24c1806b8f36d91349c00387565c2fc6c284c90198dbcb1e30a2a",
+  "omitted": [
+    "Starryear-Threefold-Memory-Skill.zip",
+    "downloads\\Starryear-Threefold-Memory-v1.0.0.zip",
+    "downloads\\Starryear-Threefold-Memory-v2.2.1.zip",
+    "versions\\v1\\SKILL.md",
+    "versions\\v1\\agents\\openai.yaml",
+    "versions\\v1\\references\\generation-prompt.md",
+    "versions\\v1\\references\\threefold-method.md",
+    "versions\\v1\\scripts\\compose_triptych.py",
+    "versions\\v1\\assets\\examples\\threefold-01-buddha.JPG",
+    "versions\\v1\\assets\\examples\\threefold-02-water.JPG",
+    "versions\\v1\\assets\\examples\\threefold-03-butterfly.JPG",
+    "versions\\v1\\assets\\examples\\threefold-04-pampas.JPG",
+    "versions\\v1\\assets\\examples\\threefold-05-street.JPG",
+    "versions\\v1\\assets\\examples\\threefold-06-pagoda.JPG",
+    "versions\\v1\\assets\\examples\\threefold-07-leaves.JPG",
+    "versions\\v1\\assets\\examples\\threefold-08-bamboo.JPG",
+    "versions\\v1\\assets\\examples\\threefold-09-tulips.JPG",
+    "versions\\v1\\assets\\examples\\threefold-10-cats.JPG",
+    "versions\\v2\\assets\\examples\\Starryear-Threefold-Memory-Cherry-Blossom.png",
+    "versions\\v2\\assets\\examples\\Starryear-Threefold-Memory-Tulips-001.png",
+    "versions\\v2\\assets\\examples\\Starryear-Threefold-Memory-Flowers.png"
+  ],
+  "imageStyle": {
+    "label": "三段式记忆",
+    "prompt": "Three equal panels: fragmented geometric memory, untouched source photograph, spatial signal map derived from the photograph. Generate top and bottom separately, preserve the middle, then compose deterministically.",
+    "direct": false
+  }
+}

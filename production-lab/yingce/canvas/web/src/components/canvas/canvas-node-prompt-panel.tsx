@@ -351,7 +351,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                 </>}
             </div> : null}
             {showPromptTemplates ? <CanvasPresetPicker mode={mode} skillReferences={skillReferences} open={expanded ? expandedPresetOpen : presetOpen} onOpenChange={expanded ? setExpandedPresetOpen : setPresetOpen} onSelect={applyPreset} dense appearance="quiet" /> : null}
-            <FGSkillControl references={resolvedMentionReferences} prompt={prompt} onChange={updatePrompt} disabled={isRunning}/>
+            <FGSkillControl references={resolvedMentionReferences} prompt={prompt} onChange={updatePrompt} disabled={isRunning} capability={mode}/>
             {canOptimizePrompt ? (
                 <Tooltip title="用 AI 润色提示词">
                     <button

@@ -158,7 +158,6 @@ body.app-product-overlays {
 .app-user-workspace.fg-glass-workspace .fg-story-card { background: var(--user-surface); border: 1px solid var(--fg-glass-line); border-radius: 22px; padding: 26px; box-shadow: 0 8px 28px rgba(48,64,73,.05), inset 0 1px 0 rgba(255,255,255,.7); backdrop-filter: blur(28px); }
 .app-user-workspace.fg-glass-workspace .fg-story-card :is(p, small, .fg-story-meta, .fg-story-note) { opacity: 1; color: var(--user-ink-muted); line-height: 1.8; }
 .app-user-workspace.fg-glass-workspace .fg-story-card h3 { color: var(--user-ink); font-size: 18px; line-height: 1.55; }
-.app-user-workspace.fg-glass-workspace .fg-story-intro { background: rgba(250,253,255,.58); border-radius: 22px; border: 1px solid var(--fg-glass-line); margin-bottom: 24px; }
-.dark .app-user-workspace.fg-glass-workspace .fg-story-intro { background: rgba(25,40,47,.7); }
+.app-user-workspace.fg-glass-workspace .fg-story-intro { border-radius: 26px; border: 1px solid var(--fg-glass-line); margin-bottom: 24px; }
 .app-user-workspace.fg-glass-workspace .app-workspace-brand-wordmark { font-size: 14px; letter-spacing: -.035em; }
 @media (max-width: 767px) { .app-user-workspace.fg-glass-workspace .fg-production-page { padding: 18px; } .app-user-workspace.fg-glass-workspace .fg-story-grid { grid-template-columns: 1fr; } }

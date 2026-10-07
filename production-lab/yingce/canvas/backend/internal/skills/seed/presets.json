@@ -1,13 +1,18 @@
 {
   "version": 1,
-  "updated": "2026-09-22",
+  "updated": "2026-10-07",
   "note": "技能目录来自 backend/builtin/ 下的 Markdown 技能包；此文件只保存场景组合，不保存技能正文。",
   "presets": [
     {
       "presetId": "short-drama-starter",
       "name": "短剧爆款起步",
       "scene": "drama",
-      "skillIds": ["16000000000081", "16000000000077", "16000000000091", "14811816970508"],
+      "skillIds": [
+        "16000000000081",
+        "16000000000077",
+        "16000000000091",
+        "14811816970508"
+      ],
       "rationale": "新手第一站：实战手册管钩子/反转/爽点方法论，一镜到底流水线管单集秒级节奏，模型路由先答该用哪个模型，官方叙事分镜把节奏落地成表。一个预设覆盖从想法到分镜表。",
       "source": "hand-curated",
       "evidence": "E4",
@@ -17,7 +22,13 @@
       "presetId": "short-drama-pilot",
       "name": "短剧立项与大纲",
       "scene": "drama",
-      "skillIds": ["16000000000084", "16000000000073", "16000000000079", "16000000000075", "14811816983052"],
+      "skillIds": [
+        "16000000000084",
+        "16000000000073",
+        "16000000000079",
+        "16000000000075",
+        "14811816983052"
+      ],
       "rationale": "从零立项一部短剧：结构引擎给坐标系，角色工坊立人物，系列弧光规划跨集，对白工坊磨台词；官方故事开发兜底生产。适合还没动笔的阶段。",
       "source": "hand-curated",
       "evidence": "E4",
@@ -27,7 +38,13 @@
       "presetId": "ad-full-chain",
       "name": "广告全链路",
       "scene": "ecommerce",
-      "skillIds": ["16000000000105", "16000000000098", "16000000000097", "16000000000095", "14519800321292"],
+      "skillIds": [
+        "16000000000105",
+        "16000000000098",
+        "16000000000097",
+        "16000000000095",
+        "14519800321292"
+      ],
       "rationale": "调研→概念→脚本→分镜一次配齐：全链路打法是主战，消费心理给卖点依据，文案四步打磨标题与长文案，视觉提示词工程管画面；官方波普广告导演做最终生产。",
       "source": "hand-curated",
       "evidence": "E4",
@@ -37,7 +54,10 @@
       "presetId": "h3-video",
       "name": "H3 视频出片",
       "scene": "creative",
-      "skillIds": ["16000000000090", "16000000000091"],
+      "skillIds": [
+        "16000000000090",
+        "16000000000091"
+      ],
       "rationale": "即梦 H3 出片最小组合：提示词套件含六段式/首尾帧衔接/资产绑定，模型路由答该用哪个模型族。两个就够，不凑数。",
       "source": "hand-curated",
       "evidence": "E4",
@@ -47,7 +67,10 @@
       "presetId": "seedance-video",
       "name": "Seedance 生视频",
       "scene": "creative",
-      "skillIds": ["16000000000093", "16000000000092"],
+      "skillIds": [
+        "16000000000093",
+        "16000000000092"
+      ],
       "rationale": "Seedance 出片：提示词工程给八块公式与参考图语法，2.5 导演工艺补模式选择与多镜连续性。单镜头用前者，多镜连续再加后者。",
       "source": "hand-curated",
       "evidence": "E4",
@@ -57,7 +80,12 @@
       "presetId": "ecom-image",
       "name": "电商大图与系列图",
       "scene": "ecommerce",
-      "skillIds": ["16000000000095", "16000000000089", "16000000000105", "14811816982028"],
+      "skillIds": [
+        "16000000000095",
+        "16000000000089",
+        "16000000000105",
+        "14811816982028"
+      ],
       "rationale": "产品图/系列图：视觉提示词工程管四层结构与控色，风格库给模板与陷阱，全链路打法深读产品描述与商品图模式卡；官方系列套图生成做批量生产。",
       "source": "hand-curated",
       "evidence": "E4",
@@ -67,11 +95,133 @@
       "presetId": "ai-performer",
       "name": "AI 角色表演",
       "scene": "drama",
-      "skillIds": ["16000000000086", "16000000000073", "16000000000096", "14889899552012"],
+      "skillIds": [
+        "16000000000086",
+        "16000000000073",
+        "16000000000096",
+        "14889899552012"
+      ],
       "rationale": "IP 短片/数字人：表演实验室管表情/肢体/情绪节拍提示词，角色工坊保人设一致，视觉基调定全片气质；官方微表情导演做视频生产。",
       "source": "hand-curated",
       "evidence": "E4",
       "upgrade": "AI 角色表演分层写法 single 待 E1 实测后（下批灯塔卡候选），可作替换位。"
+    },
+    {
+      "presetId": "fg-script",
+      "name": "剧本与短剧结构",
+      "scene": "drama",
+      "skillIds": [
+        "fg-96d178c3be5fc699db6d622b",
+        "fg-230f4ad180cb3749c4614773",
+        "fg-52b21d0fdbb7b0ac6f6c2809"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-director",
+      "name": "导演分镜与表演",
+      "scene": "drama",
+      "skillIds": [
+        "fg-1affbec575969caeb1de0495",
+        "fg-926ee76a5892783acf543618",
+        "fg-2ad0acb649d2c730cc017f32"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-commercial",
+      "name": "商业广告策划",
+      "scene": "ecommerce",
+      "skillIds": [
+        "fg-c1ce0d35edb8efd430eb3b50",
+        "fg-52a9d2e498eb1166e1fa3db3"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-video-prompt",
+      "name": "视频提示词",
+      "scene": "creative",
+      "skillIds": [
+        "fg-f757343c5f1e98c0367156ad",
+        "fg-73121377ea19cda4a1441599",
+        "fg-6beb12c7e9926f8049c78c34"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-framewright",
+      "name": "Framewright 镜头编译",
+      "scene": "creative",
+      "skillIds": [
+        "fg-692c8a49803d17b12c27aa01"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-shotcraft",
+      "name": "宣传片镜头设计",
+      "scene": "creative",
+      "skillIds": [
+        "fg-8eaac59f80cd4894a73f925b"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-image-cinema",
+      "name": "电影图片与人物",
+      "scene": "creative",
+      "skillIds": [
+        "fg-854d8b8422c4b6247dad0a29",
+        "fg-52571a97a9a8e3b311cbc090"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-image-poster",
+      "name": "海报与品牌图片",
+      "scene": "creative",
+      "skillIds": [
+        "fg-4a91984edf158e6a36e29398",
+        "fg-6ccfc4335b76d1f65e94111c"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
+    },
+    {
+      "presetId": "fg-image-memory",
+      "name": "照片记忆拼贴",
+      "scene": "creative",
+      "skillIds": [
+        "fg-684a051b8dd3c3f2f6fb2679"
+      ],
+      "rationale": "按当前工作选用创作方法；只加载所选技能和相关参考。外部工具是否可用以平台状态为准。",
+      "source": "hand-curated",
+      "evidence": "E1",
+      "upgrade": "2026-10-07 / FG 1.3.0"
     }
   ]
 }

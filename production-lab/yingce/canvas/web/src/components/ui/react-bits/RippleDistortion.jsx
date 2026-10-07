@@ -188,7 +188,7 @@ const RippleDistortion = ({
     try { renderer = new Renderer({
       alpha: false,
       antialias: false,
-      dpr: Math.min(window.devicePixelRatio || 1, 2)
+      dpr: Math.min(window.devicePixelRatio || 1, quality === 'low' ? 1 : 2)
     });
     } catch { return; }
     const gl = renderer.gl;
@@ -208,6 +208,11 @@ const RippleDistortion = ({
     });
 
     let disposed = false;
+    let raf = 0;
+    let previousTime = 0;
+    const invalidate = () => {
+      if (!disposed && !document.hidden && !raf) raf = requestAnimationFrame(loop);
+    };
     const image = new window.Image();
     image.crossOrigin = 'anonymous';
     image.decoding = 'async';
@@ -215,6 +220,7 @@ const RippleDistortion = ({
       if (disposed) return;
       imageTexture.image = image;
       compositeUniforms.uTextureSize.value = [image.naturalWidth || 1, image.naturalHeight || 1];
+      invalidate();
     };
     image.src = src;
 
@@ -306,6 +312,7 @@ const RippleDistortion = ({
       const fieldH = Math.max(2, Math.round(height * scale));
       displacementTarget.setSize(fieldW, fieldH);
       compositeUniforms.uTexel.value = [1 / fieldW, 1 / fieldH];
+      invalidate();
     };
 
     const ro = new ResizeObserver(resize);
@@ -322,6 +329,7 @@ const RippleDistortion = ({
       wave.target = START_SCALE * Math.max(1, cfg.spread) * power;
       wave.size = Math.max(1, cfg.brushSize);
       wave.opacity = 1;
+      invalidate();
     };
 
     const localPoint = (clientX, clientY) => {
@@ -360,12 +368,13 @@ const RippleDistortion = ({
     window.addEventListener('pointermove', onMove, { passive: true });
     window.addEventListener('pointerdown', onDown, { passive: true });
 
-    let raf = 0;
-    let previousTime = 0;
-
-    const loop = now => {
-      raf = requestAnimationFrame(loop);
+    function loop(now) {
+      raf = 0;
       if (document.hidden) return;
+      if (previousTime && now - previousTime < (quality === 'low' ? 32 : 16)) {
+        invalidate();
+        return;
+      }
       const delta = previousTime ? Math.min(0.05, (now - previousTime) / 1000) : 0;
       previousTime = now;
       const cfg = configRef.current;
@@ -373,6 +382,7 @@ const RippleDistortion = ({
       const growth = reduceMotion ? 0 : 1 - Math.exp(-delta * 1.09);
       const decay = reduceMotion ? 1 : Math.exp((-delta * LIFE_CONSTANT) / Math.max(0.15, cfg.fade));
 
+      let active = false;
       for (let i = 0; i < MAX_WAVES; i += 1) {
         const wave = waves[i];
         if (wave.opacity <= 0) {
@@ -395,6 +405,7 @@ const RippleDistortion = ({
         scales[i * 2] = (half / width) * 2;
         scales[i * 2 + 1] = (half / height) * 2;
         opacities[i] = wave.opacity;
+        active = true;
       }
 
       geometry.attributes.iOffset.needsUpdate = true;
@@ -403,13 +414,21 @@ const RippleDistortion = ({
 
       renderer.render({ scene: waveMesh, target: displacementTarget, clear: true });
       renderer.render({ scene: compositeMesh });
+      if (active) invalidate();
+      else previousTime = 0;
     };
-    raf = requestAnimationFrame(loop);
+    function visibilityChanged() {
+      if (document.hidden) { cancelAnimationFrame(raf); raf = 0; previousTime = 0; }
+      else invalidate();
+    }
+    document.addEventListener('visibilitychange', visibilityChanged);
+    invalidate();
 
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      document.removeEventListener('visibilitychange', visibilityChanged);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerdown', onDown);
       uniformsRef.current = null;

@@ -1,0 +1,16 @@
+{
+  "slug": "RuiC-card-skill",
+  "skillId": "fg-4819f9edbb36e79d8f64cbd4",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "0e093004c3823c22e00481482545e913592864061b9492f51c616f1096ba0cf9",
+  "omitted": [
+    "assets\\web-template\\package-lock.json"
+  ],
+  "imageStyle": {
+    "label": "角色卡与交互作品",
+    "prompt": "Layered character card with protected exact wording, clear foreground/background asset roles, safe area and small-size legibility. Interactive output needs separate web composition, not a single generated image.",
+    "direct": false
+  }
+}

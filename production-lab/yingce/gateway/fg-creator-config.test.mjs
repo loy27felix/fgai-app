@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {creatorGenerationConfig} from './fg-creator-config.mjs';
+import {creatorGenerationConfig,creatorMediaOperation} from './fg-creator-config.mjs';
 import fs from 'node:fs';
 import {capabilities} from './fg-model-capabilities.mjs';
 test('native director sizes preserve aspect ratio and use the enabled model resolution tier',()=>{
@@ -33,4 +33,12 @@ test('sound setting is forwarded and unsupported video parameters are rejected b
  assert.equal(creatorGenerationConfig(selected,{generate_audio:false},'video').videoGenerateAudio,'false');
  assert.throws(()=>creatorGenerationConfig(selected,{duration:99},'video'));
  assert.throws(()=>creatorGenerationConfig(selected,{resolution:'2K'},'video'));
+});
+test('director and advertising resolve native video operations before submitting a paid task',()=>{
+ const selected={profile:{video:{operations:['text_to_video','image_to_video','reference_to_video'],defaultOperation:'text_to_video'}}};
+ assert.equal(creatorMediaOperation(selected,{content:[{type:'text',text:'test'}]},'video'),'text_to_video');
+ assert.equal(creatorMediaOperation(selected,{content:[{type:'image_url',role:'first_frame'}]},'video'),'image_to_video');
+ assert.equal(creatorMediaOperation(selected,{content:[{type:'image_url',role:'reference_image'}]},'video'),'reference_to_video');
+ assert.equal(creatorMediaOperation(selected,{content:[{type:'video_url'}]},'video'),'reference_to_video');
+ assert.throws(()=>creatorMediaOperation(selected,{operation:'video'},'video'));
 });

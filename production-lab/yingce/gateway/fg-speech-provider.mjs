@@ -19,7 +19,8 @@ export const speechUtilities = [
 export class SpeechError extends Error {
  constructor(code,status=502){
   const messages={SPEECH_NOT_CONFIGURED:'公司语音渠道尚未配置',SPEECH_AUTH_FAILED:'火山语音鉴权或模型权限不足，请联系管理员',SPEECH_LIMIT:'火山语音额度或并发不足，请稍后查看任务状态',SPEECH_INVALID_INPUT:'语音输入、音色或格式不受支持',SPEECH_TIMEOUT:'语音请求结果尚未确认，请查看任务记录；不会自动重复提交',SPEECH_UPSTREAM_FAILED:'火山语音服务暂时不可用',SPEECH_INVALID_RESULT:'供应商未返回完整、可播放的音频'};
-  super(messages[code]||messages.SPEECH_UPSTREAM_FAILED);this.code=code;this.status=status;
+  const inputMessages={SPEECH_DURATION_LIMIT:'Seed Audio 单次最多生成 120 秒音频。请按段落拆分长篇旁白后生成；本次不会自动重试。',SPEECH_PROMPT_TOO_LONG:'Seed Audio 提示词最多 3,000 字符，请缩短描述后再生成。'};
+  super(inputMessages[code]||messages[code]||messages.SPEECH_UPSTREAM_FAILED);this.code=code;this.status=status;
  }
 }
 export async function speechKey(){
@@ -31,8 +32,9 @@ export function internalSpeechAuthorised(given){
  return !!expected&&typeof given==='string'&&given.length===expected.length&&timingSafeEqual(Buffer.from(given),Buffer.from(expected));
 }
 export function speechFailure(http,code){
+ if(Number(code)===40000020)return new SpeechError('SPEECH_DURATION_LIMIT',400);
  if(http===401||http===403||[45000000,45000001].includes(Number(code)))return new SpeechError('SPEECH_AUTH_FAILED',403);
- if(http===429)return new SpeechError('SPEECH_LIMIT',429);
+ if(http===429||http===402)return new SpeechError('SPEECH_LIMIT',429);
  if(http===400||String(code).startsWith('45'))return new SpeechError('SPEECH_INVALID_INPUT',400);
  return new SpeechError('SPEECH_UPSTREAM_FAILED');
 }
@@ -52,7 +54,11 @@ export function speechPayload(input){
  if(!speechModels.some(m=>m.id===input.model))throw new SpeechError('SPEECH_INVALID_INPUT',400);
  const text=String(input.input||'').trim(),format=input.response_format||'mp3',speed=Number(input.speed??1);
  if(!text||text.length>12000||!['mp3','wav'].includes(format)||!Number.isFinite(speed)||speed<0.5||speed>2)throw new SpeechError('SPEECH_INVALID_INPUT',400);
- if(input.model==='seed-audio-1.0')return {path:'/api/v3/tts/create',resource:'',format,body:{model:input.model,text_prompt:[input.instructions,text].filter(Boolean).join('\n'),audio_config:{format,sample_rate:48000,pitch_rate:0,speech_rate:Math.round((speed-1)*100),loudness_rate:0},watermark:{}}};
+ if(input.model==='seed-audio-1.0'){
+  const prompt=[input.instructions,text].filter(Boolean).join('\n');
+  if(Array.from(prompt).length>3000)throw new SpeechError('SPEECH_PROMPT_TOO_LONG',400);
+  return {path:'/api/v3/tts/create',resource:'',format,body:{model:input.model,text_prompt:prompt,audio_config:{format,sample_rate:48000,pitch_rate:0,speech_rate:0,loudness_rate:0},watermark:{}}};
+ }
  const voice=!input.voice||input.voice==='alloy'?defaultSpeechVoice:String(input.voice);
  if(!/^[a-zA-Z0-9_-]{1,100}$/.test(voice))throw new SpeechError('SPEECH_INVALID_INPUT',400);
  return {path:'/api/v3/tts/unidirectional',resource:'seed-tts-2.0',format,body:{user:{uid:'fg-company-speech'},req_params:{text,speaker:voice,audio_params:{format:format==='wav'?'pcm':format,sample_rate:24000,speech_rate:Math.round((speed-1)*100)},...(input.instructions?{additions:JSON.stringify({context_texts:[String(input.instructions).slice(0,2000)]})}:{})}}};
@@ -74,7 +80,13 @@ export function decodeTTSChunks(raw){
 }
 async function providerRequest(path,resource,payload,{key,requestId=randomUUID(),fetcher=fetch,timeout=300000}={}){
  const response=await fetcher(origin+path,{method:'POST',redirect:'error',headers:{'content-type':'application/json','X-Api-Key':key||await speechKey(),'X-Api-Request-Id':requestId,...(resource?{'X-Api-Resource-Id':resource}:{}),...(path==='/api/v3/tts/unidirectional'?{'X-Control-Require-Usage-Tokens-Return':'*'}:{}),'X-Api-Sequence':'-1'},body:JSON.stringify(payload),signal:AbortSignal.timeout(timeout)});
- if(!response.ok)throw speechFailure(response.status,response.headers.get('x-api-status-code'));
+ if(!response.ok){
+  let code=response.headers.get('x-api-status-code');
+  // Read only the bounded status object. Never return a provider message or body.
+  try{const parts=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>8192)break;parts.push(chunk);}const failure=JSON.parse(Buffer.concat(parts).toString());if(Number.isSafeInteger(Number(failure.code)))code=String(failure.code);}catch{}
+  console.warn(JSON.stringify({event:'fg_speech_provider_error',http:response.status,code:/^\d{1,10}$/.test(code||'')?code:undefined,requestId,logId:/^[A-Za-z0-9-]{1,100}$/.test(response.headers.get('x-tt-logid')||'')?response.headers.get('x-tt-logid'):undefined}));
+  throw speechFailure(response.status,code);
+ }
  // Provider diagnostics can echo credentials. Only stable FG codes leave this module.
  const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>(115<<20))throw new SpeechError('SPEECH_INVALID_RESULT');chunks.push(chunk);}
  return {raw:Buffer.concat(chunks).toString(),code:response.headers.get('x-api-status-code'),requestId};

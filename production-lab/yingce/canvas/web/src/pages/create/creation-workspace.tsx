@@ -388,7 +388,7 @@ export function CreationComposer(props: ComposerProps) {
                     </button>
                 </Tooltip> : null}
 				<ModelPicker config={props.config} value={props.model} onChange={props.onModelChange} capability={props.mode} requirements={props.modelRequirements} className="creation-model-picker" placeholder={`选择${modeLabels[props.mode]}模型`} showSelectedPrice={false} showOptionPrices variant="creation" />
-                <FGSkillControl references={props.references} prompt={props.prompt} onChange={props.setPrompt} disabled={interactionBusy}/>
+                <FGSkillControl references={props.references} prompt={props.prompt} onChange={props.setPrompt} disabled={interactionBusy} capability={props.mode}/>
                 {props.mode === "video" || (props.mode === "image" && imageSettingsSupported) ? <GenerationSettingsMenu {...props} /> : null}
                 {props.mode === "video" ? <DurationMenu profile={props.videoProfile} seconds={props.seconds} onChange={props.setSeconds} /> : null}
                 {props.mode === "text" ? <>

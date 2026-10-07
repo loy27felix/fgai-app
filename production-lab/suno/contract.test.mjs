@@ -18,7 +18,8 @@ test('custom music survives the native audio instructions field without mixing s
 });
 test('result URLs never fetch credentials, private hosts or arbitrary redirects',()=>{
  assert.equal(audioURL('https://cdn1.suno.ai/song.mp3'),'https://cdn1.suno.ai/song.mp3');
- for(const url of ['http://cdn1.suno.ai/a.mp3','https://127.0.0.1/a.mp3','https://cdn1.suno.ai.evil.com/a.mp3','https://user:pass@cdn1.suno.ai/a.mp3'])assert.throws(()=>audioURL(url));
+ assert.equal(audioURL('https://suno-data-uploads.s3.amazonaws.com/song.mp3?X-Amz-Signature=test'),'https://suno-data-uploads.s3.amazonaws.com/song.mp3?X-Amz-Signature=test');
+ for(const url of ['http://cdn1.suno.ai/a.mp3','https://127.0.0.1/a.mp3','https://cdn1.suno.ai.evil.com/a.mp3','https://other.s3.amazonaws.com/a.mp3','https://suno-data-uploads.s3.amazonaws.com.evil.com/a.mp3','https://user:pass@cdn1.suno.ai/a.mp3'])assert.throws(()=>audioURL(url));
 });
 test('parallel and restarted requests claim only one provider submission',async()=>{
  const root=await mkdtemp(join(tmpdir(),'fg-suno-'));

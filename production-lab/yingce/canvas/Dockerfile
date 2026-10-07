@@ -33,6 +33,7 @@ ENV CANVAS_BUILD_TIME=${BUILD_TIME}
 RUN bun test test/fg-official-limits.test.ts test/fg-reference-model.test.ts test/image-size-presets.test.tsx
 RUN bun test test/fg-nas-upload.test.ts
 RUN bun test test/fg-skill-catalog.test.ts test/skills-api.test.ts
+RUN bun test test/fg-image-styles.test.ts
 RUN bun test test/fg-team-policy.test.ts test/workspace-sidebar-storage.test.ts
 RUN bun test test/audio-generation.test.ts
 RUN bun test test/fg-pcm-resampler.test.ts

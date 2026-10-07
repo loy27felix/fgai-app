@@ -12,6 +12,16 @@ if(!capability||!/^[0-9a-f-]{36}$/.test(actor||''))throw Error('FG creator ident
 globalThis.fetch=companyMediaFetch(globalThis.fetch,`http://fg-gateway:3010/internal/creator/${actor}`,capability);
 await fs.access('/workspace/.fg-creator-ready');
 await fs.mkdir('/state/codex',{recursive:true});
+// Company packages are namespaced; personal skills in this private volume remain intact.
+try{
+ const marker=await fs.readFile('/opt/fg-skills/version','utf8');
+ const installed=await fs.readFile('/state/codex/fg-skills-version','utf8').catch(()=>null);
+ if(installed!==marker){
+  await fs.mkdir('/state/codex/skills',{recursive:true});
+  for(const item of await fs.readdir('/opt/fg-skills',{withFileTypes:true}))if(item.isDirectory()&&item.name.startsWith('fg-'))await fs.cp('/opt/fg-skills/'+item.name,'/state/codex/skills/'+item.name,{recursive:true});
+  await fs.writeFile('/state/codex/fg-skills-version',marker);
+ }
+}catch(error){if(error.code!=='ENOENT')throw error;}
 await fs.mkdir('/state/opencreator',{recursive:true});
 await fs.mkdir('/state/catalog-seed',{recursive:true});
 const bundled=JSON.parse(execFileSync('/usr/local/bin/codex',['debug','models'],{env:{...process.env,CODEX_HOME:'/state/catalog-seed'},encoding:'utf8',stdio:['ignore','pipe','ignore'],maxBuffer:16<<20}));

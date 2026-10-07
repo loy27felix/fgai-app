@@ -1,0 +1,4 @@
+interface:
+  display_name: "小唐 AIGC TVC SOP"
+  short_description: "商业广告TVC与AI视频提示词制作流程"
+  default_prompt: "Use $xiaotang-aigc-tvc-sop to develop a premium commercial TVC treatment and shot prompts for my brief."

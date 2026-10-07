@@ -1,0 +1,10 @@
+{
+  "slug": "deepwhite-shotlist-builder-zh-user",
+  "skillId": "fg-926ee76a5892783acf543618",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "3ebf27d459d60cf16eacc13e4924199e2d5b542237d107ffb0363365694a866d",
+  "omitted": [],
+  "imageStyle": null
+}
