@@ -308,10 +308,34 @@ class DefaultYtDlpUpdateManager implements YtDlpUpdateManager {
       }
     });
     if (!response.ok) {
+      // Public release APIs can rate-limit a shared company egress address.
+      // The official feed and checksum asset retain the release trust boundary.
+      if (response.status === 403 || response.status === 429) return this.fetchReleaseFeed();
       throw new Error(`GitHub release API returned HTTP ${response.status}`);
     }
     const payload = JSON.parse(response.body.toString('utf8')) as unknown;
     return parseLatestRelease(payload);
+  }
+
+  private async fetchReleaseFeed(): Promise<ReleaseDescriptor> {
+    const request = (url: string) => fetchWithLimit({
+      url, proxy: '', timeoutMs: CHECK_TIMEOUT_MS,
+      maxBytes: MAX_RELEASE_RESPONSE_BYTES, signal: this.lifecycleController.signal,
+      fetchImpl: this.input.fetchImpl,
+      headers: { Accept: '*/*', 'User-Agent': 'OpenCreator-yt-dlp-updater' }
+    });
+    const response = await request('https://github.com/yt-dlp/yt-dlp-nightly-builds/releases.atom');
+    if (!response.ok) throw new Error(`GitHub release feed returned HTTP ${response.status}`);
+    const entry = response.body.toString('utf8').match(/<entry>([\s\S]*?)<\/entry>/)?.[1] ?? '';
+    const version = entry.match(/href="https:\/\/github\.com\/yt-dlp\/yt-dlp-nightly-builds\/releases\/tag\/(\d{4}\.\d{2}\.\d{2}\.\d{6})"/)?.[1];
+    const publishedAt = entry.match(/<updated>([^<]+)<\/updated>/)?.[1] ?? '';
+    if (!version || !Number.isFinite(Date.parse(publishedAt))) throw invalidReleaseAsset();
+    const url = `https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${version}/yt-dlp`;
+    const checksums = await request(url.replace(/\/yt-dlp$/, '/SHA2-256SUMS'));
+    if (!checksums.ok) throw new Error(`GitHub checksums returned HTTP ${checksums.status}`);
+    const digest = checksums.body.toString('utf8').match(/^([a-fA-F0-9]{64})\s+\*?yt-dlp\r?$/m)?.[1]?.toLowerCase();
+    if (!digest) throw invalidReleaseAsset();
+    return { version, publishedAt, url, sha256: digest };
   }
 
   private async downloadRelease(release: ReleaseDescriptor): Promise<Buffer> {

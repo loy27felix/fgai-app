@@ -19,6 +19,33 @@ afterEach(async () => {
 });
 
 describe('yt-dlp update manager', () => {
+  it('uses official feed and checksums when the release API rejects shared egress', async () => {
+    root = await mkdtemp(join(tmpdir(), 'creator-yt-dlp-update-'));
+    const release = releaseFixture(LATEST_VERSION);
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith('https://api.github.com/')) return new Response('rate limited', { status: 403 });
+      if (url.endsWith('/releases.atom')) return new Response(`<feed><entry><updated>2026-08-31T00:00:00Z</updated><link href="https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/${LATEST_VERSION}"/></entry></feed>`);
+      if (url.endsWith('/SHA2-256SUMS')) return new Response(`${release.sha256}  yt-dlp\n`);
+      if (url === release.url) return new Response(Uint8Array.from(release.content));
+      return new Response('not found', { status: 404 });
+    }) as unknown as typeof fetch;
+    const manager = await createManager(join(root, 'updates'), await createBundledRuntime(root), fetchImpl);
+    await manager.update();
+    expect(manager.status()).toMatchObject({ source: 'managed', currentVersion: LATEST_VERSION });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it('rejects a fallback feed pointing outside the official nightly repository', async () => {
+    root = await mkdtemp(join(tmpdir(), 'creator-yt-dlp-update-'));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => String(input).startsWith('https://api.github.com/')
+      ? new Response('', { status: 403 })
+      : new Response(`<feed><entry><updated>2026-08-31T00:00:00Z</updated><link href="https://example.com/releases/tag/${LATEST_VERSION}"/></entry></feed>`)) as unknown as typeof fetch;
+    const manager = await createManager(join(root, 'updates'), await createBundledRuntime(root), fetchImpl);
+    await expect(manager.check()).rejects.toMatchObject({ code: 'creator_yt_dlp_update_verification_failed' });
+    expect(manager.status().source).toBe('bundled');
+  });
+
   it('uses the bundled runtime and checks at most once per interval', async () => {
     root = await mkdtemp(join(tmpdir(), 'creator-yt-dlp-update-'));
     const bundledRuntime = await createBundledRuntime(root);

@@ -116,7 +116,7 @@ test("channel model manager supports bounded atomic batch deletion", async () =>
     expect(component).toContain("批量删除");
 });
 
-test("analytics keeps range presets and uses order finances without a separate pricing editor", async () => {
+test("analytics keeps range presets and hides retail credit finances for the company workspace", async () => {
     const source = compactSource(await Bun.file(new URL("../src/pages/admin/components/analytics-panel.tsx", import.meta.url)).text());
 
     expect(source).toContain('type RangePreset = "7d" | "30d" | "60d"');
@@ -128,7 +128,9 @@ test("analytics keeps range presets and uses order finances without a separate p
     expect(source).toContain("finance.revenueMicrocredits");
     expect(source).toContain("finance.profitMicrocredits");
     expect(source).toContain("finance.costedOrders < finance.settledOrders");
-    expect(source).toContain("...analyticsFinanceColumns");
+    expect(source).toContain("...(creditsEnabled ? analyticsFinanceColumns : [])");
+    expect(source).toContain("{creditsEnabled && financeUnavailable && <Alert");
+    expect(source).toContain("按模型 / 成员查看；费用在请求明细中核对");
     expect(source).toContain("后端未返回完整财务统计");
 });
 
@@ -262,7 +264,7 @@ test("admin tables keep requested filters and actions in the intended positions"
     expect(operationColumn).toContain('fixed: "right"');
 });
 
-test("request logs display user credit billing independently from upstream cost", async () => {
+test("company request logs separate upstream estimates from actual reconciled bills", async () => {
     const [listSource, detailSource, apiSource] = await Promise.all([
         Bun.file(new URL("../src/pages/admin/logs/logs-page.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/components/api-log-detail-drawer.tsx", import.meta.url)).text(),
@@ -270,16 +272,17 @@ test("request logs display user credit billing independently from upstream cost"
     ]);
 
     const billingSummary = sourceSection(listSource, "function BillingSummary", "function MediaResult");
-    expect(listSource).toContain('title: "积分计算"');
+    expect(listSource).toContain('title: "上游费用估算"');
     expect(listSource).toContain('title: "请求阶段 / 状态"');
-    expect(listSource).toContain('description="模型生成与结果下载记录；仅计费调用扣除积分"');
+    expect(listSource).toContain('description="按成员和模型查看请求、用量与费用；上游价格估算不代表最终账单"');
+    expect(listSource).toContain('creditsEnabled ? <BillingSummary log={log} /> : upstreamCostText(log)');
     expect(billingSummary).toContain("billingAmountMicrocredits");
     expect(billingSummary).toContain("billingAvailable");
     expect(billingSummary).toContain("!log.billable");
     expect(billingSummary).toContain("未扣积分");
     expect(billingSummary).not.toContain("costAvailable");
     expect(detailSource).toContain('label="请求阶段" value={requestKindText(log.requestKind)}');
-    expect(detailSource).toContain('label="计费" value={billingText(log)}');
+    expect(detailSource).toContain('label="计费" value={creditsEnabled ? billingText(log) : log.billable ? "WeToken 实际费用见 FG 费用对账" : "非计费阶段"}');
     expect(detailSource).toContain('label="请求 ID" value={<CopyValue value={log.id} />}');
     expect(detailSource).toContain('label="供应商任务 ID" value={log.providerRequestId ? <CopyValue value={log.providerRequestId} /> : "未记录"}');
     expect(apiSource).toContain("billingAmountMicrocredits: number");

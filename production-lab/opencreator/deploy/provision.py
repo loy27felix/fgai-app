@@ -19,7 +19,9 @@ def run(args,optional=False):
 users=json.loads(run(['exec','fg-six-yingce-postgres-1','psql','-U','fg_yingce','-d','fg_yingce','-tAc',"SELECT COALESCE(json_agg(id),'[]') FROM users WHERE status='active' AND id IN(SELECT user_id FROM fg_accounts)"]))
 gateway='fg-six-yingce-gateway-1'
 image=env.get('CREATOR_RUNTIME_IMAGE','fg-six-creator-runtime:v128')
-image_id=json.loads(run(['image','inspect',image]))[0]['Id']
+image_details=json.loads(run(['image','inspect',image]))[0]
+assert image_details['Config'].get('Cmd')==['node','/app/fg-entry.mjs'],'Creator image is not the runtime target; no containers changed'
+image_id=image_details['Id']
 attached=json.loads(run(['inspect',gateway]))[0]['NetworkSettings']['Networks']
 metrics=ROOT/'host-metrics';metrics.mkdir(exist_ok=True)
 endpoints={}

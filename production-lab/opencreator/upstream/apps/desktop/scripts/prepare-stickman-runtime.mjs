@@ -44,7 +44,8 @@ const assetsRoot = join(desktopDir, '.pack', 'stickman-assets');
 const characterRoot = join(assetsRoot, 'characters');
 const visualAssetRoot = join(assetsRoot, 'visual-assets');
 const remotionVersion = '4.0.473';
-const chromiumVersion = '149.0.7790.0';
+const chromiumVersion = process.env.OPENCREATOR_STICKMAN_CHROMIUM_VERSION?.trim() || '149.0.7790.0';
+if (!/^\d+\.\d+\.\d+\.\d+$/.test(chromiumVersion)) throw new Error('Invalid Chromium version');
 const requireFromDaemon = createRequire(join(rootDir, 'apps', 'daemon', 'package.json'));
 const { bundle } = requireFromDaemon('@remotion/bundler');
 const yauzl = requireFromDaemon('yauzl');
@@ -79,7 +80,7 @@ const browserVersion = execFileSync(browserSource, ['--version'], {
 if (!browserVersion.includes(chromiumVersion)) {
   throw new Error(`Unexpected Chromium version: ${browserVersion}`);
 }
-cpSync(dirname(browserSource), browserRoot, { recursive: true });
+cpSync(dirname(browserSource), browserRoot, { recursive: true, dereference: true });
 const packagedBrowserExecutable = join(browserRoot, basename(browserSource));
 
 cpSync(
