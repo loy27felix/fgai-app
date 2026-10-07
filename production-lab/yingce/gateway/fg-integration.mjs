@@ -3,9 +3,9 @@ import {createHash} from 'node:crypto';
 import {importFeeCsv} from './fg-fee-import.mjs';
 import {estimateCNY} from './fg-prices.mjs';
 import {priceQuote} from './fg-quotes.mjs';
-import {capabilities} from './fg-model-capabilities.mjs';
 import {teamAndStoryAPI,approvedTopics,bootstrapTeam} from './fg-team-stories.mjs';
 import {financeActions} from './fg-finance-actions.mjs';
+import {modelPriceRows} from './fg-model-price-catalog.mjs';
 
 export async function initializeFG(pool){await pool.query(await fs.readFile(new URL('./fg-schema.sql',import.meta.url),'utf8'));}
 async function jsonBody(req,max=100000){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>max)throw new Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
@@ -37,11 +37,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
       const evidence=(await pool.query(`SELECT t.model,t.operation,t.status,t.error,t.updated_at FROM tasks t WHERE t.input_json LIKE '%fg-model-matrix-20261001%' ORDER BY t.updated_at DESC`)).rows;
       const specs=JSON.parse(await fs.readFile(new URL('./model-specs.json',import.meta.url),'utf8'));
       const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
-      send(res,{models:prices.map(p=>{
-        const spec=specs.find(s=>s.id===p.model),profile=capabilities(spec);
-        const options=profile.image?{size:profile.image.size.default,quality:profile.image.quality.default,count:1}:profile.video?{size:profile.video.defaultRatio,vquality:profile.video.defaultResolution,videoSeconds:Math.min(...profile.video.duration.values)}:{};
-        return {model:p.model,capability:spec.capability,enabled:p.snapshot.enabled,collectedAt:p.collected_at,profile,quote:priceQuote(p.model,p.snapshot,{capability:spec.capability,options,inputs:{}},fx),evidence:evidence.filter(e=>e.model.endsWith('::'+p.model)).map(e=>({operation:e.operation,status:e.status,error:e.error,updatedAt:e.updated_at}))};
-      })});return true;
+      send(res,{models:modelPriceRows(prices,specs,evidence,fx)});return true;
     }
     const seed=JSON.parse(await fs.readFile(process.env.FG_TOPICS_FILE||new URL('./topics.json',import.meta.url),'utf8'));
     if(await teamAndStoryAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin},{body:jsonBody,send,topics:seed}))return true;
