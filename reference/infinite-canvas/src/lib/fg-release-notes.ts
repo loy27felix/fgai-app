@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.2.0";
+export const CURRENT_RELEASE_VERSION = "1.3.0";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,18 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月7日",
+        items: [
+            { type: "优化", content: "FG 超级工作台更新日间与夜间玻璃界面，重新整理故事项目、人民币对账和技能分类的布局与操作间距。" },
+            { type: "新增", content: "资源与工具新增音频设置区，统一进入音乐、角色配音、对白音效、语音识别、字幕和翻译；角色配音支持真实音色试听。" },
+            { type: "新增", content: "31 个本地创作技能进入公司技能库，并同步至综合工作台与小说转视频的制作环境，覆盖剧本、分镜、表演、图片风格和宣传设计。" },
+            { type: "修复", content: "修复小说转视频首次进入的转发地址、广告结果归档、音频页面滚动及音频模型参数展示；SeedAudio 可直接按文字与声音参考生成。" },
+            { type: "新增", content: "公司 Suno 音乐支持成员提交制作任务、管理员在官网完成验证与生成后归档，作品保存为公司素材。" },
+            { type: "优化", content: "减少重复状态查询与无交互时的背景动画绘制；保留球形 Agent，完整生成结果继续归档至公司 NAS。" },
+        ],
+    },
+    {
+        version: "1.2.0",
         date: "2026年10月2日",
         items: [
             { type: "新增", content: "新增 FG 创作工作台，向平台全部登录用户开放；既有工作区和超级画布继续使用原服务。" },
