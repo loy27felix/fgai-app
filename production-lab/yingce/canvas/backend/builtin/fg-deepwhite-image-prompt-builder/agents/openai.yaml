@@ -1,0 +1,4 @@
+interface:
+  display_name: "DeepWhite Image Prompt Builder"
+  short_description: "Create bilingual still-image prompts."
+  default_prompt: "Use $deepwhite-image-prompt-builder to turn this visual idea, script excerpt, or style brief into English and Chinese image prompts."

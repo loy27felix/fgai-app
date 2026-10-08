@@ -1,0 +1,277 @@
+import { mediaUrl } from "../api/client";
+import { ChevronDownIcon, EditIcon, ImageIcon, StarIcon, TrashIcon, VideoIcon } from "../icons";
+import type { V2ProjectCover } from "../projects/v2ProjectCover";
+import { StableMediaPreview } from "../workflow/StableMediaPreview.tsx";
+import { memo, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type Ref } from "react";
+
+export const ProjectCard = memo(function ProjectCard({
+  projectId,
+  name,
+  time,
+  favorite,
+  cover,
+  coverPriority = 1,
+  workflowId,
+  onOpen,
+  onTrash,
+  onToggleFavorite,
+  onRename,
+  onChangeCover,
+  selectionMode = false,
+  selected = false,
+  selectionDisabled = false,
+  onSelect,
+  cardRef,
+}: {
+  projectId: string;
+  name: string;
+  time: string;
+  favorite: boolean;
+  cover?: V2ProjectCover | null;
+  coverPriority?: number;
+  workflowId?: string;
+  onOpen: (projectId: string) => void;
+  onTrash?: () => void;
+  onToggleFavorite?: () => void;
+  onRename?: (trigger: HTMLButtonElement) => void;
+  onChangeCover?: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  selectionDisabled?: boolean;
+  onSelect?: () => void;
+  cardRef?: Ref<HTMLElement>;
+}) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionTriggerRef = useRef<HTMLButtonElement>(null);
+
+  function handleActionTriggerClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    setActionsOpen((open) => !open);
+  }
+
+  function handleActionMenuEnter() {
+    setActionsOpen(true);
+  }
+
+  function handleActionMenuLeave(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+    setActionsOpen(false);
+  }
+
+  function handleActionMenuBlur(event: ReactFocusEvent<HTMLDivElement>) {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    setActionsOpen(false);
+  }
+
+  function handleTrash(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    setActionsOpen(false);
+    onTrash?.();
+  }
+
+  function handleToggleFavorite(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    onToggleFavorite?.();
+  }
+
+  return (
+    <article ref={cardRef} className={`project-card${selectionMode ? " is-selection-mode" : ""}${selected ? " is-selected" : ""}`} data-project-id={projectId} data-project-card={name.toLowerCase()}>
+      <button
+        className="project-card-open"
+        type="button"
+        aria-label={selectionMode ? `${selected ? "Deselect" : "Select"} ${name}` : undefined}
+        aria-pressed={selectionMode ? selected : undefined}
+        disabled={selectionMode && selectionDisabled}
+        onClick={() => {
+          if (selectionMode) onSelect?.();
+          else onOpen(projectId);
+        }}
+      >
+        <ProjectPreviewImage projectId={projectId} workflowId={workflowId} cover={cover} coverPriority={coverPriority} name={name} />
+        <div className="card-body">
+          <h3>{name}</h3>
+          <p>{time}</p>
+        </div>
+      </button>
+      {selectionMode ? (
+        <input
+          className="project-card-select"
+          type="checkbox"
+          checked={selected}
+          disabled={selectionDisabled}
+          aria-label={`Select ${name}`}
+          onClick={(event) => event.stopPropagation()}
+          onChange={onSelect}
+        />
+      ) : null}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Menu container only tracks hover/focus state; all actions are native buttons. */}
+      {!selectionMode ? <div className={`project-action-menu ${actionsOpen ? "is-open" : ""}`} onPointerEnter={handleActionMenuEnter} onPointerLeave={handleActionMenuLeave} onBlur={handleActionMenuBlur}>
+        <button
+          ref={actionTriggerRef}
+          className="project-action-trigger"
+          type="button"
+          aria-label={`Open actions for ${name}`}
+          aria-haspopup="menu"
+          aria-expanded={actionsOpen}
+          title="Project actions"
+          onClick={handleActionTriggerClick}
+        >
+          <ChevronDownIcon />
+        </button>
+        <div className="project-action-list" role="menu" aria-label={`${name} actions`} aria-hidden={!actionsOpen}>
+          <button
+            className="project-menu-btn project-rename-btn"
+            type="button"
+            role="menuitem"
+            tabIndex={actionsOpen ? 0 : -1}
+            aria-label={`Rename ${name}`}
+            title="Rename project"
+            onClick={(event) => {
+              event.stopPropagation();
+              setActionsOpen(false);
+              onRename?.(actionTriggerRef.current ?? event.currentTarget);
+            }}
+          >
+            <EditIcon />
+          </button>
+          <button
+            className="project-menu-btn project-cover-btn"
+            type="button"
+            role="menuitem"
+            tabIndex={actionsOpen ? 0 : -1}
+            aria-label={`Change cover for ${name}`}
+            title="Change cover"
+            onClick={(event) => {
+              event.stopPropagation();
+              setActionsOpen(false);
+              onChangeCover?.();
+            }}
+          >
+            <ImageIcon />
+          </button>
+          <button className="project-menu-btn project-trash-btn" type="button" role="menuitem" tabIndex={actionsOpen ? 0 : -1} aria-label={`Move ${name} to trash`} title="Move to trash" onClick={handleTrash}>
+            <TrashIcon />
+          </button>
+          <button
+            className={`project-menu-btn project-favorite-btn ${favorite ? "is-favorite" : ""}`}
+            type="button"
+            role="menuitem"
+            tabIndex={actionsOpen ? 0 : -1}
+            aria-label={favorite ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
+            aria-pressed={favorite}
+            title={favorite ? "Remove favorite" : "Add favorite"}
+            onClick={handleToggleFavorite}
+          >
+            <StarIcon />
+          </button>
+        </div>
+      </div> : null}
+    </article>
+  );
+});
+
+function ProjectPreviewImage({
+  projectId,
+  workflowId,
+  cover,
+  coverPriority,
+  name,
+}: {
+  projectId: string;
+  workflowId?: string;
+  cover?: V2ProjectCover | null;
+  coverPriority: number;
+  name: string;
+}) {
+  const [generatedPoster, setGeneratedPoster] = useState<{ coverKey: string; url: string }>({ coverKey: "", url: "" });
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const sourceUrl = cover ? projectCoverMediaUrl(cover.posterPath || cover.previewPath || cover.mediaPath) : "";
+  const generatedPosterKey = cover?.mediaType === "video" && !cover.posterPath
+    ? `${cover.assetId}:${cover.versionId}:${cover.mediaPath}`
+    : "";
+
+  useEffect(() => {
+    setPreviewFailed(false);
+  }, [sourceUrl]);
+
+  useEffect(() => {
+    if (!cover || cover.mediaType !== "video" || cover.posterPath || !workflowId) {
+      setGeneratedPoster({ coverKey: "", url: "" });
+      return;
+    }
+    let cancelled = false;
+    let objectUrl = "";
+    void import("../workflow/videoPosterCache").then(({ ensureVideoPoster }) => ensureVideoPoster({
+      projectId,
+      workflowId,
+      asset: {
+        asset_id: cover.assetId,
+        asset_type: "video",
+        public_url: cover.mediaPath,
+        version: cover.versionId,
+      },
+      videoUrl: projectCoverMediaUrl(cover.mediaPath),
+    })).then((record) => {
+      if (cancelled || !record?.poster_blob) return;
+      objectUrl = URL.createObjectURL(record.poster_blob);
+      setGeneratedPoster({ coverKey: generatedPosterKey, url: objectUrl });
+    }).catch(() => {
+      // A missing local poster still leaves the project card usable without a preview.
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [cover, generatedPosterKey, projectId, workflowId]);
+
+  const previewUrl = generatedPosterKey
+    ? generatedPoster.coverKey === generatedPosterKey ? generatedPoster.url : ""
+    : sourceUrl;
+  if (!previewUrl || previewFailed) {
+    return (
+      <span className="preview project-preview-image is-empty">
+        {cover?.mediaType === "video" ? <VideoIcon /> : <ImageIcon />}
+        <span className="sr-only">{name}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="preview project-preview-image">
+      <StableMediaPreview
+        src={previewUrl}
+        alt=""
+        loading={coverPriority >= 3 ? "eager" : "lazy"}
+        fetchPriority={coverPriority >= 3 ? "high" : "auto"}
+        decoding="async"
+        onError={() => setPreviewFailed(true)}
+      />
+      <span className="sr-only">{name}</span>
+    </span>
+  );
+}
+
+function projectCoverMediaUrl(path: string) {
+  const value = path.trim();
+  if (/^\/?api\/v2\/assets\//i.test(value)) return value.startsWith("/") ? value : `/${value}`;
+  return mediaUrl(value);
+}
+
+export function CreateCard({ title, onClick }: { title: string; onClick: () => void }) {
+  return (
+    <button className="create-card create-card--new-project clear-glass-control" type="button" onClick={onClick}>
+      <div>
+        <span className="create-plus" aria-hidden="true">+</span>
+        <h3>{title}</h3>
+      </div>
+    </button>
+  );
+}
+
+export function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="section-title">
+      <h2>{title}</h2>
+      <p>{subtitle}</p>
+    </div>
+  );
+}

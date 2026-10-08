@@ -1,0 +1,10 @@
+{
+  "slug": "short-drama-factory",
+  "skillId": "fg-96d178c3be5fc699db6d622b",
+  "version": "4.3",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "f9e3d23d29d233d90881ae9f45c74d2b1211e9c84b9caceb75f9653a80d8ebeb",
+  "omitted": [],
+  "imageStyle": null
+}

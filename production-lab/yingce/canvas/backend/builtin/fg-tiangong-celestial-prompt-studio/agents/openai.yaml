@@ -1,0 +1,8 @@
+interface:
+  display_name: "天宫视觉提示词工作室"
+  short_description: "生成中式云宫视觉与 Midjourney/image2 提示词"
+  brand_color: "#C8A96B"
+  default_prompt: "Use $tiangong-celestial-prompt-studio to turn this brief into a Chinese celestial-palace visual, let me choose Midjourney or image2, and generate the image when possible."
+
+policy:
+  allow_implicit_invocation: true

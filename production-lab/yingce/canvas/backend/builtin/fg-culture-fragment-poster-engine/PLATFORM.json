@@ -1,0 +1,19 @@
+{
+  "slug": "culture-fragment-poster-engine",
+  "skillId": "fg-8f05d870c4f6450467f8d878",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "c29e83ee61b8f184a8ace437a23860f977e9e8ed80e04d06d556d3b0ff520f4e",
+  "omitted": [
+    "culture-fragment-poster-engine .zip",
+    "culture-fragment-poster-engine\\SKILL.md",
+    "culture-fragment-poster-engine\\agents\\openai.yaml",
+    "culture-fragment-poster-engine\\references\\full-rules.md"
+  ],
+  "imageStyle": {
+    "label": "文化碎片海报",
+    "prompt": "Derive a contemporary cultural poster from user-supplied visual material: isolate its distinctive forms and symbols, reorganize them into bold collage with controlled scale, restrained palette and clean editorial hierarchy. Do not invent generic cultural motifs.",
+    "direct": true
+  }
+}

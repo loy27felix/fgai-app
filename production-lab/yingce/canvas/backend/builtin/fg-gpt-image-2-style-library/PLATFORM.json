@@ -1,0 +1,14 @@
+{
+  "slug": "gpt-image-2-style-library",
+  "skillId": "fg-7d123d031b3462c769f4a549",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "98519a3bfd28c5ab5630771a536f18fbe3627123cd7dd7a8801fa5da166a60f9",
+  "omitted": [],
+  "imageStyle": {
+    "label": "风格探索",
+    "prompt": "Develop an image style from the user brief: distinguish subject, composition, medium, material, lighting and palette, with one coherent visual language. Do not impose a stock style or change the subject.",
+    "direct": true
+  }
+}

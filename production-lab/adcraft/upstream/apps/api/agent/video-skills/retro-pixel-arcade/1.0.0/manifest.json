@@ -1,0 +1,41 @@
+{
+  "skill_id": "retro-pixel-arcade",
+  "version": "1.0.0",
+  "video_representation_mode": "illustrated",
+  "display_name": "复古像素街机动画",
+  "description": "以有限像素色盘、精确精灵可读性、街机式场面调度和节奏化图形效果组织高辨识度的复古动画广告。",
+  "content_locale": "zh-CN",
+  "category": "animation-illustration",
+  "tags": [
+    "像素动画",
+    "复古街机",
+    "图形节奏"
+  ],
+  "supported_use_cases": [
+    "游戏宣传",
+    "品牌动画",
+    "互动概念片"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "复古像素街机动画视觉预览。",
+    "media_url": "/api/v2/video-skills/retro-pixel-arcade/preview?v=1.0.0"
+  },
+  "display_order": 370,
+  "files": {
+    "SKILL.md": "abb26d0df334df5f19e528fce669b4c994e44fc591a0d55395d2eb75735d1c50",
+    "references/character.md": "bd8f0aef9d1ab31b142875eb8837da38909810f2db584a643ab7bd69b81413db",
+    "references/scene.md": "f217c2ca7992d2096aef1dd66eef20cd4a17ac2254fbfb54525fddf80d76023b",
+    "references/storyboard.md": "afbc366373151b77747f2aaa519cf7ce79da3ac28006759f9790b88f8f0d3fd9",
+    "references/video.md": "d54adcee6e3dd917911c246ad97193e78efeed712356edcc74453239ba3fe7e5",
+    "references/quick_media.md": "a28365442e7e04cf0316c2b02ca16f5cbf7cb093a921e46574f80d3a79876479",
+    "previews/preview.webp": "81e13daad43f9a7daf4ed53035c70ccdbbb82f9451b9347651637ad002172485"
+  },
+  "role_guidance": {
+    "character": "references/character.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md",
+    "quick_media": "references/quick_media.md"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "skill_id": "chinese-traditional-art-animation",
+  "version": "1.0.0",
+  "video_representation_mode": "illustrated",
+  "display_name": "中国传统艺术动画",
+  "description": "以墨色、纸张、剪纸与装饰传统、负空间和诗性运动构建具有东方材料感的动画影像。",
+  "content_locale": "zh-CN",
+  "category": "animation-illustration",
+  "tags": [
+    "传统艺术动画",
+    "墨纸材质",
+    "东方意境"
+  ],
+  "supported_use_cases": [
+    "文化品牌",
+    "国风广告",
+    "艺术化产品展示"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "中国传统艺术动画视觉预览。",
+    "media_url": "/api/v2/video-skills/chinese-traditional-art-animation/preview?v=1.0.0"
+  },
+  "display_order": 360,
+  "files": {
+    "SKILL.md": "e5257caa922d97af4a67ff5166b51b23b9da8ee464c9d8b94ef4cdf584897f94",
+    "references/character.md": "c8b66d2bcb2ef799adc72825c5c21855d7a799b2b20ec10d0c2a4a91f3ae2721",
+    "references/scene.md": "bd685ae17fda4b798dcdccf3a9c9746d1cabd100fb9af99306d7dadf0ccc284d",
+    "references/storyboard.md": "bb64ed008d57ff9c45718f0c414e6a0d8155ca6f25a0379c92e7c9ba806e1630",
+    "references/video.md": "d3fe2901527f25e6121b59d8062b0399c44e27b608b42936e0472f77ed708421",
+    "references/quick_media.md": "40fcc9df37f3450e09314e9bb8c9c95bbc963e7655ae10a6595a863b640e769a",
+    "previews/preview.webp": "2b4ff0a6dd123b97d512595bb72024c8e310bae3b22e4308b33adf4484ee9a59"
+  },
+  "role_guidance": {
+    "character": "references/character.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md",
+    "quick_media": "references/quick_media.md"
+  }
+}

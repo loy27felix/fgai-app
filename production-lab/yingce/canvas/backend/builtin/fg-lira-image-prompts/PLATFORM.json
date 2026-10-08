@@ -1,0 +1,14 @@
+{
+  "slug": "lira-image-prompts",
+  "skillId": "fg-52571a97a9a8e3b311cbc090",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "f480d1ad5b61f7b33df3bc49e1b652e50a9a75acef280c8893facd6cb40eee83",
+  "omitted": [],
+  "imageStyle": {
+    "label": "人物与场景设计",
+    "prompt": "Refined character and environment concept artwork, deliberate composition, consistent anatomy and identity, specific material and lighting details. Follow the user-selected medium and palette; preserve reference identity.",
+    "direct": true
+  }
+}

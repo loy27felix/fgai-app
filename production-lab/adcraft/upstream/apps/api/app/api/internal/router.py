@@ -1,0 +1,456 @@
+"""Private Pi Agent runtime routes with no public API compatibility contract."""
+
+from __future__ import annotations
+
+import hmac
+import logging
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from pydantic import ValidationError
+
+from app.core.config import Settings, get_settings
+from app.persistence.agent_run_repository import AgentRunRepository
+from app.persistence.agent_run_repository import AgentRunRecord, AgentRunRepositoryError
+from app.persistence.database import create_v2_database
+from app.schemas.agent_runtime import (
+    AgentName,
+    AgentRunPolicy,
+    AgentStructuredSubmission,
+    AgentToolCall,
+    AgentToolResult,
+)
+from app.schemas.agent_model_trace import (
+    AgentModelTraceClaimRequestV1,
+    AgentModelTraceClaimResponseV1,
+    AgentModelTraceRecordRequestV1,
+    AgentModelTraceRecordReceiptV1,
+    AgentModelTraceSealReceiptV1,
+    AgentModelTraceSealRequestV1,
+    AgentModelTraceSessionStatusV1,
+    AgentRuntimeProviderSourceV1,
+)
+from app.schemas.agent_operation_recovery import AgentOperationPolicyV2
+from app.services.v2_agent_credential_broker import (
+    AgentCredentialError,
+    V2AgentCredentialBroker,
+)
+from app.services.v2_agent_structured_validation import (
+    V2AgentStructuredValidationService,
+)
+from app.services.agent_model_trace_sessions import (
+    AgentModelTraceSessionError,
+    AgentModelTraceSessionService,
+)
+
+router = APIRouter(prefix="/internal/v1")
+logger = logging.getLogger(__name__)
+
+
+def _trace_session(request: Request) -> AgentModelTraceSessionService:
+    service = getattr(request.app.state, "agent_model_trace_session", None)
+    if not isinstance(service, AgentModelTraceSessionService):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "acceptance_model_trace_invalid",
+                "message": "The isolated Agent model trace session is unavailable.",
+            },
+        )
+    return service
+
+
+def _trace_http_error(error: AgentModelTraceSessionError) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": error.code,
+            "message": "The isolated Agent model trace request was rejected.",
+        },
+    )
+
+
+_TRACE_VALIDATION_CODES = frozenset(
+    {
+        "acceptance_model_trace_invalid",
+        "acceptance_model_trace_unsafe",
+        "acceptance_model_replay_mismatch",
+    }
+)
+
+
+def _safe_trace_validation_detail(error: ValidationError) -> list[dict[str, object]]:
+    details: list[dict[str, object]] = []
+    for item in error.errors():
+        message = str(item.get("msg", ""))
+        code = next(
+            (candidate for candidate in _TRACE_VALIDATION_CODES if candidate in message),
+            "acceptance_model_trace_invalid",
+        )
+        location = [str(part) for part in item.get("loc", ())]
+        if not location and code == "acceptance_model_replay_mismatch":
+            location = ["body", "request_identity"]
+        elif not location:
+            location = ["body"]
+        details.append(
+            {
+                "loc": location,
+                "type": str(item.get("type", "value_error")),
+                "code": code,
+            }
+        )
+    return details or [
+        {"loc": ["body"], "type": "value_error", "code": "acceptance_model_trace_invalid"}
+    ]
+
+
+def require_agent_internal_auth(
+    authorization: Annotated[str | None, Header()] = None,
+    settings: Settings = Depends(get_settings),
+) -> None:
+    expected = settings.agent_runtime_internal_token
+    supplied = authorization.removeprefix("Bearer ") if authorization else None
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "agent_internal_auth_failed",
+                "message": "Agent runtime authentication failed.",
+            },
+        )
+
+
+@router.get(
+    "/agent-runtime-config/{credential_ref}",
+    dependencies=[Depends(require_agent_internal_auth)],
+)
+def get_agent_runtime_config(
+    credential_ref: str,
+    request: Request,
+    response: Response,
+    run_id: str,
+    agent_name: AgentName,
+    operation: str,
+    model_policy_id: str,
+    model_ref: str,
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        database = create_v2_database(settings.media_data_dir)
+        try:
+            run = AgentRunRepository(database).load(run_id)
+        finally:
+            database.dispose()
+        operation_policy = _frozen_operation_policy(
+            run,
+            agent_name=agent_name,
+            operation=operation,
+            model_policy_id=model_policy_id,
+            model_ref=model_ref,
+        )
+        trace_session = getattr(request.app.state, "agent_model_trace_session", None)
+        if (
+            isinstance(trace_session, AgentModelTraceSessionService)
+            and trace_session.mode == "replay"
+        ):
+            return trace_session.replay_transport_source(
+                operation=operation,
+                model_policy_id=model_policy_id,
+                model_ref=model_ref,
+            ).model_dump(mode="json")
+        snapshot = V2AgentCredentialBroker(settings).snapshot(
+            credential_ref,
+            agent_name=agent_name,
+            operation=operation,
+            model_policy_id=model_policy_id,
+            model_ref=model_ref,
+            operation_policy=operation_policy,
+        )
+    except AgentRunRepositoryError as error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "agent_model_policy_mismatch",
+                "message": "Agent runtime run identity is stale or unavailable.",
+            },
+        ) from error
+    except AgentModelTraceSessionError as error:
+        raise _trace_http_error(error) from error
+    except AgentCredentialError as error:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": error.code, "message": error.message},
+        ) from error
+    import os
+    if os.getenv('FG_ADCRAFT_SECRET'):
+        from dataclasses import replace
+        from app.fg_context import bridge_token, fg_context
+        actor = run.audit_metadata.get('fg_actor')
+        workspace = settings.media_data_dir.name
+        if not actor:
+            raise HTTPException(status_code=409, detail={'code': 'fg_actor_missing', 'message': '请从 FG 广告项目重新提交，未发起模型调用'})
+        snapshot = replace(snapshot, base_url=f'http://gateway:3010/internal/adcraft/{workspace}/v1', api_key=bridge_token({'workspace': workspace, 'actor': actor, 'operation': run.run_id}))
+    live_trace_session = (
+        trace_session
+        if isinstance(trace_session, AgentModelTraceSessionService)
+        and trace_session.mode == "live_record"
+        else None
+    )
+    return AgentRuntimeProviderSourceV1(
+        provider=snapshot.provider,
+        model_ref=snapshot.model_ref,
+        model_id=snapshot.model_id,
+        model_policy_id=snapshot.model_policy_id,
+        base_url=snapshot.base_url,
+        supports_tool_calls=snapshot.supports_tool_calls,
+        supports_strict_structured_output=snapshot.supports_strict_structured_output,
+        supports_streaming=snapshot.supports_streaming,
+        supports_streamed_tool_calls=snapshot.supports_streamed_tool_calls,
+        supports_reasoning_controls=snapshot.supports_reasoning_controls,
+        adapter_id=snapshot.adapter_id,
+        transport_kind=snapshot.transport_kind,
+        capability_revision=snapshot.capability_revision,
+        adapter_revision=snapshot.adapter_revision,
+        gateway_id=snapshot.gateway_id,
+        model_alias=snapshot.model_alias,
+        projection_digest=snapshot.projection_digest,
+        openrouter_routing=snapshot.openrouter_routing,
+        execution_policy=snapshot.execution_policy,
+        api_key=snapshot.api_key,
+        trace_mode="live_record" if live_trace_session is not None else "disabled",
+        trace_session_id=(
+            live_trace_session.session_id if live_trace_session is not None else None
+        ),
+    ).model_dump(mode="json")
+
+
+def _frozen_operation_policy(
+    run: AgentRunRecord,
+    *,
+    agent_name: AgentName,
+    operation: str,
+    model_policy_id: str,
+    model_ref: str,
+) -> AgentOperationPolicyV2:
+    audit = run.audit_metadata
+    try:
+        operation_policy = AgentOperationPolicyV2.model_validate(
+            audit.get("agent_operation_policy")
+        )
+        run_policy = AgentRunPolicy.model_validate(audit.get("agent_run_policy"))
+    except ValidationError as error:
+        raise AgentCredentialError(
+            "agent_model_policy_mismatch",
+            "Agent runtime frozen policy metadata is invalid.",
+        ) from error
+    if (
+        run.agent_name != agent_name
+        or run.operation != operation
+        or audit.get("model_policy_id") != model_policy_id
+        or audit.get("model_ref") != model_ref
+        or operation_policy.agent_name != agent_name
+        or operation_policy.operation != operation
+        or run_policy.operation_policy_id != operation_policy.policy_id
+        or run_policy.operation_class != operation_policy.policy_class
+        or run_policy.transport_retry_limit != operation_policy.transport_retry_limit
+        or run_policy.structured_repair_limit != operation_policy.structured_repair_limit
+        or run_policy.timeout_seconds != operation_policy.hard_deadline_seconds
+        or run_policy.primary_timeout_seconds != operation_policy.primary_timeout_seconds
+        or run_policy.recovery_timeout_seconds != operation_policy.recovery_timeout_seconds
+        or run_policy.persistence_reserve_seconds != operation_policy.persistence_reserve_seconds
+        or run_policy.max_model_submissions != operation_policy.max_model_submissions
+        or run_policy.recovery_mode != operation_policy.recovery_mode
+        or run_policy.max_output_tokens != operation_policy.max_output_tokens
+        or run.deadline_at is None
+    ):
+        raise AgentCredentialError(
+            "agent_model_policy_mismatch",
+            "Agent runtime request contradicts the frozen run policy.",
+        )
+    return operation_policy
+
+
+@router.post(
+    "/agent-model-traces/{session_id}/record",
+    response_model=AgentModelTraceRecordReceiptV1,
+    dependencies=[Depends(require_agent_internal_auth)],
+)
+def record_agent_model_trace(
+    session_id: str,
+    payload: dict[str, Any],
+    request: Request,
+    response: Response,
+) -> AgentModelTraceRecordReceiptV1:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        record = AgentModelTraceRecordRequestV1.model_validate(payload)
+    except ValidationError as error:
+        details = _safe_trace_validation_detail(error)
+        logger.info("agent_model_trace_record_validation_rejected", extra={"details": details})
+        raise HTTPException(status_code=422, detail=details) from error
+    if record.session_id != session_id:
+        raise _trace_http_error(AgentModelTraceSessionError("acceptance_model_trace_invalid"))
+    try:
+        return _trace_session(request).record_attempt(record)
+    except AgentModelTraceSessionError as error:
+        raise _trace_http_error(error) from error
+
+
+@router.post(
+    "/agent-model-traces/{session_id}/claim",
+    response_model=AgentModelTraceClaimResponseV1,
+    dependencies=[Depends(require_agent_internal_auth)],
+)
+def claim_agent_model_trace(
+    session_id: str,
+    payload: AgentModelTraceClaimRequestV1,
+    request: Request,
+    response: Response,
+) -> AgentModelTraceClaimResponseV1:
+    response.headers["Cache-Control"] = "no-store"
+    if payload.session_id != session_id:
+        raise _trace_http_error(AgentModelTraceSessionError("acceptance_model_trace_invalid"))
+    try:
+        return _trace_session(request).claim_attempt(payload)
+    except AgentModelTraceSessionError as error:
+        raise _trace_http_error(error) from error
+
+
+@router.post(
+    "/agent-model-traces/{session_id}/seal",
+    response_model=AgentModelTraceSealReceiptV1,
+    dependencies=[Depends(require_agent_internal_auth)],
+)
+def seal_agent_model_trace(
+    session_id: str,
+    payload: AgentModelTraceSealRequestV1,
+    request: Request,
+    response: Response,
+) -> AgentModelTraceSealReceiptV1:
+    response.headers["Cache-Control"] = "no-store"
+    if payload.session_id != session_id:
+        raise _trace_http_error(AgentModelTraceSessionError("acceptance_model_trace_invalid"))
+    try:
+        return _trace_session(request).seal_session(payload)
+    except AgentModelTraceSessionError as error:
+        raise _trace_http_error(error) from error
+
+
+@router.get(
+    "/agent-model-traces/{session_id}/status",
+    response_model=AgentModelTraceSessionStatusV1,
+    dependencies=[Depends(require_agent_internal_auth)],
+)
+def get_agent_model_trace_status(
+    session_id: str,
+    request: Request,
+    response: Response,
+) -> AgentModelTraceSessionStatusV1:
+    response.headers["Cache-Control"] = "no-store"
+    service = _trace_session(request)
+    if service.session_id != session_id:
+        raise _trace_http_error(AgentModelTraceSessionError("acceptance_model_trace_invalid"))
+    return service.session_status()
+
+
+@router.post(
+    "/agent-tools/execute",
+    response_model=AgentToolResult,
+    dependencies=[Depends(require_agent_internal_auth)],
+)
+def execute_agent_tool(
+    call: AgentToolCall,
+    settings: Settings = Depends(get_settings),
+) -> AgentToolResult:
+    database = create_v2_database(settings.media_data_dir)
+    repository = AgentRunRepository(database)
+    try:
+        submission = AgentStructuredSubmission.model_validate(call.arguments)
+        run = repository.load(call.run_id)
+        result = V2AgentStructuredValidationService(repository).validate(
+            run=run,
+            submission=submission,
+        )
+    except (ValidationError, AgentRunRepositoryError) as error:
+        violations = [
+            {
+                "path": "run_id" if isinstance(error, AgentRunRepositoryError) else None,
+                "code": (
+                    error.code
+                    if isinstance(error, AgentRunRepositoryError)
+                    else "agent_submission_invalid"
+                ),
+                "message": (
+                    error.message
+                    if isinstance(error, AgentRunRepositoryError)
+                    else "The structured Agent submission is invalid."
+                ),
+            }
+        ]
+        logger.warning(
+            "agent_structured_submission_rejected contract=%s attempt=%s violations=%s",
+            (submission.contract_name if "submission" in locals() else "unparseable_submission"),
+            submission.attempt if "submission" in locals() else None,
+            [{"path": item["path"], "code": item["code"]} for item in violations],
+        )
+        return AgentToolResult(
+            run_id=call.run_id,
+            tool_call_id=call.tool_call_id,
+            status="rejected",
+            result={
+                "accepted": False,
+                "violations": violations,
+                "repair_allowed": submission.attempt < 2 if "submission" in locals() else True,
+            },
+            error_code="agent_structured_output_invalid",
+            error_message="Structured Agent output is invalid.",
+        )
+    finally:
+        database.dispose()
+
+    serialized_violations = [
+        {
+            "path": violation.field_path,
+            "code": violation.code,
+            "message": violation.message,
+            "expected": violation.expected,
+            "actual": violation.actual,
+        }
+        for violation in result.violations
+    ]
+    if not result.accepted:
+        logger.warning(
+            "agent_structured_submission_rejected contract=%s attempt=%s violations=%s",
+            submission.contract_name,
+            submission.attempt,
+            [{"path": item["path"], "code": item["code"]} for item in serialized_violations],
+        )
+        return AgentToolResult(
+            run_id=call.run_id,
+            tool_call_id=call.tool_call_id,
+            status="rejected",
+            result={
+                "accepted": False,
+                "violations": serialized_violations,
+                "repair_allowed": result.repair_allowed,
+            },
+            error_code="agent_structured_output_invalid",
+            error_message="Structured Agent output is invalid.",
+        )
+    return AgentToolResult(
+        run_id=call.run_id,
+        tool_call_id=call.tool_call_id,
+        status="completed",
+        result={
+            "accepted": True,
+            "normalized_result_id": result.normalized_result_id,
+            "value": result.normalized_value,
+            "repair_allowed": False,
+            **(
+                {"normalization_audit": result.normalization_audit.model_dump(mode="json")}
+                if result.normalization_audit is not None
+                else {}
+            ),
+        },
+    )

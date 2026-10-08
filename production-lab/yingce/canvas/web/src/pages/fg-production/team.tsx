@@ -1,0 +1,14 @@
+import {useState} from 'react';
+import {App,Button,Input,Select,Tag} from 'antd';
+import {Plus,Users,PenLine,Archive} from 'lucide-react';
+import {AppModal} from '@/components/ui/product/app-modal';
+import {createFGGroup,renameFGGroup,archiveFGGroup,assignFGMember,type FGTeam} from '@/services/api/fg-production';
+export function ProductionTeam({team,onRefresh}:{team:FGTeam;onRefresh:()=>Promise<void>}){
+ const {message,modal}=App.useApp(),[name,setName]=useState(''),[editing,setEditing]=useState<string|null|undefined>(undefined),[busy,setBusy]=useState(false);
+ const save=async()=>{setBusy(true);try{if(editing)await renameFGGroup(editing,name);else await createFGGroup(name);setEditing(undefined);await onRefresh();}catch(e){void message.error(e instanceof Error?e.message:'保存失败');}finally{setBusy(false);}};
+ return <><div className="fg-section-heading"><div><h3>制作小组</h3><p>调组后新增请求计入新组，历史花费保留发生时的小组。</p></div>{team.canManage&&<Button type="primary" icon={<Plus size={16}/>} onClick={()=>{setName('');setEditing(null);}}>新建小组</Button>}</div>
+  <div className="fg-project-grid">{team.groups.map(g=><article className="fg-story-card" key={g.id}><div className="fg-card-kicker"><Users size={16}/><span>{g.member_count} 位成员</span>{g.id===team.currentGroup&&<Tag color="blue">我的小组</Tag>}</div><h3>{g.name}</h3><div className="fg-team-members">{team.users.filter(u=>u.group_id===g.id).map(u=><span key={u.id}>{u.display_name}{u.group_role==='manager'?' · 负责人':''}</span>)}</div>{!g.member_count&&<p>暂无成员</p>}{team.canManage&&<div className="fg-card-action"><Button icon={<PenLine size={14}/>} onClick={()=>{setName(g.name);setEditing(g.id);}}>改名</Button><Button danger icon={<Archive size={14}/>} onClick={()=>modal.confirm({title:`停用 ${g.name}？`,content:'成员会转为未分组；历史费用和项目仍保留。',okText:'停用',onOk:async()=>{await archiveFGGroup(g.id);await onRefresh();}})}>停用</Button></div>}</article>)}</div>
+  <div className="fg-team-roster">{team.users.map(u=><div className="fg-team-person" key={u.id}><div><strong>{u.display_name}</strong><small>{u.email}</small></div><Tag>{u.platform_role==='superadmin'?'超级管理员':'成员'}</Tag>{team.canManage?<Select aria-label={`${u.display_name} 所属小组`} value={u.group_id||''} options={[{value:'',label:'未分组'},...team.groups.map(g=>({value:g.id,label:g.name}))]} onChange={async id=>{try{await assignFGMember(u.id,id||null,u.group_id);await onRefresh();}catch(e){void message.error(e instanceof Error?e.message:'调组失败');}}}/>:<span>{u.group_name||'未分组'}</span>}</div>)}</div>
+  <AppModal title={editing?'修改小组名称':'新建制作小组'} open={editing!==undefined} onCancel={()=>setEditing(undefined)} onOk={()=>void save()} confirmLoading={busy} okButtonProps={{disabled:!name.trim()}}><Input autoFocus aria-label="小组名称" value={name} onChange={e=>setName(e.target.value)} maxLength={80}/></AppModal>
+ </>;
+}

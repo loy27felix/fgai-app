@@ -1,0 +1,39 @@
+{
+  "skill_id": "luxury-silk-illustration",
+  "version": "1.0.0",
+  "video_representation_mode": "illustrated",
+  "display_name": "流光丝绸插画广告",
+  "description": "以流动装饰线、丝绸材质行为、精炼色场和触觉优雅构建兼具平面秩序与材质感的影像。",
+  "content_locale": "zh-CN",
+  "category": "luxury-fashion",
+  "tags": [
+    "丝绸质感",
+    "装饰插画",
+    "材质叙事"
+  ],
+  "supported_use_cases": [
+    "时尚广告",
+    "美妆与饰品",
+    "艺术化产品展示"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "流光丝绸插画广告视觉预览。",
+    "media_url": "/api/v2/video-skills/luxury-silk-illustration/preview?v=1.0.0"
+  },
+  "display_order": 130,
+  "files": {
+    "SKILL.md": "28e3b927509871682c74972a56b9957bba3834271932f06836703e976633847c",
+    "references/product.md": "4a85eaca42583ca64aa7a504e6a91588ace22eb84886cf15eb836befddf67859",
+    "references/character.md": "25838e17e426de28baf1f4aaf244fccab60baf30a8bbbee7864e046c4e42eabc",
+    "references/scene.md": "c33b32be4ce8883b308895aafe93d73abfc5f74b20bc263022393a79fed7db33",
+    "references/video.md": "463da43efed756112ab83bbdf24b0c4a36a7fbf6a1579f362b2ea6fa6448b95b",
+    "previews/preview.webp": "e1c3d9d5474cc47871e65048ed8dc54ac9523fa1168849ebd45fa13ede4eb4d9"
+  },
+  "role_guidance": {
+    "product": "references/product.md",
+    "character": "references/character.md",
+    "scene": "references/scene.md",
+    "video": "references/video.md"
+  }
+}

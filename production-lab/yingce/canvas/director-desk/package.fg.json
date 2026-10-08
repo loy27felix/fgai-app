@@ -1,0 +1,5 @@
+{
+  "name": "fg-director-desk-web", "private": true, "type": "module", "version": "0.4.10", "shortVersion": "0.4.10",
+  "dependencies": {"three": "0.185.1", "mediabunny": "1.55.7"},
+  "devDependencies": {"typescript": "5.9.3", "vite": "8.2.2", "@types/three": "0.185.4", "@types/node": "26.4.1"}
+}

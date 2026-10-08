@@ -1,0 +1,251 @@
+"""Bounded internal NDJSON client for the private Pi Agent runtime."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from typing import Any, Callable
+
+import httpx
+from pydantic import ValidationError
+
+from app.schemas.agent_runtime import (
+    AgentPresentationDeltaV1,
+    AgentRunRequest,
+    AgentRuntimeEvent,
+    AgentRuntimeHealth,
+)
+from app.services.v2_agent_runtime_manifest import V2AgentRuntimeManifestService
+
+
+_TERMINAL_EVENTS = {"run_completed", "run_failed", "run_cancelled"}
+
+
+class PiAgentRuntimeError(RuntimeError):
+    """Stable internal Agent runtime client failure."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.details = details or {}
+
+
+@dataclass(frozen=True, slots=True)
+class PiAgentRunOutcome:
+    """Bounded result retained after an incrementally consumed Agent stream."""
+
+    terminal_event: AgentRuntimeEvent
+    last_seq: int
+
+
+class PiAgentRuntimeClient:
+    """Validate the complete internal protocol before returning Agent events."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        internal_token: str,
+        protocol_version: str = "1",
+        connect_timeout_seconds: float = 5.0,
+        read_timeout_seconds: float = 30.0,
+        run_timeout_seconds: float = 120.0,
+        max_event_bytes: int = 65_536,
+        max_stream_bytes: int = 1_048_576,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._internal_token = internal_token
+        self._protocol_version = protocol_version
+        self._run_timeout_seconds = run_timeout_seconds
+        self._max_event_bytes = max_event_bytes
+        self._max_stream_bytes = max_stream_bytes
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(
+                connect=connect_timeout_seconds,
+                read=read_timeout_seconds,
+                write=read_timeout_seconds,
+                pool=connect_timeout_seconds,
+            ),
+            transport=transport,
+        )
+
+    def health(self) -> AgentRuntimeHealth:
+        try:
+            response = self._client.get(
+                f"{self._base_url}/internal/v1/health",
+                headers={"authorization": f"Bearer {self._internal_token}"},
+            )
+            response.raise_for_status()
+            health = AgentRuntimeHealth.model_validate(response.json())
+        except (httpx.HTTPError, OSError, ValueError, ValidationError) as error:
+            raise PiAgentRuntimeError(
+                "agent_runtime_unavailable",
+                "Agent runtime health is unavailable.",
+                retryable=True,
+            ) from error
+        expected = V2AgentRuntimeManifestService().expected()
+        actual = {field: getattr(health, field) for field in type(expected).model_fields}
+        if actual != expected.model_dump(mode="python"):
+            raise _protocol_error()
+        return health
+
+    def run(
+        self,
+        request: AgentRunRequest,
+        *,
+        on_event: Callable[[AgentRuntimeEvent], None] | None = None,
+        on_presentation: Callable[[AgentPresentationDeltaV1], None] | None = None,
+    ) -> PiAgentRunOutcome:
+        if request.protocol_version != self._protocol_version:
+            raise _protocol_error()
+        payload = request.model_dump_json().encode("utf-8")
+        total_bytes = 0
+        terminal_count = 0
+        last_seq = 0
+        terminal: AgentRuntimeEvent | None = None
+        runtime_response_received = False
+        runtime_stream_accepted = False
+        try:
+            with self._client.stream(
+                "POST",
+                f"{self._base_url}/internal/v1/agent-runs",
+                content=payload,
+                headers={
+                    "authorization": f"Bearer {self._internal_token}",
+                    "content-type": "application/json",
+                    "accept": "application/x-ndjson",
+                },
+                timeout=self._run_timeout_seconds,
+            ) as response:
+                runtime_response_received = True
+                response.raise_for_status()
+                runtime_stream_accepted = True
+                for line in response.iter_lines():
+                    line_bytes = line.encode("utf-8")
+                    total_bytes += len(line_bytes) + 1
+                    if (
+                        len(line_bytes) > self._max_event_bytes
+                        or total_bytes > self._max_stream_bytes
+                    ):
+                        raise PiAgentRuntimeError(
+                            "agent_stream_backpressure_exceeded",
+                            "Agent runtime stream exceeded its byte budget.",
+                        )
+                    if not line:
+                        continue
+                    event = _parse_event(line)
+                    expected_seq = last_seq + 1
+                    if (
+                        event.protocol_version != self._protocol_version
+                        or event.run_id != request.run_id
+                        or event.agent_name != request.agent_name
+                        or event.seq != expected_seq
+                    ):
+                        raise _protocol_error()
+                    if event.event_type in _TERMINAL_EVENTS:
+                        terminal_count += 1
+                        terminal = event
+                    elif terminal_count:
+                        raise _protocol_error()
+                    last_seq = event.seq
+                    if on_event is not None:
+                        on_event(event)
+                    if event.event_type == "presentation_delta" and on_presentation is not None:
+                        presentation = AgentPresentationDeltaV1.model_validate(event.payload)
+                        if request.presentation_channel == presentation.channel:
+                            on_presentation(presentation)
+        except PiAgentRuntimeError:
+            raise
+        except (httpx.HTTPError, OSError) as error:
+            if terminal_count == 1 and terminal is not None:
+                return PiAgentRunOutcome(terminal_event=terminal, last_seq=last_seq)
+            raise PiAgentRuntimeError(
+                "agent_runtime_unavailable",
+                "Agent runtime is unavailable.",
+                retryable=True,
+                details=_runtime_unavailable_details(
+                    request,
+                    response_received=runtime_response_received,
+                    stream_accepted=runtime_stream_accepted,
+                    last_event_seq=last_seq,
+                ),
+            ) from error
+        if terminal_count != 1 or terminal is None:
+            raise _protocol_error()
+        return PiAgentRunOutcome(terminal_event=terminal, last_seq=last_seq)
+
+    def cancel(self, run_id: str, *, reason: str = "client_cancelled") -> dict[str, Any]:
+        try:
+            response = self._client.post(
+                f"{self._base_url}/internal/v1/agent-runs/{run_id}/cancel",
+                json={"reason": reason},
+                headers={"authorization": f"Bearer {self._internal_token}"},
+            )
+            response.raise_for_status()
+            result = response.json()
+        except (httpx.HTTPError, json.JSONDecodeError) as error:
+            raise PiAgentRuntimeError(
+                "agent_runtime_unavailable",
+                "Agent runtime cancellation failed.",
+                retryable=True,
+            ) from error
+        if not isinstance(result, dict):
+            raise _protocol_error()
+        return result
+
+    def close(self) -> None:
+        self._client.close()
+
+
+def _parse_event(line: str) -> AgentRuntimeEvent:
+    try:
+        return AgentRuntimeEvent.model_validate_json(line)
+    except ValidationError as error:
+        raise _protocol_error() from error
+
+
+def _protocol_error() -> PiAgentRuntimeError:
+    return PiAgentRuntimeError(
+        "agent_protocol_mismatch",
+        "Agent runtime protocol validation failed.",
+    )
+
+
+def _runtime_unavailable_details(
+    request: AgentRunRequest,
+    *,
+    response_received: bool,
+    stream_accepted: bool,
+    last_event_seq: int,
+) -> dict[str, Any]:
+    if not response_received:
+        failure_boundary = "runtime_process"
+    elif not stream_accepted:
+        failure_boundary = "runtime_http"
+    else:
+        failure_boundary = "runtime_stream"
+    details: dict[str, Any] = {
+        "attempt_stage": "runtime_request",
+        "failure_boundary": failure_boundary,
+        "operation": request.operation,
+        "retryable": True,
+        "terminal_code": "agent_runtime_unavailable",
+    }
+    if not stream_accepted or last_event_seq == 0:
+        details.update(
+            {
+                "model_submission_count": 0,
+                "response_activity_observed": False,
+            }
+        )
+    return details

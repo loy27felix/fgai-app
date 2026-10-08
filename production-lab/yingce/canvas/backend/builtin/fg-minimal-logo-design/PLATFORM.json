@@ -1,0 +1,14 @@
+{
+  "slug": "minimal-logo-design",
+  "skillId": "fg-6ccfc4335b76d1f65e94111c",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "84a48f2bd70b936a42fbe67809a4c16bbcaa3e06635f19ae287ebce9d59bdeb2",
+  "omitted": [],
+  "imageStyle": {
+    "label": "极简 Logo",
+    "prompt": "Minimal flat logo exploration, one memorable geometric idea, balanced negative space, precise silhouette, reproducible at small sizes, no mockups, gradients, shadows or decorative background. Preserve exact user-provided brand lettering if requested.",
+    "direct": true
+  }
+}

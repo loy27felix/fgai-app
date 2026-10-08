@@ -1,0 +1,1087 @@
+"""Atomic publication of concise capability results as public Proposals."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Mapping
+
+from pydantic import BaseModel
+from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.engine import Connection
+
+from app.persistence.database import V2Database
+from app.persistence.errors import V2PersistenceError
+from app.persistence.event_repository import EventRepository
+from app.persistence.agent_canvas_expert_activity_terminal_publication import (
+    publish_expert_activity_terminal_in_transaction,
+)
+from app.persistence.models import (
+    AgentCanvasActionReceiptRow,
+    AgentCanvasChatEntryRow,
+    AgentCanvasChatTurnRow,
+    AgentCanvasConceptOptionRow,
+    AgentCanvasConceptProposalRow,
+    AgentCanvasContinuationOutboxRow,
+    AgentCanvasExpertActivityRow,
+    AgentCanvasGuidanceAwaitingRow,
+    AgentCanvasGuidanceSessionRow,
+    AgentCanvasGuidanceTopicRow,
+    AgentCanvasGuidedInteractionRow,
+    AgentCanvasRequirementLedgerRow,
+    AgentCanvasMaterializationCommitRow,
+    AgentCanvasWorkflowRow,
+)
+from app.schemas.agent_canvas_conversation import AgentActionReceiptV2
+from app.schemas.agent_canvas_capabilities import (
+    CapabilityCommandEnvelopeV2,
+    CharacterProposalTargetV1,
+    GuidedProposalAuthoringResultV4,
+)
+from app.schemas.agent_canvas_capability_identity import CAPABILITY_DISPLAY_NAMES
+from app.schemas.agent_canvas_creative_session import (
+    ProposedDraftReferenceV2,
+    canonical_guidance_topic_kind,
+)
+from app.schemas.agent_canvas_guided_interactions import (
+    GuidanceAwaitingV2,
+    GuidedChoiceOptionV1,
+    GuidedConceptChoiceV2,
+    GuidedInteractionV1,
+)
+from app.schemas.agent_canvas_production_journey import GuidedProductionJourneyV2
+from app.schemas.v2_persistence import V2EventInsert
+from app.services.agent_canvas_production_journey import (
+    FIXED_JOURNEY_STAGE_DESCRIPTORS,
+    parse_production_journey,
+)
+from app.services.agent_canvas_proposal_cardinality import (
+    proposal_candidate_count_details,
+)
+from app.services.agent_canvas_public_concept_projection import (
+    AgentCanvasPublicConceptProjector,
+    public_option_metadata,
+)
+from app.services.agent_canvas_user_presentation import build_presentation_metadata
+
+
+_PROPOSAL_KIND = {
+    "world_setting": "world_setting",
+    "product_design": "product",
+    "prop_design": "prop",
+    "character_design": "character",
+    "scene_design": "scene",
+    "script_authoring": "script",
+    "storyboard_design": "storyboard",
+    "video_direction": "video",
+    "bgm_direction": "bgm",
+    "quick_media": "video",
+}
+
+
+class AgentCanvasCapabilityProposalRepository:
+    """Commit one replay-safe capability result and its terminal operation state."""
+
+    def __init__(self, database: V2Database, events: EventRepository) -> None:
+        if events.database is not database:
+            raise ValueError("Capability Proposal and event repositories must share one database.")
+        self._database = database
+        self._events = events
+
+    def publish(self, envelope: CapabilityCommandEnvelopeV2, result: BaseModel) -> str:
+        if envelope.publication_kind != "proposal":
+            raise V2PersistenceError(
+                "capability_publication_mode_invalid",
+                "Internal document commands cannot publish a public Proposal.",
+                stage="capability_publication",
+            )
+        if not isinstance(result, GuidedProposalAuthoringResultV4):
+            raise V2PersistenceError(
+                "proposal_card_contract_invalid",
+                "Only Guided Proposal Authoring schema version 4 may be published after cutover.",
+                stage="capability_publication",
+            )
+        if envelope.capability_id == "character_design" and envelope.character_target is None:
+            raise V2PersistenceError(
+                "character_proposal_scope_invalid",
+                "Character Proposal publication requires an occurrence target.",
+                stage="capability_publication",
+            )
+        proposal_id = f"proposal_{_digest(envelope.envelope_id)[:32]}"
+        now = datetime.now(timezone.utc)
+        timestamp = now.isoformat()
+        options = tuple(getattr(result, "options", ()))
+        details = proposal_candidate_count_details(envelope.candidate_count, result)
+        if details is not None:
+            raise V2PersistenceError(
+                "proposal_candidate_count_mismatch",
+                "Proposal result candidate count conflicts with its immutable envelope.",
+                stage="capability_publication",
+                details=details,
+            )
+        option_ids = tuple(
+            f"option_{_digest(proposal_id, str(order))[:32]}" for order in range(len(options))
+        )
+        public_projection = AgentCanvasPublicConceptProjector().project(
+            options=options,
+            option_ids=option_ids,
+            response_locale=envelope.response_locale,
+            recommended_option_id=option_ids[0],
+        )
+        response_locale = public_projection.response_locale
+        with self._database.engine.connect() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            try:
+                existing = (
+                    connection.execute(
+                        select(
+                            AgentCanvasConceptProposalRow.proposal_id,
+                            AgentCanvasConceptProposalRow.proposal_card_schema_version,
+                            AgentCanvasConceptProposalRow.character_occurrence_id,
+                            AgentCanvasConceptProposalRow.character_occurrence_index,
+                            AgentCanvasConceptProposalRow.character_occurrence_count,
+                            AgentCanvasConceptProposalRow.character_phase,
+                            AgentCanvasConceptProposalRow.character_scope_digest,
+                            AgentCanvasConceptProposalRow.requirement_revision_id,
+                            AgentCanvasConceptProposalRow.requirement_revision_no,
+                        ).where(AgentCanvasConceptProposalRow.proposal_id == proposal_id)
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing is not None:
+                    version = int(existing["proposal_card_schema_version"] or 1)
+                    if version not in {1, 2, 3}:
+                        raise V2PersistenceError(
+                            "proposal_card_version_unsupported",
+                            "The persisted Proposal Card schema version is unsupported.",
+                            stage="capability_publication",
+                        )
+                    if version != 3:
+                        raise V2PersistenceError(
+                            "proposal_card_version_conflict",
+                            "Historical Proposal Cards are read-only after cutover.",
+                            stage="capability_publication",
+                        )
+                    persisted_options = (
+                        connection.execute(
+                            select(
+                                AgentCanvasConceptOptionRow.title,
+                                AgentCanvasConceptOptionRow.description,
+                            )
+                            .where(
+                                AgentCanvasConceptOptionRow.proposal_id
+                                == str(existing["proposal_id"])
+                            )
+                            .order_by(AgentCanvasConceptOptionRow.display_order)
+                        )
+                        .mappings()
+                        .all()
+                    )
+                    persisted_digest = _card_digest(
+                        tuple(
+                            (str(option["title"]), str(option["description"]))
+                            for option in persisted_options
+                        )
+                    )
+                    incoming_digest = _card_digest(
+                        tuple(
+                            (option.title, option.summary) for option in public_projection.options
+                        )
+                    )
+                    if persisted_digest != incoming_digest:
+                        raise V2PersistenceError(
+                            "proposal_card_version_conflict",
+                            "The replayed Proposal Card differs from the persisted card.",
+                            stage="capability_publication",
+                            details={
+                                "proposal_id": str(existing["proposal_id"]),
+                                "proposal_card_schema_version": version,
+                                "persisted_card_digest": persisted_digest,
+                                "incoming_card_digest": incoming_digest,
+                            },
+                        )
+                    _validate_replayed_character_scope(existing, envelope)
+                    connection.commit()
+                    return str(existing["proposal_id"])
+                requirement_head = (
+                    connection.execute(
+                        select(AgentCanvasRequirementLedgerRow).where(
+                            AgentCanvasRequirementLedgerRow.workflow_id == envelope.workflow_id
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                if (
+                    str(requirement_head["current_revision_id"]) != envelope.requirement_revision_id
+                    or int(requirement_head["current_revision_no"])
+                    != envelope.requirement_revision_no
+                ):
+                    error = V2PersistenceError(
+                        "requirement_revision_superseded",
+                        "Requirements changed before capability publication.",
+                        stage="capability_publication",
+                    )
+                    error.details = {
+                        "retryable": False,
+                        "current_requirement_revision_id": str(
+                            requirement_head["current_revision_id"]
+                        ),
+                        "current_requirement_revision_no": int(
+                            requirement_head["current_revision_no"]
+                        ),
+                    }
+                    raise error
+                session = (
+                    connection.execute(
+                        select(AgentCanvasGuidanceSessionRow).where(
+                            AgentCanvasGuidanceSessionRow.workflow_id == envelope.workflow_id
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if session is None:
+                    raise V2PersistenceError(
+                        "guidance_session_not_found",
+                        "Guidance session was not found.",
+                        stage="capability_publication",
+                    )
+                if (
+                    envelope.expected_session_revision is not None
+                    and int(session["revision"]) != envelope.expected_session_revision
+                ):
+                    raise V2PersistenceError(
+                        "guidance_revision_conflict",
+                        "Guidance state changed before capability publication.",
+                        stage="capability_publication",
+                    )
+                committed_storyboard_proposal_id = _committed_storyboard_proposal_for_stage(
+                    connection,
+                    envelope=envelope,
+                    session=session,
+                )
+                if committed_storyboard_proposal_id is not None:
+                    _terminalize_suppressed_storyboard_publication(
+                        connection,
+                        events=self._events,
+                        envelope=envelope,
+                        canonical_proposal_id=committed_storyboard_proposal_id,
+                        timestamp=timestamp,
+                    )
+                    connection.commit()
+                    return committed_storyboard_proposal_id
+                session_revision = int(session["revision"]) + 1
+                topic_id = f"topic_{envelope.capability_id}"
+                proposed_references = _project_references(envelope)
+                creative_direction_snapshot_id = _style_snapshot_id(envelope.style_projection)
+                source_proposal_id = envelope.source_proposal_id
+                if source_proposal_id is not None:
+                    source_proposal = (
+                        connection.execute(
+                            select(AgentCanvasConceptProposalRow).where(
+                                AgentCanvasConceptProposalRow.proposal_id == source_proposal_id
+                            )
+                        )
+                        .mappings()
+                        .one_or_none()
+                    )
+                    if (
+                        source_proposal is None
+                        or str(source_proposal["workflow_id"]) != envelope.workflow_id
+                        or str(source_proposal["capability_id"]) != envelope.capability_id
+                        or str(source_proposal["availability"]) != "open"
+                        or str(session["active_proposal_id"]) != source_proposal_id
+                    ):
+                        raise V2PersistenceError(
+                            "proposal_action_stale",
+                            "The Proposal revision source is no longer current.",
+                            stage="capability_publication",
+                        )
+                    topic_id = str(source_proposal["topic_id"])
+                    connection.execute(
+                        update(AgentCanvasConceptProposalRow)
+                        .where(AgentCanvasConceptProposalRow.proposal_id == source_proposal_id)
+                        .values(availability="superseded", updated_at=timestamp)
+                    )
+                    connection.execute(
+                        update(AgentCanvasGuidedInteractionRow)
+                        .where(
+                            AgentCanvasGuidedInteractionRow.session_id == session["session_id"],
+                            AgentCanvasGuidedInteractionRow.status == "open",
+                        )
+                        .values(status="superseded", updated_at=timestamp)
+                    )
+                    connection.execute(
+                        delete(AgentCanvasGuidanceAwaitingRow).where(
+                            AgentCanvasGuidanceAwaitingRow.session_id == session["session_id"],
+                            AgentCanvasGuidanceAwaitingRow.kind == "concept_selection",
+                        )
+                    )
+                topic = (
+                    connection.execute(
+                        select(AgentCanvasGuidanceTopicRow).where(
+                            AgentCanvasGuidanceTopicRow.session_id == session["session_id"],
+                            AgentCanvasGuidanceTopicRow.topic_id == topic_id,
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if topic is None:
+                    connection.execute(
+                        insert(AgentCanvasGuidanceTopicRow).values(
+                            session_id=session["session_id"],
+                            topic_id=topic_id,
+                            topic_kind=canonical_guidance_topic_kind(
+                                _PROPOSAL_KIND[envelope.capability_id]
+                            ),
+                            title=CAPABILITY_DISPLAY_NAMES[envelope.capability_id],
+                            status="proposed",
+                            capability_id=envelope.capability_id,
+                            related_node_ids_json="[]",
+                            source_proposal_id=proposal_id,
+                            revision=1,
+                            created_at=timestamp,
+                            updated_at=timestamp,
+                        )
+                    )
+                elif str(topic["status"]) == "deferred":
+                    if envelope.source_action not in {
+                        "required_deferred_final_review",
+                        "user_resumed_deferred_topic",
+                    }:
+                        raise V2PersistenceError(
+                            "guidance_defer_conflict",
+                            "Deferred guidance requires an explicit resume action.",
+                            stage="capability_publication",
+                        )
+                    source_proposal_id = (
+                        str(topic["source_proposal_id"])
+                        if topic["source_proposal_id"] is not None
+                        else None
+                    )
+                    connection.execute(
+                        update(AgentCanvasGuidanceTopicRow)
+                        .where(
+                            AgentCanvasGuidanceTopicRow.session_id == session["session_id"],
+                            AgentCanvasGuidanceTopicRow.topic_id == topic_id,
+                        )
+                        .values(
+                            status="proposed",
+                            source_proposal_id=proposal_id,
+                            revision=int(topic["revision"]) + 1,
+                            updated_at=timestamp,
+                        )
+                    )
+                elif source_proposal_id is not None:
+                    connection.execute(
+                        update(AgentCanvasGuidanceTopicRow)
+                        .where(
+                            AgentCanvasGuidanceTopicRow.session_id == session["session_id"],
+                            AgentCanvasGuidanceTopicRow.topic_id == topic_id,
+                        )
+                        .values(
+                            source_proposal_id=proposal_id,
+                            revision=int(topic["revision"]) + 1,
+                            updated_at=timestamp,
+                        )
+                    )
+                connection.execute(
+                    insert(AgentCanvasConceptProposalRow).values(
+                        proposal_id=proposal_id,
+                        turn_id=envelope.capability_turn_id,
+                        workflow_id=envelope.workflow_id,
+                        proposal_kind=_PROPOSAL_KIND[envelope.capability_id],
+                        capability_id=envelope.capability_id,
+                        video_skill_run_id=envelope.style_skill_run_id,
+                        topic_id=topic_id,
+                        target_node_id=None,
+                        target_node_revision=None,
+                        proposal_purpose=envelope.objective,
+                        creative_direction_snapshot_id=creative_direction_snapshot_id,
+                        requirement_revision_id=envelope.requirement_revision_id,
+                        requirement_revision_no=envelope.requirement_revision_no,
+                        requirement_digest=envelope.requirement_digest,
+                        proposal_revision=1,
+                        proposal_card_schema_version=3,
+                        proposed_references_json=json.dumps(
+                            [
+                                reference.model_dump(mode="json")
+                                for reference in proposed_references
+                            ],
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                        source_proposal_id=source_proposal_id,
+                        availability="open",
+                        guidance_session_id=session["session_id"],
+                        guidance_session_revision=session_revision,
+                        character_occurrence_id=(
+                            envelope.character_target.occurrence_id
+                            if envelope.character_target is not None
+                            else None
+                        ),
+                        character_occurrence_index=(
+                            envelope.character_target.occurrence_index
+                            if envelope.character_target is not None
+                            else None
+                        ),
+                        character_occurrence_count=(
+                            envelope.character_target.occurrence_count
+                            if envelope.character_target is not None
+                            else None
+                        ),
+                        character_phase=(
+                            envelope.character_target.character_phase
+                            if envelope.character_target is not None
+                            else None
+                        ),
+                        character_scope_digest=(
+                            envelope.character_target.target_digest
+                            if envelope.character_target is not None
+                            else None
+                        ),
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+                for order, option in enumerate(public_projection.options):
+                    option_id = option_ids[order]
+                    connection.execute(
+                        insert(AgentCanvasConceptOptionRow).values(
+                            option_id=option_id,
+                            proposal_id=proposal_id,
+                            display_order=order,
+                            title=option.title,
+                            description=option.summary,
+                            key_decisions_json="[]",
+                            draft_seed_schema=None,
+                            draft_seed_json=None,
+                            draft_seed_digest=None,
+                        )
+                    )
+                interaction, awaiting, journey = _concept_interaction(
+                    envelope=envelope,
+                    proposal_id=proposal_id,
+                    session=session,
+                    session_revision=session_revision,
+                    public_options=public_projection.options,
+                    response_locale=response_locale,
+                    now=now,
+                )
+                connection.execute(
+                    insert(AgentCanvasGuidedInteractionRow).values(
+                        interaction_id=interaction.interaction_id,
+                        workflow_id=interaction.workflow_id,
+                        session_id=interaction.session_id,
+                        checkpoint_id=interaction.checkpoint_id,
+                        kind=interaction.kind,
+                        status=interaction.status,
+                        response_locale=interaction.response_locale,
+                        expected_session_revision=interaction.expected_session_revision,
+                        revision=interaction.revision,
+                        title=interaction.title,
+                        context=interaction.context,
+                        content_json=interaction.content.model_dump_json(),
+                        allowed_actions_json=json.dumps(
+                            list(interaction.allowed_actions),
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                        submit_path=interaction.submit_path,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+                connection.execute(
+                    insert(AgentCanvasGuidanceAwaitingRow).values(
+                        awaiting_id=awaiting.awaiting_id,
+                        workflow_id=awaiting.workflow_id,
+                        session_id=awaiting.session_id,
+                        checkpoint_id=awaiting.checkpoint_id,
+                        kind=awaiting.kind,
+                        requires_user_action=awaiting.requires_user_action,
+                        resume_policy=awaiting.resume_policy,
+                        interaction_id=awaiting.interaction_id,
+                        node_ids_json="[]",
+                        stage=awaiting.stage,
+                        stage_revision=awaiting.stage_revision,
+                        created_at=timestamp,
+                    )
+                )
+                connection.execute(
+                    update(AgentCanvasGuidanceSessionRow)
+                    .where(AgentCanvasGuidanceSessionRow.session_id == session["session_id"])
+                    .values(
+                        active_proposal_id=proposal_id,
+                        current_topic_id=topic_id,
+                        journey_state_json=journey.model_dump_json(),
+                        revision=session_revision,
+                        updated_at=timestamp,
+                    )
+                )
+                workflow_revision = int(
+                    connection.execute(
+                        select(AgentCanvasWorkflowRow.revision).where(
+                            AgentCanvasWorkflowRow.workflow_id == envelope.workflow_id
+                        )
+                    ).scalar_one()
+                )
+                publication_receipt = AgentActionReceiptV2(
+                    receipt_id=f"receipt_{_digest(proposal_id, 'publication')[:32]}",
+                    workflow_id=envelope.workflow_id,
+                    action_id=envelope.capability_turn_id,
+                    proposal_id=proposal_id,
+                    actor_kind="agent",
+                    idempotency_key=envelope.envelope_id,
+                    status="applied",
+                    summary="Published three guided Proposal choices.",
+                    workflow_revision=workflow_revision,
+                    before_workflow_revision=workflow_revision,
+                    continuation_turn_id=envelope.capability_turn_id,
+                    created_at=now,
+                )
+                connection.execute(
+                    insert(AgentCanvasActionReceiptRow).values(
+                        receipt_id=publication_receipt.receipt_id,
+                        workflow_id=publication_receipt.workflow_id,
+                        plan_id=None,
+                        action_id=publication_receipt.action_id,
+                        proposal_id=publication_receipt.proposal_id,
+                        proposal_option_id=None,
+                        proposal_action=None,
+                        receipt_json=publication_receipt.model_dump_json(),
+                        created_at=timestamp,
+                    )
+                )
+                connection.execute(
+                    update(AgentCanvasChatTurnRow)
+                    .where(AgentCanvasChatTurnRow.turn_id == envelope.capability_turn_id)
+                    .values(
+                        status="completed",
+                        guidance_session_revision=session_revision,
+                        error_code=None,
+                        error_message=None,
+                        updated_at=timestamp,
+                    )
+                )
+                activity_publication = publish_expert_activity_terminal_in_transaction(
+                    connection,
+                    self._events,
+                    turn_id=envelope.capability_turn_id,
+                    status="completed",
+                    response_locale=response_locale,
+                    now=timestamp,
+                )
+                if not activity_publication.changed:
+                    raise V2PersistenceError(
+                        "expert_activity_terminal",
+                        "Expert activity already reached a terminal state.",
+                        stage="capability_publication",
+                    )
+                connection.execute(
+                    update(AgentCanvasContinuationOutboxRow)
+                    .where(
+                        AgentCanvasContinuationOutboxRow.continuation_turn_id
+                        == envelope.capability_turn_id
+                    )
+                    .values(
+                        status="completed",
+                        lease_owner=None,
+                        lease_expires_at=None,
+                        last_error_code=None,
+                        last_error_message=None,
+                        updated_at=timestamp,
+                    )
+                )
+                sequence_no = (
+                    int(
+                        connection.execute(
+                            select(
+                                func.coalesce(func.max(AgentCanvasChatEntryRow.sequence_no), 0)
+                            ).where(
+                                AgentCanvasChatEntryRow.conversation_id == envelope.conversation_id
+                            )
+                        ).scalar_one()
+                    )
+                    + 1
+                )
+                connection.execute(
+                    insert(AgentCanvasChatEntryRow).values(
+                        entry_id=f"entry_{_digest(proposal_id)[:32]}",
+                        conversation_id=envelope.conversation_id,
+                        workflow_id=envelope.workflow_id,
+                        sequence_no=sequence_no,
+                        entry_type="concept_proposal",
+                        speaker="adcraft_video_agent",
+                        content=f"Review {len(options)} option(s).",
+                        metadata_json=json.dumps(
+                            build_presentation_metadata(
+                                message_key="concept_proposal.review",
+                                message_args={"option_count": len(options)},
+                                response_locale=response_locale,
+                                presentation_key=f"proposal:{proposal_id}",
+                                base={
+                                    "proposal_id": proposal_id,
+                                    "capability_id": envelope.capability_id,
+                                    "capability_display_name": CAPABILITY_DISPLAY_NAMES[
+                                        envelope.capability_id
+                                    ],
+                                    "proposal_revision": 1,
+                                    **_character_scope_payload(envelope),
+                                    "options": [
+                                        public_option_metadata(option)
+                                        for option in public_projection.options
+                                    ],
+                                },
+                            ),
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                        created_at=timestamp,
+                    )
+                )
+                publication_events: list[tuple[str, dict[str, object]]] = [
+                    (
+                        "concept_proposal_created",
+                        {
+                            "proposal_id": proposal_id,
+                            "capability_id": envelope.capability_id,
+                            "option_count": len(options),
+                            "source_action": envelope.source_action,
+                            "source_proposal_id": source_proposal_id,
+                            "reference_count": len(proposed_references),
+                            "reference_plan_digest": envelope.reference_plan.digest,
+                            **_character_scope_payload(envelope),
+                        },
+                    ),
+                ]
+                publication_events.append(
+                    (
+                        "guided_interaction_opened",
+                        {
+                            "interaction_id": interaction.interaction_id,
+                            "session_id": interaction.session_id,
+                            "checkpoint_id": interaction.checkpoint_id,
+                            "kind": interaction.kind,
+                            "interaction_revision": interaction.revision,
+                        },
+                    )
+                )
+                publication_events.append(
+                    (
+                        "guidance_awaiting_entered",
+                        {
+                            "awaiting_id": awaiting.awaiting_id,
+                            "session_id": awaiting.session_id,
+                            "checkpoint_id": awaiting.checkpoint_id,
+                            "kind": awaiting.kind,
+                            "resume_policy": awaiting.resume_policy,
+                            "interaction_id": awaiting.interaction_id,
+                            "node_ids": [],
+                        },
+                    )
+                )
+                publication_events.extend(
+                    [
+                        (
+                            "agent_action_receipt_created",
+                            {
+                                "receipt_id": publication_receipt.receipt_id,
+                                "proposal_id": proposal_id,
+                            },
+                        ),
+                        (
+                            "agent_command_completed",
+                            {
+                                "envelope_id": envelope.envelope_id,
+                                "proposal_id": proposal_id,
+                            },
+                        ),
+                    ]
+                )
+                for event_type, payload in publication_events:
+                    self._events.append_in_transaction(
+                        connection,
+                        V2EventInsert(
+                            workflow_id=envelope.workflow_id,
+                            conversation_id=envelope.conversation_id,
+                            turn_id=envelope.capability_turn_id,
+                            event_type=event_type,
+                            transition_key=(
+                                f"conversation:{envelope.capability_turn_id}:{event_type}"
+                            ),
+                            created_at=timestamp,
+                            payload=payload,
+                        ),
+                    )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        return proposal_id
+
+
+def _committed_storyboard_proposal_for_stage(
+    connection: Connection,
+    *,
+    envelope: CapabilityCommandEnvelopeV2,
+    session: Mapping[str, object],
+) -> str | None:
+    if envelope.capability_id != "storyboard_design":
+        return None
+    journey = parse_production_journey(str(session["journey_state_json"]))
+    proposals = (
+        connection.execute(
+            select(AgentCanvasConceptProposalRow).where(
+                AgentCanvasConceptProposalRow.workflow_id == envelope.workflow_id,
+                AgentCanvasConceptProposalRow.proposal_kind == "storyboard",
+                AgentCanvasConceptProposalRow.availability == "applied",
+                AgentCanvasConceptProposalRow.materialization_status == "completed",
+            )
+        )
+        .mappings()
+        .all()
+    )
+    matches: list[str] = []
+    for proposal in proposals:
+        committed = connection.execute(
+            select(AgentCanvasMaterializationCommitRow.materialization_id).where(
+                AgentCanvasMaterializationCommitRow.workflow_id == envelope.workflow_id,
+                AgentCanvasMaterializationCommitRow.proposal_id == proposal["proposal_id"],
+                AgentCanvasMaterializationCommitRow.materialization_id
+                == proposal["materialization_id"],
+                AgentCanvasMaterializationCommitRow.action_turn_id
+                == proposal["materialization_turn_id"],
+            )
+        ).scalar_one_or_none()
+        if committed is None:
+            continue
+        interactions = (
+            connection.execute(
+                select(AgentCanvasGuidedInteractionRow.content_json).where(
+                    AgentCanvasGuidedInteractionRow.workflow_id == envelope.workflow_id,
+                    AgentCanvasGuidedInteractionRow.session_id == session["session_id"],
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if any(
+            (content := json.loads(str(raw))).get("proposal_id") == proposal["proposal_id"]
+            and content.get("stage") == journey.stage
+            and content.get("stage_revision") == journey.stage_revision
+            for raw in interactions
+        ):
+            matches.append(str(proposal["proposal_id"]))
+    if len(matches) > 1:
+        raise V2PersistenceError(
+            "storyboard_terminal_authority_conflict",
+            "More than one committed Storyboard authority matches the current stage.",
+            stage="capability_publication",
+        )
+    return matches[0] if matches else None
+
+
+def _terminalize_suppressed_storyboard_publication(
+    connection: Connection,
+    *,
+    events: EventRepository,
+    envelope: CapabilityCommandEnvelopeV2,
+    canonical_proposal_id: str,
+    timestamp: str,
+) -> None:
+    activity = (
+        connection.execute(
+            select(AgentCanvasExpertActivityRow).where(
+                AgentCanvasExpertActivityRow.turn_id == envelope.capability_turn_id
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if activity is not None and str(activity["status"]) == "working":
+        publish_expert_activity_terminal_in_transaction(
+            connection,
+            events,
+            turn_id=envelope.capability_turn_id,
+            status="superseded",
+            now=timestamp,
+            event_details={"canonical_proposal_id": canonical_proposal_id},
+        )
+    turn_status = connection.execute(
+        select(AgentCanvasChatTurnRow.status).where(
+            AgentCanvasChatTurnRow.turn_id == envelope.capability_turn_id
+        )
+    ).scalar_one_or_none()
+    if turn_status not in {None, "completed", "failed", "superseded"}:
+        connection.execute(
+            update(AgentCanvasChatTurnRow)
+            .where(AgentCanvasChatTurnRow.turn_id == envelope.capability_turn_id)
+            .values(
+                status="superseded",
+                retryable=False,
+                error_code=None,
+                error_message=None,
+                updated_at=timestamp,
+            )
+        )
+    connection.execute(
+        update(AgentCanvasContinuationOutboxRow)
+        .where(
+            AgentCanvasContinuationOutboxRow.continuation_turn_id == envelope.capability_turn_id,
+            AgentCanvasContinuationOutboxRow.status.in_(("queued", "leased")),
+        )
+        .values(
+            status="completed",
+            lease_owner=None,
+            lease_expires_at=None,
+            last_error_code=None,
+            last_error_message=None,
+            updated_at=timestamp,
+        )
+    )
+    events.append_in_transaction(
+        connection,
+        V2EventInsert(
+            workflow_id=envelope.workflow_id,
+            conversation_id=envelope.conversation_id,
+            turn_id=envelope.capability_turn_id,
+            event_type="storyboard_duplicate_proposal_suppressed",
+            transition_key=(
+                f"storyboard-proposal-suppressed:{envelope.capability_turn_id}:"
+                f"{canonical_proposal_id}"
+            ),
+            created_at=timestamp,
+            payload={
+                "canonical_proposal_id": canonical_proposal_id,
+                "suppressed_turn_id": envelope.capability_turn_id,
+            },
+        ),
+    )
+
+
+def _concept_interaction(
+    *,
+    envelope: CapabilityCommandEnvelopeV2,
+    proposal_id: str,
+    session: Mapping[str, object],
+    session_revision: int,
+    public_options: tuple[GuidedChoiceOptionV1, ...],
+    response_locale: str,
+    now: datetime,
+) -> tuple[GuidedInteractionV1, GuidanceAwaitingV2, GuidedProductionJourneyV2]:
+    journey = parse_production_journey(str(session["journey_state_json"]))
+    if len(public_options) != 3:
+        raise V2PersistenceError(
+            "proposal_candidate_count_mismatch",
+            "A normal Guided Proposal requires exactly three public options.",
+            stage="capability_publication",
+        )
+    if journey.active_action is None:
+        raise V2PersistenceError(
+            "guided_interaction_authority_missing",
+            "A normal Guided Proposal requires an active journey action.",
+            stage="capability_publication",
+        )
+
+    checkpoint_id = f"checkpoint_{_digest(str(session['session_id']), journey.stage, str(journey.stage_revision))[:32]}"
+    interaction_id = f"interaction_{_digest(proposal_id, 'interaction')[:32]}"
+    awaiting_id = f"awaiting_{_digest(proposal_id, 'awaiting')[:32]}"
+    character_scope = envelope.character_target
+    if envelope.capability_id == "character_design" and character_scope is None:
+        raise V2PersistenceError(
+            "character_proposal_scope_invalid",
+            "Character Proposal publication requires an occurrence target.",
+            stage="capability_publication",
+        )
+    if character_scope is not None and (
+        journey.active_action.occurrence_id != character_scope.occurrence_id
+        or journey.active_action.character_phase != character_scope.character_phase
+    ):
+        raise V2PersistenceError(
+            "character_proposal_scope_invalid",
+            "Character Proposal target does not match the active Journey occurrence.",
+            stage="capability_publication",
+        )
+    content = GuidedConceptChoiceV2(
+        proposal_id=proposal_id,
+        stage=journey.stage,
+        stage_revision=journey.stage_revision,
+        action_id=journey.active_action.action_id,
+        occurrence_id=character_scope.occurrence_id if character_scope is not None else None,
+        occurrence_index=(
+            character_scope.occurrence_index if character_scope is not None else None
+        ),
+        occurrence_count=(
+            character_scope.occurrence_count if character_scope is not None else None
+        ),
+        character_phase=(character_scope.character_phase if character_scope is not None else None),
+        capability_id=envelope.capability_id,
+        options=public_options,
+        allow_exclusion=FIXED_JOURNEY_STAGE_DESCRIPTORS[journey.stage].optional,
+    )
+    interaction = GuidedInteractionV1(
+        interaction_id=interaction_id,
+        workflow_id=envelope.workflow_id,
+        session_id=str(session["session_id"]),
+        checkpoint_id=checkpoint_id,
+        kind="concept_choice",
+        status="open",
+        response_locale=response_locale,
+        expected_session_revision=session_revision,
+        revision=1,
+        title=_bounded_text(
+            " / ".join(option.title for option in public_options),
+            limit=160,
+        ),
+        context=_bounded_text(envelope.objective, limit=1_024),
+        content=content,
+        allowed_actions=(
+            ("select", "custom", "defer")
+            + (("exclude",) if FIXED_JOURNEY_STAGE_DESCRIPTORS[journey.stage].optional else ())
+            + ("delegate",)
+        ),
+        submit_path=(
+            f"/api/v2/workflows/{envelope.workflow_id}/chat/interactions/{interaction_id}/submit"
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+    awaiting = GuidanceAwaitingV2(
+        awaiting_id=awaiting_id,
+        workflow_id=envelope.workflow_id,
+        session_id=str(session["session_id"]),
+        checkpoint_id=checkpoint_id,
+        kind="concept_selection",
+        requires_user_action=True,
+        resume_policy="submit_interaction",
+        interaction_id=interaction_id,
+        stage=journey.stage,
+        stage_revision=journey.stage_revision,
+        created_at=now,
+    )
+    return interaction, awaiting, journey.model_copy(update={"stage_status": "waiting_user"})
+
+
+def _bounded_text(value: object, *, limit: int) -> str:
+    text = str(value).strip()
+    return (text or "Option")[:limit]
+
+
+def _project_references(
+    envelope: CapabilityCommandEnvelopeV2,
+) -> tuple[ProposedDraftReferenceV2, ...]:
+    return tuple(
+        ProposedDraftReferenceV2(
+            source_kind=reference.source_kind,
+            source_id=reference.source_id,
+            binding_kind=reference.input_role,
+            input_role=reference.input_role,
+            required=reference.required,
+            display_order=index,
+            semantic_reference_role=reference.semantic_reference_role,
+            occurrence_id=reference.occurrence_id,
+            character_phase=reference.character_phase,
+            display_name=reference.display_name,
+            media_type=reference.media_type,
+        )
+        for index, reference in enumerate(envelope.reference_plan.references)
+    )
+
+
+def _digest(*parts: str) -> str:
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def _card_digest(options: tuple[tuple[str, str], ...]) -> str:
+    """Hash only the ordered public card fields used for replay identity."""
+
+    return _digest(
+        *(
+            json.dumps(
+                {"public_summary": public_summary, "title": title},
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            for title, public_summary in options
+        )
+    )
+
+
+def _style_snapshot_id(style_projection: dict[str, object]) -> str | None:
+    value = style_projection.get("creative_direction_snapshot_id")
+    return value if isinstance(value, str) and value else None
+
+
+def _character_scope_payload(
+    envelope: CapabilityCommandEnvelopeV2,
+) -> dict[str, object]:
+    target = envelope.character_target
+    if target is None:
+        return {}
+    return {
+        "occurrence_id": target.occurrence_id,
+        "occurrence_index": target.occurrence_index,
+        "occurrence_count": target.occurrence_count,
+        "character_phase": target.character_phase,
+        "character_scope_digest": target.target_digest,
+    }
+
+
+def _validate_replayed_character_scope(
+    existing: Mapping[str, object],
+    envelope: CapabilityCommandEnvelopeV2,
+) -> None:
+    """Ensure a replay uses the exact immutable occurrence scope."""
+
+    stored_values = (
+        existing.get("character_occurrence_id"),
+        existing.get("character_occurrence_index"),
+        existing.get("character_occurrence_count"),
+        existing.get("character_phase"),
+        existing.get("character_scope_digest"),
+    )
+    has_stored_scope = any(value is not None for value in stored_values)
+    target = envelope.character_target
+    if not has_stored_scope:
+        if target is not None:
+            raise V2PersistenceError(
+                "character_proposal_scope_invalid",
+                "The replayed Proposal is missing its immutable occurrence scope.",
+                stage="capability_publication",
+            )
+        return
+    if not all(value is not None for value in stored_values) or target is None:
+        raise V2PersistenceError(
+            "character_proposal_scope_invalid",
+            "The replayed Proposal occurrence scope is incomplete or missing.",
+            stage="capability_publication",
+        )
+    try:
+        stored_target = CharacterProposalTargetV1.model_validate(
+            {
+                "occurrence_id": stored_values[0],
+                "occurrence_index": stored_values[1],
+                "occurrence_count": stored_values[2],
+                "character_phase": stored_values[3],
+                "requirement_revision_id": existing.get("requirement_revision_id"),
+                "requirement_revision_no": existing.get("requirement_revision_no"),
+                "target_digest": stored_values[4],
+            }
+        )
+    except ValueError as error:
+        raise V2PersistenceError(
+            "character_proposal_scope_invalid",
+            "The persisted Proposal occurrence scope is invalid.",
+            stage="capability_publication",
+        ) from error
+    if stored_target != target:
+        raise V2PersistenceError(
+            "character_proposal_scope_invalid",
+            "The replayed Proposal occurrence scope differs from the persisted scope.",
+            stage="capability_publication",
+        )

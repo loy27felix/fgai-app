@@ -1,0 +1,16 @@
+{
+  "slug": "fantasy-movie-poster",
+  "skillId": "fg-4a91984edf158e6a36e29398",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "814418bcf03c143217650c7bb8948c2e0b0263de3da47fb6dddfbe82324a044d",
+  "omitted": [
+    "examples\\literary-river.png"
+  ],
+  "imageStyle": {
+    "label": "电影海报",
+    "prompt": "Premium cinematic poster composition, one strong protagonist or narrative symbol, purposeful foreground/background depth, dramatic but credible light, controlled visual hierarchy and negative space for title. Only render exact user-provided wording; no invented credits or mockup.",
+    "direct": true
+  }
+}

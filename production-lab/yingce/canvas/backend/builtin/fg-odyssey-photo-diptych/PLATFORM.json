@@ -1,0 +1,14 @@
+{
+  "slug": "odyssey-photo-diptych",
+  "skillId": "fg-8ce80ac9d15c8913a70a9c77",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "d875d84a512af7670a99444984838432a7bda54dd348607dfd1f3792e0af5bf8",
+  "omitted": [],
+  "imageStyle": {
+    "label": "照片与抽象双联画",
+    "prompt": "Requires a user photograph: preserve the source photographic panel, interpret its actual structure into a separate abstract counterpart, then compose the two panels deterministically.",
+    "direct": false
+  }
+}

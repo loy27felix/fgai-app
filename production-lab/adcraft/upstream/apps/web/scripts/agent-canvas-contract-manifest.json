@@ -1,0 +1,127 @@
+{
+  "schemas": {
+    "NodePromptPreparationV1": {
+      "properties": [
+        "status",
+        "operation_id",
+        "presentation_stream_id",
+        "attempt_no",
+        "context_snapshot_id",
+        "occurrence_id",
+        "character_phase",
+        "prompt_digest",
+        "role_variant",
+        "recipe_id",
+        "recipe_version",
+        "recipe_digest",
+        "requirement_revision_id",
+        "requirement_revision_no",
+        "document_revisions",
+        "binding_digest",
+        "style_projection_digest",
+        "brief_digest",
+        "parameter_origins",
+        "assertion_evidence",
+        "attempt_stage",
+        "error",
+        "updated_at"
+      ],
+      "enums": {
+        "status": ["queued", "working", "waiting_user", "ready", "failed", "superseded", "not_applicable"],
+        "character_phase": ["main", "turnaround"]
+      }
+    },
+    "ChatTurnAcceptedV2": {
+      "properties": [
+        "workflow_id",
+        "conversation_id",
+        "message_id",
+        "turn_id",
+        "status",
+        "events_cursor",
+        "retry_of_turn_id",
+        "retry_attempt_no",
+        "replayed",
+        "presentation_stream_id"
+      ],
+      "enums": {
+        "status": ["queued"]
+      }
+    },
+    "StoryboardNarrativeSegmentV2": {
+      "properties": [
+        "sequence_id",
+        "order",
+        "start_seconds",
+        "end_seconds",
+        "narrative_goal",
+        "start_state",
+        "end_state",
+        "continuity_from_previous",
+        "terminal_policy"
+      ],
+      "enums": {
+        "terminal_policy": ["continue", "close"]
+      }
+    },
+    "ChatTurnV2": {
+      "properties": [
+        "turn_id",
+        "workflow_id",
+        "conversation_id",
+        "status",
+        "turn_kind",
+        "request",
+        "creation_mode",
+        "guidance_session_revision",
+        "continuation",
+        "retry_of_turn_id",
+        "retry_attempt_no",
+        "retryable",
+        "actionable_failure",
+        "operation_stage",
+        "operation_failure",
+        "error_code",
+        "error_message",
+        "created_at",
+        "updated_at"
+      ],
+      "enums": {
+        "status": ["queued", "running", "completed", "failed", "superseded"],
+        "turn_kind": [
+          "message",
+          "proposal_action",
+          "command_action",
+          "guided_action",
+          "capability",
+          "next_action",
+          "guidance_advance"
+        ]
+      }
+    },
+    "CanvasParameterProvenanceV2": {
+      "properties": [
+        "origin",
+        "source_node_id",
+        "binding_id",
+        "source_revision",
+        "requested_value",
+        "effective_value",
+        "normalization_code"
+      ],
+      "enums": {
+        "origin": [
+          "manual",
+          "node_prompt",
+          "binding",
+          "user_explicit",
+          "structured_content",
+          "guidance_default",
+          "role_default",
+          "model_default",
+          "provider_clamp"
+        ]
+      }
+    }
+  }
+}

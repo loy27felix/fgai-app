@@ -1,0 +1,44 @@
+.fg-audio-workspace { min-height:0; height:100%; flex:1 1 0%; width:100%; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; padding:42px 40px 60px; color:var(--user-ink); }
+.fg-audio-container { width:100%; max-width:1440px; margin-inline:auto; }
+.fg-audio-header { display:flex; align-items:center; justify-content:space-between; gap:36px; margin-bottom:32px; }
+.fg-audio-eyebrow { display:flex; align-items:center; gap:8px; font-size:10px; font-weight:650; letter-spacing:.18em; color:var(--user-ink-muted); }
+.fg-audio-header h1.ant-typography { margin:18px 0 12px; font-size:clamp(26px,2.3vw,40px); letter-spacing:-.045em; }
+.fg-audio-header .ant-typography { color:var(--user-ink); }
+.fg-audio-slats { width:320px; height:130px; opacity:.75; overflow:hidden; border-radius:20px; mask-image:linear-gradient(90deg,transparent,black 25%,black 75%,transparent); }
+.fg-audio-tabs { margin-bottom:28px; }
+.fg-audio-tabs .ant-tabs-nav { padding:8px 14px; border:1px solid var(--fg-glass-line); border-radius:18px; background:var(--user-surface); backdrop-filter:blur(30px) saturate(1.3); }
+.fg-audio-tabs .ant-tabs-nav::before { border:0!important; }
+.fg-audio-tabs .ant-tabs-tab { padding:11px 4px; }
+.fg-audio-tabs .ant-tabs-tab-icon { display:inline-flex; vertical-align:middle; }
+.fg-audio-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:28px; align-items:start; }
+.fg-audio-editor { min-width:0; display:grid; gap:20px; }
+.fg-audio-composer.ant-card { border:1px solid var(--fg-glass-line); border-radius:24px; background:var(--user-surface); box-shadow:var(--fg-glass-shadow); backdrop-filter:blur(38px) saturate(1.4); }
+.fg-audio-composer .ant-card-head { padding:0 30px; min-height:72px; border-color:var(--user-border-strong); }
+.fg-audio-composer .ant-card-body { padding:30px; }
+.fg-audio-composer .ant-space-vertical { gap:24px!important; }
+.fg-audio-options { display:flex; flex-wrap:wrap; gap:12px; }
+.fg-audio-options .ant-select { min-width:180px; flex:1; }
+.fg-audio-music-fields { display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:28px; }
+.fg-audio-field { min-width:0; }
+.fg-audio-field h5.ant-typography { margin:4px 0 8px; font-size:16px; }
+.fg-audio-field textarea { min-height:250px; resize:vertical; padding:16px; line-height:1.9; }
+.fg-audio-field .ant-typography-secondary { font-size:11px; min-height:34px; }
+.fg-audio-composer :is(.ant-select-selector,.ant-input,.ant-input-outlined) { background:var(--user-surface-muted)!important; border-color:var(--user-border-strong); border-radius:12px; }
+.fg-audio-actions { width:100%; padding-top:20px; border-top:1px solid var(--user-border-strong); gap:12px!important; }
+.fg-audio-actions .ant-btn { border-radius:12px; }
+.fg-audio-guide { padding:30px; border:1px solid var(--fg-glass-line); border-radius:24px; background:var(--user-surface); backdrop-filter:blur(38px); box-shadow:var(--user-shadow-card); }
+.fg-audio-guide h2 { font-size:25px; line-height:1.4; letter-spacing:-.035em; margin:22px 0; }
+.fg-audio-guide h3 { font-size:13px; font-weight:600; margin:24px 0 10px; }
+.fg-audio-guide p { font-size:12px; line-height:1.9; color:var(--user-ink-muted); margin:12px 0; }
+.fg-audio-status { display:flex; align-items:center; gap:8px; font-size:11px; }
+.fg-audio-status>span { width:6px; height:6px; border-radius:50%; background:#bc8d4a; box-shadow:0 0 0 4px rgba(188,141,74,.1); }
+.fg-audio-status>span[data-ready=true] { background:#528c76; }
+.fg-audio-guide-rule { height:1px; background:var(--user-border-strong); margin:26px 0; }
+.fg-audio-history { margin-top:44px; display:grid; gap:16px; }
+.fg-audio-history h4.ant-typography { margin:0 0 6px; }
+.fg-audio-empty { padding:38px; text-align:center; color:var(--user-ink-muted); border:1px dashed var(--user-border-strong); border-radius:20px; background:var(--user-surface); }
+.fg-audio-empty svg { margin:auto; opacity:.6; }
+.fg-audio-empty p { margin:14px 0 7px; font-size:13px; }
+.fg-audio-empty span { font-size:11px; }
+@media(max-width:1100px) { .fg-audio-layout { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:700px) { .fg-audio-workspace { padding:24px 16px 40px; } .fg-audio-slats { display:none; } .fg-audio-music-fields { grid-template-columns:minmax(0,1fr); } .fg-audio-composer .ant-card-body { padding:20px; } .fg-audio-field textarea { min-height:160px; } }

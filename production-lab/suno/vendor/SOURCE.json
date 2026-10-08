@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/gcui-art/suno-api",
+  "commit": "a2e6a823428903af715d3835d1cb44ffa336021d",
+  "license": "LGPL-3.0-or-later",
+  "changes": [
+    "server-only library subset",
+    "relative imports",
+    "official Playwright",
+    "silent provider logging"
+  ]
+}

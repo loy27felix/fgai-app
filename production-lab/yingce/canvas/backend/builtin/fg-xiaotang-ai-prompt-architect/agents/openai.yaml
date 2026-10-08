@@ -1,0 +1,4 @@
+interface:
+  display_name: "小唐 AI 创意提示词专家"
+  short_description: "把灵感扩写成电影级视觉方案与AI提示词"
+  default_prompt: "Use $xiaotang-ai-prompt-architect to expand my idea into a cinematic visual concept, storyboard, and executable AI prompts."

@@ -1,0 +1,34 @@
+registry_version: "2.1.0"
+default_shot_plate_target: midjourney_v8_2
+default_keyframe_target: midjourney_v8_2
+default_storyboard_target: gpt_image_2_5
+default_shot_plate_edit_target: gpt_image_2_5_edit
+default_keyframe_edit_target: gpt_image_2_5_edit
+default_storyboard_edit_target: gpt_image_2_5_edit
+registered_targets:
+  midjourney_v8_2:
+    adapter_id: midjourney_v8_2
+    profile: midjourney_v8_2.md
+    profile_role: subordinate_image_prompt_adapter
+    route: base_create
+    artifact_kinds:
+      - shot_plate
+      - keyframe
+  gpt_image_2_5:
+    adapter_id: gpt_image_2_5
+    profile: gpt_image_2_5.md
+    profile_role: subordinate_image_prompt_adapter
+    route: base_create
+    artifact_kinds:
+      - shot_plate
+      - keyframe
+      - storyboard
+  gpt_image_2_5_edit:
+    adapter_id: gpt_image_2_5_edit
+    profile: gpt_image_2_5_edit.md
+    profile_role: subordinate_image_edit_adapter
+    route: edit
+    artifact_kinds:
+      - shot_plate
+      - keyframe
+      - storyboard

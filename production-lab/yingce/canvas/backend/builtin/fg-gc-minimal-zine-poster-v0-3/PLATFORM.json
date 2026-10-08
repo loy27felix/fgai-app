@@ -1,0 +1,14 @@
+{
+  "slug": "gc-minimal-zine-poster-v0-3",
+  "skillId": "fg-d0bd36c77a7ff255b9aac0f9",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "89c7dc90c9aa80ba020c55e54b7de2fa2b49b49d20c240b150cd79ebea59775d",
+  "omitted": [],
+  "imageStyle": {
+    "label": "纸感拼贴海报",
+    "prompt": "Minimal editorial zine poster, tactile paper and clean cut collage, asymmetrical composition, generous negative space, selective overprint texture and experimental typography only from exact user-provided text. Avoid generic grunge and busy decoration.",
+    "direct": true
+  }
+}

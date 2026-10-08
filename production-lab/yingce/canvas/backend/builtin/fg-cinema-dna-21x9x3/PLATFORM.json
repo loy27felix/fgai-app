@@ -1,0 +1,14 @@
+{
+  "slug": "cinema-dna-21x9x3",
+  "skillId": "fg-2908e4e7de490f3980a4c407",
+  "version": "3.1.1",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "cd3dab4592cc6d15484ed350ece9fdaf8938c8577b3d6071a21ff077b59251d5",
+  "omitted": [],
+  "imageStyle": {
+    "label": "电影关键帧",
+    "prompt": "Cinematic keyframe with purposeful lens, motivated light, foreground/midground/background separation, clear visual storytelling and continuous screen direction. One shot only; keep the requested aspect ratio.",
+    "direct": true
+  }
+}

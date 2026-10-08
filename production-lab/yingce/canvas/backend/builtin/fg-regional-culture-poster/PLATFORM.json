@@ -1,0 +1,14 @@
+{
+  "slug": "regional-culture-poster",
+  "skillId": "fg-545aaeca896027fdbd799565",
+  "version": "1.0.0",
+  "tag": "creative",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "b9af32e8af78f286199dc373cf092dc9aafff8e3d120ac3cbc282f4bf3b0fda4",
+  "omitted": [],
+  "imageStyle": {
+    "label": "地域文化海报",
+    "prompt": "Contemporary regional-culture poster grounded in the named place and supplied reference: recognizable local visual anchors, deliberate geometry and material texture, restrained palette and hierarchy. Avoid generic landmarks and unsupported historical details.",
+    "direct": true
+  }
+}

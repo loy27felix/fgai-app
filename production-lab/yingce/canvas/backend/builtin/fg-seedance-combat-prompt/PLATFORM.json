@@ -1,0 +1,10 @@
+{
+  "slug": "seedance-combat-prompt",
+  "skillId": "fg-784599ee88c29d9107f8a719",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "6a712849678b98ceb42976fa091286ee09c3c850403998dbcca572cc9fa36bbe",
+  "omitted": [],
+  "imageStyle": null
+}

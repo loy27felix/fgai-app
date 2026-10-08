@@ -1,0 +1,41 @@
+{
+  "skill_id": "luminous-youth-anime",
+  "version": "1.0.0",
+  "video_representation_mode": "illustrated",
+  "display_name": "青春流光动画",
+  "description": "以发光氛围、天气细节、青春牵挂和天空到城市的转换组织具有成长感的动画叙事。",
+  "content_locale": "zh-CN",
+  "category": "animation-illustration",
+  "tags": [
+    "青春动画",
+    "天气光线",
+    "成长叙事"
+  ],
+  "supported_use_cases": [
+    "品牌动画",
+    "青春叙事",
+    "生活方式广告"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "青春流光动画视觉预览。",
+    "media_url": "/api/v2/video-skills/luminous-youth-anime/preview?v=1.0.0"
+  },
+  "display_order": 330,
+  "files": {
+    "SKILL.md": "8f6384a7324b9639ffbce58743c1a5d1b175a4527eeb7c146a4754510dcdd3cd",
+    "references/character.md": "473d8bd0bb759ee89371a42fcd30f3694b842674b747978ddd2758578e22cc97",
+    "references/scene.md": "0914a3d0458731745b69f17cb814dda3734ac7283d9d15cb879d9a0f9b5eba77",
+    "references/storyboard.md": "d48235554ea66e25df324a757cdd88efe83efa17079b185d893fff848e86f8b1",
+    "references/video.md": "ee9eb557c5018479c623be0cf8a9afec6ae24e0b743a203c8940194fd928e6e8",
+    "references/quick_media.md": "804e059c30d3e7e9f642a2957710af7096f2aead33bfecb34c5ce254d7f197a3",
+    "previews/preview.webp": "3a67c7554d0165549b615fd886bdff8306ca50d828b37534aeb4d779d3e496ef"
+  },
+  "role_guidance": {
+    "character": "references/character.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md",
+    "quick_media": "references/quick_media.md"
+  }
+}

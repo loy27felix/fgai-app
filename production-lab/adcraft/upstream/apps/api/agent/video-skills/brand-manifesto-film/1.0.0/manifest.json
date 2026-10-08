@@ -1,0 +1,38 @@
+{
+  "skill_id": "brand-manifesto-film",
+  "version": "1.0.0",
+  "display_name": "品牌宣言叙事片",
+  "description": "以信念驱动的叙事、象征性画面、情绪升级和品牌落点构建有依据的品牌表达。",
+  "content_locale": "zh-CN",
+  "category": "commercial-craft",
+  "tags": [
+    "品牌叙事",
+    "宣言影片",
+    "情绪广告"
+  ],
+  "supported_use_cases": [
+    "品牌宣传",
+    "价值观影片",
+    "整合营销"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "品牌宣言叙事片视觉预览。",
+    "media_url": "/api/v2/video-skills/brand-manifesto-film/preview?v=1.0.0"
+  },
+  "display_order": 40,
+  "files": {
+    "SKILL.md": "da6e7717e5739feec794d7855274272ba37b9c654d29ea94c1a280a434754eef",
+    "references/script.md": "96043baea31d58e05ffb7d63556d5ef666fd23729a726d6c290603393d91b401",
+    "references/product.md": "2241394221d9d8fc9efb7b10b567156409661a9358ff8cac4b5f8f8f9a37f779",
+    "references/storyboard.md": "b802de1fd62b0d93d3df432839ddcff0d6533587ff11071fdcd5323c94f349eb",
+    "references/video.md": "1f5f1e24a9709c0f11dc8c4114f079d030a0fba36bd987cae876e5fba7079d0e",
+    "previews/preview.webp": "1a74b0aac18d747acc53fff777c19077293a11208feeeceb6ef5f45392d12e4d"
+  },
+  "role_guidance": {
+    "script": "references/script.md",
+    "product": "references/product.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md"
+  }
+}

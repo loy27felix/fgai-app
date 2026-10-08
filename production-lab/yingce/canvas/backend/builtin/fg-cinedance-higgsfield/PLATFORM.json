@@ -1,0 +1,10 @@
+{
+  "slug": "cinedance-higgsfield",
+  "skillId": "fg-6beb12c7e9926f8049c78c34",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "582cda50ea1f86e1a0827129f20cc7152e5b79dd925af9cdfb9848d8ae4b6e90",
+  "omitted": [],
+  "imageStyle": null
+}

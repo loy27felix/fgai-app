@@ -1,0 +1,10 @@
+{
+  "slug": "deepwhite-screenwriting-v1",
+  "skillId": "fg-230f4ad180cb3749c4614773",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "7b73f42daacb8d9510f9068d91886d5a65df79ba183d250a6c596c2a093ae412",
+  "omitted": [],
+  "imageStyle": null
+}

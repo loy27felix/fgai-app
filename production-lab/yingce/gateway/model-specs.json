@@ -1,0 +1,3563 @@
+[
+  {
+    "id": "claude-opus-5-5-t3a",
+    "capability": "text",
+    "protocol": "chat-completion",
+    "price": {
+      "model_name": "claude-opus-5-5-t3a",
+      "description": "Claude Opus 5.5 (t3a suffix alias)",
+      "tags": "Claude,Opus,Alias,t3a",
+      "vendor_id": 1,
+      "quota_type": 0,
+      "model_ratio": 4,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "anthropic",
+        "openai"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "input_price": 4,
+        "output_price": 20
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "legacy_ratio",
+        "mechanism": "static_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.05,
+          "completion_ratio": 5,
+          "create_cache_ratio": 1.25,
+          "create_cache_ratio_1h": 2,
+          "input_price": 4,
+          "model_ratio": 4,
+          "output_price": 20
+        },
+        "raw_rules": [],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "input_price": 4,
+          "output_price": 20
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "claude-sonnet-5-5-t3a",
+    "capability": "text",
+    "protocol": "chat-completion",
+    "price": {
+      "model_name": "claude-sonnet-5-5-t3a",
+      "description": "Claude Sonnet 5.5 (t3a suffix alias)",
+      "tags": "Claude,Sonnet,Alias,t3a",
+      "vendor_id": 1,
+      "quota_type": 0,
+      "model_ratio": 2,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "anthropic",
+        "openai"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "input_price": 2,
+        "output_price": 10
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "legacy_ratio",
+        "mechanism": "static_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.1,
+          "completion_ratio": 5,
+          "create_cache_ratio": 1.25,
+          "create_cache_ratio_1h": 2,
+          "input_price": 2,
+          "model_ratio": 2,
+          "output_price": 10
+        },
+        "raw_rules": [],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "input_price": 2,
+          "output_price": 10
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "deepseek-v4-pro",
+    "capability": "text",
+    "protocol": "chat-completion",
+    "price": {
+      "model_name": "deepseek-v4-pro",
+      "description": "DeepSeek V4 Pro，通过阿里云百炼海外平台（ap-southeast-1）提供 API 服务，支持 OpenAI / Anthropic 兼容格式。输入 $2.4/M tokens，输出 $4.8/M tokens。",
+      "icon": "DeepSeek.Color",
+      "tags": "[\"DeepSeek\",\"Chat\",\"International\",\"V4\",\"Pro\"]",
+      "vendor_id": 22,
+      "quota_type": 0,
+      "model_ratio": 2.4,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 2,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "input_price": 2.4,
+        "output_price": 4.8
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "legacy_ratio",
+        "mechanism": "static_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.083333,
+          "completion_ratio": 2,
+          "input_price": 2.4,
+          "model_ratio": 2.4,
+          "output_price": 4.8
+        },
+        "raw_rules": [],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "input_price": 2.4,
+          "output_price": 4.8
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gemini-3.5-pro",
+    "capability": "text",
+    "protocol": "chat-completion",
+    "price": {
+      "model_name": "gemini-3.5-pro",
+      "vendor_id": 4,
+      "quota_type": 0,
+      "model_ratio": 2,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini",
+        "openai"
+      ],
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "legacy_ratio",
+        "mechanism": "static_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.1,
+          "completion_ratio": 6,
+          "model_ratio": 2
+        },
+        "raw_rules": [],
+        "pricing_rules": null,
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gpt-6-astra",
+    "capability": "text",
+    "protocol": "chat-completion",
+    "price": {
+      "model_name": "gpt-6-astra",
+      "description": "GPT-6 Astra - OpenAI flagship model with short/long context tiered pricing",
+      "tags": "GPT-6,Astra,Flagship,Reasoning",
+      "vendor_id": 3,
+      "quota_type": 0,
+      "model_ratio": 10,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "enable_groups": [
+        "",
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response",
+        "anthropic",
+        "gemini"
+      ],
+      "tiered_pricing": [
+        {
+          "max_input_tokens": 272000,
+          "max_output_tokens": -1,
+          "input_price_per_m": 10,
+          "output_price_per_m": 50,
+          "cached_price_per_m": 1
+        },
+        {
+          "max_input_tokens": -1,
+          "max_output_tokens": -1,
+          "input_price_per_m": 20,
+          "output_price_per_m": 75,
+          "cached_price_per_m": 2
+        }
+      ],
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "tiered_pricing",
+        "mechanism": "tiered_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.1,
+          "completion_ratio": 5,
+          "model_ratio": 10
+        },
+        "raw_rules": [],
+        "pricing_rules": null,
+        "tiered_pricing": [
+          {
+            "max_input_tokens": 272000,
+            "max_output_tokens": -1,
+            "input_price_per_m": 10,
+            "output_price_per_m": 50,
+            "cached_price_per_m": 1
+          },
+          {
+            "max_input_tokens": -1,
+            "max_output_tokens": -1,
+            "input_price_per_m": 20,
+            "output_price_per_m": 75,
+            "cached_price_per_m": 2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "gpt-5.6-sol-t1a",
+    "capability": "text",
+    "protocol": "chat-completion",
+    "price": {
+      "model_name": "gpt-5.6-sol-t1a",
+      "description": "GPT-5.6 Sol - Premium model with advanced reasoning capabilities",
+      "tags": "GPT-5.6,Premium,Reasoning,Advanced",
+      "vendor_id": 3,
+      "quota_type": 0,
+      "model_ratio": 7.5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 4,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "openai-response",
+        "anthropic",
+        "gemini"
+      ],
+      "tiered_pricing": [
+        {
+          "max_input_tokens": 200000,
+          "max_output_tokens": -1,
+          "input_price_per_m": 4,
+          "output_price_per_m": 20,
+          "cached_price_per_m": 0.4
+        },
+        {
+          "max_input_tokens": -1,
+          "max_output_tokens": -1,
+          "input_price_per_m": 8,
+          "output_price_per_m": 30,
+          "cached_price_per_m": 0.8
+        }
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "input_price": 5,
+        "output_price": 30
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "tiered_pricing",
+        "mechanism": "tiered_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.25,
+          "completion_ratio": 4,
+          "create_cache_ratio": 1.25,
+          "create_cache_ratio_1h": 2,
+          "input_price": 5,
+          "model_ratio": 7.5,
+          "output_price": 30
+        },
+        "raw_rules": [],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "input_price": 5,
+          "output_price": 30
+        },
+        "tiered_pricing": [
+          {
+            "max_input_tokens": 200000,
+            "max_output_tokens": -1,
+            "input_price_per_m": 4,
+            "output_price_per_m": 20,
+            "cached_price_per_m": 0.4
+          },
+          {
+            "max_input_tokens": -1,
+            "max_output_tokens": -1,
+            "input_price_per_m": 8,
+            "output_price_per_m": 30,
+            "cached_price_per_m": 0.8
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "dola-seedream-5-0-pro-260628",
+    "capability": "image",
+    "protocol": "volcengine-ark-image",
+    "price": {
+      "model_name": "dola-seedream-5-0-pro-260628",
+      "description": "Dola Seedream 5.0 Pro - High-quality image generation model with up to 4K resolution output, professional-grade quality for creative applications",
+      "tags": "Image Generation,Text-to-Image,Image-to-Image,4K,Professional,Dola",
+      "vendor_id": 2,
+      "quota_type": 1,
+      "model_ratio": 3.5,
+      "model_price": 0.045,
+      "owner_by": "",
+      "completion_ratio": 1,
+      "enable_groups": [
+        "default",
+        "test_hnzsy",
+        "vip_004",
+        "vip_005"
+      ],
+      "supported_endpoint_types": [
+        "volcengine-image",
+        "image-generation"
+      ],
+      "pricing_rules": {
+        "type": "per_image",
+        "currency": "USD",
+        "rules": [
+          {
+            "description": "Input image (reference image)",
+            "price": 0.003,
+            "unit": "per_image"
+          },
+          {
+            "description": "Output generated image (less than 2.36 million pixels)",
+            "price": 0.045,
+            "unit": "per_image"
+          },
+          {
+            "description": "Output generated image (2.36 million pixels or higher)",
+            "price": 0.09,
+            "unit": "per_image"
+          }
+        ]
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_image",
+        "source_type": "pricing_rules",
+        "mechanism": "per_image",
+        "currency": "USD",
+        "raw_fields": {
+          "completion_ratio": 1,
+          "model_price": 0.045,
+          "model_ratio": 3.5
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "description": "Input image (reference image)",
+              "unit": "per_image"
+            },
+            "amount": 0.003,
+            "unit": "per_image"
+          },
+          {
+            "conditions": {
+              "description": "Output generated image (2.36 million pixels or higher)",
+              "unit": "per_image"
+            },
+            "amount": 0.09,
+            "unit": "per_image"
+          },
+          {
+            "conditions": {
+              "description": "Output generated image (less than 2.36 million pixels)",
+              "unit": "per_image"
+            },
+            "amount": 0.045,
+            "unit": "per_image"
+          }
+        ],
+        "pricing_rules": {
+          "type": "per_image",
+          "currency": "USD",
+          "rules": [
+            {
+              "description": "Input image (reference image)",
+              "price": 0.003,
+              "unit": "per_image"
+            },
+            {
+              "description": "Output generated image (less than 2.36 million pixels)",
+              "price": 0.045,
+              "unit": "per_image"
+            },
+            {
+              "description": "Output generated image (2.36 million pixels or higher)",
+              "price": 0.09,
+              "unit": "per_image"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "seedream-5-0-lite-260128",
+    "capability": "image",
+    "protocol": "volcengine-ark-image",
+    "price": {
+      "model_name": "seedream-5-0-lite-260128",
+      "description": "BytePlus Seedream 5.0 Lite image generation model.",
+      "tags": "BytePlus,Image",
+      "vendor_id": 2,
+      "quota_type": 1,
+      "model_ratio": 0,
+      "model_price": 0.035,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "volcengine-image"
+      ],
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_call",
+        "source_type": "legacy_ratio",
+        "mechanism": "per_call",
+        "currency": "USD",
+        "raw_fields": {
+          "model_price": 0.035
+        },
+        "raw_rules": [],
+        "pricing_rules": null,
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gemini-3.1-flash-image-preview",
+    "capability": "image",
+    "protocol": "fg-wetoken-gemini-image",
+    "price": {
+      "model_name": "gemini-3.1-flash-image-preview",
+      "icon": "Google.Color",
+      "vendor_id": 4,
+      "quota_type": 0,
+      "model_ratio": 0.5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 120,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "modality": "Text/Image",
+            "price": 0.5,
+            "tier": "standard",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 3,
+            "tier": "standard",
+            "token_type": "Output"
+          },
+          {
+            "modality": "Image",
+            "price": 60,
+            "tier": "standard",
+            "token_type": "Output"
+          },
+          {
+            "image_size": "0.5K",
+            "price": 0.045,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "1K",
+            "price": 0.067,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "2K",
+            "price": 0.101,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "4K",
+            "price": 0.151,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "modality": "Text/Image",
+            "price": 0.25,
+            "tier": "batch",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 1.5,
+            "tier": "batch",
+            "token_type": "Output"
+          },
+          {
+            "modality": "Image",
+            "price": 30,
+            "tier": "batch",
+            "token_type": "Output"
+          },
+          {
+            "image_size": "0.5K",
+            "price": 0.022,
+            "tier": "batch",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "1K",
+            "price": 0.034,
+            "tier": "batch",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "2K",
+            "price": 0.05,
+            "tier": "batch",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "4K",
+            "price": 0.076,
+            "tier": "batch",
+            "token_type": "Output image",
+            "unit": "per_image"
+          }
+        ]
+      },
+      "capabilities": {
+        "endpoint_type": "image",
+        "modes": [
+          "generate",
+          "multimodal",
+          "google-image-search-grounding"
+        ],
+        "params": {
+          "aspectRatio": {
+            "default": "16:9",
+            "values": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "9:16",
+              "16:9",
+              "21:9",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1"
+            ]
+          },
+          "imageSize": {
+            "default": "1K",
+            "values": [
+              "1K"
+            ]
+          },
+          "outputMIMEType": {
+            "default": "image/jpeg",
+            "values": [
+              "image/jpeg"
+            ]
+          },
+          "responseModalities": {
+            "default": [
+              "IMAGE"
+            ],
+            "values": [
+              "TEXT",
+              "IMAGE"
+            ]
+          },
+          "tools.google_search.searchTypes.imageSearch": {
+            "required": false,
+            "type": "object"
+          },
+          "tools.google_search.searchTypes.webSearch": {
+            "required": false,
+            "type": "object"
+          }
+        },
+        "inputs": {
+          "file": {
+            "cloud_storage_max_gb": 2,
+            "http_max_mb": 15
+          },
+          "image": {
+            "inline_max_mb": 7,
+            "max_count": 14,
+            "required": false
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "minimaxCanvasGenerateContent": {
+            "name": "Gemini Generate Content",
+            "path": "/v1/content/models/{model}:generateContent",
+            "method": "POST"
+          },
+          "minimaxCanvasGenerateContentBasic": {
+            "name": "Gemini Generate Content",
+            "path": "/v1/content/models/{model}:generateContent",
+            "method": "POST"
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "pricing_rules",
+        "mechanism": "conditional_token",
+        "currency": "USD",
+        "raw_fields": {
+          "completion_ratio": 120,
+          "model_ratio": 0.5
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "image_size": "0.5K",
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.022,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "0.5K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.045,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "1K",
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.034,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "1K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.067,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "2K",
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.05,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "2K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.101,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "4K",
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.076,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "4K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.151,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "batch",
+              "token_type": "Output"
+            },
+            "amount": 30,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            "amount": 60,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Image",
+              "tier": "batch",
+              "token_type": "Input"
+            },
+            "amount": 0.25,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Image",
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            "amount": 0.5,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "batch",
+              "token_type": "Output"
+            },
+            "amount": 1.5,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            "amount": 3,
+            "unit": "per_million_tokens"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "modality": "Text/Image",
+              "price": 0.5,
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 3,
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            {
+              "modality": "Image",
+              "price": 60,
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            {
+              "image_size": "0.5K",
+              "price": 0.045,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "1K",
+              "price": 0.067,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "2K",
+              "price": 0.101,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "4K",
+              "price": 0.151,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "modality": "Text/Image",
+              "price": 0.25,
+              "tier": "batch",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 1.5,
+              "tier": "batch",
+              "token_type": "Output"
+            },
+            {
+              "modality": "Image",
+              "price": 30,
+              "tier": "batch",
+              "token_type": "Output"
+            },
+            {
+              "image_size": "0.5K",
+              "price": 0.022,
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "1K",
+              "price": 0.034,
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "2K",
+              "price": 0.05,
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "4K",
+              "price": 0.076,
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gemini-3-pro-image-preview",
+    "capability": "image",
+    "protocol": "fg-wetoken-gemini-image",
+    "price": {
+      "model_name": "gemini-3-pro-image-preview",
+      "icon": "Google.Color",
+      "vendor_id": 4,
+      "quota_type": 0,
+      "model_ratio": 2,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 60,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "modality": "Text/Image",
+            "price": 2,
+            "tier": "standard",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Image",
+            "price": 0.0011,
+            "tier": "standard",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 12,
+            "tier": "standard",
+            "token_type": "Output"
+          },
+          {
+            "modality": "Image",
+            "price": 120,
+            "tier": "standard",
+            "token_type": "Output"
+          },
+          {
+            "image_size": "1K/2K",
+            "price": 0.134,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "4K",
+            "price": 0.24,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "modality": "Text",
+            "price": 1,
+            "tier": "batch",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Image",
+            "price": 0.0006,
+            "tier": "batch",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 6,
+            "tier": "batch",
+            "token_type": "Output"
+          },
+          {
+            "image_size": "1K/2K",
+            "price": 0.067,
+            "tier": "batch",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "4K",
+            "price": 0.12,
+            "tier": "batch",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "modality": "Text",
+            "price": 1,
+            "tier": "flex",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Image",
+            "price": 0.0006,
+            "tier": "flex",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 6,
+            "tier": "flex",
+            "token_type": "Output"
+          },
+          {
+            "image_size": "1K/2K",
+            "price": 0.067,
+            "tier": "flex",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "4K",
+            "price": 0.12,
+            "tier": "flex",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "modality": "Text/Image",
+            "price": 3.6,
+            "tier": "priority",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 21.6,
+            "tier": "priority",
+            "token_type": "Output"
+          },
+          {
+            "modality": "Image",
+            "price": 216,
+            "tier": "priority",
+            "token_type": "Output"
+          }
+        ]
+      },
+      "capabilities": {
+        "endpoint_type": "image",
+        "modes": [
+          "generate",
+          "multimodal",
+          "google-image-search-grounding"
+        ],
+        "params": {
+          "aspectRatio": {
+            "default": "16:9",
+            "values": [
+              "1:1",
+              "2:3",
+              "3:2",
+              "3:4",
+              "4:3",
+              "9:16",
+              "16:9",
+              "21:9",
+              "1:4",
+              "4:1",
+              "1:8",
+              "8:1"
+            ]
+          },
+          "imageSize": {
+            "default": "1K",
+            "values": [
+              "1K",
+              "2K",
+              "4K"
+            ]
+          },
+          "outputMIMEType": {
+            "default": "image/jpeg",
+            "values": [
+              "image/jpeg"
+            ]
+          },
+          "responseModalities": {
+            "default": [
+              "IMAGE"
+            ],
+            "values": [
+              "TEXT",
+              "IMAGE"
+            ]
+          },
+          "tools.google_search.searchTypes.imageSearch": {
+            "required": false,
+            "type": "object"
+          },
+          "tools.google_search.searchTypes.webSearch": {
+            "required": false,
+            "type": "object"
+          }
+        },
+        "inputs": {
+          "file": {
+            "cloud_storage_max_gb": 2,
+            "http_max_mb": 15
+          },
+          "image": {
+            "inline_max_mb": 7,
+            "max_count": 14,
+            "required": false
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "minimaxCanvasGenerateContent": {
+            "name": "Gemini Generate Content",
+            "path": "/v1/content/models/{model}:generateContent",
+            "method": "POST"
+          },
+          "minimaxCanvasGenerateContentBasic": {
+            "name": "Gemini Generate Content",
+            "path": "/v1/content/models/{model}:generateContent",
+            "method": "POST"
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "pricing_rules",
+        "mechanism": "conditional_token",
+        "currency": "USD",
+        "raw_fields": {
+          "completion_ratio": 60,
+          "model_ratio": 2
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "image_size": "1K/2K",
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.067,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "1K/2K",
+              "tier": "flex",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.067,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "1K/2K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.134,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "4K",
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.12,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "4K",
+              "tier": "flex",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.12,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "4K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.24,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "batch",
+              "token_type": "Input"
+            },
+            "amount": 0.0006,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "flex",
+              "token_type": "Input"
+            },
+            "amount": 0.0006,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "priority",
+              "token_type": "Output"
+            },
+            "amount": 216,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            "amount": 0.0011,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            "amount": 120,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text",
+              "tier": "batch",
+              "token_type": "Input"
+            },
+            "amount": 1,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text",
+              "tier": "flex",
+              "token_type": "Input"
+            },
+            "amount": 1,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Image",
+              "tier": "priority",
+              "token_type": "Input"
+            },
+            "amount": 3.6,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Image",
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            "amount": 2,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "batch",
+              "token_type": "Output"
+            },
+            "amount": 6,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "flex",
+              "token_type": "Output"
+            },
+            "amount": 6,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "priority",
+              "token_type": "Output"
+            },
+            "amount": 21.6,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            "amount": 12,
+            "unit": "per_million_tokens"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "modality": "Text/Image",
+              "price": 2,
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Image",
+              "price": 0.0011,
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 12,
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            {
+              "modality": "Image",
+              "price": 120,
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            {
+              "image_size": "1K/2K",
+              "price": 0.134,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "4K",
+              "price": 0.24,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "modality": "Text",
+              "price": 1,
+              "tier": "batch",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Image",
+              "price": 0.0006,
+              "tier": "batch",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 6,
+              "tier": "batch",
+              "token_type": "Output"
+            },
+            {
+              "image_size": "1K/2K",
+              "price": 0.067,
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "4K",
+              "price": 0.12,
+              "tier": "batch",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "modality": "Text",
+              "price": 1,
+              "tier": "flex",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Image",
+              "price": 0.0006,
+              "tier": "flex",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 6,
+              "tier": "flex",
+              "token_type": "Output"
+            },
+            {
+              "image_size": "1K/2K",
+              "price": 0.067,
+              "tier": "flex",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "4K",
+              "price": 0.12,
+              "tier": "flex",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "modality": "Text/Image",
+              "price": 3.6,
+              "tier": "priority",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 21.6,
+              "tier": "priority",
+              "token_type": "Output"
+            },
+            {
+              "modality": "Image",
+              "price": 216,
+              "tier": "priority",
+              "token_type": "Output"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gpt-image-2",
+    "capability": "image",
+    "protocol": "openai-image",
+    "price": {
+      "model_name": "gpt-image-2",
+      "description": "GPT Image 2 supports high-quality text-to-image generation, image editing, and multi-image composition.",
+      "tags": "Image,GPT Image",
+      "vendor_id": 3,
+      "quota_type": 0,
+      "model_ratio": 5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "image-generation",
+        "image-edit"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "modality": "Image",
+            "price": 8,
+            "token_type": "Input"
+          },
+          {
+            "modality": "Image",
+            "price": 2,
+            "token_type": "Cached input"
+          },
+          {
+            "modality": "Image",
+            "price": 30,
+            "token_type": "Output"
+          },
+          {
+            "modality": "Text",
+            "price": 5,
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text",
+            "price": 1.25,
+            "token_type": "Cached input"
+          }
+        ],
+        "input_price": 5,
+        "output_price": 30
+      },
+      "capabilities": {
+        "endpoint_type": "image",
+        "modes": [
+          "generate",
+          "edit"
+        ],
+        "params": {
+          "moderation": {
+            "default": "auto",
+            "type": "string",
+            "values": [
+              "auto",
+              "low"
+            ]
+          },
+          "n": {
+            "default": 1,
+            "max": 10,
+            "min": 1,
+            "type": "integer"
+          },
+          "output_compression": {
+            "max": 100,
+            "min": 0,
+            "type": "integer"
+          },
+          "output_format": {
+            "default": "png",
+            "type": "string",
+            "values": [
+              "png",
+              "jpeg",
+              "webp"
+            ]
+          },
+          "quality": {
+            "default": "auto",
+            "type": "string",
+            "values": [
+              "low",
+              "medium",
+              "high",
+              "auto"
+            ]
+          },
+          "response_format": {
+            "default": "url",
+            "type": "string",
+            "values": [
+              "url",
+              "b64_json"
+            ]
+          },
+          "size": {
+            "default": "auto",
+            "type": "string",
+            "values": [
+              "auto",
+              "1024x1024",
+              "1536x1024",
+              "1024x1536",
+              "2048x2048",
+              "2048x1152",
+              "3840x2160"
+            ]
+          }
+        },
+        "inputs": {
+          "image": {
+            "edits_only": true,
+            "max_count": 16,
+            "required": false
+          },
+          "mask": {
+            "format": "png",
+            "max_size_mb": 50,
+            "required": false
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "imageEdit": {
+            "name": "GPT Image 2 Image Edit",
+            "path": "/v1/images/edits",
+            "method": "POST",
+            "templates": {
+              "curl": "# File Upload\ncurl -X POST {{BASE_URL}}/v1/images/edits \\\n  -H \"Authorization: Bearer {{API_KEY}}\" \\\n  -F \"model={{MODEL_ID}}\" \\\n  -F \"image[]=@input.png\" \\\n  -F \"prompt=Replace the text on the sign with OPEN\" \\\n  -F \"size=1024x1024\" \\\n  -F \"quality=high\"\n\n# Image URL\ncurl -X POST {{BASE_URL}}/v1/images/edits \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer {{API_KEY}}\" \\\n  -d '{\n    \"model\": \"{{MODEL_ID}}\",\n    \"image\": \"https://example.com/input.jpg\",\n    \"prompt\": \"Replace the text on the sign with OPEN\",\n    \"size\": \"1024x1024\",\n    \"quality\": \"high\"\n  }'",
+              "curl_json": "curl -X POST {{BASE_URL}}/v1/images/edits \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer {{API_KEY}}\" \\\n  -d '{ \"model\": \"{{MODEL_ID}}\", \"image\": \"https://example.com/input.jpg\", \"prompt\": \"Replace the text on the sign with OPEN\", \"size\": \"1024x1024\", \"quality\": \"high\" }'",
+              "javascript": "# File Upload\nconst form = new FormData();\nform.append(\"model\", \"{{MODEL_ID}}\");\nform.append(\"image[]\", fileInput.files[0]);\nform.append(\"prompt\", \"Replace the text on the sign with OPEN\");\nform.append(\"size\", \"1024x1024\");\nform.append(\"quality\", \"high\");\n\nconst response = await fetch(\"{{BASE_URL}}/v1/images/edits\", {\n  method: \"POST\",\n  headers: { Authorization: \"Bearer {{API_KEY}}\" },\n  body: form\n});\n\nconst data = await response.json();\nconsole.log(data.data[0].b64_json);\n\n# Image URL\nconst response = await fetch(\"{{BASE_URL}}/v1/images/edits\", {\n  method: \"POST\",\n  headers: {\n    \"Content-Type\": \"application/json\",\n    Authorization: \"Bearer {{API_KEY}}\"\n  },\n  body: JSON.stringify({\n    model: \"{{MODEL_ID}}\",\n    image: \"https://example.com/input.jpg\",\n    prompt: \"Replace the text on the sign with OPEN\",\n    size: \"1024x1024\",\n    quality: \"high\"\n  })\n});\n\nconst data = await response.json();\nconsole.log(data.data[0].url);",
+              "javascript_json": "const response = await fetch(...)",
+              "python": "# File Upload\nimport requests\n\nwith open(\"input.png\", \"rb\") as image_file:\n    response = requests.post(\n        \"{{BASE_URL}}/v1/images/edits\",\n        headers={\"Authorization\": \"Bearer {{API_KEY}}\"},\n        data={\n            \"model\": \"{{MODEL_ID}}\",\n            \"prompt\": \"Replace the text on the sign with OPEN\",\n            \"size\": \"1024x1024\",\n            \"quality\": \"high\",\n        },\n        files=[(\"image[]\", (\"input.png\", image_file, \"image/png\"))],\n        timeout=120,\n    )\n\nresponse.raise_for_status()\nprint(response.json()[\"data\"][0][\"b64_json\"])\n\n# Image URL\nimport requests\n\nresponse = requests.post(\n    \"{{BASE_URL}}/v1/images/edits\",\n    headers={\n        \"Content-Type\": \"application/json\",\n        \"Authorization\": \"Bearer {{API_KEY}}\",\n    },\n    json={\n        \"model\": \"{{MODEL_ID}}\",\n        \"image\": \"https://example.com/input.jpg\",\n        \"prompt\": \"Replace the text on the sign with OPEN\",\n        \"size\": \"1024x1024\",\n        \"quality\": \"high\",\n    },\n    timeout=120,\n)\n\nresponse.raise_for_status()\nprint(response.json()[\"data\"][0][\"url\"])",
+              "python_json": "import requests\n\nresponse = requests.post(...)"
+            },
+            "parameters": [
+              {
+                "name": "model",
+                "type": "string",
+                "required": true,
+                "default": "gpt-image-2",
+                "description": "Model name."
+              },
+              {
+                "name": "image[]",
+                "type": "file | file[]",
+                "required": true,
+                "default": "-",
+                "description": "Input image files. Repeat the image[] multipart field for multi-image composition. The gateway also accepts image and image[*] for compatibility."
+              },
+              {
+                "name": "prompt",
+                "type": "string",
+                "required": true,
+                "default": "-",
+                "description": "Text instruction for the edit."
+              },
+              {
+                "name": "mask",
+                "type": "file",
+                "required": false,
+                "default": "-",
+                "description": "Optional PNG mask file for masked edits."
+              },
+              {
+                "name": "n",
+                "type": "integer",
+                "required": false,
+                "default": "1",
+                "description": "Number of images to return. Range: 1-10."
+              },
+              {
+                "name": "size",
+                "type": "string",
+                "required": false,
+                "default": "auto",
+                "description": "Output size, such as auto or WIDTHxHEIGHT."
+              },
+              {
+                "name": "quality",
+                "type": "string",
+                "required": false,
+                "default": "auto",
+                "description": "Image quality, such as low, medium, high, or auto."
+              },
+              {
+                "name": "output_format",
+                "type": "string",
+                "required": false,
+                "default": "png",
+                "description": "Output image format."
+              },
+              {
+                "name": "output_compression",
+                "type": "integer",
+                "required": false,
+                "default": "-",
+                "description": "Compression level for supported output formats."
+              },
+              {
+                "name": "background",
+                "type": "string",
+                "required": false,
+                "default": "auto",
+                "description": "Background handling mode."
+              },
+              {
+                "name": "moderation",
+                "type": "string",
+                "required": false,
+                "default": "auto",
+                "description": "Moderation strictness."
+              },
+              {
+                "name": "additional_fields",
+                "type": "multipart field",
+                "required": false,
+                "default": "-",
+                "description": "Additional edit parameters are forwarded as multipart fields."
+              }
+            ],
+            "replaceParameters": true
+          },
+          "imageGeneration": {
+            "name": "GPT Image 2 Image Generation",
+            "path": "/v1/images/generations",
+            "method": "POST",
+            "templates": {
+              "curl": "curl -X POST {{BASE_URL}}/v1/images/generations \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer {{API_KEY}}\" \\\n  -d '{\n    \"model\": \"{{MODEL_ID}}\",\n    \"prompt\": \"A beautiful sunset over the ocean, digital art\",\n    \"n\": 1,\n    \"size\": \"1024x1024\",\n    \"response_format\": \"url\"\n  }'",
+              "python": "import openai\n\nclient = openai.OpenAI(api_key=\"{{API_KEY}}\", base_url=\"{{BASE_URL}}/v1\")\nresponse = client.images.generate(\n    model=\"{{MODEL_ID}}\",\n    prompt=\"A beautiful sunset over the ocean, digital art\",\n    n=1,\n    size=\"1024x1024\",\n    response_format=\"url\",\n)\nprint(response.data[0].url)"
+            },
+            "parameters": [
+              {
+                "name": "model",
+                "type": "string",
+                "required": true,
+                "default": "gpt-image-2",
+                "description": "Model name."
+              },
+              {
+                "name": "prompt",
+                "type": "string",
+                "required": true,
+                "default": "-",
+                "description": "Text prompt, up to 32,000 characters."
+              },
+              {
+                "name": "n",
+                "type": "integer",
+                "required": false,
+                "default": "1",
+                "description": "Number of images. Range: 1-10."
+              },
+              {
+                "name": "size",
+                "type": "string",
+                "required": false,
+                "default": "auto",
+                "description": "auto, preset sizes, or custom WIDTHxHEIGHT."
+              },
+              {
+                "name": "quality",
+                "type": "string",
+                "required": false,
+                "default": "auto",
+                "description": "low, medium, high, or auto."
+              },
+              {
+                "name": "response_format",
+                "type": "string",
+                "required": false,
+                "default": "-",
+                "description": "url or b64_json."
+              }
+            ],
+            "replaceParameters": true
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "pricing_rules",
+        "mechanism": "conditional_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.25,
+          "completion_ratio": 6,
+          "input_price": 5,
+          "model_ratio": 5,
+          "output_price": 30
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "modality": "Image",
+              "token_type": "Cached input"
+            },
+            "amount": 2,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "token_type": "Input"
+            },
+            "amount": 8,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "token_type": "Output"
+            },
+            "amount": 30,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text",
+              "token_type": "Cached input"
+            },
+            "amount": 1.25,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text",
+              "token_type": "Input"
+            },
+            "amount": 5,
+            "unit": "per_million_tokens"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "modality": "Image",
+              "price": 8,
+              "token_type": "Input"
+            },
+            {
+              "modality": "Image",
+              "price": 2,
+              "token_type": "Cached input"
+            },
+            {
+              "modality": "Image",
+              "price": 30,
+              "token_type": "Output"
+            },
+            {
+              "modality": "Text",
+              "price": 5,
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text",
+              "price": 1.25,
+              "token_type": "Cached input"
+            }
+          ],
+          "input_price": 5,
+          "output_price": 30
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gpt-image-2.5-flare",
+    "capability": "image",
+    "protocol": "openai-image",
+    "price": {
+      "model_name": "gpt-image-2.5-flare",
+      "description": "GPT-Image-2.5 Flare (High) — multimodal image generation, upstream: MM-H3-sft-Mlogic-High-25-image",
+      "tags": "GPT-Image,2.5,Flare,High",
+      "vendor_id": 3,
+      "quota_type": 0,
+      "model_ratio": 5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "image-generation"
+      ],
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "legacy_ratio",
+        "mechanism": "static_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.25,
+          "completion_ratio": 6,
+          "image_ratio": 1.6,
+          "model_ratio": 5
+        },
+        "raw_rules": [],
+        "pricing_rules": null,
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "gpt-image-2.5-sunburst",
+    "capability": "image",
+    "protocol": "openai-image",
+    "price": {
+      "model_name": "gpt-image-2.5-sunburst",
+      "description": "GPT-Image-2.5 Sunburst (Max) — multimodal image generation, upstream: MM-H3-sft-Mlogic-Max-25-image",
+      "tags": "GPT-Image,2.5,Sunburst,Max",
+      "vendor_id": 3,
+      "quota_type": 0,
+      "model_ratio": 5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "image-generation"
+      ],
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "legacy_ratio",
+        "mechanism": "static_token",
+        "currency": "USD",
+        "raw_fields": {
+          "cache_ratio": 0.25,
+          "completion_ratio": 6,
+          "image_ratio": 1.6,
+          "model_ratio": 5
+        },
+        "raw_rules": [],
+        "pricing_rules": null,
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "wan2.7-image-pro",
+    "capability": "image",
+    "protocol": "fg-wetoken-wan-image",
+    "price": {
+      "model_name": "wan2.7-image-pro",
+      "description": "Wan2.7 Image Pro for international use",
+      "tags": "[\"Wan\",\"Image\",\"International\",\"2.7\",\"Pro\"]",
+      "vendor_id": 7,
+      "quota_type": 1,
+      "model_ratio": 0,
+      "model_price": 0.075,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "dashscope"
+      ],
+      "pricing_rules": {
+        "type": "per_call",
+        "currency": "USD"
+      },
+      "api_examples": {
+        "endpoints": {
+          "dashscopeImage": {
+            "path": "/dashscope/api/v1/services/aigc/image-generation/generation",
+            "method": "POST",
+            "templates": {
+              "curl": "curl -X POST {{BASE_URL}}/dashscope/api/v1/services/aigc/image-generation/generation \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer {{API_KEY}}\" \\\n  -H \"X-DashScope-Async: enable\" \\\n  -d '{\n    \"model\": \"{{MODEL_ID}}\",\n    \"input\": {\n      \"messages\": [\n        {\n          \"role\": \"user\",\n          \"content\": [\n            {\"text\": \"一只可爱的橘猫，数字艺术风格\"}\n          ]\n        }\n      ]\n    },\n    \"parameters\": {\n      \"size\": \"2K\",\n      \"n\": 1,\n      \"watermark\": false\n    }\n  }'\n\n# Then query the task:\ncurl -X GET \"{{BASE_URL}}/dashscope/api/v1/tasks/TASK_ID\" \\\n  -H \"Authorization: Bearer {{API_KEY}}\""
+            },
+            "parameters": [
+              {
+                "name": "model",
+                "type": "string",
+                "required": true,
+                "default": "-",
+                "description": "模型名称"
+              },
+              {
+                "name": "input.messages",
+                "type": "array",
+                "required": true,
+                "default": "-",
+                "description": "单轮 user 消息列表，content 中传 text/image"
+              },
+              {
+                "name": "parameters.size",
+                "type": "string",
+                "required": false,
+                "default": "2K",
+                "description": "图片规格：1K、2K，或合法宽高"
+              },
+              {
+                "name": "parameters.n",
+                "type": "integer",
+                "required": false,
+                "default": "1",
+                "description": "生成图片数量"
+              },
+              {
+                "name": "parameters.watermark",
+                "type": "boolean",
+                "required": false,
+                "default": "false",
+                "description": "是否添加水印"
+              }
+            ],
+            "replaceParameters": true
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_call",
+        "source_type": "legacy_ratio",
+        "mechanism": "per_call",
+        "currency": "USD",
+        "raw_fields": {
+          "model_price": 0.075
+        },
+        "raw_rules": [],
+        "pricing_rules": {
+          "type": "per_call",
+          "currency": "USD"
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "doubao-seedance-2-0-fast-filter-off",
+    "capability": "video",
+    "protocol": "volcengine-ark-video",
+    "price": {
+      "model_name": "doubao-seedance-2-0-fast-filter-off",
+      "description": "Doubao Seedance 2.0 fast filter-off video generation model routed through ModelTop, supporting text, image, video, and audio references.",
+      "tags": "video,t2v,i2v,seedance,fast,filter-off",
+      "vendor_id": 2,
+      "quota_type": 0,
+      "model_ratio": 5.6,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "volcengine-video"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 5.6,
+            "resolution": "480p/720p",
+            "scenario": "without_video_input"
+          },
+          {
+            "price": 3.3,
+            "resolution": "480p/720p",
+            "scenario": "with_video_input"
+          }
+        ],
+        "default_price": 5.6
+      },
+      "capabilities": {
+        "endpoint_type": "video",
+        "modes": [
+          "t2v",
+          "i2v",
+          "video_reference",
+          "audio_reference"
+        ],
+        "params": {
+          "duration": {
+            "default": 5,
+            "values": [
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              -1
+            ]
+          },
+          "generate_audio": {
+            "default": true
+          },
+          "ratio": {
+            "default": "adaptive",
+            "values": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "21:9",
+              "adaptive"
+            ]
+          },
+          "resolution": {
+            "default": "720p",
+            "values": [
+              "480p",
+              "720p"
+            ]
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "videoGeneration": {
+            "parameters": [
+              {
+                "name": "resolution",
+                "type": "string",
+                "required": false,
+                "default": "720p",
+                "description": "Resolution. Default 720p. Supports 480p or 720p.",
+                "enum": [
+                  "480p",
+                  "720p"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "mixed",
+        "mechanism": "estimated_token_settlement",
+        "currency": "USD",
+        "raw_fields": {
+          "audio_multiplier": 1,
+          "completion_ratio": 1,
+          "default_price": 5.6,
+          "model_ratio": 5.6
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "has_video_input": false,
+              "resolution": "480p/720p"
+            },
+            "amount": 5.6,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": true,
+              "resolution": "480p/720p"
+            },
+            "amount": 3.3,
+            "unit": "per_million_tokens_ratio"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 5.6,
+              "resolution": "480p/720p",
+              "scenario": "without_video_input"
+            },
+            {
+              "price": 3.3,
+              "resolution": "480p/720p",
+              "scenario": "with_video_input"
+            }
+          ],
+          "default_price": 5.6
+        },
+        "tiered_pricing": null,
+        "runtime_inputs": [
+          {
+            "name": "resolution",
+            "required": false,
+            "source": "request",
+            "description": "Video resolution used during token estimation.",
+            "default_value": "720p"
+          },
+          {
+            "name": "ratio",
+            "required": false,
+            "source": "request",
+            "description": "Aspect ratio used during token estimation.",
+            "default_value": "adaptive"
+          },
+          {
+            "name": "duration",
+            "required": false,
+            "source": "request",
+            "description": "Duration used during token estimation.",
+            "default_value": 5
+          },
+          {
+            "name": "generate_audio",
+            "required": false,
+            "source": "request",
+            "description": "Controls whether the audio multiplier is applied."
+          },
+          {
+            "name": "has_video_input",
+            "required": false,
+            "source": "request",
+            "description": "Chooses the effective token ratio when conditional raw rules are present."
+          },
+          {
+            "name": "input_video_duration",
+            "required": false,
+            "source": "request",
+            "description": "Optional reference-video duration used to improve estimated token pre-deduction when the request includes video input."
+          },
+          {
+            "name": "estimated_tokens",
+            "required": false,
+            "source": "request_estimator",
+            "description": "Derived from request parameters during pre-deduction."
+          },
+          {
+            "name": "actual_tokens",
+            "required": false,
+            "source": "upstream_usage",
+            "description": "Returned by upstream usage data on successful task completion."
+          }
+        ],
+        "billing_phases": [
+          {
+            "name": "pre_deduction",
+            "trigger": "task_submit",
+            "formula": "estimated_tokens * selected_model_ratio * audio_multiplier * group_ratio",
+            "uses": [
+              "estimated_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "group_ratio"
+            ],
+            "notes": [
+              "Uses request-derived token estimation when available.",
+              "selected_model_ratio comes from matching raw rules when conditions exist, otherwise from model_ratio."
+            ]
+          },
+          {
+            "name": "settlement",
+            "trigger": "task_success",
+            "formula": "actual_tokens * selected_model_ratio * audio_multiplier * final_group_ratio + 1",
+            "uses": [
+              "actual_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "final_group_ratio"
+            ],
+            "notes": [
+              "Success settlement may create supplementary charge or refund."
+            ]
+          }
+        ],
+        "rounding_rule": {
+          "mode": "additive",
+          "value": 1,
+          "unit": "quota",
+          "applies_to": "settlement"
+        }
+      }
+    }
+  },
+  {
+    "id": "doubao-seedance-2-0-filter-off",
+    "capability": "video",
+    "protocol": "volcengine-ark-video",
+    "price": {
+      "model_name": "doubao-seedance-2-0-filter-off",
+      "description": "Doubao Seedance 2.0 filter-off video generation model routed through ModelTop, supporting text, image, video, and audio references.",
+      "tags": "video,t2v,i2v,seedance,filter-off",
+      "vendor_id": 2,
+      "quota_type": 0,
+      "model_ratio": 7,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "volcengine-video"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 7,
+            "resolution": "480p/720p",
+            "scenario": "without_video_input"
+          },
+          {
+            "price": 4.3,
+            "resolution": "480p/720p",
+            "scenario": "with_video_input"
+          },
+          {
+            "price": 7.7,
+            "resolution": "1080p",
+            "scenario": "without_video_input"
+          },
+          {
+            "price": 4.7,
+            "resolution": "1080p",
+            "scenario": "with_video_input"
+          },
+          {
+            "price": 4,
+            "resolution": "4K",
+            "scenario": "without_video_input"
+          },
+          {
+            "price": 2.4,
+            "resolution": "4K",
+            "scenario": "with_video_input"
+          }
+        ],
+        "default_price": 7
+      },
+      "capabilities": {
+        "endpoint_type": "video",
+        "modes": [
+          "t2v",
+          "i2v",
+          "video_reference",
+          "audio_reference"
+        ],
+        "params": {
+          "duration": {
+            "default": 5,
+            "values": [
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              -1
+            ]
+          },
+          "generate_audio": {
+            "default": true
+          },
+          "ratio": {
+            "default": "adaptive",
+            "values": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "21:9",
+              "adaptive"
+            ]
+          },
+          "resolution": {
+            "default": "720p",
+            "values": [
+              "480p",
+              "720p",
+              "1080p",
+              "4k"
+            ]
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "videoGeneration": {
+            "parameters": [
+              {
+                "name": "resolution",
+                "type": "string",
+                "required": false,
+                "default": "720p",
+                "description": "Resolution. Default 720p. Supports 480p, 720p, 1080p or 4K.",
+                "enum": [
+                  "480p",
+                  "720p",
+                  "1080p",
+                  "4K"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "mixed",
+        "mechanism": "estimated_token_settlement",
+        "currency": "USD",
+        "raw_fields": {
+          "audio_multiplier": 1,
+          "completion_ratio": 1,
+          "default_price": 7,
+          "model_ratio": 7
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "has_video_input": false,
+              "resolution": "1080p"
+            },
+            "amount": 7.7,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": false,
+              "resolution": "480p/720p"
+            },
+            "amount": 7,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": false,
+              "resolution": "4k"
+            },
+            "amount": 4,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": true,
+              "resolution": "1080p"
+            },
+            "amount": 4.7,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": true,
+              "resolution": "480p/720p"
+            },
+            "amount": 4.3,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": true,
+              "resolution": "4k"
+            },
+            "amount": 2.4,
+            "unit": "per_million_tokens_ratio"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 7,
+              "resolution": "480p/720p",
+              "scenario": "without_video_input"
+            },
+            {
+              "price": 4.3,
+              "resolution": "480p/720p",
+              "scenario": "with_video_input"
+            },
+            {
+              "price": 7.7,
+              "resolution": "1080p",
+              "scenario": "without_video_input"
+            },
+            {
+              "price": 4.7,
+              "resolution": "1080p",
+              "scenario": "with_video_input"
+            },
+            {
+              "price": 4,
+              "resolution": "4K",
+              "scenario": "without_video_input"
+            },
+            {
+              "price": 2.4,
+              "resolution": "4K",
+              "scenario": "with_video_input"
+            }
+          ],
+          "default_price": 7
+        },
+        "tiered_pricing": null,
+        "runtime_inputs": [
+          {
+            "name": "resolution",
+            "required": false,
+            "source": "request",
+            "description": "Video resolution used during token estimation.",
+            "default_value": "720p"
+          },
+          {
+            "name": "ratio",
+            "required": false,
+            "source": "request",
+            "description": "Aspect ratio used during token estimation.",
+            "default_value": "adaptive"
+          },
+          {
+            "name": "duration",
+            "required": false,
+            "source": "request",
+            "description": "Duration used during token estimation.",
+            "default_value": 5
+          },
+          {
+            "name": "generate_audio",
+            "required": false,
+            "source": "request",
+            "description": "Controls whether the audio multiplier is applied."
+          },
+          {
+            "name": "has_video_input",
+            "required": false,
+            "source": "request",
+            "description": "Chooses the effective token ratio when conditional raw rules are present."
+          },
+          {
+            "name": "input_video_duration",
+            "required": false,
+            "source": "request",
+            "description": "Optional reference-video duration used to improve estimated token pre-deduction when the request includes video input."
+          },
+          {
+            "name": "estimated_tokens",
+            "required": false,
+            "source": "request_estimator",
+            "description": "Derived from request parameters during pre-deduction."
+          },
+          {
+            "name": "actual_tokens",
+            "required": false,
+            "source": "upstream_usage",
+            "description": "Returned by upstream usage data on successful task completion."
+          }
+        ],
+        "billing_phases": [
+          {
+            "name": "pre_deduction",
+            "trigger": "task_submit",
+            "formula": "estimated_tokens * selected_model_ratio * audio_multiplier * group_ratio",
+            "uses": [
+              "estimated_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "group_ratio"
+            ],
+            "notes": [
+              "Uses request-derived token estimation when available.",
+              "selected_model_ratio comes from matching raw rules when conditions exist, otherwise from model_ratio."
+            ]
+          },
+          {
+            "name": "settlement",
+            "trigger": "task_success",
+            "formula": "actual_tokens * selected_model_ratio * audio_multiplier * final_group_ratio + 1",
+            "uses": [
+              "actual_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "final_group_ratio"
+            ],
+            "notes": [
+              "Success settlement may create supplementary charge or refund."
+            ]
+          }
+        ],
+        "rounding_rule": {
+          "mode": "additive",
+          "value": 1,
+          "unit": "quota",
+          "applies_to": "settlement"
+        }
+      }
+    }
+  },
+  {
+    "id": "dreamina-seedance-2-0-mini-filter-off",
+    "capability": "video",
+    "protocol": "volcengine-ark-video",
+    "price": {
+      "model_name": "dreamina-seedance-2-0-mini-filter-off",
+      "description": "Seedance 2.0 Mini filter-off 视频生成模型",
+      "tags": "视频生成",
+      "vendor_id": 2,
+      "quota_type": 0,
+      "model_ratio": 3.5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "volcengine-video"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 3.5,
+            "resolution": "480p/720p",
+            "scenario": "without_video_input"
+          },
+          {
+            "price": 2.1,
+            "resolution": "480p/720p",
+            "scenario": "with_video_input"
+          }
+        ],
+        "default_price": 3.5
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "mixed",
+        "mechanism": "estimated_token_settlement",
+        "currency": "USD",
+        "raw_fields": {
+          "audio_multiplier": 1,
+          "completion_ratio": 1,
+          "default_price": 3.5,
+          "model_ratio": 3.5
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "has_video_input": false,
+              "resolution": "480p/720p"
+            },
+            "amount": 3.5,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": true,
+              "resolution": "480p/720p"
+            },
+            "amount": 2.1,
+            "unit": "per_million_tokens_ratio"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 3.5,
+              "resolution": "480p/720p",
+              "scenario": "without_video_input"
+            },
+            {
+              "price": 2.1,
+              "resolution": "480p/720p",
+              "scenario": "with_video_input"
+            }
+          ],
+          "default_price": 3.5
+        },
+        "tiered_pricing": null,
+        "runtime_inputs": [
+          {
+            "name": "resolution",
+            "required": false,
+            "source": "request",
+            "description": "Video resolution used during token estimation.",
+            "default_value": "720p"
+          },
+          {
+            "name": "ratio",
+            "required": false,
+            "source": "request",
+            "description": "Aspect ratio used during token estimation.",
+            "default_value": "adaptive"
+          },
+          {
+            "name": "duration",
+            "required": false,
+            "source": "request",
+            "description": "Duration used during token estimation.",
+            "default_value": 5
+          },
+          {
+            "name": "generate_audio",
+            "required": false,
+            "source": "request",
+            "description": "Controls whether the audio multiplier is applied."
+          },
+          {
+            "name": "has_video_input",
+            "required": false,
+            "source": "request",
+            "description": "Chooses the effective token ratio when conditional raw rules are present."
+          },
+          {
+            "name": "input_video_duration",
+            "required": false,
+            "source": "request",
+            "description": "Optional reference-video duration used to improve estimated token pre-deduction when the request includes video input."
+          },
+          {
+            "name": "estimated_tokens",
+            "required": false,
+            "source": "request_estimator",
+            "description": "Derived from request parameters during pre-deduction."
+          },
+          {
+            "name": "actual_tokens",
+            "required": false,
+            "source": "upstream_usage",
+            "description": "Returned by upstream usage data on successful task completion."
+          }
+        ],
+        "billing_phases": [
+          {
+            "name": "pre_deduction",
+            "trigger": "task_submit",
+            "formula": "estimated_tokens * selected_model_ratio * audio_multiplier * group_ratio",
+            "uses": [
+              "estimated_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "group_ratio"
+            ],
+            "notes": [
+              "Uses request-derived token estimation when available.",
+              "selected_model_ratio comes from matching raw rules when conditions exist, otherwise from model_ratio."
+            ]
+          },
+          {
+            "name": "settlement",
+            "trigger": "task_success",
+            "formula": "actual_tokens * selected_model_ratio * audio_multiplier * final_group_ratio + 1",
+            "uses": [
+              "actual_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "final_group_ratio"
+            ],
+            "notes": [
+              "Success settlement may create supplementary charge or refund."
+            ]
+          }
+        ],
+        "rounding_rule": {
+          "mode": "additive",
+          "value": 1,
+          "unit": "quota",
+          "applies_to": "settlement"
+        }
+      }
+    }
+  },
+  {
+    "id": "dreamina-seedance-2-5-filter-off",
+    "capability": "video",
+    "protocol": "volcengine-ark-video",
+    "price": {
+      "model_name": "dreamina-seedance-2-5-filter-off",
+      "description": "Dreamina Seedance 2.5 视频生成模型 (filter-off 变体, 定价同 dreamina-seedance-2-5-260628)",
+      "tags": "[\"Dreamina\",\"Seedance\",\"Video\"]",
+      "vendor_id": 2,
+      "quota_type": 0,
+      "model_ratio": 10.7,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 1,
+      "enable_groups": [
+        "default",
+        "chenlong-test"
+      ],
+      "supported_endpoint_types": [
+        "volcengine-video"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 10.7,
+            "resolution": "480p/720p",
+            "scenario": "without_video_input"
+          },
+          {
+            "price": 6.4,
+            "resolution": "480p/720p",
+            "scenario": "with_video_input"
+          }
+        ],
+        "default_price": 10.7
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "mixed",
+        "mechanism": "estimated_token_settlement",
+        "currency": "USD",
+        "raw_fields": {
+          "audio_multiplier": 1,
+          "completion_ratio": 1,
+          "default_price": 10.7,
+          "model_ratio": 10.7
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "has_video_input": false,
+              "resolution": "480p/720p"
+            },
+            "amount": 10.7,
+            "unit": "per_million_tokens_ratio"
+          },
+          {
+            "conditions": {
+              "has_video_input": true,
+              "resolution": "480p/720p"
+            },
+            "amount": 6.4,
+            "unit": "per_million_tokens_ratio"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 10.7,
+              "resolution": "480p/720p",
+              "scenario": "without_video_input"
+            },
+            {
+              "price": 6.4,
+              "resolution": "480p/720p",
+              "scenario": "with_video_input"
+            }
+          ],
+          "default_price": 10.7
+        },
+        "tiered_pricing": null,
+        "runtime_inputs": [
+          {
+            "name": "resolution",
+            "required": false,
+            "source": "request",
+            "description": "Video resolution used during token estimation.",
+            "default_value": "720p"
+          },
+          {
+            "name": "ratio",
+            "required": false,
+            "source": "request",
+            "description": "Aspect ratio used during token estimation.",
+            "default_value": "adaptive"
+          },
+          {
+            "name": "duration",
+            "required": false,
+            "source": "request",
+            "description": "Duration used during token estimation.",
+            "default_value": 5
+          },
+          {
+            "name": "generate_audio",
+            "required": false,
+            "source": "request",
+            "description": "Controls whether the audio multiplier is applied."
+          },
+          {
+            "name": "has_video_input",
+            "required": false,
+            "source": "request",
+            "description": "Chooses the effective token ratio when conditional raw rules are present."
+          },
+          {
+            "name": "input_video_duration",
+            "required": false,
+            "source": "request",
+            "description": "Optional reference-video duration used to improve estimated token pre-deduction when the request includes video input."
+          },
+          {
+            "name": "estimated_tokens",
+            "required": false,
+            "source": "request_estimator",
+            "description": "Derived from request parameters during pre-deduction."
+          },
+          {
+            "name": "actual_tokens",
+            "required": false,
+            "source": "upstream_usage",
+            "description": "Returned by upstream usage data on successful task completion."
+          }
+        ],
+        "billing_phases": [
+          {
+            "name": "pre_deduction",
+            "trigger": "task_submit",
+            "formula": "estimated_tokens * selected_model_ratio * audio_multiplier * group_ratio",
+            "uses": [
+              "estimated_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "group_ratio"
+            ],
+            "notes": [
+              "Uses request-derived token estimation when available.",
+              "selected_model_ratio comes from matching raw rules when conditions exist, otherwise from model_ratio."
+            ]
+          },
+          {
+            "name": "settlement",
+            "trigger": "task_success",
+            "formula": "actual_tokens * selected_model_ratio * audio_multiplier * final_group_ratio + 1",
+            "uses": [
+              "actual_tokens",
+              "selected_model_ratio",
+              "audio_multiplier",
+              "final_group_ratio"
+            ],
+            "notes": [
+              "Success settlement may create supplementary charge or refund."
+            ]
+          }
+        ],
+        "rounding_rule": {
+          "mode": "additive",
+          "value": 1,
+          "unit": "quota",
+          "applies_to": "settlement"
+        }
+      }
+    }
+  },
+  {
+    "id": "happyhorse-1.1-i2v",
+    "capability": "video",
+    "protocol": "fg-wetoken-happyhorse-video",
+    "price": {
+      "model_name": "happyhorse-1.1-i2v",
+      "description": "HappyHorse 1.1 Image-to-Video — generate video from a first-frame image with optional text guidance",
+      "icon": "Qwen.Color",
+      "tags": "Video Generation,HappyHorse,I2V",
+      "vendor_id": 18,
+      "quota_type": 1,
+      "model_ratio": 0,
+      "model_price": 0.14,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "dashscope"
+      ],
+      "pricing_rules": {
+        "type": "per_second",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 0.14,
+            "resolution": "720P"
+          },
+          {
+            "price": 0.18,
+            "resolution": "1080P"
+          }
+        ]
+      },
+      "capabilities": {
+        "endpoint_type": "video",
+        "modes": [
+          "i2v"
+        ],
+        "params": {
+          "duration": {
+            "default": 5,
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ]
+          },
+          "resolution": {
+            "default": "1080P",
+            "values": [
+              "720P",
+              "1080P"
+            ]
+          }
+        },
+        "inputs": {
+          "image": {
+            "formats": [
+              "JPEG",
+              "JPG",
+              "PNG",
+              "WEBP"
+            ],
+            "max_size_mb": 20,
+            "required": true
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "dashscopeVideo": {
+            "path": "/dashscope/api/v1/services/aigc/video-generation/video-synthesis",
+            "method": "POST",
+            "templates": {
+              "curl": "# Step 1: Submit video generation task\ncurl --location '{{BASE_URL}}/dashscope/api/v1/services/aigc/video-generation/video-synthesis' \\\n    -H 'X-DashScope-Async: enable' \\\n    -H 'Authorization: Bearer {{API_KEY}}' \\\n    -H 'Content-Type: application/json' \\\n    -d '{\n    \"model\": \"{{MODEL_ID}}\",\n    \"input\": {\n        \"prompt\": \"A cat running on the grass\",\n        \"media\": [\n            {\n                \"type\": \"first_frame\",\n                \"url\": \"https://cdn.translate.alibaba.com/r/wanx-demo-1.png\"\n            }\n        ]\n    },\n    \"parameters\": {\n        \"resolution\": \"720P\",\n        \"duration\": 5\n    }\n}'\n\n# Step 2: Query task result\ncurl -X GET '{{BASE_URL}}/dashscope/api/v1/tasks/{{TASK_ID}}' \\\n    -H 'Authorization: Bearer {{API_KEY}}'"
+            }
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_call",
+        "source_type": "pricing_rules",
+        "mechanism": "per_call",
+        "currency": "USD",
+        "raw_fields": {
+          "model_price": 0.14
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "resolution": "1080P"
+            },
+            "amount": 0.18,
+            "unit": "per_call"
+          },
+          {
+            "conditions": {
+              "resolution": "720P"
+            },
+            "amount": 0.14,
+            "unit": "per_call"
+          }
+        ],
+        "pricing_rules": {
+          "type": "per_second",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 0.14,
+              "resolution": "720P"
+            },
+            {
+              "price": 0.18,
+              "resolution": "1080P"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "happyhorse-1.1-r2v",
+    "capability": "video",
+    "protocol": "fg-wetoken-happyhorse-video",
+    "price": {
+      "model_name": "happyhorse-1.1-r2v",
+      "description": "HappyHorse 1.1 Reference-to-Video — fuse multiple reference images (1-9) into a coherent video via text description",
+      "icon": "Qwen.Color",
+      "tags": "Video Generation,HappyHorse,R2V",
+      "vendor_id": 18,
+      "quota_type": 1,
+      "model_ratio": 0,
+      "model_price": 0.14,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "dashscope"
+      ],
+      "pricing_rules": {
+        "type": "per_second",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 0.14,
+            "resolution": "720P"
+          },
+          {
+            "price": 0.18,
+            "resolution": "1080P"
+          }
+        ]
+      },
+      "capabilities": {
+        "endpoint_type": "video",
+        "modes": [
+          "r2v"
+        ],
+        "params": {
+          "duration": {
+            "default": 5,
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ]
+          },
+          "ratio": {
+            "default": "16:9",
+            "values": [
+              "16:9",
+              "9:16",
+              "3:4",
+              "4:3",
+              "4:5",
+              "5:4",
+              "1:1",
+              "9:21",
+              "21:9"
+            ]
+          },
+          "resolution": {
+            "default": "1080P",
+            "values": [
+              "720P",
+              "1080P"
+            ]
+          }
+        },
+        "inputs": {
+          "image": {
+            "max": 9,
+            "min": 1,
+            "required": true
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "dashscopeVideo": {
+            "path": "/dashscope/api/v1/services/aigc/video-generation/video-synthesis",
+            "method": "POST",
+            "templates": {
+              "curl": "# Step 1: Submit video generation task\ncurl --location '{{BASE_URL}}/dashscope/api/v1/services/aigc/video-generation/video-synthesis' \\\n    -H 'X-DashScope-Async: enable' \\\n    -H 'Authorization: Bearer {{API_KEY}}' \\\n    -H 'Content-Type: application/json' \\\n    -d '{\n    \"model\": \"{{MODEL_ID}}\",\n    \"input\": {\n        \"prompt\": \"A woman in a red cheongsam [Image 1], the camera captures her in a side medium shot outlining the fitted silhouette, then switches to a low-angle upward shot as she raises her hand to unfold a folding fan [Image 2], with tassel earrings [Image 3] swaying gently with her head movement, finally pushing into a close-up of her fingertips touching the fan ribs, showcasing oriental elegance from multiple angles.\",\n        \"media\": [\n            {\n                \"type\": \"reference_image\",\n                \"url\": \"https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20260424/mvzfud/hh-v2v-girl.jpg\"\n            },\n            {\n                \"type\": \"reference_image\",\n                \"url\": \"https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20260424/fvuihk/hh-v2v2-folding-fan.jpg\"\n            },\n            {\n                \"type\": \"reference_image\",\n                \"url\": \"https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20260424/imerii/hh-v2v-earrings.jpg\"\n            }\n        ]\n    },\n    \"parameters\": {\n        \"resolution\": \"720P\",\n        \"ratio\": \"16:9\",\n        \"duration\": 5\n    }\n}'\n\n# Step 2: Query task result\ncurl -X GET '{{BASE_URL}}/dashscope/api/v1/tasks/{{TASK_ID}}' \\\n    -H 'Authorization: Bearer {{API_KEY}}'"
+            }
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_call",
+        "source_type": "pricing_rules",
+        "mechanism": "per_call",
+        "currency": "USD",
+        "raw_fields": {
+          "model_price": 0.14
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "resolution": "1080P"
+            },
+            "amount": 0.18,
+            "unit": "per_call"
+          },
+          {
+            "conditions": {
+              "resolution": "720P"
+            },
+            "amount": 0.14,
+            "unit": "per_call"
+          }
+        ],
+        "pricing_rules": {
+          "type": "per_second",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 0.14,
+              "resolution": "720P"
+            },
+            {
+              "price": 0.18,
+              "resolution": "1080P"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "happyhorse-1.1-t2v",
+    "capability": "video",
+    "protocol": "fg-wetoken-happyhorse-video",
+    "price": {
+      "model_name": "happyhorse-1.1-t2v",
+      "description": "HappyHorse 1.1 Text-to-Video — generate physically realistic, smooth-motion video from text prompts",
+      "icon": "Qwen.Color",
+      "tags": "Video Generation,HappyHorse,T2V",
+      "vendor_id": 18,
+      "quota_type": 1,
+      "model_ratio": 0,
+      "model_price": 0.14,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "dashscope"
+      ],
+      "pricing_rules": {
+        "type": "per_second",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 0.14,
+            "resolution": "720P"
+          },
+          {
+            "price": 0.18,
+            "resolution": "1080P"
+          }
+        ]
+      },
+      "capabilities": {
+        "endpoint_type": "video",
+        "modes": [
+          "t2v"
+        ],
+        "params": {
+          "duration": {
+            "default": 5,
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ]
+          },
+          "ratio": {
+            "default": "16:9",
+            "values": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "4:5",
+              "5:4",
+              "9:21",
+              "21:9"
+            ]
+          },
+          "resolution": {
+            "default": "1080P",
+            "values": [
+              "720P",
+              "1080P"
+            ]
+          }
+        }
+      },
+      "api_examples": {
+        "endpoints": {
+          "dashscopeVideo": {
+            "path": "/dashscope/api/v1/services/aigc/video-generation/video-synthesis",
+            "method": "POST",
+            "templates": {
+              "curl": "# Step 1: Submit video generation task\ncurl --location '{{BASE_URL}}/dashscope/api/v1/services/aigc/video-generation/video-synthesis' \\\n    -H 'X-DashScope-Async: enable' \\\n    -H 'Authorization: Bearer {{API_KEY}}' \\\n    -H 'Content-Type: application/json' \\\n    -d '{\n    \"model\": \"{{MODEL_ID}}\",\n    \"input\": {\n        \"prompt\": \"A miniature city built from cardboard and bottle caps, coming alive at night. A tiny cardboard train rolls slowly through, its small lights twinkling and illuminating the way ahead.\"\n    },\n    \"parameters\": {\n        \"resolution\": \"720P\",\n        \"ratio\": \"16:9\",\n        \"duration\": 5\n    }\n}'\n\n# Step 2: Query task result\ncurl -X GET '{{BASE_URL}}/dashscope/api/v1/tasks/{{TASK_ID}}' \\\n    -H 'Authorization: Bearer {{API_KEY}}'"
+            }
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_call",
+        "source_type": "pricing_rules",
+        "mechanism": "per_call",
+        "currency": "USD",
+        "raw_fields": {
+          "model_price": 0.14
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "resolution": "1080P"
+            },
+            "amount": 0.18,
+            "unit": "per_call"
+          },
+          {
+            "conditions": {
+              "resolution": "720P"
+            },
+            "amount": 0.14,
+            "unit": "per_call"
+          }
+        ],
+        "pricing_rules": {
+          "type": "per_second",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 0.14,
+              "resolution": "720P"
+            },
+            {
+              "price": 0.18,
+              "resolution": "1080P"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "MiniMax-H3",
+    "capability": "video",
+    "protocol": "minimax-video",
+    "price": {
+      "model_name": "MiniMax-H3",
+      "description": "MiniMax-H3 video generation V2: t2va / i2va / r2va, native 2K output (USD pricing)",
+      "tags": "[\"MiniMax\",\"H3\",\"Video\"]",
+      "vendor_id": 24,
+      "quota_type": 2,
+      "model_ratio": 0,
+      "model_price": 0.08,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "minimax-video"
+      ],
+      "api_examples": {},
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_second",
+        "source_type": "pricing_rules",
+        "mechanism": "per_second",
+        "currency": "USD",
+        "raw_fields": {
+          "default_price": 0.08,
+          "model_price": 0.08,
+          "quota_type": 2
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "resolution": "2K"
+            },
+            "amount": 0.13,
+            "unit": "per_second"
+          },
+          {
+            "conditions": {
+              "resolution": "768P"
+            },
+            "amount": 0.08,
+            "unit": "per_second"
+          },
+          {
+            "conditions": {
+              "applies_to": "input",
+              "material": "audio"
+            },
+            "amount": 0,
+            "unit": "per_call"
+          },
+          {
+            "conditions": {
+              "applies_to": "input",
+              "free_count": 5,
+              "material": "image"
+            },
+            "amount": 0.04,
+            "unit": "per_additional"
+          },
+          {
+            "conditions": {
+              "applies_to": "input",
+              "material": "video",
+              "resolution": "2K"
+            },
+            "amount": 0.13,
+            "unit": "per_second"
+          },
+          {
+            "conditions": {
+              "applies_to": "input",
+              "material": "video",
+              "resolution": "768P"
+            },
+            "amount": 0.08,
+            "unit": "per_second"
+          }
+        ],
+        "pricing_rules": null,
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "id": "wan3.0-video",
+    "capability": "video",
+    "protocol": "fg-wetoken-wan3-video",
+    "price": {
+      "model_name": "wan3.0-video",
+      "description": "Wan3.0 Video model (international, USD pricing, 480P/720P/1080P, per-second billing, text-to-video + image-to-video)",
+      "tags": "[\"Wan\",\"Video\",\"International\",\"3.0\"]",
+      "vendor_id": 7,
+      "quota_type": 2,
+      "model_ratio": 0,
+      "model_price": 0.05,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "dashscope"
+      ],
+      "pricing_rules": {
+        "type": "per_second",
+        "currency": "USD",
+        "rules": [
+          {
+            "price": 0.05,
+            "resolution": "480P"
+          },
+          {
+            "price": 0.1,
+            "resolution": "720P"
+          },
+          {
+            "price": 0.2,
+            "resolution": "1080P"
+          }
+        ]
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_second",
+        "source_type": "pricing_rules",
+        "mechanism": "per_second",
+        "currency": "USD",
+        "raw_fields": {
+          "model_price": 0.05,
+          "quota_type": 2
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "resolution": "1080P"
+            },
+            "amount": 0.2,
+            "unit": "per_second"
+          },
+          {
+            "conditions": {
+              "resolution": "480P"
+            },
+            "amount": 0.05,
+            "unit": "per_second"
+          },
+          {
+            "conditions": {
+              "resolution": "720P"
+            },
+            "amount": 0.1,
+            "unit": "per_second"
+          }
+        ],
+        "pricing_rules": {
+          "type": "per_second",
+          "currency": "USD",
+          "rules": [
+            {
+              "price": 0.05,
+              "resolution": "480P"
+            },
+            {
+              "price": 0.1,
+              "resolution": "720P"
+            },
+            {
+              "price": 0.2,
+              "resolution": "1080P"
+            }
+          ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  }
+]

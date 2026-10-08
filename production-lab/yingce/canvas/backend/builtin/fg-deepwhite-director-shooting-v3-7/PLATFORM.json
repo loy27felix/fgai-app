@@ -1,0 +1,12 @@
+{
+  "slug": "deepwhite-director-shooting-v3-7",
+  "skillId": "fg-1affbec575969caeb1de0495",
+  "version": "1.0.0",
+  "tag": "drama",
+  "runtime": "selected-context; Agent may read packaged references and run available tools",
+  "sourceEntrySHA256": "e55fa814eb2c83c9ac6cf0b085e7b6a1284321e589b67a9e87a2d7b9ae5fd794",
+  "omitted": [
+    "scripts\\__pycache__\\test_validate_delivery.cpython-312.pyc"
+  ],
+  "imageStyle": null
+}

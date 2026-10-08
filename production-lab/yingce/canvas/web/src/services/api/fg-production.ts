@@ -1,0 +1,24 @@
+import {http} from './request';
+export type FGTopic={id:number;title:string;original:string;characters?:string;plot:string;conflict?:string;style:string;markets:string;form:string;tier?:string;language?:string;channel?:string;blocked?:boolean;selection_group?:string;selected_by?:string;selected_by_email?:string;selected_at?:string;source_rights?:string};
+export type FGProject={id:string;name:string;status:string;topic_id:number|null;topic_snapshot:FGTopic|null;tier:string|null;group_name:string|null;budget_cny:string|null;owner_name:string;canvas_count:number;updated_at:string};
+export type FGCall={id:string;user_id:string;user_name:string;project_id:string|null;project_name:string|null;canvas_title:string|null;group_name:string|null;model:string;capability:string;status:string;task_status:string|null;created_at:string;fg_fee_reference_id:string;provider_request_id:string;settled_usd:string|null;settled_cny:string|null;settled_reference_id:string|null;match_method?:string;no_charge_note?:string;rate_estimated_cny:number|null;cost_available:boolean;estimated_cost_micros:number;currency:string};
+export type FGReceipt={reference_id:string;model:string;cny:number;occurred_at:string;classification?:'external'|'ignored'|null;note?:string};
+export type FGFinance={canManage:boolean;calls:FGCall[];fx:number;collectedAt:string;billingSync:{mode:string;reason:string;automatic?:boolean;status?:string;lastSuccess?:string};lastImport:{id:string;row_count:number;created_at:string}|null;unallocated:FGReceipt[]};
+export const getFGTopics=(signal?:AbortSignal)=>http.get<{topics:FGTopic[]}>('/fg/topics',{signal});
+export const getFGProjects=(signal?:AbortSignal)=>http.get<{projects:FGProject[];legacy:Array<{id:string;title:string;ownerName:string;team:string;topicId:number|null}>;groups:Array<{id:string;name:string}>}>('/fg/projects',{signal});
+export const createFGProject=(input:{topicId:number;tier:string;groupName:string;budgetCny:number})=>http.post<{projectId:string;reused:boolean}>('/fg/projects',input);
+export const getFGFinance=()=>http.get<FGFinance>('/fg/finance');
+export const importFGFees=(csv:string)=>http.post<{rows:number;reused:boolean}>('/fg/finance/import',{csv});
+export const updateFGFx=(fx:number)=>http.put<{fx:number}>('/fg/finance/fx',{fx});
+
+export type FGStory=FGTopic&{status:'pending'|'approved'|'rejected';submitted_by:string;submitted_name:string;review_note:string;revision:number};
+export type FGTeam={groups:Array<{id:string;name:string;member_count:number}>;users:Array<{id:string;display_name:string;email:string;platform_role:string;group_id:string|null;group_name:string|null;group_role:string|null}>;canManage:boolean;currentGroup:string|null};
+export const getFGTeam=(signal?:AbortSignal)=>http.get<FGTeam>('/fg/team',{signal});
+export const getFGStories=(signal?:AbortSignal)=>http.get<{stories:FGStory[];canReview:boolean}>('/fg/stories',{signal});
+export const submitFGStory=(story:Omit<FGTopic,'id'>)=>http.post<{id:number}>('/fg/stories',story);
+export const resubmitFGStory=(story:FGStory)=>http.put<{saved:boolean}>('/fg/stories',story);
+export const reviewFGStory=(id:number,revision:number,status:'approved'|'rejected',note:string)=>http.post('/fg/stories/review',{id,revision,status,note});
+export const createFGGroup=(name:string)=>http.post('/fg/team/groups',{name});
+export const renameFGGroup=(id:string,name:string)=>http.patch('/fg/team/groups',{id,name});
+export const archiveFGGroup=(id:string)=>http.post('/fg/team/groups/archive',{id});
+export const assignFGMember=(userId:string,groupId:string|null,expectedGroupId:string|null,role='member')=>http.put('/fg/team/member',{userId,groupId,expectedGroupId,role});

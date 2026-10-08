@@ -1,0 +1,41 @@
+{
+  "skill_id": "mixed-media-collage-motion",
+  "version": "1.0.0",
+  "video_representation_mode": "illustrated",
+  "display_name": "混合媒介拼贴动效",
+  "description": "以剪纸层次、无烘焙文字的排版节奏和触觉合成组织具有平面设计秩序的动态广告。",
+  "content_locale": "zh-CN",
+  "category": "experimental-graphic",
+  "tags": [
+    "拼贴动效",
+    "平面设计",
+    "触觉合成"
+  ],
+  "supported_use_cases": [
+    "设计广告",
+    "品牌动效",
+    "产品概念片"
+  ],
+  "preview": {
+    "kind": "image",
+    "summary": "混合媒介拼贴动效视觉预览。",
+    "media_url": "/api/v2/video-skills/mixed-media-collage-motion/preview?v=1.0.0"
+  },
+  "display_order": 410,
+  "files": {
+    "SKILL.md": "47d5d12a2d726e9e078a19746c25e15e800d606269673de2aee55eaa5e0dab13",
+    "references/prop.md": "da3e773a57f5bff7318eb495b421c79a7e3979ad382e6780ba86b59dc4aef717",
+    "references/scene.md": "f49a9e954ae35435655cdce1fee5db55811d8d7a14df06151102c8881e2fde95",
+    "references/storyboard.md": "05146819a01e9742cd582bc743fd3d6743a02f646065c76bc1bac8217ddfcfba",
+    "references/video.md": "19a492ead6877f74ddfa321723076b424833e33e215a06b693e8f70727d2e9e2",
+    "references/quick_media.md": "665d69d74194e4f7de2899f76dd4098fb2f6d6bdfb5d2dcc5e89c13186f39613",
+    "previews/preview.webp": "438981718411202b3f0f43e6ee35f9238648402eb0b2f159bd318b38556dd159"
+  },
+  "role_guidance": {
+    "prop": "references/prop.md",
+    "scene": "references/scene.md",
+    "storyboard": "references/storyboard.md",
+    "video": "references/video.md",
+    "quick_media": "references/quick_media.md"
+  }
+}

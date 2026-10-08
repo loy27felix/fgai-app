@@ -1,0 +1,420 @@
+name: OpenCreator Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 要验证的 Desktop 平台
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - macos-x64
+          - macos-arm64
+          - windows-x64
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.release-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验 Desktop 发布标签
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node apps/desktop/scripts/verify-desktop-release-tag.mjs "${{ github.ref_name }}"
+      - name: 校验同一提交的 CI 已通过
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          successful_runs="$(
+            gh run list \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --event push \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq 'length'
+          )"
+          if [[ "$successful_runs" != "1" ]]; then
+            echo "::error::提交 $GITHUB_SHA 尚无成功的 master push CI，请等待 CI 通过后再创建发布标签。"
+            exit 1
+          fi
+      - name: 选择 Desktop 构建平台
+        id: release-matrix
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target || 'all' }}
+        run: |
+          case "$TARGET" in
+            all)
+              matrix='{"include":[{"name":"macos-x64","os":"macos-15-intel","platform":"darwin","arch":"x64","artifact":"opencreator-desktop-macos-x64"},{"name":"macos-arm64","os":"macos-15","platform":"darwin","arch":"arm64","artifact":"opencreator-desktop-macos-arm64"},{"name":"windows-x64","os":"windows-latest","platform":"win32","arch":"x64","artifact":"opencreator-desktop-windows-x64-unsigned"}]}'
+              ;;
+            macos-x64)
+              matrix='{"include":[{"name":"macos-x64","os":"macos-15-intel","platform":"darwin","arch":"x64","artifact":"opencreator-desktop-macos-x64"}]}'
+              ;;
+            macos-arm64)
+              matrix='{"include":[{"name":"macos-arm64","os":"macos-15","platform":"darwin","arch":"arm64","artifact":"opencreator-desktop-macos-arm64"}]}'
+              ;;
+            windows-x64)
+              matrix='{"include":[{"name":"windows-x64","os":"windows-latest","platform":"win32","arch":"x64","artifact":"opencreator-desktop-windows-x64-unsigned"}]}'
+              ;;
+            *)
+              echo "::error::不支持的 Desktop 构建目标：$TARGET"
+              exit 1
+              ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  package:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.verify.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    environment: release
+    env:
+      OPENCREATOR_DESKTOP_CACHE_DIR: ${{ github.workspace }}/apps/desktop/.cache
+      OPENCREATOR_DESKTOP_BUILD_MANIFEST: ${{ github.workspace }}/apps/desktop/release/opencreator-desktop-build-manifest-${{ matrix.platform }}-${{ matrix.arch }}.json
+      OPENCREATOR_DESKTOP_OFFICIAL_BUILD: '1'
+    steps:
+      - name: 验证 macOS 正式签名凭据
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for name in \
+            MACOS_CERTIFICATE \
+            MACOS_CERTIFICATE_PASSWORD \
+            APPLE_ID \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            APPLE_TEAM_ID
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::release Environment 缺少 macOS 签名 Secret：${missing[*]}"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - name: 验证并使用 macOS Command Line Tools
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools=/Library/Developer/CommandLineTools
+          if [[ ! -d "$tools" ]]; then
+            echo '::error::macOS Command Line Tools 未安装；打包不使用完整 Xcode。'
+            exit 1
+          fi
+          for tool in iconutil codesign; do
+            command -v "$tool" >/dev/null
+          done
+          DEVELOPER_DIR="$tools" xcrun --find notarytool
+          DEVELOPER_DIR="$tools" xcrun --find stapler
+          echo "DEVELOPER_DIR=$tools" >> "$GITHUB_ENV"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: runtime/krillinai/go.mod
+          cache-dependency-path: runtime/krillinai/go.sum
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: |
+            apps/desktop/.cache/electron
+            apps/desktop/.cache/electron-builder
+            apps/desktop/.cache/node-gyp
+            apps/desktop/.cache/npm
+          key: desktop-tools-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/package.json', 'apps/desktop/packaging/daemon-runtime/pnpm-lock.yaml') }}
+      - uses: actions/cache@v4
+        with:
+          path: apps/desktop/.cache/codex-runtime
+          key: codex-runtime-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('apps/desktop/scripts/prepare-codex-runtime.mjs', 'apps/desktop/scripts/codex-runtime-contract.mjs', 'resources/codex-runtime/**') }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .runtime/vendor/creator-runtime/${{ matrix.platform }}-${{ matrix.arch }}
+          key: creator-runtime-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('apps/desktop/scripts/install-creator-runtime-dependencies.mjs', 'apps/desktop/scripts/creator-runtime-releases.mjs', 'apps/desktop/scripts/prepare-creator-runtime.mjs') }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .runtime/build/krillinai/${{ matrix.platform }}-${{ matrix.arch }}
+          key: krillinai-build-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('scripts/build-krillinai.mjs', 'runtime/krillinai/**') }}
+      - name: 生成 macOS 正式签名安装包
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set +e
+          pnpm desktop:release 2>&1 | tee desktop-release.log
+          release_status=${PIPESTATUS[0]}
+          if (( release_status != 0 )); then
+            failure_tail="$(tail -n 40 desktop-release.log)"
+            failure_tail="${failure_tail//'%'/'%25'}"
+            failure_tail="${failure_tail//$'\r'/'%0D'}"
+            failure_tail="${failure_tail//$'\n'/'%0A'}"
+            echo "::error title=macOS release failure details::$failure_tail"
+            {
+              echo '### macOS release failure tail'
+              echo '```text'
+              tail -n 80 desktop-release.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$release_status"
+        env:
+          OPENCREATOR_DESKTOP_TARGET_PLATFORM: ${{ matrix.platform }}
+          OPENCREATOR_DESKTOP_TARGET_ARCH: ${{ matrix.arch }}
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          OPENCREATOR_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: 生成 Windows 未签名安装包
+        if: matrix.platform == 'win32'
+        run: pnpm desktop:dist
+        env:
+          OPENCREATOR_DESKTOP_TARGET_PLATFORM: ${{ matrix.platform }}
+          OPENCREATOR_DESKTOP_TARGET_ARCH: ${{ matrix.arch }}
+      - name: 验证实际打包应用
+        run: >-
+          pnpm --filter @opencreator/desktop
+          ${{ matrix.name == 'macos-arm64' && 'e2e:package' || 'e2e:package:smoke' }}
+      - name: 生成 KrillinAI Server 与 CLI 独立发布包
+        run: pnpm krillinai:package
+        env:
+          OPENCREATOR_KRILLINAI_TARGET_PLATFORM: ${{ matrix.platform }}
+          OPENCREATOR_KRILLINAI_TARGET_ARCH: ${{ matrix.arch }}
+      - name: 上传用户发布附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ env.OPENCREATOR_DESKTOP_RELEASE_ASSETS }}/*
+          if-no-files-found: error
+      - name: 上传 KrillinAI Server 与 CLI 发布附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: krillinai-release-${{ matrix.name }}
+          path: ${{ env.OPENCREATOR_KRILLINAI_RELEASE_ASSETS }}/*
+          if-no-files-found: error
+      - name: 保留内部构建诊断
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-build-diagnostics-${{ matrix.name }}
+          path: |
+            apps/desktop/release/opencreator-desktop-build-manifest-*.json
+            apps/desktop/release/builder-debug.yml
+            apps/desktop/release/builder-effective-config.yaml
+            desktop-release.log
+            test-results/desktop-playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  krillinai-linux-package:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'all'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: runtime/krillinai/go.mod
+          cache-dependency-path: runtime/krillinai/go.sum
+      - name: 生成 Linux KrillinAI Server 与 CLI 发布包
+        shell: bash
+        run: |
+          for arch in x64 arm64; do
+            OPENCREATOR_KRILLINAI_TARGET_PLATFORM=linux \
+            OPENCREATOR_KRILLINAI_TARGET_ARCH="$arch" \
+              node scripts/package-krillinai-release.mjs
+          done
+      - name: 上传 Linux KrillinAI Server 与 CLI 发布附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: krillinai-release-linux
+          path: .runtime/release/krillinai/*
+          if-no-files-found: error
+
+  candidate-ready:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'all'
+    needs:
+      - package
+      - krillinai-linux-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 计算应用构建输入指纹
+        id: build-input
+        run: echo "digest=$(node apps/desktop/scripts/release-build-input.mjs digest)" >> "$GITHUB_OUTPUT"
+      - name: 记录可提升候选包
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          CANDIDATE_RUN_ID: ${{ github.run_id }}
+          CANDIDATE_REPOSITORY: ${{ github.repository }}
+          CANDIDATE_BUILD_INPUT_DIGEST: ${{ steps.build-input.outputs.digest }}
+        run: |
+          node <<'NODE'
+            const fs = require("node:fs");
+            const candidate = {
+              schemaVersion: 2,
+              commit: process.env.CANDIDATE_SHA,
+              buildInputDigest: process.env.CANDIDATE_BUILD_INPUT_DIGEST,
+              runId: Number(process.env.CANDIDATE_RUN_ID),
+              repository: process.env.CANDIDATE_REPOSITORY,
+              event: "workflow_dispatch",
+              target: "all"
+            };
+            fs.writeFileSync("release-candidate.json", `${JSON.stringify(candidate, null, 2)}\n`);
+          NODE
+      - name: 上传候选包身份凭据
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencreator-release-candidate-${{ steps.build-input.outputs.digest }}
+          path: release-candidate.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 计算应用构建输入指纹
+        id: build-input
+        run: echo "digest=$(node apps/desktop/scripts/release-build-input.mjs digest)" >> "$GITHUB_OUTPUT"
+      - name: 查找可复用的完整候选构建
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CANDIDATE_NAME: opencreator-release-candidate-${{ steps.build-input.outputs.digest }}
+        shell: bash
+        run: |
+          candidate_run_id="$(
+            gh api --method GET "repos/$GH_REPO/actions/artifacts" \
+              -f name="$CANDIDATE_NAME" \
+              --jq '.artifacts | map(select(.expired == false)) | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty'
+          )"
+          if [[ -z "$candidate_run_id" ]]; then
+            echo "::error::当前 tag 没有可复用的完整候选构建。应用构建输入发生变化时，请先从 master 运行 target=all。"
+            exit 1
+          fi
+
+          run="$(gh api "repos/$GH_REPO/actions/runs/$candidate_run_id")"
+          candidate_sha="$(jq -r '.head_sha' <<< "$run")"
+          comparison_status="$(
+            gh api "repos/$GH_REPO/compare/$candidate_sha...$GITHUB_SHA" --jq '.status'
+          )"
+          if [[ "$(jq -r '.event' <<< "$run")" != "workflow_dispatch" \
+            || "$(jq -r '.head_branch' <<< "$run")" != "master" \
+            || "$(jq -r '.conclusion' <<< "$run")" != "success" \
+            || "$(jq -r '.path' <<< "$run")" != ".github/workflows/desktop-release.yml" \
+            || ( "$comparison_status" != "identical" && "$comparison_status" != "ahead" ) ]]; then
+            echo "::error::候选构建 $candidate_run_id 的来源或祖先关系无效。"
+            exit 1
+          fi
+          {
+            echo "run-id=$candidate_run_id"
+            echo "sha=$candidate_sha"
+            echo "name=$CANDIDATE_NAME"
+          } >> "$GITHUB_OUTPUT"
+          echo "使用已验证候选构建：$candidate_run_id ($candidate_sha)"
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
+          path: artifacts
+          pattern: opencreator-desktop-*
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
+          path: artifacts
+          pattern: krillinai-release-*
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
+          name: ${{ steps.candidate.outputs.name }}
+          path: candidate
+      - name: 校验候选包身份凭据
+        env:
+          EXPECTED_SHA: ${{ steps.candidate.outputs.sha }}
+          EXPECTED_RUN_ID: ${{ steps.candidate.outputs.run-id }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_BUILD_INPUT_DIGEST: ${{ steps.build-input.outputs.digest }}
+        run: |
+          node <<'NODE'
+            const fs = require("node:fs");
+            const candidate = JSON.parse(fs.readFileSync("candidate/release-candidate.json", "utf8"));
+            const valid = candidate.schemaVersion === 2
+              && candidate.commit === process.env.EXPECTED_SHA
+              && candidate.buildInputDigest === process.env.EXPECTED_BUILD_INPUT_DIGEST
+              && String(candidate.runId) === process.env.EXPECTED_RUN_ID
+              && candidate.repository === process.env.EXPECTED_REPOSITORY
+              && candidate.event === "workflow_dispatch"
+              && candidate.target === "all";
+            if (!valid) throw new Error("Release candidate provenance does not match this tag");
+          NODE
+      - name: 校验发布附件并生成下载说明
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: node apps/desktop/scripts/release-assets.mjs artifacts "$TAG" "$GH_REPO" release-notes.md
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --draft --title "OpenCreator $TAG" --notes-file release-notes.md
+          find artifacts -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$TAG" --clobber
+          gh release edit "$TAG" --draft=false --latest --title "OpenCreator $TAG" --notes-file release-notes.md

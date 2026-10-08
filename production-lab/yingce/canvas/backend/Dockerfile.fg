@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+FROM ghcr.io/ddcat-ai/open-ai-canvas-backend@sha256:11b34ae00f4afc3fab3f5d75a782cea807069f49091c63c6019f1d1e791628b6 AS official
+FROM node:24-alpine AS agent-dependencies
+WORKDIR /agent
+COPY backend/agent-runtime/pi/package.json backend/agent-runtime/pi/package-lock.json ./
+RUN npm ci --ignore-scripts
+FROM golang:1.25-alpine AS build
+RUN apk add --no-cache build-base zip nodejs
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
+COPY backend/third_party ./third_party
+RUN go mod download
+COPY backend ./
+COPY --from=agent-dependencies /usr/local/bin/node /usr/local/bin/node
+COPY --from=agent-dependencies /agent/node_modules ./agent-runtime/pi/node_modules
+COPY --from=official /app/plugin-packages /src/plugin-packages
+COPY plugin-packages /src/plugin-packages
+RUN --mount=type=cache,target=/root/.cache/go-build sed -i 's/\r$//' /src/plugin-packages/build-packages.sh && sh /src/plugin-packages/build-packages.sh --payments-only
+ARG BUILD_VERSION=v1.2.2
+ARG BUILD_COMMIT=unknown
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app ./internal/handler ./internal/protocol ./internal/repository ./internal/canvas ./internal/prompts ./internal/platform -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/skills -run '^(TestFG|TestBuiltin|TestEnsureBuiltin|TestSkillPresets)' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/protocol -run '^TestOfficialDolaPoolVideoProfile$' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app -run '^TestCloudAgentModelStepAdoptsOrphanedStepTask$' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/auth -run '^(TestTapNow|TestAdaptTapNow|TestLibTV|TestAdaptLibTV)' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app -run '^(TestRemoteResourceMIMEType|TestImportResourceURLRepairsReadyMIME)' -count=1
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X infinite-canvas/backend/internal/buildinfo.Version=${BUILD_VERSION} -X infinite-canvas/backend/internal/buildinfo.Commit=${BUILD_COMMIT}" -o /out/infinite-canvas-backend ./cmd/server
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -o /out/migrate-schema ./cmd/migrate-schema
+FROM official
+COPY --from=build /out/infinite-canvas-backend /usr/local/bin/infinite-canvas-backend
+COPY --from=build /out/migrate-schema /usr/local/bin/migrate-schema
+COPY --from=build /src/plugin-packages /app/plugin-packages

@@ -10,5 +10,5 @@ export async function labActor(): Promise<Actor | null> {
   if (!canAccessProductionLab(user?.platform_role, process.env.PRODUCTION_LAB_ENABLED)) return null;
   if (!user) return null;
   const email = (user.email || "").toLowerCase();
-  return { id: user.id, name: productionLabDisplayName(email), reviewer: true };
+  return { id: user.id, name: productionLabDisplayName(email), reviewer: user.platform_role === 'superadmin' };
 }

@@ -1,0 +1,13 @@
+import {http} from './request';
+export type AdvertisingProject = {id:string;name:string;brief:string;native_project_id:string;group_name:string|null;owner_name:string;story_id:number|null;budget_cny:string;can_manage:boolean;can_budget:boolean};
+export type AdvertisingProjects = {workspaces:AdvertisingProject[];groups:Array<{id:string;name:string}>};
+export type AdvertisingQuote = {estimatedCny:number|null;lines:string[]};
+const path=(id:string)=>'/fg/advertising/'+encodeURIComponent(id);
+export const listAdvertisingProjects=(archived=false)=>http.get<AdvertisingProjects>('/fg/advertising',{params:{archived}});
+export const deleteAdvertisingProject=(id:string)=>http.delete(path(id));
+export const restoreAdvertisingProject=(id:string)=>http.post(path(id)+'/restore',{});
+export const purgeAdvertisingProject=(id:string)=>http.post(path(id)+'/purge',{});
+export const openAdvertisingProject=(id:string)=>http.post<{url:string}>(path(id)+'/open',{});
+export const updateAdvertisingBudget=(id:string,budgetCny:number)=>http.patch(path(id)+'/budget',{budgetCny});
+export const importAdvertisingCompanyAsset=(id:string,assetId:string)=>http.post(path(id)+'/company-asset',{assetId});
+export const advertisingQuote=(id:string,mode:'text'|'image'|'video',options:Record<string,string>={})=>http.post<AdvertisingQuote>(path(id)+'/quote',{mode,options});
