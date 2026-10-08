@@ -23,6 +23,7 @@ STATE_FILE="$STATE_ROOT/state"
 LAST_SUCCESS_FILE="$STATE_ROOT/last-storage-success"
 LOCK_DIR="$STATE_ROOT/lock"
 MOUNT_RETRY_FILE="$STATE_ROOT/last-mount-attempt"
+RECOVERY_PENDING_FILE="$STATE_ROOT/recovery-pending"
 KEYCHAIN_SERVICE="com.fgstudio.nas-supervisor.smb"
 RECREATE_LOCK_DIR="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
 STATE_TRANSITION_SEQUENCE=0
@@ -57,7 +58,7 @@ monitor_state() {
   case "$1" in
     ready) printf 'healthy' ;;
     mount-requested|app-transitioning|docker-offline|probe-unavailable|app-start-failed|config-missing|config-invalid|stop-failed) printf 'unknown' ;;
-    mount-failed|nas-readonly|container-mount-failed)
+    mount-failed|nas-readonly|container-mount-failed|recovery-recreate-failed)
       printf 'unhealthy'
       ;;
     *) printf 'unknown' ;;
@@ -137,6 +138,16 @@ set_storage_ready() {
   set_state "ready" "$1"
 }
 
+mark_recovery_pending() {
+  # Persist the need to refresh Docker's bind mount after the NAS becomes writable again.
+  # 持久记录待恢复状态，NAS 可读写后必须重建容器以刷新 bind mount。
+  printf '%s' "$(date +%s)" > "$RECOVERY_PENDING_FILE"
+}
+
+clear_recovery_pending() {
+  rm -f "$RECOVERY_PENDING_FILE"
+}
+
 read_env_value() {
   local key="$1"
   local line=""
@@ -201,7 +212,7 @@ probe_running_storage() {
        mkdir "$lock" 2>/dev/null || exit 20;
      fi;
      printf "%s" "$$" > "$lock/pid";
-     trap 'rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true' EXIT;
+     trap "rm -f \"$lock/pid\"; rmdir \"$lock\" 2>/dev/null || true" EXIT;
      grep -qx "fg-studio-media:v1" "$1" || exit 10;
      printf probe > "$2" || exit 11;
      grep -qx probe "$2" || exit 12' \
@@ -222,20 +233,6 @@ probe_new_mount() {
     sh "$marker_path" "$probe_path" >/dev/null 2>&1 || probe_exit=$?
   run_with_timeout 5 docker rm -f "$probe_container" >/dev/null 2>&1 || true
   return "$probe_exit"
-}
-
-stop_app() {
-  local container
-  local running
-  container="${1:-}"
-  [[ -n "$container" ]] || container="$(find_app_container 2>/dev/null)" || return 1
-  if [[ -n "$container" ]]; then
-    if ! run_with_timeout 15 docker stop -t 10 "$container" >/dev/null 2>&1; then
-      run_with_timeout 5 docker kill "$container" >/dev/null 2>&1 || return 1
-    fi
-    running="$(docker ps -q --no-trunc --filter "id=$container" 2>/dev/null)" || return 1
-    [[ -z "$running" ]]
-  fi
 }
 
 request_mount() {
@@ -285,13 +282,18 @@ SMB_USER="${MOUNT_URL#smb://}"
 SMB_USER="${SMB_USER%%@*}"
 
 if [[ -z "$NAS_PATH" || "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
-  if ! stop_app; then
-    set_state "stop-failed" "NAS supervisor: invalid NAS configuration; could not confirm app stopped"
-    exit 1
-  fi
-  set_state "config-invalid" "NAS supervisor: NAS path, expected source, or mount URL is invalid; app stopped"
+  mark_recovery_pending
+  set_state "config-invalid" "NAS supervisor: NAS configuration is invalid; App remains running and storage stays guarded"
   exit 1
 fi
+
+CURRENT_STATE=""
+[[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
+case "$CURRENT_STATE" in
+  mount-requested|mount-failed|nas-readonly|container-mount-failed|recovery-recreate-failed|stop-failed|config-invalid|app-start-failed)
+    mark_recovery_pending
+    ;;
+esac
 
 # Read the mount table before touching the network path so a stale SMB session cannot block the supervisor.
 # 先读取挂载表再访问网络目录，避免失效的 SMB 会话永久阻塞守护进程。
@@ -312,14 +314,11 @@ if [[ -z "$MOUNT_POINT" ]]; then
   MOUNT_POINT="$(read_expected_mount_point)" || MOUNT_POINT=""
 fi
 if [[ -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
-  if ! stop_app; then
-    set_state "stop-failed" "NAS supervisor: expected SMB mount is absent; could not confirm app stopped"
-    exit 1
-  fi
+  mark_recovery_pending
   if request_mount "$MOUNT_URL" "$SMB_USER"; then
-    set_state "mount-requested" "NAS supervisor: non-interactive SMB mount requested; app stopped until ready"
+    set_state "mount-requested" "NAS supervisor: SMB mount requested; App remains running and storage stays guarded"
   else
-    set_state "mount-failed" "NAS supervisor: non-interactive SMB mount failed; check the dedicated Keychain credential"
+    set_state "mount-failed" "NAS supervisor: SMB mount failed; App remains running and storage stays guarded; check the dedicated Keychain credential"
   fi
   exit 0
 fi
@@ -336,48 +335,73 @@ fi
 if [[ -n "$APP_CONTAINER" ]]; then
   STORAGE_PROBE_EXIT=0
   probe_running_storage "$APP_CONTAINER" || STORAGE_PROBE_EXIT=$?
+  STORAGE_FIRST_EXIT="$STORAGE_PROBE_EXIT"
+  if (( STORAGE_PROBE_EXIT != 0 )); then
+    # Retry once to separate a transient Docker exec failure from NAS I/O failure.
+    # 重试一次，区分 Docker exec 瞬时失败与 NAS 实际读写失败。
+    STORAGE_RETRY_EXIT=0
+    probe_running_storage "$APP_CONTAINER" || STORAGE_RETRY_EXIT=$?
+    if (( STORAGE_RETRY_EXIT == 0 )); then
+      STORAGE_PROBE_EXIT=0
+    else
+      STORAGE_PROBE_EXIT="$STORAGE_RETRY_EXIT"
+    fi
+  fi
   if (( STORAGE_PROBE_EXIT == 0 )); then
-    set_storage_ready "NAS supervisor: mounted App storage is readable and writable"
-    exit 0
-  fi
-  # Retry once before stopping a live app; Docker exec and SMB I/O can both fail transiently.
-  # 停止运行中的 App 前复核一次，避免 Docker exec 或 SMB I/O 的瞬时失败造成停机。
-  STORAGE_RETRY_EXIT=0
-  probe_running_storage "$APP_CONTAINER" || STORAGE_RETRY_EXIT=$?
-  if (( STORAGE_RETRY_EXIT == 0 )); then
-    set_storage_ready "NAS supervisor: mounted App storage recovered on retry"
-    exit 0
-  fi
-  CURRENT_APP="$(find_app_container 2>/dev/null || true)"
-  if [[ "$CURRENT_APP" != "$APP_CONTAINER" ]]; then
-    set_state "app-transitioning" "NAS supervisor: App container changed during storage probe; waiting"
-    exit 0
-  fi
-  SMB_PORT_STATUS="unreachable"
-  if run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
-    SMB_PORT_STATUS="reachable"
-  fi
-  # 137/143 mean the probe was killed by the timeout: with SMB reachable that is a slow Docker API, not a broken share.
-  # 137/143 表示探针被超时杀掉：SMB 端口可达时说明是 Docker API 慢，而非存储损坏，不能停 App。
-  PROBE_UNCONFIRMED=0
-  for probe_exit in "$STORAGE_PROBE_EXIT" "$STORAGE_RETRY_EXIT"; do
-    if (( probe_exit >= 10 && probe_exit <= 12 )); then
-      continue
+    CURRENT_STATE=""
+    [[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
+    if [[ "$CURRENT_STATE" == "recovery-recreate-failed" ]]; then
+      clear_recovery_pending
+      set_storage_ready "NAS supervisor: App storage recovered after the recovery restart"
+      exit 0
     fi
-    if (( probe_exit == 137 || probe_exit == 143 )) && [[ "$SMB_PORT_STATUS" == "unreachable" ]]; then
-      continue
+    if [[ ! -f "$RECOVERY_PENDING_FILE" ]]; then
+      set_storage_ready "NAS supervisor: mounted App storage is readable and writable"
+      exit 0
     fi
-    PROBE_UNCONFIRMED=1
-  done
-  if (( PROBE_UNCONFIRMED )); then
-    set_state "probe-unavailable" "NAS supervisor: Docker exec could not confirm App storage ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT; TCP 445=$SMB_PORT_STATUS)"
-    exit 0
+    log "NAS supervisor: storage recovered; verifying a fresh bind mount before restarting App"
+  else
+    CURRENT_APP="$(find_app_container 2>/dev/null || true)"
+    if [[ "$CURRENT_APP" != "$APP_CONTAINER" ]]; then
+      set_state "app-transitioning" "NAS supervisor: App container changed during storage probe; waiting"
+      exit 0
+    fi
+    SMB_PORT_STATUS="unreachable"
+    if run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
+      SMB_PORT_STATUS="reachable"
+    fi
+    # A timed-out probe with SMB reachable is uncertain Docker control-plane state, not proof of a NAS failure.
+    # SMB 可达时探针超时只代表 Docker 状态不确定，不能据此认定 NAS 故障。
+    PROBE_UNCONFIRMED=0
+    NAS_FAILURE_CONFIRMED=0
+    for probe_exit in "$STORAGE_FIRST_EXIT" "$STORAGE_RETRY_EXIT"; do
+      if (( probe_exit >= 10 && probe_exit <= 12 )); then
+        NAS_FAILURE_CONFIRMED=1
+        continue
+      fi
+      if (( probe_exit == 137 || probe_exit == 143 )) && [[ "$SMB_PORT_STATUS" == "unreachable" ]]; then
+        NAS_FAILURE_CONFIRMED=1
+        continue
+      fi
+      PROBE_UNCONFIRMED=1
+    done
+    if (( NAS_FAILURE_CONFIRMED || PROBE_UNCONFIRMED )); then
+      mark_recovery_pending
+    fi
+    CURRENT_STATE=""
+    [[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
+    if [[ "$CURRENT_STATE" == "recovery-recreate-failed" ]]; then
+      mark_recovery_pending
+      set_state "recovery-recreate-failed" "NAS supervisor: App storage is still unavailable or unconfirmed after recovery restart; App remains running"
+      exit 0
+    fi
+    if (( PROBE_UNCONFIRMED )); then
+      set_state "probe-unavailable" "NAS supervisor: Docker exec could not confirm App storage ($STORAGE_FIRST_EXIT/$STORAGE_RETRY_EXIT; TCP 445=$SMB_PORT_STATUS); App remains running"
+      exit 0
+    fi
+    mark_recovery_pending
+    set_state "container-mount-failed" "NAS supervisor: App storage probe failed ($STORAGE_FIRST_EXIT/$STORAGE_RETRY_EXIT; TCP 445=$SMB_PORT_STATUS); App remains running and storage stays guarded"
   fi
-  if ! stop_app "$APP_CONTAINER"; then
-    set_state "stop-failed" "NAS supervisor: App storage probe failed ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT); could not confirm app stopped"
-    exit 1
-  fi
-  set_state "container-mount-failed" "NAS supervisor: running App storage probe failed twice ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT); TCP 445=$SMB_PORT_STATUS; app stopped"
 fi
 
 CURRENT_STATE=""
@@ -402,9 +426,10 @@ PROBE_EXIT=0
 probe_new_mount "$APP_IMAGE" || PROBE_EXIT=$?
 if (( PROBE_EXIT != 0 )); then
   if (( PROBE_EXIT >= 10 && PROBE_EXIT <= 12 )); then
-    set_state "nas-readonly" "NAS supervisor: fresh container NAS storage probe failed at stage $PROBE_EXIT; app remains stopped"
+    mark_recovery_pending
+    set_state "nas-readonly" "NAS supervisor: fresh NAS storage probe failed at stage $PROBE_EXIT; App will not start until storage recovers"
   else
-    set_state "probe-unavailable" "NAS supervisor: fresh container storage probe could not complete (exit=$PROBE_EXIT); app remains stopped"
+    set_state "probe-unavailable" "NAS supervisor: fresh container storage probe could not complete (exit=$PROBE_EXIT); App remains unchanged"
   fi
   exit 1
 fi
@@ -433,17 +458,11 @@ fi
 RECREATED_PROBE_EXIT=0
 probe_running_storage "$APP_CONTAINER" || RECREATED_PROBE_EXIT=$?
 if (( RECREATED_PROBE_EXIT != 0 )); then
-  if (( RECREATED_PROBE_EXIT < 10 || RECREATED_PROBE_EXIT > 12 )); then
-    set_state "probe-unavailable" "NAS supervisor: recreated App storage probe could not complete (exit=$RECREATED_PROBE_EXIT); waiting"
-    exit 0
-  fi
-  if ! stop_app; then
-    set_state "stop-failed" "NAS supervisor: recreated App storage probe failed; could not confirm app stopped"
-    exit 1
-  fi
-  set_state "container-mount-failed" "NAS supervisor: recreated App storage probe failed; app stopped"
-  exit 1
+  mark_recovery_pending
+  set_state "recovery-recreate-failed" "NAS supervisor: recreated App storage probe could not confirm NAS read/write (exit=$RECREATED_PROBE_EXIT); App remains running and storage stays guarded"
+  exit 0
 fi
 
+clear_recovery_pending
 set_storage_ready "NAS supervisor: NAS recovered and app recreated"
 release_recreate_lock

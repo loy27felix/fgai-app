@@ -20,8 +20,12 @@ class NasStorageUnavailableError extends Error {
 
 async function assertNasReady() {
   try {
-    const marker = await stat(readyFile());
-    if (!marker.isFile()) throw new Error("NAS ready marker is not a file");
+    const marker = await readFile(readyFile(), "utf8");
+    // Match the provisioned marker instead of trusting any file at an empty mount path.
+    // 必须匹配共享盘标记内容，不能仅凭空挂载点上存在一个文件就开放媒体读写。
+    if (marker !== "fg-studio-media:v1" && marker !== "fg-studio-media:v1\n") {
+      throw new Error("NAS ready marker is invalid");
+    }
   } catch {
     throw new NasStorageUnavailableError();
   }
@@ -113,7 +117,12 @@ export class LocalStorageBucket {
       await mkdir(path.dirname(destination), { recursive: true });
       let handle;
       try { handle = await open(destination, "r+"); }
-      catch { handle = await open(destination, "w+"); }
+      catch (error) {
+        // Only a missing file starts a new chunk upload; other SMB errors must not trigger truncation.
+        // 只有目标文件不存在时才新建；其他 SMB 错误不能触发截断覆盖。
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        handle = await open(destination, "w+");
+      }
       try {
         const current = (await handle.stat()).size;
         if (current !== start) throw new Error("上传分片必须连续");

@@ -32,7 +32,7 @@ services:
       - -c
       - |
         set -e
-        test -f "$${NAS_READY_FILE}" || { echo "NAS media storage is unavailable" >&2; exit 78; }
+        grep -qx "fg-studio-media:v1" "$${NAS_READY_FILE}" || { echo "NAS media storage is unavailable" >&2; exit 78; }
         node scripts/local-db-migrate.mjs
         exec node server.js
     depends_on:
@@ -49,9 +49,9 @@ services:
       # App 仅供宿主机回环和 Docker network 访问，HTTPS 由 Nginx 统一终止。
       - "127.0.0.1:${FG_APP_HOST_PORT:-3000}:3000"
     healthcheck:
-      # Standalone Next binds to the container hostname; probe its lightweight public endpoint without rendering the homepage.
-      # Standalone Next 监听容器 hostname；使用轻量公开接口检查就绪状态，避免渲染首页。
-      test: ["CMD-SHELL", "test -f \"$${NAS_READY_FILE}\" && node -e \"const h=require('os').hostname(); fetch('http://'+h+':3000/api/version').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      # Check App availability independently; storage routes enforce NAS readiness themselves.
+      # App 健康只反映服务可用性；NAS 读写由 storage 层单独保护。
+      test: ["CMD-SHELL", "node -e \"const h=require('os').hostname(); fetch('http://'+h+':3000/api/version').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 3
