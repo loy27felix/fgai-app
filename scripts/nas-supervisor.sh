@@ -7,6 +7,12 @@ set -Eeuo pipefail
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lock-utils.sh"
+if ! register_lock_protocol_process; then
+  printf 'NAS supervisor: cannot register the current lock protocol process\n' >&2
+  exit 1
+fi
+trap 'unregister_lock_protocol_process' EXIT
 ENV_FILE="${FG_NAS_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
 # Keep supervisor events beside monitor state so they survive app outages.
 # 将守护事件放在监控器的持久状态目录中，确保 App 离线时仍可等待投递。
@@ -19,30 +25,51 @@ APP_CONTAINER_PATH="/data/media"
 DOCKER_TIMEOUT_SECONDS=20
 DEFAULT_MARKER_NAME=".fg-studio-nas-ready"
 STATE_ROOT="${TMPDIR:-/tmp}/fg-studio-nas-supervisor-$(id -u)"
+PERSISTENT_STATE_ROOT="$HOME/Library/Application Support/fg-studio-nas-supervisor"
+NAS_GUARD_ROOT="$HOME/Library/Application Support/fg-studio-nas-state"
+NAS_DISABLED_HOST_FILE="$NAS_GUARD_ROOT/disabled"
 STATE_FILE="$STATE_ROOT/state"
 LAST_SUCCESS_FILE="$STATE_ROOT/last-storage-success"
-LOCK_DIR="$STATE_ROOT/lock"
+LOCK_FILE="$STATE_ROOT/lock"
 MOUNT_RETRY_FILE="$STATE_ROOT/last-mount-attempt"
-RECOVERY_PENDING_FILE="$STATE_ROOT/recovery-pending"
+RECOVERY_PENDING_FILE="$PERSISTENT_STATE_ROOT/recovery-pending"
 KEYCHAIN_SERVICE="com.fgstudio.nas-supervisor.smb"
-RECREATE_LOCK_DIR="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
+RECREATE_LOCK_FILE="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
+RECREATE_LOCK_HELD=0
 STATE_TRANSITION_SEQUENCE=0
+COMPOSE_STORAGE_MODE="offline"
+APP_DISABLED_FILE="/tmp/fg-studio-nas-disabled"
+MOUNT_REQUESTED=0
 
-mkdir -p "$STATE_ROOT"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  LOCK_PID="$(<"$LOCK_DIR/pid" 2>/dev/null || true)"
-  if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
-    exit 0
-  fi
-  rm -f "$LOCK_DIR/pid"
-  rmdir "$LOCK_DIR" 2>/dev/null || exit 0
-  mkdir "$LOCK_DIR"
+mkdir -p "$STATE_ROOT" "$PERSISTENT_STATE_ROOT" "$NAS_GUARD_ROOT"
+LEGACY_LOCK_STATUS=0
+cleanup_legacy_lock_directory "$LOCK_FILE" || LEGACY_LOCK_STATUS=$?
+if (( LEGACY_LOCK_STATUS == 1 )); then
+  exit 0
 fi
-printf '%s' "$$" > "$LOCK_DIR/pid"
+if (( LEGACY_LOCK_STATUS != 0 )); then
+  printf 'NAS supervisor: legacy singleton lock migration failed\n' >&2
+  exit 1
+fi
+if ! exec 8>>"$LOCK_FILE"; then
+  printf 'NAS supervisor: cannot open the singleton lock file %s\n' "$LOCK_FILE" >&2
+  exit 1
+fi
+LOCK_RESULT=0
+/usr/bin/lockf -s -t 0 8 || LOCK_RESULT=$?
+if (( LOCK_RESULT == 75 )); then
+  exec 8>&-
+  exit 0
+fi
+if (( LOCK_RESULT != 0 )); then
+  exec 8>&-
+  printf 'NAS supervisor: lockf failed with exit %s\n' "$LOCK_RESULT" >&2
+  exit 1
+fi
 cleanup() {
   release_recreate_lock
-  rm -f "$LOCK_DIR/pid"
-  rmdir "$LOCK_DIR" 2>/dev/null || true
+  exec 8>&-
+  unregister_lock_protocol_process
 }
 trap cleanup EXIT
 
@@ -121,6 +148,14 @@ run_with_timeout() {
   return "$exit_code"
 }
 
+compose() {
+  local compose_files=(--file "$PROJECT_ROOT/docker-compose.yml")
+  if [[ "$COMPOSE_STORAGE_MODE" == "nas" ]]; then
+    compose_files+=(--file "$PROJECT_ROOT/docker-compose.nas.yml")
+  fi
+  docker compose "${compose_files[@]}" --project-directory "$PROJECT_ROOT" --env-file "$ENV_FILE" "$@"
+}
+
 set_state() {
   local next_state="$1"
   local message="$2"
@@ -138,10 +173,19 @@ set_storage_ready() {
   set_state "ready" "$1"
 }
 
+set_storage_guard() {
+  (umask 022; : > "$NAS_DISABLED_HOST_FILE") && chmod 644 "$NAS_DISABLED_HOST_FILE"
+}
+
 mark_recovery_pending() {
   # Persist the need to refresh Docker's bind mount after the NAS becomes writable again.
   # 持久记录待恢复状态，NAS 可读写后必须重建容器以刷新 bind mount。
-  printf '%s' "$(date +%s)" > "$RECOVERY_PENDING_FILE"
+  if ! printf '%s' "$(date +%s)" > "$RECOVERY_PENDING_FILE"; then
+    # Keep a retryable state when the durable marker cannot be written.
+    # 持久标记写入失败时保留重试状态，避免下轮误判为已恢复。
+    set_state "recovery-pending-write-failed" "NAS supervisor: recovery marker could not be persisted; storage guard stays active and will retry"
+    return 1
+  fi
 }
 
 clear_recovery_pending() {
@@ -161,10 +205,12 @@ read_env_value() {
 }
 
 find_app_container() {
-  docker ps \
+  local container_ids=""
+  container_ids="$(run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker ps \
     --filter label=com.docker.compose.project=fgai-app \
     --filter label=com.docker.compose.service="$APP_SERVICE" \
-    --format '{{.ID}}' | head -n 1
+    --format '{{.ID}}')" || return 1
+  printf '%s\n' "$container_ids" | head -n 1
 }
 
 find_app_image() {
@@ -174,26 +220,157 @@ find_app_image() {
     --format '{{.Image}}' | head -n 1
 }
 
-acquire_recreate_lock() {
-  local owner_pid=""
-  mkdir -p "$(dirname "$RECREATE_LOCK_DIR")"
-  if ! mkdir "$RECREATE_LOCK_DIR" 2>/dev/null; then
-    [[ -f "$RECREATE_LOCK_DIR/pid" ]] && owner_pid="$(<"$RECREATE_LOCK_DIR/pid")"
-    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
-      return 1
-    fi
-    rm -f "$RECREATE_LOCK_DIR/pid"
-    rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || return 1
-    mkdir "$RECREATE_LOCK_DIR" 2>/dev/null || return 1
+app_uses_nas_mount() {
+  local container="$1"
+  local app_env
+  # Return 2 when Docker cannot confirm the mode, distinct from a confirmed offline container.
+  # Docker 无法读取容器环境时返回 2，与已确认的离线容器区分开。
+  if ! app_env="$(run_with_timeout 10 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null)"; then
+    return 2
   fi
-  printf '%s' "$$" > "$RECREATE_LOCK_DIR/pid"
+  grep -Fxq 'NAS_STORAGE_MODE=nas' <<< "$app_env"
+}
+
+app_has_shared_guard_mount() {
+  local container="$1"
+  local mounts
+  mounts="$(run_with_timeout 10 docker inspect --format '{{range .Mounts}}{{printf "%s|%s|%s\n" .Destination .Type .Source}}{{end}}' "$container" 2>/dev/null || true)"
+  grep -Fqx "/run/fg-nas|bind|$NAS_GUARD_ROOT" <<< "$mounts"
+}
+
+protect_running_storage() {
+  local container="$1"
+  local host_guard_ready=0
+  # The shared local guard works even when Docker exec or the SMB mount is stalled.
+  # 本地共享守卫不依赖 Docker exec，也不会被 SMB 挂载卡住。
+  if set_storage_guard 2>/dev/null; then
+    host_guard_ready=1
+  fi
+  if (( host_guard_ready )) && app_has_shared_guard_mount "$container"; then
+    return 0
+  fi
+  # Older containers lack the shared guard mount, so retain a container-local fallback.
+  # 旧容器尚未挂载共享守卫目录时，退回写入容器本地标记。
+  if run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker exec "$container" sh -c 'touch "$1"' sh "$APP_DISABLED_FILE" >/dev/null 2>&1; then
+    return 0
+  fi
+  log "NAS supervisor: could not set the App-local NAS guard; storage probe remains failed"
+  return 1
+}
+
+clear_storage_guard() {
+  local container="${1:-}"
+  # Remove the container-local fallback first and the shared host guard last.
+  # 先清容器内备用标记，最后移除共享 host guard，避免 exec 失败时提前放开媒体 I/O。
+  if [[ -n "$container" ]] && ! run_with_timeout 10 docker exec "$container" sh -c 'rm -f "$1"' sh "$APP_DISABLED_FILE" >/dev/null 2>&1; then
+    return 1
+  fi
+  rm -f "$NAS_DISABLED_HOST_FILE"
+}
+
+acquire_recreate_lock() {
+  local migration_status=0
+  local lock_status=0
+  mkdir -p "$(dirname "$RECREATE_LOCK_FILE")"
+  cleanup_legacy_lock_directory "$RECREATE_LOCK_FILE" || migration_status=$?
+  if (( migration_status == 2 )); then
+    log "NAS supervisor: legacy App recreation lock migration failed"
+    return 1
+  fi
+  if (( migration_status != 0 )); then
+    return 1
+  fi
+  if ! exec 9>>"$RECREATE_LOCK_FILE"; then
+    log "NAS supervisor: cannot open the App recreation lock file"
+    return 1
+  fi
+  /usr/bin/lockf -s -t 0 9 || lock_status=$?
+  if (( lock_status != 0 )); then
+    exec 9>&-
+    if (( lock_status != 75 )); then
+      log "NAS supervisor: lockf failed for the App recreation lock (exit $lock_status)"
+    fi
+    return 1
+  fi
+  RECREATE_LOCK_HELD=1
 }
 
 release_recreate_lock() {
-  if [[ -f "$RECREATE_LOCK_DIR/pid" ]] && [[ "$(<"$RECREATE_LOCK_DIR/pid")" == "$$" ]]; then
-    rm -f "$RECREATE_LOCK_DIR/pid"
-    rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || true
+  if (( RECREATE_LOCK_HELD )); then
+    exec 9>&-
+    RECREATE_LOCK_HELD=0
   fi
+}
+
+start_offline_app_if_missing() {
+  local container
+  # Cold starts use the read-only named volume until a fresh NAS bind probe succeeds.
+  # 冷启动先使用只读 named volume，直到真实 NAS bind 的新读写探测通过。
+  if ! run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker info >/dev/null 2>&1; then
+    set_state "docker-offline" "NAS supervisor: Docker is unavailable; waiting to start App in offline storage mode"
+    return 0
+  fi
+  if ! container="$(find_app_container 2>/dev/null)"; then
+    set_state "probe-unavailable" "NAS supervisor: Docker could not confirm whether an App container is running; refusing offline replacement"
+    return 1
+  fi
+  if [[ -n "$container" ]]; then
+    if ! protect_running_storage "$container"; then
+      set_state "storage-guard-failed" "NAS supervisor: could not guard the running App; leaving it running without a NAS restart"
+      return 1
+    fi
+    return 0
+  fi
+  if ! acquire_recreate_lock; then
+    set_state "app-transitioning" "NAS supervisor: App recreation is already in progress; waiting before offline start"
+    return 0
+  fi
+  COMPOSE_STORAGE_MODE="offline"
+  if ! CLOUDFLARE_TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-nas-supervisor-not-used}" compose up -d "$APP_SERVICE" >/dev/null; then
+    release_recreate_lock
+    set_state "app-start-failed" "NAS supervisor: NAS is unavailable and App could not start with isolated offline storage"
+    return 1
+  fi
+  container="$(find_app_container 2>/dev/null || true)"
+  release_recreate_lock
+  if [[ -z "$container" ]]; then
+    set_state "app-start-failed" "NAS supervisor: offline Compose start returned without a running App container"
+    return 1
+  fi
+  set_state "nas-offline-app-running" "NAS supervisor: App is running with NAS storage isolated; media operations are disabled"
+}
+
+restore_offline_app_after_recreate_failure() {
+  # Keep the guarded App available when NAS recovery recreation cannot finish.
+  # NAS 恢复重建失败时，先守卫现有 App 或启动离线 App，再等待下一轮探测。
+  local reason="$1"
+  local container=""
+
+  if ! set_storage_guard 2>/dev/null; then
+    container="$(find_app_container 2>/dev/null || true)"
+    if [[ -n "$container" ]] && ! protect_running_storage "$container"; then
+      release_recreate_lock
+      set_state "storage-guard-failed" "NAS supervisor: $reason; the running App could not be guarded"
+      return 1
+    fi
+  fi
+
+  release_recreate_lock
+  COMPOSE_STORAGE_MODE="offline"
+  if ! start_offline_app_if_missing; then
+    set_state "app-start-failed" "NAS supervisor: $reason; offline App fallback failed"
+    return 1
+  fi
+  container="$(find_app_container 2>/dev/null || true)"
+  if [[ -z "$container" ]]; then
+    set_state "app-start-failed" "NAS supervisor: $reason; offline fallback has no confirmed running App"
+    return 1
+  fi
+  if ! mark_recovery_pending; then
+    log "NAS supervisor: could not persist recovery state after offline fallback; App remains guarded"
+    return 1
+  fi
+  set_state "recovery-recreate-failed" "NAS supervisor: $reason; App remains running with NAS storage guarded"
 }
 
 probe_running_storage() {
@@ -271,7 +448,36 @@ request_mount() {
   return "$mount_exit"
 }
 
-[[ -f "$ENV_FILE" ]] || { set_state "config-missing" "NAS supervisor: environment file is missing"; exit 1; }
+request_mount_for_recovery() {
+  (( MOUNT_REQUESTED == 0 )) || return 0
+  MOUNT_REQUESTED=1
+  if request_mount "$MOUNT_URL" "$SMB_USER"; then
+    log "NAS supervisor: requested SMB recovery while the mount entry is still present"
+    return 0
+  fi
+  log "NAS supervisor: SMB recovery request failed; App remains running with storage guarded"
+  return 1
+}
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  if ! set_storage_guard 2>/dev/null; then
+    log "NAS supervisor: local NAS guard could not be written; checking the running App's local guard"
+  fi
+  if run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker info >/dev/null 2>&1; then
+    if ! APP_CONTAINER="$(find_app_container 2>/dev/null)"; then
+      set_state "probe-unavailable" "NAS supervisor: environment file is missing and Docker could not confirm the running App"
+      exit 1
+    fi
+      if [[ -n "$APP_CONTAINER" ]] && ! protect_running_storage "$APP_CONTAINER"; then
+        set_state "storage-guard-failed" "NAS supervisor: environment file is missing and the running App could not be guarded"
+        mark_recovery_pending
+        exit 1
+    fi
+  fi
+  mark_recovery_pending
+  set_state "config-missing" "NAS supervisor: environment file is missing; App remains running with NAS storage guarded"
+  exit 1
+fi
 NAS_PATH="$(read_env_value NAS_MEDIA_PATH)"
 EXPECTED_HOST="$(read_env_value NAS_EXPECTED_HOST)"
 EXPECTED_SHARE="$(read_env_value NAS_EXPECTED_SHARE)"
@@ -282,15 +488,33 @@ SMB_USER="${MOUNT_URL#smb://}"
 SMB_USER="${SMB_USER%%@*}"
 
 if [[ -z "$NAS_PATH" || "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
+  start_offline_app_if_missing || exit 1
+  if ! set_storage_guard 2>/dev/null; then
+    log "NAS supervisor: local guard unavailable; offline media volume or App-local guard remains active"
+  fi
   mark_recovery_pending
   set_state "config-invalid" "NAS supervisor: NAS configuration is invalid; App remains running and storage stays guarded"
-  exit 1
+  exit 0
 fi
 
 CURRENT_STATE=""
 [[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
 case "$CURRENT_STATE" in
-  mount-requested|mount-failed|nas-readonly|container-mount-failed|recovery-recreate-failed|stop-failed|config-invalid|app-start-failed)
+  mount-requested|mount-failed|nas-readonly|container-mount-failed|recovery-recreate-failed|recovery-pending-write-failed|storage-guard-failed|stop-failed|config-invalid|app-start-failed|docker-offline|probe-unavailable)
+    if ! set_storage_guard 2>/dev/null; then
+      log "NAS supervisor: shared guard could not be refreshed; checking the running App's local guard"
+    fi
+    if run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker info >/dev/null 2>&1; then
+      if ! CURRENT_APP="$(find_app_container 2>/dev/null)"; then
+        set_state "probe-unavailable" "NAS supervisor: Docker could not confirm the running App during pending recovery"
+        exit 1
+      fi
+      if [[ -n "$CURRENT_APP" ]] && ! protect_running_storage "$CURRENT_APP"; then
+        set_state "storage-guard-failed" "NAS supervisor: previous recovery is pending but the running App could not be guarded"
+        mark_recovery_pending
+        exit 1
+      fi
+    fi
     mark_recovery_pending
     ;;
 esac
@@ -314,6 +538,43 @@ if [[ -z "$MOUNT_POINT" ]]; then
   MOUNT_POINT="$(read_expected_mount_point)" || MOUNT_POINT=""
 fi
 if [[ -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
+  if ! set_storage_guard 2>/dev/null; then
+    log "NAS supervisor: shared guard could not be written; checking the running App's local guard"
+  fi
+  if ! run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker info >/dev/null 2>&1; then
+    if ! set_storage_guard 2>/dev/null; then
+      mark_recovery_pending
+      set_state "storage-guard-failed" "NAS supervisor: Docker is unavailable and no storage guard could be confirmed; delaying SMB recovery"
+    else
+      mark_recovery_pending
+      set_state "docker-offline" "NAS supervisor: Docker is unavailable; shared guard was written and SMB recovery is deferred"
+    fi
+    exit 0
+  fi
+  if ! APP_CONTAINER="$(find_app_container 2>/dev/null)"; then
+    mark_recovery_pending
+    set_state "probe-unavailable" "NAS supervisor: Docker could not confirm the running App; delaying SMB recovery"
+    exit 0
+  fi
+  if [[ -n "$APP_CONTAINER" ]] && ! protect_running_storage "$APP_CONTAINER"; then
+    mark_recovery_pending
+    set_state "storage-guard-failed" "NAS supervisor: could not guard the running App; leaving it running while NAS is unavailable"
+    exit 1
+  fi
+  APP_START_FAILED=0
+  if [[ -z "$APP_CONTAINER" ]] && ! start_offline_app_if_missing; then
+    APP_START_FAILED=1
+  fi
+  if [[ -z "$APP_CONTAINER" && "$APP_START_FAILED" == 0 ]]; then
+    if ! APP_CONTAINER="$(find_app_container 2>/dev/null)" || [[ -z "$APP_CONTAINER" ]]; then
+      APP_START_FAILED=1
+    fi
+  fi
+  if [[ "$APP_START_FAILED" == 1 ]]; then
+    mark_recovery_pending
+    set_state "app-start-failed" "NAS supervisor: offline App could not be confirmed; deferring SMB recovery while keeping NAS storage guarded"
+    exit 0
+  fi
   mark_recovery_pending
   if request_mount "$MOUNT_URL" "$SMB_USER"; then
     set_state "mount-requested" "NAS supervisor: SMB mount requested; App remains running and storage stays guarded"
@@ -324,19 +585,43 @@ if [[ -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$M
 fi
 
 if ! run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker info >/dev/null 2>&1; then
+  if ! set_storage_guard 2>/dev/null; then
+    log "NAS supervisor: Docker is unavailable and the shared NAS guard could not be written"
+  fi
+  mark_recovery_pending
   set_state "docker-offline" "NAS supervisor: Docker is unavailable; waiting"
   exit 0
 fi
 
 if ! APP_CONTAINER="$(find_app_container 2>/dev/null)"; then
+  if ! set_storage_guard 2>/dev/null; then
+    log "NAS supervisor: Docker could not list App and the shared NAS guard could not be written"
+  fi
+  mark_recovery_pending
   set_state "probe-unavailable" "NAS supervisor: Docker could not list the App container"
   exit 1
 fi
-if [[ -n "$APP_CONTAINER" ]]; then
+if [[ -z "$APP_CONTAINER" ]]; then
+  if ! start_offline_app_if_missing; then
+    exit 1
+  fi
+  APP_CONTAINER="$(find_app_container 2>/dev/null || true)"
+  if [[ -z "$APP_CONTAINER" ]]; then
+    set_state "app-transitioning" "NAS supervisor: waiting for the offline App start or an active deployment"
+    exit 0
+  fi
+fi
+if [[ -n "$APP_CONTAINER" ]] && app_uses_nas_mount "$APP_CONTAINER"; then
   STORAGE_PROBE_EXIT=0
   probe_running_storage "$APP_CONTAINER" || STORAGE_PROBE_EXIT=$?
   STORAGE_FIRST_EXIT="$STORAGE_PROBE_EXIT"
   if (( STORAGE_PROBE_EXIT != 0 )); then
+    if ! protect_running_storage "$APP_CONTAINER"; then
+      set_state "storage-guard-failed" "NAS supervisor: could not guard the running App; leaving it running without a NAS restart"
+      mark_recovery_pending
+      exit 1
+    fi
+    mark_recovery_pending
     # Retry once to separate a transient Docker exec failure from NAS I/O failure.
     # 重试一次，区分 Docker exec 瞬时失败与 NAS 实际读写失败。
     STORAGE_RETRY_EXIT=0
@@ -348,15 +633,18 @@ if [[ -n "$APP_CONTAINER" ]]; then
     fi
   fi
   if (( STORAGE_PROBE_EXIT == 0 )); then
-    CURRENT_STATE=""
-    [[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
-    if [[ "$CURRENT_STATE" == "recovery-recreate-failed" ]]; then
-      clear_recovery_pending
-      set_storage_ready "NAS supervisor: App storage recovered after the recovery restart"
-      exit 0
-    fi
     if [[ ! -f "$RECOVERY_PENDING_FILE" ]]; then
+      if ! acquire_recreate_lock; then
+        set_state "app-transitioning" "NAS supervisor: App deployment is in progress; keeping the NAS guard until it finishes"
+        exit 0
+      fi
+      if ! clear_storage_guard "$APP_CONTAINER"; then
+        release_recreate_lock
+        set_state "storage-guard-failed" "NAS supervisor: storage probe passed but the local NAS guard could not be cleared"
+        exit 1
+      fi
       set_storage_ready "NAS supervisor: mounted App storage is readable and writable"
+      release_recreate_lock
       exit 0
     fi
     log "NAS supervisor: storage recovered; verifying a fresh bind mount before restarting App"
@@ -388,6 +676,9 @@ if [[ -n "$APP_CONTAINER" ]]; then
     if (( NAS_FAILURE_CONFIRMED || PROBE_UNCONFIRMED )); then
       mark_recovery_pending
     fi
+    if (( NAS_FAILURE_CONFIRMED )); then
+      request_mount_for_recovery || true
+    fi
     CURRENT_STATE=""
     [[ -f "$STATE_FILE" ]] && CURRENT_STATE="$(<"$STATE_FILE")"
     if [[ "$CURRENT_STATE" == "recovery-recreate-failed" ]]; then
@@ -401,6 +692,31 @@ if [[ -n "$APP_CONTAINER" ]]; then
     fi
     mark_recovery_pending
     set_state "container-mount-failed" "NAS supervisor: App storage probe failed ($STORAGE_FIRST_EXIT/$STORAGE_RETRY_EXIT; TCP 445=$SMB_PORT_STATUS); App remains running and storage stays guarded"
+  fi
+fi
+
+if [[ -n "$APP_CONTAINER" ]]; then
+  # Keep offline and unconfirmed containers guarded while probing the NAS recovery path.
+  # 离线或模式未知的容器在验证 NAS 恢复期间继续保持守卫。
+  APP_MODE_STATUS=0
+  if app_uses_nas_mount "$APP_CONTAINER"; then
+    APP_MODE_STATUS=0
+  else
+    APP_MODE_STATUS=$?
+  fi
+  if (( APP_MODE_STATUS != 0 )); then
+    if (( APP_MODE_STATUS == 2 )) && ! protect_running_storage "$APP_CONTAINER"; then
+      set_state "storage-guard-failed" "NAS supervisor: App mode could not be inspected or safely guarded"
+      mark_recovery_pending
+      exit 1
+    fi
+    if ! set_storage_guard 2>/dev/null; then
+      mark_recovery_pending
+      set_state "storage-guard-failed" "NAS supervisor: could not write the local NAS guard before enabling a recovered mount"
+      exit 1
+    fi
+    mark_recovery_pending
+    log "NAS supervisor: App is offline or its storage mode is unconfirmed; verifying NAS before switching it online"
   fi
 fi
 
@@ -425,9 +741,23 @@ fi
 PROBE_EXIT=0
 probe_new_mount "$APP_IMAGE" || PROBE_EXIT=$?
 if (( PROBE_EXIT != 0 )); then
+  if [[ -z "$APP_CONTAINER" ]]; then
+    if ! set_storage_guard 2>/dev/null; then
+      log "NAS supervisor: local guard unavailable; offline Compose mode still blocks App media I/O"
+    fi
+    if ! start_offline_app_if_missing; then
+      mark_recovery_pending
+      exit 1
+    fi
+  elif ! protect_running_storage "$APP_CONTAINER"; then
+    mark_recovery_pending
+    set_state "storage-guard-failed" "NAS supervisor: fresh NAS probe failed and the running App could not be guarded; leaving it running"
+    exit 1
+  fi
   if (( PROBE_EXIT >= 10 && PROBE_EXIT <= 12 )); then
     mark_recovery_pending
-    set_state "nas-readonly" "NAS supervisor: fresh NAS storage probe failed at stage $PROBE_EXIT; App will not start until storage recovers"
+    request_mount_for_recovery || true
+    set_state "nas-readonly" "NAS supervisor: fresh NAS storage probe failed at stage $PROBE_EXIT; App stays running with NAS storage disabled"
   else
     set_state "probe-unavailable" "NAS supervisor: fresh container storage probe could not complete (exit=$PROBE_EXIT); App remains unchanged"
   fi
@@ -440,29 +770,74 @@ if ! acquire_recreate_lock; then
   set_state "app-transitioning" "NAS supervisor: App recreation is already in progress; waiting"
   exit 0
 fi
+# Recheck under the shared lock so a mount loss during lock acquisition cannot restart App.
+# 获取共享锁后再次读写探测，避免等待期间 NAS 掉线仍触发 App 重启。
+LOCKED_PROBE_EXIT=0
+probe_new_mount "$APP_IMAGE" || LOCKED_PROBE_EXIT=$?
+if (( LOCKED_PROBE_EXIT != 0 )); then
+  APP_CONTAINER="$(find_app_container 2>/dev/null || true)"
+  if [[ -n "$APP_CONTAINER" ]] && ! protect_running_storage "$APP_CONTAINER"; then
+    release_recreate_lock
+    mark_recovery_pending
+    set_state "storage-guard-failed" "NAS supervisor: locked NAS probe failed and the running App could not be guarded"
+    exit 1
+  fi
+  if [[ -z "$APP_CONTAINER" ]] && ! set_storage_guard 2>/dev/null; then
+    log "NAS supervisor: local guard unavailable before offline fallback; base Compose remains read-only"
+  fi
+  release_recreate_lock
+  if [[ -z "$APP_CONTAINER" ]] && ! start_offline_app_if_missing; then
+    mark_recovery_pending
+    exit 1
+  fi
+  mark_recovery_pending
+  if (( LOCKED_PROBE_EXIT >= 10 && LOCKED_PROBE_EXIT <= 12 )); then
+    request_mount_for_recovery || true
+    set_state "nas-readonly" "NAS supervisor: locked pre-restart storage probe failed at stage $LOCKED_PROBE_EXIT; App remains running"
+  else
+    set_state "probe-unavailable" "NAS supervisor: locked pre-restart storage probe could not confirm NAS read/write; App remains running"
+  fi
+  exit 0
+fi
+COMPOSE_STORAGE_MODE="nas"
 if ! CLOUDFLARE_TUNNEL_TOKEN="${CLOUDFLARE_TUNNEL_TOKEN:-nas-supervisor-not-used}" \
-  docker compose --project-directory "$PROJECT_ROOT" --env-file "$ENV_FILE" \
-  up -d --no-deps --force-recreate "$APP_SERVICE" >/dev/null; then
-  set_state "app-start-failed" "NAS supervisor: mounted storage probe passed, but Docker Compose could not start App"
-  exit 1
+  compose up -d --no-deps --force-recreate "$APP_SERVICE" >/dev/null; then
+  if ! restore_offline_app_after_recreate_failure "NAS-mounted App recreation failed"; then
+    exit 1
+  fi
+  exit 0
 fi
 
 if ! APP_CONTAINER="$(find_app_container 2>/dev/null)"; then
-  set_state "probe-unavailable" "NAS supervisor: Docker could not inspect the recreated App"
-  exit 1
+  if ! restore_offline_app_after_recreate_failure "Docker could not inspect the recreated App"; then
+    exit 1
+  fi
+  exit 0
 fi
 if [[ -z "$APP_CONTAINER" ]]; then
-  set_state "app-start-failed" "NAS supervisor: Docker Compose returned without a running App container"
-  exit 1
+  if ! restore_offline_app_after_recreate_failure "Docker Compose returned without a running NAS App"; then
+    exit 1
+  fi
+  exit 0
 fi
 RECREATED_PROBE_EXIT=0
 probe_running_storage "$APP_CONTAINER" || RECREATED_PROBE_EXIT=$?
 if (( RECREATED_PROBE_EXIT != 0 )); then
+  if ! protect_running_storage "$APP_CONTAINER"; then
+    mark_recovery_pending
+    set_state "storage-guard-failed" "NAS supervisor: recreated App failed its storage probe and could not be guarded; leaving it running"
+    exit 1
+  fi
   mark_recovery_pending
   set_state "recovery-recreate-failed" "NAS supervisor: recreated App storage probe could not confirm NAS read/write (exit=$RECREATED_PROBE_EXIT); App remains running and storage stays guarded"
   exit 0
 fi
 
+if ! clear_storage_guard "$APP_CONTAINER"; then
+  mark_recovery_pending
+  set_state "storage-guard-failed" "NAS supervisor: recovered App passed read/write probe but the local guard could not be cleared"
+  exit 1
+fi
 clear_recovery_pending
 set_storage_ready "NAS supervisor: NAS recovered and app recreated"
 release_recreate_lock

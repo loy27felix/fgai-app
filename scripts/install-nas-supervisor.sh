@@ -32,7 +32,7 @@ if [[ "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
   exit 1
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
+mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$HOME/Library/Application Support/fg-studio-nas-state"
 
 printf 'Enter the NAS password for %s. It will be stored only in macOS Keychain.\n' "$SMB_USER"
 # Let security read the secret directly so it never enters shell history, arguments, or repository files.

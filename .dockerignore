@@ -2,6 +2,7 @@ node_modules
 .next
 .git
 .codex
+.fg-nas-state
 .env*
 !.env.docker.example
 coverage

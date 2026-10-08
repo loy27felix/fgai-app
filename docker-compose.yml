@@ -11,8 +11,8 @@ services:
       dockerfile: Dockerfile
       args:
         APP_DEPLOYMENT_VERSION: ${APP_DEPLOYMENT_VERSION:-dev}
-    # The NAS supervisor owns app lifecycle so Docker cannot start it against an unmounted host directory.
-    # App 生命周期由 NAS 守护进程管理，禁止 Docker 在宿主机目录未挂载时抢先启动。
+    # The NAS supervisor owns app lifecycle; the base file is a safe offline configuration.
+    # App 生命周期由 NAS 守护进程管理；基础配置使用隔离的离线媒体卷。
     restart: "no"
     # Use resolvers that resolve wetoken.ai when the LAN resolver returns SERVFAIL.
     # 局域网 DNS 对 wetoken.ai 返回 SERVFAIL 时，改用公网 DNS，避免 Provider 主域名无法解析。
@@ -26,22 +26,30 @@ services:
       # 宿主机路径只用于 bind mount，应用容器内统一从 /data/media 读写。
       NAS_MEDIA_PATH: /data/media
       NAS_READY_FILE: /data/media/.fg-studio-nas-ready
+      NAS_STORAGE_MODE: offline
+      NAS_DISABLED_FILE: /run/fg-nas/disabled
       UV_THREADPOOL_SIZE: "32"
     command:
       - sh
       - -c
       - |
         set -e
-        grep -qx "fg-studio-media:v1" "$${NAS_READY_FILE}" || { echo "NAS media storage is unavailable" >&2; exit 78; }
         node scripts/local-db-migrate.mjs
         exec node server.js
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - type: bind
-        source: ${NAS_MEDIA_PATH:?Set NAS_MEDIA_PATH in .env.docker}
+      - type: volume
+        source: nas-media-offline
         target: /data/media
+        read_only: true
+      # Host-local guard lets the supervisor disable NAS I/O without Docker exec.
+      # 宿主机本地守卫允许守护进程不依赖 Docker exec 关闭 NAS I/O。
+      - type: bind
+        source: ${HOME}/Library/Application Support/fg-studio-nas-state
+        target: /run/fg-nas
+        read_only: true
         bind:
           create_host_path: false
     ports:
@@ -148,3 +156,4 @@ networks:
 
 volumes:
   postgres-data:
+  nas-media-offline:

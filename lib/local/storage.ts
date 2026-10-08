@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = () => path.resolve(process.env.NAS_MEDIA_PATH || "/data/media");
 const readyFile = () => path.resolve(process.env.NAS_READY_FILE || path.join(root(), ".fg-studio-nas-ready"));
+const disabledFile = () => path.resolve(process.env.NAS_DISABLED_FILE || "/tmp/fg-studio-nas-disabled");
 const publicBase = () => process.env.LOCAL_MEDIA_URL || "/api/local/storage/content";
 const providerBase = () => process.env.PROVIDER_MEDIA_URL || publicBase();
 export const NAS_UNAVAILABLE_CODE = "NAS_UNAVAILABLE";
@@ -18,8 +19,28 @@ class NasStorageUnavailableError extends Error {
   }
 }
 
-async function assertNasReady() {
+async function assertNasStorageEnabled() {
+  const mode = process.env.NAS_STORAGE_MODE;
+  if (mode && mode !== "nas") throw new NasStorageUnavailableError();
+  const guardFiles = new Set([disabledFile(), path.resolve("/tmp/fg-studio-nas-disabled")]);
+  for (const guardFile of guardFiles) {
+    try {
+      // The supervisor writes a local guard after a failed live SMB probe.
+      // 守护进程确认 SMB 探测失败后写入本地守卫，立即关闭后续媒体 I/O。
+      await access(guardFile);
+      throw new NasStorageUnavailableError();
+    } catch (error) {
+      if (error instanceof NasStorageUnavailableError) throw error;
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw new NasStorageUnavailableError();
+      }
+    }
+  }
+}
+
+export async function assertNasReady() {
   try {
+    await assertNasStorageEnabled();
     const marker = await readFile(readyFile(), "utf8");
     // Match the provisioned marker instead of trusting any file at an empty mount path.
     // 必须匹配共享盘标记内容，不能仅凭空挂载点上存在一个文件就开放媒体读写。

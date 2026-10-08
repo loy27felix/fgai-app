@@ -63,15 +63,17 @@ MEDIA_WORKER_ENABLED=false
 
 ### 局域网 Docker + NAS 部署
 
-局域网部署使用纯本地 Docker 服务，应用和 PostgreSQL 由仓库根目录的 `docker-compose.yml` 管理，媒体文件直接写入 NAS 挂载目录。数据库使用独立 Docker volume，不要把数据库目录放在普通 SMB 共享上。
+局域网部署使用纯本地 Docker 服务，应用和 PostgreSQL 由仓库根目录的 Compose 文件管理，数据库使用独立 Docker volume，不要把数据库目录放在普通 SMB 共享上。基础 `docker-compose.yml` 使用只读隔离媒体卷；只有 NAS 已确认挂载并通过容器内读写探测时，才附加 `docker-compose.nas.yml` 绑定真实媒体目录。
 
 1. 在 Docker 主机挂载 NAS 目录，并确保 Docker daemon 有读写权限。未挂载时，宿主机上的空挂载点必须保持只读，避免媒体误写到本地磁盘。
 2. 复制 `.env.docker.example` 为 `.env.docker`，填写 `POSTGRES_PASSWORD`、`NAS_MEDIA_PATH`、`NAS_EXPECTED_HOST`、`NAS_EXPECTED_SHARE`、`NAS_MOUNT_URL` 和 `CLOUDFLARE_TUNNEL_TOKEN`。`NAS_MEDIA_PATH` 填 Docker 宿主机上的绝对路径，例如 `/Volumes/FgStudio/media`；`NAS_EXPECTED_HOST` 和 `NAS_EXPECTED_SHARE` 分别填写 NAS 固定地址与共享名；`NAS_MOUNT_URL` 填不含密码的 SMB URL，凭据必须保存在宿主机当前账号的 Keychain。Compose 会把宿主机目录挂载到容器内的 `/data/media`，不要把容器路径写入该变量。
 3. 在 Cloudflare Tunnel 的 Published application 中，把 Service URL 配置为 `http://app:3000`。`cloudflared` 与 App 在同一个 Docker network 中，不能填写宿主机的 `localhost`。
 4. 把 Tunnel 的公网 HTTPS 地址写入 `PROVIDER_MEDIA_URL`，例如 `https://media.example.com/api/local/storage/content`。启用本地 TLS 代理后，`LOCAL_MEDIA_URL` 使用 `https://192.168.0.99:3000/api/local/storage/content`；局域网客户端需要信任该证书，Wetoken 仍使用 Tunnel 地址。App 服务端代理会自动把本地媒体 URL 改走容器内 HTTP（production 默认 `http://app:3000`，development 默认 `http://127.0.0.1:3000`）；如容器内监听地址不同，可配置 `LOCAL_MEDIA_INTERNAL_URL`。
-5. 生产主机启用 Docker Nginx TLS profile，并设置 `FG_COMPOSE_PROFILE=https`、`COMPOSE_PROFILES=https`、`FG_APP_HOST_PORT=3001`、`FG_NGINX_HOST_PORT=3000`、`FG_NGINX_CERT_PATH` 和 `FG_NGINX_KEY_PATH`。执行 `docker compose --env-file .env.docker --profile https up -d --build`，用户通过 `https://192.168.0.99:3000` 访问；Nginx 转发至 App 的 `3000`，Cloudflare Tunnel 仍在 Docker network 内直连 App。
+5. 生产主机启用 Docker Nginx TLS profile，并设置 `FG_COMPOSE_PROFILE=https`、`COMPOSE_PROFILES=https`、`FG_APP_HOST_PORT=3001`、`FG_NGINX_HOST_PORT=3000`、`FG_NGINX_CERT_PATH` 和 `FG_NGINX_KEY_PATH`。NAS 挂载和读写探测通过后执行 `mkdir -p "$HOME/Library/Application Support/fg-studio-nas-state" && docker compose --file docker-compose.yml --file docker-compose.nas.yml --env-file .env.docker --profile https up -d --build`，用户通过 `https://192.168.0.99:3000` 访问；Nginx 转发至 App 的 `3000`，Cloudflare Tunnel 仍在 Docker network 内直连 App。
 
 常用 Docker 命令已集成到 `package.json`，均应在实际 Docker 主机的项目目录执行：
+
+这些快捷命令默认使用基础离线 Compose；NAS 媒体卷由守护进程在挂载和读写探测通过后切换启用。手工部署需附加 `docker-compose.nas.yml`，HTTPS 部署命令见步骤 5。
 
 ```bash
 pnpm docker:config        # 校验 Docker Compose 配置
@@ -108,7 +110,7 @@ chmod +x scripts/nas-supervisor.sh scripts/install-nas-supervisor.sh
 scripts/install-nas-supervisor.sh
 ```
 
-安装脚本会在终端要求输入一次 NAS 密码，并仅保存到当前运行账号的 macOS Keychain。守护进程每 10 秒校验一次真实 SMB/NFS 文件系统、NAS 主机、读写探针和容器内标记。NAS 断开时保持 `app` 运行，让其他功能继续服务；NAS 媒体操作仍由应用层保护。守护进程从专用 Keychain 条目读取凭据后以无界面方式重新挂载，不会弹出 Finder 登录窗口；确认恢复挂载可读写后，才使用 `--force-recreate` 重建 `app`，避免复用失效的 bind mount。PostgreSQL 始终保持运行。执行 `pnpm logs:nas` 可同时跟随标准与错误日志。应用自身也会在 NAS 标记缺失时拒绝媒体读写并返回 `503`，因此不能通过本机空目录继续写入。
+安装脚本会在终端要求输入一次 NAS 密码，并仅保存到当前运行账号的 macOS Keychain。守护进程每 10 秒校验 SMB 挂载、NAS 主机、读写探针和容器内标记。NAS 不可用时，`app` 仍可冷启动或保持运行：离线容器只挂载独立、只读的 Docker volume；运行中的容器通过只读挂载的 `~/Library/Application Support/fg-studio-nas-state/disabled` 本地标记关闭后续媒体 I/O，媒体操作返回 `503`，其他功能继续服务。守护进程从专用 Keychain 条目读取凭据后以无界面方式重新挂载，不会弹出 Finder 登录窗口；只有真实 NAS bind mount 的新容器读写探测通过后，才切换挂载、清除禁用标记并 `--force-recreate` 重建 `app`。PostgreSQL 始终保持运行。执行 `pnpm logs:nas` 可同时跟随标准与错误日志。
 
 ### main 分支自动重部署
 
@@ -119,7 +121,7 @@ chmod +x scripts/auto-deploy.sh scripts/install-auto-deploy.sh
 scripts/install-auto-deploy.sh
 ```
 
-服务每 30 秒检查一次 `origin/main`。只有工作树干净、提交可以 fast-forward、NAS ready marker 存在且 Docker Compose 配置有效时才会部署；它会为本次构建生成独立的 `deploymentVersion`（UTC 时间加 commit 短 SHA），通过 Docker build arg 写入 App，并等待容器 health、无需登录的轻量 `/api/version` 健康接口返回成功且版本一致。代码 fast-forward 后，脚本会重新执行刚拉取的最新脚本，并在 `docker compose build` 时显式传入版本参数，避免部署进程继续使用旧脚本或 Compose 默认值 `dev`。完整构建输出保存到宿主机 `$HOME/Library/Logs/fg-studio-auto-deploy-build/`，构建失败时主部署日志会输出尾部摘要，并在自动部署状态目录的 `failed-detail` 文件中保留失败阶段和完整日志路径。它随后执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行版本化迁移，重建 `app` 后会校验并平滑 reload bind-mounted Nginx 配置。构建、数据库升级、App health 或 Nginx reload 失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
+服务每 30 秒检查一次 `origin/main`；NAS 状态不会阻止新版脚本 fetch、build 或启动 App。若主机仍运行日志输出 `NAS mount is not ready; waiting` 的旧版脚本，它会在 fetch 前退出，无法靠自动部署自更新；此时需先进行一次主机脚本引导更新，或等 NAS 恢复后再由旧流程拉取修复。NAS 缺失或读写探测失败时，部署使用隔离的只读媒体卷，NAS 媒体接口保持关闭；真实 NAS bind mount 通过新容器读写探测后才会启用。脚本会为本次构建生成独立的 `deploymentVersion`（UTC 时间加 commit 短 SHA），通过 Docker build arg 写入 App，并等待容器 health、无需登录的轻量 `/api/version` 健康接口返回成功且版本一致。代码 fast-forward 后，脚本会重新执行刚拉取的最新脚本，并在 `docker compose build` 时显式传入版本参数，避免部署进程继续使用旧脚本或 Compose 默认值 `dev`。完整构建输出保存到宿主机 `$HOME/Library/Logs/fg-studio-auto-deploy-build/`，构建失败时主部署日志会输出尾部摘要，并在自动部署状态目录的 `failed-detail` 文件中保留失败阶段和完整日志路径。它随后执行 `002-local-upgrade.sql`，再由 App 启动命令中的 `local-db-migrate.mjs` 按 checksum 幂等执行版本化迁移，重建 `app` 后会校验并平滑 reload bind-mounted Nginx 配置。构建、数据库升级、App health 或 Nginx reload 失败时会回退到上一提交，并记录失败 SHA，避免同一个坏提交反复重启服务。
 
 项目系统版本维护在 `lib/version.ts` 的 `SYSTEM_VERSION`，这是用于强制升级判断的三段式 semver，必须由代码变更人工递增；每次发布新版本必须同步更新 `package.json` 的 `version`、`SYSTEM_VERSION`、`fg-release-notes.ts` 的 `CURRENT_RELEASE_VERSION`，并新增对应版本的中文更新说明。例如将 `1.0.0` 改为 `1.0.1` 后提交并推送，自动部署完成即提高最低可用版本，自动部署不会修改它。所有页面右下角会展示系统版本和部署版本，`/api/version` 返回两者及当前要求的系统版本。旧页面会立即检查并每 60 秒复查；检测到当前页面系统版本低于服务端要求时会阻断页面并提示刷新升级。版本接口暂时不可用时页面放行，避免诊断链路故障阻断正常使用。
 

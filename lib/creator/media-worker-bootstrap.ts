@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { hashWorkerToken } from "@/lib/creator/media-worker-auth";
 import { query } from "@/lib/local/db";
+import { assertNasReady } from "@/lib/local/storage";
 
 export type WorkerArtifactKind = "installer" | "runtime" | "model" | "ffmpeg";
 
@@ -149,6 +150,13 @@ function parseRelease(platform: string, value: unknown): WorkerRelease {
 export async function loadWorkerReleaseManifest(): Promise<RawManifest> {
   const manifestPath = process.env.FG_WORKER_RELEASE_MANIFEST_PATH?.trim();
   if (!manifestPath) throw new WorkerBootstrapError("管理员尚未发布本地 Worker 安装包", "WORKER_RELEASE_UNAVAILABLE", 503);
+  try {
+    // The manifest may be mounted from NAS, so it must share the same fail-closed guard as media files.
+    // 清单可能直接挂载自 NAS，因此必须与媒体文件使用同一套 fail-closed 守卫。
+    await assertNasReady();
+  } catch {
+    throw new WorkerBootstrapError("NAS 媒体存储当前不可用，请稍后重试", "NAS_UNAVAILABLE", 503);
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readFile(manifestPath, "utf8"));

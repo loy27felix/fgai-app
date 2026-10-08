@@ -1,0 +1,11 @@
+services:
+  app:
+    environment:
+      NAS_STORAGE_MODE: nas
+    volumes:
+      - type: bind
+        source: ${NAS_MEDIA_PATH:?Set NAS_MEDIA_PATH in .env.docker}
+        target: /data/media
+        read_only: false
+        bind:
+          create_host_path: false

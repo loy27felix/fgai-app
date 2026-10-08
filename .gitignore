@@ -4,6 +4,7 @@ out
 .env
 .env.local
 .env.docker
+.fg-nas-state/
 .DS_Store
 *.log
 .vercel

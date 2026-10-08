@@ -7,38 +7,74 @@ set -Eeuo pipefail
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lock-utils.sh"
+if ! register_lock_protocol_process; then
+  printf 'Auto deploy: cannot register the current lock protocol process\n' >&2
+  exit 1
+fi
+trap 'unregister_lock_protocol_process' EXIT
 ENV_FILE="${FG_AUTO_DEPLOY_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
 BRANCH="${FG_AUTO_DEPLOY_BRANCH:-main}"
 REMOTE="${FG_AUTO_DEPLOY_REMOTE:-origin}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-fgai-app}"
+COMPOSE_STORAGE_MODE="offline"
 DEPLOY_TARGET_SHA="${FG_AUTO_DEPLOY_TARGET_SHA:-}"
 DEPLOY_PREVIOUS_SHA="${FG_AUTO_DEPLOY_PREVIOUS_SHA:-}"
 export APP_DEPLOYMENT_VERSION="${APP_DEPLOYMENT_VERSION:-dev}"
 STATE_ROOT="${FG_AUTO_DEPLOY_STATE_DIR:-$HOME/Library/Application Support/fg-studio-auto-deploy}"
 APP_LOG_ROOT="${FG_APP_LOG_DIR:-$HOME/Library/Logs/fg-studio-app}"
 BUILD_LOG_ROOT="${FG_AUTO_DEPLOY_BUILD_LOG_DIR:-$HOME/Library/Logs/fg-studio-auto-deploy-build}"
-LOCK_DIR="$STATE_ROOT/lock"
-RECREATE_LOCK_DIR="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
+NAS_GUARD_ROOT="$HOME/Library/Application Support/fg-studio-nas-state"
+LOCK_FILE="$STATE_ROOT/lock"
+RECREATE_LOCK_FILE="$HOME/Library/Application Support/fg-studio-app-recreate/lock"
+RECREATE_LOCK_HELD=0
 FAILED_SHA_FILE="$STATE_ROOT/failed-sha"
 FAILED_DETAIL_FILE="$STATE_ROOT/failed-detail"
 LAST_BUILD_LOG_FILE=""
+ROLLBACK_FAILED_SHA=""
 
-mkdir -p "$STATE_ROOT"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  LOCK_PID=""
-  [[ -f "$LOCK_DIR/pid" ]] && LOCK_PID="$(<"$LOCK_DIR/pid")"
-  if [[ "$LOCK_PID" != "$$" ]] && [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+mkdir -p "$STATE_ROOT" "$NAS_GUARD_ROOT"
+# Keep FD8 inherited only during the in-process version handoff after the lock is acquired.
+# 只有已持锁的脚本版本交接才沿用 FD8，避免重开锁文件时释放单例锁。
+if [[ "${FG_AUTO_DEPLOY_LOCK_HELD:-}" == "1" ]]; then
+  if ! { : >&8; } 2>/dev/null || ! [[ /dev/fd/8 -ef "$LOCK_FILE" ]]; then
+    printf 'Auto deploy: inherited singleton lock descriptor is invalid\n' >&2
+    exit 1
+  fi
+else
+  LEGACY_LOCK_STATUS=0
+  cleanup_legacy_lock_directory "$LOCK_FILE" || LEGACY_LOCK_STATUS=$?
+  if (( LEGACY_LOCK_STATUS == 1 )); then
     exit 0
   fi
-  rm -f "$LOCK_DIR/pid"
-  rmdir "$LOCK_DIR" 2>/dev/null || exit 0
-  mkdir "$LOCK_DIR"
+  if (( LEGACY_LOCK_STATUS != 0 )); then
+    printf 'Auto deploy: legacy singleton lock migration failed\n' >&2
+    exit 1
+  fi
+  if ! exec 8>>"$LOCK_FILE"; then
+    printf 'Auto deploy: cannot open the singleton lock file %s\n' "$LOCK_FILE" >&2
+    exit 1
+  fi
+  LOCK_RESULT=0
+  /usr/bin/lockf -s -t 0 8 || LOCK_RESULT=$?
+  if (( LOCK_RESULT == 75 )); then
+    exec 8>&-
+    exit 0
+  fi
+  if (( LOCK_RESULT != 0 )); then
+    exec 8>&-
+    printf 'Auto deploy: lockf failed with exit %s\n' "$LOCK_RESULT" >&2
+    exit 1
+  fi
 fi
-printf '%s' "$$" > "$LOCK_DIR/pid"
+unset FG_AUTO_DEPLOY_LOCK_HELD
 cleanup() {
+  if [[ -n "$ROLLBACK_FAILED_SHA" ]]; then
+    git -C "$PROJECT_ROOT" reset --keep "$ROLLBACK_FAILED_SHA" >/dev/null 2>&1 || true
+  fi
   release_recreate_lock
-  rm -f "$LOCK_DIR/pid"
-  rmdir "$LOCK_DIR" 2>/dev/null || true
+  exec 8>&-
+  unregister_lock_protocol_process
 }
 trap cleanup EXIT
 
@@ -47,19 +83,35 @@ log() {
 }
 
 acquire_recreate_lock() {
-  local owner_pid=""
   local attempt
-  mkdir -p "$(dirname "$RECREATE_LOCK_DIR")"
+  local migration_status=0
+  local lock_status=0
+  mkdir -p "$(dirname "$RECREATE_LOCK_FILE")"
   for attempt in {1..15}; do
-    owner_pid=""
-    if mkdir "$RECREATE_LOCK_DIR" 2>/dev/null; then
-      printf '%s' "$$" > "$RECREATE_LOCK_DIR/pid"
+    migration_status=0
+    cleanup_legacy_lock_directory "$RECREATE_LOCK_FILE" || migration_status=$?
+    if (( migration_status == 2 )); then
+      log "Auto deploy: legacy App recreation lock migration failed"
+      return 1
+    fi
+    if (( migration_status != 0 )); then
+      sleep 1
+      continue
+    fi
+    if ! exec 9>>"$RECREATE_LOCK_FILE"; then
+      log "Auto deploy: cannot open the App recreation lock file"
+      return 1
+    fi
+    lock_status=0
+    /usr/bin/lockf -s -t 0 9 || lock_status=$?
+    if (( lock_status == 0 )); then
+      RECREATE_LOCK_HELD=1
       return 0
     fi
-    [[ -f "$RECREATE_LOCK_DIR/pid" ]] && owner_pid="$(<"$RECREATE_LOCK_DIR/pid")"
-    if [[ ! "$owner_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$owner_pid" 2>/dev/null; then
-      rm -f "$RECREATE_LOCK_DIR/pid"
-      rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || true
+    exec 9>&-
+    if (( lock_status != 75 )); then
+      log "Auto deploy: lockf failed for the App recreation lock (exit $lock_status)"
+      return 1
     fi
     sleep 1
   done
@@ -67,9 +119,9 @@ acquire_recreate_lock() {
 }
 
 release_recreate_lock() {
-  if [[ -f "$RECREATE_LOCK_DIR/pid" ]] && [[ "$(<"$RECREATE_LOCK_DIR/pid")" == "$$" ]]; then
-    rm -f "$RECREATE_LOCK_DIR/pid"
-    rmdir "$RECREATE_LOCK_DIR" 2>/dev/null || true
+  if (( RECREATE_LOCK_HELD )); then
+    exec 9>&-
+    RECREATE_LOCK_HELD=0
   fi
 }
 
@@ -151,8 +203,13 @@ send_deploy_error_event() {
 }
 
 compose() {
+  local compose_files=(--file "$PROJECT_ROOT/docker-compose.yml")
+  if [[ "$COMPOSE_STORAGE_MODE" == "nas" ]]; then
+    compose_files+=(--file "$PROJECT_ROOT/docker-compose.nas.yml")
+  fi
   if [[ -n "$COMPOSE_PROFILE" ]]; then
     docker compose \
+      "${compose_files[@]}" \
       --project-directory "$PROJECT_ROOT" \
       --project-name "$COMPOSE_PROJECT_NAME" \
       --env-file "$ENV_FILE" \
@@ -163,10 +220,17 @@ compose() {
   # Do not expand an empty Bash array under nounset when HTTPS is disabled.
   # 未启用 HTTPS 时不展开空 Bash array，避免 nounset 导致自动部署失败。
   docker compose \
+    "${compose_files[@]}" \
     --project-directory "$PROJECT_ROOT" \
     --project-name "$COMPOSE_PROJECT_NAME" \
     --env-file "$ENV_FILE" \
     "$@"
+}
+
+set_storage_guard() {
+  # Keep NAS routes disabled until the supervisor verifies the recreated App.
+  # 守护进程确认新 App 的 NAS 读写前，持续关闭媒体接口。
+  (umask 022; : > "$NAS_GUARD_ROOT/disabled") && chmod 644 "$NAS_GUARD_ROOT/disabled"
 }
 
 compose_build_services() {
@@ -196,14 +260,48 @@ compose_build_services() {
 record_failed_deployment() {
   local sha="$1"
   local phase="$2"
+  local rollback_previous_sha="$previous_sha"
+  local prior_failed_sha=""
+  local prior_previous_sha=""
+
+  [[ -f "$FAILED_SHA_FILE" ]] && prior_failed_sha="$(<"$FAILED_SHA_FILE")"
+  if [[ "$prior_failed_sha" == "$previous_sha" && -f "$FAILED_DETAIL_FILE" ]]; then
+    # A failed previous commit is not a safe rollback target; retain its known-good base.
+    # 上一提交本身已失败时不能把它作为回滚目标，沿用其记录的健康基线。
+    prior_previous_sha="$(sed -n 's/^previousCommit=//p' "$FAILED_DETAIL_FILE" | head -n 1)"
+    if [[ "$prior_previous_sha" =~ ^[0-9a-f]{40}$ ]]; then
+      rollback_previous_sha="$prior_previous_sha"
+    fi
+  fi
 
   printf '%s' "$sha" > "$FAILED_SHA_FILE"
   {
     printf 'commit=%s\n' "$sha"
     printf 'phase=%s\n' "$phase"
+    printf 'previousCommit=%s\n' "$rollback_previous_sha"
     printf 'buildLog=%s\n' "${LAST_BUILD_LOG_FILE:-unavailable}"
   } > "$FAILED_DETAIL_FILE"
   log "Auto deploy: failure details saved to $FAILED_DETAIL_FILE"
+}
+
+mark_rollback_completed() {
+  # Stop retrying once the previous revision is healthy again.
+  # 上一版本恢复健康后标记完成，避免后续轮询重复回滚。
+  printf 'rollbackStatus=completed\n' >> "$FAILED_DETAIL_FILE" || return 1
+  grep -Fqx 'rollbackStatus=completed' "$FAILED_DETAIL_FILE"
+}
+
+restore_failed_checkout() {
+  local failed_sha="$1"
+  local reason="$2"
+  # Keep the failed target available so the next poll can retry this rollback.
+  # 保留失败目标提交，以便下一轮重新尝试回滚。
+  if git -C "$PROJECT_ROOT" reset --keep "$failed_sha" >/dev/null; then
+    ROLLBACK_FAILED_SHA=""
+    log "Auto deploy: restored failed commit $failed_sha after incomplete rollback ($reason)"
+  else
+    log "Auto deploy: could not restore failed commit $failed_sha after incomplete rollback ($reason)"
+  fi
 }
 
 archive_app_logs() {
@@ -250,18 +348,18 @@ nas_is_ready() {
   expected_host="$(read_env_value NAS_EXPECTED_HOST)"
   expected_share="$(read_env_value NAS_EXPECTED_SHARE)"
   if [[ -z "$nas_path" || -z "$expected_host" || -z "$expected_share" ]]; then
-    log "Auto deploy: NAS deployment settings are incomplete; waiting"
+    log "Auto deploy: NAS deployment settings are incomplete; using isolated offline storage"
     return 1
   fi
 
   mount_line="$(/sbin/mount | awk -v source="@$expected_host/$expected_share on " 'index($0, source) { print; exit }')"
   mount_point="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$mount_line")"
   if [[ -z "$mount_line" || -z "$mount_point" ]]; then
-    log "Auto deploy: NAS mount is not ready; waiting"
+    log "Auto deploy: NAS mount is not ready; using isolated offline storage"
     return 1
   fi
   if [[ "$nas_path" != "$mount_point" && "$nas_path" != "$mount_point/"* ]]; then
-    log "Auto deploy: NAS path is outside the expected mount; waiting"
+    log "Auto deploy: NAS path is outside the expected mount; using isolated offline storage"
     return 1
   fi
   return 0
@@ -399,12 +497,33 @@ fetch_main() {
 
 rollback() {
   local previous_sha="$1"
+  local failed_sha="$target_sha"
   local services=(app)
 
+  if ! nas_is_ready || ! probe_deploy_mount; then
+    log "Auto deploy: NAS preflight failed; keeping the offline-capable deployment checkout instead of rolling back to a NAS-required revision"
+    return 1
+  fi
+  if ! acquire_recreate_lock; then
+    log "Auto deploy: rollback App recreation lock is busy"
+    return 1
+  fi
+  if ! nas_is_ready || ! probe_deploy_mount; then
+    release_recreate_lock
+    log "Auto deploy: NAS preflight changed before rollback checkout; App remains untouched"
+    return 1
+  fi
+  ROLLBACK_FAILED_SHA="$failed_sha"
   log "Auto deploy: rolling back to $previous_sha"
   if ! git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null; then
     log "Auto deploy: rollback checkout failed"
     return 1
+  fi
+  # Use the NAS override only when the rollback revision defines it; older base files bind NAS directly.
+  # 回滚版本存在 NAS override 时才加载；旧版基础配置直接绑定 NAS。
+  COMPOSE_STORAGE_MODE="offline"
+  if [[ -f "$PROJECT_ROOT/docker-compose.nas.yml" ]]; then
+    COMPOSE_STORAGE_MODE="nas"
   fi
   export APP_DEPLOYMENT_VERSION="$(new_deployment_version "$previous_sha")"
   log "Auto deploy: rollback deployment version is $APP_DEPLOYMENT_VERSION"
@@ -414,29 +533,35 @@ rollback() {
     services+=(video-worker)
   fi
   if ! compose_build_services "${services[@]}"; then
+    restore_failed_checkout "$failed_sha" "rollback-image-build"
+    release_recreate_lock
     log "Auto deploy: rollback image build failed"
     return 1
   fi
-  if ! acquire_recreate_lock; then
-    log "Auto deploy: rollback App recreation lock is busy"
-    return 1
-  fi
   if ! nas_is_ready || ! probe_deploy_mount; then
+    restore_failed_checkout "$failed_sha" "rollback-preflight-changed"
     release_recreate_lock
-    log "Auto deploy: rollback NAS preflight failed; App was not recreated"
+    log "Auto deploy: NAS preflight changed during rollback build; App remains untouched"
     return 1
   fi
   if ! compose up -d --no-deps --force-recreate --remove-orphans "${services[@]}" >/dev/null; then
+    restore_failed_checkout "$failed_sha" "rollback-compose-start"
     release_recreate_lock
     log "Auto deploy: rollback Compose start failed"
     return 1
   fi
   if ! wait_for_healthy; then
+    restore_failed_checkout "$failed_sha" "rollback-health-check"
     release_recreate_lock
     log "Auto deploy: rollback health check failed"
     return 1
   fi
   release_recreate_lock
+  if ! mark_rollback_completed; then
+    log "Auto deploy: rollback is healthy, but completion state could not be saved"
+    return 1
+  fi
+  ROLLBACK_FAILED_SHA=""
   log "Auto deploy: rollback completed"
 }
 
@@ -453,7 +578,6 @@ docker info >/dev/null 2>&1 || {
   log "Auto deploy: Docker is unavailable; waiting"
   exit 0
 }
-nas_is_ready || exit 0
 compose config -q >/dev/null || {
   log "Auto deploy: Docker Compose configuration is invalid; waiting"
   exit 1
@@ -473,17 +597,44 @@ else
   current_sha="$(git -C "$PROJECT_ROOT" rev-parse "$BRANCH")"
   target_sha="$(git -C "$PROJECT_ROOT" rev-parse "$REMOTE/$BRANCH")"
   if [[ "$current_sha" == "$target_sha" ]]; then
+    failed_sha=""
+    [[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
+    if [[ "$failed_sha" == "$target_sha" ]]; then
+      failed_previous_sha=""
+      [[ -f "$FAILED_DETAIL_FILE" ]] && failed_previous_sha="$(sed -n 's/^previousCommit=//p' "$FAILED_DETAIL_FILE" | head -n 1)"
+      failed_rollback_status=""
+      [[ -f "$FAILED_DETAIL_FILE" ]] && failed_rollback_status="$(sed -n 's/^rollbackStatus=//p' "$FAILED_DETAIL_FILE" | tail -n 1)"
+      if [[ "$failed_previous_sha" =~ ^[0-9a-f]{40}$ && "$failed_rollback_status" != "completed" ]]; then
+        log "Auto deploy: retrying deferred rollback after NAS recovery"
+        if rollback "$failed_previous_sha"; then
+          log "Auto deploy: deferred rollback completed"
+          exit 0
+        fi
+        if [[ "$(git -C "$PROJECT_ROOT" rev-parse "$BRANCH")" != "$target_sha" ]]; then
+          exit 1
+        fi
+      fi
+      log "Auto deploy: skipping previously failed commit $target_sha until a safe rollback is available"
+      exit 0
+    fi
     exit 0
   fi
 
   failed_sha=""
   [[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
   if [[ "$failed_sha" == "$target_sha" ]]; then
-    if [[ -f "$FAILED_DETAIL_FILE" ]]; then
-      log "Auto deploy: skipping previously failed commit $target_sha (failure details: $FAILED_DETAIL_FILE)"
-    else
-      log "Auto deploy: skipping previously failed commit $target_sha (failure details unavailable for this older failure)"
+    failed_previous_sha=""
+    [[ -f "$FAILED_DETAIL_FILE" ]] && failed_previous_sha="$(sed -n 's/^previousCommit=//p' "$FAILED_DETAIL_FILE" | head -n 1)"
+    failed_rollback_status=""
+    [[ -f "$FAILED_DETAIL_FILE" ]] && failed_rollback_status="$(sed -n 's/^rollbackStatus=//p' "$FAILED_DETAIL_FILE" | tail -n 1)"
+    if [[ "$failed_previous_sha" =~ ^[0-9a-f]{40}$ && "$failed_rollback_status" != "completed" ]]; then
+      log "Auto deploy: retrying incomplete rollback for failed commit $target_sha"
+      if rollback "$failed_previous_sha"; then
+        log "Auto deploy: deferred rollback completed"
+        exit 0
+      fi
     fi
+    log "Auto deploy: skipping previously failed commit $target_sha (rollbackStatus=${failed_rollback_status:-unknown})"
     exit 0
   fi
 
@@ -495,7 +646,10 @@ else
 
   # Re-read the script after fast-forward so this deployment uses the fetched version.
   # 快进更新后重新读取脚本，确保本次部署执行的是刚拉取的版本。
+  # Preserve the singleton lock across exec; reopening FD 8 would create a race.
+  # 自重启时继承单例锁；重开 FD8 会产生并发窗口。
   exec env \
+    FG_AUTO_DEPLOY_LOCK_HELD=1 \
     FG_AUTO_DEPLOY_TARGET_SHA="$target_sha" \
     FG_AUTO_DEPLOY_PREVIOUS_SHA="$current_sha" \
     "$BASH" "$0"
@@ -504,11 +658,21 @@ fi
 failed_sha=""
 [[ -f "$FAILED_SHA_FILE" ]] && failed_sha="$(<"$FAILED_SHA_FILE")"
 if [[ "$failed_sha" == "$target_sha" ]]; then
-  if [[ -f "$FAILED_DETAIL_FILE" ]]; then
-    log "Auto deploy: skipping previously failed commit $target_sha (failure details: $FAILED_DETAIL_FILE)"
-  else
-    log "Auto deploy: skipping previously failed commit $target_sha (failure details unavailable for this older failure)"
+  failed_previous_sha=""
+  [[ -f "$FAILED_DETAIL_FILE" ]] && failed_previous_sha="$(sed -n 's/^previousCommit=//p' "$FAILED_DETAIL_FILE" | head -n 1)"
+  failed_rollback_status=""
+  [[ -f "$FAILED_DETAIL_FILE" ]] && failed_rollback_status="$(sed -n 's/^rollbackStatus=//p' "$FAILED_DETAIL_FILE" | tail -n 1)"
+  if [[ "$failed_previous_sha" =~ ^[0-9a-f]{40}$ && "$failed_rollback_status" != "completed" ]]; then
+    log "Auto deploy: retrying deferred rollback after NAS recovery"
+    if rollback "$failed_previous_sha"; then
+      log "Auto deploy: deferred rollback completed"
+      exit 0
+    fi
+    if [[ "$(git -C "$PROJECT_ROOT" rev-parse "$BRANCH")" != "$target_sha" ]]; then
+      exit 1
+    fi
   fi
+  log "Auto deploy: skipping previously failed commit $target_sha until a safe rollback is available"
   exit 0
 fi
 
@@ -520,15 +684,11 @@ if ! compose_build_services app; then
   send_deploy_error_event "$target_sha" "image-build"
   exit 1
 fi
-if ! nas_is_ready || ! probe_deploy_mount; then
-  # NAS availability is transient; keep the running App and retry this commit later.
-  # NAS 可用性是瞬时条件；保留运行中的旧 App，回退检出版本并在下轮重试。
-  if ! git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null; then
-    log "Auto deploy: NAS preflight failed and checkout could not return to $previous_sha"
-    exit 1
-  fi
-  log "Auto deploy: NAS preflight failed; running App kept, deployment deferred"
-  exit 0
+COMPOSE_STORAGE_MODE="offline"
+if nas_is_ready && probe_deploy_mount; then
+  COMPOSE_STORAGE_MODE="nas"
+else
+  log "Auto deploy: deploying App with isolated offline storage; NAS media operations stay disabled"
 fi
 if ! apply_database_upgrade; then
   record_failed_deployment "$target_sha" "database-upgrade"
@@ -543,11 +703,17 @@ if ! acquire_recreate_lock; then
   git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null
   exit 0
 fi
-if ! nas_is_ready || ! probe_deploy_mount; then
-  release_recreate_lock
-  git -C "$PROJECT_ROOT" reset --keep "$previous_sha" >/dev/null
-  log "Auto deploy: NAS changed before App recreation; deployment deferred"
-  exit 0
+if [[ "$COMPOSE_STORAGE_MODE" == "nas" ]] && { ! nas_is_ready || ! probe_deploy_mount; }; then
+  COMPOSE_STORAGE_MODE="offline"
+  log "Auto deploy: NAS preflight changed before App recreation; using isolated offline storage"
+fi
+if ! set_storage_guard; then
+  if [[ "$COMPOSE_STORAGE_MODE" == "nas" ]]; then
+    COMPOSE_STORAGE_MODE="offline"
+    log "Auto deploy: local NAS guard could not be written; falling back to isolated offline storage"
+  else
+    log "Auto deploy: local NAS guard could not be written; offline storage mode remains active"
+  fi
 fi
 if ! compose up -d --no-deps --force-recreate --remove-orphans app >/dev/null \
   || ! wait_for_healthy \

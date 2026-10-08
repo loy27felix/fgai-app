@@ -24,7 +24,7 @@ AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
 
 source "$PROJECT_ROOT/scripts/observability-outbox.sh"
 
-mkdir -p "$STATE_ROOT" "$LOG_ROOT"
+mkdir -p "$STATE_ROOT" "$LOG_ROOT" "$HOME/Library/Application Support/fg-studio-nas-state"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   exit 0
 fi
