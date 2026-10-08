@@ -14,6 +14,9 @@ export FG_MONITOR_STATE_DIR="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application S
 source "$PROJECT_ROOT/scripts/observability-outbox.sh"
 APP_SERVICE="app"
 APP_CONTAINER_PATH="/data/media"
+# Docker Desktop API calls spike to 6-13s on the host; the timeout must exceed that.
+# 宿主机上 Docker Desktop API 偶发 6-13 秒延迟，超时必须大于该尖刺，否则会误判为故障。
+DOCKER_TIMEOUT_SECONDS=20
 DEFAULT_MARKER_NAME=".fg-studio-nas-ready"
 STATE_ROOT="${TMPDIR:-/tmp}/fg-studio-nas-supervisor-$(id -u)"
 STATE_FILE="$STATE_ROOT/state"
@@ -54,7 +57,7 @@ monitor_state() {
   case "$1" in
     ready) printf 'healthy' ;;
     mount-requested|app-transitioning|docker-offline|probe-unavailable|app-start-failed|config-missing|config-invalid|stop-failed) printf 'unknown' ;;
-    mount-failed|mount-check-unavailable|nas-readonly|container-mount-failed)
+    mount-failed|nas-readonly|container-mount-failed)
       printf 'unhealthy'
       ;;
     *) printf 'unknown' ;;
@@ -188,7 +191,7 @@ probe_running_storage() {
   local probe_path="$APP_CONTAINER_PATH/.fg-studio-container-probe"
   # Keep one stable probe because deleting an open SMB file creates persistent .smbdelete files.
   # 保留单个稳定探针，避免删除 SMB 占用文件后持续产生 .smbdelete 文件。
-  run_with_timeout 5 docker exec "$container" sh -c \
+  run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker exec "$container" sh -c \
     'lock=/tmp/fg-studio-storage-probe-lock;
      if ! mkdir "$lock" 2>/dev/null; then
        owner=$(cat "$lock/pid" 2>/dev/null || true);
@@ -198,7 +201,7 @@ probe_running_storage() {
        mkdir "$lock" 2>/dev/null || exit 20;
      fi;
      printf "%s" "$$" > "$lock/pid";
-     trap '\''rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true'\'' EXIT;
+     trap 'rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true' EXIT;
      grep -qx "fg-studio-media:v1" "$1" || exit 10;
      printf probe > "$2" || exit 11;
      grep -qx probe "$2" || exit 12' \
@@ -292,16 +295,23 @@ fi
 
 # Read the mount table before touching the network path so a stale SMB session cannot block the supervisor.
 # 先读取挂载表再访问网络目录，避免失效的 SMB 会话永久阻塞守护进程。
-if ! MOUNT_LINE="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')"; then
-  if ! stop_app; then
-    set_state "stop-failed" "NAS supervisor: could not read SMB mount table or confirm App stopped"
-    exit 1
-  fi
-  set_state "mount-check-unavailable" "NAS supervisor: could not read SMB mount table; app stopped"
-  exit 1
+read_expected_mount_point() {
+  local mount_line
+  mount_line="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')" || return 1
+  [[ -n "$mount_line" ]] || return 1
+  sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$mount_line"
+}
+
+# `mount` can return transiently empty or stale output while the SMB client renegotiates
+# a keepalive, even though the share stays mounted; retry once before treating it as gone.
+# `mount` 在 SMB 客户端重协商 keepalive 时可能瞬时返回空或过期结果，即使挂载点仍在；
+# 判定为挂载丢失前先重试一次，避免命令输出抖动误杀正在运行的 App。
+MOUNT_POINT="$(read_expected_mount_point)" || MOUNT_POINT=""
+if [[ -z "$MOUNT_POINT" ]]; then
+  sleep 1
+  MOUNT_POINT="$(read_expected_mount_point)" || MOUNT_POINT=""
 fi
-MOUNT_POINT="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$MOUNT_LINE")"
-if [[ -z "$MOUNT_LINE" || -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
+if [[ -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" && "$NAS_PATH" != "$MOUNT_POINT/"* ) ]]; then
   if ! stop_app; then
     set_state "stop-failed" "NAS supervisor: expected SMB mount is absent; could not confirm app stopped"
     exit 1
@@ -314,7 +324,7 @@ if [[ -z "$MOUNT_LINE" || -z "$MOUNT_POINT" || ( "$NAS_PATH" != "$MOUNT_POINT" &
   exit 0
 fi
 
-if ! run_with_timeout 5 docker info >/dev/null 2>&1; then
+if ! run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker info >/dev/null 2>&1; then
   set_state "docker-offline" "NAS supervisor: Docker is unavailable; waiting"
   exit 0
 fi
@@ -343,21 +353,29 @@ if [[ -n "$APP_CONTAINER" ]]; then
     set_state "app-transitioning" "NAS supervisor: App container changed during storage probe; waiting"
     exit 0
   fi
-  # A timed-out Docker client does not cancel the container's filesystem I/O.
-  # Treat timeouts and a still-running probe as unknown, never as permission to
-  # stop/recreate a live app. Only two explicit storage failures justify that.
-  if (( STORAGE_PROBE_EXIT < 10 || STORAGE_PROBE_EXIT > 12 )) \
-    || (( STORAGE_RETRY_EXIT < 10 || STORAGE_RETRY_EXIT > 12 )); then
-    set_state "probe-unavailable" "NAS supervisor: Docker exec could not confirm App storage ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT)"
+  SMB_PORT_STATUS="unreachable"
+  if run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
+    SMB_PORT_STATUS="reachable"
+  fi
+  # 137/143 mean the probe was killed by the timeout: with SMB reachable that is a slow Docker API, not a broken share.
+  # 137/143 表示探针被超时杀掉：SMB 端口可达时说明是 Docker API 慢，而非存储损坏，不能停 App。
+  PROBE_UNCONFIRMED=0
+  for probe_exit in "$STORAGE_PROBE_EXIT" "$STORAGE_RETRY_EXIT"; do
+    if (( probe_exit >= 10 && probe_exit <= 12 )); then
+      continue
+    fi
+    if (( probe_exit == 137 || probe_exit == 143 )) && [[ "$SMB_PORT_STATUS" == "unreachable" ]]; then
+      continue
+    fi
+    PROBE_UNCONFIRMED=1
+  done
+  if (( PROBE_UNCONFIRMED )); then
+    set_state "probe-unavailable" "NAS supervisor: Docker exec could not confirm App storage ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT; TCP 445=$SMB_PORT_STATUS)"
     exit 0
   fi
   if ! stop_app "$APP_CONTAINER"; then
     set_state "stop-failed" "NAS supervisor: App storage probe failed ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT); could not confirm app stopped"
     exit 1
-  fi
-  SMB_PORT_STATUS="unreachable"
-  if run_with_timeout 4 /usr/bin/nc -G 2 -z "$EXPECTED_HOST" 445 >/dev/null 2>&1; then
-    SMB_PORT_STATUS="reachable"
   fi
   set_state "container-mount-failed" "NAS supervisor: running App storage probe failed twice ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT); TCP 445=$SMB_PORT_STATUS; app stopped"
 fi
