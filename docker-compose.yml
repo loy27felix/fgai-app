@@ -26,6 +26,7 @@ services:
       # 宿主机路径只用于 bind mount，应用容器内统一从 /data/media 读写。
       NAS_MEDIA_PATH: /data/media
       NAS_READY_FILE: /data/media/.fg-studio-nas-ready
+      UV_THREADPOOL_SIZE: "32"
     command:
       - sh
       - -c

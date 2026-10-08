@@ -93,7 +93,7 @@ export class LocalStorageBucket {
   }
 
   async download(name: string) {
-    try { await assertNasReady(); return { data: new Blob([await readFile(safePath(this.bucket, name))]), error: null }; }
+    try { return { data: new Blob([await readLocalFile(this.bucket, name)]), error: null }; }
     catch (error) { return { data: null, error: storageError(error) }; }
   }
 

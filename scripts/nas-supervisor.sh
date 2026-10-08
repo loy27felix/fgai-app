@@ -189,7 +189,19 @@ probe_running_storage() {
   # Keep one stable probe because deleting an open SMB file creates persistent .smbdelete files.
   # 保留单个稳定探针，避免删除 SMB 占用文件后持续产生 .smbdelete 文件。
   run_with_timeout 5 docker exec "$container" sh -c \
-    'grep -qx "fg-studio-media:v1" "$1" || exit 10; printf probe > "$2" || exit 11; grep -qx probe "$2" || exit 12' \
+    'lock=/tmp/fg-studio-storage-probe-lock;
+     if ! mkdir "$lock" 2>/dev/null; then
+       owner=$(cat "$lock/pid" 2>/dev/null || true);
+       case "$owner" in ""|*[!0-9]*) exit 20;; esac;
+       kill -0 "$owner" 2>/dev/null && exit 20;
+       rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || exit 20;
+       mkdir "$lock" 2>/dev/null || exit 20;
+     fi;
+     printf "%s" "$$" > "$lock/pid";
+     trap '\''rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true'\'' EXIT;
+     grep -qx "fg-studio-media:v1" "$1" || exit 10;
+     printf probe > "$2" || exit 11;
+     grep -qx probe "$2" || exit 12' \
     sh "$marker_path" "$probe_path" >/dev/null 2>&1
 }
 
@@ -331,8 +343,11 @@ if [[ -n "$APP_CONTAINER" ]]; then
     set_state "app-transitioning" "NAS supervisor: App container changed during storage probe; waiting"
     exit 0
   fi
-  if (( (STORAGE_PROBE_EXIT < 10 || STORAGE_PROBE_EXIT > 12) && STORAGE_PROBE_EXIT != 137 && STORAGE_PROBE_EXIT != 143 )) \
-    || (( (STORAGE_RETRY_EXIT < 10 || STORAGE_RETRY_EXIT > 12) && STORAGE_RETRY_EXIT != 137 && STORAGE_RETRY_EXIT != 143 )); then
+  # A timed-out Docker client does not cancel the container's filesystem I/O.
+  # Treat timeouts and a still-running probe as unknown, never as permission to
+  # stop/recreate a live app. Only two explicit storage failures justify that.
+  if (( STORAGE_PROBE_EXIT < 10 || STORAGE_PROBE_EXIT > 12 )) \
+    || (( STORAGE_RETRY_EXIT < 10 || STORAGE_RETRY_EXIT > 12 )); then
     set_state "probe-unavailable" "NAS supervisor: Docker exec could not confirm App storage ($STORAGE_PROBE_EXIT/$STORAGE_RETRY_EXIT)"
     exit 0
   fi
@@ -397,7 +412,13 @@ if [[ -z "$APP_CONTAINER" ]]; then
   set_state "app-start-failed" "NAS supervisor: Docker Compose returned without a running App container"
   exit 1
 fi
-if ! probe_running_storage "$APP_CONTAINER"; then
+RECREATED_PROBE_EXIT=0
+probe_running_storage "$APP_CONTAINER" || RECREATED_PROBE_EXIT=$?
+if (( RECREATED_PROBE_EXIT != 0 )); then
+  if (( RECREATED_PROBE_EXIT < 10 || RECREATED_PROBE_EXIT > 12 )); then
+    set_state "probe-unavailable" "NAS supervisor: recreated App storage probe could not complete (exit=$RECREATED_PROBE_EXIT); waiting"
+    exit 0
+  fi
   if ! stop_app; then
     set_state "stop-failed" "NAS supervisor: recreated App storage probe failed; could not confirm app stopped"
     exit 1
