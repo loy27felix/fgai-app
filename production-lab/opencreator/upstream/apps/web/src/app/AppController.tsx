@@ -4274,6 +4274,7 @@ export function AppController(props: AppControllerProps) {
       <CreatorDashboard
         presets={creatorPresets}
         loading={creatorPresetsLoading}
+        connectionUnavailable={connectionState.status !== 'connected'}
         error={creatorPresetsError}
         onRetry={() => setCreatorPresetsReloadKey(value => value + 1)}
         onSelectPreset={applyDashboardPreset}

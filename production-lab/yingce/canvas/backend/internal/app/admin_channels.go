@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 )
 
@@ -31,8 +32,11 @@ func (s *Service) PublicSystemChannels() ([]PublicModelChannel, error) {
 
 func (s *Service) SystemChannel(id string) (*model.ModelChannel, error) {
 	channel, err := s.repo.SystemChannel(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, kernel.WrapAppError(404, "系统渠道不存在或已停用", err)
+	}
 	if err != nil {
-		return nil, err
+		return nil, kernel.WrapAppError(503, "系统渠道暂不可用，请稍后重试", err)
 	}
 	if err := s.decryptSystemChannelSecrets(channel); err != nil {
 		return nil, err

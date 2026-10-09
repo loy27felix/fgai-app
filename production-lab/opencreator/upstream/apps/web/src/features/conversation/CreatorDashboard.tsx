@@ -139,6 +139,7 @@ const recentPresetLimit = 12;
 export function CreatorDashboard(props: {
   presets?: CreatorPresetSummary[];
   loading?: boolean;
+  connectionUnavailable?: boolean;
   error?: string;
   onRetry?(): void;
   onSelectPreset?(preset: CreatorPresetSummary): Promise<void> | void;
@@ -831,7 +832,14 @@ export function CreatorDashboard(props: {
           onDismiss={pageIssues.dismissIssue}
         /> : null}
 
-        {!props.loading && !props.error ? (
+        {props.connectionUnavailable ? (
+          <p className="creator-template-empty" role="status">
+            {language === 'en-US'
+              ? 'The workspace is disconnected. Templates have not loaded yet and will appear when the connection recovers.'
+              : '工作区暂未连接，模板尚未加载。连接恢复后会自动显示。'}
+          </p>
+        ) : null}
+        {!props.loading && !props.error && !props.connectionUnavailable ? (
           <div className="creator-template-grid">
             {visiblePresets.map(preset => {
               const identity = presetIdentity(preset);

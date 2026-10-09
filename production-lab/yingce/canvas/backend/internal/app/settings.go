@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"infinite-canvas/backend/internal/kernel"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/storage"
 
@@ -390,9 +391,11 @@ func (s *Service) decryptSettingSecret(value string) (string, error) {
 	if err != nil {
 		return "", errors.New("OSS 密钥密文格式无效")
 	}
-	key, err := s.settingsEncryptionKey()
+	// Reading an existing credential must never provision a replacement key on
+	// an empty or stale NAS mount. Only first-time encryption may create a key.
+	key, err := readExistingSettingsKey(filepath.Join(s.dataDir, ".settings-key"))
 	if err != nil {
-		return "", err
+		return "", kernel.WrapAppError(503, "存储加密密钥暂不可用，请恢复原密钥后重试", err)
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -407,7 +410,7 @@ func (s *Service) decryptSettingSecret(value string) (string, error) {
 	}
 	plaintext, err := gcm.Open(nil, payload[:gcm.NonceSize()], payload[gcm.NonceSize():], nil)
 	if err != nil {
-		return "", errors.New("OSS 密钥解密失败，请检查存储加密密钥")
+		return "", kernel.WrapAppError(503, "凭据解密失败，请恢复原存储加密密钥后重试", err)
 	}
 	return string(plaintext), nil
 }

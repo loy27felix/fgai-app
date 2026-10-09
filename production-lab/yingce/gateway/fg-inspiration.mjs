@@ -26,9 +26,21 @@ export function normalizeInspiration(items,source){
    sourceUrl:publicURL(item.sourceUrl)||source.homepage,model:item.imageModel||(/seedance/i.test(source.id)?'Seedance 2.0':/banana/i.test(source.id)?'Nano Banana':'GPT Image'),updatedAt:item.updatedAt||item.createdAt||''};
  }).filter(item=>item.prompt&&item.title&&item.media.length);
 }
-async function readSource(source,fetcher){
- const response=await fetcher(source.url,{redirect:'error',signal:AbortSignal.timeout(25000),headers:{accept:source.format==='markdown'?'text/plain':'application/json','user-agent':'FG Inspiration/1.0'}});
- if(!response.ok)throw Error('HTTP '+response.status);
+export async function readSource(source,fetcher){
+ let response;
+ // Only public catalog GETs are retried. Paid generation requests never enter this path.
+ for(let attempt=0;attempt<2;attempt++){
+  try{response=await fetcher(source.url,{redirect:'error',signal:AbortSignal.timeout(25000),headers:{accept:source.format==='markdown'?'text/plain':'application/json','user-agent':'FG Inspiration/1.0'}});}
+  catch(error){
+   const transient=error instanceof TypeError||error.name==='TimeoutError'||error.name==='AbortError';
+   if(attempt||!transient)throw error;
+   await new Promise(resolve=>setTimeout(resolve,250));continue;
+  }
+  if(response.ok)break;
+  await response.body?.cancel();
+  if(attempt||![408,429,500,502,503,504].includes(response.status))throw Error('HTTP '+response.status);
+  await new Promise(resolve=>setTimeout(resolve,250));
+ }
  let size=0;const chunks=[];
  for await(const chunk of response.body){size+=chunk.length;if(size>(12<<20))throw Error('来源内容超过 12 MB');chunks.push(chunk);}
  const text=Buffer.concat(chunks).toString('utf8');

@@ -865,6 +865,15 @@ describe('CreatorDashboard', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it('distinguishes a disconnected workspace from an empty template catalog', () => {
+    const view = render(<CreatorDashboard connectionUnavailable />);
+    expect(screen.getByRole('status')).toHaveTextContent('模板尚未加载');
+    expect(screen.queryByText('该分类暂时没有模板。')).not.toBeInTheDocument();
+    view.rerender(<CreatorDashboard presets={presets} />);
+    expect(screen.queryByText(/模板尚未加载/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看电商商品主图增强版模板详情' })).toBeInTheDocument();
+  });
+
   it('uses the selected interface language for labels and prompt hints', () => {
     render(
       <LanguageProvider initialPreference="en-US">

@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from "react";
-import {Alert,Button,Input,Pagination,Select,Spin,message} from "antd";
-import {ArrowUpRight,Check,Copy,Film,Image as ImageIcon,Play,Search,Sparkles} from "lucide-react";
+import {Alert,Button,Input,Pagination,Popover,Select,Spin,message} from "antd";
+import {ArrowUpRight,Check,Copy,Film,Image as ImageIcon,Info,Play,Search,Sparkles} from "lucide-react";
 import dayjs from "dayjs";
 import {http} from "@/services/api/request";
 import {AppModal} from "@/components/ui/product/app-modal";
@@ -51,8 +51,8 @@ export default function FGInspirationPage(){
   </section>
   {kind==="video"&&data&&<p className="fg-inspiration-video-note">{data.counts.video} 条视频灵感，其中 {data.counts.playableVideo} 条提供可播放示例；其余保留封面、完整提示词与原始出处。</p>}
   <div className="fg-inspiration-status"><span>{kind==="image"?"IMAGE COLLECTION":"MOTION COLLECTION"} / {data?.total||0} 个灵感</span><span>{successes.length?`最近同步 ${dayjs(successes.at(-1)).format("MM/DD HH:mm")}`:"正在同步公开作品"} · 页面关闭后仍自动更新</span></div>
-  {sourceErrors.length>0&&<Alert type="warning" showIcon title={`${sourceErrors.length} 个来源本次同步失败，保留上次成功内容`} description={sourceErrors.map(s=>s.name).join("、")}/>}
-  {error&&<Alert type="error" showIcon title={error}/>}
+  {sourceErrors.length>0&&<div className="fg-inspiration-sync-note" role="status"><Info size={14}/><span>{sourceErrors.length} 个来源更新暂缓 · {sourceErrors.some(s=>s.count>0)?"已保留上次成功内容，可继续浏览":"其他来源仍可浏览"}</span><Popover trigger="click" placement="bottomRight" title="来源更新状态" content={<ul className="fg-inspiration-sync-details">{sourceErrors.map(s=><li key={s.id}><strong>{s.name}</strong><span>{s.lastSuccess?`上次成功 ${dayjs(s.lastSuccess).format("MM/DD HH:mm")} · 已保留 ${s.count} 条`:"尚未完成首次同步"}</span></li>)}</ul>}><Button type="text" size="small">查看详情</Button></Popover></div>}
+  {error&&<Alert className="fg-inspiration-error" type="error" showIcon title={error}/>}
   <Spin spinning={busy}>
    <section className="fg-inspiration-grid" aria-label={kind==="image"?"图片灵感作品":"视频灵感作品"}>
     {data?.items.map((item,index)=><article className="fg-inspiration-card" key={item.id}><button type="button" className="fg-inspiration-card-preview" onClick={()=>void open(item)} aria-label={`查看 ${item.title} 的提示词`}><Preview item={item}/><span className="fg-inspiration-card-index">{String((page-1)*36+index+1).padStart(3,"0")}</span>{item.media.some(m=>m.kind==="video")&&<span className="fg-inspiration-play"><Play fill="currentColor" size={20}/></span>}<span className="fg-inspiration-card-action">查看提示词 <ArrowUpRight size={16}/></span></button><div className="fg-inspiration-card-caption"><button type="button" onClick={()=>void open(item)}>{item.title}</button><span>{item.model}</span></div><div className="fg-inspiration-card-source">{item.sourceName}{item.kind==="video"&&!item.media.some(m=>m.kind==="video")?" · 封面参考":""}</div></article>)}
