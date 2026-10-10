@@ -7,6 +7,10 @@ import {capabilities} from './fg-model-capabilities.mjs';
 import {withNativeAdmin} from './native-admin.mjs';
 
 const keys=['wan3.0-video','gpt-image-2','gpt-image-2.5-flare','gpt-image-2.5-sunburst'];
+// Saving a capability increments priceVersion/updatedAt even with unchanged rates.
+const priceContract=tiers=>(tiers||[]).map(t=>Object.fromEntries(['resolution','videoSeconds','providerModelKey','billingMode','unitPriceMicrocredits','inputTokenPriceMicrocredits','outputTokenPriceMicrocredits','cachedTokenPriceMicrocredits','priceConfigured','enabled','costPricing'].map(k=>[k,t[k]])));
+// Native normalization adds optional defaults; do not rewrite an already matching profile.
+const profileMatches=(expected,value)=>Object.entries(expected).every(([key,want])=>want&&typeof want==='object'&&!Array.isArray(want)?profileMatches(want,value?.[key]):isDeepStrictEqual(want,value?.[key]));
 const specs=JSON.parse(await fs.readFile(new URL('./model-specs.json',import.meta.url),'utf8'));
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,max:2});
 try{
@@ -23,16 +27,15 @@ try{
   // API model objects contain no channel API key. This line is the rollback backup.
   console.log(JSON.stringify({kind:'before',channelId:channel.id,models:targets.map(t=>t.model)}));
   for(const {model,profile} of targets){
-   if(isDeepStrictEqual(model.capabilityConfig,profile))continue;
+   if(profileMatches(profile,model.capabilityConfig))continue;
    await api('/admin/channels/'+channel.id+'/models/'+model.id,'PATCH',{...model,capabilityConfig:profile});
   }
   const updated=(await api('/admin/channels/'+channel.id+'/models')).models;
   for(const {model,profile} of targets){
    const actual=updated.find(m=>m.id===model.id);
-   if(!actual||actual.enabled!==model.enabled||actual.protocol!==model.protocol||actual.providerModelKey!==model.providerModelKey||!isDeepStrictEqual(actual.priceTiers,model.priceTiers))throw new Error('Model settings changed unexpectedly: '+model.modelKey);
+   if(!actual||actual.enabled!==model.enabled||actual.protocol!==model.protocol||actual.providerModelKey!==model.providerModelKey||!isDeepStrictEqual(priceContract(actual.priceTiers),priceContract(model.priceTiers)))throw new Error('Model settings changed unexpectedly: '+model.modelKey);
    // Server normalization may add optional defaults, but every declared field must survive.
-   const check=(expected,value)=>Object.entries(expected).every(([key,want])=>want&&typeof want==='object'&&!Array.isArray(want)?check(want,value?.[key]):isDeepStrictEqual(want,value?.[key]));
-   if(!check(profile,actual.capabilityConfig))throw new Error('Capability verification failed: '+model.modelKey);
+   if(!profileMatches(profile,actual.capabilityConfig))throw new Error('Capability verification failed: '+model.modelKey);
   }
   console.log(JSON.stringify({kind:'verified',models:updated.filter(m=>keys.includes(m.modelKey)).map(m=>({model:m.modelKey,version:m.capabilityVersion,capabilityConfig:m.capabilityConfig})),paidRequests:0}));
  });

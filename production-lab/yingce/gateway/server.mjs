@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {createGatewayShutdown} from './fg-gateway-shutdown.mjs';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { pipeline } from 'node:stream';
 import pg from 'pg';
@@ -225,4 +226,5 @@ const arcServer=createArcReelServer({pool,platformActor,canvasSession,platformOr
 arcServer.requestTimeout=0;
 arcServer.headersTimeout=60000;
 arcServer.listen(3020,'0.0.0.0');
-process.on('SIGTERM', async () => {await speechStreams.shutdown();arcServer.close();server.close(async () => { await pool.end(); await editorPool.end(); process.exit(0); });});
+const shutdownGateway=createGatewayShutdown([server,arcServer],{shutdownStreams:()=>speechStreams.shutdown(),closeDependencies:async()=>{await pool.end();await editorPool.end();}});
+process.on('SIGTERM',()=>{shutdownGateway().then(()=>process.exit(0)).catch(()=>{console.error('FG gateway shutdown failed');process.exit(1);});});
