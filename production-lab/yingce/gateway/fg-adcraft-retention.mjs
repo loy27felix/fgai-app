@@ -7,7 +7,7 @@ export async function purgeArchivedAdvertising(pool,id,{actor,expiredOnly=false,
     const expiry=expiredOnly?" AND archived_at < now()-interval '30 days'":'';
     const workspace=(await client.query('SELECT * FROM fg_adcraft_workspaces WHERE id=$1'+expiry+' FOR UPDATE',[id])).rows[0];
     if(!workspace){if(expiredOnly){await client.query('ROLLBACK');return false;}throw Error('广告项目不存在');}
-    if(actor&&!actor.reviewer&&workspace.owner_id!==actor.id)throw Error('仅所有者或超级管理员可以彻底删除项目');
+    if(actor&&workspace.owner_id!==actor.id)throw Error('仅所有者可以彻底删除项目');
     if(!workspace.archived_at)throw Error('请先将广告项目移入回收站');
     if(workspace.purged_at){await client.query('COMMIT');return true;}
     const active=(await client.query("SELECT count(*) n FROM tasks WHERE project_id=$1 AND status NOT IN ('succeeded','failed','cancelled')",[workspace.native_project_id])).rows[0];

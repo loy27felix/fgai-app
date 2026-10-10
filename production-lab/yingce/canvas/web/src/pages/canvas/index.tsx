@@ -43,7 +43,7 @@ export default function CanvasPage() {
     const autoOpenRef = useRef(false);
     const [keyword, setKeyword] = useState("");
     const [sort, setSort] = useState<"updated" | "name" | "nodes">("updated");
-    const [projectFilter, setProjectFilter] = useState("all");
+    const [projectFilter, setProjectFilter] = useState("independent");
     const loadMoreRef = useRef<HTMLDivElement>(null);
     const [loadedProjectCount, setLoadedProjectCount] = useState(50);
     const [openingProjectId, setOpeningProjectId] = useState("");
@@ -76,7 +76,7 @@ export default function CanvasPage() {
     const [historyOpen, setHistoryOpen] = useState(false);
     const [associationOpen, setAssociationOpen] = useState(false);
     const [associationProjectId, setAssociationProjectId] = useState("");
-    const projectQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
+    const projectQuery = useQuery({ queryKey: ["projects", userId], queryFn: () => listProjects(), enabled: Boolean(userId) });
 
     const mode = searchParams.get("mode");
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
@@ -104,7 +104,7 @@ export default function CanvasPage() {
     const filteredProjects = useMemo(() => {
         if (userId) return projects;
         const query = keyword.trim().toLowerCase();
-        const scoped = projects.filter((project) => projectFilter === "all" || (projectFilter === "independent" ? !project.projectId : project.projectId === projectFilter));
+        const scoped = projects.filter((project) => projectFilter === "independent" ? !project.projectId : Boolean(project.projectId));
         const values = query ? scoped.filter((project) => project.title.toLowerCase().includes(query)) : [...scoped];
         values.sort((a, b) => (sort === "name" ? a.title.localeCompare(b.title, "zh-CN") : sort === "nodes" ? b.nodeCount - a.nodeCount : new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
         return values;
@@ -113,9 +113,9 @@ export default function CanvasPage() {
     const visibleProjects = userId ? filteredProjects : filteredProjects.slice(0, loadedProjectCount);
     const hasMore = userId ? libraryQuery.hasNextPage : visibleProjects.length < filteredProjects.length;
     const selectedProjects = projects.filter((project) => selectedIds.includes(project.id));
-    const projectFilterLabel = projectFilter === "all" ? "全部画布" : projectFilter === "independent" ? "自由画布" : projectNames.get(projectFilter) || "项目画布";
+    const projectFilterLabel = projectFilter === "independent" ? "自由画布" : "故事与项目";
     const sortLabel = sort === "name" ? "按名称" : sort === "nodes" ? "按节点" : "最近更新";
-    const projectFilterItems = useMemo(() => [{ key: "all", label: "全部画布" }, { key: "independent", label: "自由画布" }, ...(projectQuery.data?.projects || []).map(({ project }) => ({ key: project.id, label: project.name }))], [projectQuery.data]);
+    const projectFilterItems = [{ key: "independent", label: "自由画布" }, { key: "stories", label: "故事与项目" }];
     const sortItems = [
         { key: "updated", label: "最近更新", icon: <Clock3 className="size-3.5" /> },
         { key: "name", label: "按名称", icon: <ArrowDownAZ className="size-3.5" /> },

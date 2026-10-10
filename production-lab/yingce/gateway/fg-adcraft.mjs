@@ -29,7 +29,7 @@ export async function initializeAdcraft(pool){
 }
 export async function advertisingAccess(pool,actor,id){
   if(!uuid.test(id))return null;
-  return (await pool.query(`SELECT w.* FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND ($3 OR w.owner_id=$2 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$2))`,[id,actor.id,actor.reviewer===true])).rows[0]||null;
+  return (await pool.query(`SELECT w.* FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND w.owner_id=$2`,[id,actor.id])).rows[0]||null;
 }
 // Release a reservation only with a complete receipt match or explicit proof
 // that the provider request never left FG. Missing receipts remain reserved.
@@ -70,7 +70,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
       const client=await pool.connect();try{
         await client.query('BEGIN');
         const w=(await client.query('SELECT * FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[deleteMatch[1]])).rows[0];
-        if(!w||(!actor.reviewer&&w.owner_id!==actor.id)){await client.query('ROLLBACK');json(res,'仅所有者或超级管理员可以删除或恢复项目',403);return true;}
+        if(!w||w.owner_id!==actor.id){await client.query('ROLLBACK');json(res,'仅所有者可以删除或恢复项目',403);return true;}
         const active=(await client.query("SELECT count(*) n FROM tasks WHERE project_id=$1 AND status IN ('queued','running')",[w.native_project_id])).rows[0];if(Number(active.n))throw Error('请先结束项目中正在运行的任务');
         const restore=Boolean(deleteMatch[2]);if(w.purged_at)throw Error('该广告项目已到期清理，不能恢复');await client.query('UPDATE fg_adcraft_workspaces SET archived_at=$2 WHERE id=$1',[w.id,restore?null:w.archived_at||new Date()]);
         await client.query('UPDATE projects SET status=$2 WHERE id=$1',[w.native_project_id,restore?'active':'archived']);
@@ -80,10 +80,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   }
   const memberMatch=/^\/api\/fg\/advertising\/([^/]+)\/members$/.exec(path.pathname);
   if(memberMatch){
-    try{const workspace=await advertisingAccess(pool,actor,memberMatch[1]);if(!workspace||(!actor.reviewer&&workspace.owner_id!==actor.id)){json(res,'仅项目所有者或超级管理员可管理分享',403);return true;}
-      if(req.method==='GET'){json(res,{members:(await pool.query('SELECT user_id FROM fg_adcraft_members WHERE workspace_id=$1',[workspace.id])).rows.map(r=>r.user_id),users:(await pool.query("SELECT u.id,u.display_name name,a.email FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.status='active' AND u.id<>$1 ORDER BY u.display_name",[workspace.owner_id])).rows});return true;}
-      if(req.method==='PUT'){const input=await body(req,8192);if(!Array.isArray(input.userIds)||input.userIds.length>100||input.userIds.some(id=>!uuid.test(id)))throw Error('请选择有效成员');const client=await pool.connect();try{await client.query('BEGIN');await client.query('SELECT id FROM fg_adcraft_workspaces WHERE id=$1 FOR UPDATE',[workspace.id]);const valid=(await client.query("SELECT id FROM users WHERE id=ANY($1::text[]) AND status='active'",[input.userIds])).rows;if(valid.length!==new Set(input.userIds).size)throw Error('部分成员不可用');await client.query('DELETE FROM fg_adcraft_members WHERE workspace_id=$1',[workspace.id]);for(const user of valid)await client.query('INSERT INTO fg_adcraft_members(workspace_id,user_id) VALUES($1,$2)',[workspace.id,user.id]);await client.query('COMMIT');json(res,{saved:true});}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}return true;}
-    }catch(e){json(res,e.message,400);}return true;
+    json(res,'广告工程仅本人可见；请在故事与项目中协作',403);return true;
   }
   const assetMatch=/^\/api\/fg\/advertising\/([^/]+)\/company-asset$/.exec(path.pathname);
   if(assetMatch&&req.method==='POST'){
@@ -135,7 +132,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(path.pathname==='/api/fg/advertising'){
     try {
       if(req.method==='GET'){
-        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE w.purged_at IS NULL AND (w.archived_at IS NOT NULL)=$3 AND ($2 OR w.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members a WHERE a.workspace_id=w.id AND a.user_id=$1)) ORDER BY w.created_at DESC`,[actor.id,actor.reviewer,path.searchParams.get('archived')==='true'])).rows;
+        const rows=(await pool.query(`SELECT w.*,NULL group_name,u.display_name owner_name FROM fg_adcraft_workspaces w JOIN users u ON u.id=w.owner_id WHERE w.purged_at IS NULL AND (w.archived_at IS NOT NULL)=$2 AND w.owner_id=$1 ORDER BY w.created_at DESC`,[actor.id,path.searchParams.get('archived')==='true'])).rows;
         const groups=[];
         for(const row of rows){row.can_manage=actor.reviewer||row.owner_id===actor.id;row.can_budget=actor.reviewer;}
         json(res,{workspaces:rows,groups,models});return true;
@@ -164,7 +161,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
     const nativePurge=/^\/api\/v2\/projects\/(proj_[A-Za-z0-9_-]{1,100})\/purge$/.exec(inner);
     if(req.method==='POST'&&nativePurge){
       const w=await advertisingAccess(pool,actor,match[2]);
-      if((!actor.reviewer&&w.owner_id!==actor.id)||w.adcraft_project_id===nativePurge[1]){json(res,'请在 FG 广告项目回收站管理主工程；只有所有者或超级管理员可以彻底删除',403,false);return true;}
+      if(w.owner_id!==actor.id||w.adcraft_project_id===nativePurge[1]){json(res,'请在 FG 广告项目回收站管理主工程；只有所有者可以彻底删除',403,false);return true;}
       const response=await fetch('http://adcraft-api:8000/internal/fg/project-cleanup/'+w.id+'/'+nativePurge[1],{method:'POST',headers:{'x-fg-internal':secret()},signal:AbortSignal.timeout(120000)});
       json(res,await response.json(),response.status,false);return true;
     }

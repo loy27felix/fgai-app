@@ -72,6 +72,18 @@ test('bridge identity is signed and workspace-bound',()=>{
 test('invalid workspace is rejected before database access',async()=>{
  assert.equal(await advertisingAccess({query:()=>{throw Error('DB must not be queried');}},{id:actor},'../other'),null);
 });
+test('administrator and former collaborator cannot open another owner advertising workspace',async()=>{
+ const other='00000000-0000-4000-8000-000000000003';
+ const pool={query:async(sql,args)=>{
+  assert.match(sql,/w\.owner_id=\$2/);
+  assert.doesNotMatch(sql,/\bOR\b|fg_adcraft_members/i);
+  assert.equal(args.length,2);
+  return {rows:args[1]===actor?[{id:workspace,owner_id:actor}]:[]};
+ }};
+ assert.equal(await advertisingAccess(pool,{id:other,reviewer:true},workspace),null);
+ assert.equal(await advertisingAccess(pool,{id:other,reviewer:false},workspace),null);
+ assert.equal((await advertisingAccess(pool,{id:actor,reviewer:false},workspace)).owner_id,actor);
+});
 for(const [mode,path,payload] of [
  ['text','/v1/chat/completions',{model:'gpt-5.6-sol-t1a',messages:[{role:'user',content:'写广告脚本'}],max_tokens:100}],
  ['image','/images/generations',{prompt:'产品广告参考',size:'2048x2048'}],

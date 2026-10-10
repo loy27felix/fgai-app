@@ -28,7 +28,7 @@ export default function AdvertisingPage(){
  const confirmBatch=(ids:string[],purge=false)=>modal.confirm({title:purge?`彻底删除 ${ids.length} 个广告项目？`:`将 ${ids.length} 个广告项目移入回收站？`,content:purge?'此操作不可恢复，将立即清理这些广告工程在 NAS 中的独立工程文件。人民币账单、公司公共素材与其他工程引用的素材保留。':'移入回收站后可恢复，30 天后自动清理。',okText:purge?'彻底删除':'移入回收站',cancelText:'取消',okButtonProps:{danger:true},onOk:()=>batch(ids,purge?purgeAdvertisingProject:deleteAdvertisingProject)});
  const manageable=data?.workspaces.filter(w=>w.can_manage).map(w=>w.id)||[];
  return <WorkspacePage className="fg-advertising-page">
-  <PageHeader title="广告工作台" description="独立广告工程。默认仅自己可见，按需邀请同事协作。" actions={<><Button onClick={()=>void load()} icon={<RefreshCw size={15}/>}>刷新</Button><Button type="primary" icon={<Plus size={16}/>} onClick={()=>{form.resetFields();setOpen(true);}}>新建广告项目</Button></>}/>
+  <PageHeader title="广告工作台" description="独立广告工程仅自己可见；团队协作请使用故事与项目。" actions={<><Button onClick={()=>void load()} icon={<RefreshCw size={15}/>}>刷新</Button><Button type="primary" icon={<Plus size={16}/>} onClick={()=>{form.resetFields();setOpen(true);}}>新建广告项目</Button></>}/>
   {search.get("editorTakenOver")&&<Alert type="info" showIcon closable message="画布已由同事接管" description={search.get("editorTakenOver")}/>}
   <section className="fg-advertising-intro"><div><span>FG / ADVERTISING</span><h2>让创意，成为下一支广告。</h2><p>从产品、卖点到分镜与成片，工程和素材持续保存在服务器与 NAS。</p></div></section>
   <Segmented className="mb-5" disabled={busy} value={archived?'trash':'active'} onChange={v=>{setSelected([]);setData(undefined);setArchived(v==='trash');}} options={[{value:'active',label:'广告项目'},{value:'trash',label:'回收站'}]}/>

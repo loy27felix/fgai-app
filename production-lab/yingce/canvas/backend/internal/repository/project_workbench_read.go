@@ -160,7 +160,7 @@ func (r *Repository) ProjectWorkflowInstancesForUnit(projectID string, unitID st
 func (r *Repository) ProjectCanvasSummariesPage(userID string, projectID string, page int, pageSize int) ([]model.CanvasProject, int64, error) {
 	var canvases []model.CanvasProject
 	var total int64
-	query := fgCanvasScope(r.db.Model(&model.CanvasProject{}),userID).Where("project_id = ?",projectID)
+	query := fgCanvasScope(r.db.Model(&model.CanvasProject{}), userID).Where("project_id = ?", projectID)
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -171,9 +171,15 @@ func (r *Repository) ProjectCanvasSummariesPage(userID string, projectID string,
 func (r *Repository) UserCanvasProjectsPage(userID string, page int, pageSize int, projectID string, search string, sort string) ([]model.CanvasProject, int64, error) {
 	var projects []model.CanvasProject
 	var total int64
-	query := fgCanvasScope(r.db.Model(&model.CanvasProject{}),userID)
+	query := fgCanvasScope(r.db.Model(&model.CanvasProject{}), userID)
 	if projectID == "independent" {
 		query = query.Where("project_id = '' OR project_id IS NULL")
+	} else if projectID == "stories" {
+		if fgTeamEnabled() {
+			query = query.Where("EXISTS (SELECT 1 FROM fg_story_projects fg WHERE fg.native_project_id = canvas_projects.project_id)")
+		} else {
+			query = query.Where("project_id <> '' AND project_id IS NOT NULL")
+		}
 	} else if projectID != "" && projectID != "all" {
 		query = query.Where("project_id = ?", projectID)
 	}
@@ -231,7 +237,7 @@ func (r *Repository) ProjectAssetCandidatesPage(projectID string, page int, page
 func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int, pageSize int, category string, mediaType string, status string, folderID *string, queryText string) ([]model.Asset, int64, error) {
 	var assets []model.Asset
 	var total int64
-	query := fgMediaScope(r.db.Table("assets"),"assets","fg_asset_grants","asset_id",userID).Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
+	query := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
 	if value := strings.TrimSpace(category); value != "" {
 		query = query.Where("assets.category = ?", value)
 	}

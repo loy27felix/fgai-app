@@ -71,7 +71,7 @@ export async function reserveBudget(pool,input){
   const task=input.taskId?(await client.query('SELECT project_id FROM tasks WHERE id=$1 AND user_id=$2',[input.taskId,input.userId])).rows[0]:null;
   let projectId=task?(await client.query("SELECT COALESCE((SELECT NULLIF(project_id,'') FROM canvas_projects WHERE id=$1),(SELECT id FROM projects WHERE id=$1)) id",[task.project_id])).rows[0]?.id:null;
   if(!task&&input.advertisingWorkspaceId){
-   projectId=(await client.query(`SELECT w.native_project_id id FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND (w.owner_id=$2 OR EXISTS(SELECT 1 FROM fg_adcraft_members m WHERE m.workspace_id=w.id AND m.user_id=$2) OR EXISTS(SELECT 1 FROM fg_accounts a WHERE a.user_id=$2 AND a.platform_role='superadmin'))`,[input.advertisingWorkspaceId,input.userId])).rows[0]?.id;
+   projectId=(await client.query(`SELECT w.native_project_id id FROM fg_adcraft_workspaces w WHERE w.id=$1 AND w.archived_at IS NULL AND w.owner_id=$2`,[input.advertisingWorkspaceId,input.userId])).rows[0]?.id;
    if(!projectId)throw Error('广告音频项目不存在或无权使用');
   }
   await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-user:'||$1))",[input.userId]);
