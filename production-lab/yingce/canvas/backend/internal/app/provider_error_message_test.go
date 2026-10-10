@@ -34,6 +34,32 @@ func TestProviderErrorDetail(t *testing.T) {
 	}
 }
 
+func TestProviderHTTPQuotaFailureUsesBusinessCode(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{"wetoken forbidden", 403, `{"code":"quota_not_enough","data":null,"message":"user quota is not enough"}`, "额度不足"},
+		{"nested quota", 429, `{"error":{"code":"insufficient_quota","message":"api_key=secret"}}`, "额度不足"},
+		{"payment quota", 402, `{"code":"quota_exceeded","message":"balance=secret"}`, "额度不足"},
+		{"authentication remains authentication", 401, `{"code":"quota_not_enough"}`, "鉴权失败"},
+		{"echoed quota is not a code", 403, `{"error":{"code":"invalid_api_key","message":"quota_not_enough api_key=secret"}}`, "鉴权失败"},
+		{"plain diagnostic", 403, "quota_not_enough api_key=secret", "鉴权失败"},
+		{"malformed response", 403, `{"code":"quota_not_enough"`, "鉴权失败"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fmt.Errorf("视频任务创建失败：%w", providerHTTPError{StatusCode: tt.status, Body: tt.body})
+			for _, message := range []string{providerUserFacingErrorMessage(err), taskFailureMessage(err)} {
+				if !strings.Contains(message, tt.want) || strings.Contains(message, "secret") {
+					t.Fatalf("unexpected user message: %q", message)
+				}
+			}
+		})
+	}
+}
+
 func TestTaskFailurePreservesSafeProviderDetail(t *testing.T) {
 	const detail = "非常抱歉，生成的图片可能违反了关于裸露、色情或情色内容的防护限制。请重试或修改提示语。"
 	for _, status := range []int{400, 403, 422, 429, 500, 502} {

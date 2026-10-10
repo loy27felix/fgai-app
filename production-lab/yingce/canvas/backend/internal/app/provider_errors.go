@@ -145,6 +145,18 @@ func speechResourceDeniedUserMessage(raw string) string {
 }
 
 func (e providerHTTPError) summary() string {
+	// Some providers return quota failures as 403. Only trust structured
+	// business codes here; authentication diagnostics may echo user input.
+	if e.StatusCode == http.StatusForbidden || e.StatusCode == http.StatusPaymentRequired || e.StatusCode == http.StatusTooManyRequests {
+		var payload map[string]any
+		if json.Unmarshal([]byte(e.Body), &payload) == nil {
+			code, _ := providerFailureDetails(payload)
+			switch strings.ToLower(code) {
+			case "quota_not_enough", "insufficient_quota", "quota_exceeded":
+				return "模型服务额度不足，请检查渠道余额或配额"
+			}
+		}
+	}
 	switch e.StatusCode {
 	case 524:
 		return "上游网关超时（524）：模型请求可能仍在服务端执行并产生费用，请勿立即重试，请先到供应商后台核对任务或账单"
