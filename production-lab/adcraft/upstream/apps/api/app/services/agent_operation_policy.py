@@ -159,7 +159,9 @@ class AgentOperationPolicyRegistryV2:
                 primary_timeout_seconds=240,
                 recovery_timeout_seconds=55,
                 persistence_reserve_seconds=5,
-                max_output_tokens=2_048,
+                # Intake includes sourced controls and directives. At 2,048 tokens
+                # a valid tool result can be cut off before its JSON closes.
+                max_output_tokens=4_096,
                 reasoning_mode="low",
                 enable_thinking=False,
                 thinking_budget_tokens=None,
