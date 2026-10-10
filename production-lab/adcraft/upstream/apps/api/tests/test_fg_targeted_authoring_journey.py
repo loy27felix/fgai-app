@@ -1,9 +1,11 @@
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
 from app.persistence.errors import V2PersistenceError
-from app.schemas.agent_canvas import AgentCanvasWorkflowV2
+from app.schemas.agent_canvas import AgentCanvasWorkflowV2, CanvasNodeV2
+from app.schemas.agent_canvas_capabilities import CapabilityPolicyContextV1
 from app.schemas.agent_canvas_capabilities import CapabilityReferencePlanV1
 from app.schemas.agent_canvas_production_journey import (
     GuidedProductionJourneyV2,
@@ -13,6 +15,44 @@ from app.services.agent_canvas_conversation import AgentConversationService
 from app.services.agent_canvas_capability_policy import CapabilityPolicyService
 from app.services.agent_canvas_command_compiler import AgentCommandPlanCompiler
 from app.services.agent_canvas_production_journey import GuidedProductionJourneyPolicyService
+from app.services.agent_canvas_next_action_context import assemble_capability_policy_context
+
+
+@pytest.mark.parametrize("node_status", ["draft", "ready", "failed"])
+def test_explicit_product_draft_can_reuse_an_existing_product_capability(node_status):
+    now = datetime.now(timezone.utc)
+    workflow = AgentCanvasWorkflowV2(
+        workflow_id="workflow", project_id="project", revision=1,
+        nodes=(CanvasNodeV2(
+            node_id="existing-product", workflow_id="workflow", node_type="image",
+            creative_role="product", title="Original product", status=node_status,
+            output_asset_id="asset-product" if node_status == "ready" else None,
+            output_asset_version_id="version-product" if node_status == "ready" else None,
+            revision=1, position={"x": 0, "y": 0}, created_at=now, updated_at=now,
+        ),),
+    )
+    context = assemble_capability_policy_context(
+        workflow=workflow,
+        session=SimpleNamespace(element_decisions=(), topics=()),
+        targeted_capability="product_design",
+    )
+    assert context.completed_capabilities == ("product_design",)
+    policy = CapabilityPolicyService()
+    assert policy.evaluate(context).allowed_capabilities == ("product_design",)
+    # Automatic guided routing still does not repeat a completed capability.
+    assert "product_design" not in policy.evaluate(
+        context.model_copy(update={"targeted_capability": None}),
+    ).allowed_capabilities
+
+
+@pytest.mark.parametrize("blocked_field", [
+    "excluded_capabilities", "open_proposal_capabilities", "active_materialization_capabilities",
+])
+def test_targeted_authoring_still_respects_exclusions_and_active_work(blocked_field):
+    context = CapabilityPolicyContextV1(
+        targeted_capability="product_design", **{blocked_field: ("product_design",)},
+    )
+    assert CapabilityPolicyService().evaluate(context).allowed_capabilities == ()
 
 
 @pytest.fixture

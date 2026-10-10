@@ -232,8 +232,9 @@ class CapabilityPolicyService:
                 ),
             )
         if context.targeted_capability is not None:
+            # Explicit authoring can create another draft of a capability that
+            # already has nodes. Completion only suppresses automatic routing.
             hard_unavailable = {
-                *context.completed_capabilities,
                 *context.excluded_capabilities,
                 *context.open_proposal_capabilities,
                 *context.active_materialization_capabilities,
