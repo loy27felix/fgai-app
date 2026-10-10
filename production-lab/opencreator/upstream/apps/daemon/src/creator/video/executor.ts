@@ -217,6 +217,12 @@ async function videoRequest(
       : {}),
     size: readSize(stage.job.state.size),
     duration: readDuration(stage.job.state.duration),
+    ...(stage.job.state.resolution === undefined ? {} : {
+      resolution: stage.job.state.resolution as CreateVideoGenerationRequest['resolution']
+    }),
+    ...(stage.job.state.generateAudio === undefined ? {} : {
+      generateAudio: stage.job.state.generateAudio as boolean
+    }),
     ...(reference === undefined
       ? {}
       : { referenceImage: await readReferenceImage(reference) })

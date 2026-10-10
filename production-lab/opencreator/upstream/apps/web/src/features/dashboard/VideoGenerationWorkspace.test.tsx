@@ -15,6 +15,43 @@ import VideoGenerationWorkspace from './VideoGenerationWorkspace.js';
 import { CreatorSessionProvider, useCreatorSession } from './creator-session-store.js';
 
 describe('VideoGenerationWorkspace', () => {
+  it('restores company-model four-second 480p controls and keeps sound disabled', async () => {
+    vi.stubEnv('VITE_FG_MANAGED', '1');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      defaults: { video: 'dreamina-seedance-2-0-mini-filter-off' },
+      models: [{ billingId: 'dreamina-seedance-2-0-mini-filter-off', name: 'SD2-mini', capability: 'video',
+        profile: { video: { duration: { values: [4, 5, 10], default: 5 }, resolutions: ['480p', '720p'],
+          defaultResolution: '720p', generateAudio: { supported: true } } } }]
+    }), { status: 200 })));
+    const view = renderWorkspace(creatorJob({ state: {
+      prompt: 'Cup', provider: 'seedance', model: 'dreamina-seedance-2-0-mini-filter-off',
+      currentStep: 1, furthestStep: 1, duration: 4, resolution: '480p', generateAudio: false
+    } }));
+    try {
+      await waitFor(() => expect(screen.getByRole('combobox', { name: '模型版本' })).toHaveValue('dreamina-seedance-2-0-mini-filter-off'));
+      expect(screen.getByRole('combobox', { name: '视频时长' })).toHaveValue('4');
+      expect(screen.getByRole('combobox', { name: '分辨率' })).toHaveValue('480p');
+      expect(screen.getByRole('combobox', { name: '生成声音' })).toHaveValue('false');
+      fireEvent.click(screen.getByRole('button', { name: '继续' }));
+      expect(screen.getByText('480P')).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+  it('shows Agent-authored fields immediately while keeping an unsaved local prompt', async () => {
+    renderWorkspace(creatorJob({ state: { prompt: 'Initial prompt' } }), {
+      children: <AgentSettingsControl />
+    });
+    fireEvent.click(screen.getByRole('button', { name: '接收 Agent 设置' }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '提示词' })).toHaveValue('Agent cup prompt'));
+    fireEvent.change(screen.getByRole('textbox', { name: '提示词' }), { target: { value: 'Local cup edit' } });
+    fireEvent.click(screen.getByRole('button', { name: '接收 Agent 设置' }));
+    expect(screen.getByRole('textbox', { name: '提示词' })).toHaveValue('Local cup edit');
+    fireEvent.click(screen.getByRole('button', { name: '继续' }));
+    expect(screen.getByRole('combobox', { name: '视频时长' })).toHaveValue('10');
+  });
   it('leaves the running screen and shows the true failure through read-only reconciliation without an SSE event', async () => {
     vi.useFakeTimers();
     const running = runningVideoJob({ phase: 'submitting', percent: 8 });
@@ -746,6 +783,15 @@ function TaskRefreshControl() {
     artifacts: session.job.artifacts.map(artifact => ({ ...artifact })),
     state: { ...session.state }
   })}>刷新任务</button>;
+}
+
+function AgentSettingsControl() {
+  const session = useCreatorSession();
+  return <button type="button" onClick={() => session.applyRemoteSnapshot({
+    ...session.job,
+    revision: session.job.revision + 1,
+    state: { ...session.job.state, prompt: 'Agent cup prompt', duration: 10 }
+  })}>接收 Agent 设置</button>;
 }
 
 function runningVideoJob(options: {

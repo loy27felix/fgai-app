@@ -102,6 +102,8 @@ export type CreateVideoGenerationRequest = {
   model?: string;
   size: VideoGenerationSize;
   duration: VideoGenerationDuration;
+  resolution?: '480p' | '720p' | '1080p';
+  generateAudio?: boolean;
   referenceImage?: VideoGenerationReferenceImage;
 };
 

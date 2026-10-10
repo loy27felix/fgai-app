@@ -398,6 +398,8 @@ async function createSeedanceVideoJob(
         ? {}
         : { ratio: videoAspectRatio(request.size) }),
       duration: request.duration,
+      ...(request.resolution === undefined ? {} : { resolution: request.resolution }),
+      ...(request.generateAudio === undefined ? {} : { generate_audio: request.generateAudio }),
       watermark: false
     }),
     config,
@@ -732,11 +734,20 @@ function validateRequest(request: CreateVideoGenerationRequest) {
   if (!(videoGenerationDurations as readonly unknown[]).includes(request.duration)) {
     throw new VideoGenerationError('VALIDATION_FAILED', 'video duration is invalid', 400);
   }
-  const validDurations = request.provider === 'veo' ? [4, 6, 8] : [5, 10];
+  const validDurations = request.provider === 'seedance' ? [4, 5, 6, 8, 10]
+    : request.provider === 'veo' ? [4, 6, 8] : [5, 10];
   if (!validDurations.includes(request.duration)) {
     throw new VideoGenerationError('VALIDATION_FAILED', `video duration is not supported by ${request.provider}`, 400);
   }
   validateReferenceImage(request.referenceImage);
+  if (request.resolution !== undefined && (request.provider !== 'seedance'
+    || !['480p', '720p', '1080p'].includes(request.resolution))) {
+    throw new VideoGenerationError('VALIDATION_FAILED', 'video resolution is invalid', 400);
+  }
+  if (request.generateAudio !== undefined && (request.provider !== 'seedance'
+    || typeof request.generateAudio !== 'boolean')) {
+    throw new VideoGenerationError('VALIDATION_FAILED', 'video audio option is invalid', 400);
+  }
 }
 
 function validateReferenceImage(referenceImage: CreateVideoGenerationRequest['referenceImage']) {

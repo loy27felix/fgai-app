@@ -124,6 +124,20 @@ export default function VideoGenerationWorkspace(props: {
   const [duration, setDuration] = useState<VideoGenerationDuration>(() => (
     readDuration(session?.state.duration, readProvider(session?.state.provider))
   ));
+  const [resolution, setResolution] = useState(() => readString(session?.state.resolution));
+  const [generateAudio, setGenerateAudio] = useState(() => session?.state.generateAudio === true);
+  // Session state already merges unsaved local edits with server snapshots.
+  // Reflect Agent changes without requiring a reload or replacing local drafts.
+  useEffect(() => {
+    setPrompt(readString(session?.state.prompt));
+    setProvider(readProvider(session?.state.provider));
+    setModel(readModel(session?.state.model, readProvider(session?.state.provider)));
+    setSize(readSize(session?.state.size));
+    setDuration(readDuration(session?.state.duration, readProvider(session?.state.provider)));
+    setResolution(readString(session?.state.resolution));
+    setGenerateAudio(session?.state.generateAudio === true);
+  }, [session?.state.prompt, session?.state.provider, session?.state.model, session?.state.size,
+    session?.state.duration, session?.state.resolution, session?.state.generateAudio]);
   const resultVersion = session?.job.state.resultVersion;
   const [videoUrl, setVideoUrl] = useState('');
   const [previewFailed, setPreviewFailed] = useState(false);
@@ -133,7 +147,7 @@ export default function VideoGenerationWorkspace(props: {
   const characterCount = useMemo(() => [...prompt.trim()].length, [prompt]);
   const selectedSize = sizes.find(item => item.value === size) ?? sizes[0]!;
   const selectedProvider = providers.find(item => item.value === provider) ?? providers[0]!;
-  const [companyModels, setCompanyModels] = useState<Array<{billingId: string; name: string; profile: {video: {duration: {values: number[]; default: number}}}}>>([]);
+  const [companyModels, setCompanyModels] = useState<Array<{billingId: string; name: string; profile: {video: {duration: {values: number[]; default: number}; resolutions: string[]; defaultResolution: string; generateAudio: {supported: boolean}}}}>>([]);
   useEffect(() => {
     if (import.meta.env.VITE_FG_MANAGED !== '1') return;
     void fetch('/.opencreator/runtime/fg-models').then(async r => {
@@ -148,6 +162,14 @@ export default function VideoGenerationWorkspace(props: {
   );
   const selectedModelLabel = videoModelLabel(model);
   const durations = import.meta.env.VITE_FG_MANAGED === '1' ? (companyModels.find(m => m.billingId === model)?.profile.video.duration.values || [5,10]).filter(v => [4,5,6,8,10].includes(v)) : providerDurations[provider];
+  const companyVideoProfile = companyModels.find(m => m.billingId === model)?.profile.video;
+  const resolutions = (companyVideoProfile?.resolutions ?? []).map(value => value.toLowerCase())
+    .filter(value => ['480p', '720p', '1080p'].includes(value));
+  useEffect(() => {
+    if (import.meta.env.VITE_FG_MANAGED !== '1' || !companyVideoProfile || resolutions.includes(resolution)) return;
+    const next = companyVideoProfile.defaultResolution.toLowerCase();
+    session?.updateDraft({ resolution: resolutions.includes(next) ? next : resolutions[0] ?? '' });
+  }, [companyVideoProfile, resolution, session?.updateDraft]);
   const resultVersions = useMemo(
     () => createVideoResultVersions(session?.job.artifacts ?? [], session?.state.resultSnapshots),
     [session?.job.artifacts, session?.state.resultSnapshots]
@@ -451,7 +473,8 @@ export default function VideoGenerationWorkspace(props: {
       provider,
       model,
       size,
-      duration
+      duration,
+      ...(import.meta.env.VITE_FG_MANAGED === '1' ? { resolution, generateAudio } : {})
     }, { semantic: true });
     try {
       await session.flush();
@@ -746,9 +769,24 @@ export default function VideoGenerationWorkspace(props: {
                   >
                     {followsReferenceRatio ? (
                       <option value={size}>{l('跟随参考图', 'Match reference image')}</option>
-                    ) : sizes.map(item => <option key={item.value} value={item.value}>{l(item.zh, item.en)} · {item.ratio} · {item.value}</option>)}
+                    ) : sizes.map(item => <option key={item.value} value={item.value}>{l(item.zh, item.en)} · {item.ratio}{import.meta.env.VITE_FG_MANAGED === '1' ? '' : ` · ${item.value}`}</option>)}
                   </NativeSelect>
                 </label>
+                {import.meta.env.VITE_FG_MANAGED === '1' ? <>
+                  <label className="creator-tool-field">
+                    <span>{l('分辨率', 'Resolution')}</span>
+                    <NativeSelect value={resolution} onChange={event => session?.updateDraft({ resolution: event.target.value })}>
+                      {resolutions.map(value => <option key={value} value={value}>{value.toUpperCase()}</option>)}
+                    </NativeSelect>
+                  </label>
+                  {companyVideoProfile?.generateAudio.supported ? <label className="creator-tool-field">
+                    <span>{l('生成声音', 'Generate audio')}</span>
+                    <NativeSelect value={String(generateAudio)} onChange={event => session?.updateDraft({ generateAudio: event.target.value === 'true' })}>
+                      <option value="false">{l('无声', 'Silent')}</option>
+                      <option value="true">{l('同时生成声音', 'Generate audio with video')}</option>
+                    </NativeSelect>
+                  </label> : null}
+                </> : null}
                 <label className="creator-tool-field">
                   <span>{l('视频时长', 'Video duration')}</span>
                   <NativeSelect value={duration} onChange={event => updateDuration(Number(event.target.value) as VideoGenerationDuration)}>
@@ -883,7 +921,7 @@ export default function VideoGenerationWorkspace(props: {
                     : `${l(selectedSize.zh, selectedSize.en)} · ${selectedSize.ratio}` },
                   { label: l('分辨率', 'Resolution'), value: followsReferenceRatio
                     ? l('由模型根据参考图决定', 'Determined from the reference image')
-                    : size },
+                    : import.meta.env.VITE_FG_MANAGED === '1' ? resolution.toUpperCase() : size },
                   { label: l('时长', 'Duration'), value: l(`${duration} 秒`, `${duration} seconds`) },
                   { label: l('输出格式', 'Output format'), value: 'MP4' }
                 ]}
@@ -1089,7 +1127,8 @@ function readDuration(
   value: CreatorJson | undefined,
   provider: VideoGenerationProvider
 ): VideoGenerationDuration {
-  const allowed = providerDurations[provider];
+  const allowed: VideoGenerationDuration[] = import.meta.env.VITE_FG_MANAGED === '1'
+    ? [4, 5, 6, 8, 10] : providerDurations[provider];
   return typeof value === 'number' && allowed.includes(value as VideoGenerationDuration)
     ? value as VideoGenerationDuration
     : allowed[0]!;

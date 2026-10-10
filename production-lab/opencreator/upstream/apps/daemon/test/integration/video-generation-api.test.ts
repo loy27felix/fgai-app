@@ -22,6 +22,30 @@ describe('video generation API', () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
+  it('submits one four-second silent 480p request without replacing the requested controls', async () => {
+    const config = createDefaultCreatorServicesConfig();
+    config.video.seedance.apiKey = 'sk-video-test';
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ id: 'remote_480', status: 'queued' }), { status: 200 }));
+    await registerVideoGenerationRoutes(server, createVideoGenerationService({
+      dataDir, configStore: createConfigStore(config), fetchImpl: fetchImpl as typeof fetch
+    }));
+    const response = await server.inject({ method: 'POST', url: '/video-generation/results', payload: {
+      prompt: 'White ceramic cup', provider: 'seedance', model: 'dreamina-seedance-2-0-mini-filter-off',
+      size: '1280x720', duration: 4, resolution: '480p', generateAudio: false
+    } });
+    expect(response.statusCode).toBe(202);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toMatchObject({
+      model: 'dreamina-seedance-2-0-mini-filter-off', ratio: '16:9', duration: 4,
+      resolution: '480p', generate_audio: false
+    });
+    const rejected = await server.inject({ method: 'POST', url: '/video-generation/results', payload: {
+      prompt: 'White ceramic cup', provider: 'seedance', size: '1280x720', duration: 4, resolution: 'unexpected'
+    } });
+    expect(rejected.statusCode).toBe(400);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('returns provider HTTP facts without exposing arbitrary response text', async () => {
     const config = createDefaultCreatorServicesConfig();
     config.video.seedance.apiKey = 'sk-video-test';
