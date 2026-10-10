@@ -41,6 +41,8 @@ with urllib.request.urlopen(request, timeout=30) as response:
 
 from lib.config.registry import ModelInfo, ProviderMeta, PROVIDER_REGISTRY
 from server import app as native
+from company_request import install_sdk
+install_sdk(base)
 from lib.db import async_session_factory, init_db
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.db.repositories.credential_repository import CredentialRepository

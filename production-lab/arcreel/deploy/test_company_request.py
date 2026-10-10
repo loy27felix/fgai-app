@@ -2,12 +2,24 @@
 import asyncio
 import unittest
 import httpx
-from company_request import install, fg_task
+from company_request import install, fg_task, sdk_operation_env
 
 BASE = 'http://fg-gateway:3010/internal/arcreel/test'
 install(BASE, 'fixture-capability')
 
 class RequestTests(unittest.IsolatedAsyncioTestCase):
+    def test_sdk_process_identity_preserves_headers_and_unrelated_providers(self):
+        source = {'ANTHROPIC_BASE_URL': BASE, 'ANTHROPIC_CUSTOM_HEADERS': 'x-fixture: preserved\nx-fg-operation-id: stale'}
+        first = sdk_operation_env(source, BASE)
+        second = sdk_operation_env(source, BASE)
+        self.assertIn('x-fixture: preserved', first['ANTHROPIC_CUSTOM_HEADERS'])
+        self.assertNotIn('stale', first['ANTHROPIC_CUSTOM_HEADERS'])
+        self.assertEqual(first['ANTHROPIC_CUSTOM_HEADERS'].count('x-fg-operation-id:'), 1)
+        self.assertNotEqual(first['ANTHROPIC_CUSTOM_HEADERS'], second['ANTHROPIC_CUSTOM_HEADERS'])
+        self.assertIn('stale', source['ANTHROPIC_CUSTOM_HEADERS'])
+        other = {'ANTHROPIC_BASE_URL': BASE+'-other'}
+        self.assertIs(sdk_operation_env(other, BASE), other)
+
     async def test_download_auth_never_reaches_another_actor_or_external_url(self):
         seen = []
         def respond(request):
