@@ -850,25 +850,27 @@ _TRUSTED_MANIFESTS = (
 
 import os as _fg_os
 from copy import deepcopy as _fg_copy
+# Keep the source templates available when the bridge is configured after this
+# module is imported. Native installations retain their original catalog.
+_fg_manifests = []
+for _manifest in _TRUSTED_MANIFESTS:
+    if _manifest.provider_id != 'volcengine_ark': continue
+    if _manifest.provider_model_id == 'doubao-seed-2-1-pro-260628':
+        _metadata = dict(_manifest.capability_metadata, capability_revision='fg-gpt-5.6-sol-tools-v1', accepted_input_types=['text','image'], supports_tool_calls=True, supports_streaming=False, supports_reasoning_controls=False, reasoning_control='none', structured_transport='non_streaming_tool_call')
+        _fg_manifests.append(replace(_manifest, provider_model_id='gpt-5.6-sol-t1a', display_name='GPT 5.6 · WeToken', capability_metadata=_metadata))
+    elif _manifest.provider_model_id in {'doubao-seedream-5-0-lite-260128', 'doubao-seedance-2-0-fast-260128'}:
+        _metadata = _fg_copy(_manifest.capability_metadata)
+        if _manifest.capability == 'video':
+            _metadata['default_parameters']['generate_audio'] = True
+            _metadata['default_parameters']['resolution'] = '480p'
+            _metadata['supported_resolutions'] = ['480p','720p']
+            for _descriptor in _metadata['adapter_profile']['parameter_matrix']['descriptors']:
+                if _descriptor['name'] == 'generate_audio': _descriptor['default'] = True
+                if _descriptor['name'] == 'resolution': _descriptor['allowed_values'] = ['480p','720p']
+        _fg_manifests.append(replace(_manifest, display_name='Seedream Lite · WeToken' if _manifest.capability == 'image' else 'SD2-fast · WeToken', capability_metadata=_metadata))
+_FG_TEMPLATES = tuple(_fg_manifests)
 if _fg_os.getenv('FG_ADCRAFT_SECRET'):
-    _fg_manifests = []
-    for _manifest in _TRUSTED_MANIFESTS:
-        if _manifest.provider_id != 'volcengine_ark': continue
-        if _manifest.provider_model_id == 'doubao-seed-2-1-pro-260628':
-            _metadata = dict(_manifest.capability_metadata, capability_revision='fg-gpt-5.6-sol-tools-v1', accepted_input_types=['text','image'], supports_tool_calls=True, supports_streaming=False, supports_reasoning_controls=False, reasoning_control='none', structured_transport='non_streaming_tool_call')
-            _fg_manifests.append(replace(_manifest, provider_model_id='gpt-5.6-sol-t1a', display_name='GPT 5.6 · WeToken', capability_metadata=_metadata))
-        elif _manifest.provider_model_id in {'doubao-seedream-5-0-lite-260128', 'doubao-seedance-2-0-fast-260128'}:
-            _metadata = _fg_copy(_manifest.capability_metadata)
-            if _manifest.capability == 'video':
-                _metadata['default_parameters']['generate_audio'] = True
-                _metadata['default_parameters']['resolution'] = '480p'
-                _metadata['supported_resolutions'] = ['480p','720p']
-                for _descriptor in _metadata['adapter_profile']['parameter_matrix']['descriptors']:
-                    if _descriptor['name'] == 'generate_audio': _descriptor['default'] = True
-                    if _descriptor['name'] == 'resolution': _descriptor['allowed_values'] = ['480p','720p']
-            _fg_manifests.append(replace(_manifest, display_name='Seedream Lite · WeToken' if _manifest.capability == 'image' else 'SD2-fast · WeToken', capability_metadata=_metadata))
-    _TRUSTED_MANIFESTS = tuple(_fg_manifests)
-    _FG_TEMPLATES = _TRUSTED_MANIFESTS
+    _TRUSTED_MANIFESTS = _FG_TEMPLATES
 
 def install_fg_catalog(models):
     global _TRUSTED_MANIFESTS

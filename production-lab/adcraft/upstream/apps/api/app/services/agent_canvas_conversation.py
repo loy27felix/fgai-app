@@ -99,6 +99,7 @@ from app.schemas.agent_canvas_creative_session import (
     CreativeGoalV2,
     GuidanceCompletionProjectionV2,
     GuidanceSessionActionV2,
+    GuidedSessionStateV2,
     SpecialistDraftV2,
     StyleGuidanceContextV2,
 )
@@ -1744,6 +1745,10 @@ class AgentConversationService:
     ) -> ChatTurnV2:
         workflow = self._workflows.get_workflow(turn.workflow_id)
         existing_session = self._conversations.get_guidance_session_or_none(turn.workflow_id)
+        if existing_session is not None:
+            existing_session = self._recover_terminal_targeted_journey(
+                turn.workflow_id, existing_session,
+            )
         mentioned_node_ids = tuple(
             str(item) for item in turn.request.get("mentioned_node_ids") or ()
         )
@@ -2033,22 +2038,6 @@ class AgentConversationService:
                     f"clarification-completed:{turn_id}:requirements:{requirements.revision_id}"
                 ),
             )
-        if (
-            intent.mode == "targeted_authoring"
-            and session.journey.active_action is not None
-            and session.journey.suspended_action is None
-        ):
-            session = self._journey.apply_evidence(
-                turn.workflow_id,
-                evidence=JourneyEvidenceV2(
-                    evidence_id=f"targeted-start:{turn_id}",
-                    evidence_kind="targeted_action_started",
-                    source_id=turn_id,
-                    action_id=turn_id,
-                ),
-                expected_session_revision=session.revision,
-                idempotency_key=f"targeted-start:{turn_id}",
-            )
         if intent.mode == "guided_production" and awaiting_blocks_authoring(
             session.awaiting,
             stage=session.journey.stage,
@@ -2257,7 +2246,7 @@ class AgentConversationService:
             asset_resolver=self._asset_resolver,
         )
         if intent.mode == "targeted_authoring":
-            return self._apply_targeted_authoring_command(
+            return self._run_targeted_authoring_command(
                 turn=turn,
                 capability_id=command.command.capability_id,
                 objective=command.command.objective or intent.objective,
@@ -2283,7 +2272,36 @@ class AgentConversationService:
         )
         return self._conversations.get_turn(turn_id)
 
-    def _apply_targeted_authoring_command(
+    def _recover_terminal_targeted_journey(
+        self, workflow_id: str, session: GuidedSessionStateV2,
+    ) -> GuidedSessionStateV2:
+        active = session.journey.active_action
+        if (
+            session.journey.suspended_action is None or active is None
+            or active.action_kind != "targeted_authoring"
+        ):
+            return session
+        previous = self._conversations.get_turn(active.action_id)
+        if (
+            previous.workflow_id != workflow_id
+            or previous.status not in {"failed", "completed", "cancelled"}
+        ):
+            return session
+        # A terminal turn from an older runtime may have left its authority
+        # suspended. Recover through the same revision-checked transition.
+        return self._journey.apply_evidence(
+            workflow_id,
+            evidence=JourneyEvidenceV2(
+                evidence_id=f"targeted-recover:{active.action_id}",
+                evidence_kind="targeted_action_finished",
+                source_id=active.action_id,
+                action_id=active.action_id,
+            ),
+            expected_session_revision=session.revision,
+            idempotency_key=f"targeted-recover:{active.action_id}",
+        )
+
+    def _run_targeted_authoring_command(
         self,
         *,
         turn: ChatTurnV2,
@@ -2301,6 +2319,75 @@ class AgentConversationService:
                 "The requested capability does not support direct Draft authoring.",
                 stage="agent_conversation_service",
             )
+        session = self._recover_terminal_targeted_journey(
+            turn.workflow_id, self._conversations.get_guidance_session(turn.workflow_id),
+        )
+        if session.journey.suspended_action is not None:
+            raise V2PersistenceError(
+                "journey_action_in_progress",
+                "Another targeted action is already working.",
+                stage="agent_conversation_service",
+            )
+        suspended = session.journey.active_action is not None
+        if suspended:
+            self._journey.apply_evidence(
+                turn.workflow_id,
+                evidence=JourneyEvidenceV2(
+                    evidence_id=f"targeted-start:{turn.turn_id}",
+                    evidence_kind="targeted_action_started",
+                    source_id=turn.turn_id,
+                    action_id=turn.turn_id,
+                ),
+                expected_session_revision=session.revision,
+                idempotency_key=f"targeted-start:{turn.turn_id}",
+            )
+        try:
+            message = self._apply_targeted_authoring_command(
+                turn=turn,
+                capability_id=capability_id,
+                objective=objective,
+                reference_plan=reference_plan,
+                context_snapshot_id=context_snapshot_id,
+                context_snapshot_digest=context_snapshot_digest,
+                source_action=source_action,
+            )
+        finally:
+            # Direct authoring borrows the journey authority for this turn only.
+            # Restore it on provider, validation and persistence failures too.
+            if suspended:
+                current = self._conversations.get_guidance_session(turn.workflow_id)
+                active = current.journey.active_action
+                if active is None or active.action_id != turn.turn_id:
+                    raise V2PersistenceError(
+                        "targeted_authoring_authority_missing",
+                        "Direct Draft authoring lost its targeted journey authority.",
+                        stage="agent_conversation_service",
+                    )
+                self._journey.apply_evidence(
+                    turn.workflow_id,
+                    evidence=JourneyEvidenceV2(
+                        evidence_id=f"targeted-finish:{turn.turn_id}",
+                        evidence_kind="targeted_action_finished",
+                        source_id=turn.turn_id,
+                        action_id=turn.turn_id,
+                    ),
+                    expected_session_revision=current.revision,
+                    idempotency_key=f"targeted-finish:{turn.turn_id}",
+                )
+        return self._complete_turn(turn.turn_id, turn.workflow_id, message)
+
+    def _apply_targeted_authoring_command(
+        self,
+        *,
+        turn: ChatTurnV2,
+        capability_id: CapabilityIdV1,
+        objective: str,
+        reference_plan: CapabilityReferencePlanV1,
+        context_snapshot_id: str,
+        context_snapshot_digest: str,
+        source_action: GuidanceSourceActionV1 | None,
+    ) -> str | None:
+        definition = self._capability_policy.definition(capability_id)
         create_operation_id = "create_targeted_draft"
         operations: list[dict[str, object]] = [
             {
@@ -2386,31 +2473,7 @@ class AgentConversationService:
                 "Direct Draft authoring unexpectedly requires confirmation.",
                 stage="agent_conversation_service",
             )
-        current_session = self._conversations.get_guidance_session(turn.workflow_id)
-        if current_session.journey.suspended_action is not None:
-            active_action = current_session.journey.active_action
-            if active_action is None:
-                raise V2PersistenceError(
-                    "targeted_authoring_authority_missing",
-                    "Direct Draft authoring lost its targeted journey authority.",
-                    stage="agent_conversation_service",
-                )
-            self._journey.apply_evidence(
-                turn.workflow_id,
-                evidence=JourneyEvidenceV2(
-                    evidence_id=f"targeted-finish:{submission.receipt.receipt_id}",
-                    evidence_kind="targeted_action_completed",
-                    source_id=submission.receipt.receipt_id,
-                    action_id=active_action.action_id,
-                ),
-                expected_session_revision=current_session.revision,
-                idempotency_key=f"targeted-finish:{turn.turn_id}",
-            )
-        return self._complete_turn(
-            turn.turn_id,
-            turn.workflow_id,
-            envelope.assistant_message,
-        )
+        return envelope.assistant_message
 
     def _process_proposal_action(self, turn_id: str, turn: ChatTurnV2) -> ChatTurnV2:
         committed_receipt = self._conversations.get_publication_receipt_for_action(turn_id)
