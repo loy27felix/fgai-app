@@ -37,6 +37,8 @@ services:
       postgres:
         condition: service_healthy
   yingce-agent:
+    # Forward termination signals to Node instead of leaving it as PID 1.
+    init: true
     image: ${CANVAS_AGENT_IMAGE:?required}
     restart: unless-stopped
     environment:

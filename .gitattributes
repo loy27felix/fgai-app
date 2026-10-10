@@ -1,0 +1,2 @@
+# Keep bind-mounted Nginx configuration byte lengths consistent across hosts.
+docker/nginx/*.conf text eol=lf
