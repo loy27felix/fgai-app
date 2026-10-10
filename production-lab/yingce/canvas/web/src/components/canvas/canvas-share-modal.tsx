@@ -3,6 +3,7 @@ import { App, Button, Input, Modal, Spin } from "antd";
 import { Copy, Link2, RefreshCw, Share2, Unlink } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { fgCanvasShareURL } from "@/lib/fg-entry-url";
 import { createCanvasShare, deleteCanvasShare, getCanvasShare, type CanvasShareStatus } from "@/services/api/canvas-share";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { Select } from "@/components/ui/base/select";
@@ -14,7 +15,7 @@ export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { p
     const [expiresDays, setExpiresDays] = useState(0);
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const shareUrl = useMemo(() => share.token ? `${window.location.origin}/share/canvas/${share.token}` : "", [share.token]);
+    const shareUrl = useMemo(() => share.token ? fgCanvasShareURL(window.location.origin, window.location.pathname, share.token) : "", [share.token]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -45,7 +46,7 @@ export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { p
             if (saved === false) return;
             const result = await createCanvasShare(projectId, { expiresDays, rotate });
             setShare(result.share);
-            const url = result.share.token ? `${window.location.origin}/share/canvas/${result.share.token}` : "";
+            const url = result.share.token ? fgCanvasShareURL(window.location.origin, window.location.pathname, result.share.token) : "";
             await copy(url);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "创建分享链接失败");

@@ -2,6 +2,10 @@ export function fgWorkspaceBasePath(pathname: string) {
     return /^\/fg-six(?:\/|$)/.test(pathname) ? "/fg-six" : "";
 }
 
+export function fgCanvasShareURL(origin: string, pathname: string, token: string) {
+    return new URL(`${fgWorkspaceBasePath(pathname)}/share/canvas/${encodeURIComponent(token)}`, origin).href;
+}
+
 export function fgResourceAccessURL(url: string, apiBaseURL: string) {
     if (!url || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return url;
     const base = apiBaseURL.trim();
