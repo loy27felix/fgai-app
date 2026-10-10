@@ -132,7 +132,7 @@ const server = http.createServer(async (req, res) => {
     if(path.pathname.startsWith('/api/admin/')&&!actor.reviewer){respond(res,403,'仅超级管理员可管理平台','FG_ADMIN_REQUIRED');return;}
     if (path.pathname === '/fg/entry' && req.method === 'GET') {
       const entryURL = workspaceEntryURL(req.headers.host, externalOrigins, publicOrigin);
-      const workspaceOrigin = entryURL.startsWith('/') ? externalOrigins.find(origin => new URL(origin).host === req.headers.host) : publicOrigin;
+      const workspaceOrigin = entryURL.startsWith('/') ? [publicOrigin, platformOrigin, ...externalOrigins].find(origin => new URL(origin).host === req.headers.host) : publicOrigin;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FG Studio · 制作工作区</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#101114}iframe{display:block;width:100%;height:100dvh;border:0}</style></head><body><iframe name="fg-canvas-workspace" title="FG 制作工作区" src="${entryURL}" allow="clipboard-read; clipboard-write; fullscreen; microphone ${workspaceOrigin}" allowfullscreen></iframe></body></html>`);
       return;

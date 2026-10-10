@@ -16,5 +16,6 @@ export function workspaceRequestPath(raw, origin, prefix = '/fg-six') {
 }
 
 export function workspaceEntryURL(host, externalOrigins, fallback) {
- return externalOrigins.some(origin => new URL(origin).host === host) ? '/fg-six/' : new URL(fallback).origin + '/';
+ const workspace = new URL(fallback);
+ return workspace.host === host || externalOrigins.some(origin => new URL(origin).host === host) ? '/fg-six/' : workspace.origin + '/';
 }

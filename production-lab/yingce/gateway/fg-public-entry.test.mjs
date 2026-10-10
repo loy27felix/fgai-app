@@ -16,3 +16,8 @@ test('public namespace retains encoded-path, managed-auth and commerce guards', 
  assert.equal(workspaceRequestPath('/fg-sixevil/api/tasks', origin).url.pathname, '/fg-sixevil/api/tasks');
  for (const url of ['/fg-six/api/auth%2flogin', '/fg-six/api/%2561uth/login', 'https://evil.example/fg-six/api/tasks']) assert.throws(() => workspaceRequestPath(url, origin));
 });
+
+test('LAN entry stays in the workspace namespace when it shares the platform port', () => {
+ assert.equal(workspaceEntryURL('192.168.0.99:3000', [], 'https://192.168.0.99:3000'), '/fg-six/');
+ assert.equal(workspaceEntryURL('evil.example', [], 'https://192.168.0.99:3000'), 'https://192.168.0.99:3000/');
+});
