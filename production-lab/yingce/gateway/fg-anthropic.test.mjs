@@ -12,3 +12,10 @@ test('external image URLs and unsupported content fail before admission',()=>{
  assert.throws(()=>anthropicConversation({messages:[{role:'user',content:[{type:'image',source:{type:'url',url:'http://localhost/private'}}]}]}));
  const response=anthropicResponse({text:'完成'},{model:'company-model'});assert.equal(response.usage,undefined);
 });
+test('SDK system reminders retain their position without permitting tools in system messages',()=>{
+ const result=anthropicConversation({system:'instructions',messages:[{role:'user',content:[{type:'text',text:'request'}]},{role:'system',content:[{type:'text',text:'sdk reminder'}]}]});
+ assert.deepEqual(result.canonical.messages.map(m=>m.role),['system','user','system']);
+ assert.equal(result.canonical.messages[2].content[0].text,'sdk reminder');
+ assert.throws(()=>anthropicConversation({messages:[{role:'system',content:[{type:'tool_use',id:'x',name:'tool',input:{}}]}]}),/只支持文本/);
+ assert.throws(()=>anthropicConversation({messages:[{role:'developer',content:'unsupported'}]}),/角色无效/);
+});

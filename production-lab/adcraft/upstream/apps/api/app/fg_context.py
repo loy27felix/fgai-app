@@ -27,6 +27,13 @@ def work_context(resource_id: str, context: dict) -> dict:
 
 fg_context: ContextVar[dict] = ContextVar('fg_context', default={})
 
+def continuation_context(source_turn: str, next_turn: str, context: dict) -> dict:
+    """Recover the accepted turn's actor, never a polling collaborator's actor."""
+    accepted = work_context(source_turn, {'workspace': context.get('workspace')})
+    if accepted.get('actor'):
+        work_context(next_turn, accepted)
+    return accepted
+
 def bridge_token(context: dict) -> str:
     raw = base64.urlsafe_b64encode(json.dumps(context, separators=(',', ':')).encode()).decode().rstrip('=')
     signature = hmac.new(os.environ['FG_ADCRAFT_SECRET'].encode(), raw.encode(), hashlib.sha256).hexdigest()

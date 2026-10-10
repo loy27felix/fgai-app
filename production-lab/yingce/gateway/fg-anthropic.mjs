@@ -7,10 +7,12 @@ export function anthropicConversation(payload){
  if(payload.system)messages.push({role:'system',content:typeof payload.system==='string'?payload.system:payload.system.filter(x=>x.type==='text').map(x=>x.text).join('\n')});
  if(!Array.isArray(payload.messages))throw Error('导演请求缺少会话内容');
  for(const message of payload.messages){
-  if(!['user','assistant'].includes(message.role))throw Error('导演会话角色无效');
+  // Claude Agent SDK also emits system reminders inside the message list.
+  if(!['user','assistant','system'].includes(message.role))throw Error('导演会话角色无效：'+String(message.role).replace(/[^a-z_]/g,'').slice(0,24));
   const content=typeof message.content==='string'?[{type:'text',text:message.content}]:message.content;
   const parts=[];
   for(const part of content||[]){
+   if(message.role==='system'&&part.type!=='text')throw Error('导演系统消息只支持文本');
    if(part.type==='text')parts.push({type:'text',text:part.text});
    else if(part.type==='image'&&part.source?.type==='base64'&&/^image\//.test(part.source.media_type))parts.push({type:'image_url',image_url:{url:'data:'+part.source.media_type+';base64,'+part.source.data}});
    else if(part.type==='tool_use'){

@@ -7,6 +7,9 @@ set -Eeuo pipefail
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Capacity reporting must not wait for Docker probes, backups, or runtime recovery.
+# This collector only reads the host mount and atomically writes FG's local snapshot.
+/usr/bin/python3 "$PROJECT_ROOT/production-lab/yingce/collect-host-metrics.py" || true
 ENV_FILE="${FG_MONITOR_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
 STATE_ROOT="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application Support/fg-studio-monitor}"
 LOG_ROOT="${FG_MONITOR_LOG_DIR:-$HOME/Library/Logs/fg-studio-monitor}"

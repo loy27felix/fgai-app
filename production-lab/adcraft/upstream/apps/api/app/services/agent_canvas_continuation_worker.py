@@ -94,7 +94,11 @@ class AgentCanvasContinuationWorker:
         failed = 0
         deferred = lease_lost = 0
         for delivery in claimed:
+            from app.fg_context import continuation_context, fg_context
+            identity_token = None
             try:
+                identity_token = fg_context.set(continuation_context(
+                    delivery.source_turn_id, delivery.continuation_turn_id, fg_context.get()))
                 outcome = self._process_one(delivery)
             except Exception as error:  # noqa: BLE001 - preserve batch isolation.
                 if _is_stale_lease(error):
@@ -110,6 +114,9 @@ class AgentCanvasContinuationWorker:
                         _structured_failure(error)[0],
                     )
                     outcome = "failed"
+            finally:
+                if identity_token is not None:
+                    fg_context.reset(identity_token)
             completed += outcome == "completed"
             retried += outcome == "retried"
             failed += outcome == "failed"
