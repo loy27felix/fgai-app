@@ -1,4 +1,5 @@
 import type { AgentRunRequest } from "./generated/agent-runtime.js";
+import { inlineToolSchema } from "./inline-tool-schema.js";
 import {
   structuredRepairPrompt,
   structuredSubmissionPrompt,
@@ -77,7 +78,9 @@ export async function prepareStructuredModelInput<
     request.operation,
     request.contract_name ?? "",
   );
-  const schema = contractSchemaForRequest(request);
+  const contractSchema = contractSchemaForRequest(request);
+  const schema = request.model_ref?.includes("claude-")
+    ? inlineToolSchema(contractSchema) : contractSchema;
   if (
     request.operation === "decide_turn_intent" &&
     Buffer.byteLength(JSON.stringify(schema), "utf8") > 16_384
