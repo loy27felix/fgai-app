@@ -1,7 +1,7 @@
 package skills
 
 import (
-	"infinite-canvas/backend/internal/model"
+	"yingce/backend/internal/model"
 	"testing"
 )
 

@@ -15,7 +15,7 @@ from server.agent_runtime.session_manager import (
     SessionManager,
 )
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, session_state_message
 
 
 def _make_manager(tmp_path: Path) -> SessionManager:
@@ -182,8 +182,8 @@ class TestCleanup:
         finally:
             await mgr.close_session("s1")
 
-    async def test_finalize_turn_completed_schedules_cleanup(self, tmp_path):
-        """_finalize_turn 产生 completed 状态时应调度 cleanup。"""
+    async def test_result_alone_neither_settles_nor_schedules_cleanup(self, tmp_path):
+        """result 只代表一轮结束：会话仍在 running，不调度清理，等 CLI 报 idle。"""
         mgr = _make_manager(tmp_path)
         managed, _ = _make_managed("s1", status="running")
         await _start(managed)
@@ -198,8 +198,8 @@ class TestCleanup:
             ):
                 await mgr._finalize_turn(managed, result_msg)
 
-            mock_schedule.assert_called_once_with("s1")
-            assert managed.status == "completed"
+            mock_schedule.assert_not_called()
+            assert managed.status == "running"
         finally:
             await mgr.close_session("s1")
 
@@ -265,6 +265,29 @@ class TestEnsureCapacity:
         finally:
             await mgr.close_session("s_old")
             await mgr.close_session("s_new")
+
+    async def test_skips_session_once_cli_reports_work_before_the_inbox_runs(self, tmp_path):
+        """CLI 自主开启一轮、报告 running 的帧已读出而 inbox 还没处理：会话已在进行中，不能断开。"""
+        mgr = _make_manager(tmp_path)
+        busy, busy_client = _make_managed("s_busy", status="idle")
+        await _start(busy)
+        mgr._make_actor_message_callback([busy])(session_state_message("running"))
+        busy.last_activity = time.monotonic() - 100
+        quiet, quiet_client = _make_managed("s_quiet", status="idle")
+        await _start(quiet)
+        quiet.last_activity = time.monotonic()
+        mgr.sessions["s_busy"] = busy
+        mgr.sessions["s_quiet"] = quiet
+
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
+                await mgr._ensure_capacity()
+
+            assert busy_client.disconnected is False
+            assert quiet_client.disconnected is True
+        finally:
+            await mgr.close_session("s_busy")
+            await mgr.close_session("s_quiet")
 
     async def test_evicts_completed_session_when_no_idle(self, tmp_path):
         """无 idle 会话时，应淘汰 completed/error/interrupted 状态的会话。"""
@@ -379,3 +402,154 @@ class TestPatrolLoop:
             assert client.disconnected is False
         finally:
             await mgr.close_session("s1")
+
+
+# --- 未空闲的会话：CLI 报 idle 之前（在途轮次、轮次之间仍有后台子智能体）断开 CLI 会中止它 ------
+
+
+_RESULT = {"type": "result", "subtype": "success", "is_error": False}
+
+
+async def _feed(mgr: SessionManager, managed: ManagedSession, *frames: dict) -> None:
+    """经真实读取回调与 inbox 处理喂入消息帧，处理完即返回。"""
+    managed.resolved_sdk_id = managed.session_id
+    on_message = mgr._make_actor_message_callback([managed])
+    for frame in frames:
+        on_message(frame)
+    managed._inbox.put_nowait(None)
+    await mgr._process_inbox(managed)
+
+
+class TestNotIdleSessionProtection:
+    @pytest.mark.parametrize("state", ["running", "requires_action"])
+    async def test_idle_cleanup_spares_session_after_result_until_cli_reports_idle(self, tmp_path, state):
+        """一轮的 result 之后 CLI 仍在工作（后台子智能体存活、还欠一轮）：会话未空闲，不能断开。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await _feed(mgr, managed, session_state_message(state), _RESULT)
+                await mgr._cleanup_idle("s1")
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_cli_reporting_idle_starts_idle_cleanup(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        actor_task = managed.actor.task
+        assert actor_task is not None
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+                await _feed(mgr, managed, session_state_message("running"), _RESULT, session_state_message("idle"))
+                # 清理断开 CLI 即 actor 退出；shield 让超时只报失败，不顺带取消 actor
+                await asyncio.wait_for(asyncio.shield(actor_task), timeout=1.0)
+
+            assert client.disconnected is True
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_capacity_rejects_rather_than_evicting_a_session_that_is_not_idle(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        await _feed(mgr, managed, session_state_message("running"), _RESULT)
+
+        try:
+            with (
+                patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=1),
+                pytest.raises(SessionCapacityError),
+            ):
+                await mgr._ensure_capacity()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_capacity_evicts_idle_session_before_older_one_that_is_not_idle(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        busy, busy_client = _make_managed("s_busy")
+        await _start(busy)
+        mgr.sessions["s_busy"] = busy
+        await _feed(mgr, busy, session_state_message("running"), _RESULT)
+        busy.last_activity = time.monotonic() - 100
+        quiet, quiet_client = _make_managed("s_quiet")
+        await _start(quiet)
+        mgr.sessions["s_quiet"] = quiet
+
+        try:
+            with patch.object(mgr, "_get_max_concurrent", new_callable=AsyncMock, return_value=2):
+                await mgr._ensure_capacity()
+
+            assert quiet_client.disconnected is True
+            assert busy_client.disconnected is False
+        finally:
+            await mgr.close_session("s_busy")
+            await mgr.close_session("s_quiet")
+
+    async def test_patrol_spares_stale_session_that_is_not_idle(self, tmp_path):
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        await _feed(mgr, managed, session_state_message("running"), _RESULT)
+        managed.last_activity = time.monotonic() - 1000
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
+                await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_patrol_counts_idle_time_from_when_cli_reported_idle(self, tmp_path):
+        """后台工作跑得比两倍清理延迟还久：CLI 报 idle 时不能按它开始前的活跃时间被巡检立即驱逐。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+
+        try:
+            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60):
+                await _feed(mgr, managed, session_state_message("running"), _RESULT)
+                managed.last_activity = time.monotonic() - 1000
+                await _feed(mgr, managed, session_state_message("idle"))
+                await mgr._patrol_once()
+
+            assert "s1" in mgr.sessions
+            assert client.disconnected is False
+        finally:
+            await mgr.close_session("s1")
+
+    async def test_cli_exit_settles_the_session_and_releases_protection(self, tmp_path):
+        """CLI 退出时不会再报 idle：会话照常收尾为终态，不能永久占着名额。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1")
+        await _start(managed)
+        actor_task = managed.actor.task
+        assert actor_task is not None
+        actor_task.add_done_callback(mgr._make_actor_done_callback(managed))
+        mgr.sessions["s1"] = managed
+        managed.resolved_sdk_id = "s1"
+        on_message = mgr._make_actor_message_callback([managed])
+        on_message(session_state_message("running"))
+
+        client.close_stream()
+        await asyncio.wait_for(mgr._process_inbox(managed), timeout=1.0)
+        assert managed.status == "error"
+
+        with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
+            await mgr._cleanup_idle("s1")
+        assert "s1" not in mgr.sessions

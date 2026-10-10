@@ -6,6 +6,10 @@ import path from "path";
 export default defineConfig({
     base: process.env.FG_DIRECTOR_BASE_PATH || "/",
     plugins: [react(), tailwindcss()],
+    css: {
+        // Tailwind runs through its Vite plugin; parent applications must not add PostCSS plugins.
+        postcss: { plugins: [] },
+    },
     resolve: {
         alias: { "@": path.resolve(__dirname, "src") },
         extensions: [".mjs", ".mts", ".ts", ".tsx", ".js", ".jsx", ".json"],

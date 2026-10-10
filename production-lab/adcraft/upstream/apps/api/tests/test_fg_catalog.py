@@ -9,7 +9,7 @@ import app.services.provider_model_catalog as catalog
 
 
 def test_fg_catalog_uses_real_profiles():
-    fixtures = json.loads(Path('/qa/fg-catalog-fixture.json').read_text())
+    fixtures = json.loads((Path(__file__).parent / 'fixtures' / 'fg-catalog.json').read_text(encoding='utf-8'))
     install_fg_catalog(fixtures)
     models = catalog._TRUSTED_MANIFESTS
     assert len(models) == len(fixtures)

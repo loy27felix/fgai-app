@@ -15,12 +15,16 @@ class AdvertisingRetentionTest(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
-        self.nas = self.root / 'nas'
-        self.nas.mkdir()
+        nas_root = self.root / 'nas'
+        self.nas = nas_root / 'media'
+        self.nas.mkdir(parents=True)
         (self.nas / '.fg-studio-nas-ready').write_text('ready')
         self.patch_nas = patch.object(store, 'NAS', self.nas)
         self.patch_nas.start()
         self.addCleanup(self.patch_nas.stop)
+        patch_root = patch.object(store, 'NAS_ROOT', nas_root)
+        patch_root.start()
+        self.addCleanup(patch_root.stop)
         self.patch_env = patch.dict(os.environ, {'FG_ADCRAFT_SQLITE_ROOT': str(self.root / 'server')})
         self.patch_env.start()
         self.addCleanup(self.patch_env.stop)
@@ -41,6 +45,9 @@ class AdvertisingRetentionTest(unittest.TestCase):
         self.assertTrue(snapshot.exists())
         self.assertTrue(store.purge_workspace(WORKSPACE)['purged'])
         self.assertFalse(self.media.exists())
+        recovered = self.root / 'nas/recycle/adcraft' / WORKSPACE
+        self.assertEqual((recovered / 'video.mp4').read_bytes(), b'test-video')
+        self.assertTrue((recovered / 'database-backup/adcraft.sqlite3').is_file())
         self.assertTrue((self.other / 'keep.png').is_file())
         self.assertTrue(active.is_file())
         store.backup(WORKSPACE)
@@ -66,5 +73,14 @@ class AdvertisingRetentionTest(unittest.TestCase):
         with self.assertRaises(ValueError): store.purge_workspace('../' + OTHER)
         self.assertTrue(self.media.exists())
         self.assertTrue(self.other.exists())
+
+    def test_recycle_collision_preserves_both_directories(self):
+        recycled = self.root / 'nas/recycle/adcraft' / WORKSPACE
+        recycled.mkdir(parents=True)
+        (recycled / 'keep.mp4').write_bytes(b'earlier-recycle')
+        with self.assertRaises(RuntimeError): store.purge_workspace(WORKSPACE)
+        self.assertEqual((self.media / 'video.mp4').read_bytes(), b'test-video')
+        self.assertEqual((recycled / 'keep.mp4').read_bytes(), b'earlier-recycle')
+        self.assertFalse(store.purge_marker(WORKSPACE).exists())
 
 if __name__ == '__main__': unittest.main()

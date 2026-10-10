@@ -100,13 +100,25 @@ Mac 的 `/Users/server/Library/Logs/fg-studio-nas-supervisor.log` 在本日多�
 
 规则生效后，由 FG 部署人员把第六工程的 `CANVAS_PUBLIC_BASE_URL` 改为固定域名并重建相关服务。替换网关前必须保存现有用户私有网络连接，替换后逐个恢复原有连接；不能只运行普通 Compose 重建然后漏掉这些连接。
 
+2026-10-10 补充验收：同事浏览器已通过固定域名打开白瓷杯验收图；无浏览器 Cookie 的 curl / Go 范围读取曾返回 206。固定链接提交给 WeToken 素材接口后，经查询已返回 `Active`，证明供应商取得了图片。服务器出站完整读取仍出现间歇性连接超时，Python 客户端曾返回 Cloudflare 403 / 1010；不把这两种现象混为 NAS 故障。
+
+切换时目标值只填以下 origin，并核对网关、后端和管理员对象存储设置的覆盖顺序：
+
+```dotenv
+CANVAS_PUBLIC_BASE_URL=https://media.diamond2221.cloud
+```
+
+不带 `/api`、`/file` 或素材 ID。生产网关和后端目前仍在原临时域名，正式切换及停临时容器按 1.3.1 验收闸门执行。签名 URL 不放进 Git 或日志；保留既有旧模块路径规则。
+
+若 Cloudflare 安全事件确认素材下载被 Browser Integrity Check 拦截，由账户管理员仅给这个素材 hostname、合法资源 ID 的 `/api/public/resources/.../file` 路径设置 BIC 例外；FG 的签名、过期和归属校验继续执行。规则不覆盖登录、管理员页或整个 `/api`。Cloudflare 支持按 hostname / path 的配置规则或自定义 Skip 规则，见 [官方 BIC 说明](https://developers.cloudflare.com/waf/tools/browser-integrity-check/)。
+
 固定入口验收：正常签名返回 200 和真实文件字节；错误/过期签名拒绝；旧模块路径正常；一项真实 WeToken 参考素材生成任务成功并存回 NAS。四项通过后再停临时 Tunnel。无需共享 Cloudflare 账户密码，可由账户管理员配置或授权相应协作者。
 
 ## NAS 的实际位置与删除边界
 
 NAS 是 `192.168.0.14` 上的 `FgStudio` 共享，Mac 挂载根目录 `/Volumes/FgStudio/media`；部署必须核对 `.fg-studio-nas-ready` 的值为 `fg-studio-media:v1`。业务子目录包括 `yingce/resources/users/<用户 ID>`、`opencreator/users/<用户 ID>`、`arcreel/users/<用户 ID>`。
 
-普通删除进入回收站时保留文件，以支持恢复；“彻底删除”才清理该对象范围内、没有其他引用且没有运行任务使用的文件。独立素材库、其他项目引用、其他用户目录、NAS 其他共享和运维备份不能因删除一个画布而被清除。数据库账单记录也不等同于素材文件，应继续保留核对依据。
+普通删除进入回收站时保留文件，以支持恢复。根据用户当前要求，广告工程从产品回收站移出时也只将该工程范围内的 NAS 数据和快照转存 `FgStudio/recycle/adcraft`，不物理删除；其他模块的物理清理在 recycle 边界验收完成前不执行。独立素材库、其他项目引用、其他用户目录、NAS 其他共享和运维备份不能因删除一个画布而被清除。数据库账单记录也不等同于素材文件，应继续保留核对依据。
 
 本次服务修复没有删除用户 NAS 文件。不要用 NAS 根目录递归清理代替产品的彻底删除 API。
 

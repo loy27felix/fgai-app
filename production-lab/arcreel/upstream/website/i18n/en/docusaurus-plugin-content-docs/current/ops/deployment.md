@@ -82,7 +82,7 @@ deploy/projects/               data root
 ├── logs/                      application logs
 ├── vertex_keys/               Vertex AI credential files
 ├── trial_runs/                output of endpoint "Test connection" runs
-└── runtime/                   migration markers, generation admission locks, and other runtime state
+└── runtime/                   migration markers, generation admission locks, image thumbnail cache, and other runtime state
 ```
 
 Only directories under `projects/` whose names contain letters, digits, or hyphens and that contain a `project.json` file count as projects. No other entry in the data root appears in the project list. The diagnostic logs downloaded from Settings → About list the actual locations of the data root and each kind of data above.
@@ -175,7 +175,6 @@ The default deployment examples currently include these core variables:
 | `DATABASE_URL` | Default SQLite path | Production Compose sets the PostgreSQL URL automatically |
 | `ARCREEL_DATA_DIR` | `projects` | Data root; projects, the default SQLite database, logs, and Vertex credentials all live under it |
 | `CORS_ORIGINS` | Wildcard | When narrowed to an allowlist, browser MCP client origins must be listed too |
-| `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | Optional; only OAuth discovery-based MCP clients need it |
 | `ARCREEL_OFFICIAL_SERVICE_URL` | Built-in official service address | The official service behind market install counts, ratings, and submissions; set it to empty to turn it off entirely, leaving the market to read market sources only |
 
 Notes:
@@ -191,7 +190,9 @@ The remote MCP endpoint is `/mcp` and always requires an API Key with an `arc-` 
 
 The server does not validate the request `Host` header; the endpoint boundary rests on the API Key enforced on every request. Host ownership belongs to the deployment: restrict `server_name` (Nginx) or the equivalent rule on your reverse proxy so only requests for the expected domain reach ArcReel.
 
-Browser MCP clients need no configuration either while `CORS_ORIGINS` stays at its permissive default; once you narrow it to an allowlist, add the client Origin to it as well. That single allowlist governs both the application API and the MCP endpoint; there is no second MCP-specific list. `MCP_PUBLIC_URL` only fills the OAuth protected-resource metadata (RFC 9728) and the 401 challenge that discovery-based clients read; clients that connect with a Bearer token, such as Claude Code and codex, never use it and can leave it unset.
+Browser MCP clients need no configuration either while `CORS_ORIGINS` stays at its permissive default; once you narrow it to an allowlist, add the client Origin to it as well. That single allowlist governs both the application API and the MCP endpoint; there is no second MCP-specific list.
+
+Remote MCP offers no OAuth authorization and publishes no OAuth protected-resource metadata (RFC 9728). Clients that only support OAuth discovery and cannot be given a Bearer credential cannot connect.
 
 ArcReel's sandbox requires provider secrets to be absent from the parent process environment. If any of the following credential environment variables has a non-empty value, the service refuses to start and prompts you to move the credential to the Web UI Settings page:
 
@@ -533,7 +534,16 @@ ports:
 
 If the reverse proxy runs on a container network or another host, remove any unnecessary host port publishing and use the container network, host firewall, or an equivalent network policy to ensure only the proxy can access the ArcReel backend.
 
-Nginx example:
+ArcReel handles cache headers and compression itself, so the reverse proxy needs no extra configuration for them:
+
+- Media URLs with a version key (`?v=`, `?fp=`) or pointing to a `versions/` snapshot, and the content-hashed frontend build output under `/assets/`, return `Cache-Control: public, max-age=31536000, immutable`, so browsers reuse their local copy directly;
+- Media URLs without a version key return `Cache-Control: no-cache`, so browsers revalidate with the server before each use and receive `304` when the file has not changed;
+- The page entry HTML returns `no-store`, so browsers load the new frontend after an upgrade;
+- Text responses such as JSON, JS, CSS, and HTML are gzip-compressed; SSE event streams, images, audio, and video are not compressed.
+
+The reverse proxy should pass these response headers through unchanged. Do not override them with `expires`, `add_header Cache-Control`, or `proxy_hide_header`.
+
+Nginx example. The example splits out the media file paths: SSE and regular API traffic run with proxy buffering off so events reach the browser in real time, while `/api/v1/files/` and `/api/v1/global-assets/` run with proxy buffering on so Nginx receives images and videos first and releases the backend connection early.
 
 ```nginx
 server {
@@ -544,6 +554,26 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/arcreel.example.com/privkey.pem;
 
     client_max_body_size 2g;
+
+    # Compress text types only. Nginx does not recompress responses ArcReel has already compressed.
+    # Do not add text/event-stream: compression buffering delays SSE events. Images, audio, and video are already compressed; do not add them either
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/markdown application/json application/javascript image/svg+xml;
+
+    # Project media and global assets: read-only GET, buffering on
+    location ~ ^/api/v1/(files|global-assets)/ {
+        proxy_pass http://127.0.0.1:1241;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering on;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:1241;

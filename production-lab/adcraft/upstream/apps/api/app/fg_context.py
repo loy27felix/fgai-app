@@ -1,5 +1,6 @@
 """Trusted FG request identity. Never use browser-supplied identity directly."""
 from contextvars import ContextVar, copy_context
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor as BaseExecutor
 from threading import Thread as BaseThread
 import base64
@@ -26,6 +27,16 @@ def work_context(resource_id: str, context: dict) -> dict:
     return context
 
 fg_context: ContextVar[dict] = ContextVar('fg_context', default={})
+
+@contextmanager
+def restored_work_context(resource_id: str):
+    """Run durable work as its accepted actor, never the recovery caller."""
+    accepted = work_context(resource_id, {'workspace': fg_context.get().get('workspace')})
+    token = fg_context.set(accepted)
+    try:
+        yield
+    finally:
+        fg_context.reset(token)
 
 def continuation_context(source_turn: str, next_turn: str, context: dict) -> dict:
     """Recover the accepted turn's actor, never a polling collaborator's actor."""

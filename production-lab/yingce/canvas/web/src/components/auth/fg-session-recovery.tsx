@@ -8,7 +8,7 @@ export function FGSessionRecovery({ unavailable = false }: { unavailable?: boole
             <p className="text-sm leading-6 text-muted-foreground">{unavailable ? "登录或数据服务暂时未响应。可以重试连接，已保存的工程不会因此删除。" : "制作工作区使用 FG Studio 账号。请返回主平台恢复登录，然后重新打开工作区。"}</p>
             <div className="flex gap-3">
                 <Button type="primary" onClick={() => window.location.reload()}>重新连接</Button>
-                <Button href={fgPlatformURL(window.location.origin)} target="_top">返回 FG 工作区</Button>
+                <Button href={typeof window === "undefined" ? "/workspace" : fgPlatformURL(window.location.origin)} target="_top">返回 FG 工作区</Button>
             </div>
         </section>
     </main>;

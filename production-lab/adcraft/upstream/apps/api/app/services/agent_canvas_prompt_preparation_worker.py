@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
 
+from app.fg_context import restored_work_context
 from app.persistence.agent_canvas_prompt_preparation_dispatch_repository import (
     AgentCanvasPromptPreparationDispatchRepository,
 )
@@ -91,7 +92,8 @@ class AgentCanvasPromptPreparationWorker:
                 stage="prompt_preparation_worker",
             )
             try:
-                self._notify_terminal(dispatch, exhausted)
+                with restored_work_context(dispatch.dispatch_id):
+                    self._notify_terminal(dispatch, exhausted)
             except Exception:  # noqa: BLE001 - barrier wake must not halt recovery.
                 logger.exception(
                     "Prompt-preparation terminal barrier notification failed dispatch_id=%s",
@@ -100,7 +102,8 @@ class AgentCanvasPromptPreparationWorker:
             failed += 1
         for dispatch in claimed:
             try:
-                outcome = self._process_one(dispatch)
+                with restored_work_context(dispatch.dispatch_id):
+                    outcome = self._process_one(dispatch)
             except Exception as error:  # noqa: BLE001 - isolate one dispatch.
                 logger.error(
                     "Prompt-preparation dispatch failed dispatch_id=%s code=%s",

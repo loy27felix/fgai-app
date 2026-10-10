@@ -7,6 +7,15 @@ import {priceQuote} from './fg-quotes.mjs';
 import {capabilities} from './fg-model-capabilities.mjs';
 
 const specs=JSON.parse(await fs.readFile(new URL('./model-specs.json',import.meta.url),'utf8'));
+test('Wan 3 declares the documented 2 to 30 second range without changing other models',()=>{
+ const profile=capabilities(specs.find(s=>s.id==='wan3.0-video')).video;
+ assert.deepEqual(profile.duration.values,Array.from({length:29},(_,i)=>i+2));
+ assert.equal(profile.duration.default,5);
+ assert.equal(profile.generateAudio.supported,true);
+ assert.deepEqual(profile.resolutions,['480p','720p','1080p']);
+ const other=capabilities(specs.find(s=>s.id==='dreamina-seedance-2-0-mini-filter-off')).video;
+ assert.equal(Math.max(...other.duration.values),15);
+});
 test('price list keeps all WeToken rows when company speech and Suno are added',()=>{
  const prices=[...specs.map(s=>({model:s.id,snapshot:{...s.price,enabled:true,discount:1}})),
   ...[...speechModels,...speechUtilities].map(s=>({model:s.id,snapshot:{enabled:true,provider:'volcengine',discount:1}})),

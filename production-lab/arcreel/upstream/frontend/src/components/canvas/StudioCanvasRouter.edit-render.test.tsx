@@ -11,6 +11,7 @@ import { useWorkflowStore } from "@/stores/workflow-store";
 import { makePlan, makeStatus } from "@/test/factories";
 import type { EpisodeScript, ProjectData } from "@/types";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
+import { stubMediaElementPlayback } from "@/test/media-element";
 
 // 剪辑视图本体不 mock：这里验证路由层把空状态与出片按钮接到它的两个挂载点上。
 vi.mock("@/components/workflow/WorkflowPanel", () => ({
@@ -27,7 +28,6 @@ const SUMMARY: EditTimelineSummary = {
   updated_at: "2026-09-30T08:00:00Z",
   updated_by: { kind: "creator", user_id: null },
   update_summary: "按脚本新建",
-  agent_turn: null,
 };
 
 function readout(issues: EditTimelineReadout["issues"]): EditTimelineReadout {
@@ -121,7 +121,7 @@ describe("StudioCanvasRouter edit view mounts", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useWorkflowStore.setState({ plan: null, planKey: null });
     vi.restoreAllMocks();
-    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    stubMediaElementPlayback();
   });
 
   it("creates a timeline from the empty state without opening the assistant, then offers render", async () => {

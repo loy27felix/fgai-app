@@ -3,7 +3,7 @@ package app
 import (
  "encoding/json"
  "strings"
- "infinite-canvas/backend/internal/model"
+ "yingce/backend/internal/model"
 )
 
 // Async WeToken receipts use the task ID in the create body, not the proxy's

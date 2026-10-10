@@ -175,6 +175,11 @@ services:
         bind:
           create_host_path: false
       - adcraft-database:/database
+      - type: bind
+        source: ${NAS_STUDIO_ROOT:-/Volumes/FgStudio}
+        target: /fg-nas-root
+        bind:
+          create_host_path: false
     depends_on:
       adcraft-agent:
         condition: service_healthy

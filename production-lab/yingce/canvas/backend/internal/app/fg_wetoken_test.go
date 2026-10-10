@@ -3,7 +3,7 @@ package app
 import (
     "context"
     "testing"
-    "infinite-canvas/backend/internal/protocol"
+    "yingce/backend/internal/protocol"
 )
 
 func TestFGReferenceFeeStages(t *testing.T){

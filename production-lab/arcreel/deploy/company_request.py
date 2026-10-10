@@ -29,8 +29,9 @@ def install_sdk(base):
 def install(base, capability=''):
     import httpx
     original = httpx.AsyncClient.send
+    original_sync = httpx.Client.send
 
-    async def send(self, request, **kwargs):
+    def prepare(request, kwargs):
         managed = str(request.url).startswith(base + '/v1/')
         if capability and request.method == 'GET' and str(request.url).startswith(base + '/v1/media/'):
             request.headers['authorization'] = 'Bearer ' + capability
@@ -41,9 +42,24 @@ def install(base, capability=''):
             if 'x-fg-operation-id' not in request.headers:
                 request.headers['x-fg-operation-id'] = str(uuid4())
             fg_task.set(None)
-        response = await original(self, request, **kwargs)
+        return managed
+
+    def remember(request, response, managed):
         if managed and response.headers.get('x-fg-task-id'):
             fg_task.set(response.headers['x-fg-task-id'])
         return response
 
+    async def send(self, request, **kwargs):
+        managed = prepare(request, kwargs)
+        response = await original(self, request, **kwargs)
+        return remember(request, response, managed)
+
+    def send_sync(self, request, **kwargs):
+        # Ark's video SDK uses httpx.Client from its worker thread. It needs the
+        # same admission identity as the asynchronous image/text adapters.
+        managed = prepare(request, kwargs)
+        response = original_sync(self, request, **kwargs)
+        return remember(request, response, managed)
+
     httpx.AsyncClient.send = send
+    httpx.Client.send = send_sync

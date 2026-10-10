@@ -46,7 +46,14 @@ describe("creation library button", () => {
 
         expect(uploadStart).toBeGreaterThanOrEqual(0);
         expect(uploadEnd).toBeGreaterThan(uploadStart);
-        expect(source.slice(uploadStart, uploadEnd)).not.toContain("setAttachments");
+        const uploadSource = source.slice(uploadStart, uploadEnd);
+        // FG documents become text context directly; uploaded image/video/audio
+        // assets remain library selections until the picker is confirmed.
+        const documentStart = uploadSource.indexOf("const documents = uploaded.filter");
+        expect(documentStart).toBeGreaterThanOrEqual(0);
+        expect(uploadSource.slice(0, documentStart)).not.toContain("setAttachments");
+        expect(uploadSource).toContain("if (documents.length)");
+        expect(uploadSource).toContain("[...current, ...documents]");
         expect(source).toContain("onUpload: uploadLibraryAssets");
         expect(source).not.toContain("onUpload={() => fileInputRef.current?.click()}");
         expect(source).toContain("上传后保存到素材库");

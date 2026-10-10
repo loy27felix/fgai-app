@@ -13,7 +13,7 @@ describe("workspace route loading", () => {
 
         expect(deferred).toContain("<WorkspaceRouteLoader />");
         expect(deferred).not.toContain("FullScreenLoader");
-        expect(router).toContain("fullScreenDeferred(<LoginPage />)");
+        expect(router).toContain('{ path: "/login", element: <FGSessionRecovery /> }');
         expect(router).toContain("fullScreenDeferred(<SharedCanvasPage />)");
     });
 
@@ -37,9 +37,12 @@ describe("workspace route loading", () => {
 
         expect(router).toContain('{ path: "/", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> }');
         expect(router).toContain('{ path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> }');
+        expect(router).not.toContain("<RequireAuth allowAnonymous={isGuestWorkspacePath(pathname)}>");
+        expect(router).toContain('{ path: "/assets", element: <RequireAuth>{deferred(<AssetsPage />)}</RequireAuth> }');
+        expect(router).toContain('{ path: "/canvas/:id", element: <RequireAuth><CanvasProjectPage /></RequireAuth> }');
         expect(router).not.toContain('path: "/home"');
         expect(router).not.toContain("HomePage");
-        expect(navigation).toContain('{ ...toolItem("create", "/"), id: "home", title: "创作" }');
+        expect(navigation).toContain('{ ...toolItem("create", "/"), id: "home", title: "超级创作" }');
         expect(navigation).not.toContain('to: "/create"');
         expect(navigation).not.toContain('to: "/home"');
     });
@@ -124,7 +127,7 @@ describe("workspace route loading", () => {
 });
 
 describe("workspace wallet entry", () => {
-    test("opens the credits modal instead of a dedicated wallet page", () => {
+    test("redirects the legacy wallet route and retains feature-gated wallet controls", () => {
         const router = source("../src/router.tsx");
         const modules = source("../src/lib/workspace-route-modules.ts");
         const host = source("../src/components/layout/workspace-wallet-modal.tsx");
@@ -134,12 +137,14 @@ describe("workspace wallet entry", () => {
         const css = source("../src/styles/globals.css");
 
         expect(router).toContain('path: "/wallet"');
-        expect(router).toContain("element: <RequireAuth>{null}</RequireAuth>");
+        expect(router).toMatch(/path:\s*"\/wallet",\s*element:\s*<RequireAuth><Navigate to="\/" replace \/><\/RequireAuth>/);
         expect(router).not.toContain("WalletPage");
         expect(router).not.toContain("loadWalletPage");
         expect(modules).not.toContain("pages/wallet");
         expect(host).toContain("pathname !== \"/wallet\"");
         expect(host).toContain("openWorkspaceWallet");
+        expect(host).toContain("if (!useUserStore.getState().features.creditsEnabled) return;");
+        expect(host).toContain("if (!creditsEnabled) return null;");
         expect(palette).toContain('run: () => openWorkspaceWallet()');
         expect(palette).not.toContain('"/wallet"');
         expect(canvasTopBar).toContain("openWorkspaceWallet()");

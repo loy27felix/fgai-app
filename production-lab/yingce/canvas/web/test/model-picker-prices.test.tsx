@@ -5,6 +5,7 @@ import { canvasThemes } from "../src/lib/canvas-theme";
 import { requestCreditCost } from "../src/lib/model-pricing";
 import type { ModelRequirements } from "../src/lib/model-selection";
 import { createModelChannel, defaultConfig, normalizeConfigSnapshot } from "../src/stores/use-config-store";
+import { useUserStore } from "../src/stores/use-user-store";
 
 function fixture() {
     const channel = createModelChannel({
@@ -71,13 +72,21 @@ test("model rows preserve multiple promotional labels and colors without alterin
 });
 
 test("the selected model and request estimate still require an exact specification match", () => {
-    const config = fixture();
-    const render = (value: ModelRequirements) => renderToStaticMarkup(<ModelPicker config={config} value={config.model} capability="video" requirements={value} onChange={() => {}} />);
-    expect(render(requirements)).toContain("当前规格无报价");
-    const cost = (value: ModelRequirements) => requestCreditCost({ channelMode: "remote", modelCosts: config.channels[0].modelCosts, model: "h3-multi", capability: "video", config, requirements: value, seconds: "6" });
-    expect(cost(requirements)).toBeNull();
-    const matching = { ...requirements, videoSeconds: "6", options: { vquality: "720p" } };
-    expect(render(matching)).toContain("0.2 积分/秒");
-    expect(render(matching)).not.toContain("当前规格无报价");
-    expect(cost(matching)).toBeCloseTo(1.2);
+    const initial = useUserStore.getInitialState();
+    const originalFeatures = initial.features;
+    // Server rendering reads the bootstrap snapshot, not the live client store.
+    initial.features = { ...originalFeatures, creditsEnabled: true };
+    try {
+        const config = fixture();
+        const render = (value: ModelRequirements) => renderToStaticMarkup(<ModelPicker config={config} value={config.model} capability="video" requirements={value} onChange={() => {}} />);
+        expect(render(requirements)).toContain("当前规格无报价");
+        const cost = (value: ModelRequirements) => requestCreditCost({ channelMode: "remote", modelCosts: config.channels[0].modelCosts, model: "h3-multi", capability: "video", config, requirements: value, seconds: "6" });
+        expect(cost(requirements)).toBeNull();
+        const matching = { ...requirements, videoSeconds: "6", options: { vquality: "720p" } };
+        expect(render(matching)).toContain("0.2 积分/秒");
+        expect(render(matching)).not.toContain("当前规格无报价");
+        expect(cost(matching)).toBeCloseTo(1.2);
+    } finally {
+        initial.features = originalFeatures;
+    }
 });

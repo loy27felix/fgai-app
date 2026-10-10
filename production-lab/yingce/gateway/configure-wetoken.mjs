@@ -3,24 +3,11 @@ import fs from 'node:fs/promises';
 import pg from 'pg';
 import {withNativeAdmin} from './native-admin.mjs';
 import {initializeFG} from './fg-integration.mjs';
+import {capabilities} from './fg-model-capabilities.mjs';
 let input='';for await(const chunk of process.stdin)input+=chunk;
 const config=JSON.parse(input);input='';
 const specs=JSON.parse(await fs.readFile(new URL('./model-specs.json',import.meta.url),'utf8'));
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,max:2});
-const bool={supported:false,default:false};
-function capabilities(spec){
-    const p=spec.price.capabilities?.params||{},inputs=spec.price.capabilities?.inputs||{};
-    if(spec.capability==='text')return {version:1,text:{streaming:true,contextWindowTokens:128000,maxOutputTokens:16384,references:{promptMaxChars:32000,maxImages:0,maxImageBytes:0,maxVideos:0,maxVideoBytes:0}}};
-    if(spec.capability==='image'){
-        const gemini=spec.protocol.includes('gemini'),ark=spec.protocol.includes('ark'),wan=spec.protocol.includes('wan');
-        const sizeValues=gemini?p.aspectRatio?.values||['1:1','9:16','16:9']:p.size?.values||['1:1','16:9','9:16','2048x2048','2560x1440','1440x2560'];
-        const sizeDefault=gemini?'1:1':ark?'2048x2048':p.size?.default||'1:1';
-        return {version:1,image:{references:{promptMaxChars:32000,maxImages:inputs.image?.max_count||14,maxImageBytes:30*1024*1024,maskSupported:spec.protocol==='openai-image'},size:{parameter:gemini?'aspect_ratio':'size',values:sizeValues,default:sizeDefault,allowCustom:!gemini},quality:{supported:!ark,values:gemini?p.imageSize?.values||['1K','2K','4K']:wan?['1K','2K']:['auto','low','medium','high'],default:gemini?'1K':wan?'2K':'auto'},transparentBackground:bool,responseFormat:{supported:!ark&&!gemini&&!wan},outputFormat:{supported:false},maxOutputs:1}};
-    }
-    const seedance=spec.protocol.includes('ark'),happy=spec.protocol.includes('happyhorse'),i2v=spec.id.endsWith('-i2v'),r2v=spec.id.endsWith('-r2v');
-    const durations=(p.duration?.values||Array.from({length:seedance?12:13},(_,i)=>i+(seedance?4:3))).filter(n=>n>0);
-    return {version:1,video:{references:{promptMaxChars:8000,minImages:i2v||r2v?1:0,maxImages:seedance||r2v?9:i2v?1:happy?0:2,maxImageBytes:30*1024*1024,maxVideos:seedance?3:0,maxVideoBytes:seedance?200*1024*1024:0,maxVideoDurationSeconds:seedance?15:0,maxAudios:seedance?3:0,maxAudioBytes:seedance?15*1024*1024:0,maxAudioDurationSeconds:seedance?15:0},duration:{selection:'enum',values:durations,default:p.duration?.default||5},durationSupported:true,ratios:p.ratio?.values||['16:9','9:16','1:1','4:3','3:4'],defaultRatio:'16:9',resolutions:p.resolution?.values||(seedance?['480p','720p']:['720P','1080P']),defaultResolution:seedance?'720p':'720P',generateAudio:{supported:seedance,default:seedance},watermark:{supported:seedance,default:false},operations:i2v?['image_to_video']:r2v?['reference_to_video']:happy?['text_to_video']:seedance?['text_to_video','image_to_video','reference_to_video']:['text_to_video','image_to_video'],defaultOperation:i2v?'image_to_video':r2v?'reference_to_video':'text_to_video'}};
-}
 try{
     await initializeFG(pool);
     const response=await fetch(config.baseUrl.replace(/\/$/,'')+'/models',{headers:{authorization:'Bearer '+config.apiKey},signal:AbortSignal.timeout(20000)});

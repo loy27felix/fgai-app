@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildImageGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
+import { buildGenerationNodeTitle, buildImageGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { buildCanvasMediaDownloadFileName, canvasMediaFileExtension } from "@/lib/canvas/canvas-media-download";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
@@ -43,6 +43,17 @@ describe("canvas media download", () => {
 });
 
 describe("generated image title", () => {
+    test("各媒体节点使用原始输入摘要，空技能输入使用类型默认标题", () => {
+        expect(buildGenerationNodeTitle("@[skill:director] 白瓷杯的四秒分镜", "Generated Text")).toBe("白瓷杯的四秒分镜");
+        expect(buildGenerationNodeTitle(" @[skill:director] ", "Generated Audio")).toBe("Generated Audio");
+        expect(buildGenerationNodeTitle("白".repeat(40), "Generated Video")).toBe("白".repeat(32));
+    });
+
+    test("技能引用不占据标题，保留用户请求摘要和图片版本", () => {
+        const source = mediaNode({ title: "白瓷杯_copy1 · B", metadata: { versionLabel: "B" } });
+        expect(buildImageGenerationNodeTitle("@[skill:director]  白瓷杯的四秒分镜", source)).toBe("白瓷杯的四秒分镜_copy1 · B");
+    });
+
     test("普通节点继续使用提示词摘要", () => {
         expect(buildImageGenerationNodeTitle("一座云层中的未来城市", mediaNode({ title: "原图" }))).toBe("一座云层中的未来城市");
     });

@@ -1,5 +1,6 @@
 import { getDataUrlByteSize } from "@/lib/image-utils";
 import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
+import { buildGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import type { Asset, AssetCategory, NewAsset } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId } from "@/types/canvas";
 
@@ -21,7 +22,9 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
     if (node.type === CanvasNodeType.Text && !content) return null;
     if (isMedia && !content && !storageKey) return null;
     if (!isMedia && node.type !== CanvasNodeType.Text) return null;
-    const title = node.metadata?.prompt?.slice(0, 24) || node.title || canvasAssetFallbackTitle(node.type);
+    const title = node.metadata?.composerContent !== undefined
+        ? buildGenerationNodeTitle(node.metadata.composerContent, node.title || canvasAssetFallbackTitle(node.type)).slice(0, 24)
+        : node.metadata?.prompt?.slice(0, 24) || node.title || canvasAssetFallbackTitle(node.type);
     const metadata = {
         source: options.source,
         canvasId: options.canvasId,
@@ -90,6 +93,14 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
     return null;
 }
 
+export function requiresMaterializedCanvasAsset(node: CanvasNodeData, taskId?: string) {
+    const metadata = node.metadata;
+    if (!(taskId || metadata?.taskId) || !metadata?.storageKey?.startsWith("resource:")) return false;
+    if (metadata.imageLayerGroup) return false;
+    const sourceKey = metadata.layerExtraction?.sourceResultStorageKey;
+    return !sourceKey || sourceKey === metadata.storageKey;
+}
+
 export function findCanvasNodeAsset(assets: Asset[], node: CanvasNodeData, canvasId: string, taskId?: string) {
     const explicitId = node.metadata?.assetId;
     if (explicitId) {
@@ -98,7 +109,7 @@ export function findCanvasNodeAsset(assets: Asset[], node: CanvasNodeData, canva
     }
     const generationTaskId = taskId || node.metadata?.taskId;
     return assets.find((asset) => {
-        if (generationTaskId && asset.metadata?.taskId === generationTaskId && asset.metadata?.nodeId === node.id) return true;
+        if (generationTaskId && asset.metadata?.taskId === generationTaskId && asset.metadata?.nodeId === node.id) return !(node.metadata?.imageLayerGroup || node.metadata?.layerExtraction) || sameAssetResource(asset, node);
         if (asset.metadata?.nodeId !== node.id) return false;
         const sourceCanvasId = asset.metadata?.canvasId;
         if (sourceCanvasId !== canvasId && (sourceCanvasId || asset.metadata?.source !== "canvas-generation")) return false;

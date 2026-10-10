@@ -247,6 +247,37 @@ def test_cleanup_removes_only_task_provider_media(tmp_path: Path) -> None:
     assert not (sibling.parent / "provider_media").exists()
 
 
+def test_cleanup_preserves_provider_error_when_smb_refuses_staging_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import errno
+
+    from lib.script.reference_video import execution_checkpoint
+
+    project_path = tmp_path / "demo"
+    stage_provider_media(project_path, "task-1", _stage_inputs(project_path))
+    final_dir = project_path / ".arcreel" / "tasks" / "task-1" / "provider_media"
+
+    def smb_busy(path: Path) -> None:
+        assert path == final_dir
+        raise OSError(errno.ENOTEMPTY, "SMB deletion is still pending", str(path))
+
+    monkeypatch.setattr(execution_checkpoint.shutil, "rmtree", smb_busy)
+
+    def provider_failure_with_cleanup():
+        try:
+            raise ValueError("provider rejected request")
+        finally:
+            cleanup_staged_provider_media(project_path, "task-1")
+
+    with pytest.raises(ValueError, match="provider rejected request"):
+        provider_failure_with_cleanup()
+
+    assert final_dir.is_dir()
+    assert "task-1" in caplog.text
+    assert "cleanup" in caplog.text
+
+
 def test_cleanup_unlinks_provider_media_symlink_without_deleting_its_target(tmp_path: Path) -> None:
     project_path = tmp_path / "demo"
     paid_history = project_path / "versions" / "videos" / "scene_E1S01"

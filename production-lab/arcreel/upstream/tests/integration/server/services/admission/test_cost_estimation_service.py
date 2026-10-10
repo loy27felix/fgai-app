@@ -151,6 +151,30 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    async def test_project_quote_never_requests_call_settlement(self, db_factory, monkeypatch):
+        """A project preview has no accepted FG task and must never settle usage."""
+        calls: list[str] = []
+        original = cost_calculator.calculate_cost
+
+        def quote_only(provider, params, **kwargs):
+            assert kwargs.get("estimate_only") is True, f"{params.call_type} quote requested settlement"
+            calls.append(params.call_type)
+            return original(provider, params, **kwargs)
+
+        monkeypatch.setattr(cost_calculator, "calculate_cost", quote_only)
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project = {
+            "title": "FG quote recovery",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        result = await service.compute(
+            project, {"ep1.json": _make_script(1, ["E1S01"], [4])}, project_name="fg-quote-recovery"
+        )
+        assert "image" in calls
+        assert result["episodes"][0]["segments"][0]["segment_id"] == "E1S01"
+
     async def test_storyboard_facts_failure_reports_each_segment_without_video_quote(
         self, db_factory, set_video_request_facts
     ):

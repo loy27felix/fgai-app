@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"infinite-canvas/backend/internal/protocol"
+	"yingce/backend/internal/protocol"
 )
 
 func TestFGSeedanceAudioSwitchReachesProvider(t *testing.T) {

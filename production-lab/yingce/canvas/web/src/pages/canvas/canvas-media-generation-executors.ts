@@ -6,6 +6,7 @@ import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
 import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
+import { buildGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import { isDoubaoAudioConfig } from "@/lib/audio-generation";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
@@ -47,7 +48,7 @@ export async function executeVideoGeneration({
     const videoNode: CanvasNodeData = {
         id: videoId,
         type: CanvasNodeType.Video,
-        title: effectivePrompt.slice(0, 32) || "Generated Video",
+        title: buildGenerationNodeTitle(prompt, "Generated Video"),
         position: reuseSourceNode ? sourceNode!.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
         width: reuseSourceNode ? sourceNode!.width : spec.width,
         height: reuseSourceNode ? sourceNode!.height : spec.height,
@@ -160,7 +161,7 @@ export async function executeAudioGeneration({
     const audioNode: CanvasNodeData = {
         id: audioId,
         type: CanvasNodeType.Audio,
-        title: effectivePrompt.slice(0, 32) || "Generated Audio",
+        title: buildGenerationNodeTitle(prompt, "Generated Audio"),
         position: isEmptyAudioNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
         width: isEmptyAudioNode ? sourceNode.width : spec.width,
         height: isEmptyAudioNode ? sourceNode.height : spec.height,

@@ -168,6 +168,14 @@ AutoDL 视频模型在“能力与参数 → 画面规格”直接多选当前�
 - `web/src/lib/canvas/tool-registry/definitions/selection-toolbar-tools.tsx`：多选悬浮栏默认工具。
 - `web/src/lib/canvas/canvas-layout.ts`：`spreadCanvasNodes` 按相对占位加大边距。
 
+## 完整 AI 拆图工作流
+
+图片节点的 AI 拆图可先用支持视觉输入的文本模型规划图层，再选择专用拆图模型，或用普通图片模型分别重建背景与前景。规划发送经过资源归属校验的实际像素；规划结果校验图层数量、区域与提示词，失败保留可修正的错误。
+
+生成结果组成同尺寸图层组，支持展开、显隐、合成预览、复制、删除、失败重试和刷新恢复。前景可按需去背景，Image Tools 强制输出 PNG；透明内容可按有效区域裁切并另存为独立素材。派生图片使用独立资源与素材标识，避免覆盖原图或其他图层。
+
+规划、生图及可选去背景沿用已有任务与计费；本地合成、显隐和素材裁切不调用生成模型。普通生图是语义重建，不能保证与原图逐像素一致。图层数、像素与输出比例受前端限制，供应商失败如实显示。
+
 ## 图片节点多角度、宫格切分与多选框
 
 图片节点「多角度」使用贴在节点下方的 3D 编辑器（天空盒/摄像头、常用角度、方向箭头），拖动节点或平移画布时面板跟着走。宫格切分放在「图片工具」菜单的「拆分与标记」里，提供 4/9/16/25 预设和 5×5 自定义点选；自定义面板留在菜单内，切分后的子图按网格排开。框选多张图后拖动，虚线选框跟随被选节点。
@@ -388,7 +396,7 @@ SEO 标题、描述、可选关键词会投影到浏览器 metadata、Open Graph
 - `web/src/lib/canvas/canvas-appearance.ts`：自定义外观归一化、解析和本机账号默认值。
 - `web/src/components/canvas/canvas-toolbar.tsx`：画布外观面板入口。
 - `web/src/components/canvas/canvas-appearance-controls.tsx`：主题、颜色、明亮度和网格控件。
-- `web/src/components/canvas/infinite-canvas.tsx`：应用主题背景并保持网格渲染参数。
+- `web/src/components/canvas/canvas-viewport.tsx`：应用主题背景并保持网格渲染参数。
 
 ## 画布节点自动整理
 
@@ -473,3 +481,23 @@ SEO 标题、描述、可选关键词会投影到浏览器 metadata、Open Graph
 后台可选开启子分类维护，市场和技能库支持子分类浏览；默认关闭，保留原行为。
 
 开启时一级分类也可在后台新增、改名、排序、停用和选择图示，未归入技能仍有默认入口。
+
+## 创作首页纵深画廊与灵感库
+
+创作页空态是直线纵深图片画廊：11 张横版卡片沿 Z 轴前后排队，当前一张在最前、最大，其余依次后退缩小并左右对称。滚轮、两侧按钮和自动轮播都能切换，切换只动 `transform` 与 `opacity`。卡片带玻璃描边、圆角和投影，底部是「行动点 / 标题 / 描述」三段信息，只有最前那张露出。队列跟随输入框的创作类型：选图片只排图片灵感，选视频只排视频灵感，选文本用本项目原创条目。每次进场和每次换类型都重新随机抽一批，并记住最近出现过哪些，走完一轮自动换批。
+
+工作区左侧「创作」下方新增灵感页 `/inspirations`，展示全部提示词，按来源、分类和创作类型筛选，支持搜索、收藏、视图切换和分页；自建灵感支持新建、编辑、删除和 JSON 导入导出，改动只存在本地。
+
+外部提示词由 `web/scripts/import-inspirations.mjs` 同步：`awesome-seedance`、好好学 AI 提示词库、YouMind 的两个姊妹库。脚本同时为画廊池生成本地缩略图（560px、webp、约 35KB 一张）。上游封面平均 400KB～700KB，直接引用一屏 11 张要拉 5MB 以上，换成本地缩略图后约 400KB。
+
+画廊池走 `public/inspirations/gallery-pool.json` 运行时拉取，不打进首屏 JS：几百条提示词正文压在包里是白背的，而这份数据只服务画廊一处。池子按来源等距抽取以横跨各分类，并且只收描述非空的条目，保证卡片三行版式不缺角；这些条目仍留在全量目录里供灵感页展示。
+
+### 相关实现
+
+- `web/src/pages/create/creation-inspiration-tunnel.tsx`、`creation-inspiration-tunnel.css`：纵深画廊组件与样式。
+- `web/src/pages/inspirations/`：灵感页、详情弹窗、编辑弹窗与样式。
+- `web/src/lib/inspirations/`：来源登记表、条目类型与解析、原创条目、上游版本号（`catalog.ts`、`resolve.ts`、`source-revisions.ts`）。
+- `web/src/services/inspiration-catalog.ts`：全量目录与画廊池的运行时加载和内存缓存。
+- `web/src/stores/use-inspiration-store.ts`：自建、覆盖、隐藏与收藏的本地持久化。
+- `web/scripts/import-inspirations.mjs`：外部来源同步、缩略图生成与画廊池落盘。
+- `web/public/inspirations/`、`web/public/inspiration-thumbs/`：全量目录、画廊池与本地缩略图。

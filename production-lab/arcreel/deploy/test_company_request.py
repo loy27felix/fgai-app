@@ -8,6 +8,25 @@ BASE = 'http://fg-gateway:3010/internal/arcreel/test'
 install(BASE, 'fixture-capability')
 
 class RequestTests(unittest.IsolatedAsyncioTestCase):
+    def test_synchronous_ark_submit_keeps_operation_identity_and_task(self):
+        seen = []
+
+        def respond(request):
+            seen.append(request.headers.get('x-fg-operation-id'))
+            return httpx.Response(200, headers={'x-fg-task-id': 'video-task'}, json={})
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+            request = client.build_request('POST', BASE+'/v1/contents/generations/tasks', json={})
+            client.send(request)
+            self.assertEqual(fg_task.get(), 'video-task')
+            client.send(request)
+            client.post(BASE+'/v1/contents/generations/tasks', json={})
+            client.post(BASE+'-other/v1/contents/generations/tasks', json={})
+        self.assertIsNotNone(seen[0])
+        self.assertEqual(seen[0], seen[1])
+        self.assertNotEqual(seen[1], seen[2])
+        self.assertIsNone(seen[3])
+
     def test_sdk_process_identity_preserves_headers_and_unrelated_providers(self):
         source = {'ANTHROPIC_BASE_URL': BASE, 'ANTHROPIC_CUSTOM_HEADERS': 'x-fixture: preserved\nx-fg-operation-id: stale'}
         first = sdk_operation_env(source, BASE)

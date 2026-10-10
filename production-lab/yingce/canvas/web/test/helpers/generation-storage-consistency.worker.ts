@@ -73,6 +73,7 @@ function installStorageHarness() {
         configurable: true,
         writable: true,
         value: {
+            location: { pathname: "/canvas/storage-consistency-test" },
             localStorage: {
                 getItem: (key: string) => localStorageValues.get(key) ?? null,
                 setItem: (key: string, value: string) => localStorageValues.set(key, value),

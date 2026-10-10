@@ -415,19 +415,24 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
         cursor = cursor / part
         if _is_link_or_junction(cursor):
             return
-    if final_dir.is_symlink():
-        final_dir.unlink(missing_ok=True)
-    elif _is_junction(final_dir):
-        # Windows directory junctions are directory reparse points: remove the entry with rmdir so neither
-        # pathlib.unlink nor recursive deletion can follow or reject the linked directory.
-        # Idempotent cleanup can race with another remover of the same junction entry.
-        with contextlib.suppress(FileNotFoundError):
-            final_dir.rmdir()
-    elif os.path.lexists(final_dir):
-        if final_dir.is_dir():
-            shutil.rmtree(final_dir)
-        else:
+    try:
+        if final_dir.is_symlink():
             final_dir.unlink(missing_ok=True)
+        elif _is_junction(final_dir):
+            # Remove the junction entry without traversing its target.
+            with contextlib.suppress(FileNotFoundError):
+                final_dir.rmdir()
+        elif os.path.lexists(final_dir):
+            if final_dir.is_dir():
+                shutil.rmtree(final_dir)
+            else:
+                final_dir.unlink(missing_ok=True)
+    except OSError:
+        # SMB can defer deletion while a file handle remains open. Retain the
+        # task-owned staging directory; cleanup must neither replace a provider
+        # error in a finally block nor turn a saved successful result into failure.
+        logger.warning("provider media cleanup deferred task_id=%s", task_id, exc_info=True)
+        return
     # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
     with contextlib.suppress(OSError):
         final_dir.parent.rmdir()

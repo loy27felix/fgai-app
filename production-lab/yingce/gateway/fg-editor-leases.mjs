@@ -66,8 +66,11 @@ export async function guardEditorWrite(req,res,{pool,actor,path}){
  try{
   await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-editor:'||$1))",[expected]);
   const row=(await client.query('SELECT * FROM fg_editor_leases WHERE resource_key=$1 FOR UPDATE',[expected])).rows[0];
+  // A list-page delete carries no editor token. The same account's open tab
+  // must not block its own deletion; another person's live lease still does.
+  const ownCanvasDelete=req.method==='DELETE'&&canvas&&path.pathname==='/api/canvas-projects/'+canvas[1]&&row?.actor_id===actor.id;
   if(row&&new Date(row.expires_at)>new Date()){
-   if(supplied!==expected||!leaseTokenMatches(row,actor,expected,req.headers['x-fg-editor-token'])){await client.query('ROLLBACK');client.release();const holder=await holderName(pool,row.actor_id);send(res,409,{holder},holder+' 进入了这个画布，你已退出编辑。');return false;}
+   if(!ownCanvasDelete&&(supplied!==expected||!leaseTokenMatches(row,actor,expected,req.headers['x-fg-editor-token']))){await client.query('ROLLBACK');client.release();const holder=await holderName(pool,row.actor_id);send(res,409,{holder},holder+' 进入了这个画布，你已退出编辑。');return false;}
   }else if(supplied){await client.query('ROLLBACK');client.release();send(res,409,null,'编辑连接已过期，请重新打开画布');return false;}
   let done=false;const release=()=>{if(done)return;done=true;void client.query('ROLLBACK').finally(()=>client.release());};res.once('finish',release);res.once('close',release);return true;
  }catch(e){await client.query('ROLLBACK');client.release();throw e;}

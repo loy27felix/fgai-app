@@ -275,3 +275,17 @@ html:not(.dark) .app-product-overlays .creation-control-popover-surface {
 /* FG: one quiet currency amount beside the primary action. */
 .fg-creation-submit-group{display:flex;align-items:center;gap:14px;margin-left:auto;flex-shrink:0}
 @media(max-width:640px){.fg-creation-submit-group{width:100%;justify-content:flex-end}.creation-chat-dock{flex-wrap:wrap}}
+
+/* 长提示词保持编辑器可控：按当前字号最多展示约 12 行，继续输入时只在编辑区内部滚动。 */
+.creation-home .creation-chat-editor textarea,
+.creation-home .creation-chat-mention-editor {
+    max-height: 18.6em !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.creation-home .creation-chat-mention-container {
+    min-height: 0 !important;
+}

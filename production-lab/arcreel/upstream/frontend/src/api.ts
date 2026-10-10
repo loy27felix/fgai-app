@@ -25,12 +25,17 @@ import type {
   SessionMeta,
   ImagePayload,
   EntriesResponse,
-  TimelineEntry,
+  AcceptedMessageResponse,
+  QueuedMessageWithdrawal,
+  QueuedMessageResendResponse,
+  QueuedMessageWithdrawalResponse,
+  QueuedMessageSendNowResponse,
   SkillInfo,
   ProjectOverview,
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
+  AssistantSessionResumedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -233,6 +238,14 @@ export type {
 export { setApiReadOnly } from "./api/transport";
 
 // ==================== Endpoint helpers ====================
+
+/** 项目文件缩略图的可选宽度，与服务端 `?w=` 的档位一致；其它宽度服务端会向上取档。 */
+export type FileUrlWidth = 160 | 320 | 640 | 1280;
+
+export interface FileUrlOptions {
+  /** 请求服务端缩略图的目标宽度（WebP、等比）；省略即原图。 */
+  width?: FileUrlWidth;
+}
 
 /** asset_type → REST 路径段（与后端 spec.subdir 对齐）。 */
 const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
@@ -1881,10 +1894,18 @@ class API {
     });
   }
 
+  /**
+   * 项目文件地址。
+   *
+   * `cacheBust` 必填：带版本（通常是 assetFingerprints 里的 mtime_ns）的地址按 immutable 长缓存，
+   * 文件改了换版本才会重新下载；资源确实没有版本时显式传 null，走服务端的协商缓存。
+   * `options.width` 请求服务端缩略图（只对位图生效，原图不比目标宽时服务端直接回原图）。
+   */
   static getFileUrl(
     projectName: string,
     path: string,
-    cacheBust?: number | string | null
+    cacheBust: number | string | null,
+    options: FileUrlOptions = {}
   ): string {
     // 引导演示的占位图是现算的内联 SVG（data: URI），直接用，不要再包一层项目路径。
     // 只放行 data: —— 目前没有第二种自带协议的图源，多放行的协议只是没人用的入口。
@@ -1892,11 +1913,14 @@ class API {
       return path;
     }
     const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
-    if (cacheBust == null || cacheBust === "") {
-      return base;
+    const params: string[] = [];
+    if (cacheBust != null && cacheBust !== "") {
+      params.push(`v=${encodeURIComponent(String(cacheBust))}`);
     }
-
-    return `${base}?v=${encodeURIComponent(String(cacheBust))}`;
+    if (options.width != null) {
+      params.push(`w=${options.width}`);
+    }
+    return params.length ? `${base}?${params.join("&")}` : base;
   }
 
   // ==================== Source 文件管理 ====================
@@ -2682,6 +2706,9 @@ class API {
           case "project_deleted":
             options.onProjectDeleted?.(payload as unknown as ProjectDeletedPayload);
             break;
+          case "assistant_session_resumed":
+            options.onAssistantSessionResumed?.(payload as unknown as AssistantSessionResumedPayload);
+            break;
           default:
             break;
         }
@@ -2819,7 +2846,7 @@ class API {
     sessionId?: string | null,
     images?: ImagePayload[],
     clientKey?: string
-  ): Promise<{ session_id: string; status: string; entry: TimelineEntry | null }> {
+  ): Promise<AcceptedMessageResponse> {
     return this.request(`${this.assistantBase(projectName)}/sessions/send`, {
       method: "POST",
       body: JSON.stringify({
@@ -2847,7 +2874,7 @@ class API {
     content: string,
     images?: ImagePayload[],
     clientKey?: string
-  ): Promise<{ status: string; session_id: string; origin_session_id: string | null; entry: TimelineEntry | null }> {
+  ): Promise<AcceptedMessageResponse & { origin_session_id: string | null }> {
     return this.request(
       `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/rewrite`,
       {
@@ -2859,6 +2886,48 @@ class API {
           client_key: clientKey || undefined,
         }),
       }
+    );
+  }
+
+  /**
+   * 编辑或删除一条排队消息：服务端先向 Agent 撤回，撤回成功才移出排队。
+   * 编辑且撤回成功时响应带回消息内容；Agent 已接收时 `outcome` 为 `accepted`。
+   */
+  static async withdrawQueuedMessage(
+    projectName: string,
+    sessionId: string,
+    messageId: string,
+    intent: QueuedMessageWithdrawal
+  ): Promise<QueuedMessageWithdrawalResponse> {
+    const path = `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}`;
+    return intent === "edit"
+      ? this.request(`${path}/edit`, { method: "POST" })
+      : this.request(path, { method: "DELETE" });
+  }
+
+  static async resendQueuedMessage(
+    projectName: string,
+    sessionId: string,
+    messageId: string
+  ): Promise<QueuedMessageResendResponse> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/resend`,
+      { method: "POST" }
+    );
+  }
+
+  /**
+   * 立即发送一条排队消息：服务端先向 Agent 撤回，撤回成功以 now 优先级重新送入，Agent 打断当前轮先处理它。
+   * Agent 已接收时 `outcome` 为 `accepted`，不再重发。
+   */
+  static async sendQueuedMessageNow(
+    projectName: string,
+    sessionId: string,
+    messageId: string
+  ): Promise<QueuedMessageSendNowResponse> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/send-now`,
+      { method: "POST" }
     );
   }
 

@@ -2,7 +2,7 @@ package auth
 
 import (
 	"errors"
-	"infinite-canvas/backend/internal/kernel"
+	"yingce/backend/internal/kernel"
 	"net/http"
 	"strings"
 	"testing"

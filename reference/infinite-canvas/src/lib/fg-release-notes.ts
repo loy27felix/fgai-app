@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.3.0";
+export const CURRENT_RELEASE_VERSION = "1.3.1";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,20 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月10日",
+        items: [
+            { type: "修复", content: "修复广告助手的结构化结果、后续制作步骤身份传递，以及小说助手的工具请求兼容问题；保留生成前确认与预算检查。" },
+            { type: "修复", content: "综合工作台可将助手草稿写入制作表单，完成的视频可按原任务预览和下载；视频规格支持选择最低成本的 480P、4 秒。" },
+            { type: "修复", content: "修正画布音频摘要：Seed Audio 显示实际输出格式，豆包配音显示公司音色，不再沿用 Alloy；恢复同账号从列表删除画布。" },
+            { type: "优化", content: "视频设置改为比例卡片、清晰度选项与时长滑块；Wan3 按模型能力支持选择 2–30 秒，生成前继续校验规格和费用。" },
+            { type: "调整", content: "广告工程从回收站移除时，将对应 NAS 工程和快照转存到公司 recycle 目录；运行中的任务及其他项目素材继续保留。" },
+            { type: "优化", content: "后台显示 Mac 实际挂载的 NAS 容量与采集时间；连接异常与数据恢复期间给出明确状态，恢复后继续使用原 3000 地址。" },
+            { type: "更新", content: "同步画布上游 1.6.4 与小说工作台上游 0.33.0，包含大画布性能、图片分层、视频链接恢复、素材缩略图和 Agent 会话改进，保留 FG 公司权限与费用管理。" },
+            { type: "说明", content: "本次先发布现有修复；广告、小说视频、音频、技能及多人使用的完整验收继续进行，后续修复归入 1.3.2。" },
+        ],
+    },
+    {
+        version: "1.3.0",
         date: "2026年10月7日",
         items: [
             { type: "优化", content: "FG 超级工作台更新日间与夜间玻璃界面，重新整理故事项目、人民币对账和技能分类的布局与操作间距。" },

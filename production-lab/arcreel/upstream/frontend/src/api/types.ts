@@ -4,6 +4,7 @@
  */
 
 import type {
+  AssistantSessionResumedPayload,
   EpisodeScript,
   NarrationDelivery,
   ProjectChangeBatchPayload,
@@ -124,6 +125,8 @@ export interface ProjectEventStreamOptions {
   onChanges?: (payload: ProjectChangeBatchPayload) => void;
   /** 项目目录被删除后收到一次，随后服务端正常关流；订阅方应在此关闭句柄以停止自动重建。 */
   onProjectDeleted?: (payload: ProjectDeletedPayload) => void;
+  /** 项目下某个 Agent 会话自主回到 running；当前会话经常驻 entry 流收到这一轮，此通知供会话列表等其他视图使用。 */
+  onAssistantSessionResumed?: (payload: AssistantSessionResumedPayload) => void;
   /** 连接失败或中断；`retryable` 为 true 时客户端随后自动重建。 */
   onError?: (error: SseStreamError) => void;
 }

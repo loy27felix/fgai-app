@@ -11,7 +11,7 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"infinite-canvas/backend/internal/model"
+	"yingce/backend/internal/model"
 )
 
 // ErrProjectNameConflict 表示同一用户下的项目名称已被占用。

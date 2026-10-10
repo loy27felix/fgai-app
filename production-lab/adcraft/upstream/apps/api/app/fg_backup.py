@@ -4,10 +4,10 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 import re
-import shutil
 from uuid import uuid4
 
 NAS = Path('/nas')
+NAS_ROOT = Path('/fg-nas-root')
 
 def require_nas():
     if not (NAS / '.fg-studio-nas-ready').is_file():
@@ -32,8 +32,7 @@ def purge_workspace(workspace):
     if not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', workspace):
         raise ValueError('Invalid workspace')
     active, _ = database_paths(workspace)
-    # Retain the small server-side database as an audit record; never retain its
-    # media snapshot on NAS after the recoverable trash period.
+    # Keep both the server database and the NAS directory recoverable.
     if active.exists():
         with closing(sqlite3.connect(active.as_uri() + '?mode=ro', uri=True)) as db:
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -42,15 +41,29 @@ def purge_workspace(workspace):
                 columns = {r[1] for r in db.execute('PRAGMA table_info("' + table + '")')}
                 if 'status' in columns and db.execute('SELECT count(*) FROM "' + table + '" WHERE status IN (?,?,?,?,?,?)', ('queued','running','submitted','processing','pending','waiting')).fetchone()[0]:
                     raise RuntimeError('广告工程仍有任务，稍后重试清理')
-    base = NAS / 'adcraft/workspaces'
+    if not NAS_ROOT.is_dir() or NAS_ROOT.is_symlink():
+        raise RuntimeError('FG NAS 回收目录尚未挂载，项目仍保留在回收站')
+    if not (NAS_ROOT / 'media/.fg-studio-nas-ready').is_file():
+        raise RuntimeError('FG NAS 回收目录尚未就绪')
+    # Source and destination share this one mount, so rename is atomic even
+    # though the runtime also has a separate /nas media bind mount.
+    base = NAS_ROOT / 'media/adcraft/workspaces'
     target = base / workspace
-    if target.is_symlink() or NAS.resolve() not in base.resolve().parents or target.resolve().parent != base.resolve():
+    if target.is_symlink() or NAS_ROOT.resolve() not in base.resolve().parents or target.resolve().parent != base.resolve():
         raise RuntimeError('Unsafe workspace path')
+    recycle = NAS_ROOT / 'recycle/adcraft'
+    if recycle.is_symlink() or (NAS_ROOT / 'recycle').is_symlink():
+        raise RuntimeError('Unsafe recycle path')
+    recycle.mkdir(parents=True, exist_ok=True)
+    destination = recycle / workspace
+    if target.exists():
+        if destination.exists():
+            raise RuntimeError('FG NAS 回收目录已有同名工程，未覆盖任何文件')
+        target.rename(destination)
     marker = purge_marker(workspace)
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text('Expired advertising trash; NAS media removed.\n')
-    if target.exists(): shutil.rmtree(target)
-    return {'purged': True}
+    marker.write_text('Advertising workspace moved to FG NAS recycle/adcraft/' + workspace + '\n')
+    return {'purged': True, 'recycled': True}
 
 def restore(workspace):
     require_workspace(workspace)

@@ -82,7 +82,7 @@ deploy/projects/               数据根
 ├── logs/                      应用日志
 ├── vertex_keys/               Vertex AI 凭据文件
 ├── trial_runs/                端点「测试连接」的产物
-└── runtime/                   迁移完成标记、生成准入锁等运行时状态
+└── runtime/                   迁移完成标记、生成准入锁、图片缩略图缓存等运行时状态
 ```
 
 只有 `projects/` 下名字由英文字母、数字或中划线组成、并且包含 `project.json` 的目录才算项目，数据根里的其它条目不会出现在项目列表中。设置页「关于」中下载的诊断日志会列出数据根及上述各类数据的实际位置。
@@ -175,7 +175,6 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `DATABASE_URL` | SQLite 默认路径 | 生产 Compose 自动设置 PostgreSQL URL |
 | `ARCREEL_DATA_DIR` | `projects` | 数据根；项目、默认 SQLite 数据库、日志和 Vertex 凭据都在其下 |
 | `CORS_ORIGINS` | 通配 | 设为白名单时，浏览器型 MCP 客户端的 Origin 也须列入 |
-| `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | 可选；仅 OAuth 发现型 MCP 客户端需要 |
 | `ARCREEL_OFFICIAL_SERVICE_URL` | 内置官方服务地址 | 市场安装量、评分与分享提交所用的官方服务；设为空即整体关闭，市场回到只读取市场源的形态 |
 
 注意：
@@ -191,7 +190,9 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 
 服务端不校验请求的 `Host` 头，端点边界由每请求强制的 API Key 承担；域名归属交给部署形态，请在反向代理上限定 `server_name`（Nginx）或等价规则，只把预期域名的请求转发给 ArcReel。
 
-`CORS_ORIGINS` 保持默认通配时，浏览器型 MCP 客户端同样无需配置；一旦收紧为白名单，就要把该客户端的 Origin 也列进去——这一个白名单同时约束应用 API 与 MCP 端点，不存在第二份 MCP 专用清单。`MCP_PUBLIC_URL` 只用于填写 OAuth 受保护资源元数据（RFC 9728）与 401 challenge，供做发现流程的客户端读取；以 Bearer 直连的 Claude Code、codex 等客户端不会用到，可以不设。
+`CORS_ORIGINS` 保持默认通配时，浏览器型 MCP 客户端同样无需配置；一旦收紧为白名单，就要把该客户端的 Origin 也列进去——这一个白名单同时约束应用 API 与 MCP 端点，不存在第二份 MCP 专用清单。
+
+远程 MCP 不提供 OAuth 授权，也不发布 OAuth 受保护资源元数据（RFC 9728）；只支持 OAuth 自动发现、无法自行填写 Bearer 凭证的客户端无法接入。
 
 ArcReel 的沙箱要求父进程环境中不保留供应商密钥。以下凭据环境变量存在非空值时，服务会拒绝启动并提示迁移到 WebUI 设置页：
 
@@ -342,6 +343,7 @@ docker compose start arcreel
 - `project.json` 登记的正式剧本文件；
 - 已存在的 `.arcreel_artifacts.json`；
 - 改写版本记录的迁移另备份 `versions/versions.json`。
+- 改写剪辑时间线的迁移另备份被改写的 `edit_timelines/episode_*/*.json`。
 
 迁移可安全重试：如果上次启动在备份或提交中断，下一次启动会重新校验，并确保至少有一份与迁移前内容完全一致的备份后再继续；内容相同的备份只保留一份，反复失败不会堆出多份。自动生成的这些项目级备份只用于迁移恢复，不能代替数据库与整个数据根的部署级备份。
 
@@ -533,7 +535,16 @@ ports:
 
 如果反向代理运行在容器网络或其他主机上，应取消不必要的宿主机端口发布，并通过容器网络、主机防火墙或等效网络策略保证只有代理能够访问 ArcReel 后端。
 
-Nginx 示例：
+ArcReel 自身已经处理缓存头和压缩，反向代理不需要另行配置：
+
+- 带版本键（`?v=`、`?fp=`）或指向 `versions/` 版本快照的媒体地址，以及前端 `/assets/` 下带内容哈希的构建产物，返回 `Cache-Control: public, max-age=31536000, immutable`，浏览器直接复用本地缓存；
+- 不带版本键的媒体地址返回 `Cache-Control: no-cache`，浏览器每次使用前向服务端再验证，文件未变化时返回 `304`；
+- 页面入口 HTML 返回 `no-store`，升级后浏览器会加载新版前端；
+- JSON、JS、CSS、HTML 等文本响应使用 gzip 压缩，SSE 事件流和图片、音视频不压缩。
+
+反向代理应原样透传这些响应头，不要用 `expires`、`add_header Cache-Control` 或 `proxy_hide_header` 覆盖。
+
+Nginx 示例。示例把媒体文件路径单独拆出：SSE 与普通 API 关闭代理缓冲，事件实时到达浏览器；`/api/v1/files/` 与 `/api/v1/global-assets/` 开启代理缓冲，图片和视频由 Nginx 先行接收，后端连接尽早释放。
 
 ```nginx
 server {
@@ -544,6 +555,26 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/arcreel.example.com/privkey.pem;
 
     client_max_body_size 2g;
+
+    # 只压缩文本类型。ArcReel 已压缩的响应 Nginx 不会重复压缩；
+    # 不要加入 text/event-stream，压缩缓冲会延迟 SSE 事件；图片和音视频本身已压缩，也不要加入
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/markdown application/json application/javascript image/svg+xml;
+
+    # 项目媒体与全局资产：只读 GET，开启缓冲
+    location ~ ^/api/v1/(files|global-assets)/ {
+        proxy_pass http://127.0.0.1:1241;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering on;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:1241;

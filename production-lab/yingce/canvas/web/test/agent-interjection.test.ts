@@ -21,7 +21,9 @@ test("运行中不再锁死输入框，发送走插话而不是新建轮次", as
     expect(composer).toBeDefined();
     expect(composer).not.toMatch(/\bbusy\b|\brunning\b/);
     // 停止按钮由 running 驱动，发送按钮由我们自己的请求驱动，两者不再互斥
-    expect(panel).toContain("sending={busy}");
+    // FG document uploads must finish before sending, while an Agent run may
+    // still receive an interjection. Neither condition disables typing.
+    expect(panel).toMatch(/sending=\{busy\s*\|\|\s*uploadingDocuments\}/);
     expect(panel).toContain("running={running}");
 
     // 两个 SSE 事件都要处理：回显（多标签页）与未送达退回

@@ -3,7 +3,7 @@ package app
 import (
  "encoding/json"
  "testing"
- "infinite-canvas/backend/internal/model"
+ "yingce/backend/internal/model"
 )
 
 func TestFGWeTokenZeroPlaceholdersDoNotHideActualTextUsage(t *testing.T) {

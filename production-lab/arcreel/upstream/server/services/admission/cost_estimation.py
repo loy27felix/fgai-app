@@ -439,6 +439,7 @@ class CostEstimationService:
                 custom_price_input=image_price.price_input,
                 custom_price_output=image_price.price_output,
                 custom_currency=image_price.currency,
+                estimate_only=True,
             )
         except ValueError:
             logger.debug("无法计算 image 预估单价", exc_info=True)
@@ -455,6 +456,7 @@ class CostEstimationService:
                     custom_price_input=image_price.price_input,
                     custom_price_output=image_price.price_output,
                     custom_currency=image_price.currency,
+                    estimate_only=True,
                 )
             except ValueError:
                 grid_image_unit_cost = image_unit_cost
@@ -613,6 +615,7 @@ class CostEstimationService:
                             custom_price_input=audio_price.price_input,
                             custom_price_output=audio_price.price_output,
                             custom_currency=audio_price.currency,
+                            estimate_only=True,
                         )
                         _add_cost(est_audio, audio_amount, audio_currency)
                     except ValueError:

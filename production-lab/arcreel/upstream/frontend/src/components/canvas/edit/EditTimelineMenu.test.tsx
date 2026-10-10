@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
+import { stubMediaElementPlayback } from "@/test/media-element";
 
 import { EditTimelineView } from "./EditTimelineView";
 
@@ -19,7 +20,6 @@ function summary(id: string, name: string, updatedAt: string): EditTimelineSumma
     updated_at: updatedAt,
     updated_by: { kind: "arcreel_agent", user_id: null },
     update_summary: "剪辑",
-    agent_turn: null,
   };
 }
 
@@ -60,8 +60,7 @@ describe("EditTimelineView tab menu", () => {
   beforeEach(() => {
     useProjectsStore.setState({ projectSnapshotRevisions: {} });
     useAppStore.setState({ toast: null });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    stubMediaElementPlayback();
     vi.spyOn(API, "getEditTimeline").mockImplementation((_project, id) =>
       Promise.resolve(readoutOf(id, id === FIRST.id ? FIRST.name : SECOND.name)),
     );

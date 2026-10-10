@@ -143,6 +143,11 @@ class AgentCanvasPromptPreparationDispatchRepository:
                 "prompt_preparation_dispatch_identity_conflict",
                 "Prompt-preparation dispatch identity conflicts with an existing record.",
             ) from error
+        # Bind only a newly accepted dispatch. Exact replays above must never
+        # replace the original actor with a polling collaborator's identity.
+        from app.fg_context import fg_context, work_context
+
+        work_context(candidate.dispatch_id, fg_context.get())
         if emit_event:
             self._append_event(
                 connection,

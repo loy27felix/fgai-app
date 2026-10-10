@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"infinite-canvas/backend/internal/kernel"
-	"infinite-canvas/backend/internal/model"
+	"yingce/backend/internal/kernel"
+	"yingce/backend/internal/model"
 )
 
 func TestDecryptSettingSecretRequiresRestoredKeyWithoutWriting(t *testing.T) {

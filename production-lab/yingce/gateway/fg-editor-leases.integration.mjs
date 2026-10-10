@@ -47,5 +47,7 @@ try{
  const canvasSecond=await lease(b,'acquire',undefined,canvasKey);assert.equal(canvasSecond.status,200);
  const received=await Promise.race([canvasNotice,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('background canvas takeover timeout')),4000);timer.unref();})]);assert.match(received,/B 进入了这个画布/);
  const blocked=await fetch(base+'/api/canvas-projects/test-canvas',{method:'PATCH',headers:{'x-test-actor':a,'x-fg-editor-key':canvasKey,'x-fg-editor-token':canvasFirst.data.token}});assert.equal(blocked.status,409);
- console.log(JSON.stringify({passed:14,checks:['same-account windows','takeover serialization','previous-holder notification','live named takeover event','background canvas takeover without heartbeat','stale heartbeat denied','stale write denied','new editor writes']}));
+ assert.equal((await fetch(base+'/api/canvas-projects/test-canvas',{method:'DELETE',headers:{'x-test-actor':a}})).status,409,'another editor remains protected');
+ assert.equal((await fetch(base+'/api/canvas-projects/test-canvas',{method:'DELETE',headers:{'x-test-actor':b}})).status,200,'same-account list deletion does not require an editor token');
+ console.log(JSON.stringify({passed:16,checks:['same-account windows','takeover serialization','previous-holder notification','live named takeover event','background canvas takeover without heartbeat','stale heartbeat denied','stale write denied','new editor writes','another editor delete denied','same-account list deletion']}));
 }finally{if(server)await new Promise(r=>server.close(r));await pool.end();await root.query('DROP SCHEMA '+schema+' CASCADE');await root.end();}

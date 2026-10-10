@@ -101,7 +101,9 @@ test("appearance management exposes light and dark logo uploads plus the frame s
     expect(pageSource).toContain("setLogoFrameEnabled(!checked)");
     expect(pageSource).not.toContain("<Checkbox");
     expect(pageSource).toContain("深浅模式 Logo 预览");
-    expect(pageSource).toContain("登录页视频自动播放");
+    // FG authenticates through its main platform. Preserve the stored video
+    // preference, without exposing a second workspace login configuration.
+    expect(pageSource).not.toContain("登录页视频自动播放");
     expect(pageSource).toContain("authVideoAutoplay");
     expect(brandSource).toContain("useActiveTheme");
     expect(brandSource).toContain("data-logo-frame-enabled");
@@ -122,11 +124,14 @@ test("object storage can adopt the configured English brand identifier without r
     expect(source).toContain("setting.pathPrefix || DEFAULT_OSS_PATH_PREFIX");
 });
 
-test("appearance management exposes a server-side reset to the built-in Yingce brand", async () => {
+test("appearance management exposes a server-side reset to the built-in FG brand", async () => {
     const [pageSource, apiSource] = await Promise.all([Promise.resolve(moduleGroupSource("pages/admin/settings/appearance-settings-page.tsx")), Bun.file(new URL("../src/services/api/appearance.ts", import.meta.url)).text()]);
 
-    expect(pageSource).toContain("恢复影策默认");
+    expect(pageSource).toContain("恢复 FG 默认");
     expect(pageSource).toContain("resetAdminAppearance()");
     expect(pageSource).toContain("已上传文件仍保留在存储资源中");
-    expect(apiSource).toContain('http.delete<{ setting: AdminAppearance }>("/admin/settings/appearance")');
+    expect(apiSource).toContain("const current = await getAdminAppearance()");
+    expect(apiSource).toContain("return updateAdminAppearance({");
+    expect(apiSource).toContain('...current, brandName: "FG", brandSlug: "fg-studio"');
+    expect(apiSource).toContain('logoResourceId: "", darkLogoResourceId: ""');
 });

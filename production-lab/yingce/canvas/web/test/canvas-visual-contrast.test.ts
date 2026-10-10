@@ -19,7 +19,7 @@ describe("canvas visual contrast", () => {
         expect(canvasThemes.light.toolbar.panel).toBe("rgba(255,255,255,.94)");
         expect(canvasThemes.light.spatial.elevated).toBe("rgba(255,255,255,.94)");
 
-        expect(canvasThemes.dark.canvas.background).toBe("#000000");
+        expect(canvasThemes.dark.canvas.background).toBe("#14171D");
         expect(canvasThemes.dark.node.fill).toBe("#181818");
         expect(canvasThemes.dark.node.edge).toBe("rgba(255,255,255,.18)");
         expect(canvasThemes.dark.node.shadow).toBe("0 8px 24px rgba(0,0,0,.34)");
@@ -35,7 +35,7 @@ describe("canvas visual contrast", () => {
         expect(canvasThemes.dark.canvas.dot).toBe("#000000");
         expect(canvasThemes.dark.canvas.line).toBe("#000000");
 
-        const source = await Bun.file(new URL("../src/components/canvas/infinite-canvas.tsx", import.meta.url)).text();
+        const source = await Bun.file(new URL("../src/components/canvas/canvas-viewport.tsx", import.meta.url)).text();
         expect(source).toContain('opacity: mode === "dots" ? 0.34 : 0.46');
     });
 

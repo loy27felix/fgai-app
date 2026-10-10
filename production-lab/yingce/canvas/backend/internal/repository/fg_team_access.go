@@ -3,8 +3,8 @@ package repository
 import (
  "encoding/json"
  "os"
- "infinite-canvas/backend/internal/assets"
- "infinite-canvas/backend/internal/model"
+ "yingce/backend/internal/assets"
+ "yingce/backend/internal/model"
  "gorm.io/gorm"
 )
 

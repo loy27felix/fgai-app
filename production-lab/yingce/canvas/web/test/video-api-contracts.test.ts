@@ -57,6 +57,8 @@ describe("Volcengine Ark full-modal references", () => {
                 apiFormat: "openai",
                 interfaceType: "volcengine-ark-video",
                 models: [model],
+                // FG uses the administrator's explicit protocol metadata.
+                modelCosts: [{ model, protocol: "volcengine-ark-video" }],
                 scope: "user",
                 enabled: true,
             },

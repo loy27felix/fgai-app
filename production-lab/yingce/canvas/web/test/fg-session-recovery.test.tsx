@@ -5,7 +5,7 @@ import { FGSessionRecovery } from "@/components/auth/fg-session-recovery";
 test("expired FG sessions offer the main platform without a second account form", () => {
     const html = renderToStaticMarkup(<FGSessionRecovery />);
     expect(html).toContain("请恢复 FG 账号连接");
-    expect(html).toContain("https://192.168.0.99:3000/workspace");
+    expect(html).toContain('href="/workspace"');
     expect(html).not.toContain("<input");
 });
 
