@@ -72,3 +72,23 @@ func TestPublicCanvasProjectDropsUnmanagedMediaURL(t *testing.T) {
 		t.Fatalf("unexpected public payload: %s", encoded)
 	}
 }
+
+func TestPublicCanvasShareKeepsGenerationOptionsWithoutPrivateBindings(t *testing.T) {
+	payload := `{"id":"p","nodes":[{"id":"n","type":"config","metadata":{"generationSpec":{"version":1,"mode":"video","prompt":"keep prompt","options":{"durationSeconds":30,"resolution":"720P"},"modelSelection":{"kind":"channel","channelId":"private-channel","modelKey":"private-key"},"referenceBindings":[{"id":"ref","nodeId":"source-node","resourceId":"private-resource","mediaType":"image","role":"first-frame","order":0,"resolution":"latest"},{"id":"hidden","resourceId":"private-resource","mediaType":"image"}],"textInputMode":"prompt-only"}}}],"connections":[]}`
+	public, _, err := publicCanvasProject(&model.CanvasProject{ID: "p", PayloadJSON: payload}, "share-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(public)
+	text := string(encoded)
+	for _, secret := range []string{"private-channel", "private-key", "private-resource", "hidden"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("private binding leaked: %s", text)
+		}
+	}
+	for _, kept := range []string{"keep prompt", "durationSeconds", "source-node"} {
+		if !strings.Contains(text, kept) {
+			t.Fatalf("generation setting lost: %s", text)
+		}
+	}
+}

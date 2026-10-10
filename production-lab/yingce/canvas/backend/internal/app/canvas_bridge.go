@@ -142,6 +142,10 @@ func (s *Service) PublicCanvasShare(token string) (PublicCanvasShare, error) {
 	return s.canvasDomain().PublicCanvasShare(token)
 }
 
+func (s *Service) CopySharedCanvas(userID, token string) (json.RawMessage, error) {
+	return s.canvasDomain().CopySharedCanvas(userID, token)
+}
+
 func (s *Service) OpenSharedCanvasResource(token string, resourceID string) (*model.Resource, io.ReadCloser, error) {
 	return s.canvasDomain().OpenSharedCanvasResource(token, resourceID)
 }

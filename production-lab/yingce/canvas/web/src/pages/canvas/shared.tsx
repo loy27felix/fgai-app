@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { App, Button } from "antd";
-import { Clapperboard, Eye, FileText, Image as ImageIcon, LockKeyhole, LogIn, Send, Share2, Video } from "lucide-react";
-import { Link, useParams } from "react-router";
+import { Clapperboard, Copy, Eye, FileText, Image as ImageIcon, LockKeyhole, LogIn, Send, Share2, Video } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router";
 import { nanoid } from "nanoid";
 
 import { ConnectionPath } from "@/components/canvas/canvas-connections";
@@ -19,7 +19,9 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { FOLDER_COLLAPSED_HEIGHT, FOLDER_COLLAPSED_WIDTH, isCanvasFolderNode, isFrameNode, isNodeHiddenByCollapsedFrame, resolveFrameConnection } from "@/lib/canvas/canvas-frame";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
 import { getContextResourceNodes } from "@/lib/canvas/canvas-resource-references";
-import { getPublicCanvasShare } from "@/services/api/canvas-share";
+import { copySharedCanvas, getPublicCanvasShare } from "@/services/api/canvas-share";
+import { useUserStore } from "@/stores/use-user-store";
+import { fgPlatformURL } from "@/lib/fg-entry-url";
 import { useCanvasThemeStore, useCanvasThemeScope } from "@/stores/canvas/use-canvas-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type Position, type ViewportTransform } from "@/types/canvas";
 import { nodeGenerationPrompt } from "@/lib/canvas/generation-contract";
@@ -29,7 +31,11 @@ type DragState = { primaryId: string; nodeIds: string[]; startX: number; startY:
 export default function SharedCanvasPage() {
     useCanvasThemeScope();
     const { token = "" } = useParams();
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
+    const navigate = useNavigate();
+    const user = useUserStore((state) => state.user);
+    const [copying, setCopying] = useState(false);
+    const copyInFlight = useRef(false);
     const colorTheme = useCanvasThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
     const containerRef = useRef<HTMLDivElement>(null);
@@ -49,6 +55,26 @@ export default function SharedCanvasPage() {
     const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
+
+    const copyToMyCanvases = async () => {
+        if (copyInFlight.current) return;
+        if (!user) {
+            modal.info({ title: "登录后复制到自己的画布", content: "请在 FG 工作区登录，随后返回此分享页并刷新，再点击复制。", okText: "打开 FG 登录", onOk: () => window.open(fgPlatformURL(window.location.origin, "/login"), "_blank", "noopener,noreferrer") });
+            return;
+        }
+        copyInFlight.current = true;
+        setCopying(true);
+        try {
+            const { project } = await copySharedCanvas(token);
+            message.success("已复制到我的画布，可以继续创作");
+            navigate(`/canvas/${encodeURIComponent(project.id)}`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "复制失败，请稍后重试");
+        } finally {
+            copyInFlight.current = false;
+            setCopying(false);
+        }
+    };
 
     const unauthorized = useCallback(() => message.warning("未授权：分享画布仅供查看，该操作不会执行。"), [message]);
     const infoNode = nodes.find((node) => node.id === infoNodeId) || null;
@@ -255,7 +281,10 @@ export default function SharedCanvasPage() {
                     <span className="max-w-[45vw] truncate text-base font-semibold">{title}</span>
                     <span className="inline-flex items-center gap-1 text-xs" style={{ color: theme.node.muted }}><Eye className="size-3.5" />只读分享</span>
                 </div>
-                <Link className="pointer-events-auto" to="/login"><Button type="text" icon={<LogIn className="size-4" />}>登录</Button></Link>
+                <div className="pointer-events-auto flex items-center gap-2">
+                    {!user && <Button type="text" icon={<LogIn className="size-4" />} href={fgPlatformURL(window.location.origin, "/login")} target="_blank" rel="noopener noreferrer">登录</Button>}
+                    <Button type="primary" icon={<Copy className="size-4" />} loading={copying} onClick={() => void copyToMyCanvases()}>{copying ? "正在复制画布与素材" : "复制到我的画布"}</Button>
+                </div>
             </header>
 
             <CanvasViewport containerRef={containerRef} viewport={viewport} appearance={appearance} backgroundMode={backgroundMode} onViewportChange={onViewportChange} onViewportPreviewChange={(next) => { viewportRef.current = next; }} onCanvasDeselect={() => { setSelectedNodeId(null); setContextMenu(null); }} onContextMenu={(event) => openContextMenu(event)} onDrop={(event) => { event.preventDefault(); unauthorized(); }}>

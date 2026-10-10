@@ -73,6 +73,24 @@ func RegisterCanvasShareRoutes(r *gin.RouterGroup, svc *service.Service) {
 		ok(c, share)
 	})
 
+	r.POST("/public/canvas-shares/:token/copy", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if !enforceRateLimit(c, "canvas-share-copy:"+user.ID, 6, time.Minute) {
+			return
+		}
+		project, err := svc.CopySharedCanvas(user.ID, c.Param("token"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		ok(c, gin.H{"project": project})
+	})
+
 	r.GET("/public/canvas-shares/:token/resources/:resourceId/file", func(c *gin.Context) {
 		if !enforceRateLimit(c, "public-canvas-resource:"+c.ClientIP(), 300, time.Minute) {
 			return

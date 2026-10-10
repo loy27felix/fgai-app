@@ -18,7 +18,7 @@ import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
 import {initializeCreator,creatorCapability,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
 import {initializeArcReel,createArcReelServer} from './fg-arcreel.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
-import { platformToken, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
+import { platformToken, trustedOrigin, publicResourceRead, publicCanvasShareRead, proxyHeaders, responseHeaders } from './policy.mjs';
 import {publicEntryOrigins, workspaceRequestPath, workspaceEntryURL} from './fg-public-entry.mjs';
 import {initializeInspiration,startInspirationSync,inspirationRoute} from './fg-inspiration.mjs';
 import {registerSpeechStream} from './fg-speech-stream.mjs';
@@ -116,9 +116,9 @@ const server = http.createServer(async (req, res) => {
     if(await speechInternalRoute(req,res,{pool,path}))return;
     if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
-    if (publicResourceRead(req.method, path)) {
-      // The native backend verifies the expiring HMAC capability before reading
-      // NAS bytes. No browser or FG credentials are forwarded on this route.
+    if (publicResourceRead(req.method, path) || publicCanvasShareRead(req.method, path)) {
+      // Public media and share reads are authorized by the native backend's
+      // expiring capability. Static bundles need no browser or FG credentials.
       const headers = Object.fromEntries(['range','if-none-match','if-modified-since'].filter(name => req.headers[name]).map(name => [name,req.headers[name]]));
       const upstream = http.request(new URL(path.pathname + path.search, web), {method:req.method,headers}, remote => {
         res.writeHead(remote.statusCode || 502,responseHeaders(remote.headers));
@@ -129,6 +129,10 @@ const server = http.createServer(async (req, res) => {
       upstream.end();return;
     }
     const actor = await platformActor(req);
+    if (!actor && req.method === 'GET' && path.pathname === '/api/auth/session') {
+      res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
+      res.end(JSON.stringify({code:0,data:{user:null},msg:''}));return;
+    }
     if (!actor) { respond(res,403,'请先登录 FG Studio','FG_ACCESS_DENIED'); return; }
     if(path.pathname.startsWith('/api/admin/')&&!actor.reviewer){respond(res,403,'仅超级管理员可管理平台','FG_ADMIN_REQUIRED');return;}
     if (path.pathname === '/fg/entry' && req.method === 'GET') {

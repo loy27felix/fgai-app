@@ -27,6 +27,13 @@ export function publicResourceRead(method, path) {
   return ['GET', 'HEAD'].includes(method) && /^\/api\/public\/resources\/(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/file$/.test(path.pathname);
 }
 
+export function publicCanvasShareRead(method, path) {
+  if (!['GET', 'HEAD'].includes(method)) return false;
+  const token = '[A-Za-z0-9_-]{32,128}';
+  return new RegExp(`^/(?:api/public/canvas-shares/${token}(?:/resources/[A-Za-z0-9_-]{1,80}/file)?|share/canvas/${token})$`).test(path.pathname)
+    || /^\/assets\/[A-Za-z0-9_.-]+\.(?:js|css|woff2?)$/.test(path.pathname);
+}
+
 export function proxyHeaders(incoming, cookie, host) {
   const blocked = new Set([...hopHeaders, 'cookie', 'authorization', 'host', 'forwarded']);
   String(incoming.connection || '').split(',').forEach(h => blocked.add(h.trim().toLowerCase()));

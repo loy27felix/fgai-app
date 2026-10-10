@@ -29,3 +29,7 @@ export function deleteCanvasShare(projectId: string) {
 export function getPublicCanvasShare(token: string) {
     return http.get<PublicCanvasShare>(`/public/canvas-shares/${encodeURIComponent(token)}`);
 }
+
+export function copySharedCanvas(token: string) {
+    return http.post<{ project: CanvasProject }>(`/public/canvas-shares/${encodeURIComponent(token)}/copy`);
+}

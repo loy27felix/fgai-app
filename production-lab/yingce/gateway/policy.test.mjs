@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { platformToken, requestPath, trustedOrigin, publicResourceRead, proxyHeaders, responseHeaders } from './policy.mjs';
+import { platformToken, requestPath, trustedOrigin, publicResourceRead, publicCanvasShareRead, proxyHeaders, responseHeaders } from './policy.mjs';
 
 const origin = 'https://192.168.0.99:3016';
+test('anonymous share permits exact read routes but never copying or private reads',()=>{
+  const token='a'.repeat(43);
+  for(const path of [`/share/canvas/${token}`,`/api/public/canvas-shares/${token}`,`/api/public/canvas-shares/${token}/resources/owned-resource/file`,'/assets/index-abc123.js','/assets/index-abc123.css']) {
+    assert.equal(publicCanvasShareRead('GET',new URL(path,origin)),true);
+    assert.equal(publicCanvasShareRead('POST',new URL(path,origin)),false);
+  }
+  for(const path of [`/api/public/canvas-shares/${token}/copy`,`/api/public/canvas-shares/${token}/resources/owned-resource/file/extra`,'/api/resources/owned-resource/file','/api/canvas-projects','/canvas/private','/share/canvas/invalid','/assets/private.json']) assert.equal(publicCanvasShareRead('GET',new URL(path,origin)),false);
+});
 test('anonymous delivery is confined to exact signed resource read routes',()=>{
   const id='12345678-1234-1234-1234-123456789abc';
   assert.equal(publicResourceRead('GET',new URL(`/api/public/resources/${id}/file?expires=1&signature=invalid`,origin)),true);

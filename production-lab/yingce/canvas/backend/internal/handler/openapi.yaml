@@ -364,6 +364,36 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /public/canvas-shares/{token}/copy:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        schema: { type: string, minLength: 32, maxLength: 128 }
+    post:
+      tags: [canvas]
+      summary: 复制有效分享画布到当前用户的私人画布
+      description: 复制公开节点、连线、生成配置及独立媒体对象；聊天、任务、密钥和原项目归属不复制。分享有效性、素材记录和新画布在同一事务提交。无需请求正文，必须登录；公开路径不会授予匿名写权限。
+      responses:
+        "200":
+          description: 副本已保存，data.project 为当前用户的新画布，revision 为 1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, enum: [0] }
+                  msg: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      project: { type: object, additionalProperties: true }
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
   /canvas-projects/{id}:
     parameters:
       - in: path

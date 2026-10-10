@@ -40,7 +40,7 @@ var publicCanvasMetadataKeys = map[string]bool{
 	"content": true, "composerContent": true, "prompt": true, "status": true, "fontSize": true,
 	"generationMode": true, "generationType": true, "model": true, "size": true, "quality": true, "transparentBackground": true,
 	"count": true, "seconds": true, "vquality": true, "generateAudio": true, "watermark": true,
-	"audioVoice": true, "audioFormat": true, "audioSpeed": true, "audioInstructions": true,
+	"audioVoice": true, "audioFormat": true, "audioSpeed": true, "audioInstructions": true, "audioLanguage": true, "audioDialect": true,
 	"naturalWidth": true, "naturalHeight": true, "freeResize": true, "isBatchRoot": true,
 	"batchRootId": true, "batchChildIds": true, "batchUsesReferenceImages": true, "primaryImageId": true,
 	"imageBatchExpanded": true, "mimeType": true, "bytes": true, "durationMs": true, "hasAudio": true, "assetTags": true,
@@ -230,6 +230,7 @@ func publicCanvasProject(project *model.CanvasProject, token string) (map[string
 		"updatedAt":      source["updatedAt"],
 		"backgroundMode": source["backgroundMode"],
 		"showImageInfo":  source["showImageInfo"],
+		"appearance":     scrubPublicCanvasValue(source["appearance"]),
 		"viewport":       scrubPublicCanvasValue(source["viewport"]),
 		"connections":    publicCanvasConnections(source["connections"]),
 		"chatSessions":   []any{},
@@ -279,6 +280,31 @@ func publicCanvasNode(value any, token string, allowedResources map[string]bool)
 			continue
 		}
 		publicMetadata[key] = scrubPublicCanvasValue(value)
+	}
+	if spec, ok := metadata["generationSpec"].(map[string]any); ok {
+		publicSpec := map[string]any{}
+		for _, key := range []string{"version", "mode", "prompt", "options", "textInputMode"} {
+			publicSpec[key] = scrubPublicCanvasValue(spec[key])
+		}
+		if selection, ok := spec["modelSelection"].(map[string]any); ok && selection["kind"] == "logical" {
+			publicSpec["modelSelection"] = map[string]any{"kind": "logical", "logicalModelId": selection["logicalModelId"]}
+		}
+		bindings := []any{}
+		if sourceBindings, ok := spec["referenceBindings"].([]any); ok {
+			for _, value := range sourceBindings {
+				binding, ok := value.(map[string]any)
+				if !ok || kernel.StringValue(binding["nodeId"]) == "" {
+					continue
+				}
+				publicBinding := map[string]any{}
+				for _, key := range []string{"id", "nodeId", "mediaType", "role", "order", "resolution"} {
+					publicBinding[key] = binding[key]
+				}
+				bindings = append(bindings, publicBinding)
+			}
+		}
+		publicSpec["referenceBindings"] = bindings
+		publicMetadata["generationSpec"] = publicSpec
 	}
 	if resourceID := assets.ResourceID(kernel.StringValue(metadata["storageKey"])); resourceID != "" {
 		allowedResources[resourceID] = true

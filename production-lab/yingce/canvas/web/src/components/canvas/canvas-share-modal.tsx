@@ -72,7 +72,7 @@ export function CanvasShareModal({ projectId, open, onClose, beforeCreate }: { p
             <Spin spinning={loading}>
                 <div className="border-t pt-5" style={{ borderColor: theme.node.stroke }}>
                     <p className="mb-4 text-sm leading-6" style={{ color: theme.node.muted }}>
-                        获得链接的人无需登录即可查看。访客可拖动画布节点并临时添加节点，但刷新后会恢复，不能修改原画布或执行生成。
+                        获得链接的人无需登录即可查看。登录后可复制到自己的画布，继续编辑和生成；副本不会影响原画布。停止分享会使链接失效，已经复制的画布与素材仍归复制者保留。
                     </p>
                     {share.enabled && shareUrl ? (
                         <div className="space-y-4">
