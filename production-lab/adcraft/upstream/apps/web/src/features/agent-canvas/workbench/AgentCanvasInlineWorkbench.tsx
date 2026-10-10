@@ -73,6 +73,8 @@ function VisibleAgentCanvasInlineWorkbench(props: AgentCanvasInlineWorkbenchProp
     && preparationStatus !== "not_applicable";
   const preparingVideoPrompt = node.node_type === "video"
     && (preparationStatus === "queued" || preparationStatus === "working");
+  const blankPromptPreparationFailed = preparationStatus === "failed"
+    && !node.generation_prompt?.trim();
 
   return (
     <NodeWorkbenchShell
@@ -80,7 +82,7 @@ function VisibleAgentCanvasInlineWorkbench(props: AgentCanvasInlineWorkbenchProp
     >
       {references}
       <FGNodePrice workflow={workflow} node={node} parameters={draft.parameters} modelRef={draft.modelSelectionMode==='explicit'?draft.modelRef:(node.node_type==='video'?providerDefaultModelRef:null)??node.model_summary?.model_ref??modelResolution?.model_ref??providerDefaultModelRef}/>
-      {promptPreparing && node.node_type !== "image" && node.node_type !== "text" ? (
+      {promptPreparing && (blankPromptPreparationFailed || (node.node_type !== "image" && node.node_type !== "text")) ? (
         <NodePromptPreparationState
           node={node}
           onWorkflowRefresh={onWorkflowRefresh}

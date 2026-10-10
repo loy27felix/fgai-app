@@ -35,10 +35,10 @@ function RouteFallback() {
 function FGProjectEntry(){
  const [error,setError]=useState('');
  useEffect(()=>{let active=true;fetch('/api/fg/advertising/'+fgWorkspace+'/open',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(async r=>{const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'广告工程读取失败');if(active)window.location.replace(d.data.url);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false};},[]);
- return error?<section className="content-wrap"><p role="alert">{error}</p><a href="/advertising">返回广告项目</a></section>:<RouteFallback/>;
+ return error?<section className="content-wrap"><p role="alert">{error}</p><a href="/fg-six/advertising">返回广告项目</a></section>:<RouteFallback/>;
 }
 
-function FGAdvertisingDirectory(){useEffect(()=>{window.location.replace("/advertising");},[]);return <RouteFallback/>;}
+function FGAdvertisingDirectory(){useEffect(()=>{window.location.replace("/fg-six/advertising");},[]);return <RouteFallback/>;}
 
 function AppRoutes() {
   const navigate = useNavigate();

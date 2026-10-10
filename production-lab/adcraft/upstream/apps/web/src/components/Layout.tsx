@@ -114,7 +114,7 @@ export function Layout({ children, workflowControls }: LayoutProps) {
         id="app"
       >
         <header className="topbar">
-          <a className="brand" href={fgWorkspace?'/advertising':'/'} aria-label="FG 广告项目" onClick={closeAccountMenu}>
+          <a className="brand" href={fgWorkspace?'/fg-six/advertising':'/'} aria-label="FG 广告项目" onClick={closeAccountMenu}>
             <div className="brand-picture">
               <strong className="brand-logo" style={{ fontSize: 20, letterSpacing: 2 }}>FG</strong>
             </div>
@@ -153,7 +153,7 @@ export function Layout({ children, workflowControls }: LayoutProps) {
               <Link to="/projects" onClick={closeAccountMenu}>项目工程</Link>
               <Link to="/assets" onClick={closeAccountMenu}>项目素材</Link>
               <span>公司模型渠道 · WeToken</span>
-              <a href="/advertising">返回广告项目</a>
+              <a href="/fg-six/advertising">返回广告项目</a>
             </div>
           </div>
         </header>

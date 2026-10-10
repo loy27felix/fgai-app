@@ -547,6 +547,28 @@ describe("AgentCanvasInlineWorkbench", () => {
     },
   );
 
+  it.each(["image", "text"] as const)("explains why a blank %s draft cannot run after prompt preparation fails", (type) => {
+    const node = makeNode(type);
+    renderWorkbench({
+      ...node,
+      generation_prompt: null,
+      prompt_preparation: {
+        ...node.prompt_preparation!,
+        status: "failed",
+        error: {
+          code: "agent_runtime_unavailable",
+          message: "Node prompt preparation failed.",
+          retryable: false,
+        },
+      },
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain("Node prompt preparation failed.");
+    const editor = screen.getByLabelText(type === "image" ? "Generation prompt" : "Text prompt") as HTMLTextAreaElement;
+    expect(editor.value).toBe("");
+    expect(editor.disabled).toBe(false);
+  });
+
   it("keeps a blank manual Draft editable while it waits for user input", () => {
     const node = {
       ...makeNode("image"),

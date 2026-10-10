@@ -67,7 +67,7 @@ export function MediaPromptWorkbench({
   const inlineDescriptors = node.node_type === "video"
     ? VIDEO_TOOLBAR_PARAMETERS.flatMap((name) => parameterDescriptors.filter((descriptor) => descriptor.name === name))
     : [];
-  const bodyDescriptors = node.node_type === "video"
+  const bodyDescriptors = node.node_type === "image" ? [] : node.node_type === "video"
     ? parameterDescriptors.filter((descriptor) => !VIDEO_TOOLBAR_PARAMETERS.includes(descriptor.name) && descriptor !== audioDescriptor)
     : parameterDescriptors;
   const parameterIssues = selectedModel && selectedModel.parameter_schema_id
