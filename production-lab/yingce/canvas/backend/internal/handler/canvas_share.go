@@ -8,6 +8,7 @@ import (
 	"yingce/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func RegisterCanvasShareRoutes(r *gin.RouterGroup, svc *service.Service) {
@@ -84,6 +85,10 @@ func RegisterCanvasShareRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		project, err := svc.CopySharedCanvas(user.ID, c.Param("token"))
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				fail(c, http.StatusNotFound, errors.New("分享链接无效或已失效"))
+				return
+			}
 			failService(c, err)
 			return
 		}
