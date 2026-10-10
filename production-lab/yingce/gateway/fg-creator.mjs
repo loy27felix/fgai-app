@@ -14,6 +14,7 @@ import {advertisingAccess} from './fg-adcraft.mjs';
 import {speechVoices} from './fg-speech-provider.mjs';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+const taskId=/^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/;
 export const creatorCapability=id=>createHmac('sha256',process.env.FG_ADCRAFT_SECRET||'').update('fg-creator-v1:'+id).digest('hex');
 export function creatorAuthorised(id,given){const expected=creatorCapability(id);return uuid.test(id)&&!!process.env.FG_ADCRAFT_SECRET&&typeof given==='string'&&given.length===expected.length&&timingSafeEqual(Buffer.from(given),Buffer.from(expected));}
 export async function initializeCreator(pool){
@@ -39,7 +40,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
    const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0]?.value);
    if(input.estimate){json(res,priceQuote(selected.billingId,price,{capability:selected.capability,operation:input.operation||'text_to_video',options:input.options||{},inputs:input.inputs||{}},fx));}
    else{
-    if(!uuid.test(input.taskId||''))throw Error('尚未取得 FG 制作任务；不能凭缺失用量计算费用');
+    if(!taskId.test(input.taskId||''))throw Error('尚未取得 FG 制作任务；不能凭缺失用量计算费用');
     const owner=(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN fg_arcreel_workspaces w ON w.owner_id=j.owner_id JOIN tasks t ON t.id=j.task_id AND t.project_id=w.native_project_id WHERE j.owner_id=$1 AND j.task_id=$2',[active.id,input.taskId])).rows[0];if(!owner)throw Error('制作任务不属于此工作区');
     const calls=(await pool.query('SELECT * FROM api_call_logs WHERE task_id=$1 AND user_id=$2 AND billable',[input.taskId,active.id])).rows;
     const amounts=calls.map(call=>estimateCNY({...call,input_tokens:Number(call.input_tokens),output_tokens:Number(call.output_tokens),cached_tokens:Number(call.cached_tokens||0),model:selected.billingId,capability:selected.capability},price,fx));
@@ -82,7 +83,7 @@ export async function creatorInternalRoute(req,res,{pool,web,publicOrigin,canvas
   }
   if(req.method==='GET'&&match[2].startsWith('media/')){
    const id=match[2].split('/').pop();
-   if(!uuid.test(id)||(await pool.query('SELECT 1 FROM fg_creator_jobs WHERE owner_id=$1 AND task_id=$2',[actor.id,id])).rowCount!==1)throw Error('结果不属于此工作区');
+   if(!taskId.test(id)||(await pool.query('SELECT j.task_id FROM fg_creator_jobs j JOIN tasks t ON t.id=j.task_id AND t.user_id=j.owner_id WHERE j.owner_id=$1 AND j.task_id=$2 AND t.project_id IN (SELECT native_project_id FROM fg_arcreel_workspaces WHERE owner_id=$1 UNION SELECT native_project_id FROM fg_creator_workspaces WHERE owner_id=$1)',[actor.id,id])).rowCount!==1)throw Error('结果不属于此工作区');
    const data=await api('/tasks/'+id),task=data.task||data;if(task.status!=='succeeded')throw Error('结果尚未就绪');
    const signed=new URL(await creatorResourceURL(pool,api,JSON.parse(task.resultJson||'{}')),web);
    const output=await fetch(new URL(signed.pathname+signed.search,web));if(!output.ok)throw Error('NAS 结果暂不可读');
