@@ -74,7 +74,7 @@ export function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mo
         vquality: defaults.vquality ?? normalizeVideoResolution(globalConfig.vquality || defaultConfig.vquality),
         videoGenerateAudio: defaults.videoGenerateAudio ?? globalConfig.videoGenerateAudio ?? defaultConfig.videoGenerateAudio,
         videoWatermark: defaults.videoWatermark ?? globalConfig.videoWatermark ?? defaultConfig.videoWatermark,
-        audioVoice: normalizeAudioVoiceForConfig({ ...globalConfig, model }, node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice),
+        audioVoice: normalizeAudioVoiceForConfig({ ...globalConfig, model }, node.metadata?.audioVoice ?? globalConfig.audioVoice ?? defaultConfig.audioVoice),
         audioFormat: normalizeAudioFormatForConfig({ ...globalConfig, model }, node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat),
         audioSpeed: normalizeAudioSpeedForConfig({ ...globalConfig, model }, node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed),
         audioLanguage: node.metadata?.audioLanguage || globalConfig.audioLanguage || defaultConfig.audioLanguage,

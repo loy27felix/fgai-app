@@ -1,4 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeAudioSpeedValue } from "../src/lib/audio-generation";
+
+test("empty audio speed defaults to natural 1x rather than the slowest rate", () => {
+    expect(normalizeAudioSpeedValue("")).toBe("1");
+    expect(normalizeAudioSpeedValue("  ")).toBe("1");
+    expect(normalizeAudioSpeedValue("1.25")).toBe("1.25");
+});
 import { audioSettingsSummary, audioVoiceOptionsForConfig, audioFormatOptionsForConfig, doubaoAudioVoiceOptions, isDoubaoAudioConfig, normalizeAudioVoiceForConfig, normalizeAudioVoiceValue } from "../src/lib/audio-generation";
 
 const config = (protocol: string) =>

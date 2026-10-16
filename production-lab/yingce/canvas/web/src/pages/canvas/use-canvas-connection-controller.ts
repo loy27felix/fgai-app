@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatc
 import { App } from "antd";
 import { nanoid } from "nanoid";
 import { latchCanvasConnectionApproach, type CanvasConnectionApproach } from "@/lib/canvas/canvas-connection-tilt";
+import { createConnectionEdgePan } from "@/lib/canvas/canvas-connection-edge-pan";
 
 import type { PendingConnectionCreate } from "@/components/canvas/canvas-workspace-overlays";
 import { getNodeSpec } from "@/constant/canvas";
@@ -27,6 +28,9 @@ type UseCanvasConnectionControllerOptions = {
     nodesRef: { current: CanvasNodeData[] };
     connectionsRef: { current: CanvasConnection[] };
     viewportRef: { current: ViewportTransform };
+    containerRef: { current: HTMLDivElement | null };
+    previewViewport: (viewport: ViewportTransform) => void;
+    commitViewport: (viewport: ViewportTransform) => void;
     scriptScrollTopById: Record<string, number>;
     screenToCanvas: (clientX: number, clientY: number) => Position;
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
@@ -76,6 +80,9 @@ export function useCanvasConnectionController({
     nodesRef,
     connectionsRef,
     viewportRef,
+    containerRef,
+    previewViewport,
+    commitViewport,
     scriptScrollTopById,
     screenToCanvas,
     setNodes,
@@ -699,7 +706,29 @@ export function useCanvasConnectionController({
     }, [clearBatchConnection, commitBatchConnection, connectNodes, setConnecting]);
 
     useEffect(() => {
+        let panPointer: PointerEvent | null = null;
+        const edgePan = createConnectionEdgePan({
+            pointer: () => {
+                if (!panPointer || pendingConnectionCreateRef.current) return null;
+                const batch = batchConnectionPreviewRef.current;
+                const start = batch && batchConnectionPointerIdRef.current === panPointer.pointerId
+                    ? batchConnectionPointerStartRef.current
+                    : connectingParamsRef.current && connectingPointerIdRef.current === panPointer.pointerId
+                        ? connectingPointerStartRef.current : null;
+                return start && Math.hypot(panPointer.clientX - start.x, panPointer.clientY - start.y) > 5
+                    ? { x: panPointer.clientX, y: panPointer.clientY } : null;
+            },
+            bounds: () => containerRef.current?.getBoundingClientRect() ?? null,
+            viewport: () => viewportRef.current,
+            preview: previewViewport,
+            commit: commitViewport,
+            refresh: () => { latestPointerMoveRef.current = panPointer; flushPointerMove(); },
+            requestFrame: (callback) => window.requestAnimationFrame(callback),
+            cancelFrame: (id) => window.cancelAnimationFrame(id),
+        });
         const cancelPendingPointerMove = () => {
+            panPointer = null;
+            edgePan.stop();
             latestPointerMoveRef.current = null;
             if (pointerMoveFrameRef.current !== null) window.cancelAnimationFrame(pointerMoveFrameRef.current);
             pointerMoveFrameRef.current = null;
@@ -754,9 +783,15 @@ export function useCanvasConnectionController({
             // only the latest position and update the preview once per frame,
             // which prevents redundant React/Leafer work and visible jitter.
             latestPointerMoveRef.current = event;
+            panPointer = event;
+            if (connectingParamsRef.current || batchConnectionPreviewRef.current) edgePan.start();
             if (pointerMoveFrameRef.current === null) pointerMoveFrameRef.current = window.requestAnimationFrame(flushPointerMove);
         };
         const handlePointerUp = (event: PointerEvent) => {
+            if (connectingPointerIdRef.current === event.pointerId || batchConnectionPointerIdRef.current === event.pointerId) {
+                panPointer = null;
+                edgePan.stop();
+            }
             latestPointerMoveRef.current = null;
             if (pointerMoveFrameRef.current !== null) {
                 window.cancelAnimationFrame(pointerMoveFrameRef.current);
@@ -822,7 +857,7 @@ export function useCanvasConnectionController({
             window.removeEventListener("pointercancel", handlePointerCancel);
             window.removeEventListener("blur", cancel);
         };
-    }, [clearBatchConnection, commitBatchConnection, finishBatchConnection, finishConnection, getBatchConnectionDropTarget, getConnectionDropTarget, openBatchConnectionCreateMenu, previewBatchConnection, screenToCanvas, setConnecting]);
+    }, [clearBatchConnection, commitBatchConnection, finishBatchConnection, finishConnection, getBatchConnectionDropTarget, getConnectionDropTarget, openBatchConnectionCreateMenu, previewBatchConnection, screenToCanvas, setConnecting, containerRef, viewportRef, previewViewport, commitViewport]);
 
     return {
         cancelPendingConnectionCreate,

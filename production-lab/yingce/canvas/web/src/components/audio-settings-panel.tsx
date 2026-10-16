@@ -1,6 +1,5 @@
 import { useId } from "react";
 import { Input, InputNumber, Radio } from "antd";
-import { Select } from "@/components/ui/base/select";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { audioFormatOptionsForConfig, audioSpeedLabel, audioVoiceOptionsForConfig, audioSpeedBounds, isSunoAudioConfig, isDoubaoAudioConfig, isSeedAudioConfig, normalizeAudioFormatForConfig, normalizeAudioSpeedForConfig, normalizeAudioVoiceForConfig } from "@/lib/audio-generation";
 import { FGVoicePreview } from "@/components/fg-voice-preview";
@@ -39,7 +38,8 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             <p className="text-xs leading-5" style={{ color: theme.node.muted }}>
                                 无参考素材时按提示词生成；可连接最多 3 段音频或 1 张图片，图片与音频不能混用。
                             </p>
-                            <Select className="w-full" ariaLabel="音色" value={voice} onChange={selectVoice} options={[{ value: "", label: "不指定音色" }, ...(voice ? [{ value: voice, label: `当前音色 · ${voice}` }] : [])]} />
+                            <Input aria-label="豆包音色 ID" value={voice} allowClear placeholder="留空按提示词生成，或输入可用的音色 ID" onChange={(event) => selectVoice(event.target.value.trim())} />
+                            <p className="text-xs leading-5" style={{ color: theme.node.muted }}>仅填写当前模型已开通的音色或复刻音色 ID；不自动套用旧版音色列表。图片参考模式不使用此音色。</p>
                         </>
                     ) : (
                         <>
@@ -78,7 +78,18 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             if (value !== null) onConfigChange("audioSpeed", normalizeAudioSpeedForConfig(config,String(value)));
                         }}
                     />
+                    {streaming ? <p className="text-xs leading-5" style={{ color: theme.node.muted }}>1x 为正常语速。情绪克制、低声不等于慢速；提示词也不要重复要求放慢或拖长尾音。</p> : null}
                 </fieldset>}
+                {streaming ? (
+                    <details className="space-y-2 text-xs" style={{ color: theme.node.muted }}>
+                        <summary className="cursor-pointer">豆包提示词写法</summary>
+                        <p className="leading-5">在节点的提示词输入框中写声音要求和台词；效果需试听确认。</p>
+                        <p className="leading-5">建议结构：说话方式 + 情绪与节奏 + 台词原文。默认自然语速、停顿简短，避免反复要求放慢。</p>
+                        <p className="leading-5">例如：用自然、亲切的语气说，正常语速，句间短暂停顿，不拖尾音。只说：“大家好，欢迎来到 FG 工作台。”</p>
+                        <p className="leading-5">参考音频：连接素材后使用 @Audio1、@Audio2、@Audio3，编号与参考顺序对应。最多 3 段音频或 1 张图片，不能混用。</p>
+                        <p className="leading-5">当前豆包协议没有独立发送声音指令、语言和方言参数；这些要求写入节点提示词，不保证每项都能精确执行。</p>
+                    </details>
+                ) : null}
                 {!streaming && !seedAudio && !music ? (
                     <label className="flex flex-col gap-2 text-xs" style={{ color: theme.node.muted }}>
                         声音指令
