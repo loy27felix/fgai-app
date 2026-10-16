@@ -13,6 +13,7 @@ const video = (id: string, x = 0): CanvasNodeData => ({
     metadata: {
         content: `${id}.mp4`,
         storageKey: `resource:${id}`,
+        videoPreview: { content: `${id}-poster.jpg`, storageKey: `resource:${id}-poster` },
         prompt: `${id}-submitted-prompt`,
         composerContent: `${id}-editor-prompt`,
         model: `${id}-model`,
@@ -62,6 +63,7 @@ test("changing the primary switches the complete prompt, model, media and visibl
         stacked.nodes.find((node) => node.id === "b")!,
     );
     expect(primary.metadata?.content).toBe("b.mp4");
+    expect(primary.metadata?.videoPreview).toEqual(b.metadata?.videoPreview);
     expect(primary.metadata?.prompt).toBe("b-submitted-prompt");
     expect(primary.metadata?.composerContent).toBe("b-editor-prompt");
     expect(primary.metadata?.model).toBe("b-model");

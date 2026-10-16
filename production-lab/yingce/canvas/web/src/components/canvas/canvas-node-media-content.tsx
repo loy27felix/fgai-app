@@ -95,6 +95,22 @@ export function EmptyImageContent({ node, theme, isBatchRoot, batchCount, batchP
     return content;
 }
 
+export function VideoStackNodeContent(props: CanvasNodeContentProps) {
+    return (
+        <BatchFrame
+            batchPreviewNodes={props.batchPreviewNodes}
+            batchCount={props.batchCount}
+            batchExpanded={props.batchExpanded}
+            batchOpening={props.batchOpening}
+            batchRecovering={props.batchRecovering}
+            theme={props.theme}
+            onToggleBatch={props.onToggleBatch}
+        >
+            <VideoNodeContent {...props} />
+        </BatchFrame>
+    );
+}
+
 export function VideoNodeContent({ node, theme, mediaActive = false, onMediaPlayRequest }: CanvasNodeContentProps) {
     const playerBoxRef = useRef<HTMLDivElement>(null);
     const { updateMediaNode } = useCanvasNodeActions();
@@ -197,7 +213,7 @@ export function AudioNodeContent({ node, theme }: CanvasNodeContentProps) {
     return <CanvasAudioPlayer node={node} theme={theme} />;
 }
 
-export function InactiveVideoPreview({ node, theme, onPlay }: Pick<CanvasNodeContentProps, "node" | "theme"> & { onPlay: () => void }) {
+export function InactiveVideoPreview({ node, theme, onPlay, interactive = true }: Pick<CanvasNodeContentProps, "node" | "theme"> & { onPlay?: () => void; interactive?: boolean }) {
     const previewRef = useRef<HTMLDivElement>(null);
     const nearViewport = useNearViewport(previewRef);
     const persistedPreview = canvasNodeVideoPreviewReference(node);
@@ -212,11 +228,11 @@ export function InactiveVideoPreview({ node, theme, onPlay }: Pick<CanvasNodeCon
 
     useEffect(() => {
         const element = previewRef.current;
-        if (!element) return;
+        if (!element || !interactive) return;
         const content = node.metadata?.content || "";
         const fallback = node.metadata?.importSource?.provider === "libtv" ? buildLibTVVideoSourceUrl(content) : content;
         return bindCanvasVideoHoverPreview(element, () => resolveVideoMediaUrl(node.metadata?.storageKey, fallback));
-    }, [node.metadata?.content, node.metadata?.storageKey, node.metadata?.importSource?.provider]);
+    }, [interactive, node.metadata?.content, node.metadata?.storageKey, node.metadata?.importSource?.provider]);
 
     useEffect(() => {
         updateMetadataRef.current = updateMetadata;
@@ -285,14 +301,14 @@ export function InactiveVideoPreview({ node, theme, onPlay }: Pick<CanvasNodeCon
                 ) : (
                     <img src={localPreviewUrl} alt={`${node.title || "视频"} 静态预览`} loading="lazy" decoding="sync" draggable={false} className="pointer-events-none size-full select-none object-contain" />
                 )}
-                <VideoPreviewPlayButton title={node.title || "视频"} onPlay={onPlay} />
+                {interactive && onPlay ? <VideoPreviewPlayButton title={node.title || "视频"} onPlay={onPlay} /> : null}
             </div>
         );
     }
     return (
         <div ref={previewRef} className="group/video-preview relative size-full">
             <InactiveMediaCard icon={<Video className="size-7" />} title={node.title || "视频"} hint={hydrating ? "正在生成首帧" : nearViewport ? "点击播放视频" : "进入视口后加载首帧"} theme={theme} />
-            <VideoPreviewPlayButton title={node.title || "视频"} onPlay={onPlay} />
+            {interactive && onPlay ? <VideoPreviewPlayButton title={node.title || "视频"} onPlay={onPlay} /> : null}
         </div>
     );
 }
@@ -728,7 +744,12 @@ export function useNearViewport(ref: RefObject<Element | null>, enabled = true) 
     return nearViewport;
 }
 
-export function BatchPreviewImage({ node }: { node: CanvasNodeData }) {
+export function BatchPreviewImage({ node, theme }: { node: CanvasNodeData; theme: CanvasTheme }) {
+    if (node.type === CanvasNodeType.Video) return <InactiveVideoPreview node={node} theme={theme} interactive={false} />;
+    return <BatchImagePreview node={node} />;
+}
+
+function BatchImagePreview({ node }: { node: CanvasNodeData }) {
     const ref = useRef<HTMLDivElement>(null);
     const nearViewport = useNearViewport(ref);
     const { url } = useNodeResourceUrl(node, nearViewport);
@@ -787,7 +808,7 @@ export function BatchFrame({
                                 zIndex: -index - 1,
                             }}
                         >
-                            {batchPreviewNodes?.[index] ? <BatchPreviewImage node={batchPreviewNodes[index]} /> : null}
+                            {batchPreviewNodes?.[index] ? <BatchPreviewImage node={batchPreviewNodes[index]} theme={theme} /> : null}
                         </div>
                     ))}
                 </div>
