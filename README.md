@@ -4,7 +4,7 @@
 
 <h1 align="center">FG Studio · FG 超级工作台</h1>
 
-<p align="center">从一句创意，到可管理、可修改、可接续的视频制作项目。</p>
+<p align="center">从一句创意，到可管理、可修改、可接续的超级视频制作项目。</p>
 <p align="center"><strong>中文</strong> · <a href="README.en.md">English</a> · <a href="docs/releases/2026-10-07--15-user-update.md">本期更新</a> · <a href="production-lab/yingce/canvas/FG-CHANGELOG.md">版本记录</a></p>
 
 [![观看 FG 超级工作台宣传片](docs/media/promo-poster.jpg)](docs/media/fg-studio-tour-1080p60.mp4)
