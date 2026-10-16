@@ -40,3 +40,9 @@ test("role voice generation selects Seed Audio from available channels and never
     expect(modelOptionName(characterSeedAudioModel(config))).toBe("seed-audio-1.0");
     expect(characterSeedAudioModel({ ...config, channels: [createModelChannel({ models: ["suno-v5"] })] })).toBe("");
 });
+
+test("voice recovery uses safe task summaries before reading the original task detail", () => {
+    const summary = { ...task, inputJson: undefined, resultJson: undefined, clientContext: { characterVoiceAssetId: "character-a" } };
+    expect(isCharacterVoiceSampleTask(summary, "character-a")).toBe(true);
+    expect(isCharacterVoiceSampleTask(summary, "character-b")).toBe(false);
+});

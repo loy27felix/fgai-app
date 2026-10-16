@@ -163,3 +163,30 @@ func TestTaskOutputResourceReadsPersistedMedia(t *testing.T) {
 		t.Fatalf("unexpected task output resource: id=%q mediaType=%q", id, mediaType)
 	}
 }
+
+func TestTaskCharacterVoiceSummaryPreservesOnlySafeAssetAssociation(t *testing.T) {
+	raw := `{"metadata":{"source":"project-character-voice","operation":"character_voice_sample","characterAssetId":"asset-voice","voiceInstructions":"private direction"},"config":{"apiKey":"secret-test-value"}}`
+	context := taskClientContext(raw)
+	if context == nil || context.CharacterVoiceAssetID != "asset-voice" {
+		t.Fatalf("voice association missing: %+v", context)
+	}
+	summary := taskSummaryForOutput(model.Task{ID: "voice-task", InputJSON: raw})
+	encoded, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output map[string]any
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatal(err)
+	}
+	association := output["clientContext"].(map[string]any)
+	if len(association) != 1 || association["characterVoiceAssetId"] != "asset-voice" {
+		t.Fatalf("unsafe voice context: %#v", association)
+	}
+	if _, exists := output["inputJson"]; exists {
+		t.Fatal("summary exposes protected input")
+	}
+	if unexpected := taskClientContext(`{"metadata":{"source":"other","operation":"character_voice_sample","characterAssetId":"asset-voice"}}`); unexpected != nil {
+		t.Fatal("unrelated source linked to voice history")
+	}
+}

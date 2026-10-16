@@ -21,6 +21,7 @@ export function characterVoiceSamplePrompt(name: string, dialogue: string, direc
     ].join("\n");
 }
 export function isCharacterVoiceSampleTask(task: GenerationTask, assetId: string) {
+    if (task.clientContext?.characterVoiceAssetId) return task.clientContext.characterVoiceAssetId === assetId;
     try {
         const metadata = JSON.parse(task.inputJson || "{}").metadata;
         return metadata?.operation === "character_voice_sample" && metadata.assetId === assetId;

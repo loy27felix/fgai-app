@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { configuredModelDisplayName } from "@/lib/model-selection";
 import { submitBackendGenerationTask } from "@/services/api/generation-task";
-import { listGenerationTasks } from "@/services/api/task-center";
+import { queryGenerationTask, listGenerationTasks } from "@/services/api/task-center";
 import type { ProjectAsset } from "@/services/api/projects";
 import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
 import { characterSeedAudioModel, characterVoiceDirection, characterVoiceSamplePrompt, characterVoiceSampleFromTask, isCharacterVoiceSampleTask } from "./project-character-voice-plan";
@@ -22,7 +22,10 @@ export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions,
     const operation = useRef<{ prompt: string; id: string } | undefined>(undefined);
     const tasks = useQuery({
         queryKey: ["project-character-voice-tasks", projectId, asset.id],
-        queryFn: async () => (await listGenerationTasks(500, { projectId })).filter((task) => isCharacterVoiceSampleTask(task, asset.id)),
+        queryFn: async () => {
+            const related = (await listGenerationTasks(500, { projectId })).filter((task) => isCharacterVoiceSampleTask(task, asset.id)).slice(0, 6);
+            return Promise.all(related.map((task) => queryGenerationTask(task.id)));
+        },
         refetchInterval: (query) => (query.state.data?.some((task) => task.status === "queued" || task.status === "running") ? 2500 : false),
         refetchOnWindowFocus: true,
     });

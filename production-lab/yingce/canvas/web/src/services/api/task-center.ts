@@ -61,6 +61,7 @@ export type GenerationTask = {
         status: TaskBillingStatus;
     };
     clientContext?: {
+        characterVoiceAssetId?: string;
         conversationId?: string;
         messageId?: string;
         nodeId?: string;
