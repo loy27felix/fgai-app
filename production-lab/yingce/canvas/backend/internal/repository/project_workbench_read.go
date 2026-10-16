@@ -247,6 +247,14 @@ func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int
 	var assets []model.Asset
 	var total int64
 	query := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
+	hidden, err := r.projectBoundGeneratedAliases(projectID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(hidden) > 0 {
+		query = query.Where("assets.id NOT IN ?", hidden)
+	}
+
 	if value := strings.TrimSpace(category); value != "" {
 		query = query.Where("assets.category = ?", value)
 	}
@@ -265,22 +273,24 @@ func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err := query.Select("assets.*").Order("assets.updated_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&assets).Error
+	err = query.Select("assets.*").Order("assets.updated_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&assets).Error
 	return assets, total, err
 }
 
 func (r *Repository) ProjectAssetFacets(projectID string) ([]ProjectAssetCountRow, []ProjectAssetCountRow, error) {
-	var categoryRows []ProjectAssetCountRow
-	if err := r.db.Table("assets").Select("assets.category AS key, COUNT(*) AS count").
-		Joins("JOIN project_asset_links pal ON pal.asset_id = assets.id").
-		Where("pal.project_id = ?", projectID).
-		Group("assets.category").Scan(&categoryRows).Error; err != nil {
+	hidden, err := r.projectBoundGeneratedAliases(projectID)
+	if err != nil {
 		return nil, nil, err
 	}
-	var folderRows []ProjectAssetCountRow
-	if err := r.db.Table("project_asset_links").Select("folder_id AS key, COUNT(*) AS count").
-		Where("project_id = ?", projectID).
-		Group("folder_id").Scan(&folderRows).Error; err != nil {
+	base := r.db.Table("assets").Joins("JOIN project_asset_links pal ON pal.asset_id = assets.id").Where("pal.project_id = ?", projectID)
+	if len(hidden) > 0 {
+		base = base.Where("assets.id NOT IN ?", hidden)
+	}
+	var categoryRows, folderRows []ProjectAssetCountRow
+	if err := base.Session(&gorm.Session{}).Select("assets.category AS key, COUNT(*) AS count").Group("assets.category").Scan(&categoryRows).Error; err != nil {
+		return nil, nil, err
+	}
+	if err := base.Session(&gorm.Session{}).Select("pal.folder_id AS key, COUNT(*) AS count").Group("pal.folder_id").Scan(&folderRows).Error; err != nil {
 		return nil, nil, err
 	}
 	return categoryRows, folderRows, nil

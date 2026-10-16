@@ -599,13 +599,13 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-2.5">
                     <div className="text-xs font-medium text-foreground/55">章节 <span className="ml-1 tabular-nums text-foreground/35">{detail.units.length.toLocaleString("zh-CN")}</span></div>
                     <div className="flex items-center gap-0.5">
-                        <Button type="text" size="small" disabled={dirty || detail.project.status === "archived"} onClick={() => setBatchOpen(true)}>批量处理</Button>
                         {selectedId ? <Tooltip title="回到当前章节"><Button type="text" size="small" icon={<Crosshair className="size-3.5" />} aria-label="回到当前章节" onClick={revealSelectedChapter} /></Tooltip> : null}
-                        <Tooltip title="导入小说"><Button type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label="导入小说" onClick={() => setImportOpen(true)} /></Tooltip>
+                        <Tooltip title={dirty ? "请先保存当前章节，再导入文件" : "导入小说"}><Button disabled={dirty || detail.project.status === "archived"} type="text" size="small" icon={<FileUp className="size-3.5" />} aria-label="导入小说" onClick={() => setImportOpen(true)} /></Tooltip>
                         <Tooltip title="添加章节"><Button type="text" size="small" icon={<Plus className="size-4" />} aria-label="添加章节" onClick={() => setCreateOpen(true)} /></Tooltip>
                     </div>
                 </div>
                 <div className="shrink-0 border-b border-border/60 p-2">
+                    <Tooltip title={dirty ? "请先保存当前章节" : "选择多个章节提取资产，或制作分镜与视频提示词"}><Button block className="mb-2" disabled={dirty || detail.project.status === "archived" || !orderedUnits.length} onClick={() => setBatchOpen(true)}>批量处理章节</Button></Tooltip>
                     <label className="flex h-8 items-center gap-1.5 rounded-md border border-border/75 bg-background/55 px-2 focus-within:border-[var(--workspace-accent)] focus-within:ring-2 focus-within:ring-[var(--workspace-accent-soft)]">
                         <Search className="size-3.5 shrink-0 text-foreground/32" />
                         <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && visibleUnits[0]) selectChapter(visibleUnits[0].id); }} className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-foreground/28" placeholder="搜索标题或章节序号" aria-label="搜索章节" />
@@ -668,7 +668,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                 ) : <WorkspaceState icon="projects" compact className="h-full" title="请选择章节" description="从左侧章节列表选择一章开始编辑。" />}
             </section>
             <CreateChapterModal open={createOpen} onClose={() => setCreateOpen(false)} loading={createMutation.isPending} onSubmit={(values) => createMutation.mutate(values)} />
-            <ImportNovelModal open={importOpen} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
+            <ImportNovelModal startNumber={orderedUnits.length + 1} open={importOpen} loading={importMutation.isPending} onClose={() => setImportOpen(false)} onImport={(chapters) => importMutation.mutate(chapters)} />
             <AppModal centered title="剧本排版预览" open={formatPreview !== null} width={960} onCancel={() => setFormatPreview(null)} onOk={() => { if (formatPreview !== null) editor?.commands.setContent(formatPreview); setFormatPreview(null); }} okText="应用排版" cancelText="保留原排版">
                 <p className="text-xs text-foreground/55">保留正文、台词和顺序，统一章节、镜头与对白的显示。应用后可撤销，保存章节后才会写入云端。</p>
                 <div className="project-chapter-editor thin-scrollbar max-h-[60dvh] overflow-y-auto rounded-lg border border-border p-5" dangerouslySetInnerHTML={{ __html: formatPreview || "" }} />
@@ -815,7 +815,7 @@ function CreateChapterModal({ open, onClose, loading, onSubmit }: { open: boolea
     return <Modal className="library-modal" title="添加章节" open={open} footer={null} destroyOnHidden onCancel={onClose} width={480} styles={{ body: { paddingTop: 12 } }}><Form layout="vertical" onFinish={onSubmit}><Form.Item name="title" label="章节标题" rules={[{ required: true, whitespace: true, message: "请输入章节标题" }]}><Input autoFocus placeholder="例如：雨夜归城" /></Form.Item><Form.Item name="sourceText" label="正文（可选）"><Input.TextArea rows={4} placeholder="创建后仍可继续编辑和排版" /></Form.Item><div className="flex justify-end gap-2"><Button onClick={onClose}>取消</Button><Button type="primary" htmlType="submit" loading={loading}>创建章节</Button></div></Form></Modal>;
 }
 
-function ImportNovelModal({ open, loading, onClose, onImport }: { open: boolean; loading: boolean; onClose: () => void; onImport: (chapters: Array<{ title: string; plainText: string }>) => void }) {
+function ImportNovelModal({ startNumber, open, loading, onClose, onImport }: { startNumber: number; open: boolean; loading: boolean; onClose: () => void; onImport: (chapters: Array<{ title: string; plainText: string }>) => void }) {
     const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const readEpoch = useRef(0);
@@ -824,7 +824,7 @@ function ImportNovelModal({ open, loading, onClose, onImport }: { open: boolean;
     const [reading, setReading] = useState(false);
     const [preview, setPreview] = useState(false);
     const deferredText = useDeferredValue(text);
-    const chapters = useMemo(() => deferredText.trim() ? splitTextIntoChapters(deferredText).map((chapter) => ({ title: chapter.title, plainText: chapter.plainText })) : [], [deferredText]);
+    const chapters = useMemo(() => deferredText.trim() ? splitTextIntoChapters(deferredText, startNumber).map((chapter) => ({ title: chapter.title, plainText: chapter.plainText })) : [], [deferredText, startNumber]);
     useEffect(() => { if (!open) { readEpoch.current++; setText(""); setFileName(""); setReading(false); setPreview(false); } }, [open]);
     const readFile = async (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];

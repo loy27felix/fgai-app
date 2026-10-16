@@ -595,3 +595,16 @@ func (r *Repository) RegisterWorkflowTaskOutput(step *model.WorkflowStepInstance
 		return nil
 	})
 }
+
+func (r *Repository) IgnoreProjectAssetCandidate(projectID, candidateID string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.ProjectAssetCandidate{}).Where("id = ? AND project_id = ? AND status = ?", candidateID, projectID, "pending_confirmation").Updates(map[string]any{"status": "ignored", "updated_at": time.Now()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrInvalidData
+		}
+		return tx.Model(&model.Project{}).Where("id = ?", projectID).Updates(map[string]any{"revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error
+	})
+}

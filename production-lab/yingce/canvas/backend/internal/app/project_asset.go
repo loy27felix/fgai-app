@@ -610,3 +610,20 @@ func projectAssetPreview(payloadJSON string) (string, string, string, int64) {
 	return strings.TrimSpace(payload.Data.StorageKey), string(previewRunes), strings.TrimSpace(payload.Data.Source), payload.Data.DurationMs
 
 }
+
+func (s *Service) IgnoreProjectAssetCandidate(userID, projectID, candidateID string) error {
+	if _, err := s.activeProjectForUser(userID, projectID); err != nil {
+		return err
+	}
+	candidate, err := s.repo.ProjectAssetCandidate(projectID, candidateID)
+	if err != nil {
+		return err
+	}
+	if candidate.Status == "ignored" {
+		return nil
+	}
+	if candidate.Status != "pending_confirmation" {
+		return BadAuthRequest("已确认资产不能作为候选忽略，请在资产卡中管理")
+	}
+	return s.repo.IgnoreProjectAssetCandidate(projectID, candidateID)
+}

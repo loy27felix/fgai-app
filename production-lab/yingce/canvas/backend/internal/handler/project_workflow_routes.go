@@ -212,6 +212,18 @@ func registerProjectWorkflowRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
+	r.POST("/projects/:id/asset-candidates/:candidateId/ignore", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if err := svc.IgnoreProjectAssetCandidate(user.ID, c.Param("id"), c.Param("candidateId")); err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"ignored": true})
+	})
 	r.POST("/projects/:id/asset-candidates/:candidateId/confirm", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

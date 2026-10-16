@@ -212,6 +212,19 @@ func (r *Repository) CreateProjectUnit(unit *model.ProjectUnit) error {
 
 func (r *Repository) ImportProjectUnits(projectID string, units []model.ProjectUnit) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Allocate append positions under the project lock. Deleted/reordered units
+		// can leave gaps, and concurrent imports must not reuse a position.
+		var project model.Project
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&project, "id = ?", projectID).Error; err != nil {
+			return err
+		}
+		var last int
+		if err := tx.Model(&model.ProjectUnit{}).Select("COALESCE(MAX(position), -1)").Where("project_id = ?", projectID).Scan(&last).Error; err != nil {
+			return err
+		}
+		for index := range units {
+			units[index].Position = last + 1 + index
+		}
 		// 分批写入仍处于同一事务，避免两千章导入超过 SQLite/PostgreSQL 单语句参数上限。
 		if err := tx.CreateInBatches(&units, 100).Error; err != nil {
 			return err
@@ -384,7 +397,15 @@ func (r *Repository) UnassignCanvasFromProject(userID string, projectID string, 
 
 func (r *Repository) ProjectAssets(userID string, projectID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	err := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID).Order("assets.updated_at desc").Scan(&assets).Error
+	hidden, err := r.projectBoundGeneratedAliases(projectID)
+	if err != nil {
+		return nil, err
+	}
+	query := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
+	if len(hidden) > 0 {
+		query = query.Where("assets.id NOT IN ?", hidden)
+	}
+	err = query.Order("assets.updated_at desc").Scan(&assets).Error
 	return assets, err
 }
 

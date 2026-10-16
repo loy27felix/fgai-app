@@ -22,6 +22,7 @@ import { uploadImage } from "@/services/image-storage";
 import {
     bindProjectCharacterVoice,
     confirmProjectAssetCandidate,
+    ignoreProjectAssetCandidate,
     createProjectAssetFolder,
     createProjectAssetVersion,
     createProjectCharacter,
@@ -300,6 +301,14 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         onSuccess: (_, deletedId) => { if (folderId === deletedId) setFolderId(""); done("文件夹已删除"); },
         onError: failed("文件夹删除失败"),
     });
+    const ignoreMutation = useMutation({
+        mutationFn: (id: string) => ignoreProjectAssetCandidate(detail.project.id, id),
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: ["project", detail.project.id, "asset-candidates"] });
+            done("已忽略该候选；不会删除剧本或已确认资产");
+        },
+        onError: failed("忽略失败"),
+    });
     const confirmMutation = useMutation({
         mutationFn: ({ candidateId, targetAssetId }: { candidateId: string; targetAssetId?: string }) => confirmProjectAssetCandidate(detail.project.id, candidateId, targetAssetId),
         onSuccess: ({ asset }, variables) => {
@@ -455,8 +464,9 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 <div className="truncate text-xs font-semibold">{candidate.name}</div>
                                                 <div className="mt-1 text-[var(--fs-tiny)] text-foreground/42">待确认{categoryLabel(candidate.category)} · 来自章节分析</div>
                                                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
-                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={Boolean(confirmingCandidateId) && !confirming} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认新角色" : "确认新增"}</Button>
-                                                    {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
+                                                    <Button type="text" size="small" icon={<Check className="size-3.5" />} loading={confirming} disabled={ignoreMutation.isPending || Boolean(confirmingCandidateId) && !confirming} onClick={() => confirmMutation.mutate({ candidateId: candidate.id })}>{isCharacter ? "确认新角色" : "确认新增"}</Button>
+                                                    <Button type="text" size="small" icon={<Trash2 className="size-3.5" />} loading={ignoreMutation.isPending && ignoreMutation.variables === candidate.id} disabled={confirmMutation.isPending || ignoreMutation.isPending} onClick={() => ignoreMutation.mutate(candidate.id)}>忽略</Button>
+                                                    {isCharacter && characterAssets.length ? <Dropdown trigger={["click"]} menu={{ items: characterAssets.map((asset) => ({ key: asset.id, label: asset.title })), onClick: ({ key }) => confirmMutation.mutate({ candidateId: candidate.id, targetAssetId: key }) }}><Button type="text" size="small" disabled={ignoreMutation.isPending || Boolean(confirmingCandidateId)}>归并到角色<ChevronDown className="size-3" /></Button></Dropdown> : null}
                                                 </div>
                                             </div>
                                         </article>

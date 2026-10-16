@@ -45,9 +45,10 @@ export function decodeNovelText(buffer: ArrayBuffer) {
     }
 }
 
-export function splitTextIntoChapters(text: string) {
+export function splitTextIntoChapters(text: string, startNumber = 1) {
+    const fallbackTitle = `第 ${Number.isSafeInteger(startNumber) && startNumber > 0 ? startNumber : 1} 章`;
     const normalized = text.replace(/\r\n?/g, "\n").trim();
-    if (!normalized) return [{ title: "第 1 章", plainText: "" }];
+    if (!normalized) return [{ title: fallbackTitle, plainText: "" }];
     const lines = normalized.split("\n");
     const sections: Array<{ title: string; lines: string[] }> = [];
     let current: { title: string; lines: string[] } | null = null;
@@ -64,7 +65,7 @@ export function splitTextIntoChapters(text: string) {
         else preface.push(line);
     }
     if (current) sections.push(current);
-    if (!sections.length) return [{ title: "第 1 章", plainText: normalized }];
+    if (!sections.length) return [{ title: fallbackTitle, plainText: normalized }];
     if (preface.some((line) => line.trim())) sections.unshift({ title: "序章", lines: preface });
     return sections.map((section): ImportedNovelChapter => ({ title: section.title, plainText: section.lines.join("\n").trim() }));
 }

@@ -636,3 +636,7 @@ export function updateWorkflowStep(projectId: string, stepId: string, input: { s
 export function registerProjectTaskOutput(projectId: string, stepId: string, input: { taskId: string; canvasId?: string; unitId?: string; shotId?: string; artifactType?: string; assetVersionId?: string; resourceId?: string; mediaType?: string; role?: string; metadataJson?: string; outputJson?: string }) {
     return http.post<{ step: WorkflowStep }>(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}/task-output`, input);
 }
+
+export function ignoreProjectAssetCandidate(projectId: string, candidateId: string) {
+    return http.post<{ ignored: boolean }>(`/projects/${projectId}/asset-candidates/${candidateId}/ignore`, {});
+}

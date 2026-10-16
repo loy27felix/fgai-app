@@ -46,3 +46,11 @@ describe("decodeNovelText", () => {
         expect(decodeNovelText(bytes.buffer)).toBe("第一章\n正文");
     });
 });
+
+test("追加无标题文件沿用章节编号，显式标题保持原样", () => {
+    expect(splitTextIntoChapters("第一份无标题剧本", 2)).toEqual([{ title: "第 2 章", plainText: "第一份无标题剧本" }]);
+    expect(splitTextIntoChapters("第二份无标题剧本", 3)[0].title).toBe("第 3 章");
+    expect(splitTextIntoChapters("第七章 雨夜\n保留自定义标题", 9)[0].title).toBe("第七章 雨夜");
+    expect(splitTextIntoChapters("Chapter 12: Dawn\nKeep this title", 9)[0].title).toBe("Chapter 12: Dawn");
+    expect(splitTextIntoChapters("正文", NaN)[0].title).toBe("第 1 章");
+});
