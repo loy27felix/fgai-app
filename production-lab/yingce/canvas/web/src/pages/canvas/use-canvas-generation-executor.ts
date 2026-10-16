@@ -1,3 +1,4 @@
+import { resolveCameraControl } from "@/lib/canvas/camera-control-preferences";
 import { isCanvasNodeGenerating } from "@/lib/canvas/canvas-node-task-state";
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
@@ -138,8 +139,8 @@ export function useCanvasGenerationExecutor({
                     const editingTextNode = mode === "text" && Boolean(sourceTextContent);
                     const markSourceStatus = !sourceNode?.metadata?.content && !editingTextNode;
                     let generationPrompt = mode === "image" && sourceNode?.metadata?.portraitTexture ? buildPortraitTexturePrompt(prompt, sourceNode.metadata.portraitTexture) : prompt;
-                    if (mode === "image" && sourceNode?.metadata?.cameraControl?.enabled) {
-                        const cameraControl = sourceNode.metadata.cameraControl;
+                    const cameraControl = mode === "image" ? resolveCameraControl(sourceNode?.metadata?.cameraControl) : undefined;
+                    if (cameraControl?.enabled) {
                         const cameraPrompt = buildCameraPrompt({ cameraId: cameraControl.camera, lensId: cameraControl.lens, focalLengthMm: cameraControl.focalLength, apertureF: cameraControl.aperture });
                         generationPrompt = `${generationPrompt}\n${cameraPrompt}`;
                     }
@@ -155,6 +156,7 @@ export function useCanvasGenerationExecutor({
                                           metadata: {
                                               ...node.metadata,
                                               ...canvasGenerationPromptMetadata(prompt, prompt),
+                                              ...(cameraControl ? { cameraControl: { ...cameraControl } } : {}),
                                               status: NODE_STATUS_LOADING,
                                               taskStage: "正在准备参考素材",
                                               taskProgress: 0,

@@ -1,3 +1,4 @@
+import { readCameraControlPreference } from "@/lib/canvas/camera-control-preferences";
 import { useEffect, useState } from "react";
 import { Button } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
@@ -26,12 +27,12 @@ type BatchGenerationSettingsDialogProps = {
 export function BatchGenerationSettingsDialog({ open, config, rowCount, concurrency, onClose, onConfirm }: BatchGenerationSettingsDialogProps) {
     const theme = canvasThemes[useActiveTheme()];
     const [generationConfig, setGenerationConfig] = useState<AiConfig>(config);
-    const [cameraControl, setCameraControl] = useState<CameraControlOptions | undefined>(undefined);
+    const [cameraControl, setCameraControl] = useState<CameraControlOptions | undefined>(readCameraControlPreference);
 
     useEffect(() => {
         if (open) {
             setGenerationConfig(config);
-            setCameraControl(undefined);
+            setCameraControl(readCameraControlPreference());
         }
     }, [config, open]);
 

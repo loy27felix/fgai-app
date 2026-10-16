@@ -40,6 +40,17 @@ export interface CameraControlOptions {
 
 export const CAMERA_PROFILES: CameraProfile[] = [
     {
+        id: "imax_65mm_film",
+        label: "IMAX 15-perf / 65mm Film Camera",
+        zhName: "IMAX 65mm 胶片摄影机",
+        shortTag: "IMAX 15-perf 65mm film",
+        profilePrompt: "captured with the visual character of IMAX 15-perforation 65mm horizontal film, expansive large-format spatial depth, fine organic film grain, natural highlight transitions, detailed textures and immersive cinematic scale, preserve the requested aspect ratio and composition",
+        bodyColor: "#22384a",
+        accentColor: "#73c9f1",
+        description: "15 齿孔横向 65mm 胶片的视觉质感。作为生成提示词方向，保留当前画幅。",
+        useCase: "宏大场景、环境叙事、沉浸式电影画面",
+    },
+    {
         id: "panavision_dxl2",
         label: "Panavision DXL2",
         zhName: "潘那维申 DXL2",

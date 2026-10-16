@@ -1,3 +1,4 @@
+import { resolveCameraControl } from "@/lib/canvas/camera-control-preferences";
 import { useState } from "react";
 import { Camera } from "lucide-react";
 
@@ -15,7 +16,7 @@ type CanvasCameraControlPopoverProps = {
 
 export function CanvasCameraControlPopover({ cameraControl, onCameraControlChange, theme, compact = false }: CanvasCameraControlPopoverProps) {
     const [open, setOpen] = useState(false);
-    const cameraEnabled = cameraControl?.enabled === true;
+    const cameraEnabled = resolveCameraControl(cameraControl)?.enabled === true;
     return (
         <>
             <button

@@ -1,3 +1,5 @@
+import { App, Select } from "antd";
+import { DEFAULT_CAMERA_CONTROL as defaultCameraControl, resolveCameraControl, writeCameraControlPreference } from "@/lib/canvas/camera-control-preferences";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronUp, ChevronDown, Camera as CameraIcon, RotateCcw, X } from "lucide-react";
@@ -22,20 +24,23 @@ import {
     type LensProfile,
 } from "@/lib/canvas/camera-prompt-library";
 
-const defaultCameraControl: CameraControlOptions = {
-    enabled: false,
-    camera: "arri_alexa_mini_lf",
-    lens: "arri_signature_prime",
-    focalLength: 50,
-    aperture: 2.8,
-};
-
 /* ── SVG renderers ── */
 
 function CameraBodySvg({ profile, className }: { profile: CameraProfile; className?: string }) {
     const body = profile.bodyColor;
     const accent = profile.accentColor;
     switch (profile.id) {
+        case "imax_65mm_film":
+            return (
+                <svg viewBox="0 0 72 52" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                    <rect x="10" y="5" width="35" height="20" rx="4" fill={body} stroke={accent} />
+                    <rect x="16" y="22" width="34" height="22" rx="3" fill={body} stroke={accent} />
+                    <circle cx="52" cy="32" r="10" fill="#0a0a0a" stroke={accent} />
+                    <circle cx="52" cy="32" r="5" fill="#22384a" stroke={accent} />
+                    <text x="15" y="18" fontSize="7" fill={accent} fontWeight="bold">IMAX</text>
+                    <rect x="12" y="45" width="40" height="3" rx="1" fill={accent} opacity="0.6" />
+                </svg>
+            );
         case "panavision_dxl2":
             return (
                 <svg viewBox="0 0 72 52" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden>
@@ -286,17 +291,19 @@ export function CanvasNodeCameraPanel({
     const reducedMotion = useReducedMotion();
     const copyText = useCopyText();
 
-    const [enabled, setEnabled] = useState(cameraControl?.enabled ?? defaultCameraControl.enabled);
+    const { message } = App.useApp();
+    const [initialControl] = useState(() => resolveCameraControl(cameraControl) ?? defaultCameraControl);
+    const [enabled, setEnabled] = useState(initialControl.enabled);
     const [cameraIdx, setCameraIdx] = useState(() => {
-        const i = CAMERA_PROFILES.findIndex((c) => c.id === cameraControl?.camera);
+        const i = CAMERA_PROFILES.findIndex((c) => c.id === initialControl.camera);
         return i >= 0 ? i : 0;
     });
     const [lensIdx, setLensIdx] = useState(() => {
-        const i = LENS_PROFILES.findIndex((l) => l.id === cameraControl?.lens);
+        const i = LENS_PROFILES.findIndex((l) => l.id === initialControl.lens);
         return i >= 0 ? i : 0;
     });
-    const [focal, setFocal] = useState(cameraControl?.focalLength ?? 50);
-    const [aperture, setAperture] = useState(cameraControl?.aperture ?? 4);
+    const [focal, setFocal] = useState(initialControl.focalLength);
+    const [aperture, setAperture] = useState(initialControl.aperture);
 
     const currentCamera = CAMERA_PROFILES[cameraIdx];
     const currentLens = LENS_PROFILES[lensIdx];
@@ -330,12 +337,14 @@ export function CanvasNodeCameraPanel({
 
     const handleApply = () => {
         const options: CameraControlOptions = { enabled, camera: currentCamera.id, lens: currentLens.id, focalLength: focal, aperture };
-        onConfirm(options, buildPrompt());
+        const prompt = buildPrompt();
+        onConfirm(options, prompt);
+        if (!writeCameraControlPreference(options)) message.warning("本次已应用，但浏览器未能记住相机配置");
     };
 
     const handleReset = () => {
         setEnabled(defaultCameraControl.enabled);
-        setCameraIdx(0);
+        setCameraIdx(CAMERA_PROFILES.findIndex((camera) => camera.id === defaultCameraControl.camera));
         setLensIdx(0);
         setFocal(defaultCameraControl.focalLength);
         setAperture(defaultCameraControl.aperture);
@@ -358,7 +367,7 @@ export function CanvasNodeCameraPanel({
             <div className="flex items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: theme.toolbar.border }}>
                 <div className="min-w-0">
                     <div className="text-sm font-semibold tracking-tight">摄像机控制</div>
-                    <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>为当前图片生成设置镜头、焦距与光圈</div>
+                    <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>应用后记住相机、镜头、焦距与光圈；未设置的新节点沿用上次选择</div>
                 </div>
                 <button
                     type="button"
@@ -372,6 +381,14 @@ export function CanvasNodeCameraPanel({
                 </button>
             </div>
 
+            <div className="grid grid-cols-1 gap-3 px-4 pt-4 sm:grid-cols-2">
+                <label className="grid gap-1 text-xs">直接选择相机
+                    <Select aria-label="直接选择相机" value={currentCamera.id} showSearch optionFilterProp="label" getPopupContainer={(trigger) => trigger.parentElement ?? trigger} options={CAMERA_PROFILES.map((camera) => ({ value: camera.id, label: camera.zhName }))} onChange={(id) => setCameraIdx(CAMERA_PROFILES.findIndex((camera) => camera.id === id))} />
+                </label>
+                <label className="grid gap-1 text-xs">直接选择镜头
+                    <Select aria-label="直接选择镜头" value={currentLens.id} showSearch optionFilterProp="label" getPopupContainer={(trigger) => trigger.parentElement ?? trigger} options={LENS_PROFILES.map((lens) => ({ value: lens.id, label: lens.zhName }))} onChange={(id) => setLensIdx(LENS_PROFILES.findIndex((lens) => lens.id === id))} />
+                </label>
+            </div>
             {/* 相机、镜头、焦距和光圈均来自已注册枚举，确认时由纯函数再次强校验。 */}
             <div className="grid grid-cols-2 gap-2.5 px-4 py-4 sm:grid-cols-4">
                 <CardColumn
