@@ -1,3 +1,4 @@
+import { canvasGenerationConfirmationItem, type GenerationConfirmationItem } from "@/lib/canvas/canvas-generation-confirmation";
 import { nanoid } from "nanoid";
 import { message } from "antd";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasBatchTableData, type CanvasBatchRow, type StoryboardRow } from "@/types/canvas";
@@ -285,6 +286,7 @@ function normalizeRequestedRows(parsed: ListGenerationResult, targetCount?: numb
 }
 
 type HandleListGenerateOptions = {
+    confirmGeneration: (items: GenerationConfirmationItem[]) => Promise<boolean>;
     sourceNodeId: string;
     prompt: string;
     nodes: CanvasNodeData[];
@@ -298,6 +300,7 @@ type HandleListGenerateOptions = {
 };
 
 export async function handleListGenerate({
+    confirmGeneration,
     sourceNodeId,
     prompt,
     nodes,
@@ -368,6 +371,8 @@ export async function handleListGenerate({
         ];
 
         const fullPrompt = `${isVideoAnalysis ? VIDEO_LIST_MODE_SYSTEM_PROMPT : LIST_MODE_SYSTEM_PROMPT}\n\n用户任务：${prompt}\n\n图片数量：${imageNodes.length} 张\n视频数量：${referenceVideos.length} 个\n目标行数：${targetRowCount || "未指定，按任务判断"}`;
+
+        if (!(await confirmGeneration([canvasGenerationConfirmationItem(sourceNode, "text", listConfig, prompt, nodes, connections, fullPrompt)]))) return;
 
         const result = await runBackendGenerationTask({
             projectId,

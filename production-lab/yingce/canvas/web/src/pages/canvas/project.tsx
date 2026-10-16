@@ -1,3 +1,4 @@
+import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
 import { CanvasWorkspacePanel } from "@/components/canvas/canvas-workspace-panel";
 import "@/lib/plugins/builtin/ai-art-critique";
 import "@/lib/plugins/builtin/media-conversion";
@@ -219,6 +220,7 @@ function CanvasViewportPage() {
     const assetHandoffRef = useRef("");
 
     const effectiveConfig = useEffectiveConfig();
+    const confirmListGeneration = useCanvasGenerationConfirmation(projectId);
     const assets = useAssetStore((state) => state.assets);
     const assetsHydrated = useAssetStore((state) => state.hydrated);
     const cleanupAssetImages = useAssetStore((state) => state.cleanupImages);
@@ -2252,6 +2254,7 @@ function CanvasViewportPage() {
                     }}
                     onListGenerate={(nodeId, listPrompt) => {
                         void handleListGenerate({
+                            confirmGeneration: confirmListGeneration,
                             sourceNodeId: nodeId,
                             prompt: listPrompt,
                             nodes: nodesRef.current,
@@ -2269,6 +2272,7 @@ function CanvasViewportPage() {
         },
         [
             configInputsById,
+            confirmListGeneration,
             effectiveConfig,
             handleConfigNodeChange,
             handleGenerateNode,
