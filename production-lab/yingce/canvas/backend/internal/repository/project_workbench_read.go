@@ -67,7 +67,15 @@ func (r *Repository) ProjectOverviewMetrics(projectID string) (ProjectOverviewMe
 			(SELECT COUNT(*) FROM tasks WHERE project_id = ? AND type = ? AND status = ?) AS timeline_render_succeeded_count,
 			(SELECT COUNT(*) FROM shot_artifacts WHERE project_id = ? AND status = 'stale') AS stale_artifact_count
 `, projectID, projectID, model.ProjectUnitStatusCompleted, projectID, projectID, projectID, model.ProjectUnitStatusDraft, projectID, projectID, projectID, projectID, projectID, true, projectID, true, projectID, true, projectID, model.TaskTypeTimelineRender, model.TaskStatusSucceeded, projectID).Scan(&metrics).Error
-	return metrics, err
+	if err != nil {
+		return metrics, err
+	}
+	hidden, err := r.projectBoundGeneratedAliases(projectID)
+	if err != nil {
+		return metrics, err
+	}
+	metrics.AssetCount -= int64(len(hidden))
+	return metrics, nil
 }
 
 func (r *Repository) ProjectOverviewUnits(projectID string, limit int) ([]ProjectOverviewUnitRow, error) {

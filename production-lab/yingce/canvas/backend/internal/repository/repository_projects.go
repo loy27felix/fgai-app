@@ -397,15 +397,7 @@ func (r *Repository) UnassignCanvasFromProject(userID string, projectID string, 
 
 func (r *Repository) ProjectAssets(userID string, projectID string) ([]model.Asset, error) {
 	var assets []model.Asset
-	hidden, err := r.projectBoundGeneratedAliases(projectID)
-	if err != nil {
-		return nil, err
-	}
-	query := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
-	if len(hidden) > 0 {
-		query = query.Where("assets.id NOT IN ?", hidden)
-	}
-	err = query.Order("assets.updated_at desc").Scan(&assets).Error
+	err := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Select("assets.*").Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID).Order("assets.updated_at desc").Scan(&assets).Error
 	return assets, err
 }
 

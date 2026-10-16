@@ -70,10 +70,15 @@ func TestFGGeneratedAssetArchiveCoalescesOnlyExactSuccessfulBinding(t *testing.T
 		t.Fatalf("page: %d %d %v", total, len(assets), err)
 	}
 	all, err := svc.repo.ProjectAssets("user-1", project.ID)
-	if err != nil || len(all) != 5 {
+	if err != nil || len(all) != 6 {
 		t.Fatalf("detail: %d %v", len(all), err)
 	}
-	for _, item := range all {
+	// Domain reads retain archive IDs for existing shot/canvas references.
+	visible, _, err := svc.repo.ProjectAssetsPage("user-1", project.ID, 1, 20, "", "", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range visible {
 		if item.ID == "duplicate" {
 			t.Fatal("duplicate remains visible")
 		}
