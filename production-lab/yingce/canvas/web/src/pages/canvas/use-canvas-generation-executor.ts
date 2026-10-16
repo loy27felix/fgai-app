@@ -1,3 +1,5 @@
+import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
+import { canvasGenerationConfirmationItem, canvasConfirmationInputKey } from "@/lib/canvas/canvas-generation-confirmation";
 import { resolveCameraControl } from "@/lib/canvas/camera-control-preferences";
 import { isCanvasNodeGenerating } from "@/lib/canvas/canvas-node-task-state";
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
@@ -56,6 +58,8 @@ export type CanvasNodeGenerationOptions = {
     retryContext?: { retryOf: string; attemptGroupId: string; clientOperationId: string };
     onTaskUpdate?: (task: GenerationTask) => void;
     skipDuplicateConfirmation?: boolean;
+    confirmationKey?: string;
+    onConfirmationCancelled?: () => void;
 };
 
 export function useCanvasGenerationExecutor({
@@ -76,25 +80,11 @@ export function useCanvasGenerationExecutor({
     bindGenerationTask,
     applyGenerationTaskResult,
 }: UseCanvasGenerationExecutorOptions) {
-    const { message, modal } = App.useApp();
+    const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const submissionLocksRef = useRef(new Map<string, Promise<unknown>>());
-    const confirmDuplicateSubmission = useCallback(
-        () =>
-            new Promise<boolean>((resolve) => {
-                modal.confirm({
-                    title: "再次生成相同内容？",
-                    content: "当前节点已使用相同提示词、模型、参数和参考素材提交过任务。再次生成会新建任务，并可能再次消耗积分。",
-                    okText: "仍然生成",
-                    cancelText: "取消",
-                    centered: true,
-                    onOk: () => resolve(true),
-                    onCancel: () => resolve(false),
-                });
-            }),
-        [modal],
-    );
+    const confirmGeneration = useCanvasGenerationConfirmation(projectId);
 
     return useCallback(
         (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) =>
@@ -147,29 +137,6 @@ export function useCanvasGenerationExecutor({
                     const isPreparingEmptyImage = mode === "image" && sourceNode?.type === CanvasNodeType.Image && !sourceNode.metadata?.content;
                     const preparationController = startGenerationRequest(nodeId, nodeId, nodeId, options?.controller);
                     setRunningNodeId(nodeId);
-                    if (markSourceStatus)
-                        setNodes((current) =>
-                            current.map((node) =>
-                                node.id === nodeId
-                                    ? {
-                                          ...node,
-                                          metadata: {
-                                              ...node.metadata,
-                                              ...canvasGenerationPromptMetadata(prompt, prompt),
-                                              ...(cameraControl ? { cameraControl: { ...cameraControl } } : {}),
-                                              status: NODE_STATUS_LOADING,
-                                              taskStage: "正在准备参考素材",
-                                              taskProgress: 0,
-                                              taskCreatedAt: new Date().toISOString(),
-                                              errorDetails: undefined,
-                                              generationErrorCode: undefined,
-                                              resourceReloadAvailable: undefined,
-                                              failedPromptFingerprint: undefined,
-                                          },
-                                      }
-                                    : node,
-                            ),
-                        );
 
                     let rawGenerationContext: Awaited<ReturnType<typeof hydrateNodeGenerationContext>>;
                     // AutoDL/其他声明式视频协议需要结构化参考素材；只有普通
@@ -292,12 +259,23 @@ export function useCanvasGenerationExecutor({
                         context: generationContext,
                     });
                     const duplicateConfirmationRequired = !options?.skipDuplicateConfirmation && !options?.retryContext && sourceNode?.metadata?.lastGenerationRequestFingerprint === requestFingerprint;
-                    if (duplicateConfirmationRequired && !(await confirmDuplicateSubmission())) {
+                    if (!sourceNode) { finishGenerationRequest(nodeId, preparationController); setRunningNodeId(null); return; }
+                    const confirmation = canvasGenerationConfirmationItem(sourceNode, mode, generationConfig, prompt, nodesRef.current, connectionsRef.current, effectivePrompt);
+                    confirmation.references = [...generationContext.referenceImages, ...generationContext.referenceVideos, ...generationContext.referenceAudios].map(reference => reference.name || reference.id || "参考素材");
+                    confirmation.references.push(...generationContext.characterReferences.map(reference => assets.find(asset => asset.id === reference.assetId)?.title || "角色卡"));
+                    if (options?.confirmationKey !== confirmation.key && !(await confirmGeneration([confirmation], duplicateConfirmationRequired))) {
+                        options?.onConfirmationCancelled?.();
                         finishGenerationRequest(nodeId, preparationController);
                         setRunningNodeId(null);
                         return;
                     }
 
+                    const latestNode = nodesRef.current.find(node => node.id === nodeId);
+                    if (!latestNode || canvasConfirmationInputKey(latestNode, nodesRef.current, connectionsRef.current, prompt) !== confirmation.inputKey) {
+                        message.warning("节点内容或参考素材已变化，请核对后重新生成");
+                        options?.onConfirmationCancelled?.();
+                        finishGenerationRequest(nodeId, preparationController); setRunningNodeId(null); return;
+                    }
                     const controller = preparationController;
                     if (controller.signal.aborted) {
                         finishGenerationRequest(nodeId, controller);
@@ -337,7 +315,7 @@ export function useCanvasGenerationExecutor({
                                 node.id === nodeId
                                     ? {
                                           ...node,
-                                          metadata: { ...node.metadata, ...canvasGenerationPromptMetadata(prompt, statusPrompt), status: NODE_STATUS_LOADING, errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined },
+                                          metadata: { ...node.metadata, ...(cameraControl ? { cameraControl: { ...cameraControl } } : {}), ...canvasGenerationPromptMetadata(prompt, statusPrompt), status: NODE_STATUS_LOADING, errorDetails: undefined, generationErrorCode: undefined, resourceReloadAvailable: undefined, failedPromptFingerprint: undefined },
                                       }
                                     : node,
                             ),
@@ -425,7 +403,7 @@ export function useCanvasGenerationExecutor({
             addedSkills,
             applyGenerationTaskResult,
             bindGenerationTask,
-            confirmDuplicateSubmission,
+            confirmGeneration,
             domainProjectId,
             effectiveConfig,
             finishGenerationRequest,

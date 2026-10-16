@@ -1941,6 +1941,7 @@ function CanvasViewportPage() {
         projectLoaded,
         nodes,
         nodesRef,
+        connectionsRef,
         setNodes,
         handleGenerateNode,
     });

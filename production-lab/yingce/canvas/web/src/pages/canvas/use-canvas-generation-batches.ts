@@ -1,3 +1,5 @@
+import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
+import { canvasGenerationConfirmationItem } from "@/lib/canvas/canvas-generation-confirmation";
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { App } from "antd";
 import { nanoid } from "nanoid";
@@ -9,7 +11,7 @@ import { nodeGenerationPrompt } from "@/lib/canvas/generation-contract";
 import { listGenerationTasks } from "@/services/api/task-center";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import type { CanvasGenerationBatch, CanvasGenerationBatchItem, CanvasGenerationBatchMode, CanvasNodeData } from "@/types/canvas";
+import type { CanvasGenerationBatch, CanvasGenerationBatchItem, CanvasGenerationBatchMode, CanvasNodeData, CanvasConnection } from "@/types/canvas";
 
 import type { CanvasNodeGenerationOptions } from "./use-canvas-generation-executor";
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
@@ -24,15 +26,19 @@ type UseCanvasGenerationBatchesOptions = {
     projectLoaded: boolean;
     nodes: CanvasNodeData[];
     nodesRef: { current: CanvasNodeData[] };
+    connectionsRef: { current: CanvasConnection[] };
     setNodes: Dispatch<SetStateAction<CanvasNodeData[]>>;
     handleGenerateNode: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, options?: CanvasNodeGenerationOptions) => Promise<void>;
 };
 
-export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, nodesRef, setNodes, handleGenerateNode }: UseCanvasGenerationBatchesOptions) {
+export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, nodesRef, connectionsRef, setNodes, handleGenerateNode }: UseCanvasGenerationBatchesOptions) {
     const { message, modal } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const activeTaskLimit = useUserStore((state) => state.runtimeLimits.activeTaskLimit);
+    const confirmGeneration = useCanvasGenerationConfirmation(projectId);
+    const approvedBatchesRef = useRef(new Map<string, Map<string, string>>());
+    useEffect(() => { approvedBatchesRef.current.clear(); }, [projectId]);
     const schedulingRef = useRef(false);
     const controllersRef = useRef(new Map<string, AbortController>());
 
@@ -200,6 +206,18 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
             }
 
             for (const { batch, item, node } of candidates) {
+                if (!approvedBatchesRef.current.has(batch.id)) {
+                    const waiting = batch.items.filter(value => value.status === "waiting").map(value => nodesRef.current.find(candidate => candidate.id === value.nodeId)).filter((value): value is CanvasNodeData => Boolean(value));
+                    const mode: CanvasNodeGenerationMode = batch.mode === "storyboard_video" ? "video" : "image";
+                    const items = waiting.map(value => canvasGenerationConfirmationItem(value, mode, buildGenerationConfig(effectiveConfig, value, mode), nodeGenerationPrompt(value).trim(), nodesRef.current, connectionsRef.current));
+                    const approved = items.length > 0 && await confirmGeneration(items);
+                    approvedBatchesRef.current.set(batch.id, new Map(approved ? waiting.map((value, index) => [value.id, items[index].key]) : []));
+                    if (!approved) updateBatch(batch.sourceNodeId, batch.id, current => ({ ...current, status: "cancelled", items: current.items.map(value => value.status === "waiting" ? { ...value, status: "cancelled" } : value), updatedAt: new Date().toISOString() }));
+                }
+                const latestBatch = findBatch(nodesRef.current, batch.sourceNodeId, batch.id);
+                if (!latestBatch || latestBatch.status === "cancelled" || !latestBatch.items.some(value => value.id === item.id && value.status === "waiting")) continue;
+                const confirmationKey = approvedBatchesRef.current.get(batch.id)?.get(node.id);
+                if (!confirmationKey) continue;
                 const key = batchItemKey(batch.id, item.id);
                 if (controllersRef.current.has(key)) continue;
                 const generationMode: CanvasNodeGenerationMode = batch.mode === "storyboard_video" ? "video" : "image";
@@ -220,6 +238,8 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                     controller,
                     waitForTaskCapacity: true,
                     skipDuplicateConfirmation: true,
+                    confirmationKey,
+                    onConfirmationCancelled: () => updateBatch(batch.sourceNodeId, batch.id, current => withUpdatedItem(current, item.id, { status: "cancelled", errorDetails: undefined })),
                     retryContext:
                         node.metadata?.retryOf && node.metadata.attemptGroupId && node.metadata.taskClientOperationId
                             ? { retryOf: node.metadata.retryOf, attemptGroupId: node.metadata.attemptGroupId, clientOperationId: node.metadata.taskClientOperationId }
@@ -232,7 +252,7 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
         } finally {
             schedulingRef.current = false;
         }
-    }, [activeTaskLimit, effectiveConfig, handleGenerateNode, isAiConfigReady, nodesRef, projectId, projectLoaded, reconcileBatches, updateBatch]);
+    }, [activeTaskLimit, confirmGeneration, connectionsRef, effectiveConfig, handleGenerateNode, isAiConfigReady, nodesRef, projectId, projectLoaded, reconcileBatches, updateBatch]);
 
     const retryFailedBatchItems = useCallback(
         (sourceNodeId: string, batchId: string, itemId?: string) => {
@@ -257,6 +277,7 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                         retryContexts.set(item.nodeId, await createGenerationRetryContext(retryNode.metadata.taskId, retryNode.metadata.attemptGroupId));
                     }),
                 );
+                approvedBatchesRef.current.delete(batchId);
                 const retryItemIds = new Set(retryableItems.map((item) => item.id));
                 const retryNodeIds = new Set(retryableItems.map((item) => item.nodeId));
                 setNodes((current) =>
