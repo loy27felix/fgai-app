@@ -2,7 +2,7 @@
 
 <h1 align="center">FG Studio</h1>
 
-<p align="center">Turn an idea into a video production project you can edit, organize, and continue.</p>
+<p align="center">Turn an idea into a super video production project you can edit, organize, and continue.</p>
 <p align="center"><a href="README.md">中文</a> · <strong>English</strong> · <a href="docs/releases/2026-10-07--15-user-update.md">Release notes</a> · <a href="production-lab/yingce/canvas/FG-CHANGELOG.md">Version history</a></p>
 
 [![Watch the FG Studio tour](docs/media/promo-poster.jpg)](docs/media/fg-studio-tour-1080p60.mp4)
