@@ -1,3 +1,4 @@
+import { agentMediaSettings } from "../src/lib/canvas/agent-media-approval";
 import { describe, expect, it } from "bun:test";
 import { AGENT_APPROVAL_SUPERSEDED_BY_NODE, agentApprovalMatchesSettings, agentApprovalModel, agentApprovalModelSelection, agentApprovalTargetGenerating, agentImageApproval, agentMediaApprovalTargetNodeId, agentVideoApproval } from "../src/lib/canvas/agent-media-approval";
 import type { CanvasNodeData } from "../src/types/canvas";
@@ -72,4 +73,10 @@ describe("approval target already generating on the canvas", () => {
     it("uses the same decision value as the backend", () => {
         expect(AGENT_APPROVAL_SUPERSEDED_BY_NODE).toBe("superseded_by_node");
     });
+});
+
+it("only sends allowed media settings after changing an approval card", () => {
+ const initial = { size: "9:16", quality: "480p", durationSeconds: 12, videoGenerateAudio: false, prompt: "private server prompt", sourceNodeId: "source", referenceNodeIds: ["reference"] };
+ const payload = JSON.parse(JSON.stringify(agentMediaSettings(initial)));
+ expect(payload).toEqual({ size: "9:16", quality: "480p", durationSeconds: 12, videoGenerateAudio: false });
 });

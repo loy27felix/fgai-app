@@ -1221,6 +1221,15 @@ async function saveRemoteUserDataBatch(uploaded: Map<string, string>, options: {
             });
             if (pending) syncQueued = true;
         } catch (error) {
+            // A 400 media guard rejection is a definite rollback, not an unknown network result.
+            // Retaining its old payload replays missing assetIds forever, even after local repair.
+            if (error instanceof ApiError && error.status === 400 && /画布媒体尚未进入素材库|画布媒体与素材库记录不一致/.test(error.message)) {
+                const rejected = pendingCanvasMutations.get(source.id);
+                pendingCanvasMutations.delete(source.id);
+                await persistPendingCanvasMutationJournal();
+                const latest = useCanvasStore.getState().openProject(source.id);
+                if (rejected && latest && !sameCanvasContent(rejected.prepared, latest)) syncQueued = true;
+            }
             const resourcesMissing = error instanceof ApiError && error.reason === "canvas_history_resources_missing";
             const errorKind = resourcesMissing ? "resources" : error instanceof ApiError && error.retryable ? "network" : "local";
             useSyncProgressStore.getState().setProjectProgress(source.id, {

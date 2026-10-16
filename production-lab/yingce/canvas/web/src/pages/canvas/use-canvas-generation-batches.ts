@@ -239,6 +239,7 @@ export function useCanvasGenerationBatches({ projectId, projectLoaded, nodes, no
                     waitForTaskCapacity: true,
                     skipDuplicateConfirmation: true,
                     confirmationKey,
+                    onGenerationTargets: generationMode === "video" ? (ids) => { if (ids[0]) updateBatch(batch.sourceNodeId, batch.id, current => withUpdatedItem(current, item.id, { nodeId: ids[0] })); } : undefined,
                     onConfirmationCancelled: () => updateBatch(batch.sourceNodeId, batch.id, current => withUpdatedItem(current, item.id, { status: "cancelled", errorDetails: undefined })),
                     retryContext:
                         node.metadata?.retryOf && node.metadata.attemptGroupId && node.metadata.taskClientOperationId

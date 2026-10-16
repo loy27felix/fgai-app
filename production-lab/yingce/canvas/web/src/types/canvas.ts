@@ -319,6 +319,9 @@ export type CanvasNodeMetadata = {
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;
+    mediaStackKind?: "video";
+    videoGenerationRecipe?: Partial<CanvasNodeMetadata>;
+    videoGenerationReferenceConnections?: CanvasConnection[];
     isBatchRoot?: boolean;
     batchRootId?: string;
     batchChildIds?: string[];

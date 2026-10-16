@@ -1,3 +1,4 @@
+import { applyVideoStackPrimary } from "@/lib/canvas/canvas-video-stack";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/constant/canvas";
 import { PromptTemplateOperation } from "@/lib/prompts";
 import { STORYBOARD_HEADER_HEIGHT, STORYBOARD_ROW_HEIGHT, storyboardTableHeight } from "@/lib/canvas/canvas-storyboard-layout";
@@ -476,6 +477,7 @@ export function sameNodeSemanticData(left: CanvasNodeData, right: CanvasNodeData
 }
 
 export function applyBatchPrimaryImage(root: CanvasNodeData, primary: CanvasNodeData): CanvasNodeData {
+    if (root.metadata?.mediaStackKind === "video") return applyVideoStackPrimary(root, primary);
     if (root.metadata?.imageLayerGroup || root.metadata?.experimentalLayerPlan) return root;
     // 主图是根节点对媒体的完整代理；可选字段也必须显式覆盖，避免残留上一张图的存储身份。
     return {

@@ -129,7 +129,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const hasMediaContent = hasImageContent || hasVideoContent || hasAudioContent;
     const producedModelStored = data.metadata?.producedModel;
     const showProducedModel = showImageInfo && hasMediaContent && Boolean(producedModelStored);
-    const isBatchRoot = data.type === CanvasNodeType.Image && Boolean(data.metadata?.isBatchRoot) && (batchCount > 1 || Boolean(data.metadata?.imageLayerGroup));
+    const isBatchRoot = (data.type === CanvasNodeType.Image || data.metadata?.mediaStackKind === "video") && Boolean(data.metadata?.isBatchRoot) && (batchCount > 1 || Boolean(data.metadata?.imageLayerGroup) || data.metadata?.mediaStackKind === "video");
     const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
     const showStatusTrack = Boolean(resourceLabel || data.metadata?.locked || isBatchRoot || (isBatchChild && !readOnly) || (hasMediaContent && !readOnly));
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
@@ -344,7 +344,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <div className="absolute right-3 top-3 z-[var(--node-z-overlay)] flex min-w-0 items-center justify-end gap-1 max-w-[calc(100%-24px)]">
                         {resourceLabel && data.type !== CanvasNodeType.Image ? <ResourceLabelBadge reference={resourceLabel} theme={theme} /> : null}
                         {hasMediaContent && !readOnly ? <ResourceStorageBadge storageKey={data.metadata?.storageKey} active={isActive} theme={theme} /> : null}
-                        {isBatchRoot ? <BatchToggleBadge count={batchCount} expanded={batchExpanded} theme={theme} onToggle={() => onToggleBatch?.(data.id)} /> : null}
+                        {isBatchRoot ? <BatchToggleBadge media={data.type === CanvasNodeType.Video ? "视频" : "图片"} count={batchCount} expanded={batchExpanded} theme={theme} onToggle={() => onToggleBatch?.(data.id)} /> : null}
                         {data.metadata?.imageLayerGroup && !readOnly ? <CanvasImageLayerControls node={data} /> : null}
                         {isBatchChild && !data.metadata?.imageLayer && !data.metadata?.layerExtraction && !readOnly ? <BatchPrimaryBadge visible={batchPrimary || hovered || isSelected} selected={batchPrimary} theme={theme} onSelect={() => onSetBatchPrimary?.(data)} /> : null}
                         {data.metadata?.locked ? <NodeLockBadge theme={theme} /> : null}
@@ -475,9 +475,9 @@ function NodeLockBadge({ theme }: { theme: CanvasTheme }) {
     return <span className="pointer-events-none grid size-7 shrink-0 place-items-center rounded-md border backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.muted }} title="节点已锁定"><Lock className="size-3.5" /></span>;
 }
 
-function BatchToggleBadge({ count, expanded, theme, onToggle }: { count: number; expanded: boolean; theme: CanvasTheme; onToggle: () => void }) {
+function BatchToggleBadge({ count, expanded, theme, onToggle, media = "图片" }: { media?: string; count: number; expanded: boolean; theme: CanvasTheme; onToggle: () => void }) {
     return (
-        <button type="button" className="canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-semibold backdrop-blur-md" style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }} aria-expanded={expanded} aria-label={expanded ? "收起图片组" : "展开图片组"} onClick={(event) => { event.stopPropagation(); onToggle(); }} onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+        <button type="button" className="canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-semibold backdrop-blur-md" style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }} aria-expanded={expanded} aria-label={expanded ? `收起${media}组` : `展开${media}组`} onClick={(event) => { event.stopPropagation(); onToggle(); }} onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
             <span className="leading-none" style={{ color: theme.accent.primary }}>{count}</span>
             <ChevronRight className={`size-3 opacity-55 transition-transform ${expanded ? "rotate-90" : ""}`} />
         </button>

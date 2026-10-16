@@ -27,7 +27,7 @@ writeFileSync(
     stubPath,
     `
 import { createStore } from ${JSON.stringify(import.meta.resolve("zustand/vanilla"))};
-export const fixture = { remote: undefined, writes: [], reads: 0, flushes: 0, beforeFlush: undefined, readHook: undefined, flushError: undefined, data: new Map() };
+export const fixture = { remote: undefined, writes: [], reads: 0, flushes: 0, beforeFlush: undefined, readHook: undefined, flushError: undefined, beforeWrite: undefined, data: new Map() };
 export const useCanvasStore = createStore((set, get) => ({ projects: [], openProject: id => get().projects.find(project => project.id === id) }));
 export const useAssetStore = createStore(() => ({ assets: [] }));
 export const getActiveUserScope = () => "sync-test-user";
@@ -43,9 +43,10 @@ const unexpected = () => { throw new Error("unexpected dependency call"); };
 export const http = { get: unexpected, post: unexpected, put: unexpected, patch: unexpected, delete: unexpected };
 export async function applyRemoteCanvasOperations(id, request) {
     fixture.writes.push(structuredClone(request));
+    fixture.beforeWrite?.(request);
     for (const operation of request.operations) {
         if (operation.type !== "set_field") throw new Error("unexpected operation");
-        if (fixture.remote[operation.field] !== operation.beforeValue) throw new Error("invalid operation baseline");
+        if (JSON.stringify(fixture.remote[operation.field] ?? null) !== JSON.stringify(operation.beforeValue ?? null)) throw new Error("invalid operation baseline");
         fixture.remote = { ...fixture.remote, [operation.field]: operation.value };
     }
     fixture.remote = { ...fixture.remote, revision: fixture.remote.revision + 1 };
@@ -65,7 +66,7 @@ copySource("stores/use-sync-progress-store.ts", "progress.ts");
 copySource("services/user-data-sync.ts", "sync.ts");
 const sync: typeof import("@/services/user-data-sync") = await import(join(dir, "sync.ts"));
 const { useSyncProgressStore }: typeof import("@/stores/use-sync-progress-store") = await import(join(dir, "progress.ts"));
-const { fixture, useCanvasStore } = await import(stubPath);
+const { fixture, useCanvasStore, ApiError } = await import(stubPath);
 sync.installRemoteUserDataAutoSync();
 
 const base = (): CanvasProject => ({
@@ -98,7 +99,7 @@ beforeEach(async () => {
     fixture.data.clear();
     fixture.writes = [];
     fixture.reads = fixture.flushes = 0;
-    fixture.beforeFlush = fixture.readHook = fixture.flushError = undefined;
+    fixture.beforeFlush = fixture.readHook = fixture.flushError = fixture.beforeWrite = undefined;
     useCanvasStore.setState({ projects: [base()] });
     await sync.initializeRemoteUserDataSession("sync-test-user");
 });
@@ -188,4 +189,37 @@ describe("画布云端同步状态收尾", () => {
         expect(fixture.data.has("yingce:canvas-mutation-journal")).toBe(false);
         expect(useSyncProgressStore.getState().syncingProjects.canvas.phase).toBe("done");
     });
+});
+
+test("a definitely rejected orphan-media journal is not replayed forever after the media is repaired", async () => {
+    sync.resetRemoteUserDataSync();
+    const oldTimeline = { fps: 30, clips: [{ id: "clip", directMedia: { kind: "video", storageKey: "resource:clip-video", content: "/api/resources/clip-video/file" } }] };
+    const fixedTimeline = { ...oldTimeline, clips: oldTimeline.clips.map(clip => ({...clip, directMedia: {...clip.directMedia, assetId:"registered-video"}})) };
+    const prepared = { ...base(), timeline: oldTimeline };
+    fixture.data.set("yingce:canvas-mutation-journal", JSON.stringify([{projectId:"canvas",request:{mutationId:"rejected-orphan",baseRevision:7,operations:[{type:"set_field",field:"timeline",value:oldTimeline}]},baseline:base(),prepared,createdAt:"2026-10-16"}]));
+    fixture.beforeWrite = request => {
+        if (request.operations.some(operation => operation.field === "timeline" && operation.value?.clips.some(clip => !clip.directMedia?.assetId))) {
+            const failure = new ApiError("画布媒体尚未进入素材库，请等待同步完成后重试");
+            failure.status = 400;
+            throw failure;
+        }
+    };
+    useCanvasStore.setState({ projects: [{...base(),timeline:fixedTimeline}] });
+    await sync.initializeRemoteUserDataSession("sync-test-user");
+    await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("画布媒体尚未进入素材库");
+    await sync.saveRemoteUserDataNow("canvas");
+    expect(fixture.writes).toHaveLength(2);
+    expect(fixture.writes[1].mutationId).not.toBe("rejected-orphan");
+    expect(fixture.remote.timeline.clips[0].directMedia.assetId).toBe("registered-video");
+});
+
+test("an unknown network outcome retains the exact journal mutation ID for safe retry", async () => {
+    edit({ title: "Unsure network save" });
+    fixture.beforeWrite = () => { throw new Error("network disconnected"); };
+    await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("network disconnected");
+    const mutationId = fixture.writes[0].mutationId;
+    fixture.beforeWrite = undefined;
+    await sync.saveRemoteUserDataNow("canvas");
+    expect(fixture.writes[1].mutationId).toBe(mutationId);
+    expect(fixture.remote.title).toBe("Unsure network save");
 });

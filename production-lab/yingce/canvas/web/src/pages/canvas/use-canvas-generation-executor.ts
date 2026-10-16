@@ -59,6 +59,7 @@ export type CanvasNodeGenerationOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
     skipDuplicateConfirmation?: boolean;
     confirmationKey?: string;
+    onGenerationTargets?: (nodeIds: string[]) => void;
     onConfirmationCancelled?: () => void;
 };
 
@@ -358,6 +359,7 @@ export function useCanvasGenerationExecutor({
                         showError: (content: string) => message.error(content),
                         registerPendingNodeIds: (nodeIds: string[]) => {
                             pendingNodeIds = nodeIds;
+                            options?.onGenerationTargets?.(nodeIds);
                         },
                     };
 

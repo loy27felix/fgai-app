@@ -1,3 +1,4 @@
+import { useCanvasVideoStacks } from "./use-canvas-video-stacks";
 import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
 import { CanvasWorkspacePanel } from "@/components/canvas/canvas-workspace-panel";
 import "@/lib/plugins/builtin/ai-art-critique";
@@ -1182,8 +1183,11 @@ function CanvasViewportPage() {
         [bringNodeToFront, nodesRef],
     );
 
+    const { tryStackOnDrop, openVideoStack, videoStackModal } = useCanvasVideoStacks({ projectId, nodes, nodesRef, connectionsRef, selectedNodeIds, setNodes, setConnections, setSelectedNodeIds, setDialogNodeId });
+
     const handleNodeDragEnd = useCallback(
         (nodeId: string) => {
+            if (tryStackOnDrop(nodeId)) return;
             const node = nodesRef.current.find((item) => item.id === nodeId);
             if (
                 !node ||
@@ -1201,7 +1205,7 @@ function CanvasViewportPage() {
             // panel from the previous node cannot reappear after mouse-up.
             setDialogNodeId(node.id);
         },
-        [nodesRef],
+        [nodesRef, tryStackOnDrop],
     );
 
     const handleCanvasDeselect = useCallback(() => {
@@ -1283,6 +1287,8 @@ function CanvasViewportPage() {
         setToolbarNodeId,
         setHoveredNodeId,
     });
+
+    const handleToggleMediaStack = useCallback((id: string) => { if (!openVideoStack(id)) toggleBatchExpanded(id); }, [openVideoStack, toggleBatchExpanded]);
 
     const handleRemoveNodeReference = useCallback(
         (targetNodeId: string, reference: CanvasResourceReference) => {
@@ -2586,6 +2592,7 @@ function CanvasViewportPage() {
 
     return (
         <>
+            {videoStackModal}
             <a
                 href="#canvas-main"
                 className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[var(--z-toast)] focus:rounded-md focus:border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg"
@@ -2800,7 +2807,7 @@ function CanvasViewportPage() {
                                                     onNodeTitleChange={handleNodeTitleChange}
                                                     onNodeContextMenu={handleNodeContextMenu}
                                                     onNodeContentChange={handleNodeContentChange}
-                                                    onToggleBatch={toggleBatchExpanded}
+                                                    onToggleBatch={handleToggleMediaStack}
                                                     onSetBatchPrimary={setBatchPrimary}
                                                     onRetry={retryCanvasNode}
                                                     onReloadResource={reloadCanvasNodeResource}
