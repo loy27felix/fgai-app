@@ -59,7 +59,7 @@ export type CanvasNodeGenerationOptions = {
     onTaskUpdate?: (task: GenerationTask) => void;
     skipDuplicateConfirmation?: boolean;
     confirmationKey?: string;
-    onGenerationTargets?: (nodeIds: string[]) => void;
+    onTaskTarget?: (nodeId: string) => void;
     onConfirmationCancelled?: () => void;
 };
 
@@ -324,6 +324,7 @@ export function useCanvasGenerationExecutor({
 
                     let pendingNodeIds: string[] = [];
                     const execution = {
+                        usePrecreatedVideoTarget: options?.waitForTaskCapacity === true,
                         projectId,
                         nodeId,
                         sourceNode,
@@ -348,6 +349,7 @@ export function useCanvasGenerationExecutor({
                         finishGenerationRequest,
                         bindGenerationTask: (targetNodeId: string, task: GenerationTask) => {
                             bindGenerationTask(targetNodeId, task);
+                            options?.onTaskTarget?.(targetNodeId);
                             setNodes((current) => {
                                 const source = current.find((node) => node.id === nodeId);
                                 if (!source || source.metadata?.lastGenerationRequestFingerprint === requestFingerprint) return current;
@@ -359,7 +361,6 @@ export function useCanvasGenerationExecutor({
                         showError: (content: string) => message.error(content),
                         registerPendingNodeIds: (nodeIds: string[]) => {
                             pendingNodeIds = nodeIds;
-                            options?.onGenerationTargets?.(nodeIds);
                         },
                     };
 

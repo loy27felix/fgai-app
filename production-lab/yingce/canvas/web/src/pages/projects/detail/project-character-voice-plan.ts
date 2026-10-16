@@ -36,3 +36,10 @@ export function characterVoiceSampleFromTask(task: GenerationTask, name: string)
     const resourceId = resourceIdFromStorageKey(audio?.storageKey);
     return resourceId ? { resourceId, name: `${name}-声音样本`, url: resourceFileUrl(resourceId) } : undefined;
 }
+
+// Compatibility while the web release precedes an idle-window backend release.
+// Final membership is always checked against the original task detail below.
+export function characterVoiceTaskSummaryCandidate(task: GenerationTask, assetId: string) {
+    if (task.clientContext?.characterVoiceAssetId) return task.clientContext.characterVoiceAssetId === assetId;
+    return isCharacterVoiceSampleTask(task, assetId) || (task.type === "canvas_audio" && Boolean(task.prompt?.startsWith("为角色“")));
+}

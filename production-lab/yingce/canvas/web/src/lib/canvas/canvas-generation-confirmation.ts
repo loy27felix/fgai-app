@@ -28,7 +28,7 @@ export function canvasConfirmationInputKey(node: CanvasNodeData, nodes: CanvasNo
                   id: value.id,
                   type: value.type,
                   title: value.title,
-                  metadata: Object.fromEntries(Object.entries(value.metadata ?? {}).filter(([key]) => !/^(status|task|generationBatches|errorDetails|generationErrorCode|updatedAt|lastGeneration)/.test(key))),
+                  metadata: Object.fromEntries(Object.entries(value.metadata ?? {}).filter(([key]) => !/^(status|task|generationBatches|errorDetails|generationErrorCode|updatedAt|lastGeneration|videoGenerationRecipe|videoGenerationReferenceConnections)/.test(key))),
               }
             : undefined;
     return generationPromptFingerprint(JSON.stringify({ prompt, node: input(node), sources: sources.map((id) => input(nodes.find((value) => value.id === id))) }));

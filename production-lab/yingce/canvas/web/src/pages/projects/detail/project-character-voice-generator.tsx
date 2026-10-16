@@ -7,7 +7,7 @@ import { submitBackendGenerationTask } from "@/services/api/generation-task";
 import { queryGenerationTask, listGenerationTasks } from "@/services/api/task-center";
 import type { ProjectAsset } from "@/services/api/projects";
 import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
-import { characterSeedAudioModel, characterVoiceDirection, characterVoiceSamplePrompt, characterVoiceSampleFromTask, isCharacterVoiceSampleTask } from "./project-character-voice-plan";
+import { characterVoiceTaskSummaryCandidate, characterSeedAudioModel, characterVoiceDirection, characterVoiceSamplePrompt, characterVoiceSampleFromTask, isCharacterVoiceSampleTask } from "./project-character-voice-plan";
 
 export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions, onSample }: { projectId: string; asset: ProjectAsset; instructions: string; onSample: (sample: { resourceId: string; name: string; url: string }) => void }) {
     const { message } = App.useApp();
@@ -23,8 +23,8 @@ export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions,
     const tasks = useQuery({
         queryKey: ["project-character-voice-tasks", projectId, asset.id],
         queryFn: async () => {
-            const related = (await listGenerationTasks(500, { projectId })).filter((task) => isCharacterVoiceSampleTask(task, asset.id)).slice(0, 6);
-            return Promise.all(related.map((task) => queryGenerationTask(task.id)));
+            const related = (await listGenerationTasks(500, { projectId })).filter((task) => characterVoiceTaskSummaryCandidate(task, asset.id)).slice(0, 30);
+            return (await Promise.all(related.map((task) => queryGenerationTask(task.id)))).filter(task => isCharacterVoiceSampleTask(task, asset.id)).slice(0, 6);
         },
         refetchInterval: (query) => (query.state.data?.some((task) => task.status === "queued" || task.status === "running") ? 2500 : false),
         refetchOnWindowFocus: true,

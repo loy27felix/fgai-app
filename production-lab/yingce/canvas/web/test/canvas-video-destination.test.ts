@@ -4,7 +4,7 @@ import type { CanvasGenerationExecution } from "../src/pages/canvas/canvas-gener
 import { defaultConfig } from "../src/stores/use-config-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasConnection } from "../src/types/canvas";
 
-test.each([false, true])("video generation always creates a fresh result, including legacy replace-node settings (existing media: %s)", async (existing) => {
+test.each([{ existing: false, batch: false }, { existing: true, batch: false }, { existing: false, batch: true }, { existing: true, batch: true }])("video generation always creates a fresh result, including legacy replace-node settings (existing media: %s)", async ({ existing, batch }) => {
     const source: CanvasNodeData = {
         id: "source",
         type: CanvasNodeType.Video,
@@ -20,6 +20,7 @@ test.each([false, true])("video generation always creates a fresh result, includ
     let targets: string[] = [];
     let submitted = 0;
     const execution = {
+        usePrecreatedVideoTarget: batch,
         nodeId: source.id,
         sourceNode: source,
         canvasNodes: nodes,
@@ -50,13 +51,15 @@ test.each([false, true])("video generation always creates a fresh result, includ
         submitted++;
     });
     expect(submitted).toBe(1);
-    expect(nodes).toHaveLength(3);
+    const preallocatedEmptyTarget = batch && !existing;
+    expect(nodes).toHaveLength(preallocatedEmptyTarget ? 2 : 3);
     const output = nodes.find((node) => node.id === targets[0])!;
-    expect(output.id).not.toBe(source.id);
+    if (preallocatedEmptyTarget) expect(output.id).toBe(source.id);
+    else expect(output.id).not.toBe(source.id);
     expect(output.metadata?.videoGenerationRecipe?.prompt).toBe("new submitted prompt");
     expect(output.metadata?.composerContent).toBe("new editor prompt");
     expect(output.metadata?.model).toBe("seedance-test");
-    expect(nodes.find((node) => node.id === source.id)?.metadata?.prompt).toBe("original-prompt");
+    expect(nodes.find((node) => node.id === source.id)?.metadata?.prompt).toBe(preallocatedEmptyTarget ? "new submitted prompt" : "original-prompt");
     expect(nodes.find((node) => node.id === source.id)?.metadata?.content).toBe(source.metadata?.content);
     expect(connections).toContainEqual({ id: "original-edge", fromNodeId: "reference", toNodeId: "source" });
     expect(connections.some((edge) => edge.fromNodeId === "reference" && edge.toNodeId === output.id)).toBe(true);

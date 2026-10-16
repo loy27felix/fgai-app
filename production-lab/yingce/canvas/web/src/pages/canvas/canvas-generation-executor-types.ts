@@ -22,6 +22,7 @@ export type CanvasGenerationExecutorDependencies = {
 };
 
 export type CanvasGenerationExecution = CanvasGenerationExecutorDependencies & {
+    usePrecreatedVideoTarget?: boolean;
     nodeId: string;
     sourceNode: CanvasNodeData | undefined;
     canvasNodes: CanvasNodeData[];

@@ -1,3 +1,4 @@
+import { characterVoiceTaskSummaryCandidate } from "../src/pages/projects/detail/project-character-voice-plan";
 import { defaultConfig, createModelChannel, modelOptionName } from "../src/stores/use-config-store";
 import { characterSeedAudioModel } from "../src/pages/projects/detail/project-character-voice-plan";
 import { expect, test } from "bun:test";
@@ -45,4 +46,11 @@ test("voice recovery uses safe task summaries before reading the original task d
     const summary = { ...task, inputJson: undefined, resultJson: undefined, clientContext: { characterVoiceAssetId: "character-a" } };
     expect(isCharacterVoiceSampleTask(summary, "character-a")).toBe(true);
     expect(isCharacterVoiceSampleTask(summary, "character-b")).toBe(false);
+});
+
+test("voice history remains usable when the frontend is updated before the backend summary fields", () => {
+ const legacy = {...task, inputJson:undefined, resultJson:undefined, prompt:"为角色“Evan”生成一段单人干净对白。"};
+ expect(characterVoiceTaskSummaryCandidate(legacy,"character-a")).toBe(true);
+ expect(characterVoiceTaskSummaryCandidate({...legacy,prompt:"生成一段音乐"},"character-a")).toBe(false);
+ expect(characterVoiceTaskSummaryCandidate({...legacy,clientContext:{characterVoiceAssetId:"character-b"}},"character-a")).toBe(false);
 });
