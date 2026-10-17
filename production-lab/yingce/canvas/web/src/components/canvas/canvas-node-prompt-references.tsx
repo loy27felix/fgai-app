@@ -1,11 +1,13 @@
 // 节点提示词面板的参考素材区：已连接参考的缩略图货架、自动 @ 引用工具与拖拽排序。
 
 import { Image as AntImage, Popover } from "antd";
-import { AtSign, FileText, GripVertical, ImageIcon, Link2, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, X } from "lucide-react";
+import { AtSign, ChevronLeft, ChevronRight, FileText, GripVertical, ImageIcon, Link2, Maximize2, Music2, Pencil, SlidersHorizontal, UserRound, Video, X } from "lucide-react";
 import { canvasReferenceDisplayLabel, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { useState } from "react";
 import { CanvasNodeType } from "@/types/canvas";
 import type { CanvasTheme } from "./canvas-node-prompt-panel";
+
+const REFERENCE_ORDER_DRAG_TYPE = "application/x-canvas-reference-order";
 
 export function ReferenceToolsPopover({
     canAutoMention,
@@ -141,14 +143,28 @@ export function ConnectedReferenceShelf({
                                 data-target-node-id={targetNodeId}
                                 data-dragging={draggedReferenceId === reference.nodeId || undefined}
                                 data-drop-target={isDropTarget ? "true" : undefined}
+                                draggable={Boolean(onReorder)}
+                                onDragStart={(event) => {
+                                    if (!onReorder) return;
+                                    event.stopPropagation();
+                                    setDraggedReferenceId(reference.nodeId);
+                                    event.dataTransfer.effectAllowed = "move";
+                                    event.dataTransfer.setData(REFERENCE_ORDER_DRAG_TYPE, reference.nodeId);
+                                }}
+                                onDragEnd={() => {
+                                    setDraggedReferenceId(null);
+                                    setDropTargetReferenceId(null);
+                                }}
                                 style={{
                                     boxShadow: isDropTarget ? "0 0 0 2px #3b82f6, 0 0 16px rgba(59, 130, 246, 0.45)" : undefined,
                                 }}
                                 onDragOver={(event) => {
-                                    if (draggedReferenceId) {
+                                    if (draggedReferenceId || event.dataTransfer.types.includes(REFERENCE_ORDER_DRAG_TYPE)) {
                                         if (!onReorder) return;
                                         event.preventDefault();
+                                        event.stopPropagation();
                                         event.dataTransfer.dropEffect = "move";
+                                        setDropTargetReferenceId(reference.id);
                                         return;
                                     }
                                     const hasImageNode = event.dataTransfer.types.includes("application/x-canvas-image-node-id");
@@ -173,9 +189,10 @@ export function ConnectedReferenceShelf({
                                     if (dropTargetReferenceId === reference.id) {
                                         setDropTargetReferenceId(null);
                                     }
-                                    if (draggedReferenceId) {
+                                    if (draggedReferenceId || event.dataTransfer.types.includes(REFERENCE_ORDER_DRAG_TYPE)) {
                                         event.preventDefault();
-                                        const sourceId = draggedReferenceId || event.dataTransfer.getData("text/plain");
+                                        event.stopPropagation();
+                                        const sourceId = draggedReferenceId || event.dataTransfer.getData(REFERENCE_ORDER_DRAG_TYPE);
                                         setDraggedReferenceId(null);
                                         moveReference(sourceId, reference.nodeId);
                                         return;
@@ -200,15 +217,8 @@ export function ConnectedReferenceShelf({
                                     <button
                                         type="button"
                                         className="canvas-node-reference-drag-handle"
-                                        draggable
                                         title={`拖动调整 ${reference.label} 的顺序`}
                                         aria-label={`调整 ${reference.label} 的顺序；使用左右方向键也可移动`}
-                                        onDragStart={(event) => {
-                                            setDraggedReferenceId(reference.nodeId);
-                                            event.dataTransfer.effectAllowed = "move";
-                                            event.dataTransfer.setData("text/plain", reference.nodeId);
-                                        }}
-                                        onDragEnd={() => setDraggedReferenceId(null)}
                                         onKeyDown={(event) => {
                                             if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
                                             event.preventDefault();
@@ -241,6 +251,30 @@ export function ConnectedReferenceShelf({
                                     <span className="opacity-55">@</span>
                                     <span className="truncate">{canvasReferenceDisplayLabel(reference)}</span>
                                 </button>
+                                {onReorder && activeReferences.length > 1 ? (
+                                    <span className="flex shrink-0 flex-col justify-center pr-1">
+                                        <button
+                                            type="button"
+                                            className="rounded px-0.5 hover:bg-black/10 disabled:opacity-25 dark:hover:bg-white/10"
+                                            title="前移"
+                                            aria-label={`将 ${reference.label} 前移`}
+                                            disabled={index === 0}
+                                            onClick={() => moveReferenceByOffset(reference.nodeId, -1)}
+                                        >
+                                            <ChevronLeft className="size-3" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="rounded px-0.5 hover:bg-black/10 disabled:opacity-25 dark:hover:bg-white/10"
+                                            title="后移"
+                                            aria-label={`将 ${reference.label} 后移`}
+                                            disabled={index === activeReferences.length - 1}
+                                            onClick={() => moveReferenceByOffset(reference.nodeId, 1)}
+                                        >
+                                            <ChevronRight className="size-3" />
+                                        </button>
+                                    </span>
+                                ) : null}
                                 {onRemove ? (
                                     <button
                                         type="button"
@@ -282,9 +316,9 @@ export function ConnectedReferenceShelf({
 }
 
 export function ReferenceThumbnail({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-full object-cover" />;
-    if (reference.kind === "video" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-full bg-black object-cover" loading="lazy" decoding="async" />;
-    if (reference.kind === "character" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-full bg-black/5 object-contain" />;
+    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" draggable={false} className="size-full object-cover" />;
+    if (reference.kind === "video" && reference.previewUrl) return <img src={reference.previewUrl} alt="" draggable={false} className="size-full bg-black object-cover" loading="lazy" decoding="async" />;
+    if (reference.kind === "character" && reference.previewUrl) return <img src={reference.previewUrl} alt="" draggable={false} className="size-full bg-black/5 object-contain" />;
 
     const Icon = reference.sourceType === CanvasNodeType.Drawing ? Pencil : reference.kind === "character" ? UserRound : reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
     return (

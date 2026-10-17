@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { reorderCanvasResourceConnections, buildNodeMentionReferences, applyCanvasConnectionPromptSync } from "../src/lib/canvas/canvas-resource-references";
+import { CanvasNodeType } from "../src/types/canvas";
 
 // Isolate transport/storage without leaking module mocks into other test suites.
 // Sync, resource conversion, content comparison and progress use production code.
@@ -104,6 +106,33 @@ beforeEach(async () => {
     await sync.initializeRemoteUserDataSession("sync-test-user");
 });
 afterEach(() => sync.resetRemoteUserDataSync());
+
+test("reference reordering produces durable connection updates and preserves prompt identities", () => {
+    const a = { ...base().nodes[0], id: "a", type: CanvasNodeType.Image };
+    const b = { ...a, id: "b" };
+    const target = { ...a, id: "target", type: CanvasNodeType.Video, metadata: { composerContent: "@图片1是角色，@图片2是场景" } };
+    const before = {
+        ...base(),
+        nodes: [a, b, target],
+        connections: [
+            { id: "a-edge", fromNodeId: "a", toNodeId: "target" },
+            { id: "b-edge", fromNodeId: "b", toNodeId: "target" },
+        ],
+    };
+    const connections = reorderCanvasResourceConnections("target", ["b", "a"], before.nodes, before.connections);
+    const nodes = applyCanvasConnectionPromptSync(before.nodes, before.connections, before.nodes, connections);
+    const operations = sync.buildCanvasOperations(before, { ...before, nodes, connections });
+    const updates = operations.filter((operation) => operation.type === "update_connection");
+    expect(updates).toHaveLength(2);
+    const roundTrip = before.connections.map((edge) => updates.find((operation) => operation.id === edge.id)?.connection || edge);
+    expect(roundTrip.map((edge) => edge.fromNodeId)).toEqual(["b", "a"]);
+    expect(
+        buildNodeMentionReferences(target, nodes, roundTrip)
+            .filter((reference) => reference.active)
+            .map((reference) => reference.nodeId),
+    ).toEqual(["b", "a"]);
+    expect(nodes.find((node) => node.id === "target")?.metadata?.composerContent).toBe("@图片2是角色，@图片1是场景");
+});
 afterAll(() => {
     if (!resolve(dir).startsWith(resolve(tmpdir()) + sep)) throw new Error("unexpected fixture directory");
     rmSync(dir, { recursive: true, force: true });
@@ -194,17 +223,20 @@ describe("画布云端同步状态收尾", () => {
 test("a definitely rejected orphan-media journal is not replayed forever after the media is repaired", async () => {
     sync.resetRemoteUserDataSync();
     const oldTimeline = { fps: 30, clips: [{ id: "clip", directMedia: { kind: "video", storageKey: "resource:clip-video", content: "/api/resources/clip-video/file" } }] };
-    const fixedTimeline = { ...oldTimeline, clips: oldTimeline.clips.map(clip => ({...clip, directMedia: {...clip.directMedia, assetId:"registered-video"}})) };
+    const fixedTimeline = { ...oldTimeline, clips: oldTimeline.clips.map((clip) => ({ ...clip, directMedia: { ...clip.directMedia, assetId: "registered-video" } })) };
     const prepared = { ...base(), timeline: oldTimeline };
-    fixture.data.set("yingce:canvas-mutation-journal", JSON.stringify([{projectId:"canvas",request:{mutationId:"rejected-orphan",baseRevision:7,operations:[{type:"set_field",field:"timeline",value:oldTimeline}]},baseline:base(),prepared,createdAt:"2026-10-16"}]));
-    fixture.beforeWrite = request => {
-        if (request.operations.some(operation => operation.field === "timeline" && operation.value?.clips.some(clip => !clip.directMedia?.assetId))) {
+    fixture.data.set(
+        "yingce:canvas-mutation-journal",
+        JSON.stringify([{ projectId: "canvas", request: { mutationId: "rejected-orphan", baseRevision: 7, operations: [{ type: "set_field", field: "timeline", value: oldTimeline }] }, baseline: base(), prepared, createdAt: "2026-10-16" }]),
+    );
+    fixture.beforeWrite = (request) => {
+        if (request.operations.some((operation) => operation.field === "timeline" && operation.value?.clips.some((clip) => !clip.directMedia?.assetId))) {
             const failure = new ApiError("画布媒体尚未进入素材库，请等待同步完成后重试");
             failure.status = 400;
             throw failure;
         }
     };
-    useCanvasStore.setState({ projects: [{...base(),timeline:fixedTimeline}] });
+    useCanvasStore.setState({ projects: [{ ...base(), timeline: fixedTimeline }] });
     await sync.initializeRemoteUserDataSession("sync-test-user");
     await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("画布媒体尚未进入素材库");
     await sync.saveRemoteUserDataNow("canvas");
@@ -215,7 +247,9 @@ test("a definitely rejected orphan-media journal is not replayed forever after t
 
 test("an unknown network outcome retains the exact journal mutation ID for safe retry", async () => {
     edit({ title: "Unsure network save" });
-    fixture.beforeWrite = () => { throw new Error("network disconnected"); };
+    fixture.beforeWrite = () => {
+        throw new Error("network disconnected");
+    };
     await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("network disconnected");
     const mutationId = fixture.writes[0].mutationId;
     fixture.beforeWrite = undefined;

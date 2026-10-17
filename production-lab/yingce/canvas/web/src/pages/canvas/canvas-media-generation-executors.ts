@@ -40,13 +40,11 @@ export async function executeVideoGeneration({
     skillMetadata,
     taskContext,
     retryContext,
-    usePrecreatedVideoTarget,
 }: CanvasGenerationExecution, runTask = runCanvasGenerationTaskToConsumer) {
     const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
     const isExistingVideoNode = sourceNode?.type === CanvasNodeType.Video;
-    // Batch planning already allocated a fresh, empty destination for this intent.
-    // Capacity retries keep that destination; an existing result is never replaced.
-    const reuseEmptyTarget = Boolean(usePrecreatedVideoTarget && sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content && !sourceNode.metadata?.storageKey);
+    // First generation fills its empty video node. Only an existing result forks.
+    const reuseEmptyTarget = Boolean(isExistingVideoNode && !sourceNode.metadata?.content && !sourceNode.metadata?.storageKey && !sourceNode.metadata?.mediaStackKind);
     const videoId = reuseEmptyTarget ? nodeId : nanoid();
     const parent = sourceNode?.position || { x: 0, y: 0 };
     const videoGenerationMetadata = buildVideoGenerationMetadata(sourceNode, generationContext, generationConfig);
@@ -55,6 +53,7 @@ export async function executeVideoGeneration({
         type: CanvasNodeType.Video,
         title: buildGenerationNodeTitle(prompt, "Generated Video"),
         position: reuseEmptyTarget ? parent : findAvailableGenerationGroupPosition(canvasNodes, { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y }, spec),
+        parentId: sourceNode?.parentId,
         width: spec.width,
         height: spec.height,
         metadata: {
@@ -77,7 +76,7 @@ export async function executeVideoGeneration({
             ...skillMetadata,
         },
     };
-    const nextInputConnections = isExistingVideoNode ? canvasConnections.filter(edge => edge.toNodeId === nodeId).map(edge => ({ ...edge, id: nanoid(), toNodeId: videoId })) : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }];
+    const nextInputConnections = isExistingVideoNode ? canvasConnections.filter(edge => edge.toNodeId === nodeId).map(edge => reuseEmptyTarget ? edge : ({ ...edge, id: nanoid(), toNodeId: videoId })) : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }];
     const videoNode = captureVideoGenerationRecipe(draftVideoNode, nextInputConnections);
     registerPendingNodeIds([videoId]);
     setNodes(current => reuseEmptyTarget ? current.map(node => node.id === nodeId ? videoNode : node) : [...current.map(node => node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: node.metadata?.content ? NODE_STATUS_SUCCESS : "idle" as const } } : node), videoNode]);

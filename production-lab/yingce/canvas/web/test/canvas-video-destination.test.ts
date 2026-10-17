@@ -4,15 +4,28 @@ import type { CanvasGenerationExecution } from "../src/pages/canvas/canvas-gener
 import { defaultConfig } from "../src/stores/use-config-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasConnection } from "../src/types/canvas";
 
-test.each([{ existing: false, batch: false }, { existing: true, batch: false }, { existing: false, batch: true }, { existing: true, batch: true }])("video generation always creates a fresh result, including legacy replace-node settings (existing media: %s)", async ({ existing, batch }) => {
+test.each([
+    { existing: false, storageOnly: false },
+    { existing: true, storageOnly: false },
+    { existing: true, storageOnly: true },
+])("first video generation fills the empty node; subsequent generation preserves its result (existing media: %s)", async ({ existing, storageOnly }) => {
     const source: CanvasNodeData = {
         id: "source",
         type: CanvasNodeType.Video,
         title: "Original",
         position: { x: 0, y: 0 },
+        parentId: "frame",
         width: 320,
         height: 180,
-        metadata: { content: existing ? "original.mp4" : undefined, model: "original-model", prompt: "original-prompt", generationResultPlacement: "replace-node", copiedFromNodeId: "old-video", status: existing ? "success" : "idle" },
+        metadata: {
+            content: existing && !storageOnly ? "original.mp4" : undefined,
+            storageKey: storageOnly ? "resource:video" : undefined,
+            model: "original-model",
+            prompt: "original-prompt",
+            generationResultPlacement: "replace-node",
+            copiedFromNodeId: "old-video",
+            status: existing ? "success" : "idle",
+        },
     };
     const reference: CanvasNodeData = { ...source, id: "reference", type: CanvasNodeType.Image, position: { x: -400, y: 0 }, metadata: { content: "image.png" } };
     let nodes = [source, reference];
@@ -20,7 +33,6 @@ test.each([{ existing: false, batch: false }, { existing: true, batch: false }, 
     let targets: string[] = [];
     let submitted = 0;
     const execution = {
-        usePrecreatedVideoTarget: batch,
         nodeId: source.id,
         sourceNode: source,
         canvasNodes: nodes,
@@ -51,14 +63,17 @@ test.each([{ existing: false, batch: false }, { existing: true, batch: false }, 
         submitted++;
     });
     expect(submitted).toBe(1);
-    const preallocatedEmptyTarget = batch && !existing;
+    const preallocatedEmptyTarget = !existing;
     expect(nodes).toHaveLength(preallocatedEmptyTarget ? 2 : 3);
     const output = nodes.find((node) => node.id === targets[0])!;
+    expect(output.parentId).toBe("frame");
+    if (preallocatedEmptyTarget) expect(output.position).toEqual(source.position);
     if (preallocatedEmptyTarget) expect(output.id).toBe(source.id);
     else expect(output.id).not.toBe(source.id);
     expect(output.metadata?.videoGenerationRecipe?.prompt).toBe("new submitted prompt");
     expect(output.metadata?.composerContent).toBe("new editor prompt");
     expect(output.metadata?.model).toBe("seedance-test");
+    expect(output.metadata?.videoGenerationReferenceConnections?.[0]?.id).toBe(preallocatedEmptyTarget ? "original-edge" : connections.at(-1)?.id);
     expect(nodes.find((node) => node.id === source.id)?.metadata?.prompt).toBe(preallocatedEmptyTarget ? "new submitted prompt" : "original-prompt");
     expect(nodes.find((node) => node.id === source.id)?.metadata?.content).toBe(source.metadata?.content);
     expect(connections).toContainEqual({ id: "original-edge", fromNodeId: "reference", toNodeId: "source" });

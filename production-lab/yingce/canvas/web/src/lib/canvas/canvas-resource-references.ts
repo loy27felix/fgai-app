@@ -526,7 +526,9 @@ export function reorderCanvasResourceConnections(targetNodeId: string, orderedNo
     if (slots.every(({ connection }, index) => connection === reordered[index])) return connections;
     const next = [...connections];
     slots.forEach(({ index }, orderIndex) => {
-        next[index] = reordered[orderIndex];
+        // Persist a source change in each existing slot. Reordering the array alone
+        // is invisible to the operation API, which diffs connections by ID.
+        next[index] = { ...reordered[orderIndex], id: connections[index].id };
     });
     return next;
 }

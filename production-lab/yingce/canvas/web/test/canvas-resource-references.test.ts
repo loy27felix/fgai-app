@@ -392,7 +392,7 @@ describe("reorder canvas resource connections", () => {
         const unrelated = connection(imageA.id, other.id);
         const previousConnections = [main, connection(imageA.id, config.id), unrelated, connection(imageB.id, config.id)];
         const nextConnections = reorderCanvasResourceConnections(target.id, [imageB.id, imageA.id], [imageA, imageB, target, config, other], previousConnections);
-        expect(nextConnections).toEqual([main, connection(imageB.id, config.id), unrelated, connection(imageA.id, config.id)]);
+        expect(nextConnections).toEqual([main, { ...connection(imageB.id, config.id), id: previousConnections[1].id }, unrelated, { ...connection(imageA.id, config.id), id: previousConnections[3].id }]);
         expect(nextConnections[0]).toBe(main);
         expect(nextConnections[2]).toBe(unrelated);
     });

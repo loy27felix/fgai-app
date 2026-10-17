@@ -324,7 +324,6 @@ export function useCanvasGenerationExecutor({
 
                     let pendingNodeIds: string[] = [];
                     const execution = {
-                        usePrecreatedVideoTarget: options?.waitForTaskCapacity === true,
                         projectId,
                         nodeId,
                         sourceNode,
