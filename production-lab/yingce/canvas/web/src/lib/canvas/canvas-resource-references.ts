@@ -265,7 +265,7 @@ function rewriteCanvasPromptAfterReferenceChange(prompt: string, previousReferen
     return value === prompt ? prompt : compactRemovedCanvasMentionPrompt(value);
 }
 
-export function applyCanvasConnectionPromptSync(previousNodes: CanvasNodeData[], previousConnections: CanvasConnection[], nextNodes: CanvasNodeData[], nextConnections: CanvasConnection[]) {
+export function applyCanvasConnectionPromptSync(previousNodes: CanvasNodeData[], previousConnections: CanvasConnection[], nextNodes: CanvasNodeData[], nextConnections: CanvasConnection[], options: { clearPromptTemplate?: boolean } = {}) {
     const previousMap = buildCanvasNodeMentionReferenceMap(previousNodes, previousConnections, nextNodes);
     const nextMap = buildCanvasNodeMentionReferenceMap(nextNodes, nextConnections, nextNodes);
     let changed = false;
@@ -274,7 +274,7 @@ export function applyCanvasConnectionPromptSync(previousNodes: CanvasNodeData[],
         const nextPrompt = rewriteCanvasPromptAfterReferenceChange(previousPrompt, previousMap.get(node.id) || [], nextMap.get(node.id) || []);
         if (nextPrompt === previousPrompt) return node;
         changed = true;
-        return writeCanvasNodePrompt(node, nextPrompt);
+        return writeCanvasNodePrompt(node, nextPrompt, options);
     });
     return changed ? mapped : nextNodes;
 }

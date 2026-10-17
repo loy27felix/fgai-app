@@ -1,5 +1,5 @@
 import { mergeAgentCanvasEditor } from "@/lib/canvas/agent-canvas-patch";
-import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { App } from "antd";
 import { useNavigate } from "react-router";
 
@@ -7,6 +7,7 @@ import { canvasAppearanceBaseTheme, canvasAppearanceForTheme, DEFAULT_CANVAS_BAC
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { normalizeCanvasNodeTimestamps } from "@/lib/canvas/canvas-node-timestamps";
+import { canvasPersistentNodes } from "@/lib/canvas/canvas-persistent-nodes";
 import { hydrateAssistantImages, resetInterruptedGeneration } from "@/lib/canvas/canvas-project-generation";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { createCanvasProjectWithRemoteSync, deleteCanvasProjectsWithRemoteSync, loadCanvasProjectForEditing, saveRemoteUserDataNow, subscribeAgentCanvasRefresh } from "@/services/user-data-sync";
@@ -93,6 +94,11 @@ export function useCanvasProjectLifecycle({
     const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const observedContentRef = useRef<CanvasHistorySnapshot | null>(null);
+    const persistentNodesRef = useRef<CanvasNodeData[]>([]);
+    const persistentNodes = useMemo(() => {
+        persistentNodesRef.current = canvasPersistentNodes(nodes, persistentNodesRef.current);
+        return persistentNodesRef.current;
+    }, [nodes]);
     const editorReadyRef = useRef(false);
 
     useEffect(() => {
@@ -210,7 +216,7 @@ export function useCanvasProjectLifecycle({
         };
     }, [projectLoaded]);
 
-    useEffect(() => subscribeAgentCanvasRefresh((project, previous) => {
+    useEffect(() => subscribeAgentCanvasRefresh((project, previous, source) => {
         if (!projectLoaded || project.id !== projectId) return;
         // Merge only server-changed fields so dragging/editing other nodes can
         // continue while Agent media tasks complete. Same-field conflicts fail.
@@ -294,10 +300,11 @@ export function useCanvasProjectLifecycle({
     }, [message, projectId, renameProject]);
 
     const persistLocalEdits = useCallback(async (options: { flush?: boolean } = {}) => {
-        const snapshot = { nodes: nodesRef.current, connections: connectionsRef.current, chatSessions, activeChatId, canvasAppearance, backgroundMode, showImageInfo };
+        const durableNodes = canvasPersistentNodes(nodesRef.current, observedContentRef.current?.nodes);
+        const snapshot = { nodes: durableNodes, connections: connectionsRef.current, chatSessions, activeChatId, canvasAppearance, backgroundMode, showImageInfo };
         if (observedContentRef.current && !sameCanvasHistorySnapshot(observedContentRef.current, snapshot)) {
             updateProject(projectId, {
-                nodes: nodesRef.current,
+                nodes: durableNodes,
                 connections: connectionsRef.current,
                 chatSessions,
                 activeChatId,
