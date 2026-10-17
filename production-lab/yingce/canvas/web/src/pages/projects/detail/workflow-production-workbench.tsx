@@ -266,10 +266,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
         }
         hydratedShotRevisionKey.current = key;
         const shotDurationSeconds = Math.max(0.5, (revision?.durationMs || selectedShot?.durationMs || 3000) / 1000);
-        const currentModel = selectedModelRef.current || initialModel;
-        const normalizedDurationSeconds = generationCapability === "video" && currentModel && !segmentPlan
-            ? Number(normalizeVideoValue(modelCapabilityConfigFor(effectiveConfig, currentModel).video!, { seconds: String(shotDurationSeconds) }).seconds)
-            : shotDurationSeconds;
+        const normalizedDurationSeconds = shotDurationSeconds;
         const videoPrompt = ensureShotAssetMentionPrompt(revision?.videoPrompt || "", shotAssetReferenceContext.mentionReferences);
         form.setFieldsValue({
             title: normalizeDefaultShotTitle(selectedShot?.title, Math.max(0, shotIndex)),
@@ -293,7 +290,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
 
     const changeGenerationModel = (nextModel: string) => {
         const nextProfile = modelCapabilityConfigFor(effectiveConfig, nextModel);
-        if (segmentPlan && generationCapability === "video" && nextProfile.video && !videoDurationAllowed(nextProfile.video, Number(form.getFieldValue("durationSeconds") || generationSeconds))) {
+        if (generationCapability === "video" && nextProfile.video && !videoDurationAllowed(nextProfile.video, Number(form.getFieldValue("durationSeconds") || generationSeconds))) {
             message.warning("该模型不支持当前剧情片段时长，请先重新划分片段或选择支持该时长的模型");
             return;
         }

@@ -1,4 +1,5 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 
 import FGLogo from "@/components/FGLogo";
 import { Icon, Hov, useFgTheme } from "@/components/studio/ui";
@@ -53,7 +54,7 @@ const WORKSPACES = [
 
 export default function WorkspaceHub({ email, isAdmin, showProductionLab, projectCount }: WorkspaceHubProps) {
   const { theme, toggle } = useFgTheme();
-  const name = email.replace(/@.*/, "") || "创作者";
+  const name = userDisplayName(email);
   const initial = name.slice(0, 2).toUpperCase();
 
   return (

@@ -1,4 +1,5 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Project, Role } from "@/lib/types";
@@ -58,7 +59,7 @@ export default function ProjectBoard({
   const resume = projects.find((p) => myRole[p.id]);
   const hour = new Date().getHours();
   const greeting = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
-  const meIni = (userEmail || "?").replace(/@.*/, "").slice(0, 2).toUpperCase();
+  const meIni = userDisplayName(userEmail || "").slice(0, 2).toUpperCase();
 
   async function onCreate() {
     if (!name.trim()) return; setBusy(true);
@@ -133,7 +134,7 @@ export default function ProjectBoard({
                 <span className="fg-mono" style={{ fontSize: 11, letterSpacing: 2, color: "var(--text-3)" }}>{new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}</span>
                 <span className="fg-script" style={{ fontSize: 23, color: "var(--accent)", lineHeight: 1, transform: "rotate(-5deg)", textShadow: "0 0 18px var(--glow-a)" }}>let&apos;s create</span>
               </div>
-              <h1 style={{ margin: 0, fontSize: 33, fontWeight: 700, letterSpacing: "-1px", lineHeight: 1.06 }}>{greeting}，{userEmail.replace(/@.*/, "")}</h1>
+              <h1 style={{ margin: 0, fontSize: 33, fontWeight: 700, letterSpacing: "-1px", lineHeight: 1.06 }}>{greeting}，{userDisplayName(userEmail)}</h1>
               <div style={{ marginTop: 20, display: "flex", gap: 22 }}>
                 {[["进行中", activeCount], ["我参与", mineCount], ["待审批", pendList.length]].map(([l, v], i) => (
                   <div key={l as string} style={{ display: "flex", alignItems: "stretch", gap: 22 }}>

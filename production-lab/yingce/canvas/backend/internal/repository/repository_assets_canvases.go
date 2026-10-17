@@ -116,6 +116,7 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 			return ErrCanvasRevisionConflict
 		}
 		project.Revision = 1
+		r.canvasChanged(project.UserID, project.ID)
 		return nil
 	}
 	// The revision predicate and increment must be in the same SQL statement.
@@ -130,11 +131,13 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 		return ErrCanvasRevisionConflict
 	}
 	project.Revision = expected + 1
+	r.canvasChanged(project.UserID, project.ID)
 	return nil
 }
 
 func (r *Repository) DeleteCanvasProject(userID string, id string) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return r.Transaction(func(repo *Repository) error {
+		tx := repo.db
 		if fgTeamEnabled() {
 			canvas, err := New(tx).CanvasProjectForUser(userID, id)
 			if err != nil {
@@ -156,6 +159,7 @@ func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 			if err := tx.Where("project_id=?", id).Delete(&model.CanvasShare{}).Error; err != nil {
 				return err
 			}
+			repo.canvasChanged(canvas.UserID, id)
 			return nil
 		}
 		// Serialize deletion with saves before reading the history IDs to remove.
@@ -182,7 +186,11 @@ func (r *Repository) DeleteCanvasProject(userID string, id string) error {
 		if err := tx.Delete(&model.CanvasProject{}, "id = ? AND user_id = ?", id, userID).Error; err != nil {
 			return err
 		}
-		return archiveDeletedCanvasAssets(tx, userID, id)
+		if err := archiveDeletedCanvasAssets(tx, userID, id); err != nil {
+			return err
+		}
+		repo.canvasChanged(userID, id)
+		return nil
 	})
 }
 

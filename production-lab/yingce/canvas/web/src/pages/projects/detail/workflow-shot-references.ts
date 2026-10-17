@@ -135,7 +135,14 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
 }
 
 export function ensureShotAssetMentionPrompt(prompt: string, references: Array<Pick<CanvasResourceReference, "assetId" | "kind" | "label" | "title">>) {
-    const value = prompt.trim();
+    const bound = new Set(references.flatMap(reference => reference.assetId ? [reference.assetId] : []));
+    // Remove only canonical reference tokens and their generated standalone lines.
+    // Authored action, dialogue and names remain intact after deselection.
+    const value = prompt.split(/\r?\n/).flatMap(line => {
+        const tokens = [...line.matchAll(/@\[asset:([^\]]+)\]/g)];
+        if (tokens.length === 1 && !bound.has(tokens[0][1]) && /^[^：:\n]+[：:]\s*@\[asset:[^\]]+\]\s*$/.test(line.trim())) return [];
+        return [line.replace(/@\[asset:([^\]]+)\]/g, (token, id: string) => bound.has(id) ? token : "")];
+    }).join("\n").replace(/【(?:角色参考|场景与道具参考)】\s*(?=【|$)/g, "").replace(/\n{3,}/g, "\n\n").trim();
     if (!value) return "";
     const mentionedAssetIds = new Set(Array.from(value.matchAll(/@\[asset:([^\]]+)\]/g), (match) => match[1]));
     const missing = references.filter((reference): reference is typeof reference & { assetId: string } => Boolean(reference.assetId && !mentionedAssetIds.has(reference.assetId)));

@@ -1,4 +1,5 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 import PageShell from "@/components/studio/PageShell";
 
 const ROLE_LABEL: Record<string, string> = { user: "成员", admin: "管理员", superadmin: "超级管理员" };
@@ -21,7 +22,8 @@ export default function MeView({ email, role, joined, usage, gens, balance }: {
         <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "22px 24px", borderRadius: 20, background: "var(--panel)", border: "1px solid var(--stroke)", boxShadow: "var(--inset),var(--shadow)", marginBottom: 22 }}>
           <div className="fg-mono" style={{ width: 56, height: 56, borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 20, fontWeight: 600, color: "var(--accent-ink)", background: "linear-gradient(150deg,var(--accent),var(--accent-2))" }}>{(email || "?").slice(0, 2).toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{email}</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{userDisplayName(email)}</div>
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>{email}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
               <span style={{ fontSize: 11.5, color: "var(--accent)", padding: "2px 9px", borderRadius: 7, background: "var(--user-bubble)", border: "1px solid var(--user-stroke)" }}>{ROLE_LABEL[role] || role}</span>
               {joined && <span className="fg-mono" style={{ fontSize: 11.5, color: "var(--text-3)" }}>加入于 {new Date(joined).toLocaleDateString("zh-CN")}</span>}

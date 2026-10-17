@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"yingce/backend/internal/kernel"
@@ -194,6 +195,18 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			defer reasoningPublisher.Close()
 		}
 		input.OnTextDelta = textPublisher.Publish
+		if input.OnReasoningDelta == nil {
+			var thinking sync.Once
+			input.OnReasoningDelta = func(delta string) {
+				if strings.TrimSpace(delta) == "" || ctx.Err() != nil {
+					return
+				}
+				thinking.Do(func() {
+					// Publish the phase only; private reasoning is not a JSON draft.
+					_ = s.repo.UpdateTaskProgress(taskExecutionID(ctx), "thinking", 35)
+				})
+			}
+		}
 		defer textPublisher.Close()
 	}
 	if isWorkflowProviderInterface(input.Config.InterfaceType) {

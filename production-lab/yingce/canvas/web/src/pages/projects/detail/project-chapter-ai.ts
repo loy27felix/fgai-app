@@ -149,7 +149,7 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
         },
     });
     options?.onTaskUpdate?.(task);
-    const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, onTaskUpdate: options?.onTaskUpdate });
+    const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, timeoutMs: 35 * 60 * 1000, onTaskUpdate: options?.onTaskUpdate });
     return { ...chapterStoryboardFromGenerationTask(completed), skillCount: skillExecution.selectedSkills.length + SHORT_DRAMA_BUILTIN_SKILLS.length + (input.actionDirection?.trim() ? 1 : 0) };
 }
 

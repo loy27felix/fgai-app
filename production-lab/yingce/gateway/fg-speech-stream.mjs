@@ -15,7 +15,7 @@ export function registerSpeechStream(server,{pool,authenticate,origins,parsePath
   try{
    const path=parsePath(req.url).url;
    if(shutting){reject(503);return;}
-   if(path.pathname!=='/api/fg/speech/stream'){reject(404);return;}
+   if(path.pathname!=='/api/fg/speech/stream')return;
    if(!origins.includes(req.headers.origin)){reject(403);return;}
    actor=await authenticate(req);if(!actor){reject(403);return;}
    if(socket.destroyed)return;

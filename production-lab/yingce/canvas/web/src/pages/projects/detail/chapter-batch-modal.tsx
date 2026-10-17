@@ -12,6 +12,7 @@ import { useEffectiveConfig } from "@/stores/use-config-store";
 import type { GenerationTask } from "@/services/api/task-center";
 import { chapterStoryboardAssets, chapterStoryboardCharacters, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
 import { extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
+import { runChapterBatch } from "./chapter-batch-runner";
 
 export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: { detail: ProjectDetail; open: boolean; onClose: () => void; onRefresh: () => void; onTask: (unitId: string, kind: "characters" | "storyboard", task: GenerationTask) => void }) {
     const { message } = App.useApp();
@@ -27,6 +28,7 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
     const [replace, setReplace] = useState(false);
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState("");
+    const [failures, setFailures] = useState<string[]>([]);
     const alive = useRef(true);
     const stop = useRef(false);
     useEffect(() => { alive.current = true; return () => { alive.current = false; stop.current = true; }; }, []);
@@ -43,6 +45,7 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
         if (kind === "storyboard" && !style?.prompt.trim()) return message.warning("请先设置全局画风");
         stop.current = false;
         setBusy(true);
+        setFailures([]);
         let completed = 0;
         let skipped = 0;
         try {
@@ -54,15 +57,14 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
                     if (assets.length >= result.total || !result.assets.length) break;
                 }
             }
-            for (const id of ids) {
-                if (stop.current || !alive.current) break;
+            const outcomes = await runChapterBatch(ids, { stopped: () => stop.current || !alive.current, process: async (id, index) => {
                 const workspace = await getProjectUnitWorkspace(detail.project.id, id);
-                if (stop.current || !alive.current) break;
-                if (workspace.tasks.some(task => (task.status === "queued" || task.status === "running") && task.clientContext?.chapterOperation === kind)) { skipped++; continue; }
-                if (kind === "storyboard" && workspace.shots.length && !replace) { skipped++; continue; }
+                if (stop.current || !alive.current) return "skipped";
+                if (workspace.tasks.some(task => (task.status === "queued" || task.status === "running") && task.clientContext?.chapterOperation === kind)) return "skipped";
+                if (kind === "storyboard" && workspace.shots.length && !replace) return "skipped";
                 const sourceText = workspace.unit.sourceText.replace(/<[^>]*>/g, " ").trim();
-                if (!sourceText) { skipped++; continue; }
-                setProgress(`${completed + skipped + 1}/${ids.length} · ${workspace.unit.title}`);
+                if (!sourceText) return "skipped";
+                setProgress(`${index + 1}/${ids.length} · ${workspace.unit.title}`);
                 const options = { onTaskUpdate: (task: GenerationTask) => onTask(id, kind, task), onFallback: (text: string) => message.warning(text) };
                 const input = { projectId: detail.project.id, projectName: detail.project.name, chapterId: id, chapterTitle: workspace.unit.title, sourceText, config: { ...config, model: textModel, textModel } };
                 if (kind === "characters") {
@@ -75,13 +77,17 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
                     if (candidates.length) await createProjectAssetCandidates(detail.project.id, candidates, "chapter_character_extract");
                 } else {
                     const snapshot = { ...detail, ...workspace, assets };
-                    const result = await generateChapterStoryboard({ ...input, projectStyle: { presetId: style!.id, title: style!.title, prompt: style!.prompt, profileJson: detail.project.styleProfileJson }, characters: chapterStoryboardCharacters(snapshot, id), assets: chapterStoryboardAssets(snapshot), skills, selectedSkillIds: skillIds, productionPlan: createDramaProductionPlan(config, videoModel, selectedSeconds, "story"), actionDirection: action.trim() || undefined }, options);
+                    const result = await generateChapterStoryboard({ ...input, projectStyle: { presetId: style!.id, title: style!.title, prompt: style!.prompt, profileJson: detail.project.styleProfileJson }, characters: chapterStoryboardCharacters(snapshot, id), assets: chapterStoryboardAssets(snapshot), skills, selectedSkillIds: skillIds, productionPlan: createDramaProductionPlan(config, videoModel, selectedSeconds, "fixed"), actionDirection: action.trim() || undefined }, options);
                     await replaceProjectUnitShots(detail.project.id, id, storyboardRowsToProjectShots(result.rows, snapshot, result.productionPlan), workspace.shots.map(shot => shot.id));
                 }
-                completed++;
                 onRefresh();
-            }
-            setProgress(`已完成 ${completed} 章，跳过 ${skipped} 章${stop.current ? "；已停止后续提交" : ""}`);
+                return "completed";
+            }, onOutcome: outcome => {
+                if (outcome.status === "completed") completed++;
+                if (outcome.status === "skipped") skipped++;
+                if (outcome.status === "failed" && alive.current) setFailures(current => [...current, `${detail.units.find(unit => unit.id === outcome.id)?.title || outcome.id}：${outcome.error}`]);
+            } });
+            setProgress(`已完成 ${completed} 章，跳过 ${skipped} 章，失败 ${outcomes.filter(item => item.status === "failed").length} 章${stop.current ? "；已停止后续提交" : ""}`);
         } catch (error) {
             message.error(`已完成 ${completed} 章，后续已停止：${error instanceof Error ? error.message : "批量任务失败"}`);
         } finally { if (alive.current) setBusy(false); onRefresh(); }
@@ -92,9 +98,10 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
             <Select mode="multiple" disabled={busy} value={ids} onChange={setIds} maxTagCount="responsive" showSearch optionFilterProp="label" placeholder="选择章节" options={detail.units.map((unit, index) => ({ value: unit.id, label: `第${index + 1}章 · ${unit.title}` }))} />
             <Button size="small" disabled={busy} onClick={() => setIds(detail.units.map(unit => unit.id))}>选择全部章节</Button>
             {!busy && <ModelPicker config={config} value={textModel} capability="text" onChange={setTextModel} fullWidth />}
-            {kind === "storyboard" && <><ModelPicker config={config} value={videoModel} capability="video" onChange={setVideoModel} fullWidth /><Select disabled={busy} value={selectedSeconds} onChange={setSeconds} options={durations.map(value => ({ value, label: `每段最多 ${value} 秒，按剧情划分` }))} /><SkillRuntimePicker skills={skills} loading={loading} value={skillIds} onChange={setSkillIds} profile="shortDrama" /><Input.TextArea disabled={busy} value={action} onChange={event => setAction(event.target.value)} placeholder="有打戏时填写并确认：打法、能力、强度、环境与禁用项；填写后使用武戏导演 Skill" /><Checkbox disabled={busy} checked={replace} onChange={event => setReplace(event.target.checked)}>允许替换选中章节的现有分镜（包含关联产物；默认跳过已有分镜）</Checkbox></>}
+            {kind === "storyboard" && <><ModelPicker config={config} value={videoModel} capability="video" onChange={setVideoModel} fullWidth /><Select disabled={busy} value={selectedSeconds} onChange={setSeconds} options={durations.map(value => ({ value, label: `每段固定 ${value} 秒，保持所选时长` }))} /><SkillRuntimePicker skills={skills} loading={loading} value={skillIds} onChange={setSkillIds} profile="shortDrama" /><Input.TextArea disabled={busy} value={action} onChange={event => setAction(event.target.value)} placeholder="有打戏时填写并确认：打法、能力、强度、环境与禁用项；填写后使用武戏导演 Skill" /><Checkbox disabled={busy} checked={replace} onChange={event => setReplace(event.target.checked)}>允许替换选中章节的现有分镜（包含关联产物；默认跳过已有分镜）</Checkbox></>}
             <Alert type="info" showIcon description="逐章处理，保留原文；文本按实际模型用量计费。个人 GPT 不扣公司额度；无 Key 或明确额度不足时使用 Sonnet 5.5。可关闭窗口继续，离开章节页面后停止提交后续章节，已提交任务继续在后台运行。" />
             {progress && <div role="status">{progress}</div>}
+            {failures.length > 0 && <Alert type="warning" showIcon message="以下章节未完成，其余章节继续处理；原任务保留，不自动重复提交" description={failures.map((text, index) => <div key={index}>{text}</div>)} />}
         </div>
     </AppModal>;
 }

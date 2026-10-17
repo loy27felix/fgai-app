@@ -22,6 +22,9 @@ const paths: Record<string, string> = {
     "@/lib/canvas/canvas-task-mutation": fileURLToPath(new URL("../src/lib/canvas/canvas-task-mutation.ts", import.meta.url)),
     "./user-data-sync-media": join(dir, "media.ts"),
     "@/lib/canvas/agent-canvas-patch": fileURLToPath(new URL("lib/canvas/agent-canvas-patch.ts", root)),
+    "@/lib/canvas/sync-recovery": fileURLToPath(new URL("lib/canvas/sync-recovery.ts", root)),
+    "@/lib/canvas/canvas-sync-rebase": join(dir, "rebase.ts"),
+    "@/lib/canvas/canvas-text-merge": fileURLToPath(new URL("lib/canvas/canvas-text-merge.ts", root)),
 };
 function copySource(source: string, name: string) {
     const code = readFileSync(new URL(source, root), "utf8");
@@ -49,6 +52,7 @@ export const flushAssetStorePersistence = async () => {};
 export const getGenerationAssetDefaults = () => undefined;
 export const appQueryClient = { invalidateQueries: async () => {} };
 export const repairMissingCanvasAssets = () => ({ createdAssets: 0, updatedProjects: 0 });
+export const rebindInconsistentCanvasAssets = () => ({});
 export class ApiError extends Error { retryable = false; constructor(message, options = {}) { super(message); Object.assign(this, options); } }
 export const apiBaseURL = "/api";
 const unexpected = () => { throw new Error("unexpected dependency call"); };
@@ -84,6 +88,11 @@ export async function applyRemoteCanvasOperations(id, request) {
         } else if (operation.type === "set_field") {
             if (!equal(project[operation.field], operation.beforeValue)) conflict();
             project[operation.field] = operation.value;
+        } else if (operation.type === "remove_node") {
+            const node = project.nodes.find(node => node.id === operation.id);
+            if (!node || !equal(node, operation.expected)) conflict();
+            project.nodes = project.nodes.filter(node => node.id !== operation.id);
+            project.connections = project.connections.filter(edge => edge.fromNodeId !== operation.id && edge.toNodeId !== operation.id);
         } else if (operation.type === "patch_node") {
             const node = project.nodes.find(node => node.id === operation.id);
             if (!node) conflict();
@@ -109,14 +118,17 @@ export async function getRemoteCanvasProject(id) { fixture.reads++; fixture.read
 export async function getRemoteAsset(id) { fixture.assetReads.push(id); return { asset: structuredClone(fixture.remoteAssetsById.get(id)) }; }
 export async function upsertRemoteAsset(asset) { fixture.assetWrites.push(structuredClone(asset)); fixture.remoteAssetsById.set(asset.id, structuredClone(asset)); }
 export const assetForRemoteSync = asset => asset;
-export const deleteRemoteAssets = unexpected, deleteRemoteCanvasProject = unexpected, getRemoteAssetsByIds = unexpected, getRemoteUserDataSnapshot = unexpected, listRemoteAssetsPage = unexpected;
-export const getImageBlob = unexpected, getMediaBlob = unexpected, parseAssetRecordList = unexpected, rebaseAssetSnapshot = unexpected, canvasNodeToAsset = unexpected;
+export const getRemoteAssetsByIds = async ids => ({ assets: ids.map(id => fixture.remoteAssetsById.get(id)).filter(Boolean) });
+export const parseAssetRecordList = records => records;
+export const deleteRemoteAssets = unexpected, deleteRemoteCanvasProject = unexpected, getRemoteUserDataSnapshot = unexpected, listRemoteAssetsPage = unexpected;
+export const getImageBlob = unexpected, getMediaBlob = unexpected, rebaseAssetSnapshot = unexpected, canvasNodeToAsset = unexpected;
 export const useCanvasHistoryStore = {};
 `,
 );
 copySource("services/api/resources.ts", "resources.ts");
 copySource("services/user-data-sync-media.ts", "media.ts");
 copySource("lib/canvas/canvas-content.ts", "content.ts");
+copySource("lib/canvas/canvas-sync-rebase.ts", "rebase.ts");
 copySource("stores/use-sync-progress-store.ts", "progress.ts");
 copySource("services/user-data-sync.ts", "sync.ts");
 const sync: typeof import("@/services/user-data-sync") = await import(join(dir, "sync.ts"));
@@ -318,9 +330,12 @@ describe("定向保存与旧 journal 的真实同步集成", () => {
         await sync.initializeRemoteUserDataSession("sync-test-user");
         fixture.remote = { ...baseline, revision: 8, nodes: [...baseline.nodes, { ...baseline.nodes[0], id: "remote-new" }] };
         const loaded = await sync.loadCanvasProjectForEditing("canvas");
-        expect(loaded?.nodes.map((node) => node.id)).toEqual(["remote-new"]);
+        expect(loaded?.nodes).toEqual([]);
         expect(journal()[0].request).toEqual(request);
         expect(fixture.writes).toHaveLength(0);
+        await sync.saveRemoteUserDataNow("canvas");
+        expect(live().nodes.map((node) => node.id)).toEqual(["remote-new"]);
+        expect(fixture.remote.nodes.map((node) => node.id)).toEqual(["remote-new"]);
     });
 
     test("旧缓存恢复副本写入失败时不覆盖本地、不向云端发送删除请求", async () => {
@@ -369,7 +384,7 @@ describe("定向保存与旧 journal 的真实同步集成", () => {
         useCanvasStore.setState({ projects: [entry.prepared, { ...b, title: "B own edit" }] });
         const foreground = sync.saveRemoteUserDataNow(b.id);
         release.resolve();
-        expect(await background).toMatchObject({ message: "field conflict" });
+        expect(await background).toMatchObject({ reason: "canvas_task_binding_conflict" });
         await foreground;
         expect(fixture.writesById.get(b.id)).toHaveLength(1);
         expect(fixture.writesById.get(b.id)[0].operations).toContainEqual({ type: "set_field", field: "title", beforeValue: "B", value: "B own edit" });
@@ -405,7 +420,7 @@ describe("定向保存与旧 journal 的真实同步集成", () => {
         expect(useCanvasStore.getState().openProject(b.id).revision).toBe(0);
         const creating = sync.saveRemoteUserDataNow(b.id);
         release.resolve();
-        expect(await background).toMatchObject({ message: "field conflict" });
+        expect(await background).toMatchObject({ reason: "canvas_task_binding_conflict" });
         await creating;
         const writes = fixture.writesById.get(b.id);
         expect(writes).toHaveLength(1);
@@ -658,19 +673,28 @@ describe("定向保存与旧 journal 的真实同步集成", () => {
         expect(fixture.remote.title).toBe("New edit");
     });
 
-    test.each(["task", "prompt"])("%s 真实业务冲突不会被 timestamp fence 吞掉或部分 apply", async (kind) => {
+    test.each(["task", "prompt"])("%s 冲突区分任务保护与提示词合并", async (kind) => {
         const entry = oldTaskEntry();
         fixture.remote = taskProject(kind === "task" ? "other-task" : "task-1", "2026-01-01T00:00:02Z", kind === "prompt" ? "Remote prompt" : "Original prompt");
         const originalRemote = structuredClone(fixture.remote);
         await restoreJournal([entry]);
-        await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("field conflict");
+        if (kind === "prompt") {
+            await sync.saveRemoteUserDataNow("canvas");
+            expect(fixture.remote.nodes[0].metadata.prompt).toContain("Local");
+            expect(fixture.remote.nodes[0].metadata.prompt).toContain("Remote");
+            expect(fixture.remote.nodes[0].metadata.taskId).toBe("task-1");
+            expect(fixture.receipts.size).toBe(1);
+            expect(journal()).toEqual([]);
+            return;
+        }
+        await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("绑定");
         expect(fixture.writes).toHaveLength(2);
         const fenced = structuredClone(fixture.writes[1]);
         expectFencedRetry(entry.request, fenced);
         expect(fixture.remote).toEqual(originalRemote);
         expect(fixture.receipts.size).toBe(0);
         expect(journal()[0].request).toEqual(fenced);
-        await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("field conflict");
+        await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("绑定");
         expect(fixture.writes).toHaveLength(3);
         expect(fixture.writes[2]).toEqual(fenced);
     });
@@ -731,7 +755,7 @@ describe("定向保存与旧 journal 的真实同步集成", () => {
                 { ...b, title: "B edit" },
             ],
         });
-        fixture.errors.set("canvas:1", new ApiError("A conflict", { status: 409, reason: "canvas_field_conflict" }));
+        fixture.errors.set("canvas:1", new ApiError("A conflict", { status: 409, reason: "canvas_task_binding_conflict" }));
         await expect(sync.saveRemoteUserDataNow()).rejects.toThrow("A conflict");
         expect(fixture.writesById.get(b.id)).toHaveLength(1);
         expect(useSyncProgressStore.getState().syncingProjects.canvas.phase).toBe("error");
@@ -877,7 +901,7 @@ test("a definitely rejected orphan-media journal is not replayed forever after t
     };
     useCanvasStore.setState({ projects: [{ ...base(), timeline: fixedTimeline }] });
     await sync.initializeRemoteUserDataSession("sync-test-user");
-    await expect(sync.saveRemoteUserDataNow("canvas")).rejects.toThrow("画布媒体尚未进入素材库");
+    await sync.saveRemoteUserDataNow("canvas");
     await sync.saveRemoteUserDataNow("canvas");
     expect(fixture.writes).toHaveLength(2);
     expect(fixture.writes[1].mutationId).not.toBe("rejected-orphan");

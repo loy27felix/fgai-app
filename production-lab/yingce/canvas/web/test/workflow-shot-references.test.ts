@@ -7,6 +7,17 @@ import { assertVideoCapability } from "@/services/api/video-validation";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
 
 describe("workflow shot asset references", () => {
+    test("removing a bound asset removes its generated mention but keeps authored story text", () => {
+        const context = buildShotAssetReferenceContext(detail(), "shot-1");
+        const prompt = ensureShotAssetMentionPrompt("主角看向街道。", context.mentionReferences);
+        const remaining = context.mentionReferences.filter(item => item.assetId !== "asset-scene");
+        const cleaned = ensureShotAssetMentionPrompt(prompt, remaining);
+        expect(cleaned).not.toContain("@[asset:asset-scene]");
+        expect(cleaned).toContain("主角看向街道。");
+        expect(cleaned).toContain("@[asset:asset-character]");
+        expect(() => resolveShotAssetMentionPrompt(cleaned, { ...context, mentionReferences: remaining })).not.toThrow();
+        expect(ensureShotAssetMentionPrompt(cleaned, remaining)).toBe(cleaned);
+    });
     test("project reference placeholders are not mistaken for an unsupported image codec", () => {
         const context = buildShotAssetReferenceContext(detail(), "shot-1");
         const profile = defaultModelCapabilityConfig().video!;

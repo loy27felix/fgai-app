@@ -1,4 +1,5 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_TEXT_MODEL_ID, isTextModelId, TEXT_MODELS } from "@/lib/ai/catalog";
@@ -99,7 +100,7 @@ export default function CreatorWorkspace({ userEmail, initialSessions, initialMe
   const stickToBottomRef = useRef(true);
   const initialHistoryRecoveryRef = useRef(false);
   const selectedModel = TEXT_MODELS.find((item) => item.id === model) || TEXT_MODELS[0];
-  const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
+  const me = userDisplayName(userEmail).slice(0, 2).toUpperCase();
 
   function scrollToLatest(behavior: ScrollBehavior = "smooth") {
     const viewport = scrollRef.current;

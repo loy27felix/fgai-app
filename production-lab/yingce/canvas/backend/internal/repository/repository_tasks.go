@@ -212,7 +212,8 @@ func (r *Repository) SaveTaskCompletion(task *model.Task, expected model.TaskSta
 // Registration and terminal success commit together; a failed asset write leaves
 // the task recoverable and never exposes a false success to the canvas.
 func (r *Repository) SaveTaskCompletionWithRegistration(task *model.Task, expected model.TaskStatus, results []model.Result, register func(*Repository) error) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	return r.Transaction(func(repo *Repository) error {
+		tx := repo.db
 		updated := taskLeaseWriter(tx.Model(&model.Task{}), task.LeaseOwner).
 			Where("id = ? AND status = ?", task.ID, expected).
 			Select("*").Omit("id", "created_at").Updates(task)
@@ -228,7 +229,7 @@ func (r *Repository) SaveTaskCompletionWithRegistration(task *model.Task, expect
 			}
 		}
 		if register != nil {
-			return register(New(tx))
+			return register(repo)
 		}
 		return nil
 	})

@@ -87,6 +87,9 @@ func userFacingTaskFailure(task *model.Task) string {
 		return "任务失败：" + taskErrorDefaultMessage
 	}
 	reason := userFacingTaskError(task.Error)
+	if shortDramaReasoningTask(task) && (strings.Contains(task.Error, "context deadline exceeded") || strings.Contains(task.Error, "等待上游响应超时")) {
+		reason = "模型生成超过本任务等待时限，原章节和分镜已保留。可减少单章内容后重试，或手动选择其他模型。"
+	}
 	if task.Status == model.TaskStatusCancelled && strings.TrimSpace(task.Error) == "" {
 		reason = "任务已取消"
 	}

@@ -68,9 +68,13 @@ export const useSyncProgressStore = create<SyncProgressStore>((set, get) => ({
     },
 }));
 
+export function hasUnpersistedCanvasInput(projects: readonly Pick<SyncProjectProgress, "localPhase">[]) {
+    return projects.some((item) => item.localPhase === "pending" || item.localPhase === "error");
+}
+
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("beforeunload", (event) => {
-        if (useSyncProgressStore.getState().isAnySyncing()) {
+        if (hasUnpersistedCanvasInput(Object.values(useSyncProgressStore.getState().syncingProjects))) {
             event.preventDefault();
             event.returnValue = "画布正在同步至云端，请勿关闭页面。";
             return "画布正在同步至云端，请勿关闭页面。";

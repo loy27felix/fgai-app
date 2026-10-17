@@ -151,7 +151,7 @@ import { useCanvasHistory } from "./use-canvas-history";
 import { useCanvasKeyboard } from "./use-canvas-keyboard";
 import { useCanvasMediaTools } from "./use-canvas-media-tools";
 import { useDirectorDesk } from "./use-director-desk";
-import {CanvasEditorLease} from '@/components/canvas/canvas-editor-lease';
+import {CanvasCollaborationLayer} from '@/components/canvas/canvas-collaboration-layer';
 import { CanvasDirectorDeskModal } from "@/components/canvas/director/canvas-director-desk-modal";
 import { CanvasDirectorLibrary } from "@/components/canvas/director/canvas-director-library";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
@@ -2845,6 +2845,8 @@ function CanvasViewportPage() {
                                         </CanvasNodeActionContext.Provider>
                                     </CanvasViewport>
 
+                                    <CanvasCollaborationLayer key={projectId} canvasId={projectId} enabled={projectLoaded} containerRef={containerRef} nodesRef={nodesRef} viewportRef={viewportRef}/>
+
                                     <CanvasActiveTaskPanel tasks={activeTasks} onCancelTask={cancelCanvasTask} topInset={focusMode ? "var(--space-3)" : "var(--canvas-topbar-offset)"} />
 
                                     {focusMode ? (
@@ -3236,7 +3238,6 @@ function CanvasViewportPage() {
                             ) : null}
 
                             {frameNode ? <CanvasVideoFrameDialog node={frameNode} open={Boolean(frameNode)} onClose={closeFrameDialog} onConfirm={(params) => void extractVideoFrames(frameNode, params)} /> : null}
-                        <CanvasEditorLease canvasId={projectId} draft={()=>({...currentProject,nodes:nodesRef.current,connections:connectionsRef.current})}/>
                         <CanvasDirectorLibrary open={directorDesk.libraryOpen} nodes={nodes} onClose={directorDesk.closeLibrary} onOpen={directorDesk.openDesk} onNew={directorDesk.newDesk} onDelete={directorDesk.deleteDesk}/>
                         <CanvasDirectorDeskModal open={directorDesk.open} node={directorDesk.node} canvasId={projectId} projectId={linkedProjectId} onClose={directorDesk.closeDesk} onSave={directorDesk.saveDocument} onOutput={directorDesk.saveOutput}
                             onAgentContext={async summary => { await directorDesk.saveOutput(new File([summary], "3D 调度说明.txt", {type: "text/plain"})); setAgentPrefillRequest((current) => ({ id: (current?.id ?? 0) + 1, text: summary })); openAgent(); directorDesk.closeDesk(); }} />

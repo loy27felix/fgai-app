@@ -107,6 +107,7 @@ describe("剧情视频片段规划与恢复", () => {
         const plan = createDramaProductionPlan(config(), config().model, 20, "fixed");
         expect(() => validateDramaStoryboard([row], plan)).not.toThrow();
         expect(() => validateDramaStoryboard([{ ...row, durationSeconds: 3 }], plan)).toThrow("未替换");
+        expect(() => validateDramaStoryboard([{ ...row, durationSeconds: 15 }], plan)).toThrow("未替换");
         expect(() => validateDramaStoryboard([{ ...row, videoMotionPrompt: "慢推人物" }], plan)).toThrow("未替换");
         expect(() => validateDramaStoryboard([{ ...row, dialogue: "林默：这句台词必须保留。" }], plan)).toThrow("遗漏或改写");
         const shot = storyboardRowsToProjectShots([row], undefined, plan)[0];

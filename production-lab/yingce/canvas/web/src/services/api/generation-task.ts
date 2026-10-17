@@ -279,7 +279,8 @@ function usesArkVideoAssetReference(config: AiConfig) {
 async function createAndWaitGenerationTask(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences, dependencies: GenerationTaskDependencies) {
     const task = await createBackendGenerationTask(options, prepared, dependencies);
     const { signal, onTaskUpdate, onTextDelta } = options;
-    const completed = await dependencies.waitTask(task.id, { signal, initialTask: task, onTaskUpdate, onTextDelta });
+    const shortDrama = options.mode === "text" && (options.metadata?.operation === "chapter_character_breakdown" || String(options.metadata?.source || "").startsWith("short-drama-"));
+    const completed = await dependencies.waitTask(task.id, { signal, initialTask: task, onTaskUpdate, onTextDelta, ...(shortDrama && options.config.model === "gpt-6.1-sol" ? { timeoutMs: 35 * 60 * 1000 } : {}) });
     return parseBackendGenerationResult(completed);
 }
 

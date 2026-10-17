@@ -19,6 +19,14 @@ export async function editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publi
   const input=watching?{key:path.searchParams.get('key'),generation:path.searchParams.get('generation')}:await readJSON(req),key=String(input.key||'');if(!keyPattern.test(key))throw Error('画布编号无效');
   if(key.startsWith('ad:')){if(!await advertisingAccess(pool,actor,key.slice(3))){send(res,403,null,'无权编辑此广告项目');return true;}}
   else{const r=await fetch(new URL('/api/canvas-projects/'+encodeURIComponent(key.slice(7)),web),{headers:{cookie,origin:publicOrigin},signal:AbortSignal.timeout(15000)});const d=await r.json();if(!r.ok||d.code!==0){send(res,403,null,'无权编辑此画布');return true;}}
+  // Older open tabs keep their handshake, but canvas access is collaborative.
+  // Native authorization and versioned operations continue to validate every write.
+  if(key.startsWith('canvas:')){
+   if(watching){res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store','connection':'keep-alive','x-accel-buffering':'no'});res.write(': collaborative\n\n');const timer=setInterval(()=>res.write(': active\n\n'),15000);res.once('close',()=>clearInterval(timer));return true;}
+   if(input.action==='heartbeat'){send(res,200,{active:true,collaborative:true});return true;}
+   if(input.action!=='acquire')throw Error('编辑连接操作无效');
+   const generation=randomUUID();send(res,200,{token:tokenFor({resource_key:key,actor_id:actor.id,generation}),generation,previousHolder:null,collaborative:true});return true;
+  }
   if(watching){
    if(!/^[0-9a-f-]{36}$/i.test(input.generation||''))throw Error('编辑连接编号无效');
    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store','connection':'keep-alive','x-accel-buffering':'no'});res.write(': connected\n\n');
@@ -62,6 +70,7 @@ export async function guardEditorWrite(req,res,{pool,actor,path}){
  const supplied=String(req.headers['x-fg-editor-key']||'');if(!expected&&keyPattern.test(supplied)&&!path.pathname.startsWith('/api/fg/'))expected=supplied;
  if(!expected)return true;
  if(!keyPattern.test(expected)){send(res,400,null,'画布编号无效');return false;}
+ if(expected.startsWith('canvas:'))return true;
  const client=await pool.connect();
  try{
   await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-editor:'||$1))",[expected]);

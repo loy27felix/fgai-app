@@ -22,6 +22,7 @@ import { platformToken, trustedOrigin, publicResourceRead, publicCanvasShareRead
 import {publicEntryOrigins, workspaceRequestPath, workspaceEntryURL} from './fg-public-entry.mjs';
 import {initializeInspiration,startInspirationSync,inspirationRoute} from './fg-inspiration.mjs';
 import {registerSpeechStream} from './fg-speech-stream.mjs';
+import {registerCanvasRealtime} from './fg-canvas-realtime.mjs';
 import {canvasOwnersRoute} from './fg-canvas-owners.mjs';
 import {initializeMeilin,meilinInternalRoute,meilinUserRoute} from './fg-meilin.mjs';
 import {isPublicDemo,publicDemoDenied} from './fg-public-demo.mjs';
@@ -233,6 +234,7 @@ const server = http.createServer(async (req, res) => {
 });
 server.requestTimeout = 0;
 server.headersTimeout = 60000;
+registerCanvasRealtime(server,{web,publicOrigin,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:platformActor,session:canvasSession});
 const speechStreams=registerSpeechStream(server,{pool,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:async req=>{const actor=await platformActor(req);if(actor)await canvasSession(actor);return actor;}});
 server.listen(3010, '0.0.0.0');
 const arcOrigin=new URL(publicOrigin);arcOrigin.port='3017';

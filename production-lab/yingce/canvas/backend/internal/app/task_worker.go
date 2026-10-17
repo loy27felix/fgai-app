@@ -384,7 +384,28 @@ func taskExecutionTimeout(task *model.Task, policy RuntimeTaskPolicy) time.Durat
 	if task == nil {
 		return time.Duration(policy.DefaultTimeoutMinutes) * time.Minute
 	}
+	// Long structured short-drama output with high reasoning can legitimately
+	// exceed the ordinary eight-minute text budget. Do not retry or switch model.
+	if shortDramaReasoningTask(task) {
+		return max(30*time.Minute, time.Duration(policy.TextTimeoutMinutes)*time.Minute)
+	}
 	return taskExecutionTimeoutWithPolicy(task.Type, policy)
+}
+
+func shortDramaReasoningTask(task *model.Task) bool {
+	if task == nil || !strings.HasPrefix(task.Type, "canvas_text") || task.Model != "gpt-6.1-sol" {
+		return false
+	}
+	var input struct {
+		Metadata struct {
+			Source    string `json:"source"`
+			Operation string `json:"operation"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal([]byte(task.InputJSON), &input) != nil {
+		return false
+	}
+	return input.Metadata.Source == "short-drama-chapter-storyboard" || input.Metadata.Operation == "chapter_character_breakdown" || input.Metadata.Source == "short-drama-prompt-rewrite"
 }
 
 func taskExecutionTimeoutWithPolicy(taskType string, policy RuntimeTaskPolicy) time.Duration {

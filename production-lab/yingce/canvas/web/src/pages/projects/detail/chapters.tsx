@@ -86,7 +86,7 @@ import { ChapterBatchModal } from "./chapter-batch-modal";
 const CHAPTER_ROW_HEIGHT = 62;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
 type ChapterOperationKind = "characters" | "storyboard";
-type ChapterOperation = { startedAt: number; taskId?: string };
+type ChapterOperation = { startedAt: number; taskId?: string; stage?: string };
 
 function formatChapterListCount(value: number) {
     if (value < 10_000) return formatCount(value);
@@ -125,7 +125,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const defaultTextModel = shortDramaDefaultTextModel(effectiveConfig, personalGPT.data?.configured === true);
     const [planningVideoModel, setPlanningVideoModel] = useState(detail.project.defaultVideoModel || shortDramaMediaDefault(effectiveConfig, "video"));
     const [segmentSeconds, setSegmentSeconds] = useState(15);
-    const [segmentStrategy, setSegmentStrategy] = useState<DramaProductionPlan["strategy"]>("story");
+    const [segmentStrategy, setSegmentStrategy] = useState<DramaProductionPlan["strategy"]>("fixed");
     const [includeAction, setIncludeAction] = useState(false);
     const [actionDirection, setActionDirection] = useState("");
     const planningDurations = dramaSegmentDurations(effectiveConfig, planningVideoModel);
@@ -364,6 +364,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             [key]: {
                 startedAt: Number.isFinite(taskStartedAt) ? taskStartedAt : current[key]?.startedAt || Date.now(),
                 taskId: task.id,
+                stage: task.stage,
             },
         }));
     };
@@ -660,6 +661,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>
                             </div>
                         </header>
+                        {(characterOperation?.stage === "thinking" || storyboardOperation?.stage === "thinking") && <p role="status" className="border-b border-border/70 px-5 py-2 text-xs text-foreground/60">模型正在思考并规划结构，任务仍在运行；可以继续编辑或切换章节。</p>}
                         <div className="flex min-w-0 items-center border-b border-border/70"><div className="min-w-0 flex-1"><EditorToolbar editor={editor} /></div><Button type="text" size="small" className="mr-2 shrink-0" disabled={!editor} onClick={() => setFormatPreview(scriptTextToHtml(editor?.getText({ blockSeparator: "\n" }) || ""))}>整理排版</Button></div>
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
@@ -706,7 +708,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         <label><span className="mb-1.5 block text-xs font-medium text-foreground/68">片段时长</span><Select className="w-full" value={planningSeconds} onChange={setSegmentSeconds} options={planningDurations.map(value => ({ value, label: `${value} 秒` }))} placeholder="该模型不支持 13 秒以上片段" /></label>
                         <label><span className="mb-1.5 block text-xs font-medium text-foreground/68">划分方式</span><Segmented block value={segmentStrategy} onChange={value => setSegmentStrategy(value as DramaProductionPlan["strategy"])} options={[{ value: "story", label: "按剧情划分" }, { value: "fixed", label: "固定时长" }]} /></label>
                     </div>
-                    <p className="text-xs leading-5 text-foreground/50">一个片段生成一条视频，片段内可包含多个镜头。按剧情模式会在所选时长以内、至少 13 秒的支持档位中选择自然落点；保留完整对白和场面衔接。</p>
+                    <p className="text-xs leading-5 text-foreground/50">一个片段生成一条视频，片段内可包含多个镜头。{segmentStrategy === "fixed" ? `每个片段严格保持 ${planningSeconds} 秒，不自动缩短。` : "按剧情模式允许在所选时长以内、至少 13 秒的支持档位中选择自然落点。"}保留完整对白和场面衔接。</p>
                     {planningSeconds ? <FGPricePreview config={{ ...effectiveConfig, model: planningVideoModel, videoSeconds: String(planningSeconds) }} model={planningVideoModel} mode="video" requirements={{ capability: "video", videoSeconds: String(planningSeconds), input: { textCount: 1, imageCount: 0, characterCount: 0, videoCount: 0, audioCount: 0 } }} /> : null}
                     <p className="text-[var(--fs-tiny)] text-foreground/45">上方为所选规格单条视频的费用参考；本次先生成脚本，视频在分镜制作中另行提交。</p>
                     <div className="rounded-lg bg-foreground/[.025] p-3 text-xs leading-5 text-foreground/65"><p>默认应用 short-drama-asset-prompts（资产设定与引用校验）和 script-to-drama-prompt-dev（片段分镜与视频提示词）。</p></div>
@@ -737,7 +739,7 @@ function chapterOperationKey(unitId: string, kind: ChapterOperationKind) {
 
 function chapterOperationFromTask(task: GenerationTask): ChapterOperation {
     const startedAt = Date.parse(task.startedAt || task.createdAt);
-    return { startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(), taskId: task.id };
+    return { startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(), taskId: task.id, stage: task.stage };
 }
 
 function chapterTaskResultAlreadyApplied(task: GenerationTask, chapterId: string, kind: ChapterOperationKind, detail: Pick<ProjectDetail, "assetCandidates" | "shots">) {

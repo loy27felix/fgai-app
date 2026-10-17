@@ -1,4 +1,5 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 
 import {
   ChangeEvent,
@@ -243,7 +244,7 @@ export default function CreatorImageWorkspace({ userEmail }: Props) {
   const selectedOutputSize = imageOutputSizes.includes(outputSize) ? outputSize : imageOutputSizes[0];
   const selectedImageSize = imageRequestSizeForModel(model, ratio, selectedOutputSize) || sizeFor(model, ratio);
   const imageReferenceLimit = Math.min(MAX_CREATOR_IMAGE_REFERENCES, getImageModel(model)?.maxReferences || MAX_CREATOR_IMAGE_REFERENCES);
-  const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
+  const me = userDisplayName(userEmail).slice(0, 2).toUpperCase();
 
   function localFileError(nextFiles: File[]) {
     if (nextFiles.length > imageReferenceLimit) return `当前模型最多 ${imageReferenceLimit} 张参考图`;

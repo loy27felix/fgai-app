@@ -133,7 +133,7 @@ func runChatCompletionsTextTask(ctx context.Context, input canvasGenerationInput
 	body := map[string]interface{}{"model": input.Config.Model, "messages": messages}
 	applyTextThinking(body, input, "chat-completion")
 	applyTextOutputLimit(body, input.MaxOutputTokens, "max_tokens")
-	result, err := requestTextProvider(ctx, input.Config, "/chat/completions", body, "chat-completion", input.StreamText, input.OnTextDelta)
+	result, err := requestTextProvider(ctx, input.Config, "/chat/completions", body, "chat-completion", input.StreamText, input.OnTextDelta, input.OnReasoningDelta)
 	if err != nil {
 		return nil, err
 	}

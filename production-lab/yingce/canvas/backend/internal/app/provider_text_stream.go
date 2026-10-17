@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-func requestTextProvider(ctx context.Context, config providerConfig, path string, body map[string]interface{}, protocol string, stream bool, onDelta func(string)) (providerTextResult, error) {
+func requestTextProvider(ctx context.Context, config providerConfig, path string, body map[string]interface{}, protocol string, stream bool, onDelta func(string), onReasoning ...func(string)) (providerTextResult, error) {
 	if stream {
-		return postStreamingTextResult(ctx, config, path, body, protocol, onDelta)
+		return postStreamingTextResult(ctx, config, path, body, protocol, onDelta, onReasoning...)
 	}
 	var payload map[string]interface{}
 	if err := postJSON(ctx, config, path, body, &payload); err != nil {
@@ -36,9 +36,9 @@ func postStreamingText(ctx context.Context, config providerConfig, path string, 
 	return result.Text, err
 }
 
-func postStreamingTextResult(ctx context.Context, config providerConfig, path string, body map[string]interface{}, protocol string, onDelta func(string)) (providerTextResult, error) {
+func postStreamingTextResult(ctx context.Context, config providerConfig, path string, body map[string]interface{}, protocol string, onDelta func(string), onReasoning ...func(string)) (providerTextResult, error) {
 	// 文本创作与 Agent 共用同一套 SSE 解析，确保正文、推理摘要和供应商错误语义一致。
-	parsed, err := postStreamingAgent(ctx, config, path, body, protocol, onDelta)
+	parsed, err := postStreamingAgent(ctx, config, path, body, protocol, onDelta, onReasoning...)
 	if err != nil {
 		return providerTextResult{}, err
 	}

@@ -1,11 +1,12 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 import { ReactNode } from "react";
 import { useFgTheme, Icon, Hov } from "./ui";
 import FGLogo from "@/components/FGLogo";
 
 export default function PageShell({ title, email, children, mainClassName }: { title: string; email?: string; children: ReactNode; mainClassName?: string }) {
   const { theme, toggle } = useFgTheme();
-  const ini = (email || "?").replace(/@.*/, "").slice(0, 2).toUpperCase();
+  const ini = userDisplayName(email || "").slice(0, 2).toUpperCase();
   return (
     <div data-theme={theme} className="fg2" style={{ position: "relative", minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontSize: 15, lineHeight: 1.55, display: "flex", flexDirection: "column" }}>
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}><div style={{ position: "absolute", inset: 0, background: "radial-gradient(700px 540px at 100% 14%, var(--glow-coral), transparent 60%), radial-gradient(760px 600px at 2% -8%, var(--glow-b), transparent 58%)", animation: "glowpulse 16s var(--ease) infinite" }} /></div>

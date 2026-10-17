@@ -1,4 +1,5 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 
 import { ChangeEvent, CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import SkillPicker from "@/components/SkillPicker";
@@ -130,7 +131,7 @@ export default function CreatorVideoWorkspace({ userEmail }: Props) {
   const availableResolutions = activeModel?.resolutions || ["480p"];
   const DURATION_MIN = durationMin;
   const DURATION_MAX = durationMax;
-  const me = userEmail.replace(/@.*/, "").slice(0, 2).toUpperCase();
+  const me = userDisplayName(userEmail).slice(0, 2).toUpperCase();
 
   function announceVideoCompletion(task: CreatorVideoTask | CreatorVideoTaskView | null | undefined) {
     if (task?.status !== "succeeded") return;

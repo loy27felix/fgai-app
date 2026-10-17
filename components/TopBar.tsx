@@ -1,11 +1,12 @@
 "use client";
+import { userDisplayName } from "@/lib/auth/user-display-name";
 import Link from "next/link";
 import { signOut } from "@/app/projects/actions";
 import ThemeToggle from "@/components/ThemeToggle";
 import FGLogo from "@/components/FGLogo";
 
 export default function TopBar({ email, crumb, admin }: { email: string; crumb?: React.ReactNode; admin?: boolean }) {
-  const initial = (email[0] || "U").toUpperCase();
+  const initial = userDisplayName(email).slice(0, 2);
   return (
     <header className="sticky top-0 z-30 flex h-[58px] items-center gap-2 glass-bar px-5">
       <Link href="/workspace" className="flex items-center gap-2.5 font-disp text-base font-semibold">
