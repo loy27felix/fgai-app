@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.3.30";
+export const CURRENT_RELEASE_VERSION = "1.4.0";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,17 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月18日",
+        items: [
+            { type: "新增", content: "美林超级导演改为对话制作工作区，一个对话一个项目；剧本、角色、分镜、Prompt 与真实媒体在旁边展示，随时对话修改已有文稿。" },
+            { type: "新增", content: "提供超级造梦、超级棱镜、超级银幕、超级爆点四条制作链路，新项目选一种方法即可；独立剧本体检检查结构、钩子和反转，保留原稿。" },
+            { type: "优化", content: "视频 Prompt 统一详细十二模块，逐段同时描述人物动作、镜头运动和背景；校验时长、真实引用和规格，修改保留版本并提示受影响内容。" },
+            { type: "优化", content: "图片视频先核对完整 Prompt、实际参考图、模型、规格与报价，确认后后台生成；刷新后继续查看，参考图编号自动对应上传顺序。" },
+            { type: "修复", content: "同步大批量画布修改分批保存及明确冲突处理，保留多人协作和原请求恢复；补齐图片返回格式配置、Agent 多选与视频规格选择。" },
+        ],
+    },
+    {
+        version: "1.3.30",
         date: "2026年10月18日",
         items: [
             { type: "修复", content: "修复导演工作台点击返回 FG 工作台仍停留原地或重新进入导演页的问题；明确返回时进入工作台首页。" },

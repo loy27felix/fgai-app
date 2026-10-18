@@ -1,4 +1,5 @@
 import { canonicalize } from "json-canonicalize";
+import { submitCanvasMutationBatches, type CanvasMutationBatchState } from "./canvas-mutation-batches";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import {
     deleteRemoteAssets,
@@ -51,7 +52,7 @@ let remoteOperationTail: Promise<void> = Promise.resolve();
 let subscriptionsInstalled = false;
 let acknowledgedAssets = new Map<string, Asset>();
 let acknowledgedProjects = new Map<string, CanvasProject>();
-type PendingCanvasMutation = { projectId: string; request: CanvasOperationsRequest; baseline?: CanvasProject; prepared: CanvasProject; localPrepared?: CanvasProject; rebaseSource?: CanvasProject; createdAt: string };
+type PendingCanvasMutation = CanvasMutationBatchState & { projectId: string; baseline?: CanvasProject; prepared: CanvasProject; localPrepared?: CanvasProject; rebaseSource?: CanvasProject; createdAt: string };
 const pendingCanvasMutations = new Map<string, PendingCanvasMutation>();
 const pendingCanvasMutationKey = "yingce:canvas-mutation-journal";
 const confirmedCanvasBaselineKey = "yingce:canvas-confirmed-baselines";
@@ -1178,34 +1179,27 @@ async function submitCanvasMutation(entry: PendingCanvasMutation) {
     const assertSession = () => {
         if (epoch !== sessionEpoch || scope !== getActiveUserScope()) throw new Error("账号已切换，已停止旧会话保存");
     };
-    // Also retry a previous failed journal write before sending anything.
-    await persistPendingCanvasMutationJournal();
-    assertSession();
-    try {
-        return await applyRemoteCanvasOperations(entry.projectId, entry.request);
-    } catch (error) {
-        assertSession();
-        // A field-conflict response proves this transaction rolled back. A lost
-        // response does not: ambiguous writes must retain their exact ID/body.
-        if (!(error instanceof ApiError) || error.status !== 409 || error.reason !== "canvas_field_conflict") throw error;
-        // v1.6.8.5 journals may carry a self-contradicting taskId baseline; restore it
-        // from the original snapshot first, then apply the timestamp fence if eligible.
-        const repaired = repairLegacyTaskIdFence(entry.request, entry.baseline, entry.prepared);
-        const fenced = fenceRejectedTaskTimestampMutation(repaired ?? entry.request, entry.baseline, entry.prepared) ?? repaired;
-        if (!fenced) throw error;
-        const replacement = { ...entry, request: { ...fenced, mutationId: newCanvasMutationId() } };
-        pendingCanvasMutations.set(entry.projectId, replacement);
-        try {
-            await persistPendingCanvasMutationJournal();
-        } catch (storageError) {
-            if (epoch === sessionEpoch && pendingCanvasMutations.get(entry.projectId) === replacement) pendingCanvasMutations.set(entry.projectId, entry);
-            throw storageError;
-        }
-        assertSession();
-        // The new request already carries its fence, so future retries cannot
-        // upgrade it again. All original business-field preconditions remain.
-        return applyRemoteCanvasOperations(entry.projectId, replacement.request);
-    }
+    return submitCanvasMutationBatches(entry, {
+        persist: persistPendingCanvasMutationJournal,
+        assertSession,
+        newId: newCanvasMutationId,
+        send: async (request) => {
+            try { return await applyRemoteCanvasOperations(entry.projectId, request); }
+            catch (error) {
+                assertSession();
+                // Keep an ambiguous request's exact identity; only explicit rollback allows replacement.
+                if (!(error instanceof ApiError) || error.status !== 409 || error.reason !== "canvas_field_conflict") throw error;
+                const repaired = repairLegacyTaskIdFence(request, entry.baseline, entry.prepared);
+                const fenced = fenceRejectedTaskTimestampMutation(repaired ?? request, entry.baseline, entry.prepared) ?? repaired;
+                if (!fenced) throw error;
+                entry.request = { ...fenced, mutationId: newCanvasMutationId() };
+                try { await persistPendingCanvasMutationJournal(); }
+                catch (storageError) { entry.request = request; throw storageError; }
+                assertSession();
+                return applyRemoteCanvasOperations(entry.projectId, entry.request);
+            }
+        },
+    });
 }
 
 async function drainRemoteUserDataChanges(options: { projectId?: string | readonly string[] } = {}) {

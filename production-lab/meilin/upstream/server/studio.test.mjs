@@ -1,0 +1,374 @@
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+const root = await mkdtemp(join(tmpdir(), "meilin-studio-"));
+process.env.MEILIN_SKILLS_DIR = root;
+const { runContext } = await import("./fg-context.mjs");
+const {
+  initializeStudio,
+  legacyStudio,
+  addArtifact,
+  approveArtifact,
+  queueTurn,
+  executeRun,
+  studioAction,
+  prepareMedia,
+} = await import("./studio.mjs");
+const { phaseSources, loadPhase } = await import("./studio-skills.mjs");
+const { MODELS } = await import("./models.mjs");
+const actor = { id: randomUUID() };
+const ctx = (fn) =>
+  runContext({ actor, models: MODELS, operationId: randomUUID() }, fn);
+const project = () =>
+  initializeStudio(
+    {
+      id: randomUUID(),
+      titleZh: "",
+      settings: {
+        textModel: "gpt-6.1-sol",
+        imageModel: "gpt-image-2.5-sunburst",
+        imageParams: {},
+        videoModel: "dreamina-seedance-2-5-filter-off",
+        videoParams: { preview: "480p" },
+        aspect: "9:16",
+      },
+      assets: { items: [] },
+      episodes: [],
+      uploads: [],
+      messages: [],
+      production: [],
+    },
+    { chain: "prism" },
+  );
+for (const [id, file] of phaseSources("prism", "concept")) {
+  const path = join(root, id, file);
+  await mkdir(join(path, ".."), { recursive: true });
+  await writeFile(path, "完整测试方法原文，不截断。");
+}
+after(() => rm(root, { recursive: true, force: true }));
+
+test("conversation edits an existing artifact, preserves earlier version and focuses the visible result", () =>
+  ctx(async () => {
+    const d = project(),
+      original = addArtifact(d, {
+        kind: "script",
+        title: "神殿祭品",
+        content: "原稿台词保持。",
+        data: {},
+      });
+    const other = addArtifact(d, {
+        kind: "concept",
+        title: "故事",
+        content: "强钩子方案。",
+        data: {},
+      }),
+      untouched = JSON.stringify(other);
+    queueTurn(d, "把男主反击写得更主动");
+    const run = d.studio.runs[0];
+    await executeRun(d, run, async (req) =>
+      req.system.startsWith("美林任务路由")
+        ? JSON.stringify({ phase: "concept" })
+        : JSON.stringify({
+            reply: "已修改男主行动，展现区已更新。",
+            artifacts: [
+              {
+                id: original.id,
+                kind: "script",
+                title: "神殿祭品",
+                content: "原稿台词保持。男主主动拉断锁链。",
+                data: {},
+              },
+            ],
+          }),
+    );
+    assert.equal(original.versions.length, 1);
+    const saved = d.studio.artifacts.find((a) => a.id === original.id);
+    assert.equal(saved.versions.length, 2);
+    assert.match(saved.versions[1].content, /主动/);
+    assert.equal(saved.versions[0].content, "原稿台词保持。");
+    assert.equal(d.studio.focus, original.id);
+    assert.equal(
+      JSON.stringify(d.studio.artifacts.find((a) => a.id === other.id)),
+      untouched,
+    );
+    assert.equal(d.studio.runs[0].status, "succeeded");
+    assert.equal(d.production.length, 0);
+  }));
+test("an unapproved revision does not invalidate old approval; approving it invalidates only downstream dependencies", () =>
+  ctx(() => {
+    const d = project(),
+      story = addArtifact(d, { kind: "concept", content: "故事A", data: {} });
+    approveArtifact(d, story.id, story.current);
+    const script = addArtifact(d, {
+      kind: "script",
+      content: "已确认剧本A",
+      data: {},
+    });
+    approveArtifact(d, script.id, script.current);
+    const prior = story.approved;
+    addArtifact(d, {
+      id: story.id,
+      kind: "concept",
+      content: "故事B",
+      data: {},
+    });
+    assert.equal(story.approved, prior);
+    assert.equal(script.stale, false);
+    approveArtifact(d, story.id, story.current);
+    assert.equal(script.stale, true);
+    assert.equal(story.stale, false);
+    assert.equal(story.versions.at(-1).dependencies.length, 0);
+  }));
+test("audit mode cannot mutate scripts or submit image and video tasks", () =>
+  ctx(async () => {
+    const d = project();
+    d.studio.mode = "audit";
+    d.studio.stage = "audit";
+    const source = addArtifact(d, {
+      kind: "script",
+      content: "原始剧本不可自动改写。",
+      data: {},
+    });
+    await assert.rejects(
+      executeRun(
+        d,
+        {
+          id: "audit-test",
+          base: [],
+          phase: "audit",
+          receipts: [],
+          request: {},
+        },
+        async () =>
+          JSON.stringify({
+            reply: "错误改写",
+            artifacts: [
+              { id: source.id, kind: "script", content: "改写后", data: {} },
+            ],
+          }),
+      ),
+      /体检任务/,
+    );
+    assert.throws(
+      () =>
+        prepareMedia(d, { artifactId: source.id, itemKey: "x", kind: "video" }),
+      /不生成媒体/,
+    );
+    assert.equal(source.versions.length, 1);
+  }));
+test("generation rejects an unapproved or stale prompt before creating paid work", () =>
+  ctx(() => {
+    const d = project(),
+      a = addArtifact(d, {
+        kind: "prompts",
+        content: "视频计划",
+        data: {
+          shots: [
+            {
+              key: "s1",
+              title: "祭品",
+              seconds: 20,
+              prompt: "不完整稿",
+              referenceIds: [],
+            },
+          ],
+        },
+      });
+    assert.throws(
+      () => prepareMedia(d, { artifactId: a.id, itemKey: "s1", kind: "video" }),
+      /先确认/,
+    );
+    approveArtifact(d, a.id, a.current);
+    assert.throws(
+      () => prepareMedia(d, { artifactId: a.id, itemKey: "s1", kind: "video" }),
+      /缺少/,
+    );
+    assert.equal(d.production.length, 0);
+    assert.equal(d._pending, undefined);
+  }));
+test("locked duration and foreign references are rejected without partial artifact writes", () =>
+  ctx(() => {
+    const d = project();
+    d.studio.locks.seconds = 20;
+    assert.throws(
+      () =>
+        addArtifact(d, {
+          kind: "storyboard",
+          content: "分镜",
+          data: {
+            shots: [
+              { key: "s1", title: "镜头1", seconds: 15, referenceIds: [] },
+            ],
+          },
+        }),
+      /用户锁定的20秒/,
+    );
+    assert.throws(
+      () =>
+        addArtifact(d, {
+          kind: "storyboard",
+          content: "分镜",
+          data: {
+            shots: [
+              {
+                key: "s1",
+                title: "镜头1",
+                seconds: 20,
+                referenceIds: ["foreign"],
+              },
+            ],
+          },
+        }),
+      /不存在的资产/,
+    );
+    assert.equal(d.studio.artifacts.length, 0);
+  }));
+test("one malformed edit in an agent result cannot commit preceding edits", () =>
+  ctx(async () => {
+    const d = project(),
+      a = addArtifact(d, { kind: "concept", content: "保留原版", data: {} });
+    queueTurn(d, "修改故事方案");
+    await assert.rejects(
+      executeRun(d, d.studio.runs[0], async (req) =>
+        req.system.startsWith("美林任务路由")
+          ? JSON.stringify({ phase: "concept" })
+          : JSON.stringify({
+              reply: "错误",
+              artifacts: [
+                { id: a.id, kind: "concept", content: "不应提交", data: {} },
+                { kind: "concept", content: "", data: {} },
+              ],
+            }),
+      ),
+      /正文为空/,
+    );
+    assert.equal(d.studio.artifacts.length, 1);
+    assert.equal(a.versions.length, 1);
+    assert.equal(a.versions[0].content, "保留原版");
+  }));
+test("asset prompt revisions keep a single bound identity and all real image versions", () =>
+  ctx(() => {
+    const d = project(),
+      a = addArtifact(d, {
+        kind: "assets",
+        content: "角色A",
+        data: {
+          assets: [
+            {
+              key: "hero",
+              kind: "character",
+              name: "男主",
+              prompt: "黑衣青年三视图",
+            },
+          ],
+        },
+      });
+    approveArtifact(d, a.id, a.current);
+    const bound = d.assets.items[0];
+    bound.versions.push({ id: "real", url: "/files/real.png" });
+    bound.current = "real";
+    addArtifact(d, {
+      id: a.id,
+      kind: "assets",
+      content: "角色A精修",
+      data: {
+        assets: [
+          {
+            key: "hero",
+            kind: "character",
+            name: "男主",
+            prompt: "同一黑衣青年，保留面孔",
+          },
+        ],
+      },
+    });
+    approveArtifact(d, a.id, a.current);
+    assert.equal(d.assets.items.length, 1);
+    assert.equal(d.assets.items[0].id, bound.id);
+    assert.equal(d.assets.items[0].current, "real");
+    assert.equal(d.assets.items[0].versions.length, 1);
+  }));
+test("full source reads have receipts and an incomplete installed method fails explicitly", () =>
+  ctx(async () => {
+    const loaded = loadPhase("prism", "concept");
+    assert.equal(loaded.receipts.length, 3);
+    assert.match(loaded.text, /完整测试方法原文/);
+    assert.equal(loaded.receipts[0].sha256.length, 64);
+    assert.throws(() => loadPhase("prism", "characters"), /完整技能包缺少/);
+  }));
+test("manual prompt edits retain sibling shots and stable shot keys", () =>
+  ctx(() => {
+    const d = project(),
+      a = addArtifact(d, {
+        kind: "prompts",
+        content: "逐镜稿",
+        data: {
+          shots: [
+            {
+              key: "1",
+              title: "A",
+              seconds: 10,
+              prompt: "原稿1",
+              referenceIds: [],
+            },
+            {
+              key: "2",
+              title: "B",
+              seconds: 10,
+              prompt: "原稿2",
+              referenceIds: [],
+            },
+          ],
+        },
+      });
+    studioAction(d, "edit", {
+      id: a.id,
+      version: a.current,
+      shotKey: "1",
+      content: "第一镜的新稿",
+    });
+    assert.equal(a.versions.at(-1).data.shots[0].prompt, "第一镜的新稿");
+    assert.equal(a.versions.at(-1).data.shots[1].prompt, "原稿2");
+    assert.equal(a.versions[0].data.shots[0].prompt, "原稿1");
+  }));
+test("legacy reads and first write resolve stable artifacts without creating duplicate episodes or losing takes", () =>
+  ctx(() => {
+    const original = project();
+    delete original.studio;
+    original.episodes = [
+      {
+        n: 1,
+        id: "episode-1",
+        title: "旧项目",
+        scripts: { upload: "原稿" },
+        chosen: "upload",
+        segments: [
+          {
+            id: "shot-old",
+            n: 1,
+            title: "镜头1",
+            seconds: 20,
+            prompt: "历史提示词",
+            takes: [{ url: "/real/video.mp4" }],
+          },
+        ],
+        jobs: [],
+      },
+    ];
+    const read = structuredClone(original),
+      write = structuredClone(original);
+    legacyStudio(read);
+    legacyStudio(write);
+    assert.deepEqual(
+      read.studio.artifacts.map((a) => a.id),
+      write.studio.artifacts.map((a) => a.id),
+    );
+    const a = write.studio.artifacts.find((a) => a.kind === "prompts");
+    approveArtifact(write, a.id, a.current);
+    assert.equal(write.episodes.length, 1);
+    assert.equal(write.episodes[0].segments[0].id, "shot-old");
+    assert.equal(write.episodes[0].segments[0].takes[0].url, "/real/video.mp4");
+  }));

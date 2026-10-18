@@ -10,6 +10,7 @@ import * as ST from './styles.mjs';
 import { FILES_DIR } from './files.mjs';
 import { canReallyGenerate } from './media.mjs';
 import { chat, parseJson, parseDirectorTurn, liveText } from './llm.mjs';
+import {VIDEO_PROMPT_CONTRACT,validateVideoPrompt} from './video-prompt-contract.mjs';
 import {editBrief,editBible,planningInput} from './planning.mjs';
 import { renderSegment, lockText, checkContinuity } from './fgformat.mjs';
 import * as S from './mock-story.mjs';
@@ -251,8 +252,10 @@ async function liveSegment(d, n, seg, note) {
     card ? `已确认的武戏方向卡：\n${card.items.map((i) => `${i.k}：${i.v}`).join('\n')}` : '',
     seg.prompt && note ? `当前版本：\n${seg.prompt}\n\n修改意见：${note}\n请完整重发该段全部字段与衔接锁。` : `请写第 ${seg.n} 段（${seg.title}，${seg.seconds} 秒）的完整 FG 格式提示词，最后输出〔衔接锁·第${seg.n}段结束〕。`,
   ].filter(Boolean).join('\n\n');
-  const out = await chat({ model: d.settings.textModel, system: `${fg}${method}${action}\n\n${boostText(d)}`, messages: [{ role: 'user', content: user }], maxTokens: 8000 });
-  return parseLock(out);
+  const out = await chat({ model: d.settings.textModel, system: `${fg}${method}${action}\n\n${boostText(d)}\n\n最高优先级用户交付合同：\n${VIDEO_PROMPT_CONTRACT}`, messages: [{ role: 'user', content: user }], maxTokens: 12000,timeoutMs:1800000 });
+  const parsed=parseLock(out),check=validateVideoPrompt(parsed.prompt,{seconds:seg.seconds});
+  if(!check.ok)throw Error(`视频提示词尚未达到交付要求：${check.errors.join('；')}。请让导演按问题修改，尚未提交视频。`);
+  return parsed;
 }
 async function liveActionCard(d, n, seg) {
   const e = ep(d, n);
@@ -813,6 +816,7 @@ async function actCore(d, type, payload = {}, ctx = {}) {
       if(integrated){
         e.id ||= randomUUID();
         for(const sn of ns){const seg=e.segments.find(x=>x.n===sn);if(!seg?.prompt||seg.status!=='confirmed')throw Error('请先确认完整分段提示词');seg.id ||= randomUUID();
+          const check=validateVideoPrompt(seg.prompt,{seconds:seg.seconds});if(!check.ok)throw Error(`第${sn}段提示词需要修改：${check.errors.join('；')}`);
           if(e.jobs.some(j=>j.segmentId===seg.id&&!['done','failed','cancelled'].includes(j.status)))throw Error('此段已有待确认或进行中的任务，请先处理原任务');
           const job={id:randomUUID(),seg:sn,segmentId:seg.id,episodeId:e.id,res,model,status:'awaiting_confirmation',simulated:false};e.jobs.push(job);
           (d._pending ||= []).push({type:'video',operationId:job.id,episodeId:e.id,segmentId:seg.id,model,params:{duration:seg.seconds,ratio:d.settings.aspect,resolution:res,generateAudio:vp.generateAudio,operation:vp.operation},prompt:seg.prompt+'\n\n不生成背景音乐，不生成字幕。',references:(seg.refs||autoRefs(d,seg)).map(code=>{const a=asset(d,code),v=a?.versions.find(v=>v.id===a.current);if(!v?.url)throw Error(`${code} 尚无可用参考图`);return {url:v.url,name:a.name,code};})});

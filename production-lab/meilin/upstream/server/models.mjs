@@ -65,8 +65,8 @@ export const MODELS = SPECS.map((spec) => {
 export const getModels=()=>integrated?(context().models||[]):MODELS;
 export const byId = (id) => getModels().find((m) => m.id === id);
 export const defaultModel = (capability) => {
- const preferred={text:'gpt-6.1-sol',image:'dola-seedream-5-0-pro-260628',video:'dreamina-seedance-2-5-filter-off'}[capability];
- const list=getModels();return list.find(m=>m.id===preferred)?.id||list.find(m=>m.capability===capability&&m.default)?.id;
+ const preferred={text:integrated&&context().personalGPTConfigured===false?'claude-sonnet-5-5-t3a':'gpt-6.1-sol',image:'gpt-image-2.5-sunburst',video:'dreamina-seedance-2-5-filter-off'}[capability];
+ const list=getModels().filter(m=>m.capability===capability);return list.find(m=>m.id===preferred||m.id.endsWith('::'+preferred))?.id||list.find(m=>m.default)?.id||list[0]?.id;
 };
 
 // Parameter defaults for a model, used when the user switches model.

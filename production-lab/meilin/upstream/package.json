@@ -12,6 +12,9 @@
     "smoke": "node scripts/smoke-isolated.mjs"
   },
   "dependencies": {
+    "antd": "^5.29.3",
+    "gsap": "^3.15.0",
+    "lucide-react": "^1.27.0",
     "pg": "8.13.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",

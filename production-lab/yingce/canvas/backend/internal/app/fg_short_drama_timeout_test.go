@@ -18,6 +18,10 @@ func TestFGShortDramaReasoningTaskTimeout(t *testing.T) {
 		t.Fatalf("unrelated channel budget changed: %v", got)
 	}
 	task.Model = "gpt-6.1-sol"
+	task.InputJSON = `{"metadata":{"source":"fg-meilin","sourceAction":"studio.prompts"}}`
+	if got := taskExecutionTimeout(task, policy); got != 30*time.Minute {
+		t.Fatalf("conversational director reasoning budget: %v", got)
+	}
 	task.InputJSON = `{"metadata":{"source":"ordinary-text"}}`
 	if shortDramaReasoningTask(task) {
 		t.Fatal("ordinary text incorrectly opted in")

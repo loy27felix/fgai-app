@@ -5,6 +5,7 @@ export type Skill = { id: string; key: string; stage: 'script' | 'style' | 'asse
 export type StylePreset = { id: string; source: 'overseas' | 'fg-library'; title: string; description: string; image: string; prompt: string; palette?: string[]; film?: string; tags?: string[]; category?: string };
 export type Direction = { id: string; name: string; tagline: string; enabled: boolean; defaults: Record<string, any> };
 export type Config = {
+  chains?: StudioChain[];
   planningPrompts?: {brief:string;bible:string};
   actor?: {id: string; name: string}; budget?: {monthlyCny: number|null;usedCny:number;remainingCny:number|null;unknown:number};
   mode: 'mock' | 'live'; media: string; directions: Direction[]; models: Model[]; skills: Skill[]; styles: StylePreset[];
@@ -43,6 +44,7 @@ export type Settings = {
   skills: { script: string; style: string; asset: string; render: string; segment: string; action: string; boost: string[] };
 };
 export type Drama = {
+  studio?: Studio;
   permissions?: {owner:boolean;canEdit:boolean};
   production?: ProductionOperation[];
   id: string; direction: string; mode: 'mock' | 'live'; stage: 'brief' | 'bible' | 'assets' | 'ready'; title: string; titleZh: string; settings: Settings;
@@ -63,7 +65,12 @@ export type Nav = { view?: string; episode?: number; stage?: string };
 export type Ctx = { episode?: number };
 export type Reply = { reply: string; nav?: Nav; project: Drama; upload?: Upload; trace?: TraceItem[]; next?: NextStep[]; focus?: string[] };
 
-export type ProductionOperation={id:string;kind:string;label:string;model?:string;params?:Record<string,unknown>;referenceNames?:string[];actorId?:string;digest:string;status:string;taskId?:string;error?:string;quotedAt:number;quote:{estimatedCny:number|null;lines:string[];notes:string[];budget:{remainingCny:number|null;monthlyCny:number|null;usedCny:number;unknown:number}}};
+export type StudioChain={id:string;name:string;lead:string;description:string;available:boolean;stages:{id:string;name:string}[]};
+export type StudioVersion={id:string;n:number;content:string;data:{assets?:{key:string;kind:string;name:string;prompt:string}[];shots?:StudioShot[]};at:string;note:string;approvedAt?:string;receipts:{id:string;path:string;sha256:string}[]};
+export type StudioShot={key:string;title:string;seconds:number;prompt:string;referenceIds:string[];continuity?:string};
+export type StudioArtifact={id:string;kind:string;title:string;current:string;approved?:string;stale?:boolean;versions:StudioVersion[]};
+export type Studio={schema:number;chain:string;mode:string;stage:string;focus?:string;legacy?:boolean;locks:Record<string,string|number>;questions:{id:string;question:string;options:string[]}[];artifacts:StudioArtifact[];runs:{id:string;phase:string;status:string;at:string;error?:string}[]};
+export type ProductionOperation={id:string;kind:string;label:string;model?:string;params?:Record<string,unknown>;referenceNames?:string[];referencePreviews?:{name:string;url:string}[];target?:{artifactId?:string;itemKey?:string};result?:{url:string};actorId?:string;digest:string;status:string;taskId?:string;error?:string;quotedAt:number;quote:{estimatedCny:number|null;lines:string[];notes:string[];budget:{remainingCny:number|null;monthlyCny:number|null;usedCny:number;unknown:number}}};
 const integrated=window.location.pathname.includes('/meilin-app');
 const fgPrefix=window.location.pathname.startsWith('/fg-six/')?'/fg-six':'';
 export const apiURL=(path:string)=>integrated?fgPrefix+'/api/fg/meilin'+path.replace(/^\/api/,''):path;
@@ -103,6 +110,8 @@ export const api = {
   config: () => req<Config>('/api/config'),
   list: () => req<DramaSummary[]>('/api/dramas'),
   create: (direction: string) => req<Drama>('/api/dramas', { direction }),
+  createStudio: (chain:string,mode='production')=>req<Drama>('/api/dramas',{chain,mode}),
+  studio: (id:string,type:string,payload:Record<string,unknown>={})=>req<Reply>(`/api/dramas/${id}/studio`,type==='turn'?{type,...payload}:{type,payload}),
   get: (id: string) => req<Drama>(`/api/dramas/${id}`),
   remove: (id: string) => req<{ ok: true }>(`/api/dramas/${id}`, undefined, 'DELETE'),
   turn: (id: string, text: string, ctx: Ctx, onUpdate?:(update:StreamUpdate)=>void) => req<Reply>(`/api/dramas/${id}/turn`, { text, ctx },undefined,onUpdate),

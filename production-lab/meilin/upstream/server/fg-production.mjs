@@ -31,7 +31,7 @@ export async function prepare(d,pending){
   const request={operationId,kind,model:p.model,payload,references,metadata:{episodeId:p.episodeId||context().episodeId||null,segmentId:p.segmentId||null,assetCode:p.code||null,assetId:p.assetId||null,assetVersion:p.version||null}};
   const quote=await bridge('quote',request);
   if(quote.estimatedCny===null&&!quote.lines?.length)throw Error(quote.notes?.[0]||'当前模型规格无法报价');
-  d.production.push({id:operationId,kind,label:p.code||`视频段落`,model:p.model,params:payload,referenceNames:references.map(r=>r.name),target:{code:p.code,assetId:p.assetId,version:p.version,episodeId:p.episodeId,segmentId:p.segmentId},request,digest:operationDigest(request),quote,quotedAt:Date.now(),status:'awaiting_confirmation',actorId:context().actor.id});
+  d.production.push({id:operationId,kind,label:p.code||`视频段落`,model:p.model,params:payload,referenceNames:references.map(r=>r.name),referencePreviews:(p.references||[]).map(r=>({name:r.name,url:r.url})),target:{code:p.code,assetId:p.assetId,version:p.version,episodeId:p.episodeId,segmentId:p.segmentId,artifactId:p.artifactId,itemKey:p.itemKey,artifactVersion:p.artifactVersion},request,digest:operationDigest(request),quote,quotedAt:Date.now(),status:'awaiting_confirmation',actorId:context().actor.id});
  }
 }
 export async function confirm(d,ids,digests){

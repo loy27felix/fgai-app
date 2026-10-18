@@ -13,6 +13,7 @@ const dir = mkdtempSync(join(tmpdir(), "canvas-sync-progress-"));
 const root = new URL("../src/", import.meta.url);
 const stubPath = join(dir, "dependencies.ts");
 const paths: Record<string, string> = {
+    "./canvas-mutation-batches": fileURLToPath(new URL("services/canvas-mutation-batches.ts", root)),
     "@/lib/fg-entry-url": new URL("lib/fg-entry-url.ts", root).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
     "json-canonicalize": import.meta.resolve("json-canonicalize"),
     zustand: import.meta.resolve("zustand"),
@@ -28,7 +29,7 @@ const paths: Record<string, string> = {
 };
 function copySource(source: string, name: string) {
     const code = readFileSync(new URL(source, root), "utf8");
-    const imports = code.replace(/"(@\/[^\"]+|\.\/user-data-sync-media|\.\/canvas-edit-leases|json-canonicalize|zustand)"/g, (_, specifier: string) => JSON.stringify(paths[specifier] ?? stubPath));
+    const imports = code.replace(/"(@\/[^\"]+|\.\/user-data-sync-media|\.\/canvas-edit-leases|\.\/canvas-mutation-batches|json-canonicalize|zustand)"/g, (_, specifier: string) => JSON.stringify(paths[specifier] ?? stubPath));
     writeFileSync(join(dir, name), `import { fixtureWindow as window } from ${JSON.stringify(stubPath)};\n` + imports);
 }
 writeFileSync(

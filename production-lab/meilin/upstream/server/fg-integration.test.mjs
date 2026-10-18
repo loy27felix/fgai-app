@@ -17,7 +17,7 @@ const store=await import('./fg-store.mjs');
 const brain=await import('./brain.mjs');
 const production=await import('./fg-production.mjs');
 const skills=await import('./skills.mjs');
-const {createMeilinServer}=await import('./fg-server.mjs');
+const {createMeilinServer,recoverStudio}=await import('./fg-server.mjs');
 const actor={id:'72f7e666-928a-4b00-8b01-a49fbf07683b',name:'甲'},other={id:'82f7e666-928a-4b00-8b01-a49fbf07683b',name:'乙'};
 const image='dola-seedream-5-0-pro-260628';
 const models=[{id:'claude-sonnet-5-5-t3a',label:'Text',capability:'text',default:true,cap:capabilities({id:'claude-sonnet-5-5-t3a',capability:'text',protocol:'openai'})},{id:image,label:'Image',capability:'image',default:true,cap:capabilities({id:image,capability:'image',protocol:'ark'})},{id:'dreamina-seedance-2-5-filter-off',label:'Video',capability:'video',default:true,cap:capabilities({id:'dreamina-seedance-2-5-filter-off',capability:'video',protocol:'ark'})}];
@@ -115,4 +115,23 @@ test('creation, confirmation and deletion have durable audit events',async()=>{
 test('an incomplete external skill package is rejected instead of silently shortened',async()=>{
  const dir=join(process.env.MEILIN_SKILLS_DIR,'zy-cinematic-realism');await mkdir(dir,{recursive:true});await writeFile(join(dir,'SKILL.md'),'test skill entry');
  await scoped(actor,async()=>{assert.throws(()=>skills.loadSkill('render','zy-cinematic-realism','compile','gpt-image-2'),/技能文件缺失/);});
+});
+
+test('new director projects retain their selected route without submitting a model task',async()=>{
+ const path='/api/dramas',before=submissions,operationId=randomUUID();
+ const r=await fetch(base+path,{method:'POST',headers:{...contract.signIdentity(actor,'POST',path,process.env.MEILIN_INTERNAL_SECRET),'x-fg-operation-id':operationId,'content-type':'application/json'},body:JSON.stringify({chain:'prism'})});
+ assert.equal(r.status,200);const d=await r.json();assert.equal(d.studio.chain,'prism');assert.equal(d.id,operationId);assert.equal(submissions,before);
+ await scoped(other,async()=>assert.equal(await store.get(d.id),null));
+});
+
+test('queued conversation survives HTTP completion, reports a worker failure and reuses the original task on retry',async()=>{
+ const {phaseSources}=await import('./studio-skills.mjs');
+ for(const [id,file] of phaseSources('prism','concept')){const p=join(process.env.MEILIN_SKILLS_DIR,id,file);await mkdir(join(p,'..'),{recursive:true});await writeFile(p,'完整本地测试方法');}
+ let d;await scoped(actor,async()=>{d=brain.createDrama();const {initializeStudio}=await import('./studio.mjs');initializeStudio(d,{chain:'prism'});await store.save(d);});
+ const path='/api/dramas/'+d.id+'/studio',op=randomUUID(),headers={...contract.signIdentity(actor,'POST',path,process.env.MEILIN_INTERNAL_SECRET),'x-fg-operation-id':op,'content-type':'application/json'},before=submissions;
+ const r=await fetch(base+path,{method:'POST',headers,body:JSON.stringify({type:'turn',text:'写一个神殿反击故事'})});assert.equal(r.status,200);const queued=await r.json();assert.equal(queued.project.studio.runs[0].status,'queued');assert.equal(submissions,before);assert.equal(queued.project.studio.runs[0].request,undefined);
+ const awaitFailure=async()=>{for(let i=0;i<100;i++){const saved=await scoped(actor,()=>store.get(d.id));if(saved.studio.runs[0].status==='failed')return saved;await new Promise(r=>setTimeout(r,20));}throw Error('worker did not finish');};
+ await recoverStudio();const failed=await awaitFailure();assert.match(failed.studio.runs[0].error,/JSON|解析/);assert.equal(submissions,before+1);
+ await scoped(actor,async()=>{const saved=await store.get(d.id,true);const {studioAction}=await import('./studio.mjs');studioAction(saved,'retry',{id:op});await store.save(saved);});
+ await recoverStudio();await awaitFailure();assert.equal(submissions,before+1);
 });

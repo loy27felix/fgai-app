@@ -398,14 +398,15 @@ func shortDramaReasoningTask(task *model.Task) bool {
 	}
 	var input struct {
 		Metadata struct {
-			Source    string `json:"source"`
-			Operation string `json:"operation"`
+			Source       string `json:"source"`
+			Operation    string `json:"operation"`
+			SourceAction string `json:"sourceAction"`
 		} `json:"metadata"`
 	}
 	if json.Unmarshal([]byte(task.InputJSON), &input) != nil {
 		return false
 	}
-	return input.Metadata.Source == "short-drama-chapter-storyboard" || input.Metadata.Operation == "chapter_character_breakdown" || input.Metadata.Source == "short-drama-prompt-rewrite"
+	return input.Metadata.Source == "short-drama-chapter-storyboard" || input.Metadata.Operation == "chapter_character_breakdown" || input.Metadata.Source == "short-drama-prompt-rewrite" || (input.Metadata.Source == "fg-meilin" && strings.HasPrefix(input.Metadata.SourceAction, "studio."))
 }
 
 func taskExecutionTimeoutWithPolicy(taskType string, policy RuntimeTaskPolicy) time.Duration {

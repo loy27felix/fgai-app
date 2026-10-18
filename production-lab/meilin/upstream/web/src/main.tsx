@@ -1,6 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import App from './App';
-import './styles.css';
+import App from './StudioApp';
 
 // ?still freezes motion (used for review screenshots)
 if (new URLSearchParams(location.search).has('still')) document.documentElement.classList.add('still');
