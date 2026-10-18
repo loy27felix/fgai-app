@@ -85,7 +85,11 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
     if(path.pathname==='/api/fg/finance'&&req.method==='GET'){
       const period=financePeriod(path.searchParams.get('month')||'all');
       // Every provider attempt stays separate. Polls/downloads are not a second charge.
-      const {rows}=await pool.query(`WITH calls AS (
+      const {rows}=await pool.query(`WITH settled AS MATERIALIZED (
+        SELECT m.call_id,sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,
+          string_agg(CASE WHEN f.provider_status='failed' AND f.usd=0 THEN 'automatic_provider_zero' ELSE m.method END,', ') match_method
+        FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id GROUP BY m.call_id
+      ), calls AS (
         SELECT l.id,l.user_id,l.task_id,l.model,l.capability,l.status,t.status task_status,l.created_at,l.input_tokens,l.output_tokens,l.cached_tokens,l.usage_available,l.media_count,l.request_body,l.response_body,l.video_seconds,
           l.fg_fee_reference_id,l.fg_fee_references_json,l.provider_request_id,l.cost_available,l.estimated_cost_micros,l.currency,l.fg_group_name,
           COALESCE(NULLIF(c.project_id,''),p.id) project_id,c.title canvas_title
@@ -98,7 +102,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
         LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id
-        LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,string_agg(CASE WHEN f.provider_status='failed' AND f.usd=0 THEN 'automatic_provider_zero' ELSE m.method END,', ') match_method FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
+        LEFT JOIN settled f ON f.call_id=c.id
         LEFT JOIN fg_request_decisions rd ON rd.call_id=c.id
         WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1)))
         ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
