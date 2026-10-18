@@ -18,8 +18,8 @@ export async function importFeeCsv(pool,actorId,csv){
   await client.query('INSERT INTO fg_fee_imports(id,actor_id,sha256,row_count) VALUES($1,$2,$3,$4)',[id,actorId,hash,entries.length]);
   for(const fee of entries){
    const prior=(await client.query('SELECT model,usd,occurred_at,provider_status FROM fg_provider_fees WHERE reference_id=$1',[fee.referenceId])).rows[0];
-   if(prior&&prior.model===fee.model&&Number(prior.usd)===0&&prior.provider_status==='failed'&&!fee.providerStatus&&fee.usd>0){
-    await client.query("UPDATE fg_provider_fees SET usd=$2,fx=$3,occurred_at=$4,import_id=$5,provider_status='success' WHERE reference_id=$1",[fee.referenceId,fee.usd,fx,fee.occurredAt,id]);
+   if(prior&&prior.model===fee.model&&Number(prior.usd)===0&&prior.provider_status==='failed'&&fee.usd>0){
+    await client.query("UPDATE fg_provider_fees SET usd=$2,fx=$3,occurred_at=$4,import_id=$5,provider_status=$6 WHERE reference_id=$1",[fee.referenceId,fee.usd,fx,fee.occurredAt,id,fee.providerStatus||'success']);
     await client.query("INSERT INTO fg_finance_audit(id,actor_id,action,target,before_value,after_value) VALUES(gen_random_uuid(),$1,'provider_fee_finalized',$2,$3::jsonb,$4::jsonb)",[actorId,fee.referenceId,JSON.stringify(prior),JSON.stringify(fee)]);
     continue;
    }

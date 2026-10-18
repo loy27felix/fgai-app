@@ -6,7 +6,10 @@ import {parseFeeCsv} from './fg-finance.mjs';
 test('final provider failure with an explicit zero charge retains its original status and reference',()=>{
  const row={type:'consume',status:'failed',actual_amount:0,time:1792143902,reference_id:'actual-provider-task-id',model_name:'MiniMax-H3'};
  const fees=parseFeeCsv(feeLogCsv([row]));assert.equal(fees.length,1);assert.equal(fees[0].usd,0);assert.equal(fees[0].providerStatus,'failed');assert.equal(fees[0].referenceId,row.reference_id);
- for(const amount of [null,undefined,'',-1,1])assert.equal(feeLogCsv([{...row,actual_amount:amount}]),null);
+ for(const amount of [null,undefined,''])assert.equal(feeLogCsv([{...row,actual_amount:amount}]),null);
+ for(const amount of [-1,1]){
+  const charged=parseFeeCsv(feeLogCsv([{...row,actual_amount:amount}]));assert.equal(charged[0].usd,1);assert.equal(charged[0].providerStatus,'failed');
+ }
 });
 test('explicit request rejection has no charge evidence but ambiguous errors do not',()=>{
  const call={status:'failed',status_code:'403',error_code:'quota_not_enough',provider_request_id:'',input_tokens:0,output_tokens:0,media_count:0,fg_fee_references_json:'[]',response_body:'{}'};

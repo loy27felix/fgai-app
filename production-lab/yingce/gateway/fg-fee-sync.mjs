@@ -9,7 +9,7 @@ export function feeLogCsv(items){
  const rows=['Time,Model Name,Actual Amount (USD),Reference ID,Type,Status'];
  for(const item of items){
   const explicitAmount=(typeof item.actual_amount==='number'||typeof item.actual_amount==='string'&&item.actual_amount.trim()!=='');
-  if(item.type!=='consume'||(item.status!=='success'&&!(item.status==='failed'&&explicitAmount&&Number(item.actual_amount)===0)))continue;
+  if(item.type!=='consume'||!['success','failed'].includes(item.status)||(item.status==='failed'&&!explicitAmount))continue;
   const amount=Number(item.actual_amount),seconds=Number(item.time);
   if(!Number.isFinite(amount)||!Number.isInteger(seconds)||seconds<=0||!item.reference_id||!item.model_name)throw new Error('INVALID_FEE_RECORD');
   const time=new Date(seconds*1000+8*3600000).toISOString().slice(0,19).replace('T',' ');

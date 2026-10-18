@@ -81,7 +81,9 @@ export async function createSpeechJob(pool,actor,input,api){
  }
 }
 export async function speechJobRoute(req,res,{pool,actor,path,api}){
- if(!path.pathname.startsWith('/api/fg/speech/'))return false;
+ // This handler owns jobs only. Channel service discovery and streaming have
+ // separate handlers and must not be swallowed by the generic speech prefix.
+ if(path.pathname!=='/api/fg/speech/jobs')return false;
  const send=(data,status=200)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':data.message,reason:data.code}));};
  try{
   if(req.method==='GET'&&path.pathname==='/api/fg/speech/jobs'){

@@ -21,7 +21,7 @@ export function parseFeeCsv(input) {
     const model=r.modelname||r['模型名称']||'';
     const providerFailed=['failed','失败'].includes((r.status||'').toLowerCase());
     const rawAmount=(r.actualamountusd||r.actualamount||r.cost||'').replace(/[$,\s]/g,'');
-    if(keys.includes('type')&&(!['consume','消费'].includes(r.type.toLowerCase())||(!['success','成功'].includes(r.status.toLowerCase())&&!(providerFailed&&/^[-+]?0+(\.0+)?$/.test(rawAmount)))))continue;
+    if(keys.includes('type')&&(!['consume','消费'].includes(r.type.toLowerCase())||(!['success','成功'].includes(r.status.toLowerCase())&&!providerFailed)))continue;
     if(!model)continue;
     const referenceId=r.referenceid;
     const raw=(r.actualamountusd||r.actualamount||r.cost||'').replace(/[$,\s]/g,'');
