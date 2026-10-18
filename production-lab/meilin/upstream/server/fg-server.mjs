@@ -120,13 +120,13 @@ export async function recoverStudio(){
     await withDrama(item.id,async d=>{
      const run=d.studio.runs.find(r=>r.id===pending.id);if(!['queued','running'].includes(run.status))return {};
      run.status='running';run.startedAt||=new Date().toISOString();await store.save(d);
-     try{await studio.executeRun(d,run,undefined,()=>store.save(d));}catch(error){run.status='failed';run.error=error.message;run.completedAt=new Date().toISOString();}
+     try{await studio.executeRun(d,run,undefined,()=>store.save(d));}catch(error){studio.markStudioRunFailed(d,run,error);}
      return {};
     });
    }catch(error){
     if(!/处理另一个操作/.test(error.message))try{
      const d=await store.get(item.id,true),run=d?.studio?.runs.find(r=>['queued','running'].includes(r.status));
-     if(run){run.status='failed';run.error=error.message;run.completedAt=new Date().toISOString();await store.save(d);}
+     if(run){studio.markStudioRunFailed(d,run,error);await store.save(d);}
     }catch{/* A storage outage leaves the original durable task available for recovery. */}
    }
    finally{studioRunning.delete(item.id);}

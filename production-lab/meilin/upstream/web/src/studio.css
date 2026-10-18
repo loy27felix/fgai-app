@@ -483,18 +483,35 @@ p {
   border-top: 1px solid var(--line);
   font-size: 13px;
 }
-.agent-question > div {
+.agent-question .ant-radio-group {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.agent-question .ant-btn {
+.agent-question .ant-radio-button-wrapper {
   font-size: 11px;
   white-space: normal;
   height: auto;
   min-height: 32px;
   max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  line-height: 1.6;
 }
+.agent-question .ant-radio-button-wrapper::before { display: none; }
+.agent-question .ant-radio-button-wrapper-checked { background: #3c3426; border-color: #e5b77b; color: #f5d4a5; }
+.question-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 24px 43px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.question-confirm small { flex-basis: 100%; }
+.question-confirm .ant-btn { margin-left: auto; }
 .director-working {
   display: flex;
   align-items: center;
@@ -1439,7 +1456,8 @@ p {
   .asset-plan {
     grid-template-columns: 1fr;
   }
-  .agent-question {
+  .agent-question,
+  .question-confirm {
     margin-left: 0;
   }
   .chain-options > button {

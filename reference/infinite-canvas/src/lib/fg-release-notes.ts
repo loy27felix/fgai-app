@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.4.1";
+export const CURRENT_RELEASE_VERSION = "1.4.2";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,15 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月18日",
+        items: [
+            { type: "修复", content: "美林创作问题改为逐题点选、统一确认发送；每题选择独立保留，改选或后台刷新不再覆盖其他答案。" },
+            { type: "修复", content: "修复选择真人实拍等自定义画风后提示制作设置无效；选项解释正确对应制作设置，保留已确认时长与其他要求。" },
+            { type: "优化", content: "提交失败保留选择，任务失败恢复待回答问题；统一确认防止重复提交，旧失败提示在新任务开始后收起。" },
+        ],
+    },
+    {
+        version: "1.4.1",
         date: "2026年10月18日",
         items: [
             { type: "修复", content: "恢复 GPT Image 2.5 Flare 和 Sunburst 的 2K、4K 尺寸选择；分辨率与图片质量独立，低质量选项不再把尺寸限制为1K。" },

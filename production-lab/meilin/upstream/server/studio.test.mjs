@@ -15,6 +15,7 @@ const {
   queueTurn,
   executeRun,
   studioAction,
+  markStudioRunFailed,
   prepareMedia,
 } = await import("./studio.mjs");
 const { phaseSources, loadPhase } = await import("./studio-skills.mjs");
@@ -377,4 +378,36 @@ test('an agent cannot shorten a locked duration while asked only to accelerate a
  const d=project();d.studio.locks.seconds=20;queueTurn(d,'把动作节奏加快，保持20秒');
  await assert.rejects(executeRun(d,d.studio.runs[0],async request=>request.system.startsWith('美林任务路由')?JSON.stringify({phase:'concept'}):JSON.stringify({reply:'错误缩短',locks:{seconds:15},artifacts:[]})),/不能.*自行改为15秒/);
  assert.equal(d.studio.locks.seconds,20);
+}));
+
+test('a user-selected descriptive visual style survives the director result',()=>ctx(async()=>{
+ const d=project();d.studio.locks={track:'海外剧',seconds:90};
+ queueTurn(d,'我的选择：真人实拍质感，真实演员般的皮肤、服装与神话特效');
+ await executeRun(d,d.studio.runs[0],async request=>request.system.startsWith('美林任务路由')?JSON.stringify({phase:'concept'}):JSON.stringify({reply:'已保留视觉方向，请继续确认交付与衔接。',locks:{style:'真人实拍质感'},questions:[{id:'delivery',question:'交付方式？',options:['Markdown文稿','两者都要']}],artifacts:[]}));
+ assert.equal(d.studio.locks.style,'真人实拍质感');
+ assert.equal(d.studio.locks.seconds,90);
+ assert.equal(d.studio.locks.track,'海外剧');
+ assert.equal(d.studio.questions[0].id,'delivery');
+ assert.equal(d.studio.runs[0].status,'succeeded');
+ assert.equal(d.production.length,0);
+}));
+
+test('explained choices normalize only recognized settings and preserve other locks',()=>ctx(()=>{
+ const d=project();d.studio.locks={seconds:90,track:'海外剧'};
+ studioAction(d,'locks',{style:'真人实拍质感：保留皮肤纹理与神话特效',delivery:'平台内完整Markdown文稿：中文剧本、双语台词及投喂制作稿（推荐）',splice:'换机位硬切：通过不同景别和视角衔接（推荐）'});
+ assert.equal(d.studio.locks.delivery,'Markdown文稿');
+ assert.equal(d.studio.locks.splice,'换机位硬切');
+ assert.equal(d.studio.locks.seconds,90);
+ assert.match(d.studio.locks.style,/皮肤纹理/);
+ assert.throws(()=>studioAction(d,'locks',{delivery:'自动发布并编译HTML'}),/制作设置无效/);
+ assert.throws(()=>studioAction(d,'locks',{style:''}),/视觉方向/);
+}));
+
+test('a failed turn restores pending questions, while successful turns remove the snapshot',()=>ctx(async()=>{
+ const d=project();d.studio.questions=[{id:'style',question:'选择画风',options:['写实','动画']}];
+ queueTurn(d,'选择写实');const run=d.studio.runs[0];
+ assert.equal(d.studio.questions.length,0);
+ markStudioRunFailed(d,run,Error('临时请求失败'));
+ assert.equal(d.studio.questions[0].id,'style');
+ assert.equal(run.status,'failed');
 }));

@@ -50,6 +50,7 @@ import {
   StudioArtifact,
 } from "./api";
 import { readAsDataUrl } from "./lib/files";
+import { QuestionChoices } from "./QuestionChoices";
 import "./studio.css";
 
 const reportWorkspace = () => {
@@ -339,15 +340,17 @@ function StudioApp() {
     fn: () => Promise<{ project: Drama } | Drama>,
     done?: () => void,
   ) => {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true);
     setError("");
     try {
       const result = await fn();
       sync("project" in result ? result.project : result);
       done?.();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -357,10 +360,9 @@ function StudioApp() {
     payload: Record<string, unknown> = {},
     done?: () => void,
   ) => d && work(() => api.studio(d.id, type, payload), done);
-  const send = () => {
-    if (!text.trim() || !d || !editable || running) return;
-    const input = text;
-    void act(
+  const submitTurn = async (input:string,clearDraft=false) => {
+    if (!input.trim() || !d || !editable || running || busy) return false;
+    return Boolean(await act(
       "turn",
       {
         text:
@@ -369,9 +371,10 @@ function StudioApp() {
             : input,
         targetId: artifact?.id,
       },
-      () => setText(""),
-    );
+      () => {if(clearDraft)setText("");},
+    ));
   };
+  const send = () => {void submitTurn(text,true);};
   const create = async (mode = "production") => {
     if (busy) return;
     setBusy(true);
@@ -742,24 +745,12 @@ function StudioApp() {
                     <ChevronRight size={16} />
                   </button>
                 )}
-                {s?.questions.map((q) => (
-                  <div className="agent-question" key={q.id}>
-                    <p>{q.question}</p>
-                    <div>
-                      {q.options.map((answer, i) => (
-                        <Button
-                          key={i}
-                          disabled={Boolean(running) || !editable}
-                          onClick={() =>
-                            setText(`${q.question}\n我的选择：${answer}`)
-                          }
-                        >
-                          {answer}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                {Boolean(s?.questions.length) && <QuestionChoices
+                  key={`${d.id}:${d.messages.at(-1)?.id}:${JSON.stringify(s!.questions)}`}
+                  questions={s!.questions}
+                  disabled={busy||Boolean(running)||!editable}
+                  onConfirm={submitTurn}
+                />}
                 {running && (
                   <div className="director-working" role="status">
                     <Spin size="small" />
@@ -771,7 +762,7 @@ function StudioApp() {
                     </span>
                   </div>
                 )}
-                {s?.runs
+                {s?.runs.slice(-1)
                   .filter((r) => r.status === "failed")
                   .slice(-1)
                   .map((r) => (
