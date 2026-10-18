@@ -1,3 +1,4 @@
+import {isRetiredImageModel} from '../imageModels';
 import {
   providerRequestIdFromImageDiagnostic,
   WetokenImageRequestError,
@@ -222,6 +223,7 @@ function asCanonicalRequest(task: ConfirmImageTask, input: ConfirmImageInput) {
   }
 
   try {
+    if(isRetiredImageModel(task.model))throw Error('图片模型已停用，请更换当前可用模型');
     const validated = validateStoredImageDraftRequest(task.model, request);
     const paths = validateCompletedReferencePaths(
       request.reference_paths,

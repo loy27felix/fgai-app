@@ -206,7 +206,7 @@ export function buildGeminiImageBody(input: Pick<ImageGenerationInput, 'prompt' 
         // Wetoken's Gemini image route currently accepts JPEG only. Omitting
         // this makes the three Gemini image models reject otherwise valid
         // generateContent requests, while GPT Image uses a separate API.
-        outputMIMEType: 'image/jpeg',
+        ...(input.model === 'gemini-nano-banana-2.1' ? {} : { outputMIMEType: 'image/jpeg' }),
       },
     },
   };

@@ -24,7 +24,7 @@ try{
         else channel=(await api('/admin/channels/'+channel.id,'PATCH',body)).channel;
         const current=(await api('/admin/channels/'+channel.id+'/models')).models;
         for(const spec of specs){
-            const enabled=available.has(spec.id)&&spec.id!=='gemini-3.5-pro',existing=current.find(m=>m.modelKey===spec.id);
+            const enabled=available.has(spec.id)&&spec.id!=='gemini-3.5-pro'&&!spec.retired,existing=current.find(m=>m.modelKey===spec.id);
             const model={modelKey:spec.id,providerModelKey:spec.id,displayName:spec.id,channelLabel:'WeToken',capability:spec.capability,protocol:spec.protocol,billingMode:'fixed_request',priceConfigured:true,enabled,capabilityConfig:capabilities(spec),description:enabled?'WeToken 服务端接入；实际人民币费用见 FG 对账。':'当前 Key 的可用目录未列出此型号，需验证供应商生成路由；不代表模型能力分类不支持。',tags:[],priceTiers:[]};
             await api('/admin/channels/'+channel.id+'/models'+(existing?'/'+existing.id:''),existing?'PATCH':'POST',model);
             const snapshot={...spec.price,discount:available.get(spec.id)?.discount_ratio??null,enabled};

@@ -5,7 +5,7 @@ import {
   providerRequestIdFromImageDiagnostic,
   WetokenImageResultError,
 } from '@/lib/ai/image';
-import { getImageModel } from '@/lib/imageModels';
+import { getImageModel,isRetiredImageModel } from '@/lib/imageModels';
 import { slugType } from '@/lib/types';
 import { buildImageLedgerEntry, recordUsageRequired, requireProviderUsageReference } from '@/lib/usage/ledger';
 import { estimateImagePrice, estimateImageUsagePrice, extractReportedCostUsd } from '@/lib/usage/pricing';
@@ -61,11 +61,11 @@ export async function POST(req: Request) {
 
   const projectId = body.projectId || '';
   const prompt = (body.prompt || '').trim();
-  const model = body.model || 'gpt-image-2';
+  const model = body.model || 'gpt-image-2.5-sunburst';
   if (!projectId) return NextResponse.json({ error: '缺少 projectId' }, { status: 400 });
   if (!prompt) return NextResponse.json({ error: 'prompt 为空' }, { status: 400 });
   const modelSpec = getImageModel(model);
-  if (!modelSpec) return NextResponse.json({ error: `不支持的图片模型：${model}` }, { status: 400 });
+  if (!modelSpec||isRetiredImageModel(model)) return NextResponse.json({ error: `图片模型未启用，请选择当前可用模型：${model}` }, { status: 400 });
 
   const { data: membership } = await localClient.from('project_members')
     .select('role').eq('project_id', projectId).eq('user_id', user.id).maybeSingle();

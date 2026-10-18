@@ -242,7 +242,7 @@ export async function POST(req: Request) {
   const videoResolution = compactText(body.videoResolution, 40) || "720p";
   const duration = normalizeDuration(body.duration, videoModel);
   const segmentCount = normalizeCompanyVideoSegmentCount(body.segmentCount);
-  const storyboardModel = compactText(body.storyboardModel, 180) || "gpt-image-2";
+  const storyboardModel = compactText(body.storyboardModel, 180) || "gpt-image-2.5-sunburst";
   const storyboardResolution = compactText(body.storyboardResolution, 40) || "1024x1024";
   const visualImageCount = Math.min(12, Math.max(0, Math.floor(Number(body.visualImageCount) || 0)));
   const visualModel = compactText(body.visualModel, 180) || storyboardModel;

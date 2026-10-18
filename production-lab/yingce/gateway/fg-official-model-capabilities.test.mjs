@@ -1,8 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {capabilities} from './fg-model-capabilities.mjs';
 
 const imageSpec=id=>({id,capability:'image',protocol:'openai-image',price:{capabilities:{params:{size:{values:['1024x1024']},quality:{values:['wrong-vendor-value']}}}}});
+test('standalone backend protocol fixture matches the deployed Gemini plugin',()=>{
+ assert.deepEqual(fs.readFileSync(new URL('./protocol-packages/fg-wetoken-gemini-image.yingce-plugin',import.meta.url)),fs.readFileSync(new URL('../canvas/backend/internal/protocol/testdata/fg-wetoken-gemini-image.yingce-plugin',import.meta.url)));
+});
+test('Nano Banana 2.1 follows Google tiers and ratios rather than reseller defaults',()=>{
+ const p=capabilities(imageSpec('gemini-nano-banana-2.1')).image;
+ assert.deepEqual(p.quality.values,['1K','2K','4K']);
+ assert.equal(p.size.default,'auto');
+ assert.equal(p.size.values.length,15);
+ for(const ratio of ['auto','1:4','4:1','1:8','8:1','4:5','5:4'])assert.ok(p.size.values.includes(ratio));
+ assert.equal(p.references.maxImages,14);
+ assert.equal(p.size.allowCustom,false);
+ assert.equal(p.transparentBackground.supported,false);
+});
 for(const id of ['gpt-image-2','gpt-image-2.5-flare','gpt-image-2.5-sunburst']){
  test(`${id} uses the official size and quality contract independently of vendor metadata`,()=>{
   const p=capabilities(imageSpec(id)).image;

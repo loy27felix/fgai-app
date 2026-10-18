@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.3.26";
+export const CURRENT_RELEASE_VERSION = "1.3.27";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,17 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月18日",
+        items: [
+            { type: "新增", content: "接入 Nano Banana 2.1，按 Google 官方参数提供 1K、2K、4K、14 种画幅及跟随参考图的自适应比例。" },
+            { type: "优化", content: "停用 Gemini 3 Pro Image 与 GPT Image 2，新请求使用当前模型；历史素材、提示词与账单记录保留。" },
+            { type: "新增", content: "对账增加模型筛选与按模型汇总，可查看各型号已核销金额、待核对请求和相关流水。" },
+            { type: "修复", content: "修复账单授权失效后同步永久暂停，以及临时服务错误误判授权过期；更新授权后自动恢复并补拉遗漏账单。" },
+            { type: "新增", content: "对账页增加账户访问令牌授权和立即同步入口，服务器加密保存凭证，后台每分钟同步，关闭浏览器后仍可对账。" },
+        ],
+    },
+    {
+        version: "1.3.26",
         date: "2026年10月18日",
         items: [
             { type: "新增", content: "同一画布支持多人同时编辑，显示同事姓名、实时光标和拖动位置；同事进入时提醒，不再把另一位编辑者退出。" },

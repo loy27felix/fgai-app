@@ -170,6 +170,11 @@ export type ImagePriceOptions = {
 };
 
 const GEMINI_IMAGE_RULES = {
+  'gemini-nano-banana-2.1': {
+    multiplier: 1,
+    outputByTier: { '1K': 0.0336, '2K': 0.0504, '4K': 0.1134 },
+    inputPerMillion: 1.5,
+  },
   'gemini-3-pro-image-preview': {
     multiplier: 0.7,
     outputByTier: { '1K': 0.134, '2K': 0.134, '4K': 0.24 },
@@ -220,7 +225,8 @@ export function estimateImagePrice(model: string, resolution: string, options: I
       },
     });
   }
-  if (model === 'gpt-image-2') {
+  if (model === 'gpt-image-2' || /^gpt-image-2\.5-(flare|sunburst)$/.test(model)) {
+    const legacy = model === 'gpt-image-2';
     const outputTokens = gptOutputTokenEstimate(resolution);
     const referenceTokens = references * DEFAULT_REFERENCE_IMAGE_TOKENS;
     const rawCost = (
@@ -230,11 +236,11 @@ export function estimateImagePrice(model: string, resolution: string, options: I
     ) / TOKEN_SCALE;
     return snapshot({
       model,
-      cost: rawCost * 0.6,
+      cost: rawCost * (legacy ? 0.6 : 1),
       basis: 'expected_text_image_and_output_tokens',
-      note: 'GPT Image 2 使用当前尺寸对应的输出 Token 与参考图 Token 基线预估；完成后按供应商返回的模态 Token 重算。',
+      note: legacy ? 'GPT Image 2 使用当前尺寸对应的输出 Token 与参考图 Token 基线预估；完成后按供应商返回的模态 Token 重算。' : 'GPT Image 2.5 暂按公开标价和尺寸 Token 启发式基线估算，未套用旧模型账户折扣；这不是 2.5 官方 Token 计算器或费用上限，完成后按实际用量和账单核销。',
       values: {
-        account_multiplier: 0.6, prompt_tokens_estimated: promptTokens,
+        account_multiplier: legacy ? 0.6 : 1, prompt_tokens_estimated: promptTokens,
         reference_images: references, reference_image_tokens_estimated: referenceTokens,
         output_tokens_estimated: outputTokens, raw_text_input_per_million_usd: 5,
         raw_image_input_per_million_usd: 8, raw_image_output_per_million_usd: 30,
@@ -324,7 +330,8 @@ export function estimateImageUsagePrice(input: {
       },
     });
   }
-  if (input.model === 'gpt-image-2' && tokens.output !== undefined) {
+  if ((input.model === 'gpt-image-2' || /^gpt-image-2\.5-(flare|sunburst)$/.test(input.model)) && tokens.output !== undefined) {
+    const legacy = input.model === 'gpt-image-2';
     const reportedTextInput = nestedPathNumber(input.usage, ['input_tokens_details', 'text_tokens']);
     const textInput = reportedTextInput ?? tokens.input ?? approximateTextTokens(input.prompt);
     const reportedImageInput = nestedPathNumber(input.usage, ['input_tokens_details', 'image_tokens']);
@@ -337,11 +344,11 @@ export function estimateImageUsagePrice(input: {
     const rawCost = (textInput * 5 + imageInput * 8 + tokens.output * 30) / TOKEN_SCALE;
     return snapshot({
       model: input.model,
-      cost: rawCost * 0.6,
+      cost: rawCost * (legacy ? 0.6 : 1),
       basis: 'reported_text_and_image_output_tokens',
       note: 'GPT Image 2 使用供应商返回的文本、参考图和输出 Token；最终以 WeToken 账单为准。',
       values: {
-        account_multiplier: 0.6, text_input_tokens_reported: textInput,
+        account_multiplier: legacy ? 0.6 : 1, text_input_tokens_reported: textInput,
         image_input_tokens_reported: imageInput, output_tokens_reported: tokens.output,
         raw_text_input_per_million_usd: 5, raw_image_input_per_million_usd: 8,
         raw_image_output_per_million_usd: 30, reference_images: references,

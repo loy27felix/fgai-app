@@ -12,7 +12,7 @@ import { persistGeneratedImage } from '../../lib/creator/image-confirm-route';
 const input = { taskId: 't1', userId: 'u1', workspaceId: 'w1' };
 const task: ConfirmImageTask = {
   id: 't1',
-  model: 'gpt-image-2',
+  model: 'gpt-image-2.5-sunburst',
   request: {
     prompt: 'fox',
     effective_prompt: 'fox',

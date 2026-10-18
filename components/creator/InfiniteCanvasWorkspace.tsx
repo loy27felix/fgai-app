@@ -27,7 +27,7 @@ import { randomId } from "@/lib/utils";
 
 registerBuiltinNodes();
 const STORE_KEY = "fg-studio:infinite-canvas:v1";
-const IMAGE_MODEL = IMG_MODELS[0]?.id || "gpt-image-2";
+const IMAGE_MODEL = IMG_MODELS[0]?.id || "gpt-image-2.5-sunburst";
 const VIDEO_MODEL = VIDEO_MODELS[0]?.id || "doubao-seedance-2-0";
 
 type Snapshot = { nodes: CanvasNodeData[]; connections: CanvasConnection[]; viewport: ViewportTransform; backgroundMode: CanvasBackgroundMode; title: string };

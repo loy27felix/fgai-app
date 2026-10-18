@@ -1,3 +1,4 @@
+import {feeAuthHeaders,feeResponseError} from './fg-fee-auth.mjs';
 // Reconcile only a reciprocal unique receipt with identical provider usage.
 // Completion time is a boundary check, never a substitute for token evidence.
 export function receiptUsage(call){
@@ -42,14 +43,16 @@ export function normalizeUsageReceipt(row){
 }
 
 export async function readUsageLog(session,{fetcher=fetch,start,end}={}){
- if(!/^\d+$/.test(String(session.userId))||!/^session=[^;\r\n]+$/.test(session.cookie))throw Error('INVALID_SESSION');
+ const headers=feeAuthHeaders(session);
  const items=[],seen=new Set();let total;
  for(let page=1;page<=200;page++){
   const url=new URL('https://wetoken.ai/api/log/self');
   for(const[k,v]of Object.entries({p:page,page_size:100,start_timestamp:start,end_timestamp:end}))url.searchParams.set(k,String(v));
-  const r=await fetcher(url,{redirect:'error',headers:{Cookie:session.cookie,'New-API-User':String(session.userId),Accept:'application/json'},signal:AbortSignal.timeout(15000)});
+  const r=await fetcher(url,{redirect:'error',headers,signal:AbortSignal.timeout(15000)});
+  if(r.status===401||r.status===403)throw Error('SESSION_EXPIRED');
   if(!r.ok)throw Error('USAGE_LOG_UNAVAILABLE');
-  const b=await r.json();if(b.success!==true||!Array.isArray(b.data?.items)||!Number.isInteger(b.data.total))throw Error('INVALID_USAGE_LOG');
+  const b=await r.json(),error=feeResponseError(r,b);if(error)throw Error(error);
+  if(!Array.isArray(b.data?.items)||!Number.isInteger(b.data.total))throw Error('INVALID_USAGE_LOG');
   if(total!==undefined&&total!==b.data.total)throw Error('LEDGER_CHANGED');total=b.data.total;
   for(const v of b.data.items){const key=JSON.stringify([v.created_at,v.id,v.request_id]);if(seen.has(key))throw Error('DUPLICATE_USAGE_PAGE');seen.add(key);items.push(v);}
   if(items.length===total)return items.map(normalizeUsageReceipt).filter(Boolean);

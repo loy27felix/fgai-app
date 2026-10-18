@@ -44,7 +44,11 @@ export function capabilities(spec,{legacy=false}={}){
    size={...size,values:values.map(x=>x.size),presets:values,default:id.startsWith('dola-')?'1024x1024':'2048x2048',allowCustom:true,constraints:{minPixels:id.startsWith('dola-')?921600:3686400,maxPixels:id.startsWith('dola-')?4624220:16777216,maxRatio:16}};maxImages=id.startsWith('dola-')?10:14;maxImageBytes=30*1024*1024;
   }else if(id.startsWith('gemini-')){
    const flash=id==='gemini-3.1-flash-image-preview';
-   size={parameter:'aspect_ratio',values:['1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9',...(flash?['1:4','4:1','1:8','8:1']:[])],default:'1:1',allowCustom:false};
+   const banana21=id==='gemini-nano-banana-2.1';
+   // Google: 2.1 has 14 native ratios and 1K/2K/4K; no 512px tier.
+   // "auto" omits aspectRatio at the protocol boundary (input ratio, else square).
+   // https://ai.google.dev/gemini-api/docs/generate-content/image-generation
+   size={parameter:'aspect_ratio',values:[...(banana21?['auto']:[]),'1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9',...(flash||banana21?['1:4','4:1','1:8','8:1']:[])],default:banana21?'auto':'1:1',allowCustom:false};
    quality={supported:true,values:[...(flash?['512px']:[]),'1K','2K','4K'],default:'1K'};maxImages=14;
   }else if(isGPTImage2(id)){
    size={...size,values:[...gptImage2Sizes],default:'1024x1024',allowCustom:true,constraints:{minPixels:655360,maxPixels:8294400,maxRatio:3,maxSide:3840,edgeMultiple:16}};maxImageBytes=50*1024*1024;

@@ -13,6 +13,7 @@ const names: Record<string, string> = {
     "dola-seedream-5-0-pro-260628": "Seedream 5 Pro",
     "seedream-5-0-lite-260128": "Seedream 5 Lite",
     "gemini-3.1-flash-image-preview": "Gemini 3.1 Flash Image",
+    "gemini-nano-banana-2.1": "Nano Banana 2.1",
     "gemini-3-pro-image-preview": "Gemini 3 Pro Image",
     "gpt-image-2": "GPT Image 2",
     "gpt-image-2.5-flare": "GPT Image 2.5 Flare",

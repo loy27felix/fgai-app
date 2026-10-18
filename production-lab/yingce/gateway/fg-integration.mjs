@@ -7,12 +7,14 @@ import {teamAndStoryAPI,approvedTopics,bootstrapTeam} from './fg-team-stories.mj
 import {financeActions} from './fg-finance-actions.mjs';
 import {modelPriceRows} from './fg-model-price-catalog.mjs';
 import {storyCatalogRoute} from './fg-story-catalog.mjs';
+import {feeAuthorizationRoute} from './fg-fee-auth-route.mjs';
 
 export async function initializeFG(pool){await pool.query(await fs.readFile(new URL('./fg-schema.sql',import.meta.url),'utf8'));}
 async function jsonBody(req,max=100000){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>max)throw new Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':data}));}
-export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin}){
+export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin,feeSync}){
   if(!path.pathname.startsWith('/api/fg/'))return false;
+  if(await feeAuthorizationRoute(req,res,{actor,pool,path,feeSync},{body:jsonBody,send}))return true;
   if(await financeActions(req,res,{pool,actor,path}))return true;
   const api=async(endpoint,method='GET',body)=>{
     const r=await fetch(new URL('/api'+endpoint,web),{method,headers:{cookie,origin:publicOrigin,'content-type':'application/json',...(endpoint==='/fg-story-archive'?{'x-fg-archive-secret':process.env.FG_ADCRAFT_SECRET}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});

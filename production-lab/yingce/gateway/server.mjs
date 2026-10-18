@@ -48,7 +48,7 @@ await initializeMeilin(pool);
 await initializeEditorLeases(pool);
 await initializeInspiration(pool);
 await publishExistingStoryMedia(pool);
-startFeeSync(pool);
+const feeSync=startFeeSync(pool);
 startAdvertisingRetention(pool);
 startInspirationSync(pool);
 
@@ -188,7 +188,7 @@ const server = http.createServer(async (req, res) => {
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
     if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
     if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
-    if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin}))return;
+    if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin,feeSync}))return;
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});

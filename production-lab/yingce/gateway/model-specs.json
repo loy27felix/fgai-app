@@ -1484,7 +1484,8 @@
         },
         "tiered_pricing": null
       }
-    }
+    },
+    "retired": true
   },
   {
     "id": "gpt-image-2",
@@ -1868,7 +1869,8 @@
         },
         "tiered_pricing": null
       }
-    }
+    },
+    "retired": true
   },
   {
     "id": "gpt-image-2.5-flare",
@@ -3555,6 +3557,233 @@
               "resolution": "1080P"
             }
           ]
+        },
+        "tiered_pricing": null
+      }
+    }
+  },
+  {
+    "protocol": "fg-wetoken-gemini-image",
+    "capability": "image",
+    "id": "gemini-nano-banana-2.1",
+    "price": {
+      "model_name": "gemini-nano-banana-2.1",
+      "description": "Gemini Nano Banana 2.1 — MiniMax multimodal image generation, upstream: MM-H3-sft-Mfusion-Max-2-1-image",
+      "icon": "Google.Color",
+      "tags": "Image,Google,Gemini,Banana",
+      "vendor_id": 4,
+      "quota_type": 0,
+      "model_ratio": 1.5,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 20,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "gemini",
+        "openai"
+      ],
+      "pricing_rules": {
+        "type": "token",
+        "currency": "USD",
+        "rules": [
+          {
+            "modality": "Text/Image",
+            "price": 1.5,
+            "tier": "standard",
+            "token_type": "Input"
+          },
+          {
+            "modality": "Text/Thinking",
+            "price": 7.5,
+            "tier": "standard",
+            "token_type": "Output"
+          },
+          {
+            "modality": "Image",
+            "price": 30,
+            "tier": "standard",
+            "token_type": "Output"
+          },
+          {
+            "image_size": "1K",
+            "price": 0.0336,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "2K",
+            "price": 0.0504,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "image_size": "4K",
+            "price": 0.1134,
+            "tier": "standard",
+            "token_type": "Output image",
+            "unit": "per_image"
+          },
+          {
+            "price": 14,
+            "tier": "standard",
+            "token_type": "Google Search grounding",
+            "unit": "per_1000_search_queries"
+          }
+        ],
+        "input_price": 1.5,
+        "output_price": 30
+      },
+      "api_examples": {
+        "endpoints": {
+          "minimaxCanvasGenerateContent": {
+            "name": "Gemini Generate Content",
+            "path": "/v1/content/models/{model}:generateContent",
+            "method": "POST"
+          },
+          "minimaxCanvasGenerateContentBasic": {
+            "name": "Gemini Generate Content",
+            "path": "/v1/content/models/{model}:generateContent",
+            "method": "POST"
+          }
+        }
+      },
+      "billing_doc": {
+        "version": 2,
+        "billing_unit": "per_million_tokens",
+        "source_type": "pricing_rules",
+        "mechanism": "conditional_token",
+        "currency": "USD",
+        "raw_fields": {
+          "completion_ratio": 20,
+          "image_ratio": 1,
+          "input_price": 1.5,
+          "model_ratio": 1.5,
+          "output_price": 30
+        },
+        "raw_rules": [
+          {
+            "conditions": {
+              "image_size": "1K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.0336,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "2K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.0504,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "image_size": "4K",
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            "amount": 0.1134,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Image",
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            "amount": 30,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Image",
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            "amount": 1.5,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "modality": "Text/Thinking",
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            "amount": 7.5,
+            "unit": "per_million_tokens"
+          },
+          {
+            "conditions": {
+              "tier": "standard",
+              "token_type": "Google Search grounding",
+              "unit": "per_1000_search_queries"
+            },
+            "amount": 14,
+            "unit": "per_million_tokens"
+          }
+        ],
+        "pricing_rules": {
+          "type": "token",
+          "currency": "USD",
+          "rules": [
+            {
+              "modality": "Text/Image",
+              "price": 1.5,
+              "tier": "standard",
+              "token_type": "Input"
+            },
+            {
+              "modality": "Text/Thinking",
+              "price": 7.5,
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            {
+              "modality": "Image",
+              "price": 30,
+              "tier": "standard",
+              "token_type": "Output"
+            },
+            {
+              "image_size": "1K",
+              "price": 0.0336,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "2K",
+              "price": 0.0504,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "image_size": "4K",
+              "price": 0.1134,
+              "tier": "standard",
+              "token_type": "Output image",
+              "unit": "per_image"
+            },
+            {
+              "price": 14,
+              "tier": "standard",
+              "token_type": "Google Search grounding",
+              "unit": "per_1000_search_queries"
+            }
+          ],
+          "input_price": 1.5,
+          "output_price": 30
         },
         "tiered_pricing": null
       }

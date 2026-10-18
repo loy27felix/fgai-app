@@ -8,6 +8,7 @@ const aliases={'doubao-seedream-5-0-lite-260128':'seedream-5-0-lite-260128','dou
 export const billingModel=id=>aliases[id]||id;
 const nativeModel=id=>Object.keys(aliases).find(key=>aliases[key]===id)||id;
 const names={
+ 'gemini-nano-banana-2.1':'Nano Banana 2.1',
  'claude-opus-5-5-t3a':'Claude Opus 5.5','claude-sonnet-5-5-t3a':'Claude Sonnet 5.5','deepseek-v4-pro':'DeepSeek V4 Pro','gpt-6-astra':'GPT 6 Astra','gpt-5.6-sol-t1a':'GPT 5.6',
  'dola-seedream-5-0-pro-260628':'Seedream Pro','seedream-5-0-lite-260128':'Seedream Lite','gemini-3.1-flash-image-preview':'Gemini Flash Image','gemini-3-pro-image-preview':'Gemini Pro Image','gpt-image-2':'GPT Image 2','gpt-image-2.5-flare':'GPT Image Flare','gpt-image-2.5-sunburst':'GPT Image Sunburst','wan2.7-image-pro':'Wan 2.7 Image',
  'doubao-seedance-2-0-fast-filter-off':'SD2-fast','doubao-seedance-2-0-filter-off':'SD2','dreamina-seedance-2-0-mini-filter-off':'SD2-mini','dreamina-seedance-2-5-filter-off':'SD2.5','happyhorse-1.1-i2v':'HappyHorse 图生视频','happyhorse-1.1-r2v':'HappyHorse 参考生视频','happyhorse-1.1-t2v':'HappyHorse 文生视频','MiniMax-H3':'MiniMax H3','wan3.0-video':'Wan 3.0',

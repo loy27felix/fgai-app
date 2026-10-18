@@ -154,6 +154,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   const [reconciling, setReconciling] = useState(false);
   const [notice, setNotice] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(monthStart.slice(0, 7));
+  const [selectedModel, setSelectedModel] = useState("");
   const feeLogInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setSelectedMonth(monthStart.slice(0, 7)), [monthStart]);
@@ -161,17 +162,20 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
     setBudgetDrafts(Object.fromEntries(budgets.map((budget) => [budget.user_id, (numeric(budget.limit_usd) * usdToCnyRate).toFixed(2)])));
   }, [budgets, monthStart, usdToCnyRate]);
 
-  const totals = useMemo(() => buildGroup(usage), [usage]);
+  const modelOptions = useMemo(() => [...new Set([...usage, ...feeExceptions].map(row => row.model?.trim() || "未知模型"))].sort(), [usage, feeExceptions]);
+  const filteredUsage = useMemo(() => usage.filter(row => !selectedModel || (row.model?.trim() || "未知模型") === selectedModel), [usage, selectedModel]);
+  const filteredExceptions = useMemo(() => feeExceptions.filter(row => !selectedModel || (row.model?.trim() || "未知模型") === selectedModel), [feeExceptions, selectedModel]);
+  const totals = useMemo(() => buildGroup(filteredUsage), [filteredUsage]);
   const processingCalls = Math.max(0, totals.calls - totals.successfulCalls - totals.failedCalls);
   const byModel = useMemo(() => {
     const groups: Record<string, UsageSummary> = {};
-    for (const row of usage) {
+    for (const row of filteredUsage) {
       const key = row.model || "未知模型";
       groups[key] ||= emptyUsageSummary();
       addUsageToSummary(groups[key], row);
     }
     return groups;
-  }, [usage]);
+  }, [filteredUsage]);
   const byUser = useMemo(() => {
     const groups: Record<string, UsageSummary> = {};
     for (const row of usage) {
@@ -182,7 +186,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
   }, [usage]);
   const byUserModel = useMemo(() => {
     const groups = new Map<string, UserModelGroup>();
-    for (const row of usage) {
+    for (const row of filteredUsage) {
       const model = row.model || "未知模型";
       const key = `${row.user_id}:${model}`;
       const current = groups.get(key) || { userId: row.user_id, model, group: emptyUsageSummary() };
@@ -190,7 +194,7 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
       groups.set(key, current);
     }
     return [...groups.values()].sort((a, b) => b.group.successfulCostUsd - a.group.successfulCostUsd || b.group.successfulCalls - a.group.successfulCalls);
-  }, [usage]);
+  }, [filteredUsage]);
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile])), [profiles]);
   const budgetByUser = useMemo(() => new Map(budgets.map((budget) => [budget.user_id, budget])), [budgets]);
   const pendingWhitelist = whitelist.filter((item) => item.status === "pending").length;
@@ -266,9 +270,10 @@ export default function AdminConsole({ meId, isSuperadmin, profiles, whitelist, 
       <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>{tabButton("overview", "概览")}{tabButton("attribution", `费用归属${feeAttribution.pendingCount ? ` · ${feeAttribution.pendingCount} 待处理` : ""}`)}{tabButton("whitelist", `白名单${pendingWhitelist ? ` · ${pendingWhitelist} 待审` : ""}`)}{tabButton("users", `用户 · ${profiles.length}`)}</nav>
       {notice ? <div role="status" style={{ margin: "-8px 0 14px", padding: "9px 11px", borderRadius: 10, border: "1px solid var(--stroke)", background: "var(--bg-2)", color: notice.includes("失败") ? "#ff9a8a" : "var(--accent)", fontSize: 12.5 }}>{notice}</div> : null}
       {latestFeeImport ? <FeeImportSummary value={latestFeeImport} exceptions={feeExceptions} rate={usdToCnyRate} /> : null}
+      {tab === "overview" || tab === "attribution" ? <label style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>筛选模型<select aria-label="对账模型筛选" value={selectedModel} onChange={event => setSelectedModel(event.target.value)} style={inputStyle}><option value="">全部模型</option>{modelOptions.map(model => <option key={model} value={model}>{model}</option>)}</select><span style={{ color: "var(--text-3)", fontSize: 12 }}>下方统计和明细按所选模型筛选；上方为全月账单总额。</span></label> : null}
 
-      {tab === "overview" ? <Overview cards={cards} byModel={byModel} byUserModel={byUserModel} profileById={profileById} rate={usdToCnyRate} usage={usage} chip={chip} /> : null}
-      {tab === "attribution" ? <FeeAttributionPanel exceptions={feeExceptions} profiles={profiles} rate={usdToCnyRate} run={run} busy={busy} /> : null}
+      {tab === "overview" ? <Overview cards={cards} byModel={byModel} byUserModel={byUserModel} profileById={profileById} rate={usdToCnyRate} usage={filteredUsage} chip={chip} /> : null}
+      {tab === "attribution" ? <FeeAttributionPanel key={selectedModel} exceptions={filteredExceptions} profiles={profiles} rate={usdToCnyRate} run={run} busy={busy} /> : null}
       {tab === "whitelist" ? <WhitelistPanel whitelist={whitelist} emailDraft={emailDraft} setEmailDraft={setEmailDraft} run={run} busy={busy} chip={chip} /> : null}
       {tab === "users" ? <UsersPanel profiles={profiles} byUser={byUser} budgetByUser={budgetByUser} budgetDrafts={budgetDrafts} setBudgetDrafts={setBudgetDrafts} monthStart={monthStart} rate={usdToCnyRate} run={run} busy={busy} meId={meId} isSuperadmin={isSuperadmin} /> : null}
     </main>

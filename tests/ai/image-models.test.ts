@@ -5,8 +5,9 @@ import { imageDraftGeometry, IMG_MODELS, ratioForImageSize, sizeFor, supportsExa
 
 test('image catalog contains exactly the requested Wetoken models', () => {
   assert.deepEqual(IMG_MODELS.map((model) => model.id), [
-    'gpt-image-2',
-    'gemini-3-pro-image-preview',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
+    'gemini-nano-banana-2.1',
     'gemini-3.1-flash-image-preview',
     'gemini-3.1-flash-lite-image',
     'seedream-5-0-lite-260128',
@@ -14,13 +15,14 @@ test('image catalog contains exactly the requested Wetoken models', () => {
   ]);
   assert.deepEqual(IMG_MODELS.map((model) => model.provider), [
     'gpt-image',
+    'gpt-image',
     'gemini',
     'gemini',
     'gemini',
     'volcengine-image',
     'volcengine-image',
   ]);
-  assert.deepEqual(IMG_MODELS.map((model) => model.experimental), [false, false, true, true, false, false]);
+  assert.deepEqual(IMG_MODELS.map((model) => model.experimental), [false, false, false, true, true, false, false]);
 });
 
 test('sizeFor keeps supported ratio dimensions stable', () => {
@@ -37,7 +39,7 @@ test('ratioForImageSize retains the ratio of exact 2K and 4K presets', () => {
 });
 
 test('Seedream Lite stays single-reference while Pro accepts multiple references', () => {
-  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [8, 8, 8, 8, 1, 4]);
+  assert.deepEqual(IMG_MODELS.map((model) => model.maxReferences), [16, 16, 14, 8, 8, 1, 4]);
 });
 
 test('only GPT Image 2 exposes exact 2K and 4K image-size controls', () => {

@@ -14,6 +14,7 @@ import { ensureCreatorWorkspace } from '@/lib/creator/workspace';
 import { createClient } from '@/lib/local/server';
 import { logServerFailure } from '@/lib/observability/server-log';
 import { normalizeProviderErrorMessage } from '@/lib/creator/provider-error-message';
+import {isRetiredImageModel} from '@/lib/imageModels';
 
 export const runtime = 'nodejs';
 
@@ -205,9 +206,10 @@ export async function POST(req: Request) {
     try {
       const rawKey = normalizeImageIdempotencyKey(body.idempotencyKey);
       idempotencyKey = scopedImageIdempotencyKey(context.user.id, context.workspace.id, rawKey);
+      if(typeof body.model==='string'&&isRetiredImageModel(body.model))throw Error('该图片模型已停用，请选择 GPT Image 2.5 或其他可用模型');
       input = validateImageDraftInput({
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
-        model: typeof body.model === 'string' ? body.model : 'gpt-image-2',
+        model: typeof body.model === 'string' ? body.model : 'gpt-image-2.5-sunburst',
         ratio: typeof body.ratio === 'string' ? body.ratio : '1:1',
         size: typeof body.size === 'string' ? body.size : undefined,
         references: normalizeReferences(body.references),

@@ -16,8 +16,9 @@ export type ImageModelSpec = {
 };
 
 export const IMG_MODELS: ImageModelSpec[] = [
-  { id: 'gpt-image-2', label: 'GPT Image 2 · 中文与高保真', provider: 'gpt-image', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: true },
-  { id: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image · 精修', provider: 'gemini', experimental: false, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: false },
+  { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst · 精细编辑', provider: 'gpt-image', experimental: false, maxReferences: 16, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: true },
+  { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare · 快速高保真', provider: 'gpt-image', experimental: false, maxReferences: 16, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: true },
+  { id: 'gemini-nano-banana-2.1', label: 'Nano Banana 2.1 · 4K 生图与编辑', provider: 'gemini', experimental: false, maxReferences: 14, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: false },
   { id: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: IMAGE_OUTPUT_SIZES, supportsTransparentBackground: false },
   { id: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash Lite Image · 实验', provider: 'gemini', experimental: true, maxReferences: 8, outputSizes: ['1K'], supportsTransparentBackground: false },
   // Lite remains single-reference. Seedream Pro supports multiple reference
@@ -100,8 +101,16 @@ const GEMINI_SIZES: Record<string, string> = {
 };
 
 export function getImageModel(model: string) {
-  return IMG_MODELS.find((item) => item.id === model);
+  // Historical drafts and receipts still need their original geometry. Retired
+  // models are excluded from IMG_MODELS and cannot be submitted again.
+  return IMG_MODELS.find((item) => item.id === model) || HISTORICAL_IMAGE_MODELS.find((item) => item.id === model);
 }
+
+const HISTORICAL_IMAGE_MODELS: ImageModelSpec[] = [
+  {id:'gpt-image-2',label:'GPT Image 2（已停用）',provider:'gpt-image',experimental:false,maxReferences:8,outputSizes:IMAGE_OUTPUT_SIZES,supportsTransparentBackground:true},
+  {id:'gemini-3-pro-image-preview',label:'Gemini Pro Image（已停用）',provider:'gemini',experimental:false,maxReferences:8,outputSizes:IMAGE_OUTPUT_SIZES,supportsTransparentBackground:false},
+];
+export const isRetiredImageModel = (model: string) => HISTORICAL_IMAGE_MODELS.some(item=>item.id===model);
 
 export function supportsTransparentImageBackground(model: string) {
   return getImageModel(model)?.supportsTransparentBackground === true;
