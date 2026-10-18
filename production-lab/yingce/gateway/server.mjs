@@ -1,3 +1,4 @@
+import {workspaceEntryDocument} from './fg-workspace-entry.mjs';
 import http from 'node:http';
 import {createGatewayShutdown} from './fg-gateway-shutdown.mjs';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
@@ -145,10 +146,10 @@ const server = http.createServer(async (req, res) => {
     if(isPublicDemo(actor)&&publicDemoDenied(path,req.method)){respond(res,403,'公用体验账号仅开放独立创作、画布和短剧测试，不开放公司内容或个人密钥设置','FG_DEMO_ISOLATED');return;}
     if(path.pathname.startsWith('/api/admin/')&&!actor.reviewer){respond(res,403,'仅超级管理员可管理平台','FG_ADMIN_REQUIRED');return;}
     if (path.pathname === '/fg/entry' && req.method === 'GET') {
-      const entryURL = workspaceEntryURL(req.headers.host, externalOrigins, publicOrigin);
+      const entryURL = workspaceEntryURL(req.headers.host, [platformOrigin,...externalOrigins], publicOrigin);
       const workspaceOrigin = entryURL.startsWith('/') ? [publicOrigin, platformOrigin, ...externalOrigins].find(origin => new URL(origin).host === req.headers.host) : publicOrigin;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FG Studio · 制作工作区</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#101114}iframe{display:block;width:100%;height:100dvh;border:0}</style></head><body><iframe name="fg-canvas-workspace" title="FG 制作工作区" src="${entryURL}" allow="clipboard-read; clipboard-write; fullscreen; microphone ${workspaceOrigin}" allowfullscreen></iframe></body></html>`);
+      res.end(workspaceEntryDocument(entryURL,actor.id,workspaceOrigin));
       return;
     }
     if (parsed.managedAuth) { respond(res,403,'账号登录由 FG Studio 管理，请返回平台处理','FG_MANAGED_AUTH'); return; }

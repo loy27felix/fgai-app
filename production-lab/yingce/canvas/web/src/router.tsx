@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router";
 
@@ -71,7 +72,15 @@ function fullScreenDeferred(element: ReactNode) {
 }
 
 function AuthenticatedWorkspaceLayout() {
-    const { pathname } = useLocation();
+    const { pathname, search, hash } = useLocation();
+    useEffect(() => {
+        if (window.parent === window) return;
+        const route = pathname + search + hash;
+        // Only the authenticated outer FG entry may record this relative route.
+        let parentOrigin = window.location.origin;
+        try { if (document.referrer) parentOrigin = new URL(document.referrer).origin; } catch { return; }
+        window.parent.postMessage({ type: "fg-workspace-location", route }, parentOrigin);
+    }, [pathname, search, hash]);
     const isCanvasProjectRoute = pathname.startsWith("/canvas/");
     const fallback = isCanvasProjectRoute ? <CanvasRefreshShell /> : <FullScreenLoader label="正在打开创作空间" detail="准备当前页面" />;
     return <RequireAuth><Suspense fallback={fallback}><UserLayout><Outlet /></UserLayout></Suspense></RequireAuth>;

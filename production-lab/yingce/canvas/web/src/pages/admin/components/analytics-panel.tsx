@@ -1,3 +1,4 @@
+import { http } from "@/services/api/request";
 import { Alert, App, Button, DatePicker, Tabs, Tag } from "antd";
 import { Tooltip } from "@/pages/admin/ui/controls";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -41,6 +42,12 @@ export default function AnalyticsPanel({ users, channels }: Props) {
     const [model, setModel] = useState(searchParams.get("model") || undefined);
     const [channelId, setChannelId] = useState(searchParams.get("channelId") || undefined);
     const [capability, setCapability] = useState(searchParams.get("capability") || undefined);
+    const [providerBalance, setProviderBalance] = useState<{available:boolean;balance:number|null;currency:string;updatedAt:string|null;stale:boolean}|null>(null);
+    const reloadBalance = useCallback(async () => {
+        try { setProviderBalance(await http.get('/fg/finance/balance')); }
+        catch { setProviderBalance(previous => previous ? {...previous,stale:true} : null); }
+    }, []);
+    useEffect(() => { void reloadBalance(); const timer = setInterval(() => void reloadBalance(), 60000); return () => clearInterval(timer); }, [reloadBalance]);
     const [data, setData] = useState<AdminAnalytics | null>(null);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState("");
@@ -67,6 +74,7 @@ export default function AnalyticsPanel({ users, channels }: Props) {
     );
 
     const reload = useCallback(async () => {
+        void reloadBalance();
         const sequence = ++requestSequence.current;
         setLoading(true);
         setLoadError("");
@@ -303,8 +311,8 @@ export default function AnalyticsPanel({ users, channels }: Props) {
                     trend={formatCountDelta(currentTrend?.activeUsers, previousTrend?.activeUsers)}
                     detail={data ? `日 ${formatNumber(data.kpi.dau)} · 周 ${formatNumber(data.kpi.wau)} · 月 ${formatNumber(data.kpi.mau)}` : undefined}
                 />
-                <AnalyticsHealthCard icon={<CircleDollarSign className="size-4" />} label="用户总余额" value={data ? formatCredits(data.kpi.totalBalanceMicrocredits ?? 0) : "--"} detail="当前所有用户可用积分余额" />
-                <AnalyticsHealthCard icon={<CircleDollarSign className="size-4" />} label="范围消耗" value={data ? formatCredits(data.kpi.totalConsumedMicrocredits ?? 0) : "--"} detail="筛选范围内已计费调用" />
+                <AnalyticsHealthCard icon={<CircleDollarSign className="size-4" />} label="WeToken 账户余额" value={providerBalance?.available && providerBalance.balance !== null ? '$' + providerBalance.balance.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:6}) : "--"} detail={providerBalance?.available ? `美元 USD · ${providerBalance.stale ? '暂未更新，显示上次余额 · ' : ''}${providerBalance.updatedAt ? dayjs(providerBalance.updatedAt).format('MM/DD HH:mm:ss') : ''} · 公司账户实时余额` : '正在读取；授权不可用时请前往账单授权检查'} />
+                {creditsEnabled && <AnalyticsHealthCard icon={<CircleDollarSign className="size-4" />} label="范围消耗" value={data ? formatCredits(data.kpi.totalConsumedMicrocredits ?? 0) : "--"} detail="筛选范围内已计费调用" />}
                 <AnalyticsHealthCard
                     icon={<Workflow className="size-4" />}
                     label="生成任务"

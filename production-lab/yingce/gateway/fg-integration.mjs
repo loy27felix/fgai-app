@@ -1,3 +1,4 @@
+import {providerBalanceRoute} from './fg-provider-balance.mjs';
 import fs from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {importFeeCsv} from './fg-fee-import.mjs';
@@ -20,6 +21,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
     if(!actor.reviewer){send(res,'仅超级管理员可查看系统渠道',403);return true;}
     send(res,await companySpeechServices(pool));return true;
   }
+  if(await providerBalanceRoute(req,res,{actor,pool,path},{send}))return true;
   if(await feeAuthorizationRoute(req,res,{actor,pool,path,feeSync},{body:jsonBody,send}))return true;
   if(await financeActions(req,res,{pool,actor,path}))return true;
   const api=async(endpoint,method='GET',body)=>{

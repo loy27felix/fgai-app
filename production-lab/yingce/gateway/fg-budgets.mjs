@@ -35,18 +35,22 @@ export function admissionPrice(model,capability,payload,price,fx){
  if(result.estimateKind==='partial'||result.estimateKind==='lower_bound')return null;
  return result.estimatedCny;
 }
-export async function spendUsage(pool,{userId,projectId,since,until,excludeCapExemptAudio=false,allProviders=false}={}){
+async function usageRows(pool,{userId,userIds,projectId,since,until,allProviders=false}={}){
  const prices=new Map((await pool.query('SELECT model,snapshot FROM fg_model_prices')).rows.map(r=>[r.model,r.snapshot]));
  const fx=Number((await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
- const calls=(await pool.query(`SELECT c.*,t.status task_status,COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id) project_id, COALESCE(f.cny,0) actual_cny,f.matches
+ const calls=(await pool.query(`WITH settled AS MATERIALIZED (SELECT m.call_id,sum(f.usd*f.fx) cny,count(*) matches FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id GROUP BY m.call_id)
+ SELECT c.*,t.status task_status,COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id) project_id, COALESCE(f.cny,0) actual_cny,f.matches
  FROM api_call_logs c LEFT JOIN tasks t ON t.id=c.task_id LEFT JOIN canvas_projects cv ON cv.id=t.project_id LEFT JOIN projects p ON p.id=t.project_id
  LEFT JOIN fg_budget_reservations r ON r.id::text=c.fg_budget_reservation_id
- LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) cny,count(*) matches FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
- WHERE c.billable ${allProviders?'':"AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%' OR name IN('火山语音 · FG','Suno 音乐 · FG'))"} AND($1::text IS NULL OR c.user_id=$1) AND($2::text IS NULL OR COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id)=$2) AND($3::timestamptz IS NULL OR c.created_at>=$3) AND($4::timestamptz IS NULL OR c.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
- let actual=0,pending=0,unknown=0;
- const reservations=(await pool.query(`SELECT r.*,c.id call_id,c.error_code FROM fg_budget_reservations r LEFT JOIN api_call_logs c ON c.fg_budget_reservation_id=r.id::text AND c.billable WHERE ($1::text IS NULL OR r.user_id=$1) AND($2::text IS NULL OR r.project_id=$2) AND($3::timestamptz IS NULL OR r.created_at>=$3) AND($4::timestamptz IS NULL OR r.created_at<$4)`,[userId||null,projectId||null,since||null,until||null])).rows;
- const byId=new Map(reservations.map(r=>[r.id,r]));
+ LEFT JOIN settled f ON f.call_id=c.id
+ WHERE c.billable ${allProviders?'':"AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%' OR name IN('火山语音 · FG','Suno 音乐 · FG'))"} AND($1::text IS NULL OR c.user_id=$1) AND($2::text IS NULL OR COALESCE(NULLIF(cv.project_id,''),p.id,r.project_id)=$2) AND($3::timestamptz IS NULL OR c.created_at>=$3) AND($4::timestamptz IS NULL OR c.created_at<$4) ${userIds?'AND c.user_id=ANY($5::text[])':''}`, [userId||null,projectId||null,since||null,until||null,...(userIds?[userIds]:[])])).rows;
+ const reservations=(await pool.query(`SELECT r.*,c.id call_id,c.error_code FROM fg_budget_reservations r LEFT JOIN api_call_logs c ON c.fg_budget_reservation_id=r.id::text AND c.billable WHERE ($1::text IS NULL OR r.user_id=$1) AND($2::text IS NULL OR r.project_id=$2) AND($3::timestamptz IS NULL OR r.created_at>=$3) AND($4::timestamptz IS NULL OR r.created_at<$4) ${userIds?'AND r.user_id=ANY($5::text[])':''}`, [userId||null,projectId||null,since||null,until||null,...(userIds?[userIds]:[])])).rows;
  const confirmedFree=new Set((await pool.query('SELECT call_id FROM fg_request_decisions')).rows.map(r=>r.call_id));
+ return {prices,fx,calls,reservations,confirmedFree};
+}
+function sumUsage({prices,fx,calls,reservations,confirmedFree},{excludeCapExemptAudio=false}={}){
+ let actual=0,pending=0,unknown=0;
+ const byId=new Map(reservations.map(r=>[r.id,r]));
  for(const c of calls){
   if(excludeCapExemptAudio&&capExemptAudio(c.model,prices.get(c.model)))continue;
   if(Number(c.matches)>0){actual+=Number(c.actual_cny);continue;}
@@ -57,6 +61,15 @@ export async function spendUsage(pool,{userId,projectId,since,until,excludeCapEx
  }
  for(const r of reservations)if(!r.call_id){if(excludeCapExemptAudio&&capExemptAudio(r.model,prices.get(r.model)))continue;if(r.reserved_cny!==null)pending+=Number(r.reserved_cny);else unknown++;}
  return {actual,pending,unknown,used:actual+pending};
+}
+export async function spendUsage(pool,options={}){return sumUsage(await usageRows(pool,options),options);}
+export async function spendUsageByUsers(pool,{userIds,since,until}={}){
+ const ids=[...new Set(userIds||[])];if(!ids.length)return new Map();
+ const data=await usageRows(pool,{userIds:ids,since,until});
+ const groups=new Map(ids.map(id=>[id,{...data,calls:[],reservations:[]}]));
+ for(const call of data.calls)groups.get(call.user_id)?.calls.push(call);
+ for(const reservation of data.reservations)groups.get(reservation.user_id)?.reservations.push(reservation);
+ return new Map([...groups].map(([id,rows])=>[id,sumUsage(rows)]));
 }
 export function monthStart(){const now=new Date();const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).formatToParts(now);return `${parts.find(p=>p.type==='year').value}-${parts.find(p=>p.type==='month').value}-01T00:00:00+08:00`;}
 export function monthRange(value=monthStart().slice(0,7)){

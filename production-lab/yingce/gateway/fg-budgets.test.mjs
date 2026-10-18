@@ -122,3 +122,15 @@ test('verified non-speech models still enforce monthly and project spending caps
   assert.ok(!pool.queries.some(q=>q.sql.includes('INSERT INTO')));
  }
 });
+
+test('batch member spending uses constant queries and keeps actual, pending and unknown costs isolated',async()=>{
+ const queries=[];const calls=[{id:'paid',user_id:'a',matches:1,actual_cny:'12'},{id:'free',user_id:'b',matches:0,error_code:'request_not_sent'},{id:'unknown',user_id:'b',matches:0,model:'unknown'}];
+ const reserves=[{id:'r',user_id:'a',call_id:null,reserved_cny:'3'},{id:'u',user_id:'b',call_id:null,reserved_cny:null}];
+ const pool={query:async(sql,params)=>{queries.push({sql,params});return {rows:sql.includes("key='usdCnyRate'")?[{value:6.77}]:sql.includes('FROM api_call_logs c')?calls:sql.includes('SELECT r.*')?reserves:[]};}};
+ const {spendUsageByUsers}=await import('./fg-budgets.mjs');
+ const ids=['a','b',...Array.from({length:50},(_,i)=>'member-'+i)];const result=await spendUsageByUsers(pool,{userIds:ids,since:'2026-09-01',until:'2026-10-01'});
+ assert.deepEqual(result.get('a'),{actual:12,pending:3,unknown:0,used:15});assert.deepEqual(result.get('b'),{actual:0,pending:0,unknown:2,used:0});assert.deepEqual(result.get('member-49'),{actual:0,pending:0,unknown:0,used:0});assert.equal(queries.length,5);
+ const charges=queries.find(q=>q.sql.includes('FROM api_call_logs c'));assert.match(charges.sql,/MATERIALIZED/);assert.ok(!charges.sql.includes('LATERAL'));assert.deepEqual(charges.params[4],ids);
+ for(const query of queries.filter(q=>q.sql.includes('ANY($5'))){assert.deepEqual(query.params.slice(0,4),[null,null,'2026-09-01','2026-10-01']);}
+ assert.equal((await spendUsageByUsers(pool,{userIds:[]})).size,0);assert.equal(queries.length,5);
+});
