@@ -299,6 +299,43 @@ func TestImageParametersPixelSelectionKeepsExactSizeWithoutResolution(t *testing
 	}
 }
 
+func TestPixelSizeGroupsRemainSelectableWithIndependentQuality(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel("openai-image", "gpt-image-2.5-flare")
+	disabled := false
+	profile.Image.Parameters = []protocol.ImageParameter{
+		{Name: "size", Label: "Size", Type: "string", Values: []any{"1024x1024", "2048x2048", "3840x2160"}, Default: "1024x1024", Binding: "aspectRatio", Encoding: "pixels"},
+		{Name: "imageResolution", Label: "Resolution", Type: "string", Enabled: &disabled},
+		{Name: "quality", Label: "Quality", Type: "string", Values: []any{"low", "medium", "high"}, Default: "low", Binding: "quality"},
+	}
+	profile.Image.Size.Presets = []ImageSizePreset{
+		{Tier: "1k", Ratio: "1:1", Width: 1024, Height: 1024, Size: "1024x1024"},
+		{Tier: "2k", Ratio: "1:1", Width: 2048, Height: 2048, Size: "2048x2048"},
+		{Tier: "4k", Ratio: "16:9", Width: 3840, Height: 2160, Size: "3840x2160"},
+	}
+	if err := projectImageParameters(profile.Image); err != nil {
+		t.Fatal(err)
+	}
+	if len(activeImageSizePresets(profile.Image)) != 3 {
+		t.Fatal("literal pixels lost resolution groups")
+	}
+	if tier := imagePresetSelectionTier(profile.Image, "low"); tier != "" {
+		t.Fatalf("quality low incorrectly selected tier %q", tier)
+	}
+	if err := validateImagePresetSelection(profile.Image, "low", "3840x2160"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateImageSizePresetRequirement("image", "openai-image", profile); err != nil {
+		t.Fatal(err)
+	}
+	config := providerConfig{InterfaceType: "openai-image", Model: "gpt-image-2.5-flare", Size: "3840x2160", Quality: "low", ImageParameters: map[string]any{"size": "3840x2160", "quality": "low"}}
+	if err := applyImageParameterValues(&config, profile.Image); err != nil {
+		t.Fatal(err)
+	}
+	if config.Size != "3840x2160" || config.Quality != "low" || config.ImageResolution != "" {
+		t.Fatalf("wire fields changed: %#v", config)
+	}
+}
+
 func TestImageParametersDisabledResolutionUsesDefaultAndPreservesGroups(t *testing.T) {
 	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
 	disabled := false

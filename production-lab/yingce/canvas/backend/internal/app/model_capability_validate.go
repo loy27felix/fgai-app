@@ -161,7 +161,7 @@ func validateVideoCapabilityConfig(value *VideoCapabilityConfig) error {
 	if value.References.PromptMaxNonChineseChars < 0 || value.References.PromptMaxNonChineseChars > 1000000 || value.References.MaxInputOutputDuration < 0 || value.References.MinVideoSide < 0 || value.References.MaxVideoSide < 0 {
 		return BadAuthRequest("模型额外参考限制不能小于 0 或超过有效范围")
 	}
-	for name, number := range map[string]int{"最少图片引用数": value.References.MinImages, "最大图片引用数": value.References.MaxImages, "最大视频引用数": value.References.MaxVideos, "最大音频引用数": value.References.MaxAudios} {
+	for name, number := range map[string]int{"最少图片引用数": value.References.MinImages, "最大图片引用数": value.References.MaxImages, "最大视频引用数": value.References.MaxVideos, "最大音频引用数": value.References.MaxAudios, "混合参考总数": value.References.MaxTotalReferences} {
 		if number < 0 || number > 100 {
 			return BadAuthRequest(name + "必须在 0-100 之间")
 		}
@@ -626,7 +626,7 @@ func imagePresetSelectionTier(profile *ImageCapabilityConfig, value string) stri
 		if profile.Resolution.Supported && containsCapabilityString(profile.Resolution.Values, value) {
 			return value
 		}
-		if !profile.Resolution.Supported {
+		if !profile.Resolution.Supported && profile.Size.Parameter != "size" {
 			if tier, ok := singleImageSizeTier(profile); ok {
 				return tier
 			}
@@ -864,7 +864,7 @@ func validateImageSizePresetRequirement(capability string, protocol string, prof
 		return nil
 	}
 	if image := profile.Image; image != nil && image.Parameters != nil && imageSizePixelOutbound(image, protocol) {
-		if !image.Resolution.Supported && len(image.Size.Presets) > 0 {
+		if image.Size.Parameter != "size" && !image.Resolution.Supported && len(image.Size.Presets) > 0 {
 			if _, ok := singleImageSizeTier(image); !ok || len(activeImageSizePresets(image)) == 0 {
 				return BadAuthRequest("关闭分辨率前请设置默认尺寸档位")
 			}

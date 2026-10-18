@@ -165,8 +165,8 @@ func publicImageParameters(parameters []protocol.ImageParameter) []protocol.Imag
 	return result
 }
 
-// Disabled resolution keeps its presets for editing; execution uses one explicit
-// default group. Multiple groups without a default must not pick by array order.
+// Ratio mappings with disabled resolution use one explicit default group.
+// Literal pixel values encode their own resolution and retain all declared groups.
 func singleImageSizeTier(image *ImageCapabilityConfig) (string, bool) {
 	if image.Size.DefaultTier != "" {
 		return image.Size.DefaultTier, true
@@ -194,7 +194,7 @@ func singleImageSizeTier(image *ImageCapabilityConfig) (string, bool) {
 }
 
 func activeImageSizePresets(image *ImageCapabilityConfig) []ImageSizePreset {
-	if image.Parameters == nil || image.Resolution.Supported {
+	if image.Parameters == nil || image.Resolution.Supported || image.Size.Parameter == "size" {
 		return image.Size.Presets
 	}
 	tier, ok := singleImageSizeTier(image)

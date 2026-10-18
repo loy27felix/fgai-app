@@ -136,6 +136,7 @@ type VideoReferenceConfig struct {
 	MaxVideoBytes            int64    `json:"maxVideoBytes"`
 	MaxVideoDuration         int      `json:"maxVideoDurationSeconds"`
 	MaxAudios                int      `json:"maxAudios"`
+	MaxTotalReferences       int      `json:"maxTotalReferences,omitempty"`
 	MaxAudioBytes            int64    `json:"maxAudioBytes"`
 	MaxAudioDuration         int      `json:"maxAudioDurationSeconds"`
 	MinVideoDuration         int      `json:"minVideoDurationSeconds,omitempty"`

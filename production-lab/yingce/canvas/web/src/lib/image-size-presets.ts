@@ -4,7 +4,7 @@ import type { ImageCapabilityConfig } from "./model-capabilities";
 export const IMAGE_RESOLUTIONS: ImageResolutionTier[] = ["1k", "2k", "4k"];
 // 1.5K 只在模型明确配置此档位时出现，既有模型的档位保持原有顺序。
 export function imageResolutionTiers(profile: ImageCapabilityConfig): ImageResolutionTier[] {
-    if (profile.parameters) return profile.resolution.supported ? profile.resolution.values : [];
+    if (profile.parameters) return profile.resolution.supported ? profile.resolution.values : profile.size.parameter === "size" ? [...new Set((profile.size.presets || []).map(p => p.tier))] : [];
     const configured = new Set([...(profile.size.presets || []).map((preset) => preset.tier), ...profile.quality.values]);
     return (["1k", "1.5k", "2k", "3k", "4k"] as ImageResolutionTier[]).filter((tier) => IMAGE_RESOLUTIONS.includes(tier) || configured.has(tier));
 }
@@ -116,7 +116,7 @@ export function imageQualityForSelection(profile: ImageCapabilityConfig, tier: I
 
 export function imageSizePresets(profile: ImageCapabilityConfig): ImageResolutionOption[] {
     if (profile.size.parameter === "none") return [];
-    if (profile.parameters && !profile.resolution.supported) {
+    if (profile.parameters && !profile.resolution.supported && profile.size.parameter !== "size") {
         const tier = imageSingleSizeTier(profile);
         return (profile.size.presets || []).filter((preset) => preset.tier === (tier ?? ""));
     }

@@ -10,6 +10,14 @@ test('official profiles cover every configured model without reseller parameter 
  }
 });
 test('different official model contracts remain distinct',()=>{
+ assert.equal(capabilities({id:'gpt-6.1-sol',capability:'text'}).text.contextWindowTokens,1050000);
+ assert.equal(capabilities({id:'gpt-6.1-sol',capability:'text'}).text.maxOutputTokens,128000);
+ const h3=profile('MiniMax-H3').video.references;
+ assert.equal(h3.promptMaxChars,7000);
+ assert.equal(h3.maxVideoBytes,50*1024*1024);
+ assert.equal(h3.maxImageBytes,30*1024*1024);
+ assert.equal(h3.maxTotalReferences,12);
+ assert.equal(h3.maxTotalVideoDurationSeconds,15);
  assert.equal(profile('wan3.0-video').video.duration.values.at(-1),30);
  assert.equal(profile('dreamina-seedance-2-5-filter-off').video.duration.values.at(-1),30);
  assert.equal(profile('doubao-seedance-2-0-fast-filter-off').video.duration.values.at(-1),15);

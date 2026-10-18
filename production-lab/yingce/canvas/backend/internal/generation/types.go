@@ -182,18 +182,18 @@ type ImageReferenceConfig struct {
 }
 
 type ImageSizeConfig struct {
-	Parameter   string            `json:"parameter"`
-	Values      []string          `json:"values"`
-	Default     string            `json:"default"`
-	AllowCustom bool              `json:"allowCustom"`
-	Presets     []ImageSizePreset `json:"presets,omitempty"`
+	Parameter   string                `json:"parameter"`
+	Values      []string              `json:"values"`
+	Default     string                `json:"default"`
+	AllowCustom bool                  `json:"allowCustom"`
+	Presets     []ImageSizePreset     `json:"presets,omitempty"`
 	Constraints *ImageSizeConstraints `json:"constraints,omitempty"`
 }
 
 type ImageSizeConstraints struct {
-	MinPixels int `json:"minPixels"`
-	MaxPixels int `json:"maxPixels"`
-	MaxRatio float64 `json:"maxRatio"`
+	MinPixels int     `json:"minPixels"`
+	MaxPixels int     `json:"maxPixels"`
+	MaxRatio  float64 `json:"maxRatio"`
 }
 
 type ImageSizePreset struct {
@@ -229,31 +229,32 @@ type VideoCapabilityConfig struct {
 }
 
 type VideoReferenceConfig struct {
-	PromptMaxChars   int   `json:"promptMaxChars"`
-	MinImages        int   `json:"minImages"`
-	MaxImages        int   `json:"maxImages"`
-	MaxImageBytes    int64 `json:"maxImageBytes"`
-	MaxVideos        int   `json:"maxVideos"`
-	MaxVideoBytes    int64 `json:"maxVideoBytes"`
-	MaxVideoDuration int   `json:"maxVideoDurationSeconds"`
-	MaxAudios        int   `json:"maxAudios"`
-	MaxAudioBytes    int64 `json:"maxAudioBytes"`
-	MaxAudioDuration int   `json:"maxAudioDurationSeconds"`
-	MinVideoDuration int `json:"minVideoDurationSeconds,omitempty"`
-	MaxTotalVideoDuration int `json:"maxTotalVideoDurationSeconds,omitempty"`
-	MinAudioDuration int `json:"minAudioDurationSeconds,omitempty"`
-	MaxTotalAudioDuration int `json:"maxTotalAudioDurationSeconds,omitempty"`
-	MinImageSide int `json:"minImageSide,omitempty"`
-	MaxImageSide int `json:"maxImageSide,omitempty"`
-	MinImageRatio float64 `json:"minImageRatio,omitempty"`
-	MaxImageRatio float64 `json:"maxImageRatio,omitempty"`
-	MinVideoPixels int `json:"minVideoPixels,omitempty"`
-	MaxVideoPixels int `json:"maxVideoPixels,omitempty"`
-	ImageBytesExclusive bool `json:"imageBytesExclusive,omitempty"`
-	AudioOnlySupported bool `json:"audioOnlySupported,omitempty"`
-	ImageFormats []string `json:"imageFormats,omitempty"`
-	VideoFormats []string `json:"videoFormats,omitempty"`
-	AudioFormats []string `json:"audioFormats,omitempty"`
+	PromptMaxChars        int      `json:"promptMaxChars"`
+	MinImages             int      `json:"minImages"`
+	MaxImages             int      `json:"maxImages"`
+	MaxImageBytes         int64    `json:"maxImageBytes"`
+	MaxVideos             int      `json:"maxVideos"`
+	MaxVideoBytes         int64    `json:"maxVideoBytes"`
+	MaxVideoDuration      int      `json:"maxVideoDurationSeconds"`
+	MaxAudios             int      `json:"maxAudios"`
+	MaxTotalReferences    int      `json:"maxTotalReferences,omitempty"`
+	MaxAudioBytes         int64    `json:"maxAudioBytes"`
+	MaxAudioDuration      int      `json:"maxAudioDurationSeconds"`
+	MinVideoDuration      int      `json:"minVideoDurationSeconds,omitempty"`
+	MaxTotalVideoDuration int      `json:"maxTotalVideoDurationSeconds,omitempty"`
+	MinAudioDuration      int      `json:"minAudioDurationSeconds,omitempty"`
+	MaxTotalAudioDuration int      `json:"maxTotalAudioDurationSeconds,omitempty"`
+	MinImageSide          int      `json:"minImageSide,omitempty"`
+	MaxImageSide          int      `json:"maxImageSide,omitempty"`
+	MinImageRatio         float64  `json:"minImageRatio,omitempty"`
+	MaxImageRatio         float64  `json:"maxImageRatio,omitempty"`
+	MinVideoPixels        int      `json:"minVideoPixels,omitempty"`
+	MaxVideoPixels        int      `json:"maxVideoPixels,omitempty"`
+	ImageBytesExclusive   bool     `json:"imageBytesExclusive,omitempty"`
+	AudioOnlySupported    bool     `json:"audioOnlySupported,omitempty"`
+	ImageFormats          []string `json:"imageFormats,omitempty"`
+	VideoFormats          []string `json:"videoFormats,omitempty"`
+	AudioFormats          []string `json:"audioFormats,omitempty"`
 }
 
 type VideoDurationConfig struct {

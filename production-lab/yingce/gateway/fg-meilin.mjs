@@ -35,7 +35,8 @@ export async function initializeMeilin(pool){await pool.query(`
 export function meilinTaskInput(selected,channel,request,drama,refs){
  const mode=request.kind,p=request.payload||{},options=mode==='text'?{}:creatorGenerationConfig(selected,p,mode),operation=creatorMediaOperation(selected,p,mode);
  const prompt=mode==='text'?'美林导演文本任务':p.prompt;
- const maxTokens=Math.min(32768,Math.max(1,Number(p.max_tokens)||8000));
+ const outputLimit=selected.profile?.text?.maxOutputTokens||32768;
+ const maxTokens=Math.min(outputLimit,Math.max(1,Math.floor(Number(p.max_tokens)||8000)));
  return {type:'canvas_'+mode,model:selected.billingId,operation,prompt,input:{mode,prompt,
   config:{channelId:channel.id||channel.channel_id,model:selected.billingId,interfaceType:channel.protocol,apiFormat:channel.api_format||'openai',count:'1',...options},
   ...(mode==='text'?{agentRequests:{chatCompletion:{...p,model:selected.billingId,stream:true,max_tokens:maxTokens}},textOptions:{stream:true,maxOutputTokens:maxTokens}}:{referenceImages:refs.image||[],referenceVideos:refs.video||[],referenceAudios:refs.audio||[]}),

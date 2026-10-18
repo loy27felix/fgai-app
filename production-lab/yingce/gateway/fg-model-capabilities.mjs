@@ -23,8 +23,8 @@ export function capabilities(spec,{legacy=false}={}){
  if(spec.capability==='text'){
   // The transport ceiling is independent of the provider's token context.
   const models={
-   // Conservative application limits for the company NewAPI route; not advertised provider maxima.
-   'gpt-6.1-sol':[128000,32768,16],
+   // Official token limits; the company route still caps image attachments at 16.
+   'gpt-6.1-sol':[1050000,128000,16],
    'claude-opus-5-5-t3a':[1000000,128000,600],
    'claude-sonnet-5-5-t3a':[1000000,128000,600],
    'deepseek-v4-pro':[1048576,393216,0],
@@ -73,6 +73,8 @@ export function capabilities(spec,{legacy=false}={}){
  // https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference
  if(wan3)Object.assign(references,{promptMaxChars:20000,maxImages:10,maxVideos:5,maxVideoBytes:100*1024*1024,minVideoDurationSeconds:1,maxVideoDurationSeconds:15,maxTotalVideoDurationSeconds:15,maxInputOutputDurationSeconds:30,minVideoSide:240,maxVideoSide:4096,maxAudios:5,minAudioDurationSeconds:1,maxAudioDurationSeconds:15,maxTotalAudioDurationSeconds:15,minImageSide:240,maxImageSide:8000,minImageRatio:1/8,maxImageRatio:8,audioOnlySupported:true,imageFormats:['jpg','jpeg','png','bmp','webp'],videoFormats:['mp4','mov'],audioFormats:['wav','mp3']});
  if(happy)Object.assign(references,{promptMaxChars:2500,promptMaxNonChineseChars:5000,maxImageBytes:20*1024*1024,minImageSide:r2v?400:i2v?300:0,minImageRatio:i2v?.4:0,maxImageRatio:i2v?2.5:0,imageFormats:['jpg','jpeg','png','webp'],maxVideoBytes:0,maxAudioBytes:0});
+ // https://platform.minimax.io/docs/guides/video-generation
+ if(h3)Object.assign(references,{promptMaxChars:7000,maxImageBytes:30*1024*1024,maxVideoBytes:50*1024*1024,minImageSide:256,maxImageSide:5760,minVideoSide:256,maxVideoSide:5760,minImageRatio:.4,maxImageRatio:2.5,minVideoDurationSeconds:2,maxTotalVideoDurationSeconds:15,minAudioDurationSeconds:2,maxTotalAudioDurationSeconds:15,maxTotalReferences:12,audioOnlySupported:true,imageFormats:['jpg','jpeg','png','webp','heic','heif'],videoFormats:['mp4','mov'],audioFormats:['wav','mp3']});
  if(wan3)return {version:1,video:{references,duration:{selection:'enum',values,default:5},durationSupported:true,ratios:['adaptive','21:9','16:9','4:3','1:1','3:4','9:16'],defaultRatio:'adaptive',resolutions:['480p','720p','1080p'],defaultResolution:'1080p',generateAudio:{supported:true,default:true},watermark:{supported:true,default:false},operations,defaultOperation:'text_to_video'}};
   // FG explicitly selects 16:9 for reference/T2V budgeting; official adaptive remains selectable.
   // Strict I2V follows the first frame and remains adaptive regardless of this default.

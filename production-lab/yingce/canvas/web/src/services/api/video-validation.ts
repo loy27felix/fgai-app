@@ -13,6 +13,7 @@ export function assertVideoCapability(
     seconds: string,
 ) {
     if (references.length > profile.references.maxImages || videoReferences.length > profile.references.maxVideos || audioReferences.length > profile.references.maxAudios) throw new Error("参考素材数量超过当前模型限制");
+    if (profile.references.maxTotalReferences && references.length + videoReferences.length + audioReferences.length > profile.references.maxTotalReferences) throw new Error(`混合参考素材合计最多 ${profile.references.maxTotalReferences} 个`);
     if (references.length < profile.references.minImages) throw new Error(`当前视频模型至少需要 ${profile.references.minImages} 张参考图`);
     if (!videoDurationAllowed(profile, Number(seconds))) throw new Error("视频时长不在当前模型支持范围内");
     if (profile.references.maxImageBytes > 0 && references.some((image) => (image.bytes || 0) > profile.references.maxImageBytes)) throw new Error("参考图片文件超过当前模型大小限制");

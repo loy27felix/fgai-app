@@ -111,6 +111,7 @@ export type VideoCapabilityConfig = {
         maxVideoBytes: number;
         maxVideoDurationSeconds: number;
         maxAudios: number;
+        maxTotalReferences?: number;
         maxAudioBytes: number;
         maxAudioDurationSeconds: number;
         minVideoDurationSeconds?: number;

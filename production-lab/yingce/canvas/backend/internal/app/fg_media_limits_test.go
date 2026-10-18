@@ -2,6 +2,18 @@ package app
 
 import "testing"
 
+func TestFGH3MixedReferenceLimit(t *testing.T) {
+	r := VideoReferenceConfig{MaxTotalReferences: 12}
+	in := canvasGenerationInput{ReferenceImages: make([]providerMedia, 9), ReferenceVideos: make([]providerMedia, 3)}
+	if err := validateFGReferenceLimits(r, in); err != nil {
+		t.Fatal(err)
+	}
+	in.ReferenceAudios = make([]providerMedia, 1)
+	if validateFGReferenceLimits(r, in) == nil {
+		t.Fatal("13 mixed references accepted")
+	}
+}
+
 func TestFGProjectReferencePlaceholderUsesResolvedResourceMIME(t *testing.T) {
 	r := VideoReferenceConfig{ImageFormats: []string{"png", "jpeg", "webp"}}
 	in := canvasGenerationInput{ReferenceImages: []providerMedia{{Type: "image/*", StorageKey: "resource:character"}}}

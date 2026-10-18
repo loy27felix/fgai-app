@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.4.0";
+export const CURRENT_RELEASE_VERSION = "1.4.1";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,14 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月18日",
+        items: [
+            { type: "修复", content: "恢复 GPT Image 2.5 Flare 和 Sunburst 的 2K、4K 尺寸选择；分辨率与图片质量独立，低质量选项不再把尺寸限制为1K。" },
+            { type: "优化", content: "复核当前启用模型的官方参数，更新 GPT 6.1 Sol 上下文与输出上限；补齐 MiniMax H3 文件大小、累计时长及混合参考最多12个的生成前检查。" },
+        ],
+    },
+    {
+        version: "1.4.0",
         date: "2026年10月18日",
         items: [
             { type: "优化", content: "支持的图片模型可在比例列表选择自适应；Nano Banana 2.1 可保留4K分辨率，实际比例与像素以模型结果为准。" },

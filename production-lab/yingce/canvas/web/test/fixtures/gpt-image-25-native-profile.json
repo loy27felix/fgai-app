@@ -1,0 +1,182 @@
+{
+  "parameters": [
+    {
+      "name": "size",
+      "label": "画幅 / 尺寸",
+      "type": "string",
+      "values": [
+        "auto",
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "1536x864",
+        "864x1536",
+        "1360x1024",
+        "1024x1360",
+        "2048x880",
+        "2048x2048",
+        "2048x1152",
+        "1152x2048",
+        "2304x1728",
+        "1728x2304",
+        "2496x1664",
+        "1664x2496",
+        "3136x1344",
+        "2880x2880",
+        "3840x2160",
+        "2160x3840",
+        "3264x2448",
+        "2448x3264",
+        "3504x2336",
+        "2336x3504",
+        "3808x1632"
+      ],
+      "default": "1024x1024",
+      "pricing": true,
+      "binding": "aspectRatio",
+      "encoding": "pixels",
+      "enabled": true
+    },
+    {
+      "name": "imageResolution",
+      "label": "分辨率",
+      "type": "string",
+      "pricing": true,
+      "binding": "resolution",
+      "enabled": false
+    },
+    {
+      "name": "quality",
+      "label": "图片质量",
+      "type": "string",
+      "values": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "low",
+      "pricing": true,
+      "binding": "quality",
+      "enabled": true
+    },
+    {
+      "name": "count",
+      "label": "生成数量",
+      "type": "integer",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "default": 1,
+      "binding": "imageCount",
+      "enabled": true
+    },
+    {
+      "name": "transparentBackground",
+      "label": "透明背景",
+      "type": "boolean",
+      "default": false,
+      "binding": "transparentBackground",
+      "enabled": true
+    },
+    {
+      "name": "outputFormat",
+      "label": "输出格式",
+      "type": "string",
+      "values": [
+        "png",
+        "jpeg",
+        "webp"
+      ],
+      "default": "png",
+      "binding": "providerOptions.openai-image.output_format",
+      "enabled": false
+    },
+    {
+      "name": "outputCompression",
+      "label": "压缩质量",
+      "type": "integer",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "binding": "providerOptions.openai-image.output_compression",
+      "enabled": false
+    }
+  ],
+  "references": {
+    "promptMaxChars": 32000,
+    "maxImages": 16,
+    "maxImageBytes": 52428800,
+    "maskSupported": true
+  },
+  "size": {
+    "parameter": "size",
+    "values": [
+      "auto",
+      "1024x1024",
+      "1536x1024",
+      "1024x1536",
+      "1536x864",
+      "864x1536",
+      "1360x1024",
+      "1024x1360",
+      "2048x880",
+      "2048x2048",
+      "2048x1152",
+      "1152x2048",
+      "2304x1728",
+      "1728x2304",
+      "2496x1664",
+      "1664x2496",
+      "3136x1344",
+      "2880x2880",
+      "3840x2160",
+      "2160x3840",
+      "3264x2448",
+      "2448x3264",
+      "3504x2336",
+      "2336x3504",
+      "3808x1632"
+    ],
+    "default": "1024x1024",
+    "allowCustom": false,
+    "constraints": {
+      "minPixels": 655360,
+      "maxPixels": 8294400,
+      "maxRatio": 3,
+      "maxSide": 3840,
+      "edgeMultiple": 16
+    }
+  },
+  "resolution": {
+    "supported": false,
+    "values": [],
+    "default": "auto"
+  },
+  "quality": {
+    "supported": true,
+    "values": [
+      "auto",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "default": "low"
+  },
+  "transparentBackground": {
+    "supported": true,
+    "default": false
+  },
+  "responseFormat": {
+    "supported": false,
+    "default": "auto"
+  },
+  "outputFormat": {
+    "supported": true
+  },
+  "maxOutputs": 10
+}

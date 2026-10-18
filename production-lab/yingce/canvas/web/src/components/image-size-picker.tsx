@@ -22,7 +22,8 @@ export function ImageSizePicker({
     canSelectResolution?: (resolution: string) => boolean;
     onChange: (size: string, quality?: string, resolution?: string) => void;
 }) {
-    const ungrouped = Boolean(profile.parameters && !profile.resolution.supported);
+    // Pixel sizes already encode the resolution. A separate provider resolution field is unnecessary.
+    const ungrouped = Boolean(profile.parameters && !profile.resolution.supported && profile.size.parameter !== "size");
     const IMAGE_RESOLUTIONS = ungrouped ? [...new Set(imageSizePresets(profile).map((p) => p.tier))] : imageResolutionTiers(profile);
     const presets = imageSizePresets(profile).filter((preset) => imageTierAvailable(profile, preset.tier));
     const visibleTiers = IMAGE_RESOLUTIONS.filter((value) => presets.some((preset) => preset.tier === value));

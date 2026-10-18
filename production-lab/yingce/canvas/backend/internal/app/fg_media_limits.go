@@ -22,6 +22,9 @@ func videoPromptMaxChars(r VideoReferenceConfig, prompt string) int {
 // Apply documented limits only when metadata is known; signed URLs still reach
 // the provider for codec / frame-rate validation. No silent resize or truncation.
 func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInput) error {
+	if r.MaxTotalReferences > 0 && len(input.ReferenceImages)+len(input.ReferenceVideos)+len(input.ReferenceAudios) > r.MaxTotalReferences {
+		return BadAuthRequest(fmt.Sprintf("混合参考素材合计最多 %d 个", r.MaxTotalReferences))
+	}
 	var videoMs, audioMs int64
 	checkShape := func(w, h int, isVideo bool) error {
 		if w <= 0 || h <= 0 {
