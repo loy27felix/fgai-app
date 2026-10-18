@@ -25,6 +25,7 @@ export const FG_RELEASE_NOTES: ReleaseInfo[] = [
         version: CURRENT_RELEASE_VERSION,
         date: "2026年10月18日",
         items: [
+            { type: "优化", content: "支持的图片模型可在比例列表选择自适应；Nano Banana 2.1 可保留4K分辨率，实际比例与像素以模型结果为准。" },
             { type: "新增", content: "美林超级导演改为对话制作工作区，一个对话一个项目；剧本、角色、分镜、Prompt 与真实媒体在旁边展示，随时对话修改已有文稿。" },
             { type: "新增", content: "提供超级造梦、超级棱镜、超级银幕、超级爆点四条制作链路，新项目选一种方法即可；独立剧本体检检查结构、钩子和反转，保留原稿。" },
             { type: "优化", content: "视频 Prompt 统一详细十二模块，逐段同时描述人物动作、镜头运动和背景；校验时长、真实引用和规格，修改保留版本并提示受影响内容。" },

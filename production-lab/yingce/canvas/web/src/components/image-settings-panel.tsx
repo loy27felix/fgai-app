@@ -143,6 +143,7 @@ function isGrokResolutionQuality(profile: ImageCapabilityConfig) {
 }
 
 export function imageSizeLabel(size: string) {
+    if (size === "auto") return "自适应";
     const resolutionLabel = formatImageResolutionSize(size, buildImageResolutionOptions([size]));
     return resolutionLabel !== size ? resolutionLabel : aspectOptions.find((item) => (item.size || item.value) === size || item.value === size)?.label || size;
 }

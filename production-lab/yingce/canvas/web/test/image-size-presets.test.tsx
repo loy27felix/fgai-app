@@ -12,6 +12,15 @@ import { resolveImageRequestSize, validateImageSize } from "../src/services/api/
 import { buildGeminiImageGenerationConfig } from "../src/lib/gemini-image";
 
 describe("统一图片分辨率与宽高比", () => {
+    test("自适应是比例选项，只在模型声明支持 auto 时显示", () => {
+        const image = defaultImageCapabilityConfig("openai-image", "gpt-image-2.5-sunburst");
+        const markup = renderToStaticMarkup(<ImageSizePicker profile={image} size="auto" onChange={() => {}} />);
+        expect(markup).toMatch(/aria-label="图片宽高比"[\s\S]*aria-pressed="true"[\s\S]*自适应/);
+        expect(markup).not.toContain("与参考图像素相同");
+        const fixed = { ...image, size: { ...image.size, values: ["1024x1024"], default: "1024x1024", allowCustom: false } };
+        const fixedMarkup = renderToStaticMarkup(<ImageSizePicker profile={fixed} size="1024x1024" onChange={() => {}} />);
+        expect(fixedMarkup).not.toContain("<span>自适应</span>");
+    });
     test("GPT Image 2 and 2.5 render the configured official 16:9 pixels instead of inherited legacy presets", () => {
         for (const model of ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
             const image = defaultImageCapabilityConfig("openai-image", model);
@@ -255,8 +264,8 @@ describe("统一图片分辨率与宽高比", () => {
         profile.size.allowCustom = true;
         const empty = renderToStaticMarkup(<ImageSizePicker profile={profile} size="auto" onChange={() => {}} />);
         expect(empty).not.toContain('class="image-size-tiers"');
-        expect(empty).not.toContain('class="image-size-label"');
-        expect(empty).toContain("自动尺寸");
+        expect(empty).toContain('aria-label="图片宽高比"');
+        expect(empty).toContain("自适应");
         expect(empty).toContain("自定义比例或尺寸");
     });
 
