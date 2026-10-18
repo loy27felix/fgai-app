@@ -18,6 +18,7 @@ import { deselectVisibleModels, filterImportModels, normalizeFetchModelKey, sele
 import { duplicateChannelModelValues, type ChannelModelFormValues } from "./channel-model-editor-form";
 import { Select } from "@/components/ui/base/select";
 import { useUserStore } from "@/stores/use-user-store";
+import {FGSpeechServices} from './fg-speech-services';
 
 export function ChannelModelManager({ channel, onChanged }: { channel: ModelChannel; onChanged: () => void | Promise<void> }) {
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
@@ -315,6 +316,7 @@ export function ChannelModelManager({ channel, onChanged }: { channel: ModelChan
                     </Button>
                 </div>
             ) : null}
+            {channel.name === '火山语音 · FG' ? <FGSpeechServices /> : null}
             <AdminDataTable
                 empty={
                     <AdminTableEmpty

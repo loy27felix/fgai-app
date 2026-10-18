@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {matchReceiptPairs} from './fg-finance-matching.mjs';
 import {spendUsage,monthStart,monthRange} from './fg-budgets.mjs';
+import {financePeriod} from './fg-finance-period.mjs';
 async function body(req){let chunks=[],n=0;for await(const c of req){n+=c.length;if(n>100000)throw Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks));}
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':String(data)}));}
 export async function financeActions(req,res,{pool,actor,path}){
@@ -18,7 +19,8 @@ export async function financeActions(req,res,{pool,actor,path}){
   }
   if(!actor.reviewer){send(res,'仅超级管理员可调整费用额度或处理账单',403);return true;}
   if(route==='/api/fg/finance/audit'&&req.method==='GET'){
-   send(res,{audit:(await pool.query('SELECT a.*,u.display_name actor_name FROM fg_finance_audit a JOIN users u ON u.id=a.actor_id ORDER BY created_at DESC LIMIT 200')).rows});return true;
+   const period=financePeriod(path.searchParams.get('month')||'all');
+   send(res,{audit:(await pool.query('SELECT a.*,u.display_name actor_name FROM fg_finance_audit a JOIN users u ON u.id=a.actor_id WHERE ($1::timestamptz IS NULL OR a.created_at >= $1::timestamptz) AND ($2::timestamptz IS NULL OR a.created_at < $2::timestamptz) ORDER BY a.created_at DESC LIMIT 200',[period.since,period.until])).rows});return true;
   }
   const input=await body(req);const client=await pool.connect();
   try{
@@ -45,7 +47,7 @@ export async function financeActions(req,res,{pool,actor,path}){
     if(input.classification==='reset')await client.query('DELETE FROM fg_request_decisions WHERE call_id=$1',[call.id]);
     else{
      if((await client.query('SELECT 1 FROM fg_fee_matches WHERE call_id=$1',[call.id])).rowCount)throw Error('请求已有实际账单，请核对账单归属，不能改成未收费');
-     await client.query('INSERT INTO fg_request_decisions(call_id,note,actor_id) VALUES($1,$2,$3) ON CONFLICT(call_id) DO UPDATE SET note=$2,actor_id=$3,updated_at=now()',[call.id,note,actor.id]);
+     await client.query("INSERT INTO fg_request_decisions(call_id,note,actor_id) VALUES($1,$2,$3) ON CONFLICT(call_id) DO UPDATE SET note=$2,actor_id=$3,source='manual',evidence=NULL,updated_at=now()",[call.id,note,actor.id]);
     }
     await client.query('INSERT INTO fg_finance_audit(id,actor_id,action,target,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor.id,'request_'+input.classification,call.id,before,{classification:input.classification,note}]);
    }else if(route==='/api/fg/finance/decisions'&&req.method==='POST'){

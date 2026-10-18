@@ -1,17 +1,19 @@
 import {importFeeCsv} from './fg-fee-import.mjs';
 import {readUsageLog,reconcileUsage} from './fg-fee-usage.mjs';
 import {feeAuthHeaders,feeResponseError,loadFeeAuthorization} from './fg-fee-auth.mjs';
+import {reconcileRejectedRequests} from './fg-fee-rejections.mjs';
 
 const endpoint='https://wetoken.ai/api/user/v2/fee-log';
 const csvCell=value=>'"'+String(value).replaceAll('"','""')+'"';
 export function feeLogCsv(items){
  const rows=['Time,Model Name,Actual Amount (USD),Reference ID,Type,Status'];
  for(const item of items){
-  if(item.type!=='consume'||item.status!=='success')continue;
+  const explicitAmount=(typeof item.actual_amount==='number'||typeof item.actual_amount==='string'&&item.actual_amount.trim()!=='');
+  if(item.type!=='consume'||(item.status!=='success'&&!(item.status==='failed'&&explicitAmount&&Number(item.actual_amount)===0)))continue;
   const amount=Number(item.actual_amount),seconds=Number(item.time);
   if(!Number.isFinite(amount)||!Number.isInteger(seconds)||seconds<=0||!item.reference_id||!item.model_name)throw new Error('INVALID_FEE_RECORD');
   const time=new Date(seconds*1000+8*3600000).toISOString().slice(0,19).replace('T',' ');
-  rows.push([time,item.model_name,Math.abs(amount).toFixed(10).replace(/0+$/,'').replace(/\.$/,''),item.reference_id,'consume','success'].map(csvCell).join(','));
+  rows.push([time,item.model_name,Math.abs(amount).toFixed(10).replace(/0+$/,'').replace(/\.$/,''),item.reference_id,'consume',item.status].map(csvCell).join(','));
  }
  return rows.length>1?rows.join('\n'):null;
 }
@@ -39,7 +41,7 @@ export async function readFeeLog(session,{fetcher=fetch,start,end}={}){
  throw new Error('FEE_PAGE_LIMIT');
 }
 
-export function startFeeSync(pool,{file=process.env.WETOKEN_FEE_SESSION_FILE,actorId=process.env.FG_FEE_SYNC_ACTOR_ID,intervalMs=60000,loadAuthorization=()=>loadFeeAuthorization(pool,{file}),readFees=readFeeLog,readUsage=readUsageLog,importFees=importFeeCsv,matchUsage=reconcileUsage,autoStart=true}={}){
+export function startFeeSync(pool,{file=process.env.WETOKEN_FEE_SESSION_FILE,actorId=process.env.FG_FEE_SYNC_ACTOR_ID,intervalMs=60000,loadAuthorization=()=>loadFeeAuthorization(pool,{file}),readFees=readFeeLog,readUsage=readUsageLog,importFees=importFeeCsv,matchUsage=reconcileUsage,matchRejected=reconcileRejectedRequests,autoStart=true}={}){
  let busy=false,timer;
  const save=async value=>pool.query("INSERT INTO fg_company_settings(key,value) VALUES('wetokenFeeSync',$1::jsonb) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()",[JSON.stringify(value)]);
  const run=async()=>{
@@ -61,7 +63,8 @@ export function startFeeSync(pool,{file=process.env.WETOKEN_FEE_SESSION_FILE,act
    const imported=csv?await importFees(pool,actorId,csv):{rows:0,reused:false};
    const usage=await readUsage(session,{start,end});
    const matched=usage.length?await matchUsage(pool,actorId,usage):[];
-   await save({mode:session.accessToken?'access_token':'session',automatic:true,status:'synced',intervalSeconds:Math.max(30,intervalMs/1000),lastSuccess:new Date().toISOString(),fetchedRows:entries.length,reason:'每分钟自动补拉账单；按流水编号核销，文本请求另按模型、完整用量和完成时间双向唯一匹配。',importedRows:imported.rows,usageMatchedRows:matched.length});
+   const rejected=await matchRejected(pool,actorId);
+   await save({mode:session.accessToken?'access_token':'session',automatic:true,status:'synced',intervalSeconds:Math.max(30,intervalMs/1000),lastSuccess:new Date().toISOString(),fetchedRows:entries.length,reason:'每分钟自动对账；按流水核销扣费及失败零扣款，明确的生成前拒绝自动确认未收费。',importedRows:imported.rows,usageMatchedRows:matched.length,rejectedNoChargeRows:rejected.length});
    return {started:true,status:'synced',fetchedRows:entries.length};
   }catch(error){
    const expired=['SESSION_EXPIRED','INVALID_SESSION'].includes(error.message);

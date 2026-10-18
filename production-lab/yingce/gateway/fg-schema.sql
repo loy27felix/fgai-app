@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS fg_provider_fees(
   fx numeric(16,6) NOT NULL CHECK(fx>0), occurred_at timestamptz NOT NULL, import_id uuid NOT NULL REFERENCES fg_fee_imports(id)
 );
 CREATE TABLE IF NOT EXISTS fg_model_prices(model varchar(120) PRIMARY KEY,snapshot jsonb NOT NULL,collected_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE fg_provider_fees ADD COLUMN IF NOT EXISTS provider_status varchar(24) NOT NULL DEFAULT 'success';
 CREATE TABLE IF NOT EXISTS fg_company_settings(key varchar(80) PRIMARY KEY,value jsonb NOT NULL,updated_at timestamptz NOT NULL DEFAULT now());
 INSERT INTO fg_company_settings(key,value) VALUES('usdCnyRate','6.77'::jsonb) ON CONFLICT DO NOTHING;
 INSERT INTO fg_schema_versions(version) VALUES(1) ON CONFLICT DO NOTHING;
@@ -50,6 +51,8 @@ ALTER TABLE fg_asset_grants ALTER COLUMN project_id TYPE text,ALTER COLUMN asset
 CREATE TABLE IF NOT EXISTS fg_fee_decisions(reference_id varchar(160) PRIMARY KEY REFERENCES fg_provider_fees(reference_id),call_id varchar(36) UNIQUE REFERENCES api_call_logs(id),classification varchar(24) NOT NULL CHECK(classification IN('matched','external','ignored')),note text NOT NULL,actor_id varchar(36) NOT NULL REFERENCES users(id),updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS fg_finance_audit(id uuid PRIMARY KEY,actor_id varchar(36) NOT NULL REFERENCES users(id),action varchar(40) NOT NULL,target text NOT NULL,before_value jsonb,after_value jsonb,created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS fg_request_decisions(call_id varchar(36) PRIMARY KEY REFERENCES api_call_logs(id),note text NOT NULL,actor_id varchar(36) NOT NULL REFERENCES users(id),updated_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE fg_request_decisions ADD COLUMN IF NOT EXISTS source varchar(32) NOT NULL DEFAULT 'manual';
+ALTER TABLE fg_request_decisions ADD COLUMN IF NOT EXISTS evidence jsonb;
 CREATE TABLE IF NOT EXISTS fg_user_budgets(user_id varchar(36) PRIMARY KEY REFERENCES users(id),monthly_cny numeric(16,2) NOT NULL DEFAULT 0 CHECK(monthly_cny>=0),updated_by varchar(36) REFERENCES users(id),updated_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE fg_user_budgets ADD COLUMN IF NOT EXISTS lifetime_cny numeric(16,2) CHECK(lifetime_cny>=0);
 CREATE TABLE IF NOT EXISTS fg_budget_reservations(id uuid PRIMARY KEY,user_id varchar(36) NOT NULL REFERENCES users(id),project_id varchar(36),task_id varchar(36),model text NOT NULL,reserved_cny numeric(20,6),created_at timestamptz NOT NULL DEFAULT now());

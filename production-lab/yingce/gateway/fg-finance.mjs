@@ -19,7 +19,9 @@ export function parseFeeCsv(input) {
   for(const cells of rows){
     const r=Object.fromEntries(keys.map((k,i)=>[k,(cells[i]||'').trim()]));
     const model=r.modelname||r['模型名称']||'';
-    if(keys.includes('type')&&(!['consume','消费'].includes(r.type.toLowerCase())||!['success','成功'].includes(r.status.toLowerCase())))continue;
+    const providerFailed=['failed','失败'].includes((r.status||'').toLowerCase());
+    const rawAmount=(r.actualamountusd||r.actualamount||r.cost||'').replace(/[$,\s]/g,'');
+    if(keys.includes('type')&&(!['consume','消费'].includes(r.type.toLowerCase())||(!['success','成功'].includes(r.status.toLowerCase())&&!(providerFailed&&/^[-+]?0+(\.0+)?$/.test(rawAmount)))))continue;
     if(!model)continue;
     const referenceId=r.referenceid;
     const raw=(r.actualamountusd||r.actualamount||r.cost||'').replace(/[$,\s]/g,'');
@@ -33,7 +35,8 @@ export function parseFeeCsv(input) {
     const occurredAt=new Date(utc-8*3600_000).toISOString();
     const existing=entries.get(referenceId);
     if(existing&&(existing.usd!==usd||existing.model!==model||existing.occurredAt!==occurredAt))throw new Error('同一 Reference ID 存在冲突金额');
-    entries.set(referenceId,{referenceId,model,usd,occurredAt});
+    if(existing&&(existing.providerStatus||'success')!==(providerFailed?'failed':'success'))throw new Error('同一 Reference ID 存在冲突状态');
+    entries.set(referenceId,{referenceId,model,usd,occurredAt,...(providerFailed?{providerStatus:'failed'}:{})});
   }
   if(!entries.size)throw new Error('费用单没有可核销的模型消费记录');
   return [...entries.values()];

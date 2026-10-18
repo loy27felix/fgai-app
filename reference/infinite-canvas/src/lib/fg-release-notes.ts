@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.3.27";
+export const CURRENT_RELEASE_VERSION = "1.3.28";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,16 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月18日",
+        items: [
+            { type: "新增", content: "对账支持选择月份，提供本月、上个月和全部月份快捷入口；请求、金额汇总、待核对、流水、处理记录和导出随月份切换。" },
+            { type: "修复", content: "自动核销供应商明确记录的失败零扣款；生成前因鉴权、额度或请求过大被拒绝的请求自动记录未收费依据，不再长期停留待核对。" },
+            { type: "修复", content: "费用明细显示视频任务最终状态，提交受理成功但生成失败时不再误显示成功；零扣款与生成前拒绝分别标识。" },
+            { type: "优化", content: "系统渠道补齐火山引擎三项专用服务：流式语音识别、录音文件识别、机器翻译；与现有两个音频生成模型一起展示用途和真实启用状态。" },
+        ],
+    },
+    {
+        version: "1.3.27",
         date: "2026年10月18日",
         items: [
             { type: "新增", content: "接入 Nano Banana 2.1，按 Google 官方参数提供 1K、2K、4K、14 种画幅及跟随参考图的自适应比例。" },

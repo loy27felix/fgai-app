@@ -7,7 +7,7 @@ export type FGFinance={canManage:boolean;calls:FGCall[];fx:number;collectedAt:st
 export const getFGTopics=(signal?:AbortSignal)=>http.get<{topics:FGTopic[]}>('/fg/topics',{signal});
 export const getFGProjects=(signal?:AbortSignal)=>http.get<{projects:FGProject[];legacy:Array<{id:string;title:string;ownerName:string;team:string;topicId:number|null}>;groups:Array<{id:string;name:string}>}>('/fg/projects',{signal});
 export const createFGProject=(input:{topicId:number;tier:string;groupName:string;budgetCny:number})=>http.post<{projectId:string;reused:boolean}>('/fg/projects',input);
-export const getFGFinance=()=>http.get<FGFinance>('/fg/finance');
+export const getFGFinance=(month='all',signal?:AbortSignal)=>http.get<FGFinance>('/fg/finance',{params:{month},signal});
 export const importFGFees=(csv:string)=>http.post<{rows:number;reused:boolean}>('/fg/finance/import',{csv});
 export const updateFGFx=(fx:number)=>http.put<{fx:number}>('/fg/finance/fx',{fx});
 

@@ -8,12 +8,18 @@ import {financeActions} from './fg-finance-actions.mjs';
 import {modelPriceRows} from './fg-model-price-catalog.mjs';
 import {storyCatalogRoute} from './fg-story-catalog.mjs';
 import {feeAuthorizationRoute} from './fg-fee-auth-route.mjs';
+import {financePeriod,inFinancePeriod} from './fg-finance-period.mjs';
+import {companySpeechServices} from './fg-speech.mjs';
 
 export async function initializeFG(pool){await pool.query(await fs.readFile(new URL('./fg-schema.sql',import.meta.url),'utf8'));}
 async function jsonBody(req,max=100000){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>max)throw new Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':data}));}
 export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin,feeSync}){
   if(!path.pathname.startsWith('/api/fg/'))return false;
+  if(path.pathname==='/api/fg/speech/services'&&req.method==='GET'){
+    if(!actor.reviewer){send(res,'仅超级管理员可查看系统渠道',403);return true;}
+    send(res,await companySpeechServices(pool));return true;
+  }
   if(await feeAuthorizationRoute(req,res,{actor,pool,path,feeSync},{body:jsonBody,send}))return true;
   if(await financeActions(req,res,{pool,actor,path}))return true;
   const api=async(endpoint,method='GET',body)=>{
@@ -77,6 +83,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
       }catch(e){await client.query('ROLLBACK');if(createdProjectId){try{await api('/projects/'+createdProjectId,'DELETE');}catch{console.error(JSON.stringify({event:'fg_story_creation_compensation_required',projectId:createdProjectId}));}}throw e;}finally{client.release();}
     }
     if(path.pathname==='/api/fg/finance'&&req.method==='GET'){
+      const period=financePeriod(path.searchParams.get('month')||'all');
       // Every provider attempt stays separate. Polls/downloads are not a second charge.
       const {rows}=await pool.query(`WITH calls AS (
         SELECT l.id,l.user_id,l.task_id,l.model,l.capability,l.status,t.status task_status,l.created_at,l.input_tokens,l.output_tokens,l.cached_tokens,l.usage_available,l.media_count,l.request_body,l.response_body,l.video_seconds,
@@ -87,11 +94,11 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
         LEFT JOIN projects p ON p.id=t.project_id
         WHERE l.billable=true AND l.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%')
       ) SELECT c.*,p.name project_name,u.display_name user_name,CASE WHEN aw.id IS NOT NULL THEN NULL ELSE COALESCE(NULLIF(c.fg_group_name,''),s.group_name) END group_name,s.tier,COALESCE(s.budget_cny,aw.budget_cny) budget_cny,
-        COALESCE(f.settled_cny,CASE WHEN rd.call_id IS NOT NULL THEN 0 END) settled_cny,f.settled_reference_id,COALESCE(f.match_method,CASE WHEN rd.call_id IS NOT NULL THEN 'manual_no_charge' END) match_method,rd.note no_charge_note
+        COALESCE(f.settled_cny,CASE WHEN rd.call_id IS NOT NULL THEN 0 END) settled_cny,f.settled_reference_id,COALESCE(f.match_method,CASE WHEN rd.call_id IS NOT NULL THEN CASE WHEN rd.source='admission_rejected' THEN 'automatic_no_charge' ELSE 'manual_no_charge' END END) match_method,rd.note no_charge_note
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
         LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id
-        LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,string_agg(m.method,', ') match_method FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
+        LEFT JOIN LATERAL(SELECT sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,string_agg(CASE WHEN f.provider_status='failed' AND f.usd=0 THEN 'automatic_provider_zero' ELSE m.method END,', ') match_method FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id WHERE m.call_id=c.id) f ON true
         LEFT JOIN fg_request_decisions rd ON rd.call_id=c.id
         WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1)))
         ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
@@ -103,7 +110,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
       const fx=Number(settings.value);
       for(const call of rows){call.rate_estimated_cny=estimateCNY(call,byModel.get(call.model),fx);delete call.request_body;delete call.response_body;delete call.settled_usd;}
       const billingSync=(await pool.query("SELECT value FROM fg_company_settings WHERE key='wetokenFeeSync'")).rows[0]?.value||{mode:'csv',automatic:false,reason:'未配置授权账单会话；可导入官方 CSV。'};
-      send(res,{calls:rows,fx,canManage:actor.reviewer,lastImport:actor.reviewer?imports[0]||null:null,unallocated:unallocated.map(({usd,fx,...row})=>({...row,cny:Number(usd)*Number(fx)})),collectedAt:new Date().toISOString(),billingSync});return true;
+      send(res,{calls:rows.filter(c=>inFinancePeriod(c.created_at,period)),period,fx,canManage:actor.reviewer,lastImport:actor.reviewer?imports[0]||null:null,unallocated:unallocated.filter(r=>inFinancePeriod(r.occurred_at,period)).map(({usd,fx,...row})=>({...row,cny:Number(usd)*Number(fx)})),collectedAt:new Date().toISOString(),billingSync});return true;
     }
     if(path.pathname==='/api/fg/finance/import'&&req.method==='POST'){
       if(!actor.reviewer){send(res,'仅超级管理员可导入账单',403);return true;}

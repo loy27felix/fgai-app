@@ -36,7 +36,7 @@ test('expired authorization recovers on the next run, backfills from the last su
  let value={lastSuccess:'2026-10-14T01:46:04.781Z'},expired=true,reads=0,window;
  const pool={query:async(sql,args)=>{if(sql.startsWith('SELECT'))return {rows:[{value}]};value=JSON.parse(args[0]);return {rows:[]};}};
  const sync=startFeeSync(pool,{actorId:'admin',autoStart:false,loadAuthorization:async()=>session,
-  readFees:async(_,range)=>{reads++;window=range;if(expired)throw Error('SESSION_EXPIRED');return [];},readUsage:async()=>[],intervalMs:60000});
+  readFees:async(_,range)=>{reads++;window=range;if(expired)throw Error('SESSION_EXPIRED');return [];},readUsage:async()=>[],matchRejected:async()=>[],intervalMs:60000});
  try{
   assert.equal((await sync.run()).status,'reauthorization_required');assert.equal(value.lastSuccess,'2026-10-14T01:46:04.781Z');
   expired=false;assert.equal((await sync.run()).status,'synced');assert.equal(reads,2);

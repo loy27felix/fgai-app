@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {internalSpeechAuthorised,synthesizeSpeech,speechModels,speechUtilities,SpeechError} from './fg-speech-provider.mjs';
+import {internalSpeechAuthorised,synthesizeSpeech,speechModels,speechUtilities,speechKey,SpeechError} from './fg-speech-provider.mjs';
 import {musicModels,synthesizeMusic} from './fg-music-provider.mjs';
 
 export async function initializeSpeech(pool){
@@ -11,6 +11,12 @@ export async function initializeSpeech(pool){
 export async function enabledSpeechModels(pool){
  const rows=(await pool.query(`SELECT cm.model_key FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name IN ('火山语音 · FG','Suno 音乐 · FG') AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rows;
  return [...speechModels,...musicModels].filter(m=>rows.some(r=>r.model_key===m.id));
+}
+export async function companySpeechServices(pool,{checkKey=speechKey}={}){
+ const rows=(await pool.query("SELECT model,snapshot FROM fg_model_prices WHERE snapshot->>'provider'='volcengine'")).rows;
+ let credentialConfigured=false;try{await checkKey();credentialConfigured=true;}catch{}
+ const descriptions={streaming:'实时语音输入与流式转写，使用专用 WebSocket 接口。',transcription:'上传录音文件后转写为文本，使用异步识别任务。',translation:'翻译识别文本及字幕，使用专用机器翻译接口。'};
+ return {credentialConfigured,services:speechUtilities.map(m=>({...m,description:descriptions[m.capability],enabled:credentialConfigured&&rows.find(r=>r.model===m.id)?.snapshot?.enabled===true}))};
 }
 export async function speechInternalRoute(req,res,{pool,path}){
  if(path.pathname!=='/internal/fg/speech/v1/audio/speech')return false;
