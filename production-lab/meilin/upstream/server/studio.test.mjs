@@ -372,3 +372,9 @@ test("legacy reads and first write resolve stable artifacts without creating dup
     assert.equal(write.episodes[0].segments[0].id, "shot-old");
     assert.equal(write.episodes[0].segments[0].takes[0].url, "/real/video.mp4");
   }));
+
+test('an agent cannot shorten a locked duration while asked only to accelerate action',()=>ctx(async()=>{
+ const d=project();d.studio.locks.seconds=20;queueTurn(d,'把动作节奏加快，保持20秒');
+ await assert.rejects(executeRun(d,d.studio.runs[0],async request=>request.system.startsWith('美林任务路由')?JSON.stringify({phase:'concept'}):JSON.stringify({reply:'错误缩短',locks:{seconds:15},artifacts:[]})),/不能.*自行改为15秒/);
+ assert.equal(d.studio.locks.seconds,20);
+}));

@@ -588,6 +588,12 @@ export async function executeRun(
     throw Error("导演试图越过当前阶段，请先确认本阶段");
   // Apply atomically to a clone: malformed later artifacts cannot leave earlier writes behind.
   const copy = structuredClone(d);
+  if(result.locks?.seconds!==undefined&&s.locks.seconds&&result.locks.seconds!==s.locks.seconds){
+    const instruction=run.routing?.instruction||JSON.parse(run.request.messages[0].content).instruction||'';
+    const explicit=/(?:总时长|时长|秒数|总长|长度)[^\n。？！]{0,24}/g;
+    const allowed=[...instruction.matchAll(explicit)].some(m=>new RegExp(`(?:^|\\D)${Number(result.locks.seconds)}(?:\\D|$)`).test(m[0]));
+    if(!allowed)throw Error(`你已确认${s.locks.seconds}秒，导演不能因“加快节奏”自行改为${result.locks.seconds}秒；请保留原时长重写。`);
+  }
   if (result.locks) studioAction(copy, "locks", result.locks);
   if (result.settings)
     for (const key of ["textModel", "imageModel", "videoModel"])
@@ -622,7 +628,7 @@ export async function executeRun(
   }
   for (const value of result.artifacts)
     addArtifact(copy, value, run.receipts, "根据对话修改");
-  if (result.title && !d.titleZh?.includes("v"))
+  if (result.title)
     copy.titleZh = String(result.title).slice(0, 100);
   const questions = Array.isArray(result.questions)
     ? result.questions.slice(0, 10)
