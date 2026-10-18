@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.3.29";
+export const CURRENT_RELEASE_VERSION = "1.3.30";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,14 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月18日",
+        items: [
+            { type: "修复", content: "修复导演工作台点击返回 FG 工作台仍停留原地或重新进入导演页的问题；明确返回时进入工作台首页。" },
+            { type: "优化", content: "区分主动返回首页与刷新页面：刷新继续保留当前画布、项目或后台页面，主动返回不再被上次位置覆盖。" },
+        ],
+    },
+    {
+        version: "1.3.29",
         date: "2026年10月18日",
         items: [
             { type: "优化", content: "管理中心总览改为显示 WeToken 公司账户真实美元余额及更新时间，自动刷新；不再使用旧积分余额。" },

@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {installWorkspaceEntry,workspaceEntryDocument} from './fg-workspace-entry.mjs';
-function page({hash='',stored=null,user='member',entry='/fg-six/'}={}){
+function page({hash='',stored=null,user='member',entry='/fg-six/',navigationType='navigate'}={}){
  const frame={dataset:{entry},contentWindow:{},src:''};const handlers={};const values=new Map(stored?[['fg-workspace-route:'+user,stored]]:[]);
  const location={origin:'https://fg.example',pathname:'/production-lab',search:'',hash};
- const context={document:{querySelector:()=>frame},URL,location,sessionStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)},history:{replaceState:(_,__,url)=>{location.hash=url.slice(url.indexOf('#'));}},addEventListener:(k,fn)=>handlers[k]=fn};
+ const context={performance:{getEntriesByType:()=>[{type:navigationType}]},document:{querySelector:()=>frame},URL,location,sessionStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)},history:{replaceState:(_,__,url)=>{location.hash=url.slice(url.indexOf('#'));}},addEventListener:(k,fn)=>handlers[k]=fn};
  vm.runInNewContext('('+installWorkspaceEntry.toString()+')('+JSON.stringify(user)+')',context);
  const report=(route,options={})=>handlers.message({source:frame.contentWindow,origin:'https://fg.example',data:{type:'fg-workspace-location',route},...options});
  return {frame,location,values,report,handlers};
@@ -16,7 +16,7 @@ test('refresh restores canvas, chapter, admin page and filters from outer URL',(
  }
 });
 test('storage is scoped per user and hash wins over last route',()=>{
- assert.equal(page({stored:'/admin/users'}).frame.src,'https://fg.example/fg-six/admin/users');
+ assert.equal(page({stored:'/admin/users',navigationType:'reload'}).frame.src,'https://fg.example/fg-six/admin/users');
  assert.equal(page({stored:'/admin/users',hash:'#workspace='+encodeURIComponent('/canvas/c')}).frame.src,'https://fg.example/fg-six/canvas/c');
  const p=page({user:'a'});p.report('/canvas/private');assert.ok(p.values.has('fg-workspace-route:a'));assert.ok(!p.values.has('fg-workspace-route:b'));
 });
@@ -27,4 +27,19 @@ test('ignore foreign messages, APIs, script URLs, path escapes and malformed has
  assert.equal(page({hash:'#workspace=%zz'}).frame.src,'https://fg.example/fg-six/');
  assert.equal(page({hash:'#workspace='+encodeURIComponent('//evil.example')}).frame.src,'https://fg.example/fg-six/');
  const html=workspaceEntryDocument('/fg-six/','</script><evil>','https://fg.example');assert.ok(!html.includes('</script><evil>'));assert.ok(html.includes('data-entry="/fg-six/"'));
+});
+
+
+test('director Return FG workbench reaches home when the outer navigation only clears the hash',()=>{
+ const p=page({hash:'#workspace='+encodeURIComponent('/arcreel'),stored:'/arcreel'});
+ assert.equal(p.frame.src,'https://fg.example/fg-six/arcreel');
+ // The real director link targets _top /production-lab: same document, hash cleared.
+ p.location.hash='';p.handlers.hashchange();
+ assert.equal(p.frame.src,'https://fg.example/fg-six/');
+ p.report('/');const refreshed=page({hash:p.location.hash,stored:'/arcreel',navigationType:'reload'});
+ assert.equal(refreshed.frame.src,'https://fg.example/fg-six/');
+});
+test('explicit bare workspace link opens home, rather than silently reopening the last director page',()=>{
+ assert.equal(page({stored:'/arcreel'}).frame.src,'https://fg.example/fg-six/');
+ assert.equal(page({stored:'/canvas/old',navigationType:'navigate'}).frame.src,'https://fg.example/fg-six/');
 });

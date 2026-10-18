@@ -8,7 +8,10 @@ export function installWorkspaceEntry(actorId){
  const stored=()=>{try{return sessionStorage.getItem(storageKey);}catch{return null;}};
  const fromHash=()=>{try{return location.hash.startsWith('#workspace=')?decodeURIComponent(location.hash.slice(11)):null;}catch{return null;}};
  const href=route=>base.href.replace(/\/$/,'')+(valid(route)?route:'/');
- let desired=fromHash()||stored()||'/';if(!valid(desired))desired='/';
+ // A bare workbench link is an explicit return home. Only a true reload may
+ // fall back to this user's last route when the URL has no workspace state.
+ const isReload=performance.getEntriesByType('navigation')[0]?.type==='reload';
+ let desired=fromHash()||(isReload?stored():null)||'/';if(!valid(desired))desired='/';
  frame.src=href(desired);
  addEventListener('message',event=>{
   if(event.source!==frame.contentWindow||event.origin!==base.origin||event.data?.type!=='fg-workspace-location'||!valid(event.data.route))return;
@@ -17,7 +20,9 @@ export function installWorkspaceEntry(actorId){
   const hash='#workspace='+encodeURIComponent(route);
   if(location.hash!==hash)history.replaceState(null,'',location.pathname+location.search+hash);
  });
- addEventListener('hashchange',()=>{const route=fromHash();if(valid(route))frame.src=href(route);});
+ // The director's _top link can clear the hash without reloading this outer
+ // document. Treat that same-document navigation as a return home too.
+ addEventListener('hashchange',()=>{const route=fromHash()||'/';if(valid(route))frame.src=href(route);});
 }
 export function workspaceEntryDocument(entryURL,actorId,workspaceOrigin){
  const attr=value=>String(value).replace(/[&"<>]/g,c=>({'&':'&amp;','"':'&quot;','<':'&lt;','>':'&gt;'}[c]));
