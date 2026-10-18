@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {capabilities} from './fg-model-capabilities.mjs';
 
 const imageSpec=id=>({id,capability:'image',protocol:'openai-image',price:{capabilities:{params:{size:{values:['1024x1024']},quality:{values:['wrong-vendor-value']}}}}});
-test('standalone backend protocol fixture matches the deployed Gemini plugin',()=>{
+test('standalone backend protocol fixture matches the deployed Gemini plugin',{skip:!fs.existsSync(new URL('../canvas/backend/internal/protocol/testdata/fg-wetoken-gemini-image.yingce-plugin',import.meta.url))},()=>{
  assert.deepEqual(fs.readFileSync(new URL('./protocol-packages/fg-wetoken-gemini-image.yingce-plugin',import.meta.url)),fs.readFileSync(new URL('../canvas/backend/internal/protocol/testdata/fg-wetoken-gemini-image.yingce-plugin',import.meta.url)));
 });
 test('Nano Banana 2.1 follows Google tiers and ratios rather than reseller defaults',()=>{
