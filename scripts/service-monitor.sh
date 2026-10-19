@@ -16,7 +16,7 @@ DISK_THRESHOLD="${FG_MONITOR_DISK_THRESHOLD:-90}"
 DOCKER_TIMEOUT_SECONDS=5
 MAX_OBSERVABILITY_EVENTS_PER_RUN="${FG_MONITOR_MAX_OBSERVABILITY_EVENTS_PER_RUN:-5}"
 TUNNEL_FAILURE_THRESHOLD="${FG_MONITOR_TUNNEL_FAILURE_THRESHOLD:-2}"
-TUNNEL_PROBE_TIMEOUT_SECONDS="${FG_MONITOR_TUNNEL_PROBE_TIMEOUT_SECONDS:-8}"
+TUNNEL_PROBE_TIMEOUT_SECONDS="${FG_MONITOR_TUNNEL_PROBE_TIMEOUT_SECONDS:-20}"
 USER_DOMAIN="gui/$(id -u)"
 AUTO_DEPLOY_LABEL="com.fgstudio.auto-deploy"
 AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
@@ -560,7 +560,7 @@ check_tunnel() {
   local count
 
   [[ "$TUNNEL_FAILURE_THRESHOLD" =~ ^[1-9][0-9]*$ ]] || TUNNEL_FAILURE_THRESHOLD=2
-  [[ "$TUNNEL_PROBE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || TUNNEL_PROBE_TIMEOUT_SECONDS=8
+  [[ "$TUNNEL_PROBE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || TUNNEL_PROBE_TIMEOUT_SECONDS=20
 
   container="$(container_id cloudflared)"
   if [[ -n "$container" ]]; then
@@ -594,8 +594,10 @@ check_tunnel() {
 
   # Public reachability includes host egress, DNS and TLS; it cannot justify restarting a ready connector.
   # 公网可达性还受主机出口、DNS 和 TLS 影响；探测失败只告警，禁止主动重启 connector。
+  # Allow slower public TLS handshakes while keeping each probe bounded.
+  # 为公网 TLS 握手留出余量，同时限制单次探测的总等待时间。
   probe_status="$(/usr/bin/curl -sS -o /dev/null -w '%{http_code}' \
-    --connect-timeout 3 --max-time "$TUNNEL_PROBE_TIMEOUT_SECONDS" \
+    --connect-timeout 10 --max-time "$TUNNEL_PROBE_TIMEOUT_SECONDS" \
     "$provider_url" 2>/dev/null)" || probe_exit=$?
   # Only the unsigned bare content endpoint intentionally returns 400 for missing parameters.
   # 只有未带参数的裸 content 接口预期返回 400；鉴权、限流和路由错误不能算健康。
