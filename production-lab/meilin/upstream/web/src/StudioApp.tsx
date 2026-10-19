@@ -774,7 +774,7 @@ function StudioApp() {
                         disabled={busy || Boolean(running)}
                         onClick={() => void act("retry", { id: r.id })}
                       >
-                        恢复原任务
+                        {/模型服务(?:额度不足|鉴权失败)|渠道余额不足/.test(r.error || "") ? "重新尝试" : "恢复原任务"}
                       </Button>
                       <small>也可以描述新的修改要求继续。</small>
                     </div>

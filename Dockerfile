@@ -12,7 +12,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_DEPLOYMENT_VERSION=${APP_DEPLOYMENT_VERSION}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm run build
+# Keep release compilation from consuming the shared Docker VM's memory.
+RUN NODE_OPTIONS=--max-old-space-size=2048 pnpm run build
 
 FROM docker.m.daocloud.io/library/node:20-alpine AS runner
 WORKDIR /app

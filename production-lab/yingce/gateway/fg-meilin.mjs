@@ -7,6 +7,7 @@ import {priceQuote} from './fg-quotes.mjs';
 import {monthStart,spendUsage} from './fg-budgets.mjs';
 import {estimateCNY} from './fg-prices.mjs';
 import {responseHeaders} from './policy.mjs';
+import {meilinQuotaError} from './fg-meilin-errors.mjs';
 
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const secret=()=>process.env.MEILIN_INTERNAL_SECRET||'';
@@ -93,7 +94,12 @@ async function taskView(pool,link,ctx,after){
   if(!result.text&&!resourceId)return {taskId:link.task_id,status:'archiving',error:'生成已完成，等待 NAS 结果归档'};
  }
  const replay=after!==undefined&&task.type?.startsWith('canvas_text')?await owner.api('/tasks/'+link.task_id+'/text-deltas?after='+Math.max(0,Number(after)||0)):undefined;
- return {taskId:link.task_id,status:task.status,result,error:task.error||null,...(replay?{replay}:{})};
+ let error=task.error||null;
+ if(task.status==='failed'){
+  const log=(await pool.query('SELECT status_code,response_body FROM api_call_logs WHERE task_id=$1 ORDER BY created_at DESC LIMIT 1',[link.task_id])).rows[0];
+  error=meilinQuotaError(log)||error;
+ }
+ return {taskId:link.task_id,status:task.status,result,error,...(replay?{replay}:{})};
 }
 export async function meilinInternalRoute(req,res,ctx){
  const match=/^\/internal\/meilin\/([^/]+)\/([^/]+)\/(catalog|quote|submit|task|costs)$/.exec(ctx.path.pathname);if(!match)return false;
