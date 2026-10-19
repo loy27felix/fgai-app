@@ -13,7 +13,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets } from "./workflow-shot-references";
 import { currentRevision } from "./workflow-shared";
 import { shotArtifactPrompt } from "./shot-artifact-prompt";
-import { prepareShotVideoExecution, shotGenerationReferenceContext } from "./shot-video-execution";
+import { prepareShotVideoExecution } from "./shot-video-execution";
 
 type Row = { shotId: string; title: string; revisionId: string; referenceKey: string; autoAssets: ProjectAsset[]; request: CreateTaskInput; quote: Quote; quoteRequest: NonNullable<ReturnType<typeof fgModelQuoteRequest>>; seconds: number; names: string[]; taskId?: string; error?: string };
 const referenceKey = (refs: ShotAssetReference[], id: string) => JSON.stringify(refs.filter(ref => ref.shotId === id && ref.status === "linked").map(ref => [ref.id, ref.assetVersionId, ref.role]).sort());
@@ -65,7 +65,10 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, onClose, onR
                 const autoAssets = existing.length ? [] : inferShotVisualAssets(assets, [revision.plotDescription, revision.action, revision.videoPrompt].join("\n"));
                 if (autoAssets.length > 6) throw new Error(`${shot.title} 匹配的参考资产超过6项，请先人工核对`);
                 const refs = [...workspace.shotReferences, ...autoAssets.map(asset => ({ id: `auto:${asset.id}`, shotId: id, assetVersionId: asset.primaryVersionId!, role: "reference", status: "linked", createdAt: "", asset }))];
-                const context = shotGenerationReferenceContext(buildShotAssetReferenceContext({ ...detail, ...workspace, assets, shotReferences: refs }, id), useVoiceSamples);
+                const boundContext = buildShotAssetReferenceContext({ ...detail, ...workspace, assets, shotReferences: refs }, id);
+                const prompt = shotArtifactPrompt("video", { ...revision, videoPrompt: ensureShotAssetMentionPrompt(revision.videoPrompt, boundContext.mentionReferences) });
+                const execution = prepareShotVideoExecution(prompt, boundContext, { dialogue: revision.dialogue, useVoiceSamples });
+                const context = execution.context;
                 const seconds = (revision.durationMs || shot.durationMs) / 1000;
                 const modelConfig = { ...config, videoSeconds: String(seconds) };
                 const input = { textCount: 1, imageCount: context.referenceImages.length, audioCount: context.referenceAudios.length, videoCount: 0, characterCount: 0 };
@@ -73,8 +76,6 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, onClose, onR
                 const requirements = { capability: "video" as const, input, videoOperation: operation, videoSeconds: String(seconds), options: { size: config.size, vquality: config.vquality, videoSeconds: seconds } };
                 const error = modelCompatibilityError(modelConfig, modelConfig.model, requirements);
                 if (error) throw new Error(`${shot.title}：${error}`);
-                const prompt = shotArtifactPrompt("video", { ...revision, videoPrompt: ensureShotAssetMentionPrompt(revision.videoPrompt, context.mentionReferences) });
-                const execution = prepareShotVideoExecution(prompt, context, { dialogue: revision.dialogue, useVoiceSamples });
                 const request = await prepareBackendGenerationTask({ projectId: detail.project.id, mode: "video", prompt: execution.prompt, config: modelConfig, referenceImages: context.referenceImages, referenceAudios: context.referenceAudios, clientOperationId: crypto.randomUUID(), metadata: { ...execution.metadata, workflowStepId: step.id, domainProjectId: detail.project.id, unitId, shotId: id, shotRevisionId: shot.currentRevisionId, artifactType: "video", role: "output", source: "short-drama-workflow", videoEditOperation: operation, resolvedCharacterVersions: context.resolvedCharacterVersions, artifactMetadata: { ...execution.metadata, model: config.model, aspectRatio: config.size, resolution: config.vquality, durationSeconds: seconds, actualPrompt: execution.prompt } } });
                 const quoteRequest = fgModelQuoteRequest(modelConfig, modelConfig.model, "video", requirements);
                 if (!quoteRequest) throw new Error("批量生成只支持已配置人民币报价的 FG 系统模型");

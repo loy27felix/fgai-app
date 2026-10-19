@@ -9,6 +9,47 @@ const context: ShotAssetReferenceContext = {
 };
 
 describe("reviewed shot video execution", () => {
+    const characters = ["Mia", "Evan", "Shadow"];
+    const cast: ShotAssetReferenceContext = {
+        mentionReferences: characters.map(name => ({ id: name, nodeId: "", assetId: name, kind: "character", label: name, title: name, active: true })),
+        referenceImages: characters.map(name => ({ id: name, name, type: "image/png", dataUrl: "", storageKey: `resource:${name}` })),
+        referenceAudios: characters.map(name => ({ id: name, name, type: "audio/wav", url: "", storageKey: `resource:${name}-voice` })),
+        assetReferences: characters.map((name, index) => ({ assetId: name, title: name, category: "character", imageIndex: index + 1, audioIndex: index + 1 })),
+        resolvedCharacterVersions: characters.map(name => ({ assetId: name, versionId: `${name}-version` })),
+    };
+    test("an explicitly remote video caller is bound to the phone screen, not an onsite actor", () => {
+        const result = prepareShotVideoExecution("【视频整体概念】\nEvan在餐桌视频通话。\n【参考图绑定】\nMia只在真实视频通话中出现。", cast);
+        expect(result.context.referenceImages.map(image => image.id)).toContain("Mia");
+        expect(result.prompt).toContain("Mia：图片1（仅用于手机屏幕中的通话影像，不是现场人物）");
+        expect(result.prompt).toContain("- Mia：仅手机屏幕内人物外观参考：图片1");
+        expect(result.prompt).toContain("不得让其坐在现场对面");
+    });
+    test("an explicitly limited cast excludes an unmentioned bound character and reindexes images and voices", () => {
+        const result = prepareShotVideoExecution("【背景人物活动】\n空间中只有 Evan 与 Shadow。\n【角色参考】\nMia：@[asset:Mia]\nEvan：@[asset:Evan]\nShadow：@[asset:Shadow]", cast, { useVoiceSamples: true });
+        expect(result.context.referenceImages.map(image => image.id)).toEqual(["Evan", "Shadow"]);
+        expect(result.context.referenceAudios.map(audio => audio.id)).toEqual(["Evan", "Shadow"]);
+        expect(result.context.resolvedCharacterVersions.map(reference => reference.assetId)).toEqual(["Evan", "Shadow"]);
+        expect(result.prompt).not.toContain("Mia");
+        expect(result.prompt).toContain("Evan：图片1");
+        expect(result.prompt).toContain("人物参考：图片2；声音参考：音频2");
+    });
+    test("a text-message-only character contributes neither a body image nor a speaking sample", () => {
+        const result = prepareShotVideoExecution("Mia：只以手机消息出现，不出场。Evan拿起手机。", cast, { useVoiceSamples: true });
+        expect(result.context.referenceImages.map(image => image.id)).not.toContain("Mia");
+        expect(result.context.referenceAudios.map(audio => audio.id)).not.toContain("Mia");
+        expect(result.prompt).toContain("Mia：只以手机消息出现，不出场。");
+    });
+    test("a no-background-people instruction excludes unrelated automatically bound characters", () => {
+        const result = prepareShotVideoExecution("【视频整体概念】\nEvan独自在客厅。\n【背景人物活动】\n没有背景人物。", cast);
+        expect(result.context.referenceImages.map(image => image.id)).toEqual(["Evan"]);
+        expect(result.prompt).not.toContain("Mia：");
+        expect(result.prompt).not.toContain("Shadow：");
+    });
+    test("a character mentioned in a flashback is not removed by the present scene roster", () => {
+        const result = prepareShotVideoExecution("空间中只有 Evan 与 Shadow。随后插入 Mia 在街头的回忆。", cast);
+        expect(result.context.referenceImages.map(image => image.id)).toContain("Mia");
+        expect(cast.referenceImages.map(image => image.id)).toEqual(characters);
+    });
     test("a bound old-episode voice is not automatically sent to each new shot", () => {
         const shots = ["新闻播报", "界面回溯", "风险记录", "更新判断"];
         const results = shots.map(story => prepareShotVideoExecution(`【视频整体概念】\n${story}`, context));

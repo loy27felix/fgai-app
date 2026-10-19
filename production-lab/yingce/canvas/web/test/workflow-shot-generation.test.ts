@@ -24,7 +24,7 @@ function videoTaskConfig() {
 test("production workbench requires an explicit choice before sending bound voice samples", async () => {
     const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
 
-    expect(source).toContain('const generationReferenceAudios = generationCapability === "video" && useVoiceSamples ? shotAssetReferenceContext.referenceAudios : [];');
+    expect(source).toContain('const generationReferenceAudios = generationCapability === "video" ? generationReferences.referenceAudios : [];');
     expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
 });
 

@@ -22,6 +22,7 @@ export type ShotPromptAssetReference = {
     audioIndex?: number;
     voiceDescription?: string;
     dialogue?: string;
+    visualUsage?: "screen-only";
 };
 
 /** 仅按本片段的明确名称匹配，歧义名称与没有视觉素材的设定不自动绑定。 */
@@ -113,7 +114,8 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
 }
 
 export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string } = {}) {
-    const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => [reference.assetId, `图片${index + 1}`]));
+    const screenOnly = new Set(context.assetReferences.filter(reference => reference.visualUsage === "screen-only").map(reference => reference.assetId));
+    const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => [reference.assetId, `图片${index + 1}${screenOnly.has(reference.assetId || "") ? "（仅用于手机屏幕中的通话影像，不是现场人物）" : ""}`]));
     const unresolved = new Set<string>();
     const resolved = prompt.replace(/@\[asset:([^\]]+)\]/g, (token, assetId: string) => {
         const label = imageLabelByAssetId.get(assetId);
@@ -159,7 +161,7 @@ export function ensureShotAssetMentionPrompt(prompt: string, references: Array<P
 export function compileShotAssetReferencePrompt(references: ShotPromptAssetReference[]) {
     if (!references.length) return "";
     const lines = references.flatMap((reference) => {
-        const visualLabel = reference.category === "character" ? "人物参考" : `${projectAssetCategoryLabel(reference.category)}参考`;
+        const visualLabel = reference.visualUsage === "screen-only" ? "仅手机屏幕内人物外观参考" : reference.category === "character" ? "人物参考" : `${projectAssetCategoryLabel(reference.category)}参考`;
         const media = [`${visualLabel}：图片${reference.imageIndex}`, reference.audioIndex ? `声音参考：音频${reference.audioIndex}` : ""].filter(Boolean).join("；");
         return [
             `- ${reference.title}：${media}`,

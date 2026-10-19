@@ -4,7 +4,7 @@ import { dramaPlanFromBeats } from "@/lib/short-drama-production";
 import { shortDramaMediaDefault } from "@/lib/short-drama-models";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { shotArtifactPrompt, actionBoardPromptFromBeats } from "./shot-artifact-prompt";
-import { prepareShotVideoExecution, shotGenerationReferenceContext } from "./shot-video-execution";
+import { prepareShotVideoExecution, shotGenerationReferenceContext, shotSceneReferenceContext } from "./shot-video-execution";
 import { rewriteShotVideoPrompt } from "./shot-prompt-rewrite";
 import { ShotVideoBatchModal } from "./shot-video-batch-modal";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
@@ -99,6 +99,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const [form] = Form.useForm<ShotEditorValues>();
     const watchedDuration = Form.useWatch("durationSeconds", form);
+    const watchedVideoPrompt = Form.useWatch("videoPrompt", form);
     const watchedTitle = Form.useWatch("title", form);
     const [leftTab, setLeftTab] = useState<"assets" | "episodes" | "shots">("episodes");
     const [previewTab, setPreviewTab] = useState<"latest" | "history">("latest");
@@ -163,18 +164,20 @@ export default function WorkflowProductionWorkbench(props: Props) {
     }, [detail.shotReferences, selectedShot?.id]);
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
     const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
-    const generationReferenceAudios = generationCapability === "video" && useVoiceSamples ? shotAssetReferenceContext.referenceAudios : [];
-    const videoEditOperation = generationCapability === "video" && shotAssetReferenceContext.referenceImages.length ? "reference_to_video" : undefined;
+    const generationReferences = useMemo(() => generationCapability === "video" ? shotGenerationReferenceContext(shotSceneReferenceContext(watchedVideoPrompt || revision?.videoPrompt || "", shotAssetReferenceContext), useVoiceSamples) : shotAssetReferenceContext, [generationCapability, watchedVideoPrompt, revision?.videoPrompt, shotAssetReferenceContext, useVoiceSamples]);
+    const generationReferenceAudios = generationCapability === "video" ? generationReferences.referenceAudios : [];
+    const excludedReferenceNames = shotAssetReferenceContext.assetReferences.filter(reference => !generationReferences.assetReferences.some(selected => selected.assetId === reference.assetId)).map(reference => reference.title);
+    const videoEditOperation = generationCapability === "video" && generationReferences.referenceImages.length ? "reference_to_video" : undefined;
     const modelRequirements = useMemo<ModelRequirements>(() => ({
         capability: generationCapability,
-        input: { textCount: 1, imageCount: shotAssetReferenceContext.referenceImages.length, videoCount: 0, audioCount: generationReferenceAudios.length, characterCount: 0 },
+        input: { textCount: 1, imageCount: generationReferences.referenceImages.length, videoCount: 0, audioCount: generationReferenceAudios.length, characterCount: 0 },
         videoOperation: videoEditOperation,
         videoSeconds: generationCapability === "video" ? generationSeconds : undefined,
         imageSize: generationCapability === "image" ? aspectRatio : undefined,
         options: generationCapability === "video"
             ? { size: aspectRatio, vquality: resolution, videoSeconds: Number(generationSeconds) }
             : { size: aspectRatio, quality: imageQuality },
-    }), [aspectRatio, generationCapability, generationReferenceAudios.length, generationSeconds, imageQuality, resolution, shotAssetReferenceContext.referenceImages.length, videoEditOperation]);
+    }), [aspectRatio, generationCapability, generationReferenceAudios.length, generationSeconds, imageQuality, resolution, generationReferences.referenceImages.length, videoEditOperation]);
     const routedModel = resolveCompatibleModel(effectiveConfig, selectedModel, modelRequirements) || selectedModel;
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
@@ -415,13 +418,14 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const skillExecution = mode === "video"
                 ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples })
                 : await skillRuntime.prepare({ profile: "shortDrama", prompt: resolvedPrompt, skills: availableSkills, selectedSkillIds: rewriteSkillIds });
+            const submittedReferences = "context" in skillExecution ? skillExecution.context : shotAssetReferenceContext;
             await submitBackendGenerationTask({
                 projectId,
                 mode,
                 prompt: skillExecution.prompt,
                 config,
-                referenceImages: shotAssetReferenceContext.referenceImages,
-                referenceAudios: generationReferenceAudios,
+                referenceImages: submittedReferences.referenceImages,
+                referenceAudios: mode === "video" ? submittedReferences.referenceAudios : [],
                 metadata: {
                     ...skillExecution.metadata,
                     workflowStepId: productionStep.id,
@@ -432,8 +436,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     artifactType,
                     role: "output",
                     source: "short-drama-workflow",
-                    ...(mode === "video" && shotAssetReferenceContext.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
-                    resolvedCharacterVersions: shotAssetReferenceContext.resolvedCharacterVersions,
+                    ...(mode === "video" && submittedReferences.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
+                    resolvedCharacterVersions: submittedReferences.resolvedCharacterVersions,
                     artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, actualPrompt: skillExecution.prompt, ...skillExecution.metadata },
                 },
             });
@@ -620,6 +624,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                             <Form.Item label="生成画质"><Select value={imageQuality} onChange={setImageQuality} options={imageProfile.quality.values.map((value) => ({ value, label: imageQualityLabel(value) }))} /></Form.Item>
                                         ) : <div />}
                                     </div>
+                                    {generationCapability === "video" && excludedReferenceNames.length > 0 ? <p className="mb-3 text-xs text-foreground/60">本次按正文的出场限制，不发送这些角色参考：{excludedReferenceNames.join("、")}。项目资产仍保留；可在完整 Prompt 中核对实际参考。</p> : null}
                                     {generationCapability === "video" && shotAssetReferenceContext.referenceAudios.length > 0 ? <div className="mb-3 text-xs"><Checkbox checked={useVoiceSamples} onChange={event => setUseVoiceSamples(event.target.checked)}>使用已绑定角色的声音样本（仅参考音色）</Checkbox><p className="mt-1 text-foreground/60">默认只使用文字声线设定。旧视频截取的样本含有原台词、环境声，视频模型可能照读；开启前请核对样本。</p></div> : null}
                                     {generationCapability === "image" && imageProfile ? <ImageSizePicker profile={imageProfile} size={aspectRatio} quality={imageQuality} onChange={(size, quality) => { setAspectRatio(size); if (quality) setImageQuality(quality); }} /> : null}
                                 </div>
