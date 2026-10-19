@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.4.5";
+export const CURRENT_RELEASE_VERSION = "1.4.6";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,14 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月19日",
+        items: [
+            { type: "修复", content: "美林正确识别供应商返回的余额不足，不再将 WeToken 预扣费不足误报为 API Key 鉴权失败。" },
+            { type: "优化", content: "余额或鉴权拒绝后，主动重新尝试会建立新请求；超时或状态不明时继续恢复原请求，避免重复提交。" },
+        ],
+    },
+    {
+        version: "1.4.5",
         date: "2026年10月19日",
         items: [
             { type: "修复", content: "修复剧本体检选中上传原稿后被误判为写剧本任务的问题；现在固定运行压力测试，原稿只读，检查意见写入独立报告。" },

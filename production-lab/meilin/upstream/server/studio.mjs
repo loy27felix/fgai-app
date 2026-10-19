@@ -794,6 +794,15 @@ export function studioAction(d, type, payload = {}) {
       throw Error("没有可恢复的任务");
     if (s.runs.some((x) => ["queued", "running"].includes(x.status)))
       throw Error("已有任务正在处理");
+    // A provider admission rejection is terminal, so its cached task can never
+    // resume after a top-up. Only this explicit user action starts a new turn;
+    // timeouts/unknown outcomes keep the original operation for safe recovery.
+    if (/模型服务(?:额度不足|鉴权失败)|渠道余额不足/.test(r.error || "")) {
+      const instruction = r.routing?.instruction || JSON.parse(r.request.messages[0].content).instruction;
+      queueTurn(d, instruction, { targetId: r.routing?.selected });
+      r.supersededBy = s.runs.at(-1).id;
+      return { reply: "已重新发起本次检查，原失败请求保留；不会重复使用原来的失败结果" };
+    }
     r.status = "queued";
     delete r.error;
     return { reply: "正在恢复原任务，不重复提交已有模型请求" };

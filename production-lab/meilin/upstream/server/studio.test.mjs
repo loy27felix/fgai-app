@@ -232,6 +232,25 @@ test("audit follow-up revises the selected report and keeps every uploaded sourc
     assert.equal(d.studio.artifacts.find(a => a.id === report.id).versions.length, 2);
     assert.equal(d.studio.artifacts.find(a => a.id === source.id).versions.length, 1);
   }));
+
+test("explicit retry after a provider quota rejection starts one new turn instead of replaying the failed task", () =>
+  ctx(() => {
+    const d=project();d.studio.mode="audit";d.studio.stage="audit";
+    const source=addArtifact(d,{kind:"script",content:"原稿。",data:{}});
+    queueTurn(d,"检查剧本",{targetId:source.id});
+    const old=d.studio.runs[0];old.status="failed";old.error="模型服务额度不足，请检查当前渠道余额或配额";
+    return ctx(()=>{
+      studioAction(d,"retry",{id:old.id});
+      assert.equal(old.status,"failed");
+      assert.equal(d.studio.runs.length,2);
+      assert.notEqual(d.studio.runs[1].id,old.id);
+      assert.equal(d.studio.runs[1].phase,"audit");
+      assert.equal(d.studio.runs[1].status,"queued");
+      assert.equal(d.studio.runs[1].routing.instruction,"检查剧本");
+      assert.equal(d.studio.runs[1].routing.selected,source.id);
+      assert.throws(()=>studioAction(d,"retry",{id:old.id}),/已有任务/);
+    });
+  }));
 test("generation rejects an unapproved or stale prompt before creating paid work", () =>
   ctx(() => {
     const d = project(),
