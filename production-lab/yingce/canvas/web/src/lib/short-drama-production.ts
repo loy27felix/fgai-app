@@ -48,6 +48,7 @@ export function dramaStoryboardContract(plan: DramaProductionPlan, modelName: st
             ? `目标视频模型提示词上限 ${plan.promptMaxChars} 字符。完整格式保留全部区块，但每块只写本片必要内容，避免重复和套话，为自动引用附加内容预留约15%空间；不得靠删对白压缩，过长时划分为更多合法片段。`
             : "按实际动作复杂度写提示词，避免重复和占位套话。",
         "采用 FG director-v2 合同，按 references/director-prompt-format.md 的全部区块写实际内容，开头为项目名与‘实际秒数秒｜一镜到底／多镜头｜类型与表演风格’。动作时间轴必须以0开始、连续覆盖到durationSeconds，逐段写‘人物动作：／镜头运动：／背景：’，包含每段结束状态。没有适用人物、素材或声音时说明没有，不编造。",
+        "返回前逐个检查动作时间段：人物动作、镜头运动、背景必须各有独立标签及实际内容；即使动作已写成自然段也不能省略‘人物动作：’标签。不适用时明确写‘无’，不要留空或把下一项内容当作上一项。",
         "跨视频衔接要记录上一段末态和本段起态的站位、姿态、手与道具、轴线、光声。可用同空间风景、道具或其他角色反应切入，再回到已经推进后的真实状态，不能借空镜瞬移或复位。imageGenerationPrompt必须是这个真实开场。",
         "如加载武戏技能，只采用已确认打戏方向和该技能的攻防、因果、互动反馈方法；导演-v2输出格式、本次时长、原对白和身份优先于技能原有简写及30秒8段规则。未经确认不得自行增加打法、伤害程度或武器。",
         "切到倾听者、道具或空镜时，使用‘角色名画外音继续’保持同一句台词连续，不让两人同时说话。人物站位不计为镜头，镜头1必须开始实际动作。",
@@ -78,6 +79,41 @@ export function validateDramaStoryboard(rows: StoryboardRow[], plan?: DramaProdu
 
 export const DIRECTOR_PROMPT_SECTIONS = ["视频整体概念", "参考图绑定", "摄影参数与镜头控制", "画面整体视觉方向", "真实皮肤／主体材质", "画面色彩与逻辑", "光影", "背景人物活动", "主角的眨眼与错时表演", "声音设计", "负面约束"];
 
+const directorIntervals = () => /^\s*(\d+(?:\.\d+)?)\s*[—–\-~～至]\s*(\d+(?:\.\d+)?)\s*秒\s*[｜|]/gm;
+const directorLabels = () => /^(人物动作|镜头运动|背景)[：:][ \t]*/gm;
+
+// Only repair presentation, never invent missing direction. Some completed tasks
+// contain the action paragraph before camera/background but omit its label.
+export function normalizeDirectorVideoPrompt(prompt: string, seconds: number) {
+    const heading = `【${seconds}秒分镜／动作时间轴】`;
+    const start = prompt.indexOf(heading);
+    const end = prompt.indexOf("【声音设计】", start + heading.length);
+    if (start < 0 || end < 0) return prompt;
+    const timelineStart = start + heading.length;
+    const timeline = prompt.slice(timelineStart, end).replace(
+        /^[ \t]*(?:[-*][ \t]+)?(?:\*\*|__)?(人物动作|镜头运动|背景)(?:\*\*|__)?[ \t]*[：:](?:\*\*|__)?[ \t]*/gm,
+        "$1：",
+    );
+    const intervals = [...timeline.matchAll(directorIntervals())];
+    let normalized = timeline;
+    for (let i = intervals.length - 1; i >= 0; i--) {
+        const from = intervals[i].index!;
+        const to = intervals[i + 1]?.index ?? timeline.length;
+        const block = timeline.slice(from, to);
+        const labels = [...block.matchAll(directorLabels())];
+        if (labels.length !== 2 || labels[0][1] !== "镜头运动" || labels[1][1] !== "背景") continue;
+        // Skip the time range and its narrative title. Only existing prose on
+        // following lines can be an omitted action paragraph.
+        const bodyStart = block.indexOf("\n", intervals[i][0].length);
+        if (bodyStart < 0) continue;
+        const action = block.slice(bodyStart + 1, labels[0].index).trim();
+        if (!action || /^[\s*_#\-]+$/.test(action) || /^(?:【|人物动作[：:])/.test(action)) continue;
+        const actionStart = bodyStart + 1 + block.slice(bodyStart + 1).search(/\S/);
+        normalized = normalized.slice(0, from + actionStart) + "人物动作：" + normalized.slice(from + actionStart);
+    }
+    return prompt.slice(0, timelineStart) + normalized + prompt.slice(end);
+}
+
 export function validateDirectorVideoPrompt(prompt: string, seconds: number, index = 0) {
     const fail = (reason: string): never => {
         throw new Error(`第 ${index + 1} 段${reason}，未替换原分镜`);
@@ -86,7 +122,7 @@ export function validateDirectorVideoPrompt(prompt: string, seconds: number, ind
     const heading = `【${seconds}秒分镜／动作时间轴】`;
     const timeline = prompt.split(heading)[1]?.split("【声音设计】")[0];
     if (!timeline) fail("缺少对应时长的动作时间轴");
-    const intervals = [...timeline!.matchAll(/^\s*(\d+(?:\.\d+)?)\s*[—–\-~～至]\s*(\d+(?:\.\d+)?)\s*秒\s*[｜|]/gm)];
+    const intervals = [...timeline!.matchAll(directorIntervals())];
     if (!intervals.length) fail("动作时间轴没有有效时间段");
     let previous = 0;
     for (let i = 0; i < intervals.length; i++) {
@@ -95,7 +131,11 @@ export function validateDirectorVideoPrompt(prompt: string, seconds: number, ind
             end = Number(interval[2]);
         if (Math.abs(start - previous) > 0.01 || end <= start || end > seconds) fail("动作时间轴存在空缺、重叠或超出总时长");
         const block = timeline!.slice(interval.index, intervals[i + 1]?.index);
-        if (!["人物动作", "镜头运动", "背景"].every((label) => new RegExp(`${label}[：:]\\s*\\S`).test(block))) fail("动作时间段缺少人物、摄影或背景内容");
+        const labels = [...block.matchAll(directorLabels())];
+        const missing = ["人物动作", "镜头运动", "背景"].filter((label) => !labels.some((match, j) =>
+            match[1] === label && /\S/.test(block.slice(match.index! + match[0].length, labels[j + 1]?.index)),
+        ));
+        if (missing.length) fail(`的第 ${i + 1} 个动作时间段（${start}—${end}秒）缺少${missing.join("、")}内容`);
         previous = end;
     }
     if (Math.abs(previous - seconds) > 0.01) fail("动作时间轴未覆盖结尾");

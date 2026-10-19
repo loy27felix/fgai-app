@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.4.3";
+export const CURRENT_RELEASE_VERSION = "1.4.4";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,14 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年10月19日",
+        items: [
+            { type: "修复", content: "修复分镜模型已写出人物动作却漏了标签时，整章分镜无法保存的问题；兼容加粗标签与中英文冒号，完整保留原动作、对白和时长。" },
+            { type: "优化", content: "真正缺少动作、摄影或背景时，指出具体视频片段、动作时间段和缺失项；继续保护已有分镜，已完成任务可以恢复，无需重复生成。" },
+        ],
+    },
+    {
+        version: "1.4.3",
         date: "2026年10月19日",
         items: [
             { type: "修复", content: "短剧视频不再自动携带已绑定声音样本，避免旧样本的台词与音效串入其他镜头；默认使用文字声线设定，可在单镜头或批量生成时明确启用音色参考。" },

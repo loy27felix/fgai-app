@@ -133,6 +133,29 @@ describe("剧情视频片段规划与恢复", () => {
         task.resultJson = JSON.stringify({ mode: "text", text: JSON.stringify({ title: "QA", rows: [{ ...row, assetBindings: [{ nodeId: "invented", role: "prop", priority: 1 }] }] }) });
         expect(() => chapterStoryboardFromGenerationTask(task)).toThrow("不存在");
     });
+    test("恢复已完成分镜时补回漏写的动作标签，完整保留动作、对白和其他段落", () => {
+        const plan = createDramaProductionPlan(config(), config().model, 20, "fixed");
+        const prompt = fullPrompt.replace("人物动作：林默推门说", "林默推门说");
+        const task = { id: "missing-label", type: "canvas_text", status: "succeeded", prompt: "", attempts: 1, createdAt: "", updatedAt: "",
+            inputJson: JSON.stringify({ metadata: { dramaProductionPlan: plan, dramaAssetIds: [] } }),
+            resultJson: JSON.stringify({ mode: "text", text: JSON.stringify({ rows: [{ ...row, videoMotionPrompt: prompt }] }) }) };
+        const result = chapterStoryboardFromGenerationTask(task);
+        expect(result.rows[0].videoMotionPrompt).toBe(fullPrompt);
+        expect(result.rows[0].dialogue).toBe(row.dialogue);
+        expect(JSON.parse(JSON.parse(task.resultJson).text).rows[0].videoMotionPrompt).toBe(prompt);
+    });
+    test("兼容 Markdown 动作标签，但不补写真正缺失的人物、摄影和背景", () => {
+        const plan = createDramaProductionPlan(config(), config().model, 20, "fixed");
+        const taskFor = (prompt: string) => ({ id: "formatting", type: "canvas_text", status: "succeeded", prompt: "", attempts: 1, createdAt: "", updatedAt: "",
+            inputJson: JSON.stringify({ metadata: { dramaProductionPlan: plan } }),
+            resultJson: JSON.stringify({ mode: "text", text: JSON.stringify({ rows: [{ ...row, videoMotionPrompt: prompt }] }) }) });
+        const formatted = fullPrompt.replaceAll("人物动作：", "- **人物动作**：").replaceAll("镜头运动：", "**镜头运动：** ").replaceAll("背景：", "背景 : ");
+        expect(chapterStoryboardFromGenerationTask(taskFor(formatted)).rows[0].videoMotionPrompt).toBe(fullPrompt);
+        for (const missing of ["人物动作：林默推门说‘有人吗？’", "镜头运动：门外稳定器后退至1.5米。", "背景：门缓慢打开，屋内无人。"]) {
+            expect(() => chapterStoryboardFromGenerationTask(taskFor(fullPrompt.replace(missing, "")))).toThrow("第 1 个动作时间段");
+        }
+        expect(() => chapterStoryboardFromGenerationTask(taskFor(fullPrompt.replace("人物动作：林默推门说‘有人吗？’", "人物动作：")))).toThrow("人物动作");
+    });
     test("新导演格式拒绝时间空洞和缺失内容，历史付费结果继续兼容", () => {
         const plan = createDramaProductionPlan(config(), config().model, 20, "fixed");
         expect(() => validateDramaStoryboard([{ ...row, videoMotionPrompt: fullPrompt.replace("8—20秒", "9—20秒") }], plan)).toThrow("空缺");

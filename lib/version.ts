@@ -1,4 +1,4 @@
-export const SYSTEM_VERSION = "1.4.3";
+export const SYSTEM_VERSION = "1.4.4";
 
 const SYSTEM_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
 

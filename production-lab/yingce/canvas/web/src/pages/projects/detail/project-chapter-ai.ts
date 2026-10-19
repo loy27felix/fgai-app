@@ -10,7 +10,7 @@ import { skillRuntime } from "@/services/skill-runtime";
 import { runShortDramaText } from "@/services/short-drama-text";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 import { modelOptionName } from "@/stores/use-config-store";
-import { dramaStoryboardContract, parseDramaProductionPlan, validateDramaStoryboard, type DramaProductionPlan } from "@/lib/short-drama-production";
+import { dramaStoryboardContract, normalizeDirectorVideoPrompt, parseDramaProductionPlan, validateDramaStoryboard, type DramaProductionPlan } from "@/lib/short-drama-production";
 import { shortDramaAssetSkillContext, shortDramaSkillContext, shortDramaSkillProvenance, SHORT_DRAMA_BUILTIN_SKILLS } from "@/lib/prompts/short-drama-skill-context";
 
 import type { ChapterStoryboardAsset, ChapterStoryboardCharacter } from "./chapter-storyboard-production";
@@ -60,6 +60,9 @@ export function chapterStoryboardFromGenerationTask(task: GenerationTask) {
     const metadata = generationTaskMetadata(task.inputJson);
     const plan = parseDramaProductionPlan(metadata.dramaProductionPlan);
     if (metadata.dramaProductionPlan && !plan) throw new Error("视频片段规划损坏，未替换原分镜");
+    if (plan?.promptFormat === "director-v2") {
+        result.rows = result.rows.map(row => ({ ...row, videoMotionPrompt: normalizeDirectorVideoPrompt(row.videoMotionPrompt, row.durationSeconds) }));
+    }
     validateDramaStoryboard(result.rows, plan);
     if (plan && Array.isArray(metadata.dramaAssetIds)) {
         const allowed = new Set(metadata.dramaAssetIds);
