@@ -60,6 +60,20 @@ def container_ready(service, marker):
         'grep -qx "fg-studio-media:v1" "$1" || exit 10; printf probe > "$2" || exit 11; grep -qx probe "$2" || exit 12',
         'fg-nas-probe', marker, probe], capture_output=True, timeout=10).returncode == 0
 
+def recover_oom_backend(storage_ready):
+    # An OOM-exited worker needs its original process back to finish queued jobs.
+    # Never bypass the NAS probe or start a deliberately stopped service.
+    if not storage_ready:
+        return False
+    state = json.loads(run(DOCKER, 'inspect', 'fg-six-yingce-backend-1',
+                           capture_output=True, text=True).stdout)[0]['State']
+    if state.get('Running') or not state.get('OOMKilled'):
+        return False
+    run(DOCKER, 'start', 'fg-six-yingce-backend-1', capture_output=True)
+    print('Sixth backend recovered after OOM; NAS probe verified', flush=True)
+    return True
+
+
 def rebind_storage(services):
     # A recovered host SMB mount does not repair existing Docker bind mounts.
     # Recreate only sixth-module services, with no active provider or Agent work.
@@ -126,6 +140,8 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
                 run(DOCKER, 'stop', '--timeout', '30', 'fg-six-yingce-backend-1', capture_output=True)
                 print('Sixth backend stopped: NAS read/write unavailable', flush=True)
             raise SystemExit(0)
+        if recover_oom_backend(ready):
+            running = True
         stale = []
         for service, marker in [('backend','/data/.fg-studio-nas-ready'),('adcraft-api','/nas/.fg-studio-nas-ready')]:
             try:

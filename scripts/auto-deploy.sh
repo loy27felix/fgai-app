@@ -9,6 +9,7 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/lock-utils.sh"
 source "$PROJECT_ROOT/scripts/app-log-archive.sh"
+source "$PROJECT_ROOT/scripts/build-resource-guard.sh"
 if ! register_lock_protocol_process; then
   printf 'Auto deploy: cannot register the current lock protocol process\n' >&2
   exit 1
@@ -252,13 +253,18 @@ compose_build_services() {
   local exit_code
   local services=("$@")
 
+  if ! ensure_build_resource_limit; then
+    log "Auto deploy: isolated build memory limit unavailable; live services preserved"
+    return 1
+  fi
+
   # Pass the deployment version explicitly for every service selected by the active revision.
   # 为当前代码版本选择的服务显式传递部署版本，避免 Compose 插值异常时回退为 dev。
   mkdir -p "$BUILD_LOG_ROOT"
   build_log="$BUILD_LOG_ROOT/build-${APP_DEPLOYMENT_VERSION}.log"
   LAST_BUILD_LOG_FILE="$build_log"
   log "Auto deploy: build output is $build_log"
-  if BUILDKIT_PROGRESS=plain compose build --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "${services[@]}" 2>&1 | tee "$build_log"; then
+  if BUILDKIT_PROGRESS=plain compose build --builder "$FG_BUILD_BUILDER" --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "${services[@]}" 2>&1 | tee "$build_log"; then
     return 0
   else
     exit_code=$?
