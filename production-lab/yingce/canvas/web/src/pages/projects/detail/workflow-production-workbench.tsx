@@ -4,12 +4,13 @@ import { dramaPlanFromBeats } from "@/lib/short-drama-production";
 import { shortDramaMediaDefault } from "@/lib/short-drama-models";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { shotArtifactPrompt, actionBoardPromptFromBeats } from "./shot-artifact-prompt";
+import { prepareShotVideoExecution, shotGenerationReferenceContext } from "./shot-video-execution";
 import { rewriteShotVideoPrompt } from "./shot-prompt-rewrite";
 import { ShotVideoBatchModal } from "./shot-video-batch-modal";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { App, Button, Form, Image, Input, InputNumber } from "antd";
+import { App, Button, Checkbox, Form, Image, Input, InputNumber } from "antd";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { StatusBadge } from "@/components/ui/base/badges";
@@ -149,7 +150,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [aspectRatio, setAspectRatio] = useState(detail.project.aspectRatio || "16:9");
     const [resolution, setResolution] = useState("480");
     const [imageQuality, setImageQuality] = useState(effectiveConfig.quality || "auto");
-    const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+    const [useVoiceSamples, setUseVoiceSamples] = useState(false);
+    useEffect(() => setUseVoiceSamples(false), [projectId, unitId]);
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const shotAssetReferenceContext = useMemo(() => buildShotAssetReferenceContext(detail, selectedShot?.id || ""), [detail, selectedShot?.id]);
     const referenceByVersionId = useMemo(() => {
@@ -161,7 +163,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     }, [detail.shotReferences, selectedShot?.id]);
     const currentDurationSeconds = Number(watchedDuration || Math.max(0.5, (selectedShot?.durationMs || 3000) / 1000));
     const generationSeconds = String(Math.max(1, Math.round(currentDurationSeconds)));
-    const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];
+    const generationReferenceAudios = generationCapability === "video" && useVoiceSamples ? shotAssetReferenceContext.referenceAudios : [];
     const videoEditOperation = generationCapability === "video" && shotAssetReferenceContext.referenceImages.length ? "reference_to_video" : undefined;
     const modelRequirements = useMemo<ModelRequirements>(() => ({
         capability: generationCapability,
@@ -409,13 +411,10 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
             const basePrompt = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
-            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue });
-            const skillExecution = await skillRuntime.prepare({
-                profile: "shortDrama",
-                prompt: resolvedPrompt,
-                skills: availableSkills,
-                selectedSkillIds,
-            });
+            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotGenerationReferenceContext(shotAssetReferenceContext, mode === "video" && useVoiceSamples), { dialogue: values.dialogue });
+            const skillExecution = mode === "video"
+                ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples })
+                : await skillRuntime.prepare({ profile: "shortDrama", prompt: resolvedPrompt, skills: availableSkills, selectedSkillIds: rewriteSkillIds });
             await submitBackendGenerationTask({
                 projectId,
                 mode,
@@ -468,7 +467,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
             }
             const values = form.getFieldsValue();
             const base = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
-            const prepared = await skillRuntime.prepare({ profile: "shortDrama", prompt: resolveShotAssetMentionPrompt(base, shotAssetReferenceContext, { dialogue: values.dialogue }), skills: availableSkills, selectedSkillIds });
+            const prepared = generationCapability === "video"
+                ? prepareShotVideoExecution(base, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples })
+                : await skillRuntime.prepare({ profile: "shortDrama", prompt: resolveShotAssetMentionPrompt(base, shotAssetReferenceContext, { dialogue: values.dialogue }), skills: availableSkills, selectedSkillIds: rewriteSkillIds });
             setPromptPreview({ title: `${stageCopy.label} · 本次将提交的提示词`, text: prepared.prompt });
         } catch (error) { message.error(error instanceof Error ? error.message : "提示词读取失败"); }
     };
@@ -605,7 +606,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                             showSelectedPrice
                                         />
                                     </Form.Item>
-                                    <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
+                                    <Form.Item label="提示词重写技能" extra="先通过“用 Skill 重写提示词”检查并应用；视频模型只接收编辑区的最终提示词。"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={rewriteSkillIds} onChange={setRewriteSkillIds} /></Form.Item>
                                     <div className="workflow-form-grid is-three">
                                         <Form.Item name="durationSeconds" label="镜头时长（秒）">
                                             {generationCapability === "video" && videoProfile?.duration.selection === "enum"
@@ -619,6 +620,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                             <Form.Item label="生成画质"><Select value={imageQuality} onChange={setImageQuality} options={imageProfile.quality.values.map((value) => ({ value, label: imageQualityLabel(value) }))} /></Form.Item>
                                         ) : <div />}
                                     </div>
+                                    {generationCapability === "video" && shotAssetReferenceContext.referenceAudios.length > 0 ? <div className="mb-3 text-xs"><Checkbox checked={useVoiceSamples} onChange={event => setUseVoiceSamples(event.target.checked)}>使用已绑定角色的声音样本（仅参考音色）</Checkbox><p className="mt-1 text-foreground/60">默认只使用文字声线设定。旧视频截取的样本含有原台词、环境声，视频模型可能照读；开启前请核对样本。</p></div> : null}
                                     {generationCapability === "image" && imageProfile ? <ImageSizePicker profile={imageProfile} size={aspectRatio} quality={imageQuality} onChange={(size, quality) => { setAspectRatio(size); if (quality) setImageQuality(quality); }} /> : null}
                                 </div>
                                 <div className="workflow-settings-section">
@@ -692,7 +694,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 {imagePreviewArtifact?.resourceId ? <img className={`workflow-image-preview-modal ${imagePreviewArtifact.type === "action_board" ? "grayscale" : ""}`} src={resourceFileUrl(imagePreviewArtifact.resourceId)} alt={imagePreviewArtifact.type === "action_board" ? "动作预演大图" : "分镜图大图"} /> : null}
             </AppModal>
 
-            {activeStage === "video" && <ShotVideoBatchModal open={videoBatchOpen} detail={detail} unitId={unitId} config={generationConfig} skills={availableSkills} skillIds={selectedSkillIds} onClose={() => setVideoBatchOpen(false)} onRefresh={onRefresh} />}
+            {activeStage === "video" && <ShotVideoBatchModal open={videoBatchOpen} detail={detail} key={`${projectId}:${unitId}`} unitId={unitId} config={generationConfig} onClose={() => setVideoBatchOpen(false)} onRefresh={onRefresh} />}
             <AppModal open={Boolean(promptPreview)} title={promptPreview?.title} width={960} onCancel={() => setPromptPreview(null)} footer={<Button onClick={() => setPromptPreview(null)}>关闭</Button>}>
                 <Input.TextArea readOnly value={promptPreview?.text || ""} autoSize={{ minRows: 14, maxRows: 26 }} aria-label="完整生成提示词" />
             </AppModal>

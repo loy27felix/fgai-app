@@ -4,7 +4,8 @@ import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/st
 import { submitBackendGenerationTask, type GenerationTaskDependencies } from "../src/services/api/generation-task";
 import type { GenerationTask } from "../src/services/api/task-center";
 import type { ProjectDetail } from "../src/services/api/projects";
-import { buildShotAssetReferenceContext, resolveShotAssetMentionPrompt } from "../src/pages/projects/detail/workflow-shot-references";
+import { buildShotAssetReferenceContext } from "../src/pages/projects/detail/workflow-shot-references";
+import { prepareShotVideoExecution } from "../src/pages/projects/detail/shot-video-execution";
 
 function videoTaskConfig() {
     const channel = createModelChannel({
@@ -20,10 +21,10 @@ function videoTaskConfig() {
     return { ...defaultConfig, channels: [channel], model, videoModel: model };
 }
 
-test("production workbench does not silently drop bound voice samples before backend validation", async () => {
+test("production workbench requires an explicit choice before sending bound voice samples", async () => {
     const source = await Bun.file(new URL("../src/pages/projects/detail/workflow-production-workbench.tsx", import.meta.url)).text();
 
-    expect(source).toContain('const generationReferenceAudios = generationCapability === "video" ? shotAssetReferenceContext.referenceAudios : [];');
+    expect(source).toContain('const generationReferenceAudios = generationCapability === "video" && useVoiceSamples ? shotAssetReferenceContext.referenceAudios : [];');
     expect(source).not.toContain("selectedVideoProfile?.references.maxAudios");
 });
 
@@ -82,7 +83,7 @@ test("shot generation submits historical character image, current voice and asse
     } as ProjectDetail;
 
     const context = buildShotAssetReferenceContext(detail, "shot-1");
-    const prompt = resolveShotAssetMentionPrompt("张天昊在 @[asset:scene-1] 睁开眼睛", context, { dialogue: "我穿越了？瓦西国张家废柴少主？" });
+    const { prompt } = prepareShotVideoExecution("张天昊在 @[asset:scene-1] 睁开眼睛", context, { dialogue: "我穿越了？瓦西国张家废柴少主？", useVoiceSamples: true });
 
     expect(context.referenceImages).toHaveLength(2);
     expect(context.referenceImages[0]?.storageKey).toBe("resource:character-image-1");
@@ -124,6 +125,23 @@ test("shot generation submits historical character image, current voice and asse
     expect(createdInput?.prompt).toContain("【资产参考】");
     expect(createdInput?.input.referenceImages.map((reference) => reference.storageKey)).toEqual(["resource:character-image-1", "resource:scene-image-1"]);
     expect(createdInput?.input.referenceAudios.map((reference) => reference.storageKey)).toEqual(["resource:character-audio-1"]);
+
+    const defaultExecution = prepareShotVideoExecution("下一集：张天昊进入山谷", context, { dialogue: "这不是上一集。" });
+    await submitBackendGenerationTask({
+        projectId: "project-1", mode: "video", prompt: defaultExecution.prompt,
+        config: videoTaskConfig(), referenceImages: defaultExecution.context.referenceImages,
+        referenceAudios: defaultExecution.context.referenceAudios,
+        metadata: { shotId: "shot-2", ...defaultExecution.metadata },
+    }, {
+        createTask: async input => { createdInput = input; return task; },
+        waitTask: async () => { throw new Error("should not wait"); },
+        runLocal: async () => ({ mode: "video" }), createId: () => "id-2", now: () => "2026-08-30T00:00:00.000Z",
+    });
+    expect(createdInput?.prompt).toContain("下一集：张天昊进入山谷");
+    expect(createdInput?.prompt).toContain("这不是上一集。");
+    expect(createdInput?.prompt).not.toContain("声音参考：音频");
+    expect(createdInput?.input.referenceAudios).toEqual([]);
+    expect(createdInput?.input.metadata?.voiceReferenceMode).toBe("description-only");
 });
 
 test("background generation submission returns after task creation without waiting", async () => {

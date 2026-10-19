@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { App, Alert, Button, Select } from "antd";
+import { App, Alert, Button, Checkbox, Select } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { fgModelQuoteRequest, type Quote } from "@/components/fg-price-preview";
 import { modelCompatibilityError } from "@/lib/model-selection";
@@ -8,21 +8,21 @@ import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { createGenerationTask, type CreateTaskInput } from "@/services/api/task-center";
 import { createUnitWorkflow, getProjectUnitWorkspace, linkShotAsset, listProjectAssetsPage, type ProjectAsset, type ProjectDetail, type ShotAssetReference } from "@/services/api/projects";
 import { http } from "@/services/api/request";
-import { skillRuntime } from "@/services/skill-runtime";
-import type { Skill } from "@/services/api/skills";
 import { modelDisplayName, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets } from "./workflow-shot-references";
 import { currentRevision } from "./workflow-shared";
 import { shotArtifactPrompt } from "./shot-artifact-prompt";
+import { prepareShotVideoExecution, shotGenerationReferenceContext } from "./shot-video-execution";
 
 type Row = { shotId: string; title: string; revisionId: string; referenceKey: string; autoAssets: ProjectAsset[]; request: CreateTaskInput; quote: Quote; quoteRequest: NonNullable<ReturnType<typeof fgModelQuoteRequest>>; seconds: number; names: string[]; taskId?: string; error?: string };
 const referenceKey = (refs: ShotAssetReference[], id: string) => JSON.stringify(refs.filter(ref => ref.shotId === id && ref.status === "linked").map(ref => [ref.id, ref.assetVersionId, ref.role]).sort());
 
-export function ShotVideoBatchModal({ open, detail, unitId, config, skills, skillIds, onClose, onRefresh }: { open: boolean; detail: ProjectDetail; unitId: string; config: AiConfig; skills: Skill[]; skillIds: string[]; onClose: () => void; onRefresh: () => Promise<void> }) {
+export function ShotVideoBatchModal({ open, detail, unitId, config, onClose, onRefresh }: { open: boolean; detail: ProjectDetail; unitId: string; config: AiConfig; onClose: () => void; onRefresh: () => Promise<void> }) {
     const { message } = App.useApp();
     const userId = useUserStore(state => state.user?.id);
     const [ids, setIds] = useState<string[]>([]);
+    const [useVoiceSamples, setUseVoiceSamples] = useState(false);
     const [rows, setRows] = useState<Row[]>([]);
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState("");
@@ -65,7 +65,7 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, skills, skil
                 const autoAssets = existing.length ? [] : inferShotVisualAssets(assets, [revision.plotDescription, revision.action, revision.videoPrompt].join("\n"));
                 if (autoAssets.length > 6) throw new Error(`${shot.title} 匹配的参考资产超过6项，请先人工核对`);
                 const refs = [...workspace.shotReferences, ...autoAssets.map(asset => ({ id: `auto:${asset.id}`, shotId: id, assetVersionId: asset.primaryVersionId!, role: "reference", status: "linked", createdAt: "", asset }))];
-                const context = buildShotAssetReferenceContext({ ...detail, ...workspace, assets, shotReferences: refs }, id);
+                const context = shotGenerationReferenceContext(buildShotAssetReferenceContext({ ...detail, ...workspace, assets, shotReferences: refs }, id), useVoiceSamples);
                 const seconds = (revision.durationMs || shot.durationMs) / 1000;
                 const modelConfig = { ...config, videoSeconds: String(seconds) };
                 const input = { textCount: 1, imageCount: context.referenceImages.length, audioCount: context.referenceAudios.length, videoCount: 0, characterCount: 0 };
@@ -74,7 +74,7 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, skills, skil
                 const error = modelCompatibilityError(modelConfig, modelConfig.model, requirements);
                 if (error) throw new Error(`${shot.title}：${error}`);
                 const prompt = shotArtifactPrompt("video", { ...revision, videoPrompt: ensureShotAssetMentionPrompt(revision.videoPrompt, context.mentionReferences) });
-                const execution = await skillRuntime.prepare({ profile: "shortDrama", skills, selectedSkillIds: skillIds, prompt: resolveShotAssetMentionPrompt(prompt, context, { dialogue: revision.dialogue }) });
+                const execution = prepareShotVideoExecution(prompt, context, { dialogue: revision.dialogue, useVoiceSamples });
                 const request = await prepareBackendGenerationTask({ projectId: detail.project.id, mode: "video", prompt: execution.prompt, config: modelConfig, referenceImages: context.referenceImages, referenceAudios: context.referenceAudios, clientOperationId: crypto.randomUUID(), metadata: { ...execution.metadata, workflowStepId: step.id, domainProjectId: detail.project.id, unitId, shotId: id, shotRevisionId: shot.currentRevisionId, artifactType: "video", role: "output", source: "short-drama-workflow", videoEditOperation: operation, resolvedCharacterVersions: context.resolvedCharacterVersions, artifactMetadata: { ...execution.metadata, model: config.model, aspectRatio: config.size, resolution: config.vquality, durationSeconds: seconds, actualPrompt: execution.prompt } } });
                 const quoteRequest = fgModelQuoteRequest(modelConfig, modelConfig.model, "video", requirements);
                 if (!quoteRequest) throw new Error("批量生成只支持已配置人民币报价的 FG 系统模型");
@@ -134,6 +134,7 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, skills, skil
             <Alert type="info" showIcon description={`使用当前视频模型、画幅和分辨率，保留每镜已保存的时长。已有后台任务自动跳过；没有引用时按角色、主场景和必要道具匹配。生成后仍可在任务中心查看。`} />
             <Select mode="multiple" disabled={busy || rows.some(row => row.taskId)} value={ids} maxTagCount="responsive" placeholder="选择镜头" options={shots.map(shot => ({ value: shot.id, label: `${formatShotOrdinal(shot.position)} · ${shot.title}` }))} onChange={value => { setIds(value); setRows([]); }} />
             <Button size="small" disabled={busy || rows.some(row => row.taskId)} onClick={() => { setIds(shots.map(shot => shot.id)); setRows([]); }}>选择本章全部镜头</Button>
+            <Checkbox checked={useVoiceSamples} disabled={busy || rows.some(row => row.taskId)} onChange={event => { setUseVoiceSamples(event.target.checked); setRows([]); }}>使用角色声音样本（仅参考音色；旧样本可能带入原台词和音效，默认关闭）</Checkbox>
             {budget && <div>本月剩余额度：{budget.remaining === null ? "不限额" : `¥${budget.remaining.toFixed(4)}`}{budget.unknown ? ` · ${budget.unknown} 笔金额待确认，最终按后台准入判断` : ""}</div>}
             <div role="status" className="text-xs">{status}</div>
             <div className="max-h-[45dvh] space-y-2 overflow-y-auto">{rows.map(row => <div key={row.shotId} className="rounded border border-border p-3 text-xs"><strong>{row.title} · {row.seconds}s · 约 ¥{row.quote.estimatedCny!.toFixed(4)}</strong><p>模型：{modelDisplayName(config, row.request.model || "")}</p><p>参考：{row.names.join("、") || "未匹配图片，纯文本生成"}</p><details><summary>检查完整视频 Prompt</summary><pre className="whitespace-pre-wrap">{row.request.prompt}</pre></details>{row.taskId && <p>任务ID：{row.taskId} · 已提交</p>}{row.error && <p>{row.error}</p>}</div>)}</div>
