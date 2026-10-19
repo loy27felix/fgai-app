@@ -44,7 +44,7 @@ const project = () =>
     },
     { chain: "prism" },
   );
-for (const [id, file] of phaseSources("prism", "concept")) {
+for (const [id, file] of ["concept", "script", "audit"].flatMap(phase => phaseSources("prism", phase))) {
   const path = join(root, id, file);
   await mkdir(join(path, ".."), { recursive: true });
   await writeFile(path, "完整测试方法原文，不截断。");
@@ -159,6 +159,78 @@ test("audit mode cannot mutate scripts or submit image and video tasks", () =>
       /不生成媒体/,
     );
     assert.equal(source.versions.length, 1);
+  }));
+
+test("selected uploaded script is audit source, never a request to write a script", () =>
+  ctx(async () => {
+    const d = project();
+    d.studio.mode = "audit";
+    d.studio.stage = "audit";
+    const source = addArtifact(d, { kind: "script", title: "原剧本.docx", content: "保留原稿对白和情节。", data: {} });
+    queueTurn(d, "帮我看一下这个剧本逻辑，并对剧本提出修改意见", { targetId: source.id });
+    const run = d.studio.runs[0];
+    assert.equal(run.phase, "audit");
+    assert.equal(run.request.sourceAction, "studio.audit");
+    const payload = JSON.parse(run.request.messages[0].content);
+    assert.equal(payload.targetArtifact, null);
+    assert.equal(payload.sourceArtifact, source.id);
+    const requests = [];
+    await executeRun(d, run, async req => {
+      requests.push(req);
+      assert.equal(req.sourceAction, "studio.audit");
+      assert.equal(JSON.parse(req.messages[0].content).taskStage, "audit");
+      return JSON.stringify({ reply: "已完成剧本体检，原稿保留。", artifacts: [{ kind: "audit", title: "剧本压力测试", content: "原文证据：保留原稿对白和情节。最弱环与修改建议。", data: {} }] });
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(d.studio.artifacts.find(a => a.id === source.id).versions.length, 1);
+    assert.equal(d.studio.artifacts.find(a => a.id === source.id).versions[0].content, "保留原稿对白和情节。");
+    assert.equal(d.studio.artifacts.at(-1).kind, "audit");
+    assert.equal(d.production.length, 0);
+  }));
+
+test("retry repairs historical audit runs wrongly queued as script without replaying the bad route", () =>
+  ctx(async () => {
+    const d = project();
+    d.studio.mode = "audit";
+    d.studio.stage = "audit";
+    const source = addArtifact(d, { kind: "script", content: "原稿不变。", data: {} });
+    queueTurn(d, "检查剧本", { targetId: source.id });
+    const run = d.studio.runs[0];
+    run.phase = "script";
+    run.request.sourceAction = "studio.script";
+    run.request.messages[0].content = JSON.stringify({ ...JSON.parse(run.request.messages[0].content), taskStage: "script", targetArtifact: source.id });
+    run.status = "failed";
+    run.error = "体检任务只允许压力测试";
+    studioAction(d, "retry", { id: run.id });
+    await executeRun(d, run, async req => {
+      assert.equal(req.sourceAction, "studio.audit");
+      assert.match(req.system, /06_剧本压力测试/);
+      assert.doesNotMatch(req.system, /05_剧本深度融合/);
+      const payload = JSON.parse(req.messages[0].content);
+      assert.equal(payload.targetArtifact, null);
+      assert.equal(payload.sourceArtifact, source.id);
+      return JSON.stringify({ reply: "体检报告已更新。", artifacts: [{ kind: "audit", content: "逻辑检查建议。", data: {} }] });
+    });
+    assert.equal(d.studio.runs[0].phase, "audit");
+    assert.equal(d.studio.runs[0].status, "succeeded");
+    assert.equal(d.studio.artifacts.find(a => a.id === source.id).versions.length, 1);
+  }));
+
+test("audit follow-up revises the selected report and keeps every uploaded source unchanged", () =>
+  ctx(async () => {
+    const d = project();
+    d.studio.mode = "audit";
+    d.studio.stage = "audit";
+    const source = addArtifact(d, { kind: "script", content: "第一场原稿。", data: {} });
+    const report = addArtifact(d, { kind: "audit", title: "体检报告", content: "原报告。", data: {} });
+    queueTurn(d, "再详细解释第二个逻辑问题", { targetId: report.id });
+    await executeRun(d, d.studio.runs[0], async req => {
+      assert.equal(JSON.parse(req.messages[0].content).targetArtifact, report.id);
+      return JSON.stringify({ reply: "已补充报告。", artifacts: [{ id: report.id, kind: "audit", title: "体检报告", content: "原报告。第二个问题的原文证据与建议。", data: {} }] });
+    });
+    assert.equal(d.studio.artifacts.length, 2);
+    assert.equal(d.studio.artifacts.find(a => a.id === report.id).versions.length, 2);
+    assert.equal(d.studio.artifacts.find(a => a.id === source.id).versions.length, 1);
   }));
 test("generation rejects an unapproved or stale prompt before creating paid work", () =>
   ctx(() => {

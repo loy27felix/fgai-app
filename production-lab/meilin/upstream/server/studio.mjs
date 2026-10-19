@@ -432,6 +432,11 @@ artifact.kind 只能 concept/characters/world/outline/script/audit/assets/storyb
 assets.data={assets:[{key:稳定唯一编号,kind:"character"|"scene"|"prop",name,prompt:完整出图提示词}]}。角色、场景优先，道具只列必需者。不虚构资产确认或成图。
 storyboard.data 和 prompts.data={shots:[{key:稳定唯一编号,title,seconds:数字,prompt:完整十二模块视频稿（prompts阶段必填）,referenceIds:[真实资产id],continuity:结束身份/位置/持物/光线/情绪}]}。分镜阶段 content 给出完整分镜表；prompts阶段 content 可以是阅读目录，逐镜完整稿必须在 data.shots[].prompt。各镜seconds合计严格等于用户锁定总时长；单镜不得超过实际模型上限。不能为了模型方便把20秒私改成15秒。视频参考按真实资产id自动匹配角色和场景，必需道具才加入，不随便添参考图。正文 @[asset:ID] 必须与该镜 referenceIds 一致。没有可绑定资产时解释需要用户先生成/上传，不编造图号。
 audit 只检查结构/留存、引用原文证据、指出最弱环、影响场次和返回哪个上游阶段，不重写原稿、不生成分镜、图片视频。qc 只做文字层连续性和投喂检查，不能冒充成片检查。`;
+function studioSystem(loaded, mode) {
+  return systemContract + "\n" + loaded.text + (mode === "audit"
+    ? "\n本次为独立剧本压力测试。sourceArtifact 与上传剧本只是只读检查材料，targetArtifact 只可能是已有体检报告。只返回 audit 报告或澄清问题，引用原文提出意见，不改写原稿，不启动制作流程或媒体生成。"
+    : "\n最高优先级最终视频交付格式：\n" + VIDEO_PROMPT_CONTRACT);
+}
 export function queueTurn(d, text, { targetId, stage } = {}) {
   const s = state(d);
   if (s.runs.some((r) => ["queued", "running"].includes(r.status)))
@@ -442,8 +447,9 @@ export function queueTurn(d, text, { targetId, stage } = {}) {
     throw Error("剧本体检只运行压力测试");
   if (!targetId && stage && stage !== s.stage)
     throw Error("请先确认当前阶段；修改旧稿时直接选择对应文稿");
-  const target = targetId ? artifact(d, targetId) : null,
-    phase = target?.kind || (s.mode === "audit" ? "audit" : stage || s.stage);
+  const selected = targetId ? artifact(d, targetId) : null,
+    target = s.mode === "audit" && selected?.kind !== "audit" ? null : selected,
+    phase = s.mode === "audit" ? "audit" : target?.kind || stage || s.stage;
   if (
     !kinds.has(phase) ||
     (!target && s.mode !== "audit" && !chain(d).stages.includes(phase))
@@ -452,18 +458,14 @@ export function queueTurn(d, text, { targetId, stage } = {}) {
   const loaded = loadPhase(s.chain, phase, s.locks);
   const request = {
     model: d.settings.textModel,
-    system:
-      systemContract +
-      "\n" +
-      loaded.text +
-      "\n最高优先级最终视频交付格式：\n" +
-      VIDEO_PROMPT_CONTRACT,
+    system: studioSystem(loaded, s.mode),
     messages: [
       {
         role: "user",
         content: JSON.stringify({
           project: projectContext(d),
           targetArtifact: target?.id || null,
+          ...(s.mode === "audit" ? { sourceArtifact: selected && selected.kind !== "audit" ? selected.id : null } : {}),
           taskStage: phase,
           instruction: text,
         }),
@@ -490,7 +492,7 @@ export function queueTurn(d, text, { targetId, stage } = {}) {
     previousQuestions: structuredClone(s.questions),
     routing: {
       instruction: text,
-      selected: target?.id,
+      selected: selected?.id,
       stage: s.stage,
       mode: s.mode,
       inventory: s.artifacts.map((a) => ({
@@ -514,7 +516,29 @@ export async function executeRun(
 ) {
   context().operationId = run.id;
   context().textOrdinal = 0;
-  if (run.routing && !run.routed) {
+  if (run.routing && state(d).mode === "audit") {
+    // An audit has no workflow choice. A selected uploaded script is input,
+    // not an edit target. Rebuild legacy failed requests too, without replaying
+    // a cached generic route that chose script because the source was selected.
+    const payload = JSON.parse(run.request.messages[0].content);
+    const selectedId = run.routing.selected || payload.sourceArtifact || payload.targetArtifact;
+    const selected = selectedId ? artifact(d, selectedId) : null;
+    const loaded = loadPhase(state(d).chain, "audit", state(d).locks);
+    payload.taskStage = "audit";
+    payload.targetArtifact = selected?.kind === "audit" ? selected.id : null;
+    payload.sourceArtifact = selected && selected.kind !== "audit" ? selected.id : payload.sourceArtifact || null;
+    run.request = {
+      ...run.request,
+      system: studioSystem(loaded, "audit"),
+      messages: [{ role: "user", content: JSON.stringify(payload) }],
+      skillVersions: Object.fromEntries(loaded.receipts.map(r => [r.id + "/" + r.path, r.sha256])),
+      sourceAction: "studio.audit",
+    };
+    run.phase = "audit";
+    run.receipts = loaded.receipts;
+    run.routed = true;
+    await checkpoint();
+  } else if (run.routing && !run.routed) {
     const route = parseJson(
       await call({
         model: run.request.model,
@@ -541,12 +565,7 @@ export async function executeRun(
     payload.targetArtifact = target?.id || null;
     run.request = {
       ...run.request,
-      system:
-        systemContract +
-        "\n" +
-        loaded.text +
-        "\n最高优先级最终视频交付格式：\n" +
-        VIDEO_PROMPT_CONTRACT,
+      system: studioSystem(loaded, state(d).mode),
       messages: [{ role: "user", content: JSON.stringify(payload) }],
       skillVersions: Object.fromEntries(
         loaded.receipts.map((r) => [r.id + "/" + r.path, r.sha256]),

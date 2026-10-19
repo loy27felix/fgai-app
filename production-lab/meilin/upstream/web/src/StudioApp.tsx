@@ -767,7 +767,7 @@ function StudioApp() {
                   .slice(-1)
                   .map((r) => (
                     <div className="run-error" key={r.id}>
-                      <b>{LABELS[r.phase]}尚未完成</b>
+                      <b>{LABELS[s.mode === "audit" ? "audit" : r.phase]}尚未完成</b>
                       <p>{r.error}</p>
                       <Button
                         size="small"
@@ -1682,7 +1682,7 @@ function StudioApp() {
       <Drawer title="费用与任务记录" open={costOpen} onClose={()=>setCostOpen(false)} width={580}>
         <p>只统计本项目。实际核销金额以供应商账单为准，估算不会当作已扣费。</p>
         {!costs?<Spin/>:<><h3>已核销 {money(costs.calls.reduce((sum,c)=>sum+(typeof c.settledCny==='number'?c.settledCny:0),0))}</h3><p>{costs.calls.length} 笔模型请求 · {costs.calls.filter(c=>c.settledCny===null).length} 笔等待账单</p>{costs.calls.map((call,i)=><section className="review-operation" key={call.id||i}><b>{config?.models.find(m=>m.id===call.model)?.label||call.model}</b><p>{STATUS[call.status]||call.status} · {call.settledCny===null?'待核销，预计 '+money(call.estimatedCny):'实际 '+money(call.settledCny)}</p><small>输入 {call.input_tokens||0} / 输出 {call.output_tokens||0} Token</small></section>)}</>}
-        <h3>导演处理记录</h3>{s?.runs.map(run=><section className="review-operation" key={run.id}><b>{LABELS[run.phase]} · {STATUS[run.status]||run.status}</b><p>{new Date(run.at).toLocaleString('zh-CN')}{(run as any).completedAt&&(run as any).startedAt?' · '+Math.round((Date.parse((run as any).completedAt)-Date.parse((run as any).startedAt))/1000)+' 秒':''}</p>{run.error&&<small>{run.error}</small>}</section>)}
+        <h3>导演处理记录</h3>{s?.runs.map(run=><section className="review-operation" key={run.id}><b>{LABELS[s.mode === "audit" ? "audit" : run.phase]} · {STATUS[run.status]||run.status}</b><p>{new Date(run.at).toLocaleString('zh-CN')}{(run as any).completedAt&&(run as any).startedAt?' · '+Math.round((Date.parse((run as any).completedAt)-Date.parse((run as any).startedAt))/1000)+' 秒':''}</p>{run.error&&<small>{run.error}</small>}</section>)}
       </Drawer>
       <Modal
         title="项目成员协作"
