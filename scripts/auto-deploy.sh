@@ -264,7 +264,7 @@ compose_build_services() {
   build_log="$BUILD_LOG_ROOT/build-${APP_DEPLOYMENT_VERSION}.log"
   LAST_BUILD_LOG_FILE="$build_log"
   log "Auto deploy: build output is $build_log"
-  if BUILDKIT_PROGRESS=plain compose build --builder "$FG_BUILD_BUILDER" --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "${services[@]}" 2>&1 | tee "$build_log"; then
+  if BUILDKIT_PROGRESS=plain bounded_compose_build "${services[@]}" 2>&1 | tee "$build_log"; then
     return 0
   else
     exit_code=$?
@@ -756,6 +756,11 @@ if [[ "$failed_sha" == "$target_sha" ]]; then
     fi
   fi
   log "Auto deploy: skipping previously failed commit $target_sha until a safe rollback is available"
+  exit 0
+fi
+
+if ! ensure_build_resource_limit; then
+  log "Auto deploy: build deferred until isolated limits and 3.5 GiB VM memory headroom are available; current release preserved"
   exit 0
 fi
 
