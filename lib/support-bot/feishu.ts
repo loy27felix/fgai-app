@@ -77,7 +77,11 @@ export function parseFeishuEvent(rawBody: string, headers: Headers): { challenge
   const openId = sender.sender_id?.open_id;
   if (!text || text.length > 8000) return ignore('empty_or_oversized_text');
   if (!openId || !message.message_id || !message.chat_id || !payload.header.event_id) return ignore('missing_message_identifiers');
-  return { message: { eventId: payload.header.event_id, messageId: message.message_id, chatId: message.chat_id, openId, text, isGroup: message.chat_type === 'group', threadId: message.thread_id || message.root_id || undefined } };
+  const isGroup = message.chat_type === 'group';
+  // Use the root message as the conversation key so follow-ups stay in one topic.
+  // 群聊首条消息以自身作为主题根，后续回复沿用同一个根消息 ID。
+  const threadId = isGroup ? message.root_id || message.message_id : undefined;
+  return { message: { eventId: payload.header.event_id, messageId: message.message_id, chatId: message.chat_id, openId, text, isGroup, threadId } };
 }
 
 function client() {
@@ -90,8 +94,8 @@ function client() {
 function checkResponse(response: { code?: number; msg?: string }) {
   if (response.code !== 0) throw new Error(`飞书 API 调用失败 (${response.code ?? 'unknown'})`);
 }
-export async function replyToMessage(messageId: string, text: string, uuid?: string) {
-  const response = await client().im.message.reply({ path: { message_id: messageId }, data: { content: JSON.stringify({ text: redactSupportText(text) }), msg_type: 'text', uuid } });
+export async function replyToMessage(messageId: string, text: string, uuid?: string, replyInThread = false) {
+  const response = await client().im.message.reply({ path: { message_id: messageId }, data: { content: JSON.stringify({ text: redactSupportText(text) }), msg_type: 'text', uuid, ...(replyInThread ? { reply_in_thread: true } : {}) } });
   checkResponse(response);
 }
 
@@ -111,7 +115,8 @@ export async function deliverSupportResult(job: SupportJob, result: DiagnosisRes
     }
   }
   await deliver('reply', async () => {
-    await replyToMessage(job.messageId, `问题编号：${job.ticketId}\n${result.userReply}`, createHash('sha256').update(`reply:${job.id}`).digest('hex').slice(0, 32));
+    const replyTarget = job.isGroup && job.threadId ? job.threadId : job.messageId;
+    await replyToMessage(replyTarget, `问题编号：${job.ticketId}\n${result.userReply}`, createHash('sha256').update(`reply:${job.id}`).digest('hex').slice(0, 32), job.isGroup);
   });
   if (!result.guidanceOnly) {
     await deliver('table', () => syncSupportTable(sdk, job, result));

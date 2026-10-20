@@ -15,13 +15,23 @@ export async function enqueueSupportMessage(message: SupportMessage) {
   return withTransaction(async (db) => {
     // Serialize a conversation, including duplicate callbacks, across workers.
     // 按会话加事务锁，避免回调重试及并发续问创建重复工单。
-    await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${message.openId}:${message.chatId}:${message.threadId || ''}`]);
+    const conversationKey = message.isGroup
+      ? `group:${message.chatId}:${message.threadId || ''}`
+      : `user:${message.openId}:${message.chatId}:${message.threadId || ''}`;
+    await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [conversationKey]);
     const previous = await db.query('SELECT ticket_id FROM support_bot_jobs WHERE event_id=$1 OR message_id=$2', [message.eventId,message.messageId]);
     if (previous.rows[0]) return { ticketId: previous.rows[0].ticket_id as string, duplicate: true };
     const pressure=await db.query("SELECT count(*) FILTER(WHERE j.created_at>now()-interval '1 minute')::int recent,count(*) FILTER(WHERE j.status IN ('pending','processing'))::int queued FROM support_bot_jobs j JOIN support_bot_tickets t ON t.id=j.ticket_id WHERE t.open_id=$1",[message.openId]);
     if (pressure.rows[0].recent>=5 || pressure.rows[0].queued>=10) throw new Error('提问过于频繁，请稍后重试');
-    if (message.text.trim()==='新问题') await db.query("UPDATE support_bot_tickets SET status='closed' WHERE open_id=$1 AND chat_id=$2 AND thread_id=$3",[message.openId,message.chatId,message.threadId || '']);
-    const existing = await db.query("SELECT id FROM support_bot_tickets WHERE open_id=$1 AND chat_id=$2 AND thread_id=$3 AND status='open' AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1", [message.openId,message.chatId,message.threadId || '']);
+    if (message.text.trim()==='新问题') {
+      if (message.isGroup) await db.query("UPDATE support_bot_tickets SET status='closed' WHERE chat_id=$1 AND thread_id=$2",[message.chatId,message.threadId || '']);
+      else await db.query("UPDATE support_bot_tickets SET status='closed' WHERE open_id=$1 AND chat_id=$2 AND thread_id=$3",[message.openId,message.chatId,message.threadId || '']);
+    }
+    // Group topics are shared conversations, so any member can continue the same ticket.
+    // 群主题由所有参与者共同续问，不按首条消息发送者拆分工单。
+    const existing = message.isGroup
+      ? await db.query("SELECT id FROM support_bot_tickets WHERE chat_id=$1 AND thread_id=$2 AND status='open' AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1", [message.chatId,message.threadId || ''])
+      : await db.query("SELECT id FROM support_bot_tickets WHERE open_id=$1 AND chat_id=$2 AND thread_id=$3 AND status='open' AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1", [message.openId,message.chatId,message.threadId || '']);
     const ticketId = existing.rows[0]?.id || randomUUID();
     await db.query('INSERT INTO support_bot_tickets(id,open_id,chat_id,thread_id) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET updated_at=now()', [ticketId,message.openId,message.chatId,message.threadId || '']);
     await db.query('INSERT INTO support_bot_jobs(id,event_id,message_id,ticket_id,text,is_group) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),message.eventId,message.messageId,ticketId,message.text,!!message.isGroup]);

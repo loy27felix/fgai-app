@@ -16,7 +16,6 @@ export async function runSupportBotOnce() {
   try {
     let result: DiagnosisResult;
     if (job.diagnosis) result=job.diagnosis;
-    else if (job.isGroup) result={userReply:'请私聊机器人描述问题，并提供发生时间与任务链接。',internalSummary:'群聊引导私聊',module:'account',needsDeveloper:false,evidence:[],guidanceOnly:true};
     else result=await diagnoseSupportJob(job);
     await saveSupportDiagnosis(job,result);
     logServerEvent('support_bot_diagnosis_completed', fields);
