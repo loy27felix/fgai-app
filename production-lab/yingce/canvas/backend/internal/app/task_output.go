@@ -45,6 +45,7 @@ type TaskSummary struct {
 }
 
 type TaskClientContext struct {
+	AssetID               string `json:"assetId,omitempty"`
 	CharacterVoiceAssetID string `json:"characterVoiceAssetId,omitempty"`
 	NodeID                string `json:"nodeId,omitempty"`
 	ConversationID        string `json:"conversationId,omitempty"`
@@ -141,6 +142,7 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 func taskClientContext(raw string) *TaskClientContext {
 	var input struct {
 		Metadata struct {
+			AssetID          string `json:"assetId"`
 			CharacterAssetID string `json:"characterAssetId"`
 			Source           string `json:"source"`
 			NodeID           string `json:"nodeId"`
@@ -161,6 +163,12 @@ func taskClientContext(raw string) *TaskClientContext {
 	}
 	metadata := input.Metadata
 	context := &TaskClientContext{NodeID: metadata.NodeID}
+	if metadata.Operation == "project_asset_image" || metadata.Operation == "character_turnaround" {
+		context.AssetID = firstNonEmpty(metadata.AssetID, metadata.CharacterAssetID)
+		if context.AssetID != "" {
+			return context
+		}
+	}
 	if metadata.Source == "project-character-voice" && metadata.Operation == "character_voice_sample" && metadata.CharacterAssetID != "" {
 		context.CharacterVoiceAssetID = metadata.CharacterAssetID
 		return context

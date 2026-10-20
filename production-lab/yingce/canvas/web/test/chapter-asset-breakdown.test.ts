@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { parseChapterAssetBreakdown } from "../src/lib/canvas/chapter-asset-breakdown";
 
 describe("章节三类资产解析", () => {
+    test("保留关键性与连续性信息供自动筛选，不改变旧格式兼容性", () => {
+        const props = [{ name: "信封", description: "承载证据", prompt: "信封特写", importance: "key", narrativeFunction: "揭示身份", continuityRequired: true }];
+        expect(parseChapterAssetBreakdown(JSON.stringify({ characters: [], scenes: [], props })).props).toEqual(props);
+    });
     test("无角色章节仍可提取场景和道具", () => {
         const result = parseChapterAssetBreakdown(JSON.stringify({ characters: [], scenes: [{ name: "车站", description: "空旷站台", prompt: "夜间站台" }], props: [{ name: "信封", description: "牛皮纸信封", prompt: "褐色信封特写" }] }));
         expect(result.characters).toEqual([]);

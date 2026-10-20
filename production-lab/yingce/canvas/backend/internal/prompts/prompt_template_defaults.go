@@ -25,7 +25,7 @@ func defaultPromptDefinitions() []PromptOperationDefinition {
 			Operation: OperationChapterAssetsExtract, Label: "章节角色、场景与道具提取", Category: "角色", OutputType: "json", SchemaKey: "chapter-assets/v1",
 			Description:    "从章节正文提取角色、实际发生剧情的场景和影响剧情的道具，分别进入资产待确认列表。",
 			Variables:      []PromptTemplateVariable{{Label: "项目名称", Placeholder: "{{项目名称}}"}, {Label: "章节名称", Placeholder: "{{章节名称}}"}, {Label: "项目画风", Placeholder: "{{项目画风}}"}},
-			DefaultContent: `你是短剧资产导演。按章节事实提取角色、场景和道具。同一身份的别名合并，不编造正文未出现的资产；未明确的视觉信息写“正文未明确”。角色包含剧情定位、稳定外貌服装体态、性格、一致性提示、三视图提示及语言、声音年龄、音色。场景描述空间布局、环境和光照；道具描述材质、形状及剧情用途。无对应资产时返回空数组。`,
+			DefaultContent: `你是短剧资产导演。按章节事实提取角色、场景和重点道具。同一身份的别名合并，不编造正文未出现的资产；未明确的视觉信息写“正文未明确”。角色包含剧情定位、稳定外貌服装体态、性格、一致性提示、三视图提示及语言、声音年龄、音色。场景描述空间布局、环境和光照。道具只收录需要跨镜头保持外观的反复出场物件，或推动情节、身份揭示、线索和反转的关键道具。普通纸巾、餐具等只出现一次的物件留在剧本或分镜描述中，不单独列入 props；即使仅出现一次，凶器、关键证物或身份信物仍须保留。道具描述材质、形状及剧情用途，importance 标记 key、recurring 或 incidental，narrativeFunction 引用正文说明筛选依据，continuityRequired 表示是否必须保持视觉连续；不得为了保留普通道具而虚构关键用途。无对应资产时返回空数组。`,
 		},
 		{
 			Operation: OperationStoryboardPlan, Label: "分镜规划", Category: "分镜", OutputType: "json", SchemaKey: "storyboard-plan/v3",
@@ -275,7 +275,7 @@ const ChapterAssetsJSONSchema = `{
     "asset": {
       "type": "object", "additionalProperties": false,
       "required": ["name", "description", "prompt"],
-      "properties": {"name": {"type": "string"}, "description": {"type": "string"}, "prompt": {"type": "string"}}
+      "properties": {"name": {"type": "string"}, "description": {"type": "string"}, "prompt": {"type": "string"}, "importance": {"type": "string", "enum": ["key", "recurring", "incidental"]}, "narrativeFunction": {"type": "string"}, "continuityRequired": {"type": "boolean"}}
     },
     "characterBreakdown": ` + characterBreakdownJSONSchema + `
   }

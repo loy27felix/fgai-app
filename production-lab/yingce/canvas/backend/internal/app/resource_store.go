@@ -58,7 +58,7 @@ func (s *Service) uploadResource(userID string, header *multipart.FileHeader, ki
 	if err != nil {
 		return nil, err
 	}
-	if !(forceLocal && kind == "live2d") {
+	if !(forceLocal && (kind == "live2d" || kind == "agent-avatar-bundle")) {
 		kind = uploadedResourceKind(mimeType)
 	}
 	if existing != nil {
@@ -226,7 +226,7 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 		return nil, err
 	}
 	kind = uploadedResourceKind(payload.mimeType)
-	if kind == "image" && (width <= 0 || height <= 0) {
+	if kind == "image" {
 		if decodedWidth, decodedHeight := imageDimensions(payload.data); decodedWidth > 0 && decodedHeight > 0 {
 			width = decodedWidth
 			height = decodedHeight
@@ -327,12 +327,15 @@ func (s *Service) storeResource(userID string, kind string, fileName string, mim
 }
 
 func (s *Service) storeResourceWithWriter(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool, writeObject func(*model.Resource, string, io.Reader) (string, error), reservationIDs ...string) (*model.Resource, bool, error) {
+	if kind == "image" || strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+		body, width, height = resourceImageDimensions(body, width, height)
+	}
 	reservationID := ""
 	if len(reservationIDs) > 0 {
 		reservationID = reservationIDs[0]
 	}
 	// Live2D is reserved for the administrator's validated local import path.
-	if !(forceLocal && kind == "live2d") {
+	if !(forceLocal && (kind == "live2d" || kind == "agent-avatar-bundle")) {
 		kind = normalizeResourceKind(kind, mimeType)
 	}
 	if existing, err := s.resourceForUploadKey(userID, uploadKey); err != nil {

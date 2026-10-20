@@ -72,6 +72,11 @@ export type ProjectAsset = {
     source?: string;
 };
 
+export type ProjectAssetHistoryImage = { versionId: string; version: number; resourceId: string; role: string; createdAt: string };
+export function listProjectAssetHistoryImages(projectId: string, assetId: string) {
+    return http.get<{ images: ProjectAssetHistoryImage[] }>(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/history-images`);
+}
+
 export type ProjectAssetFolder = {
     id: string;
     projectId: string;

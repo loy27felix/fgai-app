@@ -1,6 +1,6 @@
 {
   "name": "fg-studio",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "scripts": {

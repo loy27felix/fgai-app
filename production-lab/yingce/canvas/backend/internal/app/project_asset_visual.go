@@ -20,7 +20,8 @@ func (s *Service) UpdateProjectAssetVisual(userID, projectID, assetID string, re
 	if err != nil {
 		return ProjectAssetSummary{}, err
 	}
-	if asset.Category != model.AssetCategoryEnvironment && asset.Category != model.AssetCategoryProp {
+	visualDefinition := asset.Category == model.AssetCategoryEnvironment || asset.Category == model.AssetCategoryProp
+	if !visualDefinition && !(asset.Kind == "image" && asset.Category != model.AssetCategoryCharacter && req.ResourceID != "" && req.Definition == nil) {
 		return ProjectAssetSummary{}, BadAuthRequest("此入口用于场景和道具设定")
 	}
 	resourceID := strings.TrimSpace(req.ResourceID)
@@ -69,7 +70,9 @@ func (s *Service) UpdateProjectAssetVisual(userID, projectID, assetID string, re
 		data = map[string]any{}
 		payload["data"] = data
 	}
-	data["content"] = projectVisualDefinitionText(definition)
+	if visualDefinition {
+		data["content"] = projectVisualDefinitionText(definition)
+	}
 	if resourceID != "" {
 		canvas.CompleteImageAssetData(data, *visualResource)
 		asset.Kind = "image"

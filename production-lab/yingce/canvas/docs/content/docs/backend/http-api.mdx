@@ -5,6 +5,12 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 项目资产历史图片与任务状态
+
+`GET /api/projects/:id/assets/:assetId/history-images` 返回 `data={images}`。每项包含 `versionId`、`version`、`resourceId`、`role`、`createdAt`，按资产版本倒序。服务端检查当前用户拥有活动项目、拥有资产且资产已关联该项目，只返回归属当前用户、状态 ready 的图片；同一版本内按资源去重。该只读接口不切换主版本、不创建生成任务。
+
+任务安全摘要 `clientContext.assetId` 仅对 `project_asset_image` 和 `character_turnaround` 操作输出，用于关联资产卡片的排队、生成、保存和失败状态。不得为读取此 ID 向普通客户端开放完整生成输入或渠道密钥。
+
 ## 用户登录日志
 
 菜单“用户与运营 → 用户登录日志”，页面 `/admin/login-logs`。查询在 service 校验管理员权限：匿名 401、普通用户 403。

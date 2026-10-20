@@ -22,12 +22,13 @@ import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, getResou
 import { uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
-import { confirmProjectAssetCandidate, listProjectAssetsPage, listProjectAssetCandidates, updateProjectAssetVisual, updateProjectCharacter, type ProjectAsset, type ProjectDetail } from "@/services/api/projects";
+import { confirmProjectAssetCandidate, ignoreProjectAssetCandidate, listProjectAssetsPage, listProjectAssetCandidates, updateProjectAssetVisual, updateProjectCharacter, type ProjectAsset, type ProjectDetail } from "@/services/api/projects";
 import { characterTurnaroundConfig } from "./project-character-media";
 import { ASSET_PROMPT_SKILL, projectAssetExecutionPrompt, projectAssetGenerationPrompt, projectAssetHasImage, runAssetBatch } from "./project-asset-generation-plan";
 import { categoryLabel, categoryLabels } from "./shared";
+import { recommendProjectAsset, projectAssetTaskID } from "./project-asset-review";
 
-type Row = { id: string; asset: ProjectAsset; candidateId?: string; prompt: string; references: string[]; selected: boolean; operationId: string; status?: string; error?: string; taskId?: string };
+type Row = { id: string; asset: ProjectAsset; candidateId?: string; prompt: string; references: string[]; selected: boolean; operationId: string; status?: string; error?: string; taskId?: string; selectionReason?: string };
 const visualCategories = new Set(["character", "environment", "prop"]);
 export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh }: { detail: ProjectDetail; single?: ProjectAsset; onClose: () => void; onRefresh: () => void }) {
     const { message } = App.useApp();
@@ -59,8 +60,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                 const activeIds = new Set(
                     tasks.flatMap((task) => {
                         try {
-                            const m = JSON.parse(task.inputJson || "{}").metadata || {};
-                            return [m.assetId, m.characterAssetId].filter(Boolean);
+                            return [projectAssetTaskID(task)].filter(Boolean);
                         } catch {
                             return [];
                         }
@@ -80,7 +80,17 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                             if (!visualCategories.has(c.category)) continue;
                             const definition = JSON.parse(c.detailsJson || "{}");
                             const asset = { id: c.id, title: c.name, category: c.category, definition, mediaType: "text", status: "pending_confirmation", versionCount: 0, usages: [], position: 0, updatedAt: c.updatedAt } as ProjectAsset;
-                            candidates.push({ id: c.id, asset, candidateId: c.id, prompt: projectAssetGenerationPrompt(asset, style?.prompt || ""), references: [], selected: true, operationId: crypto.randomUUID() });
+                            const recommendation = recommendProjectAsset(asset, detail.units);
+                            candidates.push({
+                                id: c.id,
+                                asset,
+                                candidateId: c.id,
+                                prompt: projectAssetGenerationPrompt(asset, style?.prompt || ""),
+                                references: [],
+                                selected: recommendation.selected,
+                                selectionReason: recommendation.reason,
+                                operationId: crypto.randomUUID(),
+                            });
                         }
                         if (page * 100 >= result.total) break;
                     }
@@ -100,7 +110,8 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                                   : asset.storageKey
                                     ? [resourceIdFromStorageKey(asset.storageKey)].filter((id): id is string => Boolean(id))
                                     : [],
-                            selected: !activeIds.has(asset.id) && (Boolean(single) || !projectAssetHasImage(asset)),
+                            selected: !activeIds.has(asset.id) && (Boolean(single) || (!projectAssetHasImage(asset) && recommendProjectAsset(asset, detail.units).selected)),
+                            selectionReason: single ? undefined : recommendProjectAsset(asset, detail.units).reason,
                             operationId: crypto.randomUUID(),
                             ...(activeIds.has(asset.id) ? { status: "生成中，请在任务中心查看" } : {}),
                         };
@@ -118,6 +129,31 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
     }, [detail.project.id, single, style]);
     const selected = rows.filter((row) => row.selected && !row.status);
     const selectedCandidates = selected.filter((row) => row.candidateId);
+    const unselectedProps = rows.filter((row) => row.candidateId && row.asset.category === "prop" && !row.selected && !row.status);
+    const ignoreUnselectedProps = async () => {
+        if (busy) return;
+        setBusy(true);
+        let ignored = 0,
+            failed = 0;
+        await runAssetBatch(
+            unselectedProps,
+            async (row) => {
+                await ignoreProjectAssetCandidate(detail.project.id, row.candidateId!);
+            },
+            (row, error) => {
+                if (error) {
+                    failed++;
+                    change(row.id, { error: error instanceof Error ? error.message : "忽略失败" });
+                } else {
+                    ignored++;
+                    change(row.id, { status: "已忽略，不单独建资产", selected: false });
+                }
+            },
+        );
+        setBusy(false);
+        onRefresh();
+        message[failed ? "warning" : "success"](`已忽略 ${ignored} 项普通道具${failed ? `，${failed} 项未完成` : ""}，没有发起生成`);
+    };
     const quoted = selected.every((row) => typeof prices[row.id] === "number");
     const total = selected.reduce((sum, row) => sum + (prices[row.id] || 0), 0);
     const refresh = () => onRefresh();
@@ -251,6 +287,11 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                     <div className="flex gap-2">
                         <Button onClick={onClose}>{busy ? "关闭并在后台继续" : "关闭"}</Button>
                         {!single && (
+                            <Button disabled={busy || !unselectedProps.length} onClick={() => void ignoreUnselectedProps()}>
+                                批量忽略未选道具（{unselectedProps.length}）
+                            </Button>
+                        )}
+                        {!single && (
                             <Button disabled={busy || !selectedCandidates.length} onClick={() => void execute(false)}>
                                 仅确认所选（不收费）
                             </Button>
@@ -267,6 +308,29 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
         >
             <div className="grid gap-4">
                 <Alert type="info" showIcon title={`继承项目画风：${style?.title || "尚未设置"}`} description="每项提示词和参考图可在下面核对修改。确认后按所选模型计费，任务进入后台队列，完成后自动绑定为新资产版本。已配图资产默认不选。" />
+                {!single && (
+                    <Alert
+                        type="success"
+                        showIcon
+                        title="已自动筛选重点资产"
+                        description="默认保留角色、场景、重复出场道具和关键剧情道具；普通一次性道具默认不选。筛选不收费、不删除候选，你仍可手动调整，然后一次确认所选。"
+                        action={
+                            <Button
+                                disabled={busy}
+                                onClick={() =>
+                                    setRows((current) =>
+                                        current.map((row) => {
+                                            const choice = recommendProjectAsset(row.asset, detail.units);
+                                            return { ...row, selected: !row.status && choice.selected && (Boolean(row.candidateId) || !projectAssetHasImage(row.asset)), selectionReason: choice.reason };
+                                        }),
+                                    )
+                                }
+                            >
+                                重新自动筛选
+                            </Button>
+                        }
+                    />
+                )}
                 <details>
                     <summary>查看全局画风与世界观</summary>
                     <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-xs">{style?.prompt || "项目未设置画风，可先在项目设置中补充地区、时代、视觉媒介和角色身份。"}</pre>
@@ -316,6 +380,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                                     </Checkbox>
                                     <span className="text-xs">{row.status}</span>
                                 </div>
+                                {row.selectionReason && <p className="mt-1 text-xs text-foreground/60">筛选依据：{row.selectionReason}</p>}
                                 {projectAssetHasImage(row.asset) && !(row.asset.character?.definition || row.asset.definition || {}).generationPrompt && (
                                     <p className="mt-2 text-xs text-foreground/55">历史图片未记录完整提示词；下方为按现有设定整理的重新生成草稿。</p>
                                 )}

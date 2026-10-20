@@ -1,6 +1,6 @@
 import { http } from "@/services/api/request";
 import type { SkinDefinition } from "@/lib/skin-themes";
-import type { CanvasAppearance } from "@/lib/canvas/agent-appearance";
+import type { AgentAvatarBundleManifest, CanvasAppearance } from "@/lib/canvas/agent-appearance";
 import { apiBaseURL } from "@/services/api/request";
 import { DEFAULT_CANVAS_APPEARANCE } from "@/lib/canvas/agent-appearance";
 
@@ -69,6 +69,7 @@ export type AdminAppearance = {
 };
 
 export type AppearanceAssetSlot = "logo" | "logo-dark" | "video" | "poster";
+export type AppearanceAssetUploadSlot = AppearanceAssetSlot;
 
 export type AppearanceResource = {
     id: string;
@@ -76,6 +77,11 @@ export type AppearanceResource = {
     status: string;
     mimeType: string;
     size: number;
+};
+
+export type AgentAvatarBundleImport = {
+    resourceId: string;
+    manifest: AgentAvatarBundleManifest;
 };
 
 export async function getPublicAppearance(signal?: AbortSignal) {
@@ -131,11 +137,16 @@ export async function resetAdminAppearance() {
     });
 }
 
-export async function uploadAppearanceAsset(slot: AppearanceAssetSlot | "update-image" | "update-video", file: File) {
+export async function uploadAppearanceAsset(slot: AppearanceAssetUploadSlot | "update-image" | "update-video", file: File) {
     const body = new FormData();
     body.append("file", file);
     const result = await http.post<{ resource: AppearanceResource }>(`/admin/settings/appearance/assets/${slot}`, body);
     return result.resource;
+}
+
+export function appearanceAssetURL(slot: AppearanceAssetUploadSlot, revision = "") {
+    const query = revision ? `?v=${encodeURIComponent(revision)}` : "";
+    return `${apiBaseURL.replace(/\/$/, "")}/public/appearance/assets/${encodeURIComponent(slot)}${query}`;
 }
 
 export function updateAnnouncementPreviewURL(resourceId: string) {
@@ -147,6 +158,19 @@ export async function uploadLive2D(file: File) {
     body.append("file", file);
     const result = await http.post<{ model: { resourceId: string; entry: string } }>("/admin/settings/appearance/live2d", body);
     return result.model;
+}
+
+export async function uploadAgentAvatarBundle(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    const result = await http.post<{ bundle: AgentAvatarBundleImport }>("/admin/settings/appearance/avatar-bundles", body);
+    return result.bundle;
+}
+
+export function agentAvatarBundleFileURL(resourceId: string, file: string, preview = false, revision = "") {
+    const endpoint = preview ? "admin/settings" : "public";
+    const query = !preview && revision ? `?v=${encodeURIComponent(revision)}` : "";
+    return `${apiBaseURL.replace(/\/$/, "")}/${endpoint}/appearance/avatar/${encodeURIComponent(resourceId)}/${encodeURIComponent(file)}${query}`;
 }
 
 export function live2DModelURL(resourceId: string, entry: string, preview = false) {

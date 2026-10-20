@@ -32,7 +32,7 @@ import { buildAngleLabel, buildAnglePrompt, createCanvasNode } from "@/lib/canva
 import { validateVideoSegmentBatch } from "@/lib/canvas/canvas-video-regeneration";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { buildGenerationConfig, buildImageGenerationMetadata, nodeReferenceImage, isGenerationCanceled, runBackendCanvasGenerationTask, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
-import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
+import { fitImageNodeSize, fitNodeSize, preserveImageNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import { DEFAULT_PORTRAIT_TEXTURE_SETTINGS } from "@/lib/canvas/canvas-portrait-texture";
 import { IMAGE_PROMPT_REVERSE } from "@/lib/prompts";
@@ -238,7 +238,7 @@ export function useCanvasMediaTools({
             releaseSource = source.release;
             const cropped = await cropDataUrl(source.url, crop);
             const image = await uploadImage(cropped);
-            const size = fitNodeSize(image.width, image.height, node.width, node.height);
+            const size = fitImageNodeSize(image.width, image.height);
             const childId = nanoid();
             const child: CanvasNodeData = { id: childId, type: CanvasNodeType.Image, title: `${node.title || "图片"} · 裁剪`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: size.width, height: size.height, metadata: { ...imageMetadata(image), prompt: node.metadata?.prompt } };
             setNodes((current) => [...current, child]);
@@ -256,7 +256,7 @@ export function useCanvasMediaTools({
 
     const saveAnnotatedImageNode = useCallback(async (node: CanvasNodeData, dataUrl: string) => {
         const image = await uploadImage(dataUrl);
-        const size = fitNodeSize(image.width, image.height, node.width, node.height);
+        const size = fitImageNodeSize(image.width, image.height);
         const childId = nanoid();
         const child: CanvasNodeData = { id: childId, type: CanvasNodeType.Image, title: `${node.title || "图片"} · 标注`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: size.width, height: size.height, metadata: { ...imageMetadata(image), prompt: node.metadata?.prompt } };
         setNodes((current) => [...current, child]);
@@ -648,7 +648,7 @@ export function useCanvasMediaTools({
 
     const addPanoramaCaptureNode = useCallback(async (node: CanvasNodeData, dataUrl: string, title: string) => {
         const image = await uploadImage(dataUrl);
-        const size = fitNodeSize(image.width || 720, image.height || 405);
+        const size = fitImageNodeSize(image.width || 720, image.height || 405);
         // 已有导出时按列错开，避免多张截图叠在同一位置。
         const outputCount = connectionsRef.current.filter((connection) => connection.fromNodeId === node.id).length;
         const childNode: CanvasNodeData = {
@@ -672,7 +672,7 @@ export function useCanvasMediaTools({
             const pieces = await splitDataUrl(node.metadata.content, params);
             const sizedPieces = await Promise.all(pieces.map(async (piece) => {
                 const image = await uploadImage(piece.dataUrl);
-                return { piece, image, size: fitNodeSize(image.width, image.height) };
+                return { piece, image, size: fitImageNodeSize(image.width, image.height) };
             }));
             const positions = layoutGridSplitCells(
                 { x: node.position.x + node.width + 96, y: node.position.y },
@@ -1511,7 +1511,7 @@ export function useCanvasMediaTools({
         try {
             const upscaled = await upscaleDataUrl(node.metadata.content, params);
             const image = await uploadImage(upscaled);
-            const size = fitNodeSize(image.width, image.height);
+            const size = fitImageNodeSize(image.width, image.height);
             const childId = nanoid();
             const child: CanvasNodeData = { id: childId, type: CanvasNodeType.Image, title: `${node.title || "图片"} · 放大`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: size.width, height: size.height, metadata: { ...imageMetadata(image), prompt: node.metadata?.prompt } };
             setNodes((current) => [...current, child]);
@@ -1553,10 +1553,10 @@ export function useCanvasMediaTools({
             const image = result.images?.[0];
             if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
             const uploaded = await uploadImage(image.dataUrl);
-            const size = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
+            const size = fitImageNodeSize(uploaded.width, uploaded.height);
             const currentNode = nodesRef.current.find((item) => item.id === childId);
             if (!currentNode) throw new Error("视角生成节点已被删除");
-            const finalizedNode = { ...currentNode, width: size.width, height: size.height, metadata: commitProducedModel({ ...currentNode.metadata, ...imageMetadata(uploaded), prompt: effectivePrompt, ...generationMetadata }) };
+            const finalizedNode = { ...currentNode, ...preserveImageNodeSize(currentNode, size), metadata: commitProducedModel({ ...currentNode.metadata, ...imageMetadata(uploaded), prompt: effectivePrompt, ...generationMetadata }) };
             setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
             await persistMediaNodes([finalizedNode]);
         } catch (error) {
@@ -1663,10 +1663,10 @@ export function useCanvasMediaTools({
             if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
             const composited = await compositeEmotionImage(node.metadata.content, image.dataUrl, payload.editRegion, payload.faceBox);
             const uploaded = await uploadImage(composited);
-            const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
+            const size = fitImageNodeSize(uploaded.width, uploaded.height);
             const currentNode = nodesRef.current.find((item) => item.id === childId);
             if (!currentNode) throw new Error("表情编辑节点已被删除");
-            const finalizedNode = { ...currentNode, width: size.width, height: size.height, metadata: commitProducedModel({ ...currentNode.metadata, ...imageMetadata(uploaded), prompt: providerPrompt, ...generationMetadata, emotionEdit }) };
+            const finalizedNode = { ...currentNode, ...preserveImageNodeSize(currentNode, size), metadata: commitProducedModel({ ...currentNode.metadata, ...imageMetadata(uploaded), prompt: providerPrompt, ...generationMetadata, emotionEdit }) };
             setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
             await persistMediaNodes([finalizedNode]);
         } catch (error) {

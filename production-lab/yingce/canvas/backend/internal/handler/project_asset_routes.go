@@ -319,6 +319,19 @@ func registerProjectAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"version": version})
 	})
+	r.GET("/projects/:id/assets/:assetId/history-images", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		images, err := svc.ProjectAssetHistoryImages(user.ID, c.Param("id"), c.Param("assetId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"images": images})
+	})
 }
 
 // registerCharacterLibraryRoutes 注册个人角色库接口。角色库由画布和短剧共用，不受短剧功能开关限制。

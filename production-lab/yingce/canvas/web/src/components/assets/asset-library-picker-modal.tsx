@@ -48,6 +48,7 @@ export type AssetLibraryPickerFolder = {
 };
 
 type Props = {
+    localCategories?: string[];
     remoteLibrary?: boolean;
     remoteKind?: string;
     /** 远端素材库里的角色卡是否展示并可选（插入画布时会作为角色卡节点）。 */
@@ -91,6 +92,7 @@ type Props = {
 };
 
 export function AssetLibraryPickerModal({
+    localCategories = [],
     remoteLibrary = false,
     remoteKind,
     allowCharacters = false,
@@ -136,7 +138,7 @@ export function AssetLibraryPickerModal({
     const [remotePage, setRemotePage] = useState(1);
     const [remotePageSize, setRemotePageSize] = useState(40);
     const [remoteKeyword, setRemoteKeyword] = useState("");
-    const remoteEnabled = remoteLibrary && Boolean(userId) && source === "local";
+    const remoteEnabled = remoteLibrary && Boolean(userId) && source === "local" && !localCategories.includes(category);
     useEffect(() => {
         const timer = window.setTimeout(() => setRemoteKeyword(keyword.trim()), 250);
         return () => window.clearTimeout(timer);
@@ -213,10 +215,10 @@ export function AssetLibraryPickerModal({
     const hasPluginSource = useMemo(() => Object.keys(categoryLabels).some((value) => value.startsWith("external:")) || pluginItems.some((item) => item.category.startsWith("external:")), [categoryLabels, pluginItems]);
     // 媒体类型在分类之前收窄数据源，让左侧分类计数、网格和分页始终描述同一批素材。
     const sourceItems = useMemo(() => {
-        const base = source === "plugin" ? pluginItems : useRemoteItems ? remoteItems : localItems;
+        const base = source === "plugin" ? pluginItems : useRemoteItems ? [...localItems.filter((item) => localCategories.includes(item.category)), ...remoteItems] : localItems;
         if (mediaKind === "all") return base;
         return base.filter((item) => pickerItemMediaKind(item) === mediaKind);
-    }, [localItems, mediaKind, pluginItems, useRemoteItems, remoteItems, source]);
+    }, [localItems, localCategories, mediaKind, pluginItems, useRemoteItems, remoteItems, source]);
     const activeSourceItems = useMemo(() => sourceItems.filter((item) => !item.archived), [sourceItems]);
     const archivedItems = useMemo(() => sourceItems.filter((item) => item.archived), [sourceItems]);
     const mediaKindOptions = useMemo(() => (remoteKind ? [] : Array.from(new Set(mediaKinds))), [mediaKinds, remoteKind]);
@@ -414,7 +416,8 @@ export function AssetLibraryPickerModal({
     // 远端模式下列表是分页的，按当前页数会把"角色 4"之类的数字算错；未叠加类型筛选时用服务端分类计数。
     const remoteCategoryCounts = useRemoteItems && mediaKind === "all" && !remoteKind ? remoteQuery.data?.categoryCounts : undefined;
     const countFor = (value: string) => {
-        if (remoteCategoryCounts) return value === "all" ? Object.values(remoteCategoryCounts).reduce((sum, count) => sum + count, 0) : remoteCategoryCounts[value] || 0;
+        if (localCategories.includes(value)) return activeSourceItems.filter((item) => item.category === value).length;
+        if (remoteCategoryCounts) return value === "all" ? Object.values(remoteCategoryCounts).reduce((sum, count) => sum + count, 0) + activeSourceItems.filter((item) => localCategories.includes(item.category)).length : remoteCategoryCounts[value] || 0;
         return value === "all" ? activeSourceItems.length : activeSourceItems.filter((item) => item.category === value).length;
     };
     const sourceLabel = source === "plugin" ? "插件来源" : "我的素材";

@@ -32,6 +32,7 @@ import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store"
 import { repairMissingCanvasAssets, rebindInconsistentCanvasAssets } from "@/services/canvas-asset-repair";
 import { canvasNodeToAsset } from "@/lib/canvas/canvas-node-asset";
 import { applyAgentCanvasPatch, mergeThreeWayValue, type AgentCanvasPatch } from "@/lib/canvas/agent-canvas-patch";
+
 import { CanvasSyncPendingError, createSyncSingleFlight, waitForCanvasSync, rememberSyncRecovery } from "@/lib/canvas/sync-recovery";
 
 const syncSingleFlight = createSyncSingleFlight();
@@ -1184,17 +1185,22 @@ async function submitCanvasMutation(entry: PendingCanvasMutation) {
         assertSession,
         newId: newCanvasMutationId,
         send: async (request) => {
-            try { return await applyRemoteCanvasOperations(entry.projectId, request); }
-            catch (error) {
+            try {
+                return await applyRemoteCanvasOperations(entry.projectId, request);
+            } catch (error) {
                 assertSession();
-                // Keep an ambiguous request's exact identity; only explicit rollback allows replacement.
+                // Only an explicit rejection permits a new request ID/body.
                 if (!(error instanceof ApiError) || error.status !== 409 || error.reason !== "canvas_field_conflict") throw error;
                 const repaired = repairLegacyTaskIdFence(request, entry.baseline, entry.prepared);
                 const fenced = fenceRejectedTaskTimestampMutation(repaired ?? request, entry.baseline, entry.prepared) ?? repaired;
                 if (!fenced) throw error;
                 entry.request = { ...fenced, mutationId: newCanvasMutationId() };
-                try { await persistPendingCanvasMutationJournal(); }
-                catch (storageError) { entry.request = request; throw storageError; }
+                try {
+                    await persistPendingCanvasMutationJournal();
+                } catch (storageError) {
+                    if (epoch === sessionEpoch && pendingCanvasMutations.get(entry.projectId) === entry) entry.request = request;
+                    throw storageError;
+                }
                 assertSession();
                 return applyRemoteCanvasOperations(entry.projectId, entry.request);
             }
@@ -1513,6 +1519,7 @@ async function saveRemoteUserDataBatch(uploaded: Map<string, string>, options: {
                 useSyncProgressStore.getState().setProjectProgress(source.id, { phase: "saving", message: "正在重放未确认的画布操作" });
                 // 旧队列可能只记录了 undefined 与缺省值之间的无效变化，没有需要发送的修改。
                 if (pendingJournal.request.operations.length) {
+
                     requireCurrentSession();
                     const response = await submitPendingCanvasMutation(pendingJournal);
                     requireCurrentSession();

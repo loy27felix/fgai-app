@@ -26,7 +26,7 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 		return BadAuthRequest(fmt.Sprintf("混合参考素材合计最多 %d 个", r.MaxTotalReferences))
 	}
 	var videoMs, audioMs int64
-	checkShape := func(w, h int, isVideo bool) error {
+	checkShape := func(w, h int, isVideo bool, label string) error {
 		if w <= 0 || h <= 0 {
 			return nil
 		}
@@ -40,8 +40,14 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 				maxSide = r.MaxVideoSide
 			}
 		}
-		if (minSide > 0 && (w < minSide || h < minSide)) || (maxSide > 0 && (w > maxSide || h > maxSide)) || (r.MinImageRatio > 0 && ratio < r.MinImageRatio) || (r.MaxImageRatio > 0 && ratio > r.MaxImageRatio) {
-			return BadAuthRequest("参考素材宽高或宽高比超出当前模型限制")
+		if minSide > 0 && (w < minSide || h < minSide) {
+			return BadAuthRequest(fmt.Sprintf("%s尺寸为 %d×%d 像素，宽、高均须至少 %d 像素", label, w, h, minSide))
+		}
+		if maxSide > 0 && (w > maxSide || h > maxSide) {
+			return BadAuthRequest(fmt.Sprintf("%s尺寸为 %d×%d 像素，宽、高均不得超过 %d 像素", label, w, h, maxSide))
+		}
+		if (r.MinImageRatio > 0 && ratio < r.MinImageRatio) || (r.MaxImageRatio > 0 && ratio > r.MaxImageRatio) {
+			return BadAuthRequest(fmt.Sprintf("%s尺寸为 %d×%d，宽高比 %.3f 超出模型允许的 %.3f～%.3f", label, w, h, ratio, r.MinImageRatio, r.MaxImageRatio))
 		}
 		pixels := int64(w) * int64(h)
 		if isVideo && ((r.MinVideoPixels > 0 && pixels < int64(r.MinVideoPixels)) || (r.MaxVideoPixels > 0 && pixels > int64(r.MaxVideoPixels))) {
@@ -72,23 +78,23 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 		}
 		return nil
 	}
-	for _, m := range input.ReferenceImages {
+	for index, m := range input.ReferenceImages {
 		if r.ImageBytesExclusive && r.MaxImageBytes > 0 && m.Bytes >= r.MaxImageBytes {
 			return BadAuthRequest("参考图片必须小于当前模型单图大小上限")
 		}
-		if err := checkShape(m.Width, m.Height, false); err != nil {
+		if err := checkShape(m.Width, m.Height, false, fmt.Sprintf("第 %d 张参考图片", index+1)); err != nil {
 			return err
 		}
 		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.ImageFormats); err != nil {
 			return err
 		}
 	}
-	for _, m := range input.ReferenceVideos {
+	for index, m := range input.ReferenceVideos {
 		videoMs += m.DurationMs
 		if r.MinVideoDuration > 0 && m.DurationMs > 0 && m.DurationMs < int64(r.MinVideoDuration)*1000 {
 			return BadAuthRequest("参考视频时长低于当前模型最短限制")
 		}
-		if err := checkShape(m.Width, m.Height, true); err != nil {
+		if err := checkShape(m.Width, m.Height, true, fmt.Sprintf("第 %d 个参考视频", index+1)); err != nil {
 			return err
 		}
 		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.VideoFormats); err != nil {
