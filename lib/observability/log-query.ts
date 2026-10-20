@@ -69,6 +69,9 @@ export type LogQueryInput = {
   from?: Date | string;
   to?: Date | string;
   query?: string;
+  // Literal text bypasses SLS parsing; identity filters remain separate.
+  // 字面全文不解析为 SLS 条件，避免机器人检索词改变身份过滤范围。
+  fullText?: string;
   source?: string;
   scope?: string;
   focus?: string;
@@ -567,6 +570,10 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
 
   const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
   if (rawQuery.length > MAX_QUERY_LENGTH) throw new LogQueryValidationError(`搜索词不能超过 ${MAX_QUERY_LENGTH} 个字符`);
+  if (input.fullText !== undefined && typeof input.fullText !== 'string') throw new LogQueryValidationError('字面全文必须是字符串');
+  const literalText = input.fullText?.trim();
+  if (literalText !== undefined && rawQuery) throw new LogQueryValidationError('字面全文不能与结构化搜索混用');
+  if (literalText && literalText.length > MAX_QUERY_LENGTH) throw new LogQueryValidationError(`搜索词不能超过 ${MAX_QUERY_LENGTH} 个字符`);
   const parsedQuery = parseSlsQuery(rawQuery);
   for (const field of TEXT_FILTER_FIELDS) {
     const value = filterText(input[field], field);
@@ -589,7 +596,7 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
     from,
     to,
     query: rawQuery,
-    fullText: parsedQuery.fullText,
+    fullText: literalText ?? parsedQuery.fullText,
     source: enumFilter(input.source, ['all', ...LOG_SOURCES] as const, 'all', '日志来源'),
     scope: requestedScope === 'all' ? queryScope : requestedScope,
     focus: enumFilter(input.focus, ['all', 'app-first'] as const, 'all', '日志焦点'),
