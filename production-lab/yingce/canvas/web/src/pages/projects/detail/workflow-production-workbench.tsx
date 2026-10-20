@@ -7,10 +7,11 @@ import { shotArtifactPrompt, actionBoardPromptFromBeats } from "./shot-artifact-
 import { prepareShotVideoExecution, shotGenerationReferenceContext, shotSceneReferenceContext } from "./shot-video-execution";
 import { rewriteShotVideoPrompt } from "./shot-prompt-rewrite";
 import { ShotVideoBatchModal } from "./shot-video-batch-modal";
+import { ShotImageGenerationModal, type PreparedShotImage } from "./shot-image-generation-modal";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { App, Button, Checkbox, Form, Image, Input, InputNumber } from "antd";
+import { Alert, App, Button, Checkbox, Form, Image, Input, InputNumber } from "antd";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { EmptyState } from "@/components/ui/product/empty-state";
 import { StatusBadge } from "@/components/ui/base/badges";
@@ -39,6 +40,7 @@ import {
     listProjectAssetsPage,
     saveProjectShot,
     unlinkShotAsset,
+    updateWorkflowStep,
     type ProjectAsset,
     type ProjectDetail,
     type ProjectShot,
@@ -62,7 +64,7 @@ import {
     formatDuration,
     type ShortDramaWorkflowStage,
 } from "./workflow-shared";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, resolveShotAssetMentionPrompt } from "./workflow-shot-references";
+import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, resolveShotAssetMentionPrompt, type ShotAssetReferenceContext } from "./workflow-shot-references";
 import { Select } from "@/components/ui/base/select";
 
 type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & {
@@ -109,6 +111,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const [promptPreview, setPromptPreview] = useState<{ title: string; text: string } | null>(null);
     const [rewriteOpen, setRewriteOpen] = useState(false);
     const [videoBatchOpen, setVideoBatchOpen] = useState(false);
+    const [imageConfirmation, setImageConfirmation] = useState<{ shotId: string; stage: ShortDramaWorkflowStage; context: ShotAssetReferenceContext; values: ShotEditorValues; configKey: string } | null>(null);
+    useEffect(() => setImageConfirmation(null), [projectId, unitId, selectedShot?.id, activeStage]);
     const [rewriteNotes, setRewriteNotes] = useState("");
     const [rewriteDirection, setRewriteDirection] = useState("");
     const [rewriteSkillIds, setRewriteSkillIds] = useState<string[]>([]);
@@ -384,22 +388,32 @@ export default function WorkflowProductionWorkbench(props: Props) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedShot?.id, revision?.id, detail.assets, detail.shotReferences]);
 
-    const generateArtifact = async () => {
-        if (!selectedShot || submittingShotIds.has(selectedShot.id) || assetsAssociating) return;
+    const generateArtifact = async (preparedImage?: PreparedShotImage): Promise<boolean> => {
+        if (!selectedShot || submittingShotIds.has(selectedShot.id) || assetsAssociating) return false;
+        if (generationCapability === "image" && !preparedImage) {
+            try {
+                const values = await form.validateFields();
+                setImageConfirmation({ shotId: selectedShot.id, stage: activeStage, context: shotAssetReferenceContext, values: structuredClone(values), configKey: JSON.stringify(generationConfig) });
+            } catch { /* Ant Design displays field validation errors inline. */ }
+            return false;
+        }
+        if (preparedImage && (imageConfirmation?.shotId !== selectedShot.id || imageConfirmation.stage !== activeStage)) return false;
         const submittingShot = selectedShot;
         setSubmittingShotIds((current) => new Set(current).add(submittingShot.id));
         try {
-            const values = await form.validateFields();
+            if (preparedImage && imageConfirmation?.configKey !== JSON.stringify(generationConfig)) throw new Error("生成设置已变化，请关闭确认窗口后重新准备");
+            const values = preparedImage ? imageConfirmation!.values : await form.validateFields();
             let productionStep = workflowStep;
             if (!productionStep) {
                 const initialized = await createUnitWorkflow(projectId, unitId);
                 productionStep = (initialized.workflow.steps || []).find((step) => step.stepKey === activeStage);
             }
             if (!productionStep) throw new Error("当前生成阶段不可用，请刷新页面后重试");
-            if (productionStep.status === "failed") throw new Error("当前生成阶段失败，请刷新后重试");
             if (!routedModel) throw new Error(activeStage === "video" ? "请先配置视频模型" : "请先配置图片模型");
-            const compatibilityError = modelCompatibilityError(effectiveConfig, routedModel, modelRequirements);
+            const submittedRequirements: ModelRequirements = preparedImage ? { ...modelRequirements, input: { textCount: 1, videoCount: 0, characterCount: 0, imageCount: preparedImage.context.referenceImages.length, audioCount: 0 } } : modelRequirements;
+            const compatibilityError = modelCompatibilityError(effectiveConfig, routedModel, submittedRequirements);
             if (compatibilityError) throw new Error(`当前模型配置不可用：${compatibilityError}`);
+            if (productionStep.status === "failed") await updateWorkflowStep(projectId, productionStep.id, { status: "ready", error: "", outputJson: productionStep.outputJson });
             const saved = await saveProjectShot(projectId, {
                 id: submittingShot.id,
                 unitId,
@@ -414,14 +428,15 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const config = { ...generationConfig, videoSeconds: String(Math.max(1, Math.round(values.durationSeconds))) };
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
             const basePrompt = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
-            const resolvedPrompt = resolveShotAssetMentionPrompt(basePrompt, shotGenerationReferenceContext(shotAssetReferenceContext, mode === "video" && useVoiceSamples), { dialogue: values.dialogue });
             const skillExecution = mode === "video"
                 ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples })
-                : await skillRuntime.prepare({ profile: "shortDrama", prompt: resolvedPrompt, skills: availableSkills, selectedSkillIds: rewriteSkillIds });
-            const submittedReferences = "context" in skillExecution ? skillExecution.context : shotAssetReferenceContext;
+                : preparedImage!.execution;
+            const submittedReferences = preparedImage?.context || ("context" in skillExecution ? skillExecution.context : shotAssetReferenceContext);
+            const referenceTransport = preparedImage ? { mode: preparedImage.transfer.mode, originalBytes: preparedImage.transfer.originalBytes, submittedBytes: preparedImage.transfer.submittedBytes, images: preparedImage.transfer.records } : undefined;
             await submitBackendGenerationTask({
                 projectId,
                 mode,
+                ...(preparedImage ? { clientOperationId: preparedImage.operationId } : {}),
                 prompt: skillExecution.prompt,
                 config,
                 referenceImages: submittedReferences.referenceImages,
@@ -438,14 +453,17 @@ export default function WorkflowProductionWorkbench(props: Props) {
                     source: "short-drama-workflow",
                     ...(mode === "video" && submittedReferences.referenceImages.length ? { videoEditOperation: "reference_to_video" } : {}),
                     resolvedCharacterVersions: submittedReferences.resolvedCharacterVersions,
-                    artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, actualPrompt: skillExecution.prompt, ...skillExecution.metadata },
+                    ...(referenceTransport ? { referenceTransport } : {}),
+                    artifactMetadata: { model: routedModel, aspectRatio, resolution, durationSeconds: values.durationSeconds, actualPrompt: skillExecution.prompt, ...skillExecution.metadata, ...(referenceTransport ? { referenceTransport } : {}) },
                 },
             });
             if (activeShotIdRef.current === submittingShot.id) setEditorDirty(false);
             await onRefresh();
             message.success(`${productionStageCopy[activeStage as "storyboard" | "previz" | "video"].label}任务已提交`);
+            return true;
         } catch (error) {
             message.error(error instanceof Error ? error.message : "生成任务提交失败");
+            return false;
         } finally {
             setSubmittingShotIds((current) => {
                 const next = new Set(current);
@@ -679,6 +697,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
+                        {generationCapability === "image" && shotTask?.status === "failed" && /\b413\b|request entity too large|payload too large/i.test(`${shotTask.errorCode || ""} ${shotTask.error || ""}`) && <Alert type="warning" title="上次参考图上传包过大（413）" description="点击重新生成，先勾选本次参考图并使用优化传输；原始资产和视频绑定保留。" action={<Button size="small" onClick={() => void generateArtifact()}>调整参考图并重试</Button>} />}
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
                         <div className="workflow-preview-actions"><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button disabled={!previewArtifact?.taskId} onClick={() => void inspectPrompt(true)}>生成时 Prompt</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, selectedShot.title, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>
@@ -687,6 +706,18 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 </aside>
             </div>
 
+            {imageConfirmation && imageConfirmation.shotId === selectedShot.id && imageConfirmation.stage === activeStage && <ShotImageGenerationModal
+                key={`${projectId}:${unitId}:${selectedShot.id}:${activeStage}`}
+                title={stageCopy.label} context={imageConfirmation.context} config={generationConfig} requirements={modelRequirements}
+                onClose={() => setImageConfirmation(null)}
+                onPreparePrompt={async context => {
+                    const values = imageConfirmation.values;
+                    const base = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
+                    const scopedPrompt = ensureShotAssetMentionPrompt(base, context.mentionReferences);
+                    return skillRuntime.prepare({ profile: "shortDrama", prompt: resolveShotAssetMentionPrompt(scopedPrompt, context, { dialogue: values.dialogue }), skills: availableSkills, selectedSkillIds: rewriteSkillIds });
+                }}
+                onConfirm={generateArtifact}
+            />}
             <AppModal
                 flush
                 open={Boolean(imagePreviewArtifact?.resourceId)}

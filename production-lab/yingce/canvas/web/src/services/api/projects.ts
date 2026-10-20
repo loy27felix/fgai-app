@@ -227,6 +227,7 @@ export type WorkflowStep = {
     position: number;
     status: "pending" | "ready" | "running" | "review" | "completed" | "failed" | "skipped" | string;
     error?: string;
+    outputJson?: string;
     updatedAt: string;
 };
 
