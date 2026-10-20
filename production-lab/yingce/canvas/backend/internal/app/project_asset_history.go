@@ -41,6 +41,13 @@ func (s *Service) ProjectAssetHistoryImages(userID, projectID, assetID string) (
 		if err != nil {
 			return nil, err
 		}
+		// Older imported images have a current payload but no representation row.
+		if version.ID == asset.PrimaryVersionID {
+			key, _, _, _ := projectAssetPreview(asset.PayloadJSON)
+			if strings.HasPrefix(key, "resource:") {
+				representations = append(representations, model.AssetRepresentation{ResourceID: strings.TrimPrefix(key, "resource:"), MediaType: "image", Role: "primary"})
+			}
+		}
 		seen := map[string]bool{}
 		for _, representation := range representations {
 			if representation.MediaType != "image" || representation.ResourceID == "" || seen[representation.ResourceID] {

@@ -202,8 +202,17 @@ func (r *Repository) CreateProjectCharacter(projectID string, asset *model.Asset
 }
 
 // SaveCharacterVersion 通过不可变版本替换角色当前状态，旧镜头仍可继续引用历史版本。
-func (r *Repository) SaveCharacterVersion(projectID string, asset *model.Asset, version *model.AssetVersion, representations []model.AssetRepresentation, voice *model.CharacterVoiceBinding) error {
+func (r *Repository) SaveCharacterVersion(projectID string, asset *model.Asset, version *model.AssetVersion, representations []model.AssetRepresentation, voice *model.CharacterVoiceBinding, historicalImages ...model.AssetRepresentation) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, image := range historicalImages {
+			var previous model.AssetVersion
+			if err := tx.Where("id = ? AND asset_id = ?", image.AssetVersionID, asset.ID).First(&previous).Error; err != nil {
+				return err
+			}
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&image).Error; err != nil {
+				return err
+			}
+		}
 		if err := saveCharacterVersion(tx, asset, version, representations, voice); err != nil {
 			return err
 		}

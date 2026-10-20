@@ -94,6 +94,23 @@ func (s *Service) UpdateProjectAssetVisual(userID, projectID, assetID string, re
 	if err != nil {
 		return ProjectAssetSummary{}, err
 	}
+	var historicalImages []model.AssetRepresentation
+	if resourceID != "" && strings.HasPrefix(storageKey, "resource:") {
+		previousID := strings.TrimPrefix(storageKey, "resource:")
+		known := false
+		for _, representation := range representations {
+			if representation.ResourceID == previousID && representation.MediaType == "image" {
+				known = true
+				break
+			}
+		}
+		if !known {
+			previous, previousErr := s.repo.ResourceForUser(userID, previousID)
+			if previousErr == nil && previous.Kind == "image" && previous.Status == model.ResourceStatusReady {
+				historicalImages = append(historicalImages, model.AssetRepresentation{ID: newID(), TaskID: current.ID, AssetVersionID: current.ID, ResourceID: previousID, MediaType: "image", Role: "primary", CreatedAt: now})
+			}
+		}
+	}
 	if resourceID != "" {
 		representations = []model.AssetRepresentation{{ResourceID: resourceID, MediaType: "image", Role: "primary"}}
 	}
@@ -103,7 +120,7 @@ func (s *Service) UpdateProjectAssetVisual(userID, projectID, assetID string, re
 		representations[index].AssetVersionID = version.ID
 		representations[index].CreatedAt = now
 	}
-	if err = s.repo.SaveCharacterVersion(projectID, asset, &version, representations, nil); err != nil {
+	if err = s.repo.SaveCharacterVersion(projectID, asset, &version, representations, nil, historicalImages...); err != nil {
 		return ProjectAssetSummary{}, err
 	}
 	return s.projectAssetSummary(userID, projectID, asset)

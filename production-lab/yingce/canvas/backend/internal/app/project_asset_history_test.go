@@ -62,10 +62,15 @@ func TestProjectOrdinaryImageCanRestoreHistoryWithoutLosingPrompt(t *testing.T) 
 		&model.AssetVersion{ID: "v1", AssetID: "a", Version: 1, DefinitionJSON: `{}`},
 		&model.ProjectAssetLink{ID: "l", ProjectID: "p", AssetID: "a"},
 		&model.Resource{ID: "old", UserID: "user-1", Kind: "image", Status: model.ResourceStatusReady, MimeType: "image/png", Width: 512, Height: 512},
+		&model.Resource{ID: "current", UserID: "user-1", Kind: "image", Status: model.ResourceStatusReady, MimeType: "image/png", Width: 512, Height: 512},
 	} {
 		if err := db.Create(record).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	before, err := svc.ProjectAssetHistoryImages("user-1", "p", "a")
+	if err != nil || len(before) != 1 || before[0].ResourceID != "current" {
+		t.Fatalf("legacy current image unavailable: %+v %v", before, err)
 	}
 	result, err := svc.UpdateProjectAssetVisual("user-1", "p", "a", UpdateProjectAssetVisualRequest{ResourceID: "old", VersionID: "v1"})
 	if err != nil || result.StorageKey != "resource:old" || result.VersionCount != 2 {
@@ -74,5 +79,9 @@ func TestProjectOrdinaryImageCanRestoreHistoryWithoutLosingPrompt(t *testing.T) 
 	asset, err := svc.repo.AssetForUser("user-1", "a")
 	if err != nil || !strings.Contains(asset.PayloadJSON, "original prompt") {
 		t.Fatalf("prompt lost: %+v %v", asset, err)
+	}
+	history, err := svc.ProjectAssetHistoryImages("user-1", "p", "a")
+	if err != nil || len(history) != 2 || history[1].ResourceID != "current" {
+		t.Fatalf("previous picture lost after replacement: %+v %v", history, err)
 	}
 }
