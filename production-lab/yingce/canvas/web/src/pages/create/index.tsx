@@ -53,6 +53,7 @@ const TEXT_THINKING_PREF_KEY = "creation.composer.text-thinking";
 
 function creationLibraryDisabledReason(mode: CreationMode, kind: string | undefined, videoLimits?: CreationReferenceLimits) {
     if (!kind) return undefined;
+    if (!["image", "video", "audio"].includes(kind)) return "此入口支持媒体素材；读取文档请从上传入口添加";
     if (mode === "image") return kind === "image" ? undefined : "图片创作仅支持参考图";
     if (mode !== "video") return undefined;
 
