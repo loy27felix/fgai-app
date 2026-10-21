@@ -17,6 +17,8 @@ export type OpenAIMessage = { role: "system" | "user" | "assistant"; content: st
 export interface WetokenChatOptions {
   model: string;
   messages: OpenAIMessage[];
+  apiBaseUrl?: string;
+  apiKey?: string;
   reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
   maxTokens?: number;
@@ -44,9 +46,9 @@ function messagesForJsonOutput(messages: OpenAIMessage[]) {
 }
 
 export async function wetokenChat(options: WetokenChatOptions, dependencies: { fetcher?: Fetcher } = {}): Promise<ChatResult> {
-  const key = process.env.WETOKEN_API_KEY;
-  if (!key) throw new Error("缺少 WETOKEN_API_KEY 环境变量");
-  const base = (process.env.WETOKEN_BASE_URL || "https://wetoken.ai/v1").replace(/\/$/, "");
+  const key = options.apiKey || process.env.WETOKEN_API_KEY;
+  if (!key) throw new Error("缺少 API Key 环境变量");
+  const base = (options.apiBaseUrl || process.env.WETOKEN_BASE_URL || "https://wetoken.ai/v1").replace(/\/$/, "");
   const messages = options.jsonOutput ? messagesForJsonOutput(options.messages) : options.messages;
   const body: Record<string, unknown> = { model: options.model, messages, stream: false, max_tokens: options.maxTokens ?? 2000 };
   const reasoningEffort = providerReasoningEffort(options.reasoningEffort, "wetoken");

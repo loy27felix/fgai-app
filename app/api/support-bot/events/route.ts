@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { parseFeishuEvent, supportBotEnabled } from '@/lib/support-bot/feishu';
+import { addReceivedReaction, parseFeishuEvent, supportBotEnabled } from '@/lib/support-bot/feishu';
 import { enqueueSupportMessage } from '@/lib/support-bot/store';
 import { logServerEvent } from '@/lib/observability/server-log';
 
@@ -38,10 +38,25 @@ export async function POST(request: Request) {
   try {
     if (event.message) {
       const queued = await enqueueSupportMessage(event.message);
+      if ('ignored' in queued && queued.ignored) {
+        logServerEvent('support_bot_thread_message_ignored', {
+          service: 'support-bot', eventId: event.message.eventId, messageId: event.message.messageId,
+          reason: 'no_active_support_thread',
+        });
+        return NextResponse.json({ code: 0 });
+      }
       logServerEvent('support_bot_message_enqueued', {
         service: 'support-bot', ticketId: queued.ticketId, duplicate: queued.duplicate,
         eventId: event.message.eventId, messageId: event.message.messageId,
       });
+      if (!queued.duplicate) {
+        try {
+          await addReceivedReaction(event.message.messageId);
+          logServerEvent('support_bot_ack_reaction_added', { service: 'support-bot', messageId: event.message.messageId });
+        } catch {
+          logServerEvent('support_bot_ack_reaction_failed', { service: 'support-bot', messageId: event.message.messageId, reason: 'permission_or_api_error' }, 'warn');
+        }
+      }
     }
     return NextResponse.json({ code: 0 });
   } catch {

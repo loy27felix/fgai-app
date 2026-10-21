@@ -6,6 +6,8 @@ import type { ReasoningEffort } from "./reasoning";
 export interface TextChatOptions {
   modelId?: string;
   messages: ChatMessage[];
+  apiBaseUrl?: string;
+  apiKey?: string;
   images?: string[];
   thinking?: boolean;
   reasoningEffort?: ReasoningEffort;
@@ -35,6 +37,8 @@ export async function chatWithTextModel(options: TextChatOptions, dependencies: 
   const result = await (dependencies.wetoken ?? wetokenChat)({
     model: spec.apiModel,
     messages,
+    ...(options.apiBaseUrl ? { apiBaseUrl: options.apiBaseUrl } : {}),
+    ...(options.apiKey ? { apiKey: options.apiKey } : {}),
     ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     jsonOutput: options.jsonOutput,
     maxTokens: options.maxTokens,

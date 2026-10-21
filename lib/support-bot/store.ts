@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { query, withTransaction } from '@/lib/local/db';
 
-export type SupportMessage = { eventId: string; messageId: string; chatId: string; openId: string; text: string; threadId?: string; isGroup?: boolean };
+export type SupportMessage = { eventId: string; messageId: string; chatId: string; openId: string; text: string; threadId?: string; isGroup?: boolean; botMentioned?: boolean };
 export type DiagnosisResult = { userReply: string; internalSummary: string; needsDeveloper: boolean; module: string; evidence: unknown[]; guidanceOnly?: boolean; closed?: boolean };
 export type SupportJob = SupportMessage & { id: string; ticketId: string; attempts: number; leaseToken: string; diagnosis: DiagnosisResult | null };
 let schemaReady: Promise<void> | undefined;
@@ -21,6 +21,12 @@ export async function enqueueSupportMessage(message: SupportMessage) {
     await db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [conversationKey]);
     const previous = await db.query('SELECT ticket_id FROM support_bot_jobs WHERE event_id=$1 OR message_id=$2', [message.eventId,message.messageId]);
     if (previous.rows[0]) return { ticketId: previous.rows[0].ticket_id as string, duplicate: true };
+    // Accept unmentioned replies only inside an active support topic.
+    // 未 @ 回复仅在既有未关闭的机器人话题中入队，避免处理群内其他消息。
+    if (message.isGroup && !message.botMentioned) {
+      const activeThread = await db.query("SELECT id FROM support_bot_tickets WHERE chat_id=$1 AND thread_id=$2 AND status='open' AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1", [message.chatId,message.threadId || '']);
+      if (!activeThread.rows[0]) return { ticketId: '', duplicate: false, ignored: true as const };
+    }
     const pressure=await db.query("SELECT count(*) FILTER(WHERE j.created_at>now()-interval '1 minute')::int recent,count(*) FILTER(WHERE j.status IN ('pending','processing'))::int queued FROM support_bot_jobs j JOIN support_bot_tickets t ON t.id=j.ticket_id WHERE t.open_id=$1",[message.openId]);
     if (pressure.rows[0].recent>=5 || pressure.rows[0].queued>=10) throw new Error('提问过于频繁，请稍后重试');
     if (message.text.trim()==='新问题') {

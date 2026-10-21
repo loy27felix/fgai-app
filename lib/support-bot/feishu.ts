@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { AESCipher, Client, LoggerLevel, defaultHttpInstance } from '@larksuiteoapi/node-sdk';
+import axios from 'axios';
+import { AESCipher, Client, LoggerLevel, defaultHttpInstance, type HttpInstance } from '@larksuiteoapi/node-sdk';
 import { assertSupportLease, isSupportDeliveryDone, markSupportDeliveryDone, type DiagnosisResult, type SupportJob, type SupportMessage } from './store';
 import { redactSupportText, scrubSupportValue } from './redact';
 import { logServerEvent } from '@/lib/observability/server-log';
@@ -66,7 +67,11 @@ export function parseFeishuEvent(rawBody: string, headers: Headers): { challenge
   if (message?.message_type !== 'text') return ignore('unsupported_message_type');
   const botOpenId = process.env.FEISHU_SUPPORT_BOT_OPEN_ID;
   const mentioned = botOpenId && message.mentions?.some((item: { id?: { open_id?: string } }) => item.id?.open_id === botOpenId);
-  if (message.chat_type !== 'p2p' && !(message.chat_type === 'group' && mentioned)) return ignore('not_private_or_bot_mention');
+  const isGroup = message.chat_type === 'group';
+  const hasThreadRoot = typeof message.root_id === 'string' && !!message.root_id;
+  // Thread replies may continue without a mention; storage verifies the active support ticket.
+  // 话题回复可以不 @，是否属于机器人问题由入队层核验。
+  if (message.chat_type !== 'p2p' && !(isGroup && (mentioned || hasThreadRoot))) return ignore('not_private_or_supported_thread');
   const content = JSON.parse(message.content);
   if (typeof content.text !== 'string') return ignore('missing_text');
   let text = content.text;
@@ -77,25 +82,45 @@ export function parseFeishuEvent(rawBody: string, headers: Headers): { challenge
   const openId = sender.sender_id?.open_id;
   if (!text || text.length > 8000) return ignore('empty_or_oversized_text');
   if (!openId || !message.message_id || !message.chat_id || !payload.header.event_id) return ignore('missing_message_identifiers');
-  const isGroup = message.chat_type === 'group';
   // Use the root message as the conversation key so follow-ups stay in one topic.
   // 群聊首条消息以自身作为主题根，后续回复沿用同一个根消息 ID。
   const threadId = isGroup ? message.root_id || message.message_id : undefined;
-  return { message: { eventId: payload.header.event_id, messageId: message.message_id, chatId: message.chat_id, openId, text, isGroup, threadId } };
+  return { message: { eventId: payload.header.event_id, messageId: message.message_id, chatId: message.chat_id, openId, text, isGroup, threadId, botMentioned: !!mentioned } };
 }
 
-function client() {
+function client(timeoutMs = 15000) {
   if (!supportBotSendingEnabled()) throw new Error('机器人发送尚未启用');
   const appId = process.env.FEISHU_SUPPORT_APP_ID;
   const appSecret = process.env.FEISHU_SUPPORT_APP_SECRET;
   if (!appId || !appSecret) throw new Error('机器人应用凭据未配置');
-  return new Client({ appId, appSecret, loggerLevel: LoggerLevel.error });
+  if (timeoutMs === 15000) return new Client({ appId, appSecret, loggerLevel: LoggerLevel.error });
+  const httpInstance = axios.create({ timeout: timeoutMs, maxRedirects: 0, maxContentLength: 2_000_000 });
+  httpInstance.interceptors.response.use((response) => (response.config as typeof response.config & { $return_headers?: boolean }).$return_headers
+    ? { data: response.data, headers: response.headers }
+    : response.data);
+  return new Client({ appId, appSecret, loggerLevel: LoggerLevel.error, httpInstance: httpInstance as unknown as HttpInstance });
 }
 function checkResponse(response: { code?: number; msg?: string }) {
   if (response.code !== 0) throw new Error(`飞书 API 调用失败 (${response.code ?? 'unknown'})`);
 }
+export function supportOwnerForModule(module: string) {
+  try {
+    const owners: Record<string, unknown> = JSON.parse(process.env.SUPPORT_BOT_MODULE_OWNERS || '{}');
+    if (!owners || typeof owners !== 'object' || Array.isArray(owners)) return undefined;
+    const owner = Object.hasOwn(owners, module) ? owners[module] : owners.default;
+    return typeof owner === 'string' && owner.startsWith('ou_') ? owner : undefined;
+  } catch { return undefined; }
+}
 export async function replyToMessage(messageId: string, text: string, uuid?: string, replyInThread = false) {
   const response = await client().im.message.reply({ path: { message_id: messageId }, data: { content: JSON.stringify({ text: redactSupportText(text) }), msg_type: 'text', uuid, ...(replyInThread ? { reply_in_thread: true } : {}) } });
+  checkResponse(response);
+}
+
+export async function addReceivedReaction(messageId: string) {
+  const response = await client(1800).im.messageReaction.create({
+    path: { message_id: messageId },
+    data: { reaction_type: { emoji_type: 'GET' } },
+  });
   checkResponse(response);
 }
 
@@ -116,7 +141,13 @@ export async function deliverSupportResult(job: SupportJob, result: DiagnosisRes
   }
   await deliver('reply', async () => {
     const replyTarget = job.isGroup && job.threadId ? job.threadId : job.messageId;
-    await replyToMessage(replyTarget, `问题编号：${job.ticketId}\n${result.userReply}`, createHash('sha256').update(`reply:${job.id}`).digest('hex').slice(0, 32), job.isGroup);
+    const owner = result.needsDeveloper ? supportOwnerForModule(result.module) : undefined;
+    const assignment = result.needsDeveloper
+      ? owner
+        ? `\n责任模块：${redactSupportText(result.module)}；负责人：<at user_id="${owner}">模块负责人</at>`
+        : `\n责任模块：${redactSupportText(result.module)}；负责人映射未配置，需人工分派。`
+      : '';
+    await replyToMessage(replyTarget, `问题编号：${job.ticketId}\n${result.userReply}${assignment}`, createHash('sha256').update(`reply:${job.id}`).digest('hex').slice(0, 32), job.isGroup);
   });
   if (!result.guidanceOnly) {
     await deliver('table', () => syncSupportTable(sdk, job, result));
@@ -148,10 +179,8 @@ async function syncSupportTable(sdk: Client, job: SupportJob, result: DiagnosisR
 }
 
 async function notifySupportOwner(sdk: Client, job: SupportJob, result: DiagnosisResult) {
-  const owners: Record<string, string> = JSON.parse(process.env.SUPPORT_BOT_MODULE_OWNERS || '{}');
-  if (!owners || typeof owners !== 'object' || Array.isArray(owners)) throw new Error('模块负责人配置无效');
-  const owner = Object.hasOwn(owners, result.module) ? owners[result.module] : owners.default;
-  if (typeof owner !== 'string' || !owner.startsWith('ou_')) return false as const;
+  const owner = supportOwnerForModule(result.module);
+  if (!owner) return false as const;
   await assertSupportLease(job);
   const response = await sdk.im.message.create({ params: { receive_id_type: 'open_id' }, data: { receive_id: owner, msg_type: 'text', uuid: createHash('sha256').update(`owner:${job.id}`).digest('hex').slice(0, 32), content: JSON.stringify({ text: `问题 ${job.ticketId}\n模块：${redactSupportText(result.module)}\n${redactSupportText(result.internalSummary)}` }) } });
   checkResponse(response);

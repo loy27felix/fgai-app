@@ -256,15 +256,15 @@ pnpm dev
 
 代码按模块集中在 `lib/support-bot/`，飞书回调入口在 `app/api/support-bot/`，诊断任务由 `scripts/support-bot-worker.ts` 独立进程处理。同仓库用于复用 FG 的日志和模型能力；当前 worker 直接依赖这些库及数据库，不是可脱离 FG 独立部署的服务。若拆为独立服务，FG 侧应提供受控的只读日志接口，机器人服务负责飞书接入、任务队列、诊断和通知，源码通过只读 checkout 提供。
 
-助手仅通过飞书使用，不提供网页入口或 `/support-bot` 页面。机器人采用默认信任模式，无需绑定或登录 FG 账号。私聊可直接发送问题；群内 @机器人后，机器人会在原消息下创建或续接主题，并在主题内排查和回复。同一主题中的群成员可通过 @机器人共同续问；群内未 @机器人的消息不会触发处理。发送「新问题」另建问题，发送「关闭问题」结束当前主题的问题。
+助手仅通过飞书使用，不提供网页入口或 `/support-bot` 页面。机器人采用默认信任模式，无需绑定或登录 FG 账号。私聊可直接发送问题；群内首次发起问题需要 @机器人，机器人会在原消息下创建或续接主题。同一未关闭主题中的群成员可直接回复续问，不需要再次 @；其他群消息不会入队处理。发送「新问题」另建问题，发送「关闭问题」结束当前主题的问题。
 
-机器人通过现有统一日志中心查询用户在当前问题或续问中提供的 taskId、requestId 或 traceId，不再校验其所属 FG 账号。日志查询至少需要一个上述定位编号，模型不能自行编造编号或发起无定位条件的全站扫描；缺少编号时先提示补充，仍可进行有限次数的只读代码检索。模型自由文本和证据只用于内部记录，对外按问题类别和证据状态生成固定摘要及处理建议；模型异常时记录并转交开发。代码仅读取 worker 所在 Git checkout 的已提交源码；当前代码版本与故障时部署版本未经自动匹配，因此源码推测不能当作已确认根因。在不包含 Git 的 App 镜像内运行时，仍可查日志，但代码检索会明确返回不可用。完整代码排查使用独立的、具有 Git checkout 的 worker；不允许执行用户提供的 Shell／SQL、修改代码或操作生产守护进程。
+机器人通过现有统一日志中心查询用户在当前问题或续问中提供的 taskId、requestId 或 traceId，不再校验其所属 FG 账号。日志查询至少需要一个上述定位编号，模型不能自行编造编号或发起无定位条件的全站扫描；缺少编号时先提示补充，仍可进行有限次数的只读代码检索。发现异常后应继续读取相关日志详情并检索对应源码调用链，回复根因判断、责任模块和处理动作，同时标明引用证据；找到源码时会附上文件路径、行号和短代码片段。只有日志直接关联用户编号时才能确认异常；代码来自当前 Git checkout，若部署版本未核对，只能作为初步判断。模型异常时记录并转交开发。负责人通过 `SUPPORT_BOT_MODULE_OWNERS` 映射；配置后群内回复会 @负责人并私聊通知，缺少映射时明确提示人工分派。代码检索只读 worker 所在 Git checkout 的已提交源码；在不包含 Git 的 App 镜像内运行时，仍可查日志，但代码检索会明确返回不可用。不允许执行用户提供的 Shell／SQL、修改代码或操作生产守护进程。
 
 服务端配置见两个环境变量示例中的 Feishu support bot 段落：
 
-1. 在飞书开放平台创建应用并启用机器人，配置 App ID、App Secret、Verification Token 和 Encrypt Key；事件订阅地址为 `https://你的域名/api/support-bot/events`，订阅 `im.message.receive_v1`。开通接收私聊、群内 @消息、发送消息权限；启用群入口还需配置机器人自己的 `FEISHU_SUPPORT_BOT_OPEN_ID`。可用 `FEISHU_SUPPORT_TENANT_KEY` 限定租户。
+1. 在飞书开放平台创建应用并启用机器人，配置 App ID、App Secret、Verification Token 和 Encrypt Key；事件订阅地址为 `https://你的域名/api/support-bot/events`，订阅 `im.message.receive_v1`。开通接收私聊、群内 @消息、`im:message.group_msg`（读取机器人所在群的全部消息，敏感权限）、发送消息和 `im:message.reactions:write_only`（发送消息表情回复）权限。新消息入队后机器人会立即给原消息添加 GET 表情，诊断完成后再回复结果；表情 API 超时或权限不足不会阻断工单处理。启用群入口还需配置机器人自己的 `FEISHU_SUPPORT_BOT_OPEN_ID`。可用 `FEISHU_SUPPORT_TENANT_KEY` 限定租户。
 2. 多维表格可选，需给应用访问表格的权限，同时配置 App Token 和 Table ID。建以下**文本列**：问题编号、问题描述、诊断摘要、模块、状态、用户ID、消息ID、证据摘要。其中用户ID记录提问者的飞书 open_id。表中保留内部诊断信息，应仅供支持和开发人员访问。
-3. `SUPPORT_BOT_MODULE_OWNERS` 是模块名到开发人员 `open_id` 的 JSON 映射，例如 `{"default":"ou_xxx","billing":"ou_yyy"}`。未配置负责人时只记录问题，不发送开发通知。模型复用现有 Wetoken 服务端配置，`SUPPORT_BOT_MODEL_ID` 取项目模型目录中的 ID。
+3. `SUPPORT_BOT_MODULE_OWNERS` 是模块名到开发人员 `open_id` 的 JSON 映射，例如 `{"default":"ou_xxx","billing":"ou_yyy"}`。未配置负责人时只记录问题，不发送开发通知。问题排查默认使用 `gpt-6.1-sol`，推理配置由供应商默认值决定；可配置 `SUPPORT_BOT_API_BASE_URL`（OpenAI-compatible API 根地址，含 `/v1`）和 `SUPPORT_BOT_API_KEY` 单独指定供应商，未配置时回退到 Wetoken 的 `WETOKEN_BASE_URL`、`WETOKEN_API_KEY`。`SUPPORT_BOT_MODEL_ID` 可指定项目模型目录中的其他 ID。
 4. 应用与 worker 使用同一个数据库，按既有启动迁移执行 `016-support-bot.sql` 和 `017-support-bot-group-topic-index.sql`。在项目 checkout 内安装锁定依赖，将开发配置放 `.env.local`，然后运行 `pnpm support-bot:worker`；单次处理用 `pnpm support-bot:worker --once`。worker 不读取 `.env.docker`，运行时环境变量优先于 env 文件。另一种调度方式是由受信任调度器 POST `/api/support-bot/process`，携带 `Authorization: Bearer SUPPORT_BOT_WORKER_TOKEN`，每次最多处理一条；无需同时运行两种调度器。
 5. `SUPPORT_BOT_ENABLED=true` 开放接收；`SUPPORT_BOT_SEND_ENABLED=true` 才允许 worker 领取任务、调用模型及外发消息。默认均关闭，不会自动安装或重启生产服务。
 
