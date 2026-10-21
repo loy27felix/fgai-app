@@ -486,6 +486,7 @@ export default function CreatePage() {
         const { uploadImage, uploadMediaFile } = await loadCreationRuntime();
         if (file.type.startsWith("video/")) {
             const uploaded = await uploadMediaFile(file, "create-upload");
+            if (uploaded.pendingRemoteUpload) throw Error("视频尚未保存到服务器，请重试上传");
             return {
                 asset: creationVideoAsset({ title: file.name, uploaded, metadata: { source: "create-upload", fileName: file.name } }),
                 attachment: creationAttachmentFromVideo(file, uploaded),
@@ -493,6 +494,7 @@ export default function CreatePage() {
         }
         if (file.type.startsWith("audio/")) {
             const uploaded = await uploadMediaFile(file, "create-upload");
+            if (uploaded.pendingRemoteUpload) throw Error("音频尚未保存到服务器，请重试上传");
             return {
                 asset: creationAudioAsset({ title: file.name, uploaded, metadata: { source: "create-upload", fileName: file.name } }),
                 attachment: creationAttachmentFromAudio(file, uploaded),
@@ -504,6 +506,7 @@ export default function CreatePage() {
             return { attachment: {...creationAttachmentFromDocument(file, uploaded),text:uploaded.text} };
         }
         const uploaded = await uploadImage(file);
+        if (uploaded.pendingRemoteUpload) throw Error("图片尚未保存到服务器，请重试上传");
         return {
             asset: creationImageAsset({ title: file.name, uploaded, metadata: { source: "create-upload", fileName: file.name } }),
             attachment: creationAttachmentFromImage(file, uploaded),
