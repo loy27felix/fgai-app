@@ -5,6 +5,12 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## 创作资料与来源画布
+
+- 文档与 Excel：`web/src/services/document-storage.ts`；原文件经既有资源上传流程持久化，文本通过参考资料上下文进入模型。
+- 粘贴/拖入：`web/src/lib/media-transfer.ts`；超级创作 `pages/create/creation-workspace.tsx`、画布 `pages/canvas/use-canvas-upload.ts`、Agent `components/canvas/canvas-cloud-agent-composer.tsx`。
+- 画布筛选：`components/assets/asset-library-picker-modal.tsx` → `services/api/user-data.ts` → `handler/user_data.go` → `app/asset_library.go` → `repository/asset_library.go`。归属、分页与计数在服务端查询中保留。
+
 ## 美林独立板块
 
 - 入口：`web/src/pages/meilin.tsx`；侧栏与功能开放开关使用 `meilinEnabled`，默认关闭。

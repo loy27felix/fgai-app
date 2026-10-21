@@ -129,6 +129,9 @@ export default function CreatePage() {
     const [textThinking, setTextThinking] = useState(() => readComposerPref(TEXT_THINKING_PREF_KEY, false));
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
+    const [importingFiles, setImportingFiles] = useState(false);
+    const importLockRef = useRef(false);
+    const importContextRef = useRef("");
     const [historyOpen, setHistoryOpen] = useState(false);
     const [loginDialogOpen, setLoginDialogOpen] = useState(false);
     const [libraryOpen, setLibraryOpen] = useState(false);
@@ -507,12 +510,21 @@ export default function CreatePage() {
         };
     };
     const uploadLibraryAssets = async (files: FileList | File[]) => {
+        if (importLockRef.current) return [];
+        const context = importContextRef.current;
+        const scope = getActiveUserScope();
         const next = Array.from(files).filter((file) => creationFileAccepted(mode, file));
-        if (!next.length) return [];
+        if (!next.length) { toast.warning(mode === "text" ? "请选择图片、音视频、Word、文字版 PDF、Excel 或文本文件" : "当前模式仅支持相应媒体；读取文档和 Excel 请切换到文本创作"); return []; }
+        if (next.length < files.length) toast.warning("不支持的文件已跳过；文档和 Excel 请在文本创作中导入");
+        importLockRef.current = true;
+        setImportingFiles(true);
+        try {
         const settled = await Promise.allSettled(next.map(async (file) => {
             const { asset, attachment } = await uploadCreationAsset(file);
+            if (getActiveUserScope() !== scope) throw Error("账号已切换，请在当前账号重新上传");
             return { assetId: asset ? addAsset(asset) : "", attachment };
         }));
+        if (getActiveUserScope() !== scope || importContextRef.current !== context) return [];
         const uploaded = settled.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
         const assetIds = uploaded.flatMap((entry) => entry.assetId ? [entry.assetId] : []);
         const documents = uploaded.filter((entry) => !entry.assetId).map((entry) => entry.attachment);
@@ -525,15 +537,17 @@ export default function CreatePage() {
         if (assetIds.length) toast.success(`${assetIds.length} 个素材已上传到素材库并自动选中`);
         if (failed.length) toast.error(failed[0].reason instanceof Error ? failed[0].reason.message : `${failed.length} 个素材上传失败，请重试`);
         return assetIds;
+        } finally { importLockRef.current = false; setImportingFiles(false); }
     };
 
-    const handleLibrarySelect = (selectedIds: string[]) => {
+    const handleLibrarySelect = (selectedIds: string[], pickedItems: AssetLibraryPickerItem[] = []) => {
         const next = selectedIds.flatMap((id): CreationAttachment[] => {
-            const asset = assets.find((item) => item.id === id);
+            const asset = pickedItems.find(item => item.id === id)?.asset || useAssetStore.getState().assets.find((item) => item.id === id);
+            if (creationLibraryDisabledReason(mode, asset?.kind, videoReferenceLimits)) return [];
             if (asset?.kind === "image") return [creationAttachmentFromAsset(asset)];
             if (asset?.kind === "video" && mode !== "image") return [creationAttachmentFromVideoAsset(asset)];
             if (asset?.kind === "audio" && mode !== "image") return [creationAttachmentFromAudioAsset(asset)];
-            const external = libraryItems.find((item) => item.id === id)?.external;
+            const external = pickedItems.find(item => item.id === id)?.external || libraryItems.find((item) => item.id === id)?.external;
             return external ? [creationAttachmentFromExternalAsset(external)] : [];
         });
         if (!next.length) return;
@@ -546,6 +560,25 @@ export default function CreatePage() {
             return reconciled.attachments;
         });
         setLibraryOpen(false);
+    };
+
+    const importComposerFiles = async (files: File[]) => {
+        const ids = await uploadLibraryAssets(files);
+        if (ids.length) handleLibrarySelect(ids);
+    };
+    const importComposerImageURL = async (url: string) => {
+        if (importLockRef.current || busy || referenceReplacementBusy) return;
+        const scope = getActiveUserScope(), context = importContextRef.current;
+        importLockRef.current = true; setImportingFiles(true);
+        try {
+            const { uploadImage } = await loadCreationRuntime();
+            const uploaded = await uploadImage(url);
+            if (uploaded.pendingRemoteUpload) throw Error("图片尚未保存到 NAS，请重试");
+            if (scope !== getActiveUserScope()) return;
+            const id = addAsset(creationImageAsset({ title: "导入图片", uploaded, metadata: { source: "create-upload" } }));
+            if (context === importContextRef.current) handleLibrarySelect([id]);
+        } catch (cause) { if (scope === getActiveUserScope()) toast.error(cause instanceof Error ? cause.message : "图片导入失败"); }
+        finally { importLockRef.current = false; setImportingFiles(false); }
     };
 
     const removeAttachment = (id: string) => {
@@ -1046,12 +1079,14 @@ export default function CreatePage() {
 
 
     const generationActive = activeConversation.messages.some((message) => message.role === "assistant" && message.status === "pending");
+    importContextRef.current = `${getActiveUserScope()}|${activeConversation.id}|${mode}`;
 
     const composerProps = {
         mode,
         prompt,
         setPrompt,
-        busy,
+        busy: busy || importingFiles,
+        importingFiles,
         generationActive,
         referenceReplacementBusy,
         attachments,
@@ -1065,6 +1100,8 @@ export default function CreatePage() {
         onReplaceAttachment: replaceReferenceFromTrack,
         onReplaceReferenceFiles: replaceReferenceFromFiles,
         onOpenLibrary: () => setLibraryOpen(true),
+        onImportFiles: importComposerFiles,
+        onImportImageURL: importComposerImageURL,
         onModeChange: selectMode,
         model: selectedModel,
         modelRequirements,
@@ -1174,6 +1211,9 @@ export default function CreatePage() {
         <CreationLoginDialog open={loginDialogOpen} onClose={() => setLoginDialogOpen(false)} />
         {libraryOpen ? <Suspense fallback={null}><AssetLibraryPickerModal
             remoteLibrary
+            canvasFilter
+            acceptRemoteItems
+            remoteItemDisabledReason={asset => creationLibraryDisabledReason(mode, asset.kind, videoReferenceLimits)}
             open={libraryOpen}
             items={libraryItems}
             categoryLabels={{ ...creationAssetCategoryLabels, ...externalAssetSources.categoryLabels }}

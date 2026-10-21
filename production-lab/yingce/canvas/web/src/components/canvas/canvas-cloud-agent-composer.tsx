@@ -15,6 +15,7 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 import { Button } from "antd";
 import { agentAttachmentReferences, type CloudAgentChatAttachment } from "./canvas-cloud-agent-attachments";
 import { DOCUMENT_ACCEPT } from "@/services/document-storage";
+import { filesFromTransfer, imageURLFromTransfer, transferHasMedia } from "@/lib/media-transfer";
 
 export const MIN_AGENT_PROMPT_HEIGHT = 60;
 
@@ -185,6 +186,7 @@ export function AgentChatComposer({
     onPromptChange,
     onSubmit,
     onAddFiles,
+    onAddImageURL,
     onRemoveAttachment,
     left,
     submitAccessory,
@@ -207,6 +209,7 @@ export function AgentChatComposer({
     onStop?: () => void | Promise<void>;
     stopping?: boolean;
     onAddFiles?: (files: FileList | File[] | null) => void | Promise<void>;
+    onAddImageURL?: (url: string) => void | Promise<void>;
     onRemoveAttachment?: (id: string) => void;
     left?: ReactNode;
     /** 发送按钮左侧的附属控件，例如上下文用量环。 */
@@ -327,12 +330,14 @@ export function AgentChatComposer({
 
     // 保留粘贴图片成附件（contentEditable 模式内部会把粘贴转纯文本，capture 阶段先拦截图片）
     const handlePasteCapture = (event: ReactClipboardEvent) => {
-        if (!onAddFiles) return;
-        const documents = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/") || /\.(docx|pdf|md|txt|csv|json)$/i.test(file.name));
-        if (!documents.length) return;
+        const documents = filesFromTransfer(event.clipboardData);
+        const url = documents.length ? undefined : imageURLFromTransfer(event.clipboardData, window.location.href);
+        if (!documents.length && !url) return;
         event.preventDefault();
         event.stopPropagation();
-        void onAddFiles(documents);
+        if (disabled) return;
+        if (documents.length) void onAddFiles?.(documents);
+        else if (url) void onAddImageURL?.(url);
     };
 
     const insertAttachmentMention = (item: CloudAgentChatAttachment) => {
@@ -342,7 +347,17 @@ export function AgentChatComposer({
     };
 
     return (
-        <div className="agent-composer-wrap min-w-0 shrink-0" onWheelCapture={(event) => event.stopPropagation()}>
+        <div className="agent-composer-wrap min-w-0 shrink-0" onWheelCapture={(event) => event.stopPropagation()}
+            onDragOver={event => { if (transferHasMedia(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; } }}
+            onDrop={event => {
+                const files = filesFromTransfer(event.dataTransfer);
+                const url = files.length ? undefined : imageURLFromTransfer(event.dataTransfer, window.location.href);
+                if (!files.length && !url) return;
+                event.preventDefault(); event.stopPropagation();
+                if (disabled) return;
+                if (files.length) void onAddFiles?.(files);
+                else if (url) void onAddImageURL?.(url);
+            }}>
             {/* 有底部附加内容时，外壳托住输入卡片与底部条，形成一张整卡。 */}
             <div className="agent-composer-shell relative" data-has-footer={footer ? "" : undefined}>
                 {/* 整卡模式下发送光环包住整张卡，避免画在输入区与连接器之间形成一条线。 */}

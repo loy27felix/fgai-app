@@ -5,6 +5,10 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## 素材按来源画布分页
+
+`GET /api/assets` 在既有分页、媒体类型、分类、状态和搜索参数之外，支持 `canvasId=<id>` 和 `noCanvas=1`（未归属画布，优先于 canvasId）。匹配素材 `metadata.canvasId`，在当前用户归属检查后、分页之前过滤；`total` 与分类、媒体类型、文件夹计数均限制在所选画布范围。不携带这两个参数时仍查询全部来源。未知画布返回空列表，不回退其他画布或其他用户素材。无表结构变更。
+
 ## 项目资产历史图片与任务状态
 
 `GET /api/projects/:id/assets/:assetId/history-images` 返回 `data={images}`。每项包含 `versionId`、`version`、`resourceId`、`role`、`createdAt`，按资产版本倒序。服务端检查当前用户拥有活动项目、拥有资产且资产已关联该项目，只返回归属当前用户、状态 ready 的图片；同一版本内按资源去重。该只读接口不切换主版本、不创建生成任务。

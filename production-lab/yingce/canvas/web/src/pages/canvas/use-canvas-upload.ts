@@ -7,6 +7,8 @@ import type { InsertAssetPayload } from "@/components/canvas/asset-picker-modal"
 import { CANVAS_PROJECT_CHAPTER_DND_TYPE, type CanvasProjectChapterPayload } from "@/components/canvas/canvas-project-sidebar";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
+import { filesFromTransfer, imageURLFromTransfer, transferHasMedia } from "@/lib/media-transfer";
+import { getActiveUserScope } from "@/lib/user-scope";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { isAudioFile } from "@/lib/canvas/canvas-project-generation";
@@ -78,6 +80,8 @@ export function useCanvasUpload({
     const [uploadModalOpen, setUploadModalOpen] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<CanvasUploadStatus | null>(null);
     const [fileDropActive, setFileDropActive] = useState(false);
+    const importScopeRef = useRef("");
+    importScopeRef.current = `${getActiveUserScope()}|${canvasId}`;
 
     useEffect(() => () => {
         statusTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -541,6 +545,30 @@ export function useCanvasUpload({
         }
     }, [createFileNode, getCanvasCenter, message, nodesRef, replaceNodeMedia]);
 
+    const importDroppedImage = useCallback(async (url: string, position: Position) => {
+        const scope = importScopeRef.current, account = getActiveUserScope();
+        const progress = startUploadStatus("导入图片", "正在保存图片到服务器");
+        try {
+            const uploaded = await uploadImage(url);
+            if (scope !== importScopeRef.current || account !== getActiveUserScope()) return;
+            if (uploaded.pendingRemoteUpload) throw Error("图片尚未保存到服务器，请重试");
+            const size = fitImageNodeSize(uploaded.width, uploaded.height);
+            const node: CanvasNodeData = {
+                id: `image-${crypto.randomUUID()}`, type: CanvasNodeType.Image, title: "拖入图片",
+                position: { x: position.x - size.width / 2, y: position.y - size.height / 2 },
+                ...size, metadata: imageMetadata(uploaded),
+            };
+            setNodes(current => [...current, node]);
+            selectInsertedNode(node.id, "close");
+            const persisted = await persistMediaNode(node);
+            progress.done(persisted ? "图片已加入画布" : "图片已添加，素材同步待重试");
+        } catch (cause) {
+            if (scope !== importScopeRef.current || account !== getActiveUserScope()) return;
+            const detail = cause instanceof Error ? cause.message : "图片导入失败";
+            progress.fail(detail); message.error(detail);
+        }
+    }, [message, persistMediaNode, selectInsertedNode, setNodes, startUploadStatus]);
+
     const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
         if (isBatchTableDragEvent(event)) {
             event.preventDefault();
@@ -568,8 +596,12 @@ export function useCanvasUpload({
             void createImageAssetNode(asset, screenToCanvas(event.clientX, event.clientY));
             return;
         }
-        const files = Array.from(event.dataTransfer.files).filter((item) => uploadNodeType(item));
-        if (!files.length) return;
+        const files = filesFromTransfer(event.dataTransfer).filter((item) => uploadNodeType(item));
+        if (!files.length) {
+            const url = imageURLFromTransfer(event.dataTransfer, window.location.href);
+            if (url) void importDroppedImage(url, screenToCanvas(event.clientX, event.clientY));
+            return;
+        }
         if (files.length > 1) {
             void handleUploadFiles(files);
             return;
@@ -587,7 +619,7 @@ export function useCanvasUpload({
             return;
         }
         void createFileNode(file, position);
-    }, [createFileNode, createImageAssetNode, handleProjectChapterInsert, handleUploadFiles, message, nodesRef, replaceNodeMedia, screenToCanvas]);
+    }, [createFileNode, createImageAssetNode, handleProjectChapterInsert, handleUploadFiles, importDroppedImage, message, nodesRef, replaceNodeMedia, screenToCanvas]);
 
     const handleFileDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
         if (isBatchTableDragEvent(event)) {
@@ -769,7 +801,7 @@ export function useCanvasUpload({
 }
 
 function hasDraggedFiles(event: DragEvent<HTMLElement>) {
-    return Array.from(event.dataTransfer.types).includes("Files");
+    return transferHasMedia(event.dataTransfer);
 }
 
 function parseProjectChapterPayload(value: string): CanvasProjectChapterPayload | null {

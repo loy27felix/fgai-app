@@ -403,6 +403,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 				folderID = &value
 			}
 			assets, pageErr := svc.UserAssetsPage(user.ID, page, pageSize, service.UserAssetPageFilter{
+				CanvasID: c.Query("canvasId"), NoCanvas: c.Query("noCanvas") == "1",
 				Kind: c.Query("kind"), Category: c.Query("category"), FolderID: folderID,
 				Uncategorized: c.Query("uncategorized") == "1", Status: c.Query("status"), Query: c.Query("q"),
 			})
@@ -708,7 +709,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 }
 
 func hasUserAssetPageFilters(c *gin.Context) bool {
-	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q"} {
+	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q", "canvasId", "noCanvas"} {
 		if _, present := c.GetQuery(key); present {
 			return true
 		}

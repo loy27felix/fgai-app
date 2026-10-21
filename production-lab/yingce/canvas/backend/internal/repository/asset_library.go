@@ -12,6 +12,8 @@ import (
 )
 
 type UserAssetPageFilter struct {
+	CanvasID      string
+	NoCanvas      bool
 	Kind          string
 	Category      string
 	FolderID      *string
@@ -37,9 +39,9 @@ func (r *Repository) UserAssetsPage(userID string, page int, pageSize int, filte
 	return assets, total, err
 }
 
-func (r *Repository) UserAssetFacets(userID string, status string) ([]UserAssetFacetRow, []UserAssetFacetRow, []UserAssetFacetRow, error) {
+func (r *Repository) UserAssetFacets(userID string, filter UserAssetPageFilter) ([]UserAssetFacetRow, []UserAssetFacetRow, []UserAssetFacetRow, error) {
 	base := func() *gorm.DB {
-		return userAssetFilteredQuery(r.db.Model(&model.Asset{}).Where("user_id = ?", userID), UserAssetPageFilter{Status: status}, false)
+		return userAssetFilteredQuery(r.db.Model(&model.Asset{}).Where("user_id = ?", userID), UserAssetPageFilter{Status: filter.Status, CanvasID: filter.CanvasID, NoCanvas: filter.NoCanvas}, false)
 	}
 	var kindRows []UserAssetFacetRow
 	if err := base().Select("kind AS key, COUNT(*) AS count").Group("kind").Scan(&kindRows).Error; err != nil {
@@ -57,6 +59,18 @@ func (r *Repository) UserAssetFacets(userID string, status string) ([]UserAssetF
 }
 
 func userAssetFilteredQuery(query *gorm.DB, filter UserAssetPageFilter, includeSearch bool) *gorm.DB {
+	if filter.NoCanvas || strings.TrimSpace(filter.CanvasID) != "" {
+		// The asset's source canvas is independent of folder/category. Keep the owner predicate above.
+		expression := "COALESCE(json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END, '$.metadata.canvasId'), '')"
+		if query.Dialector.Name() == "postgres" {
+			expression = "COALESCE(NULLIF(payload_json, '')::jsonb->'metadata'->>'canvasId', '')"
+		}
+		value := strings.TrimSpace(filter.CanvasID)
+		if filter.NoCanvas {
+			value = ""
+		}
+		query = query.Where(expression+" = ?", value)
+	}
 	if value := strings.TrimSpace(filter.Kind); value != "" {
 		query = query.Where("kind = ?", value)
 	}

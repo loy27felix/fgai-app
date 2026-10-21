@@ -25,6 +25,8 @@ type UserAssetPage struct {
 }
 
 type UserAssetPageFilter struct {
+	CanvasID      string
+	NoCanvas      bool
 	Kind          string
 	Category      string
 	FolderID      *string
@@ -49,6 +51,7 @@ type MoveUserAssetsRequest struct {
 func (s *Service) UserAssetsPage(userID string, page int, pageSize int, filter UserAssetPageFilter) (UserAssetPage, error) {
 	page, pageSize = normalizeProjectPage(page, pageSize, 120)
 	repoFilter := repository.UserAssetPageFilter{
+		CanvasID: strings.TrimSpace(filter.CanvasID), NoCanvas: filter.NoCanvas,
 		Kind: filter.Kind, Category: filter.Category, FolderID: filter.FolderID,
 		Uncategorized: filter.Uncategorized, Status: filter.Status, Query: filter.Query,
 	}
@@ -68,7 +71,7 @@ func (s *Service) UserAssetsPage(userID string, page int, pageSize int, filter U
 		}
 		rawAssets = append(rawAssets, payload)
 	}
-	kindRows, categoryRows, folderRows, err := s.repo.UserAssetFacets(userID, filter.Status)
+	kindRows, categoryRows, folderRows, err := s.repo.UserAssetFacets(userID, repoFilter)
 	if err != nil {
 		return UserAssetPage{}, err
 	}

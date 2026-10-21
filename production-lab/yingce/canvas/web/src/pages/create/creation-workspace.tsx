@@ -14,6 +14,7 @@ import { ArrowUp, Brain, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, C
 import { WorkingGlow } from "@/components/ai/working-indicator";
 import { formatVideoResolutionLabel as videoResolutionLabel } from "@/lib/video-generation-options";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
+import { filesFromTransfer, imageURLFromTransfer, transferHasMedia } from "@/lib/media-transfer";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { HoverBorderGradient } from "@/components/ui/aceternity/hover-border-gradient";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
@@ -89,6 +90,7 @@ type ComposerProps = {
     prompt: string;
     setPrompt: (value: string) => void;
     busy: boolean;
+    importingFiles: boolean;
     generationActive: boolean;
     referenceReplacementBusy: boolean;
     attachments: CreationAttachment[];
@@ -102,6 +104,8 @@ type ComposerProps = {
     onReplaceAttachment: (targetAttachmentId: string, replacement: CreationAttachment) => void;
     onReplaceReferenceFiles: (targetAttachmentId: string, files: File[]) => void;
     onOpenLibrary: () => void;
+    onImportFiles: (files: File[]) => Promise<void>;
+    onImportImageURL: (url: string) => Promise<void>;
     onModeChange: (mode: CreationMode) => void;
     model: string;
     modelRequirements: ModelRequirements;
@@ -304,7 +308,28 @@ export function CreationComposer(props: ComposerProps) {
             spotlightColor="color-mix(in srgb, var(--user-ink) 12%, transparent)"
             spotlightRadius={280}
         >
-        <div className="creation-chat-writing-surface">
+        <div className="creation-chat-writing-surface"
+            onPasteCapture={event => {
+                const files = filesFromTransfer(event.clipboardData);
+                const url = files.length ? undefined : imageURLFromTransfer(event.clipboardData, window.location.href);
+                if (!files.length && !url) return;
+                event.preventDefault(); event.stopPropagation();
+                if (interactionBusy) return;
+                if (files.length) void props.onImportFiles(files);
+                else if (url) void props.onImportImageURL(url);
+            }}
+            onDragOver={event => { if (transferHasMedia(event.dataTransfer)) { event.preventDefault(); event.dataTransfer.dropEffect = interactionBusy ? "none" : "copy"; } }}
+            onDrop={event => {
+                if (event.defaultPrevented) return;
+                const files = filesFromTransfer(event.dataTransfer);
+                const url = files.length ? undefined : imageURLFromTransfer(event.dataTransfer, window.location.href);
+                if (!files.length && !url) return;
+                event.preventDefault(); event.stopPropagation();
+                if (interactionBusy) return;
+                if (files.length) void props.onImportFiles(files);
+                else if (url) void props.onImportImageURL(url);
+            }}>
+            <small className="px-3 text-muted-foreground" role="status">{props.importingFiles ? "正在上传并读取参考内容…" : props.mode === "text" ? "可粘贴图片或拖入素材、Word、PDF、Excel" : "可粘贴图片或拖入参考素材；文档和 Excel 请使用文本创作"}</small>
             <div className="creation-chat-editor">
                 <CanvasResourceMentionTextarea ref={props.composerFocusRef} value={props.prompt} references={props.references} mentionMenuWidth={400} sendOnEnter="both" onFocus={props.onPromptFocus} onChange={props.setPrompt} onSubmit={props.onSubmit} containerClassName="creation-chat-mention-container" className="creation-chat-mention-editor creation-scrollbar" style={{ color: "var(--creation-text)" }} placeholder={props.placeholderOverride || (props.variant === "empty" ? emptyPlaceholder : placeholder)} aria-label="创作提示词，可使用 @ 引用参考内容或技能；回车发送，Shift+回车换行" spellCheck disabled={interactionBusy} activeDropReferenceId={dropTargetReferenceId} onReferenceFilesDrop={(reference, files) => { const target = props.references.find((item) => item.id === reference.id); if (target?.attachmentId) props.onReplaceReferenceFiles(target.attachmentId, files); }} />
                 {props.attachments.length || referencesSupported ? <div className={`creation-reference-panel${trackState.isExpanded ? " is-expanded" : ""}`} aria-busy={interactionBusy}>

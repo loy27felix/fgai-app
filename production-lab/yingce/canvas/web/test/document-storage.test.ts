@@ -1,6 +1,35 @@
 import { expect, test } from 'bun:test';
 import { zipSync, strToU8 } from 'fflate';
 import { extractDocumentText, documentPromptContext } from '../src/services/document-storage';
+import * as XLSX from 'xlsx';
+
+for (const bookType of ['xlsx', 'xls', 'ods'] as const) {
+    test(`${bookType} reads multiple named worksheets and cached formula values`, async () => {
+        const book = XLSX.utils.book_new();
+        const sheet = XLSX.utils.aoa_to_sheet([['镜头', '时长', '预算'], ['开场钩子', 8, 12.5]]);
+        sheet.C2.z = '0.00';
+        sheet.D2 = { t: 'n', f: 'B2*2', v: 16 };
+        sheet['!ref'] = 'A1:D2';
+        XLSX.utils.book_append_sheet(book, sheet, '第三集');
+        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['角色', '台词'], ['男主', '门外是谁？']]), '角色对白');
+        const bytes = XLSX.write(book, { type: 'array', bookType });
+        const text = await extractDocumentText(new File([bytes], `分镜.${bookType}`));
+        expect(text).toContain('【工作表：第三集】');
+        expect(text).toContain('开场钩子\t8');
+        expect(text).toContain('16');
+        expect(text).toContain('【工作表：角色对白】');
+        expect(text).toContain('男主\t门外是谁？');
+    });
+}
+
+test('oversized spreadsheets reject clearly instead of silently reading partial rows', async () => {
+    const book = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([['开头']]);
+    sheet.A10001 = { t: 's', v: '结尾' };
+    sheet['!ref'] = 'A1:A10001';
+    XLSX.utils.book_append_sheet(book, sheet, '过长');
+    await expect(extractDocumentText(new File([XLSX.write(book, {type:'array', bookType:'xlsx'})], '超长.xlsx'))).rejects.toThrow('10,000 行');
+});
 
 test('DOCX extracts its paragraphs, not only the filename', async () => {
     const bytes = zipSync({

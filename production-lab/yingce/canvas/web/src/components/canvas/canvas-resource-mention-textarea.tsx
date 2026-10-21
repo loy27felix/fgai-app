@@ -393,7 +393,10 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                         props.onCompositionEnd?.(event as unknown as React.CompositionEvent<HTMLTextAreaElement>);
                     }}
                     onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
+                        props.onPaste?.(event as unknown as React.ClipboardEvent<HTMLTextAreaElement>);
+                        if (event.defaultPrevented) return;
                         event.preventDefault();
+                        if (readOnly) return;
                         replaceEditableSelection(event.clipboardData.getData("text/plain"));
                     }}
                     onDragOver={(event: DragEvent<HTMLDivElement>) => {

@@ -1727,6 +1727,16 @@ paths:
     get:
       tags: [assets]
       summary: 用户素材库
+      description: 按当前用户查询。canvasId 和 noCanvas 在分页之前过滤素材来源，计数同步限制在该画布范围。
+      parameters:
+        - in: query
+          name: canvasId
+          schema: { type: string }
+          description: 素材 metadata.canvasId；未知画布返回空列表。
+        - in: query
+          name: noCanvas
+          schema: { type: integer, enum: [1] }
+          description: 只查询未归属画布的素材，优先于 canvasId。
       responses:
         "200":
           $ref: "#/components/responses/Envelope"

@@ -92,21 +92,44 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
     const config = useEffectiveConfig();
     const [documents,setDocuments]=useState<Array<CloudAgentChatAttachment&{storageKey:string;text:string}>>([]);
     const [uploadingDocuments,setUploadingDocuments]=useState(false);
+    const documentUploadLock = useRef(false);
     const addDocuments=async(files:FileList|File[]|null)=>{
-        if(!files||uploadingDocuments)return;setUploadingDocuments(true);
+        if(!files||documentUploadLock.current)return;
+        const account=getActiveUserScope(), scope=currentScope.current;
+        const isCurrent=()=>getActiveUserScope()===account&&currentScope.current===scope;
+        documentUploadLock.current=true;setUploadingDocuments(true);
         try{for(const file of Array.from(files)){
+            if(!isCurrent())return;
             if(file.type.startsWith('image/')){
                 const upload=await uploadImage(file);
                 if(upload.pendingRemoteUpload)throw Error('图片尚未保存到 NAS，请重试上传');
+                if(!isCurrent())return;
                 const nodeId=await onAddReferenceImage(file.name,upload);
+                if(!isCurrent())return;
                 setDocuments(current=>[...current,{id:upload.storageKey,name:file.name,url:upload.url,storageKey:upload.storageKey,text:`图片参考节点 ID：${nodeId}；使用 canvas_inspect_image 查看实际画面。`,kind:'image'}]);
             }else{
                 const upload=await uploadDocument(file);
+                if(!isCurrent())return;
                 setDocuments(current=>[...current,{id:upload.storageKey,name:file.name,url:upload.url,storageKey:upload.storageKey,text:upload.text,kind:'text'}]);
             }
         }}
-        catch(cause){setMessages(current=>appendAgentError(current,`document-${Date.now()}`,cause,'资料上传失败'));}
-        finally{setUploadingDocuments(false);}
+        catch(cause){if(isCurrent())setMessages(current=>appendAgentError(current,`document-${Date.now()}`,cause,'资料上传失败'));}
+        finally{documentUploadLock.current=false;setUploadingDocuments(false);}
+    };
+    const addImageURL=async(url:string)=>{
+        if(documentUploadLock.current)return;
+        const account=getActiveUserScope(), scope=currentScope.current;
+        const isCurrent=()=>getActiveUserScope()===account&&currentScope.current===scope;
+        documentUploadLock.current=true;setUploadingDocuments(true);
+        try{
+            const upload=await uploadImage(url);
+            if(upload.pendingRemoteUpload)throw Error('图片尚未保存到 NAS，请重试上传');
+            if(!isCurrent())return;
+            const nodeId=await onAddReferenceImage('导入图片',upload);
+            if(!isCurrent())return;
+            setDocuments(current=>[...current,{id:upload.storageKey,name:'导入图片',url:upload.url,storageKey:upload.storageKey,text:`图片参考节点 ID：${nodeId}；使用 canvas_inspect_image 查看实际画面。`,kind:'image'}]);
+        }catch(cause){if(isCurrent())setMessages(current=>appendAgentError(current,`document-${Date.now()}`,cause,'图片导入失败'));}
+        finally{documentUploadLock.current=false;setUploadingDocuments(false);}
     };
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const reducedMotion = useReducedMotion();
@@ -192,6 +215,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
     const conversationScope = `${canvasId}:${activeConversationId}`;
     const currentScope = useRef(conversationScope);
     currentScope.current = conversationScope;
+    useEffect(() => { setDocuments([]); }, [conversationScope, userId]);
     const running = Boolean(run?.cleanupPending) || run?.status === "running" || run?.status === "queued" || run?.status === "waiting_approval";
     const selectedModel = useMemo(() => {
         const textModels = selectableModelsByCapability(config, "text");
@@ -1145,6 +1169,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, se
                                     <AgentChatComposer
                                         attachments={documents}
                                         onAddFiles={addDocuments}
+                                        onAddImageURL={addImageURL}
                                         onRemoveAttachment={id=>setDocuments(current=>current.filter(doc=>doc.id!==id))}
                                         prompt={prompt}
                                         disabled={Boolean(run && connectionStatus !== "connected") || !historyHydrated || !pendingHydrated}
