@@ -65,6 +65,9 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 		if err := prepareFGWeTokenImageEdit(input.Config, request, &spec); err != nil {
 			return nil, err
 		}
+		if err := prepareFGSeedAudioRequest(input, &spec); err != nil {
+			return nil, err
+		}
 		body, streamedResult, err := executeProtocolCreateRequest(withProviderRequestKind(ctx, "create"), input, spec)
 		if err != nil {
 			return nil, err

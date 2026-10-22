@@ -1002,6 +1002,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             projectId={detail.project.id}
                             asset={voiceAsset}
                             instructions={voiceInstructions}
+                            referenceSample={voiceSample}
                             onSample={(sample) => {
                                 setVoiceSample(sample);
                                 message.success("已选择生成的声音，试听满意后点击绑定并生成新版本");

@@ -1,6 +1,30 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestFGReferenceVideoPixelErrorDetails(t *testing.T) {
+	r := VideoReferenceConfig{MinVideoPixels: 407696, MaxVideoPixels: 8295044}
+	for _, tc := range []struct {
+		w, h int
+		want string
+	}{
+		{576, 576, "第 2 个参考视频尺寸为 576×576（331776 像素），低于模型最低要求 407696 像素"},
+		{3840, 2161, "高于模型上限 8295044 像素"},
+		{614, 664, ""}, {3326, 2494, ""}, {640, 640, ""},
+	} {
+		in := canvasGenerationInput{ReferenceVideos: []providerMedia{{Width: 1280, Height: 720}, {Width: tc.w, Height: tc.h}}}
+		err := validateFGReferenceLimits(r, in)
+		if tc.want == "" && err != nil {
+			t.Fatalf("valid %dx%d: %v", tc.w, tc.h, err)
+		}
+		if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Fatalf("%dx%d: want %q, got %v", tc.w, tc.h, tc.want, err)
+		}
+	}
+}
 
 func TestFGH3MixedReferenceLimit(t *testing.T) {
 	r := VideoReferenceConfig{MaxTotalReferences: 12}

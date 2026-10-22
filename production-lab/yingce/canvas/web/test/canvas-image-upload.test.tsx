@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createImageUploadPlaceholder, createFileUploadPlaceholder, interruptFileUpload, readUploadImageSize, uploadNodeType, uploadPercent, uploadVeilOpacity } from "../src/lib/canvas/canvas-file-upload";
+import { createImageUploadPlaceholder, createFileUploadPlaceholder, interruptFileUpload, readUploadImageSize, normalizeCanvasUploadFile, uploadNodeType, uploadPercent, uploadVeilOpacity } from "../src/lib/canvas/canvas-file-upload";
 import { CanvasNodeType } from "../src/types/canvas";
 import { isCanvasImageSourceNode } from "../src/lib/canvas/canvas-image-source";
 import { CanvasFileUploadContent } from "../src/components/canvas/canvas-file-upload-content";
@@ -12,6 +12,24 @@ import { canvasThemes } from "../src/lib/canvas-theme";
 const file = { name: "photo.png", size: 1234, type: "image/png" };
 const placeholder = () => createImageUploadPlaceholder("upload", file, { x: 100, y: 200 }, { width: 1920, height: 1080 });
 const read = (path: string) => readFileSync(resolve(import.meta.dir, "../src", path), "utf8").replace(/\r\n/g, "\n");
+
+test('desktop media without MIME gets its actual extension type before decode and upload', async () => {
+    for (const [name, type, kind] of [['参考.PNG','image/png',CanvasNodeType.Image],['片段.MP4','video/mp4',CanvasNodeType.Video],['clip.mov','video/quicktime',CanvasNodeType.Video],['voice.m4a','audio/mp4',CanvasNodeType.Audio]] as const) {
+        for (const generic of ['', 'application/octet-stream']) {
+            const input = new File(['original bytes'], name, {type:generic,lastModified:1234});
+            expect(uploadNodeType(input)).toBe(kind);
+            const normalized = normalizeCanvasUploadFile(input);
+            expect(normalized.type).toBe(type);
+            expect(normalized.name).toBe(name);
+            expect(normalized.lastModified).toBe(1234);
+            expect(await normalized.text()).toBe(await input.text());
+        }
+    }
+    const explicit = new File(['pdf'], 'misleading.png', {type:'application/pdf'});
+    expect(uploadNodeType(explicit)).toBeNull();
+    expect(normalizeCanvasUploadFile(explicit)).toBe(explicit);
+    expect(uploadNodeType(new File(['x'], 'program.exe'))).toBeNull();
+});
 
 describe("图片上传占位", () => {
     for (const [width, height] of [[1920, 1080], [900, 1600], [800, 800], [4000, 500]]) {

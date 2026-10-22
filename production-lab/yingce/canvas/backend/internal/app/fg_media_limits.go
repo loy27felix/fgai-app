@@ -50,8 +50,11 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 			return BadAuthRequest(fmt.Sprintf("%s尺寸为 %d×%d，宽高比 %.3f 超出模型允许的 %.3f～%.3f", label, w, h, ratio, r.MinImageRatio, r.MaxImageRatio))
 		}
 		pixels := int64(w) * int64(h)
-		if isVideo && ((r.MinVideoPixels > 0 && pixels < int64(r.MinVideoPixels)) || (r.MaxVideoPixels > 0 && pixels > int64(r.MaxVideoPixels))) {
-			return BadAuthRequest("参考视频像素总量超出当前模型限制")
+		if isVideo && r.MinVideoPixels > 0 && pixels < int64(r.MinVideoPixels) {
+			return BadAuthRequest(fmt.Sprintf("%s尺寸为 %d×%d（%d 像素），低于模型最低要求 %d 像素；请换用更高分辨率的参考视频。生成分辨率不会改变参考素材尺寸", label, w, h, pixels, r.MinVideoPixels))
+		}
+		if isVideo && r.MaxVideoPixels > 0 && pixels > int64(r.MaxVideoPixels) {
+			return BadAuthRequest(fmt.Sprintf("%s尺寸为 %d×%d（%d 像素），高于模型上限 %d 像素；请缩小参考视频后再试", label, w, h, pixels, r.MaxVideoPixels))
 		}
 		return nil
 	}

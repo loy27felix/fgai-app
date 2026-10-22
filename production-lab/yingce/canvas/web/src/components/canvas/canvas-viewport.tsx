@@ -8,6 +8,7 @@ import { applyCanvasLiveViewport, subscribeCanvasViewportPreview } from "@/lib/c
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
 import {resolveMediaUrl} from '@/services/file-storage';
+import { transferHasFiles } from "@/lib/media-transfer";
 
 type CanvasViewportProps = {
     interactive?: boolean;
@@ -501,6 +502,27 @@ export function CanvasViewport({
                 if (!target?.closest("[data-node-id],[data-connection-id],[data-canvas-no-zoom]")) onCanvasDoubleClick?.(event);
             }}
             onContextMenu={onContextMenu}
+            onDragEnterCapture={(event) => {
+                if (!transferHasFiles(event.dataTransfer)) return;
+                onFileDragEnter?.(event);
+                event.stopPropagation();
+            }}
+            onDragOverCapture={(event) => {
+                if (!transferHasFiles(event.dataTransfer)) return;
+                event.preventDefault();
+                onFileDragOver?.(event);
+                event.stopPropagation();
+            }}
+            onDragLeaveCapture={(event) => {
+                if (!transferHasFiles(event.dataTransfer)) return;
+                onFileDragLeave?.(event);
+                event.stopPropagation();
+            }}
+            onDropCapture={(event) => {
+                if (!transferHasFiles(event.dataTransfer)) return;
+                onDrop?.(event);
+                event.stopPropagation();
+            }}
             onDragEnter={(event) => {
                 if (isCanvasInternalDragEvent(event)) {
                     event.preventDefault();

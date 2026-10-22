@@ -40,6 +40,11 @@ func runAudioTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	if input.Config.AudioInstructions != "" {
 		body["instructions"] = input.Config.AudioInstructions
 	}
+	if isFGSeedAudioConfig(input.Config) {
+		if err := addFGSeedAudioReferences(input, body); err != nil {
+			return nil, err
+		}
+	}
 	if input.Config.InterfaceType == string(model.ChannelInterfaceAsyncAudio) {
 		return runAsyncAudioTask(ctx, input, body, format)
 	}

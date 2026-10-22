@@ -18,13 +18,14 @@ export function assertVideoCapability(
     if (!videoDurationAllowed(profile, Number(seconds))) throw new Error("视频时长不在当前模型支持范围内");
     if (profile.references.maxImageBytes > 0 && references.some((image) => (image.bytes || 0) > profile.references.maxImageBytes)) throw new Error("参考图片文件超过当前模型大小限制");
     const limits = profile.references;
-    const checkShape = (width?:number,height?:number,video=false) => {
+    const checkShape = (width?:number,height?:number,video=false,label="参考素材") => {
         if (!width || !height) return;
         const ratio=width/height,pixels=width*height;
         const minSide=video?(limits.minVideoSide||limits.minImageSide):limits.minImageSide;
         const maxSide=video?(limits.maxVideoSide||limits.maxImageSide):limits.maxImageSide;
         if ((minSide && Math.min(width,height)<minSide) || (maxSide && Math.max(width,height)>maxSide) || (limits.minImageRatio && ratio<limits.minImageRatio) || (limits.maxImageRatio && ratio>limits.maxImageRatio)) throw new Error('参考素材宽高或宽高比超出当前模型限制');
-        if (video && ((limits.minVideoPixels && pixels<limits.minVideoPixels) || (limits.maxVideoPixels && pixels>limits.maxVideoPixels))) throw new Error('参考视频像素总量超出当前模型限制');
+        if (video && limits.minVideoPixels && pixels < limits.minVideoPixels) throw new Error(`${label}尺寸为 ${width}×${height}（${pixels} 像素），低于模型最低要求 ${limits.minVideoPixels} 像素；请换用更高分辨率的参考视频。生成分辨率不会改变参考素材尺寸`);
+        if (video && limits.maxVideoPixels && pixels > limits.maxVideoPixels) throw new Error(`${label}尺寸为 ${width}×${height}（${pixels} 像素），高于模型上限 ${limits.maxVideoPixels} 像素；请缩小参考视频后再试`);
     };
     const checkFormat=(type:string|undefined,formats:string[]|undefined)=>{
         let kind=(type||'').toLowerCase().split(';')[0].split('/').pop()||'';
@@ -35,8 +36,8 @@ export function assertVideoCapability(
         if (limits.imageBytesExclusive && limits.maxImageBytes>0 && (image.bytes||0)>=limits.maxImageBytes) throw new Error('参考图片必须小于当前模型单图大小上限');
         checkShape(image.width,image.height);checkFormat(image.type,limits.imageFormats);
     }
-    for (const video of videoReferences) {
-        checkShape(video.width,video.height,true);checkFormat(video.type,limits.videoFormats);
+    for (const [index, video] of videoReferences.entries()) {
+        checkShape(video.width,video.height,true,`第 ${index + 1} 个参考视频`);checkFormat(video.type,limits.videoFormats);
         if (limits.minVideoDurationSeconds && video.durationMs && video.durationMs<limits.minVideoDurationSeconds*1000) throw new Error('参考视频时长低于当前模型最短限制');
         if (profile.references.maxVideoBytes > 0 && (video.bytes || 0) > profile.references.maxVideoBytes) throw new Error("参考视频文件超过当前模型大小限制");
         if (profile.references.maxVideoDurationSeconds > 0 && (video.durationMs || 0) > profile.references.maxVideoDurationSeconds * 1000) throw new Error("参考视频时长超过当前模型限制");

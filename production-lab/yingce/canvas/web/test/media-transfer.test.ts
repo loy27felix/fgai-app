@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from 'bun:test';
 import { Window } from 'happy-dom';
-import { filesFromTransfer, imageURLFromTransfer, transferHasMedia } from '../src/lib/media-transfer';
+import { filesFromTransfer, imageURLFromTransfer, transferHasMedia, transferHasFiles } from '../src/lib/media-transfer';
 
 const previous = globalThis.DOMParser;
 globalThis.DOMParser = new Window().DOMParser as typeof DOMParser;
@@ -24,4 +24,12 @@ test('active URLs, local files and foreign blob URLs never become imports', () =
     for (const src of ['javascript:alert(1)','file:///C:/private.png','blob:https://other.example/private','data:text/html;base64,PHNjcmlwdD4=']) {
         expect(imageURLFromTransfer(transfer({'text/html':`<img src="${src}">`}), 'https://example.com/')).toBeUndefined();
     }
+});
+
+test('drag detection recognizes protected file items, file-only transfers and browser HTML images', () => {
+    expect(transferHasFiles({types:[],items:[],files:[new File(['x'],'clip.mp4')]} as unknown as DataTransfer)).toBe(true);
+    expect(transferHasFiles({types:['Files'],items:[],files:[]} as unknown as DataTransfer)).toBe(true);
+    expect(transferHasFiles({types:[],items:[{kind:'file'}],files:[]} as unknown as DataTransfer)).toBe(true);
+    expect(transferHasMedia({types:['text/html'],items:[]} as unknown as DataTransfer)).toBe(true);
+    expect(transferHasFiles({types:['application/x-canvas-batch-row'],items:[]} as unknown as DataTransfer)).toBe(false);
 });

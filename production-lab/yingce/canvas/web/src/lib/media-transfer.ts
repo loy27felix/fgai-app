@@ -22,6 +22,14 @@ export function imageURLFromTransfer(transfer: Pick<DataTransfer, "getData">, ba
     } catch { /* Invalid or active-content URLs never become media imports. */ }
 }
 
-export function transferHasMedia(transfer: Pick<DataTransfer, "types" | "items">) {
-    return Array.from(transfer.types || []).includes("Files") || Array.from(transfer.items || []).some(item => item.kind === "file") || Array.from(transfer.types || []).includes("text/uri-list");
+type DragTransfer = Pick<DataTransfer, "types" | "items"> & Partial<Pick<DataTransfer, "files">>;
+
+export function transferHasFiles(transfer: DragTransfer) {
+    // During dragenter/dragover browsers protect file bodies; types/items still
+    // identify files. Some desktop integrations expose only the FileList.
+    return Boolean(transfer.files?.length) || Array.from(transfer.types || []).includes("Files") || Array.from(transfer.items || []).some(item => item.kind === "file");
+}
+
+export function transferHasMedia(transfer: DragTransfer) {
+    return transferHasFiles(transfer) || Array.from(transfer.types || []).some(type => type === "text/uri-list" || type === "text/html");
 }

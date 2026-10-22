@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Alert, App, Button, Input, Progress } from "antd";
+import { Alert, App, Button, Checkbox, Input, Progress } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { configuredModelDisplayName } from "@/lib/model-selection";
@@ -7,9 +7,12 @@ import { submitBackendGenerationTask } from "@/services/api/generation-task";
 import { queryGenerationTask, listGenerationTasks } from "@/services/api/task-center";
 import type { ProjectAsset } from "@/services/api/projects";
 import { useCanvasGenerationConfirmation } from "@/components/canvas/canvas-generation-confirmation";
+import { getResource, resourceStorageKey } from "@/services/api/resources";
+import type { ReferenceAudio } from "@/types/media";
 import { characterVoiceTaskSummaryCandidate, characterSeedAudioModel, characterVoiceDirection, characterVoiceSamplePrompt, characterVoiceSampleFromTask, isCharacterVoiceSampleTask } from "./project-character-voice-plan";
 
-export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions, onSample }: { projectId: string; asset: ProjectAsset; instructions: string; onSample: (sample: { resourceId: string; name: string; url: string }) => void }) {
+type VoiceSample = { resourceId: string; name: string; url: string };
+export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions, referenceSample, onSample }: { projectId: string; asset: ProjectAsset; instructions: string; referenceSample?: VoiceSample | null; onSample: (sample: VoiceSample) => void }) {
     const { message } = App.useApp();
     const config = useEffectiveConfig();
     const model = characterSeedAudioModel(config);
@@ -18,6 +21,7 @@ export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions,
     const [dialogue, setDialogue] = useState("别着急，我们把事情从头说清楚。我会认真听，也会陪你一起找到答案。");
     const [direction, setDirection] = useState(() => characterVoiceDirection(asset.character?.definition || asset.definition || {}));
     const [busy, setBusy] = useState(false);
+    const [useReference, setUseReference] = useState(true);
     const [error, setError] = useState("");
     const operation = useRef<{ prompt: string; id: string } | undefined>(undefined);
     const tasks = useQuery({
@@ -35,7 +39,15 @@ export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions,
         setBusy(true);
         setError("");
         try {
-            const prompt = characterVoiceSamplePrompt(asset.title, dialogue, direction, instructions);
+            let reference: ReferenceAudio | undefined;
+            if (referenceSample && useReference) {
+                const resource = await getResource(referenceSample.resourceId);
+                if ((resource.durationMs || 0) > 30000) throw new Error("参考声音最长 30 秒，请先截取清晰的声音样本");
+                if (resource.size > 10 * 1024 * 1024) throw new Error("参考声音最大 10 MB，请先缩小样本");
+                if (!/^(audio\/(wav|x-wav|mpeg|mp3|pcm|ogg|opus))$/i.test(resource.mimeType || "")) throw new Error("Seed Audio 参考声音请使用 WAV、MP3、PCM 或 OGG Opus；当前样本格式不受支持");
+                reference = { id: resource.id, name: referenceSample.name, url: referenceSample.url, storageKey: resourceStorageKey(resource.id), type: resource.mimeType, bytes: resource.size, durationMs: resource.durationMs };
+            }
+            const prompt = [reference ? "角色音色严格参考@音频1，保留其声音身份、音域与音色质感；只说本次试音台词，不复读样本原台词。" : "", characterVoiceSamplePrompt(asset.title, dialogue, direction, instructions)].filter(Boolean).join("\n");
             const approved = await confirmGeneration([
                 {
                     key: asset.id,
@@ -45,19 +57,22 @@ export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions,
                     fields: [
                         ["模型", configuredModelDisplayName(config, model)],
                         ["音频格式", "MP3"],
+                        ["声音来源", reference ? `参考音频：${reference.name}` : "按文字描述设计新声音"],
                         ["生成时长", "按试音台词与表演节奏决定"],
                         ["费用", "公司音频渠道；供应商费用待账单核销"],
                     ],
                     prompt,
-                    references: [],
+                    references: reference ? [reference.name] : [],
                 },
             ]);
             if (!approved) return;
-            if (!operation.current || operation.current.prompt !== prompt) operation.current = { prompt, id: crypto.randomUUID() };
+            const operationKey = `${prompt}|${reference?.storageKey || "text-only"}`;
+            if (!operation.current || operation.current.prompt !== operationKey) operation.current = { prompt: operationKey, id: crypto.randomUUID() };
             const task = await submitBackendGenerationTask({
                 projectId,
                 mode: "audio",
                 prompt,
+                referenceAudios: reference ? [reference] : [],
                 config: { ...config, model, audioModel: model, audioVoice: "prompt", audioFormat: "mp3", audioSpeed: "1", audioInstructions: "", taskWorkflowProvider: "model" },
                 clientOperationId: operation.current.id,
                 metadata: { operation: "character_voice_sample", assetId: asset.id, characterAssetId: asset.id, assetVersionId: asset.primaryVersionId, outputTitle: `${asset.title}-声音样本`, source: "project-character-voice" },
@@ -75,7 +90,8 @@ export function ProjectCharacterVoiceGenerator({ projectId, asset, instructions,
     return (
         <div className="grid gap-3 rounded-lg border border-border p-3">
             <div className="font-medium">AI 生成角色声音 · Seed Audio</div>
-            <p className="m-0 text-xs text-foreground/55">可按角色设定生成声音样本。完成后试听，点击“使用此声音”，再绑定到角色；原图片和声音历史保留。关闭窗口不停止已提交任务。</p>
+            <p className="m-0 text-xs text-foreground/55">可按角色设定设计声音；选中上方样音时，可参考其音色生成新台词。完成后试听并选择绑定；原图片和声音历史保留。</p>
+            {referenceSample && <Checkbox checked={useReference} onChange={event => setUseReference(event.target.checked)}>参考上方“{referenceSample.name}”的音色生成（最长 30 秒、10 MB）</Checkbox>}
             {!model && <Alert type="warning" showIcon title="当前没有可用的 Seed Audio 模型，请检查模型渠道配置" />}
             <label className="grid gap-1 text-xs">
                 声音特征

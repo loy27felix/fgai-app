@@ -2,14 +2,30 @@ import { fitImageNodeSize, fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
 
-export const CANVAS_UPLOAD_ACCEPT = "image/*,video/*,audio/*,.mp3,.wav,text/plain,text/markdown,.txt,.md,.markdown";
+export const CANVAS_UPLOAD_ACCEPT = "image/*,video/*,audio/*,.png,.jpg,.jpeg,.webp,.gif,.avif,.bmp,.tif,.tiff,.heic,.heif,.mp4,.mov,.webm,.m4v,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,text/plain,text/markdown,.txt,.md,.markdown";
+const EXTENSION_MIME: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", avif: "image/avif", bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", heic: "image/heic", heif: "image/heif",
+    mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", m4v: "video/mp4",
+    mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", ogg: "audio/ogg", opus: "audio/ogg",
+};
+
+function uploadMimeType(file: Pick<File, "name" | "type">) {
+    if (file.type && file.type !== "application/octet-stream") return file.type;
+    return EXTENSION_MIME[file.name.split(".").pop()?.toLowerCase() || ""] || file.type;
+}
+
+export function normalizeCanvasUploadFile(file: File): File {
+    const type = uploadMimeType(file);
+    return type === file.type ? file : new File([file], file.name, { type, lastModified: file.lastModified });
+}
 export function isTextUploadFile(file: Pick<File, "name" | "type">) {
     return /\.(txt|md|markdown)$/i.test(file.name) || file.type === "text/plain" || file.type === "text/markdown";
 }
 export function uploadNodeType(file: Pick<File, "name" | "type">) {
-    if (file.type.startsWith("image/")) return CanvasNodeType.Image;
-    if (file.type.startsWith("video/")) return CanvasNodeType.Video;
-    if (file.type.startsWith("audio/") || /\.(mp3|wav)$/i.test(file.name)) return CanvasNodeType.Audio;
+    const type = uploadMimeType(file);
+    if (type.startsWith("image/")) return CanvasNodeType.Image;
+    if (type.startsWith("video/")) return CanvasNodeType.Video;
+    if (type.startsWith("audio/")) return CanvasNodeType.Audio;
     if (isTextUploadFile(file)) return CanvasNodeType.Text;
     return null;
 }

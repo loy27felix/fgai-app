@@ -4,6 +4,29 @@ import {speechPayload,decodeTTSChunks,validateSpeechAudio,synthesizeSpeech,trans
 const mp3=Buffer.from('ID3-valid-audio-fixture');
 const respond=(body,headers={})=>new Response(typeof body==='string'?body:JSON.stringify(body),{headers});
 
+test('Seed Audio sends exact ordered voice references to the official endpoint',async()=>{
+ const references=[{audio_data:mp3.toString('base64')},{audio_url:'https://media.example.com/voice-b.wav'}];
+ let sent;
+ await synthesizeSpeech({model:'seed-audio-1.0',input:'男主@Audio1说你好，女主@音频2说再见',references},{key:'test-key',fetcher:async(url,options)=>{sent=JSON.parse(options.body);assert.equal(url,'https://openspeech.bytedance.com/api/v3/tts/create');return respond({audio:mp3.toString('base64')});}});
+ assert.deepEqual(sent.references,references);
+ assert.equal(sent.text_prompt,'男主@音频1说你好，女主@音频2说再见');
+ assert.deepEqual(speechPayload({model:'seed-audio-1.0',input:'新台词',references:[references[0]]}).body.references,[references[0]]);
+ assert.match(speechPayload({model:'seed-audio-1.0',input:'新台词',references:[references[0]]}).body.text_prompt,/@音频1/);
+});
+
+test('invalid reference binding never falls back to paid text-only generation',async()=>{
+ let calls=0;
+ for(const input of [
+  {input:'@音频2',references:[{audio_data:mp3.toString('base64')}]},
+  {input:'@音频1',references:[{audio_data:mp3.toString('base64')},{audio_data:mp3.toString('base64')}]},
+  {input:'@音频1',references:[{audio_url:'file:///private.mp3'}]},
+  {input:'@音频1',references:[{audio_url:'https://example.com/a',audio_data:'SUQz'}]},
+  {input:'@音频1',references:[{audio_data:'not-base64'}]},
+  {input:'@音频1',references:[{audio_data:'SUQz'},{image_url:'https://example.com/a.png'}]},
+ ]) await assert.rejects(()=>synthesizeSpeech({model:'seed-audio-1.0',...input},{key:'test-key',fetcher:async()=>{calls++;return respond({audio:mp3.toString('base64')});}}),e=>e.code==='SPEECH_INVALID_INPUT');
+ assert.equal(calls,0);
+});
+
 test('TTS PCM is wrapped in a valid mono 24 kHz WAV without changing samples',()=>{
  const pcm=Buffer.from([0,0,1,0,255,127]);const wave=pcmWAV(pcm);
  assert.equal(wave.readUInt32LE(24),24000);assert.equal(wave.readUInt16LE(22),1);

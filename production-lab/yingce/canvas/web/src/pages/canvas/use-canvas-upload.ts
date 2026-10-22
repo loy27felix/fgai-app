@@ -7,13 +7,13 @@ import type { InsertAssetPayload } from "@/components/canvas/asset-picker-modal"
 import { CANVAS_PROJECT_CHAPTER_DND_TYPE, type CanvasProjectChapterPayload } from "@/components/canvas/canvas-project-sidebar";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
-import { filesFromTransfer, imageURLFromTransfer, transferHasMedia } from "@/lib/media-transfer";
+import { filesFromTransfer, imageURLFromTransfer, transferHasMedia, transferHasFiles } from "@/lib/media-transfer";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { isAudioFile } from "@/lib/canvas/canvas-project-generation";
 import { fitImageNodeSize, fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
-import { CANVAS_UPLOAD_ACCEPT, createFileUploadPlaceholder, uploadNodeType, uploadPercent } from "@/lib/canvas/canvas-file-upload";
+import { CANVAS_UPLOAD_ACCEPT, createFileUploadPlaceholder, normalizeCanvasUploadFile, uploadNodeType, uploadPercent } from "@/lib/canvas/canvas-file-upload";
 import { resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
 import { uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
@@ -52,7 +52,7 @@ const CANVAS_BATCH_TABLE_SELECTOR = "[data-canvas-batch-table]";
 
 function isBatchTableDragEvent(event: DragEvent<HTMLElement>) {
     const target = event.target instanceof Element ? event.target : null;
-    return Boolean(target?.closest(CANVAS_BATCH_TABLE_SELECTOR));
+    return !transferHasFiles(event.dataTransfer) && Boolean(target?.closest(CANVAS_BATCH_TABLE_SELECTOR));
 }
 
 export function useCanvasUpload({
@@ -155,6 +155,7 @@ export function useCanvasUpload({
 
     const activeUploadsRef = useRef(new Set<string>());
     const createFileNode = useCallback(async (file: File, position: Position, replaceId?: string) => {
+        file = normalizeCanvasUploadFile(file);
         const original = replaceId ? nodesRef.current.find((node) => node.id === replaceId) : undefined;
         if (replaceId && (!original || activeUploadsRef.current.has(replaceId))) return null;
         const id = replaceId || `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -596,7 +597,9 @@ export function useCanvasUpload({
             void createImageAssetNode(asset, screenToCanvas(event.clientX, event.clientY));
             return;
         }
-        const files = filesFromTransfer(event.dataTransfer).filter((item) => uploadNodeType(item));
+        const droppedFiles = filesFromTransfer(event.dataTransfer);
+        const files = droppedFiles.filter((item) => uploadNodeType(item));
+        if (droppedFiles.length > files.length) message.warning("部分文件格式不支持；请拖入图片、视频、音频或 TXT / Markdown 文件");
         if (!files.length) {
             const url = imageURLFromTransfer(event.dataTransfer, window.location.href);
             if (url) void importDroppedImage(url, screenToCanvas(event.clientX, event.clientY));
@@ -648,6 +651,8 @@ export function useCanvasUpload({
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = "copy";
+        // Recover when entering an iframe or a child element consumed dragenter.
+        if (hasDraggedFiles(event)) setFileDropActive(true);
     }, []);
 
     const handleFileDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
