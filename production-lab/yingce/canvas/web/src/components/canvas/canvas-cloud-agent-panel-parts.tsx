@@ -7,6 +7,7 @@ import type { CanvasTheme } from "@/lib/canvas-theme";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { agentAvatarClipForState, agentAvatarStateForRunStatus, agentCopy, DEFAULT_CANVAS_APPEARANCE, isAgentAvatarBundleManifest, type AgentAvatarBundleManifest } from "@/lib/canvas/agent-appearance";
 import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePopoverAnchorAlign } from "@/hooks/use-popover-anchor-align";
 import { useAgentLauncherPosition } from "./use-agent-launcher-position";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -16,12 +17,14 @@ import { AgentAvatarVideo } from "@/components/canvas/agent-avatar-video";
 import { FluidOrb } from "@/components/ui/fluid-orb";
 import { GlassAgent } from "@/components/ui/fg-glass-effects";
 import { ArrowLeft, Check, CircleDot, Clock3, Download, History, LoaderCircle, MessageSquarePlus, RotateCcw, Settings2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
-import { Button, Dropdown, Input, Popover } from "antd";
+import { Button, Input, Popover } from "antd";
+import { CanvasAnchoredDropdown as Dropdown } from "./canvas-anchored-dropdown";
 import type { AgentContextPhase, AgentContextUsageView } from "@/lib/canvas/agent-context-usage";
 import type { CloudAgentConversation } from "@/services/cloud-agent-conversations";
 import { AgentChatMessage, AgentOperationFeed, AgentReasoningFeed, AgentWorkingMessage, type CloudAgentChatMessage } from "./canvas-cloud-agent-chat-ui";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { CanvasNodeData } from "@/types/canvas";
+import type { AgentCanvasUndoState, AgentCanvasUndoTarget } from "@/lib/canvas/agent-canvas-undo";
 import type { AgentMediaSettings, AgentPermissionMode } from "@/services/api/agent";
 import { buildAgentFeedSegments } from "@/lib/canvas/agent-operation-feed";
 import { AgentWelcome } from "./canvas-agent-welcome";
@@ -172,7 +175,7 @@ export function AgentHeader({
     hasMessages: boolean;
     statusLabel: string;
     statusColor: string;
-    nodeCount: number;
+    nodeCount: number | null;
     onNew: () => void;
     onHistory: () => void;
     onSettings: () => void;
@@ -196,7 +199,7 @@ export function AgentHeader({
                     </span>
                 </div>
                 <div className="agent-panel-context">
-                    {appearance.agentName} · 当前画布 {nodeCount} 个节点
+                    {appearance.agentName} · {nodeCount === null ? "未在画布中，可对话；进入画布后自动关联" : `当前画布 ${nodeCount} 个节点`}
                 </div>
             </div>
             <div className="agent-header-actions flex items-center gap-0.5" style={{ color: theme.node.muted }}>
@@ -235,8 +238,9 @@ export function formatContextBytes(bytes: number | undefined) {
     return `${Math.round(bytes).toLocaleString("zh-CN")} 字节`;
 }
 
-export function AgentContextRing({ view }: { view: AgentContextUsageView }) {
+export function AgentContextRing({ view, theme }: { view: AgentContextUsageView; theme: CanvasTheme }) {
     const [open, setOpen] = useState(false);
+    const popoverRef = usePopoverAnchorAlign(open);
     const marker = view.compactRatio && view.compactRatio > 0 && view.compactRatio < 1 ? view.compactRatio : undefined;
     const percent = view.ratio === undefined ? view.label : `${Math.round(view.ratio * 100)}%`;
     const meterLabel = view.ratio === undefined ? "—" : percent;
@@ -251,13 +255,17 @@ export function AgentContextRing({ view }: { view: AgentContextUsageView }) {
 
     return (
         <Popover
+            ref={popoverRef}
             open={open}
             onOpenChange={setOpen}
             trigger="click"
-            placement="bottomRight"
+            placement="topRight"
+            autoAdjustOverflow
             arrow={false}
-            overlayClassName="agent-context-popover"
-            getPopupContainer={(trigger) => trigger.closest<HTMLElement>(".canvas-agent-panel") ?? document.body}
+            classNames={{ root: "agent-context-popover" }}
+            // 助手面板会裁切内容；独立挂到 body，并显式携带画布主题。
+            getPopupContainer={() => document.body}
+            styles={{ root: { "--agent-surface-base": theme.node.panel, "--agent-ink": theme.node.text, "--agent-accent": theme.accent.primary } as CSSProperties }}
             content={
                 <div className="agent-context-panel" data-phase={view.phase}>
                     <span className="agent-context-eyebrow">下一次请求 · 上下文窗口占用</span>
@@ -447,6 +455,8 @@ export function AgentConversation({
     onChooseSkill,
     onDraftPrompt,
     onFocusNode,
+    onUndo,
+    undoStates,
     onApprovalReasonChange,
     onApprove,
     onReject,
@@ -458,10 +468,12 @@ export function AgentConversation({
     approval: ApprovalState | null;
     approvalTargetGenerating?: CanvasNodeData;
     approvalSubmitting: boolean;
-    nodeCount: number;
+    nodeCount: number | null;
     onChooseSkill: () => void;
     onDraftPrompt: (prompt: string) => void;
     onFocusNode?: (nodeId: string) => void;
+    onUndo?: (target: AgentCanvasUndoTarget) => void;
+    undoStates?: Record<string, AgentCanvasUndoState>;
     onApprovalReasonChange: (reason: string) => void;
     onApprove: (settings?: AgentMediaSettings) => void;
     onReject: () => void;
@@ -510,11 +522,20 @@ export function AgentConversation({
                 {segments.map((segment, index) =>
                     segment.kind === "operations" ? (
                         // 只有"对话末尾那一段 + 还在跑"才流光：历史段落留在静态态，任务完成即停。
-                        <AgentOperationFeed key={segment.key} items={segment.items} theme={theme} references={references} onFocusNode={onFocusNode} live={busy && index === segments.length - 1} />
+                        <AgentOperationFeed key={segment.key} items={segment.items} theme={theme} references={references} onFocusNode={onFocusNode} onUndo={onUndo} undoStates={undoStates} live={busy && index === segments.length - 1} />
                     ) : segment.kind === "reasoning" ? (
                         <AgentReasoningFeed key={segment.key} items={segment.items} theme={theme} />
                     ) : (
-                        <AgentChatMessage key={segment.key} item={segment.item} theme={theme} references={references} onFocusNode={onFocusNode} isStreaming={busy && !approval && segment.item.streaming === true && segment.item === lastMessage} />
+                        <AgentChatMessage
+                            key={segment.key}
+                            item={segment.item}
+                            theme={theme}
+                            references={references}
+                            onFocusNode={onFocusNode}
+                            onUndo={onUndo}
+                            undoStates={undoStates}
+                            isStreaming={busy && !approval && segment.item.streaming === true && segment.item === lastMessage}
+                        />
                     ),
                 )}
                 {approval ? (
@@ -530,7 +551,7 @@ export function AgentConversation({
                         onReject={onReject}
                     />
                 ) : null}
-                {busy && !approval ? <AgentWorkingMessage theme={theme} label="正在处理当前画布" /> : null}
+                {busy && !approval ? <AgentWorkingMessage theme={theme} label="正在思考" /> : null}
             </div>
         </div>
     );

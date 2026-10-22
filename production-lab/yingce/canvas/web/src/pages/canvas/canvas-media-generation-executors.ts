@@ -4,7 +4,8 @@ import { nanoid } from "nanoid";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { findAvailableGenerationGroupPosition } from "@/lib/canvas/canvas-generation-layout";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
-import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
+import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
+import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, resetGenerationTaskMetadata, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
 import { buildGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
@@ -57,6 +58,9 @@ export async function executeVideoGeneration({
         width: spec.width,
         height: spec.height,
         metadata: {
+            // 就地重生成不能继承旧任务的计时字段；媒体内容与提示词不在清理范围内。
+            ...resetGenerationTaskMetadata(reuseEmptyTarget ? sourceNode?.metadata : undefined, NODE_STATUS_LOADING),
+            taskCreatedAt: new Date().toISOString(),
             ...canvasGenerationPromptMetadata(prompt, effectivePrompt),
             status: NODE_STATUS_LOADING,
             errorDetails: undefined,

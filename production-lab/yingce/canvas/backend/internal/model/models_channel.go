@@ -49,7 +49,7 @@ type ChannelModel struct {
 	SortOrder                    int                  `json:"sortOrder" gorm:"not null;default:0"`
 	Icon                         string               `json:"icon" gorm:"size:80"`
 	Capability                   string               `json:"capability" gorm:"size:32;index"`
-	Protocol                     ChannelInterfaceType `json:"protocol" gorm:"size:32;index"`
+	Protocol                     ChannelInterfaceType `json:"protocol" gorm:"size:64;index"`
 	BillingMode                  string               `json:"billingMode" gorm:"size:32"`
 	UnitPriceMicrocredits        int64                `json:"unitPriceMicrocredits"`
 	InputTokenPriceMicrocredits  int64                `json:"inputTokenPriceMicrocredits"`
@@ -98,9 +98,9 @@ type ChannelModelPriceTier struct {
 }
 
 type ApiCallLog struct {
-    FGBudgetReservationID string `json:"budgetReservationId,omitempty" gorm:"column:fg_budget_reservation_id;size:36;not null;default:''"`
-    FGFeeReferenceID string `json:"feeReferenceId,omitempty" gorm:"column:fg_fee_reference_id;size:160;not null;default:''"`
-    FGFeeReferencesJSON string `json:"feeReferencesJson,omitempty" gorm:"column:fg_fee_references_json;type:text;not null;default:'[]'"`
+	FGBudgetReservationID  string        `json:"budgetReservationId,omitempty" gorm:"column:fg_budget_reservation_id;size:36;not null;default:''"`
+	FGFeeReferenceID       string        `json:"feeReferenceId,omitempty" gorm:"column:fg_fee_reference_id;size:160;not null;default:''"`
+	FGFeeReferencesJSON    string        `json:"feeReferencesJson,omitempty" gorm:"column:fg_fee_references_json;type:text;not null;default:'[]'"`
 	ID                     string        `json:"id" gorm:"primaryKey;size:36"`
 	UserID                 string        `json:"userId" gorm:"index;size:36;index:idx_api_logs_user_created,priority:1"`
 	TraceID                string        `json:"traceId,omitempty" gorm:"index;size:96"`

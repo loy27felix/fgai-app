@@ -84,7 +84,7 @@ func TestShotDirectionTextMigrationPostgres(t *testing.T) {
 		t.Fatalf("direction truncated: %v", err)
 	}
 	status, err := ReadSchemaStatus(db)
-	if err != nil || !status.Ready || status.Current != 58 {
+	if err != nil || !status.Ready || status.Current != CurrentSchemaVersion {
 		t.Fatalf("schema status: %+v, %v", status, err)
 	}
 }

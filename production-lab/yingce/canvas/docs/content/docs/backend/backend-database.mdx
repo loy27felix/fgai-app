@@ -7,6 +7,8 @@ description: 影策后端核心持久化表与状态边界
 
 FG 原生 schema 58 将 `shot_revisions.shot_size`、`camera_angle`、`camera_movement` 从短字符串改为 TEXT，保存多镜头片段的完整景别、机位和运镜描述。迁移保留既有内容及版本，不裁剪导演描述，不重新生成媒体；PostgreSQL 在一个事务内扩展三列，SQLite 同步迁移列类型。
 
+FG schema 59 同步上游 Agent 记忆提案：新增 `agent_memory_proposals` 与 `agent_memory_revisions`，扩展记忆来源证据及压缩游标。模型建议先保存为带版本的提案，用户批准后才应用；批准和恢复均校验用户归属、版本和原内容，不能覆盖后续编辑。schema 60 将 `channel_models.protocol` 扩为 varchar(64)。FG 已使用 58 保存导演描述，因此不直接采用上游 58/59 编号；既有迁移名称及校验和保持不变。升级先备份并执行迁移与 verify，再切换新版服务。
+
 ## FG 第六板块费用扩展
 
 语音接入增加 `fg_speech_usage`（按费用预留 ID 唯一登记的提供商生成请求、实际用量和结果状态）及 `fg_speech_jobs`（账号独占的录音识别、机器翻译记录）。`fg_speech_jobs` 的账号与操作 UUID 唯一，输入散列阻止同一操作更换参数；异步查询通过更新时间租约防止并发重复查询。两表关联 `fg_budget_reservations`，未知费用不会记为零或已核销，广告工具调用保留广告项目预算归属。
