@@ -28,3 +28,10 @@ test("English parenthetical speech and negation remain substantive", () => {
     expect(dramaDialoguePreserved(expected, prompt("0—2秒 Evan：I said no."))).toBe(false);
     expect(dramaDialoguePreserved("Evan：I can't go.", prompt("0—2秒 Evan：I can go."))).toBe(false);
 });
+
+test("parenthetical script words cannot be discarded as performance notes", () => {
+    const expected = "Evan：不要（不）";
+    expect(dramaDialoguePreserved(expected, prompt("0—2秒 Evan：不要（不）"))).toBe(true);
+    expect(dramaDialoguePreserved(expected, prompt("0—2秒 Evan：不要"))).toBe(false);
+    expect(dramaDialoguePreserved("Evan：I am fine.", prompt("0—2秒 Evan：I am fine. (quietly)"))).toBe(true);
+});

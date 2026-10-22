@@ -13,7 +13,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 57
+const CurrentSchemaVersion int64 = 58
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -214,6 +214,7 @@ var schemaMigrations = []migration{
 	{version: 57, name: workbenchToolsMigrationName, checksum: workbenchToolsMigrationChecksum, apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.WorkbenchTool{}, &model.WorkbenchPreset{}, &model.Task{})
 	}},
+	{version: 58, name: "shot_direction_text", checksum: "sha256:shot-direction-text-v58-20261022", apply: migrateShotDirectionText},
 }
 
 func migratePrefixedIDSequenceReconcile(tx *gorm.DB) error {

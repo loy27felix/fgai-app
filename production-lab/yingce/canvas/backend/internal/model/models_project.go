@@ -288,9 +288,9 @@ type ShotRevision struct {
 	PlotDescription string    `json:"plotDescription" gorm:"type:text"`
 	Action          string    `json:"action" gorm:"type:text"`
 	Dialogue        string    `json:"dialogue" gorm:"type:text"`
-	ShotSize        string    `json:"shotSize" gorm:"size:80"`
-	CameraAngle     string    `json:"cameraAngle" gorm:"size:80"`
-	CameraMovement  string    `json:"cameraMovement" gorm:"size:120"`
+	ShotSize        string    `json:"shotSize" gorm:"type:text"`
+	CameraAngle     string    `json:"cameraAngle" gorm:"type:text"`
+	CameraMovement  string    `json:"cameraMovement" gorm:"type:text"`
 	DurationMs      int64     `json:"durationMs"`
 	ImagePrompt     string    `json:"imagePrompt" gorm:"type:text"`
 	VideoPrompt     string    `json:"videoPrompt" gorm:"type:text"`

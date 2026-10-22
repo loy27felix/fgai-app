@@ -4,15 +4,13 @@ const comparable = (value: string) => value
     .replace(/[\s"'“”‘’「」『』]/g, "")
     .replace(/。/g, ".").replace(/？/g, "?").replace(/！/g, "!").replace(/，/g, ",");
 
-function speech(line: string): Speech | undefined {
+function speech(line: string, removeDirections = false): Speech | undefined {
     const cue = line.trim().replace(/^(?:[-*]\s+)?(?:\*\*)?/, "")
         .replace(/^[（(]?约?\s*\d+(?:\.\d+)?\s*[—–\-~～至]\s*\d+(?:\.\d+)?\s*秒[）)]?\s*[，,｜|]?\s*/, "");
     const match = cue.match(/^([^：:\n]{1,60})[：:]\s*(.+)$/);
     if (!match) return undefined;
     const speaker = match[1].replace(/[（(][^）)]*[）)]/g, "").replace(/[\s*]/g, "").toLowerCase();
-    // Parenthetical directions after an unquoted line are not spoken words.
-    // Keep English parentheses inside dialogue; those may be part of the script.
-    const text = match[2].replace(/(?:[（(][^）)\n]*[\u3400-\u9fff][^）)\n]*[）)]\s*)+$/u, "");
+    const text = removeDirections ? match[2].replace(/(?:[（(][^）)\n]*[）)]\s*)+$/u, "") : match[2];
     return speaker && comparable(text) ? { speaker, text: comparable(text) } : undefined;
 }
 
@@ -44,7 +42,10 @@ export function dramaDialoguePreserved(dialogue: string, prompt: string): boolea
     // line in the performance schedule, even if the quoted words appear there.
     const cues = body.split(/\r?\n[ \t]*声线[^\n]*/)[0];
     const actual = grouped(cues.split(/\r?\n/).flatMap(line => {
-        const parsed = speech(line);
+        const raw = speech(line);
+        // Preserve parentheses that belong to the actual script. Only remove a
+        // trailing performance note when the unmodified cue is not in the script.
+        const parsed = raw && expected.some(item => item.speaker === raw.speaker && item.text.includes(raw.text)) ? raw : speech(line, true);
         if (!parsed || /^[\d约]/.test(parsed.speaker)) return [];
         return dialogueHeader || expected.some(item => item.speaker === parsed.speaker) ? [parsed] : [];
     }));
