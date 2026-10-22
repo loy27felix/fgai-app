@@ -77,7 +77,7 @@ describe("storyboardRowsFromTask", () => {
         const result = storyboardRowsFromTask(task);
         const shots = storyboardRowsToProjectShots(result.rows);
         expect(shots[0]?.description).toBe("对象形式的剧情");
-        expect(shots[0]?.revision.dialogue).toBe("台词一、台词二");
+        expect(shots[0]?.revision.dialogue).toBe("台词一\n台词二");
         expect(shots[0]?.revision.cameraAngle).toBe("中景");
         expect(shots[0]?.revision.cameraMovement).toBe("缓慢推进");
         expect(shots[0]?.revision.actionBeats).toEqual([{ description: "3" }]);

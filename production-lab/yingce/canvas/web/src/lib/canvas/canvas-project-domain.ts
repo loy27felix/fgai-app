@@ -194,7 +194,7 @@ function normalizeStoryboardRow(row: Partial<StoryboardRow>): Partial<Storyboard
     return {
         ...row,
         plotDescription: normalizeStoryboardText(row.plotDescription),
-        dialogue: normalizeStoryboardText(row.dialogue).replace(/\\r\\n|\\n/g, "\n"),
+        dialogue: (Array.isArray(row.dialogue) ? row.dialogue.map(normalizeStoryboardText).filter(Boolean).join("\n") : normalizeStoryboardText(row.dialogue)).replace(/\\r\\n|\\n/g, "\n"),
         narrativeIntent: normalizeStoryboardText(row.narrativeIntent),
         viewerPOV: normalizeStoryboardText(row.viewerPOV),
         performanceBlocking: normalizeStoryboardText(row.performanceBlocking),

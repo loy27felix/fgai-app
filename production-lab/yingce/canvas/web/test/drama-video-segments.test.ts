@@ -85,6 +85,26 @@ const row = {
     audioEffects: "门响",
 } as unknown as StoryboardRow;
 describe("剧情视频片段规划与恢复", () => {
+    test("恢复对白列表，并按同一说话人的时间顺序核对停顿前后的完整台词", () => {
+        const plan = createDramaProductionPlan(config(), config().model, 20, "fixed");
+        const dialogue = ["BOSS：Let's keep this to what we can verify.", "EVAN：It's fine. I'll handle the follow-up."];
+        const sound = `对白：\n8.8—11.3秒 BOSS：“Let's keep this to what we can verify.”\n13—13.8秒 EVAN（低声）：“It's fine.”（之后留半秒静默）\n14.3—16.3秒 EVAN：“I'll handle the follow-up.”\n声线 EVAN：年轻男声，克制。`;
+        const prompt = fullPrompt.replace("林默：有人吗？青年男声，低音区，平稳语速，无音乐。", sound);
+        const taskFor = (videoMotionPrompt: string) => ({ id: "dialogue-list", type: "canvas_text", status: "succeeded", prompt: "", attempts: 1, createdAt: "", updatedAt: "",
+            inputJson: JSON.stringify({ metadata: { dramaProductionPlan: plan } }),
+            resultJson: JSON.stringify({ text: JSON.stringify({ rows: [{ ...row, dialogue, videoMotionPrompt }] }) }) });
+        const restored = chapterStoryboardFromGenerationTask(taskFor(prompt));
+        expect(restored.rows[0].dialogue).toBe(dialogue.join("\n"));
+        expect(restored.rows[0].videoMotionPrompt).toBe(prompt);
+        for (const bad of [
+            prompt.replace("14.3—16.3秒 EVAN：“I'll handle the follow-up.”", ""),
+            prompt.replace("I'll handle the follow-up.”", "I won't handle the follow-up.”"),
+            prompt.replace("14.3—16.3秒 EVAN：", "14.3—16.3秒 BOSS："),
+            prompt.replace("14.3—16.3秒 EVAN：", "14.3—16.3秒 MIA："),
+            prompt.replace("13—13.8秒 EVAN（低声）：“It's fine.”（之后留半秒静默）\n14.3—16.3秒 EVAN：“I'll handle the follow-up.”", "13—16.3秒 EVAN：“I'll handle the follow-up. It's fine.”"),
+            prompt.replace("8.8—11.3秒 BOSS：“Let's keep this to what we can verify.”\n", "").replace("声线 EVAN：", "声线 BOSS：Let's keep this to what we can verify.\n声线 EVAN："),
+        ]) expect(() => chapterStoryboardFromGenerationTask(taskFor(bad))).toThrow("遗漏或改写");
+    });
     test("最长15秒的模型不出现20/25/30，固定与剧情策略保留合法长片段", () => {
         expect(dramaSegmentDurations(config(15), config().model)).toEqual([13, 15]);
         expect(() => createDramaProductionPlan(config(15), config().model, 30, "fixed")).toThrow();

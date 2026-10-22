@@ -1,4 +1,5 @@
 import { modelCapabilityConfigFor, videoDurationAllowed } from "@/lib/model-capabilities";
+import { dramaDialoguePreserved } from "@/lib/short-drama-dialogue";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { StoryboardRow } from "@/types/canvas";
 
@@ -68,12 +69,7 @@ export function validateDramaStoryboard(rows: StoryboardRow[], plan?: DramaProdu
         } else if (!prompt.startsWith("【分镜】") || !prompt.includes("人物站位：") || !prompt.includes("镜头1") || !prompt.includes("【禁止项】") || !prompt.includes("【强制声明】") || !prompt.includes("无背景音乐,仅保留环境音与人声和音效")) {
             throw new Error(`第 ${index + 1} 段缺少完整视频提示词，未替换原分镜`);
         }
-        const comparable = (value: string) => value.replace(/[\s"'“”‘’「」『』]/g, "");
-        const spokenLines = row.dialogue.split(/\r?\n/).flatMap((line) => {
-            const body = line.trim().match(/^[^：:\n]{1,40}[：:]\s*(.+)$/)?.[1];
-            return body ? [comparable(body)] : [];
-        });
-        if (spokenLines.some((line) => !comparable(prompt).includes(line))) throw new Error(`第 ${index + 1} 段视频提示词遗漏或改写了本段对白，未替换原分镜`);
+        if (!dramaDialoguePreserved(row.dialogue, prompt)) throw new Error(`第 ${index + 1} 段视频提示词遗漏或改写了本段对白，未替换原分镜`);
     }
 }
 
