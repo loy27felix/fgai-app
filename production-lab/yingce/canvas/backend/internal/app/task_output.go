@@ -52,6 +52,7 @@ type TaskClientContext struct {
 	MessageID             string `json:"messageId,omitempty"`
 	BatchIndex            int    `json:"batchIndex,omitempty"`
 	BatchCount            int    `json:"batchCount,omitempty"`
+	StoryboardBatchID     string `json:"storyboardBatchId,omitempty"`
 	DomainProjectID       string `json:"domainProjectId,omitempty"`
 	ChapterID             string `json:"chapterId,omitempty"`
 	ChapterOperation      string `json:"chapterOperation,omitempty"`
@@ -142,20 +143,21 @@ func taskSummaryForOutput(task model.Task) TaskSummary {
 func taskClientContext(raw string) *TaskClientContext {
 	var input struct {
 		Metadata struct {
-			AssetID          string `json:"assetId"`
-			CharacterAssetID string `json:"characterAssetId"`
-			Source           string `json:"source"`
-			NodeID           string `json:"nodeId"`
-			ConversationID   string `json:"conversationId"`
-			MessageID        string `json:"messageId"`
-			BatchIndex       int    `json:"batchIndex"`
-			BatchCount       int    `json:"batchCount"`
-			DomainProjectID  string `json:"domainProjectId"`
-			ChapterID        string `json:"chapterId"`
-			Operation        string `json:"operation"`
-			ShotID           string `json:"shotId"`
-			WorkflowStepID   string `json:"workflowStepId"`
-			ArtifactType     string `json:"artifactType"`
+			AssetID           string `json:"assetId"`
+			CharacterAssetID  string `json:"characterAssetId"`
+			Source            string `json:"source"`
+			NodeID            string `json:"nodeId"`
+			ConversationID    string `json:"conversationId"`
+			MessageID         string `json:"messageId"`
+			BatchIndex        int    `json:"batchIndex"`
+			BatchCount        int    `json:"batchCount"`
+			StoryboardBatchID string `json:"storyboardBatchId"`
+			DomainProjectID   string `json:"domainProjectId"`
+			ChapterID         string `json:"chapterId"`
+			Operation         string `json:"operation"`
+			ShotID            string `json:"shotId"`
+			WorkflowStepID    string `json:"workflowStepId"`
+			ArtifactType      string `json:"artifactType"`
 		} `json:"metadata"`
 	}
 	if json.Unmarshal([]byte(raw), &input) != nil {
@@ -202,6 +204,11 @@ func taskClientContext(raw string) *TaskClientContext {
 	context.DomainProjectID = metadata.DomainProjectID
 	context.ChapterID = metadata.ChapterID
 	context.ChapterOperation = chapterOperation
+	if chapterOperation == "storyboard" {
+		context.StoryboardBatchID = metadata.StoryboardBatchID
+		context.BatchIndex = metadata.BatchIndex
+		context.BatchCount = metadata.BatchCount
+	}
 	return context
 }
 

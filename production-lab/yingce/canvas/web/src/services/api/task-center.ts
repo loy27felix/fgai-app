@@ -69,6 +69,7 @@ export type GenerationTask = {
         nodeId?: string;
         batchIndex?: number;
         batchCount?: number;
+        storyboardBatchId?: string;
         domainProjectId?: string;
         chapterId?: string;
 		chapterOperation?: "characters" | "storyboard";

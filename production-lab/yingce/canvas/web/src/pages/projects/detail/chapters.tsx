@@ -80,7 +80,8 @@ import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
-import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
+import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterStoryboardFromGenerationTasks, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
+import { completeStoryboardBatch } from "@/lib/chapter-storyboard-batches";
 import { ChapterBatchModal } from "./chapter-batch-modal";
 
 const CHAPTER_ROW_HEIGHT = 62;
@@ -144,7 +145,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const selectedUnitSummary = detail.units.find((unit) => unit.id === selectedId) || orderedUnits[0];
     const chapterTasksQuery = useQuery({
         queryKey: ["project-chapter-generation-tasks", detail.project.id],
-        queryFn: () => listGenerationTasks(100, { projectId: detail.project.id }),
+        queryFn: () => listGenerationTasks(1000, { projectId: detail.project.id }),
         refetchInterval: (query) => query.state.data?.some((task) => {
             const identity = chapterTaskIdentity(task);
             return Boolean(identity && (task.status === "queued" || task.status === "running"));
@@ -168,13 +169,13 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     }, [chapterTasksQuery.data]);
     const serverCompletedOperations = useMemo(() => {
         const latest = new Map<string, GenerationTask>();
-        for (const task of chapterTasksQuery.data || []) {
+        for (const task of [...(chapterTasksQuery.data || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
             const identity = chapterTaskIdentity(task);
             if (!identity) continue;
             const key = chapterOperationKey(identity.chapterId, identity.kind);
             if (!latest.has(key)) latest.set(key, task);
         }
-        return new Set([...latest].filter(([, task]) => task.status === "succeeded").map(([key]) => key));
+        return new Set([...latest].filter(([, task]) => task.status === "succeeded" && completeStoryboardBatch(task, chapterTasksQuery.data || [])).map(([key]) => key));
     }, [chapterTasksQuery.data]);
     const runningOperationCount = new Set([...Object.keys(chapterOperations), ...serverChapterOperations.keys()]).size;
     const characterOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "characters")) : undefined;
@@ -364,7 +365,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             [key]: {
                 startedAt: Number.isFinite(taskStartedAt) ? taskStartedAt : current[key]?.startedAt || Date.now(),
                 taskId: task.id,
-                stage: task.stage,
+                stage: chapterOperationFromTask(task).stage,
             },
         }));
     };
@@ -446,7 +447,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!planningVideoModel || !planningSeconds) return message.warning("请选择支持至少 13 秒片段的目标视频模型");
         setStoryboardOpen(false);
         beginChapterOperation(unit.id, "storyboard");
-        message.info("分镜生成任务已开始，可继续编辑或切换章节");
+        message.info("分镜将按正文分批生成，全部完成后统一导入，可继续编辑或切换章节");
         try {
             const expectedShotIds = (await getProjectUnitWorkspace(detail.project.id, unit.id)).shots.map(shot => shot.id);
             const result = await generateChapterStoryboard({
@@ -499,7 +500,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
 
     useEffect(() => {
         const latestByOperation = new Map<string, { task: GenerationTask; chapterId: string; kind: ChapterOperationKind }>();
-        for (const task of chapterTasksQuery.data || []) {
+        for (const task of [...(chapterTasksQuery.data || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
             const identity = chapterTaskIdentity(task);
             if (!identity) continue;
             const key = chapterOperationKey(identity.chapterId, identity.kind);
@@ -507,6 +508,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         }
         for (const { task, chapterId: taskChapterId, kind } of latestByOperation.values()) {
             if (task.status !== "succeeded" || locallyOwnedTaskIdsRef.current.has(task.id) || recoveredTaskIdsRef.current.has(task.id) || recoveringTaskIdsRef.current.has(task.id)) continue;
+            const batchTasks = kind === "storyboard" ? completeStoryboardBatch(task, chapterTasksQuery.data || []) : [task];
+            if (!batchTasks) continue;
             if (chapterTaskResultAlreadyApplied(task, taskChapterId, kind, detail)) {
                 recoveredTaskIdsRef.current.add(task.id);
                 markChapterOperationCompleted(taskChapterId, kind);
@@ -529,7 +532,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         recoveredTaskIdsRef.current.add(task.id);
                         return;
                     }
-                    const result = chapterStoryboardFromGenerationTask(completedTask);
+                    const result = chapterStoryboardFromGenerationTasks(await Promise.all(batchTasks.map(item => item.id === completedTask.id ? completedTask : queryGenerationTask(item.id))));
                     await storeGeneratedStoryboard(taskChapterId, result.rows, result.productionPlan, []);
                     message.success("已恢复刷新前完成的章节分镜");
                 }
@@ -739,7 +742,9 @@ function chapterOperationKey(unitId: string, kind: ChapterOperationKind) {
 
 function chapterOperationFromTask(task: GenerationTask): ChapterOperation {
     const startedAt = Date.parse(task.startedAt || task.createdAt);
-    return { startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(), taskId: task.id, stage: task.stage };
+    const batch = task.clientContext;
+    const stage = batch?.storyboardBatchId ? `第 ${batch.batchIndex}/${batch.batchCount} 批 · ${task.stage || "等待生成"}` : task.stage;
+    return { startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(), taskId: task.id, stage };
 }
 
 function chapterTaskResultAlreadyApplied(task: GenerationTask, chapterId: string, kind: ChapterOperationKind, detail: Pick<ProjectDetail, "assetCandidates" | "shots">) {

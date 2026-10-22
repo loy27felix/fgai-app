@@ -12,6 +12,7 @@ import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-stor
 import { modelOptionName } from "@/stores/use-config-store";
 import { dramaStoryboardContract, normalizeDirectorVideoPrompt, parseDramaProductionPlan, validateDramaStoryboard, type DramaProductionPlan } from "@/lib/short-drama-production";
 import { shortDramaAssetSkillContext, shortDramaSkillContext, shortDramaSkillProvenance, SHORT_DRAMA_BUILTIN_SKILLS } from "@/lib/prompts/short-drama-skill-context";
+import { completeStoryboardBatch, splitStoryboardSource, storyboardBatchInfo } from "@/lib/chapter-storyboard-batches";
 
 import type { ChapterStoryboardAsset, ChapterStoryboardCharacter } from "./chapter-storyboard-production";
 
@@ -56,6 +57,21 @@ export function chapterAssetsFromGenerationTask(task: GenerationTask) {
 }
 
 export function chapterStoryboardFromGenerationTask(task: GenerationTask) {
+    if ((storyboardBatchInfo(task)?.count || 0) > 1) throw new Error("这只是章节的一批分镜，请等待所有批次完成后统一导入");
+    return parseChapterStoryboardPart(task);
+}
+
+export function chapterStoryboardFromGenerationTasks(tasks: GenerationTask[]) {
+    if (!tasks.length) throw new Error("没有完整的章节分镜批次");
+    const ordered = completeStoryboardBatch(tasks[0], tasks);
+    if (!ordered || ordered.length !== tasks.length) throw new Error("章节分镜批次尚未全部成功，原分镜未覆盖");
+    const results = ordered.map(parseChapterStoryboardPart);
+    const plan = JSON.stringify(results[0].productionPlan);
+    if (results.some(result => JSON.stringify(result.productionPlan) !== plan)) throw new Error("分镜批次制作设置不一致，原分镜未覆盖");
+    return { ...results[0], rows: results.flatMap(result => result.rows).map((row, index) => ({ ...row, shotNumber: index + 1 })) };
+}
+
+function parseChapterStoryboardPart(task: GenerationTask) {
     const result = storyboardRowsFromTask(task);
     const metadata = generationTaskMetadata(task.inputJson);
     const plan = parseDramaProductionPlan(metadata.dramaProductionPlan);
@@ -112,6 +128,8 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
 }
 
 async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGenerationInput, options?: ChapterTaskOptions) {
+    const parts = splitStoryboardSource(input.sourceText);
+    if (!parts.length) throw new Error("当前章节没有可用于分镜的正文");
     const model = input.config.model;
     const config = input.config;
     const skillExecution = await skillRuntime.prepare({
@@ -121,7 +139,14 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
         selectedSkillIds: input.selectedSkillIds,
     });
     // 技能上下文只描述工作流，不会约束输出结构；必须显式带上输出契约，否则模型返回 Markdown 表格。
-    const prompt = chapterStoryboardPrompt(input, skillExecution.prompt);
+    const batchId = crypto.randomUUID();
+    const tasks: GenerationTask[] = [];
+    for (const [index, part] of parts.entries()) {
+    const prompt = chapterStoryboardPrompt(input, [skillExecution.prompt,
+        `【本批唯一制作范围 ${index + 1}/${parts.length}】全章仅作因果、身份和衔接参考。本次只为下方正文生成分镜，前后批正文不得重复演出；不是每批从故事开头重新生成。每批仍须保留全部导演区块、完整台词及动作／摄影／背景时间轴，不压缩提示词细节。`,
+        JSON.stringify({ chapterId: input.chapterId, sourceStart: part.start, sourceEnd: part.end, assignedSource: part.text }),
+        "本批结束在指定正文的真实落点，不添加本章结局、不新增对白；连续性记录为下一批保留人物站位、道具、光声和未完成动作。只输出本批 rows，不在返回中复制整章正文或其他批次。",
+    ].join("\n\n"));
     const task = await createGenerationTask({
         projectId: input.projectId,
         type: "canvas_text",
@@ -140,10 +165,14 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
             shotCount: 0,
             config: backendProviderConfig(config, "text"),
             metadata: {
+                ...skillExecution.metadata,
                 domainProjectId: input.projectId,
                 chapterId: input.chapterId,
                 source: "short-drama-chapter-storyboard",
-                ...skillExecution.metadata,
+                storyboardBatchId: batchId,
+                batchIndex: index + 1,
+                batchCount: parts.length,
+                storyboardSourceRange: { start: part.start, end: part.end },
                 dramaProductionPlan: input.productionPlan,
                 dramaAssetIds: input.assets.map((asset) => asset.id),
                 actionDirection: input.actionDirection?.trim() || undefined,
@@ -152,8 +181,20 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
         },
     });
     options?.onTaskUpdate?.(task);
-    const completed = await waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, timeoutMs: 35 * 60 * 1000, onTaskUpdate: options?.onTaskUpdate });
-    return { ...chapterStoryboardFromGenerationTask(completed), skillCount: skillExecution.selectedSkills.length + SHORT_DRAMA_BUILTIN_SKILLS.length + (input.actionDirection?.trim() ? 1 : 0) };
+    tasks.push(task);
+    }
+    // Waiting starts only after submission. Recovery requires every index, even
+    // if a refresh interrupts submission; each task retains native billing.
+    const outcomes = await Promise.allSettled(tasks.map(task => waitForGenerationTask(task.id, { initialTask: task, useTextEvents: true, timeoutMs: 35 * 60 * 1000, onTaskUpdate: options?.onTaskUpdate })));
+    const failed = outcomes.find(outcome => outcome.status === "rejected");
+    if (failed?.status === "rejected") {
+        // A batch can already contain billed successful siblings. Never let the
+        // personal-model fallback silently resubmit the entire batch.
+        if (tasks.length > 1) throw new Error(`分镜有批次未完成，已完成任务保留，原分镜未覆盖：${failed.reason instanceof Error ? failed.reason.message : "生成失败"}`);
+        throw failed.reason;
+    }
+    const completed = outcomes.flatMap(outcome => outcome.status === "fulfilled" ? [outcome.value] : []);
+    return { ...chapterStoryboardFromGenerationTasks(completed), skillCount: skillExecution.selectedSkills.length + SHORT_DRAMA_BUILTIN_SKILLS.length + (input.actionDirection?.trim() ? 1 : 0) };
 }
 
 export function chapterStoryboardPrompt(input: Pick<ChapterStoryboardGenerationInput, "projectName" | "projectStyle" | "characters" | "assets" | "productionPlan" | "actionDirection">, chapterPrompt: string) {
