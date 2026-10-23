@@ -50,7 +50,15 @@ export function dramaDialoguePreserved(dialogue: string, prompt: string): boolea
     const body = dialogueHeader ? sound.slice(dialogueHeader.index! + dialogueHeader[0].length) : sound;
     // Voice profiles often repeat character names. They cannot satisfy a missing
     // line in the performance schedule, even if the quoted words appear there.
+    let inVoiceProfile = false;
     const actual = grouped(body.split(/\r?\n/).flatMap(line => {
+        if (/^\s*(?:基础)?声线(?:设定|说明|特征)?\s*[：:]\s*$/.test(line)) {
+            inVoiceProfile = true;
+            return [];
+        }
+        const header = line.match(/^\s*对白(?:[（(][^）)\n]*[）)])?\s*[：:]\s*/);
+        if (header) { inVoiceProfile = false; line = line.slice(header[0].length); }
+        if (inVoiceProfile) return [];
         if (soundDirection(line)) return [];
         const raw = speech(line);
         // Preserve parentheses that belong to the actual script. Only remove a

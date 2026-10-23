@@ -643,7 +643,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                         ) : <div />}
                                     </div>
                                     {generationCapability === "video" && excludedReferenceNames.length > 0 ? <p className="mb-3 text-xs text-foreground/60">本次按正文的出场限制，不发送这些角色参考：{excludedReferenceNames.join("、")}。项目资产仍保留；可在完整 Prompt 中核对实际参考。</p> : null}
-                                    {generationCapability === "video" && shotAssetReferenceContext.referenceAudios.length > 0 ? <div className="mb-3 text-xs"><Checkbox checked={useVoiceSamples} onChange={event => setUseVoiceSamples(event.target.checked)}>使用已绑定角色的声音样本（仅参考音色）</Checkbox><p className="mt-1 text-foreground/60">默认只使用文字声线设定。旧视频截取的样本含有原台词、环境声，视频模型可能照读；开启前请核对样本。</p></div> : null}
+                                    {generationCapability === "video" && shotAssetReferenceContext.referenceAudios.length > 0 ? <div className="mb-3 text-xs"><Checkbox checked={useVoiceSamples} onChange={event => setUseVoiceSamples(event.target.checked)}>使用已绑定角色的声音样本（仅参考音色）</Checkbox><p className="mt-1 text-foreground/60">{useVoiceSamples ? `本次使用 ${generationReferenceAudios.length} 个声音样本，仅参考音色，只演本镜头台词。请核对样本。` : "注意：本次不发送已绑定声音样本，仅按文字声线生成；生成声音可能与所绑定样本不同。勾选上方选项后才会发送样音。"}</p></div> : null}
                                     {generationCapability === "image" && imageProfile ? <ImageSizePicker profile={imageProfile} size={aspectRatio} quality={imageQuality} onChange={(size, quality) => { setAspectRatio(size); if (quality) setImageQuality(quality); }} /> : null}
                                 </div>
                                 <div className="workflow-settings-section">

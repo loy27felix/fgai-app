@@ -19,6 +19,14 @@ describe("分镜对白校验区分台词与声音说明", () => {
         expect(dramaDialoguePreserved("林默：先走。\n小雨：我等你。", prompt("林默（青年男声，压低音量）3—5秒：先走。\n小雨（低声）6—8秒：我等你。"))).toBe(true);
     });
 
+    test("独立声线标题下的角色画像不算演出台词，明确对白标题可恢复演出清单", () => {
+        const dialogue = "BOSS：Keep going.\nEVAN：I will.";
+        const profiles = "声线：\nBOSS：成年男声，低沉。\nEVAN：青年男声，克制。";
+        expect(dramaDialoguePreserved(dialogue, prompt(`${dialogue}\n${profiles}`))).toBe(true);
+        expect(dramaDialoguePreserved(dialogue, prompt(`${profiles}\n对白：\n${dialogue}`))).toBe(true);
+        expect(dramaDialoguePreserved(dialogue, prompt("声线：\nBOSS：Keep going.\nEVAN：I will."))).toBe(false);
+    });
+
     test("仍拒绝漏词、改词、增词、换人、倒序、重复和没有明确绑定的译名", () => {
         const dialogue = "LIN：Go first.\nYU：I'll wait.";
         for (const body of ["LIN：Go first.", "LIN：Go now.\nYU：I'll wait.", "LIN：Go first. Hurry!\nYU：I'll wait.", "BOSS：Go first.\nYU：I'll wait.", "YU：I'll wait.\nLIN：Go first.", "LIN：Go first.\nLIN：Go first.\nYU：I'll wait.", "林默：Go first.\nYU：I'll wait."]) {

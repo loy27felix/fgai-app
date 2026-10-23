@@ -1,5 +1,36 @@
 import { ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, type ShotAssetReferenceContext } from "./workflow-shot-references";
 
+function explicitGender(value = "") {
+    const male = /男性|男声|\bmale\b/i.test(value), female = /女性|女声|\bfemale\b/i.test(value);
+    return male === female ? undefined : male ? "男性" : "女性";
+}
+
+function assertCharacterConsistency(prompt: string, context: ShotAssetReferenceContext) {
+    const binding = prompt.split("【参考图绑定】")[1]?.split(/【[^】]+】/)[0] || "";
+    const sound = prompt.split("【声音设计】")[1]?.split(/【[^】]+】/)[0] || "";
+    const voiceLines: string[] = [];
+    let inVoiceProfile = false;
+    for (const line of sound.split(/\r?\n/)) {
+        if (/^\s*对白/.test(line)) inVoiceProfile = false;
+        if (/^\s*(?:基础)?声线/.test(line) || /声线[：:]/.test(line)) inVoiceProfile = true;
+        if (inVoiceProfile) voiceLines.push(line.replace(/^\s*(?:基础)?声线(?:设定)?[：:]\s*/, ""));
+    }
+    for (const reference of context.assetReferences.filter(item => item.category === "character")) {
+        const aliases = [reference.title, ...(reference.aliases || [])].filter(Boolean).map(name => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+        const cue = new RegExp(`^(?:人物[A-ZＡ-Ｚ][：:]\\s*)?(?:${aliases})(?:声线)?(?:[（(][^）)]*[）)])?\\s*[：:。—-]+\\s*([^\\n；;]*)`, "i");
+        const expectedIdentity = explicitGender(reference.identityDescription);
+        const expectedVoice = explicitGender(reference.voiceDescription);
+        const profiles = voiceLines.join("\n");
+        for (const [text, expected, kind] of [[binding, expectedIdentity, "人物设定"], [profiles, expectedVoice, "声线"]] as const) {
+            if (!expected) continue;
+            for (const line of text.split(/[\r\n；;]/)) {
+                const declared = explicitGender(line.trim().match(cue)?.[1]);
+                if (declared && declared !== expected) throw new Error(`${reference.title} 的${kind}冲突：已绑定设定为${expected}，视频提示词却写成${declared}。请先修改提示词或角色设定，尚未提交生成。`);
+            }
+        }
+    }
+}
+
 /** Only explicit authored restrictions may remove a reference; absence alone is not evidence. */
 export function shotSceneReferenceContext(prompt: string, context: ShotAssetReferenceContext): ShotAssetReferenceContext {
     // These trailing blocks are generated from bindings and cannot prove presence in the story.
@@ -50,6 +81,7 @@ export function shotGenerationReferenceContext(context: ShotAssetReferenceContex
 /** Media models receive the reviewed shot, never the instructions used to write it. */
 export function prepareShotVideoExecution(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string; useVoiceSamples?: boolean } = {}) {
     const references = shotGenerationReferenceContext(shotSceneReferenceContext(prompt, context), options.useVoiceSamples);
+    assertCharacterConsistency(prompt, references);
     const scopedPrompt = ensureShotAssetMentionPrompt(prompt, references.mentionReferences);
     const resolved = resolveShotAssetMentionPrompt(scopedPrompt, references, { dialogue: options.dialogue });
     const boundary = [

@@ -62,6 +62,7 @@ const pickerCategoryLabels = { all: "全部素材", ...categoryLabels };
 const characterFields = [
     ["role", "剧情定位与人物关系"],
     ["aliases", "别名"],
+    ["gender", "已确认性别（未确定可留空）"],
     ["appearance", "稳定外貌"],
     ["physique", "身高、体型与体态"],
     ["clothing", "默认服装造型"],
@@ -71,6 +72,7 @@ const characterFields = [
     ["multiViewPrompt", "三视图补充约束"],
     ["voiceLanguage", "语言与口音"],
     ["voiceAge", "声音年龄感"],
+    ["voiceGender", "已确认声音性别（未确定可留空）"],
     ["voiceTimbre", "音色气质"],
 ] as const;
 
@@ -1287,6 +1289,7 @@ function CharacterEditorModal({ open, editing, form, loading, onClose, onSave }:
                                 <div className="grid gap-x-5 sm:grid-cols-2">
                                     {input("role")}
                                     {input("aliases")}
+                                    {input("gender")}
                                     {textArea("appearance", 4)}
                                     {input("physique")}
                                     {input("clothing")}
@@ -1305,6 +1308,7 @@ function CharacterEditorModal({ open, editing, form, loading, onClose, onSave }:
                                     {textArea("personality", 4)}
                                     {input("voiceLanguage")}
                                     {input("voiceAge")}
+                                    {input("voiceGender")}
                                     {input("voiceTimbre")}
                                 </div>
                             ),

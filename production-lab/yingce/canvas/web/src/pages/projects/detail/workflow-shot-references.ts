@@ -21,6 +21,8 @@ export type ShotPromptAssetReference = {
     imageIndex: number;
     audioIndex?: number;
     voiceDescription?: string;
+    identityDescription?: string;
+    aliases?: string[];
     dialogue?: string;
     visualUsage?: "screen-only";
 };
@@ -90,6 +92,10 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
             imageIndex: index + 1,
             ...(audioIndex ? { audioIndex } : {}),
             ...(asset.character ? { voiceDescription: characterVoiceDescription(asset) } : {}),
+            ...(asset.character ? {
+                identityDescription: [asset.character.definition?.gender, asset.character.definition?.appearance, asset.character.definition?.physique].map(stringValue).filter(Boolean).join("；"),
+                aliases: Array.isArray(asset.character.definition?.aliases) ? asset.character.definition.aliases.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : stringValue(asset.character.definition?.aliases).split(/[、,，;]/).map(name => name.trim()).filter(Boolean),
+            } : {}),
         } satisfies ShotPromptAssetReference;
     });
 
@@ -165,6 +171,7 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
         const media = [`${visualLabel}：图片${reference.imageIndex}`, reference.audioIndex ? `声音参考：音频${reference.audioIndex}` : ""].filter(Boolean).join("；");
         return [
             `- ${reference.title}：${media}`,
+            reference.identityDescription ? `  已确认人物设定：${reference.identityDescription}` : "",
             reference.voiceDescription ? `  声音画像：${reference.voiceDescription}` : "",
             reference.dialogue ? `  镜头台词：${reference.dialogue}` : "",
         ].filter(Boolean);
@@ -244,6 +251,7 @@ function characterVoiceDescription(asset: ProjectAsset) {
     const definition = asset.character?.definition || {};
     const voice = asset.character?.voice;
     return [
+        stringValue(definition.voiceGender) || stringValue(definition.gender),
         stringValue(definition.voiceLanguage) || stringValue(voice?.profile.language),
         stringValue(definition.voiceAge),
         stringValue(definition.voiceTimbre) || stringValue(voice?.profile.timbre),
