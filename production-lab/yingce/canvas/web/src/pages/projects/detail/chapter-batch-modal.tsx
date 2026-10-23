@@ -6,11 +6,11 @@ import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/
 import { createDramaProductionPlan, dramaSegmentDurations } from "@/lib/short-drama-production";
 import { shortDramaMediaDefault } from "@/lib/short-drama-models";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
-import { createProjectAssetCandidates, getProjectUnitWorkspace, listProjectAssetsPage, replaceProjectUnitShots, type ProjectDetail, type ProjectAsset } from "@/services/api/projects";
+import { createProjectAssetCandidates, getProjectUnitWorkspace, replaceProjectUnitShots, type ProjectDetail } from "@/services/api/projects";
 import { getShortDramaGPTStatus, shortDramaDefaultTextModel } from "@/services/short-drama-text";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import type { GenerationTask } from "@/services/api/task-center";
-import { chapterStoryboardAssets, chapterStoryboardCharacters, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
+import { chapterStoryboardAssets, chapterStoryboardCharacters, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
 import { extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 import { runChapterBatch } from "./chapter-batch-runner";
 
@@ -49,14 +49,7 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
         let completed = 0;
         let skipped = 0;
         try {
-            const assets: ProjectAsset[] = [];
-            if (kind === "storyboard") {
-                for (let page = 1; ; page++) {
-                    const result = await listProjectAssetsPage(detail.project.id, { page, pageSize: 100 });
-                    assets.push(...result.assets);
-                    if (assets.length >= result.total || !result.assets.length) break;
-                }
-            }
+            const assets = kind === "storyboard" ? await loadChapterStoryboardAssets(detail.project.id) : [];
             const outcomes = await runChapterBatch(ids, { stopped: () => stop.current || !alive.current, process: async (id, index) => {
                 const workspace = await getProjectUnitWorkspace(detail.project.id, id);
                 if (stop.current || !alive.current) return "skipped";

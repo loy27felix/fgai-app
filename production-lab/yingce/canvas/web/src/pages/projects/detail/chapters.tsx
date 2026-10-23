@@ -73,13 +73,14 @@ import {
     reorderProjectUnits,
     updateProjectUnit,
     type ProjectDetail,
+    type ProjectAsset,
     type ProjectUnit,
 } from "@/services/api/projects";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
-import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
+import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterStoryboardFromGenerationTasks, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 import { completeStoryboardBatch } from "@/lib/chapter-storyboard-batches";
 import { ChapterBatchModal } from "./chapter-batch-modal";
@@ -395,8 +396,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         refreshProject();
         return created.candidates.length;
     };
-    const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"], productionPlan?: DramaProductionPlan, expectedShotIds?: string[]) => {
-        const shots = storyboardRowsToProjectShots(rows, detail, productionPlan);
+    const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"], productionPlan?: DramaProductionPlan, expectedShotIds?: string[], assetSnapshot?: ProjectAsset[]) => {
+        const assets = assetSnapshot || await loadChapterStoryboardAssets(detail.project.id);
+        const shots = storyboardRowsToProjectShots(rows, { ...detail, assets }, productionPlan);
         await replaceProjectUnitShots(detail.project.id, unitId, shots, expectedShotIds || detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
         await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
@@ -449,7 +451,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         beginChapterOperation(unit.id, "storyboard");
         message.info("分镜将按正文分批生成，全部完成后统一导入，可继续编辑或切换章节");
         try {
-            const expectedShotIds = (await getProjectUnitWorkspace(detail.project.id, unit.id)).shots.map(shot => shot.id);
+            const [workspace, assets] = await Promise.all([getProjectUnitWorkspace(detail.project.id, unit.id), loadChapterStoryboardAssets(detail.project.id)]);
+            const expectedShotIds = workspace.shots.map(shot => shot.id);
+            const snapshot = { ...detail, ...workspace, assets };
             const result = await generateChapterStoryboard({
                 projectId: detail.project.id,
                 projectName: detail.project.name,
@@ -462,15 +466,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                     prompt: projectStyle.prompt,
                     profileJson: detail.project.styleProfileJson,
                 },
-                characters: chapterStoryboardCharacters(detail, unit.id),
-                assets: chapterStoryboardAssets(detail),
+                characters: chapterStoryboardCharacters(snapshot, unit.id),
+                assets: chapterStoryboardAssets(snapshot),
                 config,
                 skills: availableSkills,
                 selectedSkillIds,
                 productionPlan: createDramaProductionPlan(effectiveConfig, planningVideoModel, planningSeconds, segmentStrategy),
                 actionDirection: includeAction ? actionDirection.trim() : undefined,
             }, { onTaskUpdate: (task) => updateChapterOperation(unit.id, "storyboard", task), onFallback: text => message.warning(text) });
-            const shotCount = await storeGeneratedStoryboard(unit.id, result.rows, result.productionPlan, expectedShotIds);
+            const shotCount = await storeGeneratedStoryboard(unit.id, result.rows, result.productionPlan, expectedShotIds, assets);
             message.success(`已生成 ${shotCount} 个视频片段，并应用 ${result.skillCount} 个技能`);
             navigate(`/projects/${detail.project.id}/workflow/${unit.id}/storyboard`);
         } catch (error) {

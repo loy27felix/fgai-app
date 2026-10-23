@@ -1,6 +1,6 @@
 import type { StoryboardRow } from "@/types/canvas";
 import { formatShotOrdinal } from "@/lib/shot-label";
-import type { ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
+import { listProjectAssetsPage, type ProjectAsset, type ProjectDetail, type ShotRevisionInput } from "@/services/api/projects";
 import { ensureShotAssetMentionPrompt, inferShotVisualAssets } from "./workflow-shot-references";
 import type { DramaProductionPlan } from "@/lib/short-drama-production";
 
@@ -38,6 +38,17 @@ export type ChapterStoryboardReplaceImpact = {
     candidateCount: number;
 };
 
+export async function loadChapterStoryboardAssets(projectId: string): Promise<ProjectAsset[]> {
+    const assets = new Map<string, ProjectAsset>();
+    for (let page = 1; ; page++) {
+        const result = await listProjectAssetsPage(projectId, { page, pageSize: 100 });
+        const previous = assets.size;
+        for (const asset of result.assets) assets.set(asset.id, asset);
+        if (!result.hasMore && assets.size >= result.total) return [...assets.values()];
+        if (!result.hasMore || assets.size === previous) throw new Error("项目资产清单读取不完整，尚未提交生成，请重试");
+    }
+}
+
 export function chapterStoryboardCharacters(detail: ProjectDetail, unitId?: string): ChapterStoryboardCharacter[] {
     const confirmed = detail.assets.flatMap((asset): ChapterStoryboardCharacter[] => {
         const card = asset.character;
@@ -72,7 +83,11 @@ export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboar
             prompt: assetPrompt(asset.previewText, asset.character?.definition, asset.title),
             ...(type === "character" ? { characterAssetId: asset.id, characterVersionId } : {}),
         }];
-    }).slice(0, 60);
+    }).sort((a, b) => storyboardAssetPriority(a) - storyboardAssetPriority(b)).slice(0, 60);
+}
+
+function storyboardAssetPriority(asset: ChapterStoryboardAsset) {
+    return asset.type === "character" ? 0 : asset.category === "environment" || asset.category === "prop" ? 1 : 2;
 }
 
 export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: ProjectDetail, productionPlan?: DramaProductionPlan): ProjectShotReplacementInput[] {
@@ -113,6 +128,7 @@ export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: Pro
                 actionBeats: [
                     ...(row.timeBeats.trim() ? [{ description: row.timeBeats.trim() }] : []),
                     ...(productionPlan ? [{ type: "drama_video_segment", productionPlan }] : []),
+                    ...(row.styleReferenceIds?.length ? [{ type: "project_style_references", assetIds: row.styleReferenceIds }] : []),
                 ],
             },
         };

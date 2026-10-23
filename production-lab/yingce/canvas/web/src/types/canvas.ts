@@ -131,6 +131,8 @@ export type StoryboardRow = {
     continuityOut: string;
     negativePrompt: string;
     assetBindings: StoryboardAssetBinding[];
+    /** Verified project-style references, separate from project asset relations. */
+    styleReferenceIds?: string[];
     /** 原视频拆解时的时间范围，用于自动抽取关键帧。 */
     sourceStartMs?: number;
     sourceEndMs?: number;
