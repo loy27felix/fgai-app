@@ -9,9 +9,19 @@ function speech(line: string, removeDirections = false): Speech | undefined {
         .replace(/^[（(]?约?\s*\d+(?:\.\d+)?\s*[—–\-~～至]\s*\d+(?:\.\d+)?\s*秒[）)]?\s*[，,｜|]?\s*/, "");
     const match = cue.match(/^([^：:\n]{1,60})[：:]\s*(.+)$/);
     if (!match) return undefined;
-    const speaker = match[1].replace(/[（(][^）)]*[）)]/g, "").replace(/[\s*]/g, "").toLowerCase();
+    const speaker = match[1].replace(/[（(][^）)]*[）)]/g, "")
+        .replace(/\s*约?\d+(?:\.\d+)?\s*[—–\-~～至]\s*\d+(?:\.\d+)?\s*秒\s*$/, "")
+        .replace(/[\s*]/g, "").toLowerCase();
     const text = removeDirections ? match[2].replace(/(?:[（(][^）)\n]*[）)]\s*)+$/u, "") : match[2];
     return speaker && comparable(text) ? { speaker, text: comparable(text) } : undefined;
+}
+
+function soundDirection(line: string): boolean {
+    const label = line.trim().replace(/^(?:[-*]\s+)?(?:\*\*)?/, "").split(/[：:]/, 1)[0].replace(/[\s*]/g, "");
+    // These labels describe a voice, not a performance. Do not stop scanning:
+    // completed model responses also place profiles before or between speeches.
+    if (/^(?:基础)?声线(?:设定|说明|特征)?/.test(label) || /声线$/.test(label)) return true;
+    return /(?:呼救声|呼喊声)$/.test(label) && /(?:无词|没有额外台词|不新增(?:具体)?台词)/.test(line);
 }
 
 function grouped(lines: Speech[]): Speech[] {
@@ -40,8 +50,8 @@ export function dramaDialoguePreserved(dialogue: string, prompt: string): boolea
     const body = dialogueHeader ? sound.slice(dialogueHeader.index! + dialogueHeader[0].length) : sound;
     // Voice profiles often repeat character names. They cannot satisfy a missing
     // line in the performance schedule, even if the quoted words appear there.
-    const cues = body.split(/\r?\n[ \t]*声线[^\n]*/)[0];
-    const actual = grouped(cues.split(/\r?\n/).flatMap(line => {
+    const actual = grouped(body.split(/\r?\n/).flatMap(line => {
+        if (soundDirection(line)) return [];
         const raw = speech(line);
         // Preserve parentheses that belong to the actual script. Only remove a
         // trailing performance note when the unmodified cue is not in the script.

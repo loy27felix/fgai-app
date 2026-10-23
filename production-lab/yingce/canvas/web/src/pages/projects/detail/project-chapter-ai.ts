@@ -65,7 +65,13 @@ export function chapterStoryboardFromGenerationTasks(tasks: GenerationTask[]) {
     if (!tasks.length) throw new Error("没有完整的章节分镜批次");
     const ordered = completeStoryboardBatch(tasks[0], tasks);
     if (!ordered || ordered.length !== tasks.length) throw new Error("章节分镜批次尚未全部成功，原分镜未覆盖");
-    const results = ordered.map(parseChapterStoryboardPart);
+    const results = ordered.map((task, index) => {
+        try { return parseChapterStoryboardPart(task); }
+        catch (error) {
+            if (ordered.length === 1 || !(error instanceof Error)) throw error;
+            throw new Error(`第 ${index + 1}/${ordered.length} 批：${error.message}`);
+        }
+    });
     const plan = JSON.stringify(results[0].productionPlan);
     if (results.some(result => JSON.stringify(result.productionPlan) !== plan)) throw new Error("分镜批次制作设置不一致，原分镜未覆盖");
     return { ...results[0], rows: results.flatMap(result => result.rows).map((row, index) => ({ ...row, shotNumber: index + 1 })) };
