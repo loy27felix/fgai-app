@@ -490,6 +490,9 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 				if err := applyCloudAgentResolvedMediaDefaults(&req, prepared, preparedTask); err != nil {
 					return s.cloudAgentMediaError(run, state, "admission", false, false, err)
 				}
+				if err := validateCloudAgentMediaBudget(prepared.Args, state); err != nil {
+					return s.cloudAgentMediaError(run, state, "admission", false, false, err)
+				}
 				mediaRequest, plan = req, prepared
 			}
 			modelName, err = s.cloudAgentMediaModelName(plan.Args)
@@ -552,6 +555,9 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 					return err
 				}
 			}
+			// 走到这里说明模型已在回应上一条恢复提示词；新卡片要清掉它，批准后才会写入本次调用的结果，
+			// 否则同一轮第二次及以后的审批都会把上一次的结果再发给模型。
+			state.PiResumePrompt = ""
 			current.Status = "waiting_approval"
 			state.event(run.ID, "approval_requested", map[string]any{"approvalId": state.Approval.ID, "toolName": call.Function.Name, "modelName": modelName, "arguments": json.RawMessage(call.Function.Arguments), "preview": preview, "prepared": preparedMedia.publicView(), "text": preview.Description})
 			return cloudAgentSave(current, state)
@@ -562,6 +568,7 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 			return s.repo.MutateCloudAgent(run.UserID, run.ID, run.Revision, func(current *model.CloudAgentExecution, _ *repository.Repository) error {
 				approvalID := fmt.Sprintf("%s-%d-%d", run.ID, state.Step, state.CallIndex)
 				state.Approval = &cloudAgentApproval{ID: approvalID, Call: call, CallHash: cloudAgentApprovalCallHash(call), Preview: preview}
+				state.PiResumePrompt = ""
 				current.Status = "waiting_approval"
 				state.event(run.ID, "approval_requested", map[string]any{"approvalId": approvalID, "toolName": call.Function.Name, "arguments": json.RawMessage(call.Function.Arguments), "preview": preview, "text": preview.Description})
 				return cloudAgentSave(current, state)

@@ -1151,7 +1151,7 @@
   },
   {
     "function": {
-      "description": "将图片按用户指定对象拆分为独立透明图层。参数与 generate_media 的图片生成参数一致，但 mode 固定为 image；所有权限模式都会先创建草稿并进入界面独立审批，用户批准后才提交生成任务。 复制 model_list.selection 到顶层。媒体生成必填 logicalModelId 或 channelId+channelModelKey，二者互斥。未使用字段省略或传空字符串，禁止 null/空白；混用或缺项拒绝，不回退默认或随机模型。",
+      "description": "将图片按用户指定对象拆分为独立透明图层。参数与 generate_media 的图片生成参数一致，但 mode 固定为 image；所有权限模式都会先创建草稿并进入界面独立审批，用户批准后才提交生成任务。 模型：logicalModelId 或 channelId+channelModelKey，互斥且完整，不传 null/空白。generate_media 可继承草稿或本轮同条件唯一候选，多候选不代选。",
       "name": "image_layer_split",
       "parameters": {
         "additionalProperties": false,
@@ -1924,7 +1924,7 @@
   },
   {
     "function": {
-      "description": "创作媒体：给出提示词和真实参考，执行器创建草稿、连线、解析默认并报价审批，批准后提交。无需先建节点。规格默认继承；用户要求改变时用 configurationChange，勿为构图或风格擅改规格。已有任务/成品不可覆盖。sourceNodeId=文本，referenceNodeIds=媒体；角色卡同时取设定和三视图，仅取设定用 sourceNodeId，勿重复。临时参考只用工具ID。提交前按回执有界纠正；已提交失败不得自动重提或换模型。 复制 model_list.selection 到顶层。媒体生成必填 logicalModelId 或 channelId+channelModelKey，二者互斥。未使用字段省略或传空字符串，禁止 null/空白；混用或缺项拒绝，不回退默认或随机模型。",
+      "description": "创作媒体：给出提示词和真实参考，执行器创建草稿、连线、解析默认并报价审批，批准后提交。无需先建节点。规格默认继承；用户要求改变时用 configurationChange，勿为构图或风格擅改规格。已有任务/成品不可覆盖。sourceNodeId=文本，referenceNodeIds=媒体；角色卡同时取设定和三视图，仅取设定用 sourceNodeId，勿重复。临时参考只用工具ID。提交前按回执有界纠正；已提交失败不得自动重提或换模型。 模型：logicalModelId 或 channelId+channelModelKey，互斥且完整，不传 null/空白。generate_media 可继承草稿或本轮同条件唯一候选，多候选不代选。",
       "name": "generate_media",
       "parameters": {
         "additionalProperties": false,
