@@ -117,9 +117,11 @@ export async function replyToMessage(messageId: string, text: string, uuid?: str
 }
 
 export async function addReceivedReaction(messageId: string) {
+  // Feishu emoji identifiers are case-sensitive; the GET acknowledgement is named Get.
+  // 飞书表情标识区分大小写，界面显示 GET 的表情必须使用 Get。
   const response = await client(1800).im.messageReaction.create({
     path: { message_id: messageId },
-    data: { reaction_type: { emoji_type: 'GET' } },
+    data: { reaction_type: { emoji_type: 'Get' } },
   });
   checkResponse(response);
 }

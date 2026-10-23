@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { chatWithTextModel } from '@/lib/ai/text';
+import { chatWithSupportModel } from './model';
 import { scrubSupportValue as scrub } from './redact';
 import { queryLogExplorer, getLogDetail } from '@/lib/observability/log-query';
 import { getSupportHistory, type SupportJob, type DiagnosisResult } from './store';
@@ -30,12 +30,14 @@ function userSuppliedIdentifiers(questions: string) {
   }
   return identifiers;
 }
-async function chatWithTransientRetry(options: Parameters<typeof chatWithTextModel>[0]) {
+async function chatWithTransientRetry(options: Parameters<typeof chatWithSupportModel>[0]) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await chatWithTextModel(options);
+      return await chatWithSupportModel(options);
     } catch (error) {
-      const isTransientProviderError = error instanceof Error && /\bWetoken (502|503|504)\b/.test(error.message);
+      const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : undefined;
+      const isTransientProviderError = [502, 503, 504].includes(status ?? 0)
+        || (error instanceof Error && /\bWetoken (502|503|504)\b/.test(error.message));
       if (!isTransientProviderError || attempt === 2) throw error;
       // Retry brief upstream outages without restarting the whole support job.
       // 上游短暂不可用时只重试当前模型步骤，避免整单立即落入失败兜底。

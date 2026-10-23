@@ -1,0 +1,87 @@
+import OpenAI from 'openai';
+import { chatWithTextModel, type TextChatOptions } from '@/lib/ai/text';
+import type { ChatResult } from '@/lib/deepseek';
+import { wetokenProviderDispatcher } from '@/lib/ai/wetoken-transport';
+import { fullLogPayload, logServerEvent } from '@/lib/observability/server-log';
+import { scrubSupportValue } from './redact';
+
+export async function chatWithSupportModel(options: TextChatOptions): Promise<{ result: ChatResult }> {
+  const protocol = process.env.SUPPORT_BOT_API_PROTOCOL || 'chat_completions';
+  if (protocol === 'chat_completions') return chatWithTextModel(options);
+  if (protocol !== 'responses') throw new Error('机器人 API 协议配置无效');
+  if (!options.apiBaseUrl || !options.apiKey || !options.modelId) throw new Error('机器人 Responses 配置不完整');
+
+  const client = new OpenAI({
+    apiKey: options.apiKey,
+    baseURL: options.apiBaseUrl.replace(/\/$/, ''),
+    maxRetries: 0,
+    timeout: 110_000,
+    fetch: (url, init) => fetch(url, { ...init, dispatcher: wetokenProviderDispatcher } as RequestInit),
+  });
+  const input = options.messages.filter(message => message.role !== 'system');
+  if (options.jsonOutput) {
+    // JSON mode validation checks input messages rather than the separate instructions field.
+    // JSON 模式校验输入消息，不把独立 instructions 字段中的 json 指令计入校验。
+    const finalUserIndex = input.map(message => message.role).lastIndexOf('user');
+    if (finalUserIndex < 0) throw new Error('机器人 JSON 请求缺少用户消息');
+    input[finalUserIndex] = { ...input[finalUserIndex], content: `${input[finalUserIndex].content}\n仅返回一个有效的 json object，不要 Markdown。` };
+  }
+  const body = {
+    model: options.modelId,
+    instructions: options.messages.filter(message => message.role === 'system').map(message => message.content).join('\n'),
+    input,
+    store: false,
+    max_output_tokens: options.maxTokens ?? 1024,
+    ...(options.jsonOutput ? { text: { format: { type: 'json_object' as const } } } : {}),
+  };
+  const fields = {
+    service: 'support-bot', provider: 'openai-compatible', operation: 'responses',
+    taskId: options.taskId, sessionId: options.sessionId, model: options.modelId,
+  };
+  logServerEvent('support_bot_model_request', { ...fields, stage: 'request_sent' });
+  const started = Date.now();
+  try {
+    // Read the completed snapshot through the SDK; compatible gateways may emit extra events.
+    // 通过官方 SDK 读取完成事件的完整响应，兼容网关额外发送的心跳等事件。
+    const stream = await client.responses.create({ ...body, stream: true });
+    let response: OpenAI.Responses.Response | undefined;
+    for await (const event of stream) {
+      if (event.type === 'response.completed') response = event.response;
+      if (event.type === 'response.failed' || event.type === 'response.incomplete' || event.type === 'error') {
+        const reason = event.type === 'response.failed' ? event.response.error?.message : event.type;
+        throw new Error(reason || '机器人模型流返回失败或不完整响应');
+      }
+    }
+    const content = response?.output.flatMap(item => item.type === 'message' ? item.content : [])
+      .filter(item => item.type === 'output_text').map(item => item.text).join('');
+    if (!response || response.status !== 'completed' || !content) throw new Error('机器人模型响应不完整');
+    logServerEvent('support_bot_model_response', {
+      ...fields, stage: 'completed', durationMs: Date.now() - started,
+      providerRequestId: response.id,
+      usage: response.usage ? {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+        total_tokens: response.usage.total_tokens,
+      } : undefined,
+      responseBody: fullLogPayload({ content }),
+    });
+    return {
+      result: {
+        content,
+        providerRequestId: response.id,
+        usage: response.usage ? {
+          prompt_tokens: response.usage.input_tokens,
+          completion_tokens: response.usage.output_tokens,
+          total_tokens: response.usage.total_tokens,
+        } : undefined,
+      },
+    };
+  } catch (error) {
+    logServerEvent('support_bot_model_failed', {
+      ...fields, durationMs: Date.now() - started,
+      httpStatus: error instanceof OpenAI.APIError ? error.status : undefined,
+      reason: error instanceof Error ? scrubSupportValue(error.message.replaceAll(options.apiKey, '[redacted]').slice(0,500)) : 'unknown',
+    }, 'error');
+    throw error;
+  }
+}
