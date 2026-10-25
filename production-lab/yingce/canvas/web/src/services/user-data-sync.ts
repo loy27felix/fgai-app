@@ -44,6 +44,12 @@ let activeRemoteUserId = "";
 type RemoteUserDataPhase = "inactive" | "hydrating" | "ready" | "failed";
 
 let remoteUserDataPhase: RemoteUserDataPhase = "inactive";
+const remoteReadyListeners = new Set<() => void>();
+export function subscribeRemoteUserDataReady(listener: () => void) {
+    remoteReadyListeners.add(listener);
+    return () => { remoteReadyListeners.delete(listener); };
+}
+function notifyRemoteUserDataReady() { for (const listener of remoteReadyListeners) listener(); }
 let syncTimer: number | null = null;
 let syncPromise: Promise<void> | null = null;
 let syncQueued = false;
@@ -236,6 +242,7 @@ export async function initializeRemoteUserDataSession(userId: string) {
         }
         acknowledgedAssets = new Map(useAssetStore.getState().assets.map((asset) => [asset.id, asset]));
         remoteUserDataPhase = "ready";
+        notifyRemoteUserDataReady();
         if (pendingCanvasMutations.size) scheduleRemoteUserDataSync();
     });
 }
@@ -695,6 +702,7 @@ export async function syncRemoteUserData(userId?: string | null) {
             ensureSession();
             acknowledgedAssets = new Map(remoteAssets.map((asset) => [asset.id, asset]));
             remoteUserDataPhase = "ready";
+            notifyRemoteUserDataReady();
             syncRetryAttempt = 0;
             if (pendingCanvasMutations.size || unbasedProjects.size) scheduleRemoteUserDataSync();
         } catch (error) {

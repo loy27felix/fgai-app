@@ -1,7 +1,28 @@
 import type { ProjectAsset } from "@/services/api/projects";
+import { styleReferenceResourceIds, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
+
+export function projectAssetReferencePlan(asset: ProjectAsset, explicit: string[], profile: StyleProfileSnapshot | null, assets: ProjectAsset[]) {
+    const identities = new Map<string, ProjectAsset[]>();
+    for (const character of assets.filter(item => item.category === "character")) {
+        for (const representation of character.character?.representations || []) {
+            identities.set(representation.resourceId, [...(identities.get(representation.resourceId) || []), character]);
+        }
+    }
+    const excluded: Array<{ id: string; name: string }> = [];
+    const styleIds = styleReferenceResourceIds(profile).filter(id => {
+        if (asset.category !== "character" || explicit.includes(id)) return true;
+        const owners = identities.get(id) || [];
+        if (owners.some(owner => owner.id === asset.id)) return true;
+        const other = owners.find(owner => owner.id !== asset.id);
+        if (!other) return true;
+        excluded.push({ id, name: other.title });
+        return false;
+    });
+    return { ids: [...new Set([...explicit, ...styleIds])], styleIds, excluded };
+}
 
 export const ASSET_PROMPT_SKILL = "short-drama-asset-prompts";
-export function projectAssetExecutionPrompt(prompt: string, category: string, style: string) {
+export function projectAssetExecutionPrompt(prompt: string, category: string, style: string, name?: string) {
     const rules = [
         "【本次静态资产执行规则】",
         category === "character"
@@ -14,6 +35,7 @@ export function projectAssetExecutionPrompt(prompt: string, category: string, st
         style.trim() || "项目未设置全局画风：沿用明确的资产媒介；未明确时先在项目设置中确定，勿随机混用真人、二维和三维。",
         "以上当前项目画风统一约束媒介、渲染、色板、材质和影像质感；若资产旧提示词出现冲突的画风或滤镜，以此处为准。具体人物身份和本项场景事实仍按资产设定，不把项目中的某个默认地点、人物或光源复制到所有资产。同一项目不为每项随机更换导演风格、胶片或材质。",
         "画风参考仅约束媒介、色板、光影和材质，不继承其中人物身份、服装、道具和场景；身份/结构参考仅对应本资产。同项目允许不同真实光源和时间，但保持统一调色与材质体系。",
+        ...(category === "character" && name ? [`当前唯一角色：${name}。这是独立角色，不得把项目中其他角色换名后复制为本角色；仅本角色明确选择的身份参考可以约束其长相。`] : []),
         "【静态资产执行规则结束】",
     ].join("\n\n");
     // Replace only this compiler's delimited block; keep the user's asset text and appended edits.
@@ -44,6 +66,7 @@ export function projectAssetGenerationPrompt(asset: ProjectAsset, style: string,
         ].join("\n\n"),
         asset.category,
         style,
+        asset.title,
     );
 }
 

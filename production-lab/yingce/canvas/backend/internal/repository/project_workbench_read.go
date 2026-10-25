@@ -116,7 +116,7 @@ func (r *Repository) ProjectUnitShotArtifacts(projectID string, unitID string) (
 
 func (r *Repository) ProjectUnitShotAssetReferences(projectID string, unitID string) ([]model.ShotAssetReference, error) {
 	var references []model.ShotAssetReference
-	err := r.db.Table("shot_asset_references").Select("shot_asset_references.*").Joins("JOIN shots ON shots.id = shot_asset_references.shot_id").Where("shots.project_id = ? AND shots.unit_id = ?", projectID, unitID).Order("shot_asset_references.created_at asc").Scan(&references).Error
+	err := r.db.Table("shot_asset_references").Select("shot_asset_references.*").Joins("JOIN shots ON shots.id = shot_asset_references.shot_id").Where("shots.project_id = ? AND shots.unit_id = ?", projectID, unitID).Order("shot_asset_references.created_at asc, shot_asset_references.id asc").Scan(&references).Error
 	return references, err
 }
 
@@ -251,7 +251,7 @@ func (r *Repository) ProjectAssetCandidatesPage(projectID string, page int, page
 	return candidates, total, err
 }
 
-func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int, pageSize int, category string, mediaType string, status string, folderID *string, queryText string) ([]model.Asset, int64, error) {
+func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int, pageSize int, category string, mediaType string, status string, folderID *string, queryText string, unitIDs ...string) ([]model.Asset, int64, error) {
 	var assets []model.Asset
 	var total int64
 	query := fgMediaScope(r.db.Table("assets"), "assets", "fg_asset_grants", "asset_id", userID).Joins("JOIN project_asset_links ON project_asset_links.asset_id = assets.id").Where("project_asset_links.project_id = ?", projectID)
@@ -275,13 +275,17 @@ func (r *Repository) ProjectAssetsPage(userID string, projectID string, page int
 	if folderID != nil {
 		query = query.Where("project_asset_links.folder_id = ?", strings.TrimSpace(*folderID))
 	}
+	if len(unitIDs) > 0 && strings.TrimSpace(unitIDs[0]) != "" {
+		sources := r.db.Table("asset_versions av").Select("av.asset_id").Joins("JOIN asset_representations ar ON ar.asset_version_id = av.id").Joins("JOIN production_task_links ptl ON ptl.task_id = ar.task_id").Where("ptl.project_id = ? AND ptl.unit_id = ?", projectID, strings.TrimSpace(unitIDs[0]))
+		query = query.Where("assets.id IN (?)", sources)
+	}
 	if value := strings.TrimSpace(queryText); value != "" {
 		query = query.Where("LOWER(assets.title) LIKE ?", "%"+strings.ToLower(value)+"%")
 	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err = query.Select("assets.*").Order("assets.updated_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&assets).Error
+	err = query.Select("assets.*").Order("assets.updated_at desc, assets.id asc").Offset((page - 1) * pageSize).Limit(pageSize).Scan(&assets).Error
 	return assets, total, err
 }
 

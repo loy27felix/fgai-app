@@ -79,6 +79,9 @@ type cloudAgentState struct {
 
 type CloudAgentRun struct {
 	ID             string              `json:"id"`
+	ConversationID string              `json:"conversationId"`
+	UserPrompt     string              `json:"userPrompt"`
+	IdempotencyKey string              `json:"idempotencyKey"`
 	CanvasID       string              `json:"canvasId"`
 	ParentID       string              `json:"parentId,omitempty"`
 	Status         string              `json:"status"`
@@ -110,6 +113,7 @@ type CloudAgentRun struct {
 type CloudAgentRunViewOptions struct {
 	SinceSeq   int
 	EventLimit int
+	FromStart  bool
 }
 
 func validateCloudAgentRequest(req *CloudAgentRequest) error {
@@ -251,7 +255,7 @@ func agentRunOutput(task *model.Task, state cloudAgentState) *CloudAgentRun {
 	if task.Status == model.TaskStatusSucceeded {
 		status = "completed"
 	}
-	return &CloudAgentRun{ID: task.ID, CanvasID: task.ProjectID, ParentID: state.ParentID, Status: status, PermissionMode: state.Request.PermissionMode, Model: task.Model, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Skills: state.Skills}
+	return &CloudAgentRun{ID: task.ID, UserPrompt: state.Request.Prompt, IdempotencyKey: state.Request.IdempotencyKey, CanvasID: task.ProjectID, ParentID: state.ParentID, Status: status, PermissionMode: state.Request.PermissionMode, Model: task.Model, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Skills: state.Skills}
 }
 
 func (s *Service) cloudAgentTask(userID, id string) (*model.Task, cloudAgentState, error) {

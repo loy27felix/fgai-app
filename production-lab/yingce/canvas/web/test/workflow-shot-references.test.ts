@@ -7,6 +7,18 @@ import { assertVideoCapability } from "@/services/api/video-validation";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
 
 describe("workflow shot asset references", () => {
+    test("polling order changes do not change image indices or reference labels", () => {
+        const source = detail();
+        const before = buildShotAssetReferenceContext(source, "shot-1");
+        source.shotReferences.reverse();
+        const after = buildShotAssetReferenceContext(source, "shot-1");
+        expect(after.referenceImages.map(image => image.id)).toEqual(before.referenceImages.map(image => image.id));
+        expect(after.assetReferences).toEqual(before.assetReferences);
+        source.shotReferences.forEach(reference => { reference.createdAt = "2026-10-25T00:00:00Z"; });
+        const tied = buildShotAssetReferenceContext(source, "shot-1");
+        source.shotReferences.reverse();
+        expect(buildShotAssetReferenceContext(source, "shot-1").referenceImages.map(image => image.id)).toEqual(tied.referenceImages.map(image => image.id));
+    });
     test("removing a bound asset removes its generated mention but keeps authored story text", () => {
         const context = buildShotAssetReferenceContext(detail(), "shot-1");
         const prompt = ensureShotAssetMentionPrompt("主角看向街道。", context.mentionReferences);

@@ -53,6 +53,9 @@ export type ProjectUnit = {
 };
 
 export type ProjectAsset = {
+    sourceUnitId?: string;
+    sourceUnitTitle?: string;
+    sourceShotId?: string;
     id: string;
     title: string;
     mediaType: string;
@@ -368,7 +371,7 @@ export function listProjectCanvases(projectId: string, page = 1, pageSize = 40) 
     return http.get<ProjectCanvasPage>(`/projects/${encodeURIComponent(projectId)}/canvases`, { params: { page, pageSize } });
 }
 
-export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; query?: string } = {}) {
+export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; unitId?: string; query?: string } = {}) {
     return http.get<ProjectAssetPage>(`/projects/${encodeURIComponent(projectId)}/assets`, { params: {
         page: options.page || 1,
         pageSize: options.pageSize || 40,
@@ -376,6 +379,7 @@ export function listProjectAssetsPage(projectId: string, options: { page?: numbe
         mediaType: options.mediaType || undefined,
         status: options.status || undefined,
         folderId: options.folderId,
+        unitId: options.unitId || undefined,
         q: options.query || undefined,
     } }).then((page) => ({ ...page, assets: page.assets.map(normalizeProjectAsset) }));
 }
@@ -603,7 +607,7 @@ export function createUnitWorkflow(projectId: string, unitId: string) {
     return http.post<{ workflow: ProjectWorkflow }>(`/projects/${encodeURIComponent(projectId)}/workflows`, { unitId });
 }
 
-export function saveProjectShot(projectId: string, input: { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; revision?: Partial<ShotRevisionInput> }) {
+export function saveProjectShot(projectId: string, input: { id?: string; duplicateOf?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; revision?: Partial<ShotRevisionInput> }) {
     return http.post<{ shot: ProjectShot }>(`/projects/${encodeURIComponent(projectId)}/shots`, input);
 }
 

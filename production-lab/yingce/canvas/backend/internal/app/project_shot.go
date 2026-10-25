@@ -12,6 +12,7 @@ import (
 )
 
 type CreateProjectShotRequest struct {
+	DuplicateOf string            `json:"duplicateOf"`
 	ID          string            `json:"id"`
 	UnitID      string            `json:"unitId"`
 	Title       string            `json:"title"`
@@ -87,9 +88,26 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 	now := time.Now()
 	shotID := strings.TrimSpace(req.ID)
 	create := shotID == ""
+	duplicateOf := strings.TrimSpace(req.DuplicateOf)
+	if duplicateOf != "" {
+		if !create {
+			return model.Shot{}, BadAuthRequest("副本必须创建为新镜头")
+		}
+		source, err := s.repo.ShotForProject(projectID, duplicateOf)
+		if err != nil {
+			return model.Shot{}, err
+		}
+		if unitID != "" && unitID != source.UnitID {
+			return model.Shot{}, BadAuthRequest("副本必须保留在原章节")
+		}
+		unitID = source.UnitID
+	}
 	status := strings.TrimSpace(req.Status)
 	if create {
 		shotID = newID()
+		if duplicateOf != "" {
+			status = "draft"
+		}
 		if status == "" {
 			status = "draft"
 		}
@@ -116,8 +134,14 @@ func (s *Service) CreateProjectShot(userID string, projectID string, req CreateP
 		return model.Shot{}, err
 	}
 	shot := model.Shot{ID: shotID, ProjectID: projectID, UnitID: unitID, CurrentRevisionID: revision.ID, Title: title, Description: revision.PlotDescription, Position: req.Position, DurationMs: revision.DurationMs, Status: status, CreatedAt: now, UpdatedAt: updatedAt}
-	if err := s.repo.SaveShotWithRevision(&shot, &revision, create); err != nil {
-		return model.Shot{}, err
+	var saveErr error
+	if duplicateOf != "" {
+		saveErr = s.repo.DuplicateShotWithRevision(&shot, &revision, duplicateOf)
+	} else {
+		saveErr = s.repo.SaveShotWithRevision(&shot, &revision, create)
+	}
+	if saveErr != nil {
+		return model.Shot{}, saveErr
 	}
 	return shot, nil
 }

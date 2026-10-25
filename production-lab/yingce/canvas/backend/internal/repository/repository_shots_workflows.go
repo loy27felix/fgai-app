@@ -342,7 +342,7 @@ func (r *Repository) ProjectShotAssetReferences(projectID string) ([]model.ShotA
 	err := r.db.Table("shot_asset_references").Select("shot_asset_references.*").
 		Joins("JOIN shots ON shots.id = shot_asset_references.shot_id").
 		Where("shots.project_id = ?", projectID).
-		Order("shot_asset_references.created_at asc").Scan(&references).Error
+		Order("shot_asset_references.created_at asc, shot_asset_references.id asc").Scan(&references).Error
 	return references, err
 }
 

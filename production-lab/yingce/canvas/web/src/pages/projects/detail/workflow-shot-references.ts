@@ -53,10 +53,14 @@ export function inferShotVisualAssets(assets: ProjectAsset[], text: string, expl
     return [...matched.values()];
 }
 
+export function stableShotReferences(references: ShotAssetReference[]) {
+    return references.slice().sort((a, b) => (Date.parse(a.createdAt) - Date.parse(b.createdAt)) || a.id.localeCompare(b.id));
+}
+
 export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: string): ShotAssetReferenceContext {
     const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
     const seenAssetIds = new Set<string>();
-    const entries = (detail.shotReferences || []).flatMap((reference) => {
+    const entries = stableShotReferences(detail.shotReferences || []).flatMap((reference) => {
         if (reference.shotId !== shotId || reference.status !== "linked") return [];
         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
         if (!asset || seenAssetIds.has(asset.id)) return [];

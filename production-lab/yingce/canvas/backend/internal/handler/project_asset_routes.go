@@ -35,7 +35,7 @@ func registerProjectAssetRoutes(r *gin.RouterGroup, svc *service.Service) {
 			if value, present := c.GetQuery("folderId"); present {
 				folderID = &value
 			}
-			assets, pageErr := svc.ProjectAssetsPage(user.ID, c.Param("id"), page, pageSize, c.Query("category"), c.Query("mediaType"), c.Query("status"), folderID, c.Query("q"))
+			assets, pageErr := svc.ProjectAssetsPage(user.ID, c.Param("id"), page, pageSize, c.Query("category"), c.Query("mediaType"), c.Query("status"), folderID, c.Query("q"), c.Query("unitId"))
 			if pageErr != nil {
 				failService(c, pageErr)
 				return

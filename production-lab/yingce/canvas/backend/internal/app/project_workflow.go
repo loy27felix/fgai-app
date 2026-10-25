@@ -337,6 +337,11 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 			return model.WorkflowStepInstance{}, err
 		}
 		asset.Title = fmt.Sprintf("镜头%02d-%s-v%d", shot.Position+1, workflowArtifactLabel(artifact.Type), artifact.Version)
+		if unit, unitErr := s.repo.ProjectUnit(projectID, shot.UnitID); unitErr != nil {
+			return model.WorkflowStepInstance{}, unitErr
+		} else if strings.TrimSpace(unit.Title) != "" {
+			asset.Title = strings.TrimSpace(unit.Title) + "-" + asset.Title
+		}
 		var payload map[string]any
 		if err := json.Unmarshal([]byte(asset.PayloadJSON), &payload); err != nil {
 			return model.WorkflowStepInstance{}, err

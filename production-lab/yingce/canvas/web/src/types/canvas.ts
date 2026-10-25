@@ -255,6 +255,8 @@ export type CanvasSkillSnapshot = {
 };
 
 export type CanvasNodeMetadata = {
+    waveform?: number[];
+    waveformVersion?: number;
     /** Retains the company music queue item across closing and reopening a canvas. */
     fgMusicJobId?: string;
     /** Credential-free editable generation contract; submitted recipes live with tasks. */

@@ -24,7 +24,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { confirmProjectAssetCandidate, ignoreProjectAssetCandidate, listProjectAssetsPage, listProjectAssetCandidates, updateProjectAssetVisual, updateProjectCharacter, type ProjectAsset, type ProjectDetail } from "@/services/api/projects";
 import { characterTurnaroundConfig } from "./project-character-media";
-import { ASSET_PROMPT_SKILL, projectAssetExecutionPrompt, projectAssetGenerationPrompt, projectAssetHasImage, runAssetBatch } from "./project-asset-generation-plan";
+import { ASSET_PROMPT_SKILL, projectAssetExecutionPrompt, projectAssetGenerationPrompt, projectAssetHasImage, projectAssetReferencePlan, runAssetBatch } from "./project-asset-generation-plan";
 import { categoryLabel, categoryLabels } from "./shared";
 import { recommendProjectAsset, projectAssetTaskID } from "./project-asset-review";
 
@@ -39,6 +39,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
         return characterTurnaroundConfig({ ...effectiveConfig, model, imageModel: model });
     });
     const [rows, setRows] = useState<Row[]>([]);
+    const [knownAssets, setKnownAssets] = useState(detail.assets);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -47,10 +48,11 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
     const style = useMemo(() => resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), [detail.project.stylePresetId, detail.project.styleProfileJson]);
     const change = (id: string, patch: Partial<Row>) => setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
     const styleProfile = useMemo(() => parseStyleProfile(detail.project.styleProfileJson), [detail.project.styleProfileJson]);
-    const referenceIds = (row: Row) => [...new Set([...row.references, ...styleReferenceResourceIds(styleProfile)])];
+    const referencePlan = (row: Row) => projectAssetReferencePlan(row.asset, row.references, styleProfile, knownAssets);
+    const referenceIds = (row: Row) => referencePlan(row).ids;
     const executionPrompt = (row: Row) => {
         const styleIds = fgImageStyles.filter((skill) => row.prompt.includes(`@[skill:${skill.skillId}]`) || row.prompt.includes(`@${skill.slug}`)).map((skill) => skill.skillId);
-        return projectAssetExecutionPrompt(composeFGImageStylePrompt(row.prompt, styleIds) || row.prompt, row.asset.category, style?.prompt || "");
+        return projectAssetExecutionPrompt(composeFGImageStylePrompt(row.prompt, styleIds) || row.prompt, row.asset.category, style?.prompt || "", row.asset.title);
     };
     useEffect(() => {
         let cancelled = false;
@@ -66,14 +68,16 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                         }
                     }),
                 );
-                let assets = single ? [single] : [];
+                const assets: ProjectAsset[] = [];
                 const candidates: Row[] = [];
-                if (!single) {
-                    for (let page = 1; ; page++) {
+                for (let page = 1; ; page++) {
                         const result = await listProjectAssetsPage(detail.project.id, { page, pageSize: 100 });
                         assets.push(...result.assets);
                         if (page * 100 >= result.total) break;
-                    }
+                }
+                if (single && !assets.some(asset => asset.id === single.id)) assets.push(single);
+                if (!cancelled) setKnownAssets(assets);
+                if (!single) {
                     for (let page = 1; ; page++) {
                         const result = await listProjectAssetCandidates(detail.project.id, { page, pageSize: 100, status: "pending_confirmation" });
                         for (const c of result.candidates) {
@@ -96,7 +100,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                     }
                 }
                 const confirmed = assets
-                    .filter((a) => visualCategories.has(a.category))
+                    .filter((a) => visualCategories.has(a.category) && (!single || a.id === single.id))
                     .map((asset) => {
                         const d = asset.character?.definition || asset.definition || {};
                         return {
@@ -207,7 +211,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                     const referenceImages = await Promise.all(
                         referenceIds(row).map(async (id) => {
                             const resource = await getResource(id);
-                            const isStyle = styleReferenceResourceIds(styleProfile).includes(id);
+                            const isStyle = referencePlan(row).styleIds.includes(id) && !row.references.includes(id);
                             return {
                                 id,
                                 name: isStyle ? "画风参考（仅色彩、光影、材质和媒介）" : `${row.asset.title} · 身份或结构参考`,
@@ -242,6 +246,8 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                             assetId: asset.id,
                             assetVersionId: asset.primaryVersionId,
                             characterAssetId: asset.category === "character" ? asset.id : undefined,
+                            characterIdentityReferenceIds: asset.category === "character" ? row.references : undefined,
+                            excludedCharacterStyleReferences: referencePlan(row).excluded,
                             resolvedCharacterVersions: asset.character ? [{ assetId: asset.id, versionId: asset.character.versionId }] : [],
                             assetPromptSkill: provenance,
                             assetPromptExecution: { method: "asset-template-compiler-v2", editablePrompt: row.prompt, finalPrompt: generationPrompt, projectStyleRevision: styleProfile?.revision, projectStylePrompt: style?.prompt || "" },
@@ -423,6 +429,8 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                                         </button>
                                     ))}
                                 </div>
+                                {referencePlan(row).styleIds.filter(id => !row.references.includes(id)).length > 0 && <div className="mt-2"><p className="text-xs text-foreground/60">自动继承的画风参考（仅色彩、光影与材质）</p><div className="mt-1 flex gap-2">{referencePlan(row).styleIds.filter(id => !row.references.includes(id)).map(id => <CachedResourceImage key={id} storageKey={resourceStorageKey(id)} src={resourceFileUrl(id)} alt="画风参考" className="h-16 w-16 rounded object-cover" />)}</div></div>}
+                                {referencePlan(row).excluded.length > 0 && <Alert className="mt-2" showIcon type="warning" title={`已排除其他角色的画风参考：${[...new Set(referencePlan(row).excluded.map(item => item.name))].join("、")}`} description="这些图片属于其他角色，默认不参与当前角色生成，避免配角长成主角。确需借用时可在身份参考中明确选择。" />}
                                 {row.error && (
                                     <p role="alert" className="mt-2 text-sm text-red-500">
                                         {row.error}。不自动重复提交；请先核对任务中心。

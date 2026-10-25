@@ -11,6 +11,14 @@ description: 信封、错误码与 OpenAPI
 
 ## 项目资产历史图片与任务状态
 
+### 镜头副本与章节素材来源
+
+`POST /api/projects/:id/shots` 可携带 `duplicateOf` 和当前编辑的脚本快照创建副本。不能同时提供已有镜头 `id`，也不能复制到另一章节。后端在事务中追加顺序并复制资产引用，不复制生成产物、不覆盖原镜头、不触发生成或扣费。项目归属及原镜头归属仍由服务端校验。
+
+项目资产分页接口新增可选 `unitId`，按生成任务的实际章节来源筛选素材，继续组合分页、媒体类型和业务分类筛选。返回的生成素材增加 `sourceUnitId`、`sourceUnitTitle` 和 `sourceShotId`；历史名称的章节前缀在读取时补齐，新产物直接记录章节前缀。来源查询仅关联当前页资产，不扫描任务大报文、不创建归档表或定时任务。
+
+角色生成任务可通过 `metadata.characterIdentityReferenceIds` 明确标记用户亲自选择的身份参考。项目画风中的其他角色参考默认排除；后端根据同项目角色图片来源再次检查，并将排除记录写入任务元数据。此标记不能替代资源访问权限或项目归属校验。
+
 `GET /api/projects/:id/assets/:assetId/history-images` 返回 `data={images}`。每项包含 `versionId`、`version`、`resourceId`、`role`、`createdAt`，按资产版本倒序。服务端检查当前用户拥有活动项目、拥有资产且资产已关联该项目，只返回归属当前用户、状态 ready 的图片；同一版本内按资源去重。该只读接口不切换主版本、不创建生成任务。
 
 任务安全摘要 `clientContext.assetId` 仅对 `project_asset_image` 和 `character_turnaround` 操作输出，用于关联资产卡片的排队、生成、保存和失败状态。不得为读取此 ID 向普通客户端开放完整生成输入或渠道密钥。

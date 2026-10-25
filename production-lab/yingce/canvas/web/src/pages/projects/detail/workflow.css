@@ -127,6 +127,7 @@
 .workflow-asset-row:disabled { cursor: default; opacity: 1; }
 
 .workflow-asset-thumb {
+    overflow: hidden;
     display: grid;
     width: 36px;
     height: 36px;
@@ -756,6 +757,7 @@ video.workflow-preview-media {
 .workflow-history button.is-active { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-accent) 55%, transparent); }
 .workflow-history img,
 .workflow-history video,
+.workflow-history-video-thumb,
 .workflow-history-placeholder { width: 66px; height: 40px; flex: 0 0 auto; border-radius: var(--r-sm); background: color-mix(in srgb, var(--foreground) 6%, transparent); object-fit: cover; }
 .workflow-history-placeholder { display: grid; place-items: center; color: color-mix(in srgb, var(--foreground) 30%, transparent); }
 .workflow-history-placeholder svg { width: 16px; height: 16px; }
