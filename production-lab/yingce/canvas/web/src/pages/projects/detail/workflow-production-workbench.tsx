@@ -89,35 +89,32 @@ const productionStageCopy: Record<"storyboard" | "previz" | "video", { label: st
 };
 
 export default function WorkflowProductionWorkbench(props: Props) {
-    const scope = useUserStore(state => state.user?.id || "");
-    const [libraryTab, setLibraryTab] = useState<"assets" | "episodes" | "shots">("episodes");
-    return <ShotWorkbenchEditor key={`${scope}:${props.projectId}:${props.selectedShot?.id || "empty"}`} {...props} draftScope={scope} libraryTab={libraryTab} onLibraryTabChange={setLibraryTab} />;
-}
-
-function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "assets" | "episodes" | "shots"; onLibraryTabChange: (tab: "assets" | "episodes" | "shots") => void }) {
     const { activeStage, detail, projectId, unitId, workflowStep, selectedShot, onSelectShot, onRefresh, onAddShot, addingShot } = props;
     const { message, modal } = App.useApp();
     const navigate = useNavigate();
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
+    const draftScope = useUserStore(state => state.user?.id || "");
     const [form] = Form.useForm<ShotEditorValues>();
     const watchedDuration = Form.useWatch("durationSeconds", form);
     const watchedVideoPrompt = Form.useWatch("videoPrompt", form);
     const watchedTitle = Form.useWatch("title", form);
-    const leftTab = props.libraryTab;
-    const setLeftTab = props.onLibraryTabChange;
+    const [leftTab, setLeftTab] = useState<"assets" | "episodes" | "shots">("episodes");
     const [previewTab, setPreviewTab] = useState<"latest" | "history">("latest");
     const [previewArtifactId, setPreviewArtifactId] = useState("");
     const [imagePreviewArtifact, setImagePreviewArtifact] = useState<ShotArtifact | null>(null);
     const [editorDirty, updateEditorDirty] = useState(false);
     const editorDirtyRef = useRef(false);
     const setEditorDirty = (dirty: boolean) => { editorDirtyRef.current = dirty; updateEditorDirty(dirty); };
-    const [draftReady, setDraftReady] = useState(false);
+    const [readyDraftKey, setReadyDraftKey] = useState("");
     const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const draftWarningShown = useRef(false);
-    const draftScope = props.draftScope;
     const draftShotId = selectedShot?.id || "";
+    const draftKey = JSON.stringify([draftScope, projectId, draftShotId]);
+    const draftReady = readyDraftKey === draftKey;
+    const activeWorkspaceKey = useRef(draftKey);
+    activeWorkspaceKey.current = draftKey;
     const liveReferenceContext = useRef<ShotAssetReferenceContext | null>(null);
     const hydratedReferenceKey = useRef("");
     const persistDraft = () => {
@@ -154,8 +151,16 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
     activeShotIdRef.current = selectedShot?.id || "";
     useEffect(() => {
         let cancelled = false;
-        if (!draftScope || !draftShotId) { setDraftReady(true); return; }
+        const workspaceKey = draftKey;
+        const isCurrent = () => !cancelled && activeWorkspaceKey.current === workspaceKey;
+        setReadyDraftKey("");
+        setEditorDirty(false);
+        setRewriteOpen(false);
+        setRewriteNotes(""); setRewriteDirection(""); setRewriteSkillIds([]); setRewriteResult(null); setRewriteStatus("");
+        setRewriting(shotDraftStore.isRewriting(draftScope, projectId, draftShotId));
+        if (!draftScope || !draftShotId) { setReadyDraftKey(workspaceKey); return; }
         const unsubscribe = shotDraftStore.subscribe(draftScope, projectId, draftShotId, () => {
+            if (!isCurrent()) return;
             const current = shotDraftStore.peek(draftScope, projectId, draftShotId);
             setRewriting(shotDraftStore.isRewriting(draftScope, projectId, draftShotId));
             if (current) {
@@ -165,7 +170,7 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
             }
         });
         void shotDraftStore.read(draftScope, projectId, draftShotId).then(draft => {
-            if (cancelled) return;
+            if (!isCurrent()) return;
             if (draft.values && !editorDirtyRef.current) {
                 const references = liveReferenceContext.current?.mentionReferences || [];
                 const tokens = new Set([...((draft.values.videoPrompt || "").matchAll(/@\[asset:([^\]]+)\]/g))].map(match => match[1]));
@@ -178,12 +183,12 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
             setRewriteSkillIds(draft.skillIds);
             setRewriteResult(draft.result || null);
             if (draft.result) setRewriteStatus("已恢复此镜头的修改建议，请检查后应用");
-        }).catch(error => { if (!cancelled) message.warning(error instanceof Error ? error.message : "镜头草稿读取失败"); })
-            .finally(() => { if (!cancelled) setDraftReady(true); });
+        }).catch(error => { if (isCurrent()) message.warning(error instanceof Error ? error.message : "镜头草稿读取失败"); })
+            .finally(() => { if (isCurrent()) setReadyDraftKey(workspaceKey); });
         return () => { cancelled = true; unsubscribe(); clearTimeout(draftTimer.current); persistDraft(); };
-        // A keyed editor owns exactly one account/project/shot for its entire lifetime.
+        // Drafts are scoped per shot; the mounted workbench keeps in-flight media tasks and model choices.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [draftScope, projectId, draftShotId]);
     const shots = useMemo(() => (detail.shots || []).filter((item) => item.unitId === unitId).slice().sort((left, right) => left.position - right.position), [detail.shots, unitId]);
     const shotIndex = selectedShot ? shots.findIndex((item) => item.id === selectedShot.id) : -1;
     const revision = currentRevision(detail, selectedShot);
@@ -320,7 +325,7 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
     }, [creditsEnabled, quoteRequestKey]);
 
     useEffect(() => {
-        const key = `${selectedShot?.id || ""}:${revision?.id || ""}`;
+        const key = `${draftKey}:${revision?.id || ""}`;
         const referenceKey = JSON.stringify(shotAssetReferenceContext.mentionReferences.map(reference => [reference.assetId, reference.kind, reference.title]));
         if (hydratedShotRevisionKey.current === key || (hydratedShotRevisionKey.current && editorDirtyRef.current)) {
             if (hydratedReferenceKey.current === referenceKey) return;
@@ -357,7 +362,7 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
         setPreviewArtifactId("");
         setImagePreviewArtifact(null);
         setEditorDirty(!revision);
-    }, [effectiveConfig, form, generationCapability, initialModel, revision?.id, selectedShot?.id, shotAssetReferenceContext.mentionReferences]);
+    }, [draftKey, effectiveConfig, form, generationCapability, initialModel, revision?.id, selectedShot?.id, shotAssetReferenceContext.mentionReferences]);
 
     const changeGenerationModel = (nextModel: string) => {
         const nextProfile = modelCapabilityConfigFor(effectiveConfig, nextModel);
@@ -459,15 +464,17 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
     };
 
     useEffect(() => {
-        if (!selectedShot || checkedAssetShots.current.has(selectedShot.id) || !detail.assets.length) return;
-        checkedAssetShots.current.add(selectedShot.id);
+        if (!selectedShot || !detail.assets.length) return;
+        const associationKey = JSON.stringify([draftScope, projectId, selectedShot.id]);
+        if (checkedAssetShots.current.has(associationKey)) return;
+        checkedAssetShots.current.add(associationKey);
         // 已有人工绑定保持原样；旧分镜第一次打开时补齐明确出现的视觉资产。
         if (detail.shotReferences.some((reference) => reference.shotId === selectedShot.id && reference.status === "linked")) return;
         const text = [revision?.plotDescription || selectedShot.description, revision?.videoPrompt, revision?.imagePrompt, revision?.action].filter(Boolean).join("\n");
         void associateShotAssets(selectedShot, text).catch((error) => message.error(error instanceof Error ? error.message : "自动关联资产失败，请核对后重试"));
         // 每张镜头只自动关联一次，后续保留人工取消和替换的选择。
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedShot?.id, revision?.id, detail.assets, detail.shotReferences]);
+    }, [draftScope, projectId, selectedShot?.id, revision?.id, detail.assets, detail.shotReferences]);
 
     const generateArtifact = async (preparedImage?: PreparedShotImage): Promise<boolean> => {
         if (!selectedShot || submittingShotIds.has(selectedShot.id) || assetsAssociating) return false;
@@ -582,19 +589,20 @@ function ShotWorkbenchEditor(props: Props & { draftScope: string; libraryTab: "a
         const values = form.getFieldsValue();
         const original = values.videoPrompt || "";
         const shotId = selectedShot.id;
+        const workspaceKey = draftKey;
         setRewriting(true);
         setRewriteResult(null);
         rememberDraft({ result: null });
         setRewriteStatus("正在提交提示词修改任务…");
         try {
-            const result = await rewriteShotVideoPrompt({ projectId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current: values, previous: shots[shotIndex - 1] ? currentRevision(detail, shots[shotIndex - 1]) : null, next: shots[shotIndex + 1] ? currentRevision(detail, shots[shotIndex + 1]) : null, references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`) });
+            const result = await rewriteShotVideoPrompt({ projectId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current: values, previous: shots[shotIndex - 1] ? currentRevision(detail, shots[shotIndex - 1]) : null, next: shots[shotIndex + 1] ? currentRevision(detail, shots[shotIndex + 1]) : null, references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
             resolveShotAssetMentionPrompt(result.text, shotAssetReferenceContext, { dialogue: values.dialogue });
             const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text: ensureShotAssetMentionPrompt(result.text, shotAssetReferenceContext.mentionReferences) };
-            setRewriteResult(suggestion);
+            if (activeWorkspaceKey.current === workspaceKey) setRewriteResult(suggestion);
             rememberDraft({ result: suggestion });
-            setRewriteStatus("重写完成，请检查后应用；原提示词和视频仍保留");
-        } catch (error) { setRewriteStatus(error instanceof Error ? error.message : "提示词重写失败"); }
-        finally { shotDraftStore.endRewrite(draftScope, projectId, shotId); setRewriting(false); }
+            if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus("重写完成，请检查后应用；原提示词和视频仍保留");
+        } catch (error) { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(error instanceof Error ? error.message : "提示词重写失败"); }
+        finally { shotDraftStore.endRewrite(draftScope, projectId, shotId); if (activeWorkspaceKey.current === workspaceKey) setRewriting(false); }
     };
     const applyRewrite = () => {
         if (!rewriteResult || !canApplyShotRewrite(rewriteResult, selectedShot.id, form.getFieldsValue())) return message.warning("生成建议后正文或时长又有修改，请重新生成建议，避免覆盖新内容");

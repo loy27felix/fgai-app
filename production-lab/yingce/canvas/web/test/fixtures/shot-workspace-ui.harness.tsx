@@ -24,6 +24,10 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { App } = await import("antd");
 const { useUserStore } = await import("@/stores/use-user-store");
 useUserStore.setState({ user: { id: "workspace-test-user" } as never });
+const actualProjects = await import("@/services/api/projects");
+let linkCalls = 0;
+let finishLink!: () => void;
+mock.module("@/services/api/projects", () => ({ ...actualProjects, linkShotAsset: () => { linkCalls++; return new Promise(resolve => { finishLink = () => resolve({}); }); } }));
 const { default: Workbench } = await import("@/pages/projects/detail/workflow-production-workbench");
 import type { ProjectDetail, ProjectShot, ShotRevision } from "@/services/api/projects";
 
@@ -77,4 +81,24 @@ test("switching shots retains edited prompts and separates notes; polling cannot
     } finally {
         await act(async () => root.unmount()); host.remove(); client.clear();
     }
+});
+
+test("a pending asset association is not submitted again when switching away and back", async () => {
+    const shots = ["one", "two"].map((id, position) => ({ id: "binding-"+id, projectId: "binding-project", unitId: "u", title: id, position, durationMs:15000, currentRevisionId:"binding-r-"+id, description: position===0?"人物拿起帽子":"人物独自行走" } as ProjectShot));
+    const detail = { project:{id:"binding-project",name:"绑定状态测试",aspectRatio:"9:16"}, units:[{id:"u",title:"第三章",position:0}], shots, assets:[{id:"hat",title:"帽子",mediaType:"image",category:"prop",status:"confirmed",primaryVersionId:"hat-v",storageKey:"resource:hat",versionCount:1,usages:[],position:0,updatedAt:"2026-10-25T00:00:00Z"}], shotReferences:[],shotArtifacts:[],tasks:[],shotRevisions:shots.map(shot=>({id:shot.currentRevisionId,shotId:shot.id,plotDescription:shot.description,videoPrompt:shot.description,durationMs:15000,version:1})) } as unknown as ProjectDetail;
+    const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+    function Harness() { const [selected,select]=useState(shots[0].id);return <Workbench activeStage="video" detail={detail} projectId="binding-project" unitId="u" selectedShot={shots.find(shot=>shot.id===selected)} onSelectShot={select} onRefresh={async()=>{}} onAddShot={()=>{}} addingShot={false} />; }
+    const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
+    const settle=async()=>{await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});};
+    const select=async(index:number)=>{await act(async()=>host.querySelectorAll<HTMLButtonElement>(".workflow-timeline-shot")[index].click());await settle();};
+    try {
+        await act(async()=>root.render(<QueryClientProvider client={client}><MemoryRouter><App><Harness /></App></MemoryRouter></QueryClientProvider>));await settle();
+        expect(linkCalls).toBe(1);
+        await select(1);await select(0);
+        expect(linkCalls).toBe(1);
+        const match=[...host.querySelectorAll("button")].find(button=>button.textContent?.includes("重新匹配资产"))!;
+        expect(match.classList.contains("ant-btn-loading")).toBe(true);
+        await act(async()=>finishLink());await settle();
+        expect(match.classList.contains("ant-btn-loading")).toBe(false);
+    } finally { await act(async()=>root.unmount());host.remove();client.clear(); }
 });
