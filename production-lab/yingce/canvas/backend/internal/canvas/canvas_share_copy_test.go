@@ -58,7 +58,7 @@ func shareCopyFixture(t *testing.T) (*Service, *shareCopyTestHost, *gorm.DB, str
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.CanvasProject{}, &model.CanvasShare{}, &model.Resource{}, &model.Asset{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}); err != nil {
+	if err := db.AutoMigrate(&model.CanvasProject{}, &model.CanvasShare{}, &model.Resource{}, &model.Asset{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.CanvasEditLease{}); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := db.DB()

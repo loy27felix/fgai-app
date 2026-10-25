@@ -17,6 +17,8 @@ import (
 func Models() []any {
 	return []any{
 		&model.CloudAgentExecution{},
+		&model.CanvasEditLease{},
+		&model.UserFeedback{},
 		&model.UploadReservation{},
 		&model.CloudAgentPiSession{},
 		&model.CloudAgentEventRecord{},

@@ -5,6 +5,17 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## FG 云会话、编辑占用与反馈
+
+- `GET /api/agent/conversations`：本人会话目录；`canvasId` 可选，非空时验证画布访问权；`before` 为分页游标，`limit` 为 1—100。
+- `GET /api/agent/conversations/:id/runs`：本人会话的轮次分页，`after` 为游标。`GET /api/agent/runs/:id?fromStart=true&eventLimit=500` 可从首事件恢复，不使用运行 ID 代替事件游标。
+- `GET /api/canvas-projects/:id/sync-status`：授权画布的版本、字段占用和 Agent 活动摘要；编辑占用的写接口与字段合同以 OpenAPI 为准。占用凭据随画布操作提交，不计入操作内容摘要。
+- `POST /api/feedbacks`、`GET /api/feedbacks/my`、`POST /api/feedbacks/attachments`：提交、本人收件箱与附件上传。提交附件最多 5 项，服务端复核资源所有者和媒体类型，忽略客户端提供的外部 URL。
+- `GET /api/admin/feedbacks`、`PATCH /api/admin/feedbacks/:id`、`POST /api/admin/feedbacks/:id/archive` 和 `/unarchive`：管理员分页、回复和归档；分页使用统一 `pageSize`。
+- `GET /api/admin/provider-catalog`、`POST /refresh`、`POST /:id/verify`、`POST /:id/install`：管理员目录、刷新、Key 核验与按选择导入。核验及安装使用服务端目录快照和既有出站限制。
+
+过期轮次返回 `409 agent_conversation_stale_parent`；同一画布已有运行返回 `409 canvas_agent_busy`。客户端保留原草稿，不通过换模型或重提收费任务消除冲突。
+
 ## 素材按来源画布分页
 
 `GET /api/assets` 在既有分页、媒体类型、分类、状态和搜索参数之外，支持 `canvasId=<id>` 和 `noCanvas=1`（未归属画布，优先于 canvasId）。匹配素材 `metadata.canvasId`，在当前用户归属检查后、分页之前过滤；`total` 与分类、媒体类型、文件夹计数均限制在所选画布范围。不携带这两个参数时仍查询全部来源。未知画布返回空列表，不回退其他画布或其他用户素材。无表结构变更。

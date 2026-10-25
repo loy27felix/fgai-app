@@ -13,7 +13,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 60
+const CurrentSchemaVersion int64 = 64
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -219,6 +219,35 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.AgentLesson{}, &model.AgentMemorySetting{}, &model.AgentMemoryProposal{}, &model.AgentMemoryRevision{})
 	}},
 	{version: 60, name: "channel_model_protocol_length", checksum: "sha256:channel-model-protocol-length-v59", apply: migrateChannelModelProtocolLength},
+	{version: 61, name: "fg_provider_catalog_source", checksum: "sha256:fg-provider-catalog-source-v61", apply: func(tx *gorm.DB) error {
+		if !tx.Migrator().HasColumn(&model.ModelChannel{}, "CatalogProviderID") {
+			if err := tx.Migrator().AddColumn(&model.ModelChannel{}, "CatalogProviderID"); err != nil {
+				return err
+			}
+		}
+		if !tx.Migrator().HasColumn(&model.ChannelModel{}, "CatalogModelKey") {
+			return tx.Migrator().AddColumn(&model.ChannelModel{}, "CatalogModelKey")
+		}
+		return nil
+	}},
+	{version: 62, name: "fg_canvas_multi_session_sync", checksum: "sha256:fg-canvas-multi-session-sync-v62", apply: migrateCanvasCollaboration},
+	{version: 63, name: "fg_user_feedbacks", checksum: "sha256:fg-user-feedbacks-v63", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.UserFeedback{})
+	}},
+	{version: 64, name: "fg_sql_perf_indexes", checksum: "sha256:fg-sql-perf-indexes-v64", apply: migrateSQLPerformanceIndexes},
+}
+
+func migrateSQLPerformanceIndexes(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.ApiCallLog{}, &model.Task{}, &model.CreditLedgerEntry{}); err != nil {
+		return err
+	}
+	if tx.Dialector.Name() == "sqlite" {
+		if err := tx.Exec("UPDATE api_call_logs SET created_at_epoch = unixepoch(created_at) WHERE created_at_epoch = 0 OR created_at_epoch IS NULL").Error; err != nil {
+			return err
+		}
+		return tx.Exec("UPDATE tasks SET created_at_epoch = unixepoch(created_at) WHERE created_at_epoch = 0 OR created_at_epoch IS NULL").Error
+	}
+	return nil
 }
 
 func migrateChannelModelProtocolLength(tx *gorm.DB) error {

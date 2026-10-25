@@ -17,6 +17,20 @@ func (r *Repository) LockCanvasMutation(userID, canvasID string) error {
 		UpdateColumn("revision", gorm.Expr("revision")).Error
 }
 
+// Keep the access check inside the first write, avoiding a SQLite read-to-write
+// upgrade while serializing requests from members of the same shared canvas.
+func (r *Repository) LockCanvasMutationForUser(userID, canvasID string) error {
+	result := fgCanvasScope(r.db.Model(&model.CanvasProject{}), userID).Where("id = ?", canvasID).
+		UpdateColumn("revision", gorm.Expr("revision"))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *Repository) CanvasMutationReceiptForUser(userID, canvasID, mutationID string) (*model.CanvasMutationReceipt, error) {
 	var receipt model.CanvasMutationReceipt
 	err := r.db.First(&receipt, "user_id = ? AND canvas_id = ? AND mutation_id = ?", userID, canvasID, mutationID).Error

@@ -5,6 +5,15 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## FG 上游功能适配
+
+- 云会话：`backend/internal/app/cloud_agent_conversations.go`、`repository/cloud_agent_conversations.go`、`web/src/services/cloud-agent-history.ts` 与 `components/canvas/canvas-cloud-agent-panel.tsx`。
+- 并发准入与占用：`repository/cloud_agent_canvas.go`、`repository/finance.go`、`canvas/edit_leases.go`、`services/canvas-edit-leases.ts`；保留 FG 共享项目范围与原请求幂等。
+- 反馈：`app/feedback.go`、`handler/feedback_routes.go`、`repository/repository_feedback.go`、`components/feedback`、`pages/settings/feedback-inbox-pane.tsx`、`pages/admin/feedbacks`。
+- 服务商目录：`internal/providercatalog`、`app/provider_catalog.go`、`handler/provider_catalog_routes.go`、`pages/admin/channels/provider-catalog-wizard.tsx`。
+- 素材区间选择：`pages/assets/asset-library-selection.ts`；完整 ID 集合由素材库页面负责加载与执行。
+- 协议：`plugin-packages/openai-responses`、`plugin-packages/km-kemei-seedream`；1.5K 尺寸识别在 `app/model_router.go`。
+
 ## 创作资料与来源画布
 
 - 文档与 Excel：`web/src/services/document-storage.ts`；原文件经既有资源上传流程持久化，文本通过参考资料上下文进入模型。

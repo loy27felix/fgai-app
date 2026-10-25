@@ -5,6 +5,12 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
+## FG schema 61—64
+
+历史迁移 1—60 的编号与校验和保持。61 为模型渠道增加 `catalog_provider_id`，渠道模型增加 `catalog_model_key`，仅记录目录来源；62 新建 `canvas_edit_leases`，按画布所有者、画布与节点保存 30 秒字段占用，补齐 `tasks.agent_execution_ready` 与活动运行部分索引；63 新建 `user_feedbacks`，保存提交者、分类、正文、图片/视频附件资源身份、回复、状态及归档时间；64 补齐请求日志的时间及类型/状态组合索引，并对 SQLite 历史时间戳回填。上述迁移不重新生成或替换已有媒体。
+
+会话历史复用既有 `cloud_agent_executions`、消息与事件表。目录查询始终按当前登录用户过滤；可选画布过滤须先通过既有项目访问检查。共享画布的占用查询可跨该画布的参与用户，但只返回运行 ID、状态与收尾标记，不返回提示词或聊天正文。反馈附件参与资源引用检查，反馈未解除引用时不能误删其物理资源。
+
 FG 原生 schema 58 将 `shot_revisions.shot_size`、`camera_angle`、`camera_movement` 从短字符串改为 TEXT，保存多镜头片段的完整景别、机位和运镜描述。迁移保留既有内容及版本，不裁剪导演描述，不重新生成媒体；PostgreSQL 在一个事务内扩展三列，SQLite 同步迁移列类型。
 
 FG schema 59 同步上游 Agent 记忆提案：新增 `agent_memory_proposals` 与 `agent_memory_revisions`，扩展记忆来源证据及压缩游标。模型建议先保存为带版本的提案，用户批准后才应用；批准和恢复均校验用户归属、版本和原内容，不能覆盖后续编辑。schema 60 将 `channel_models.protocol` 扩为 varchar(64)。FG 已使用 58 保存导演描述，因此不直接采用上游 58/59 编号；既有迁移名称及校验和保持不变。升级先备份并执行迁移与 verify，再切换新版服务。

@@ -42,6 +42,7 @@ const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
 const FGInspirationPage = lazy(() => import("@/pages/fg-inspiration"));
 const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
+const AdminFeedbacksPage = lazy(() => import("@/pages/admin/feedbacks/feedbacks-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
 const AssetsPage = lazy(loadAssetsPage);
 const CanvasPage = lazy(loadCanvasPage);
@@ -233,6 +234,7 @@ export const router = createBrowserRouter([
                     { index: true, element: <AnalyticsPage /> },
                     { path: "users", element: <UsersPage /> },
                     { path: "login-logs", element: <LoginLogsPage /> },
+                    { path: "feedbacks", element: <AdminFeedbacksPage /> },
                     { path: "channels", element: <ChannelsPage /> },
                     {
                         path: "models",

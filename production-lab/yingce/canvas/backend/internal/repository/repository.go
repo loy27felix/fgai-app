@@ -35,6 +35,7 @@ var ErrCanvasRevisionConflict = errors.New("画布已被更新，请刷新后重
 
 type Repository struct {
 	db                   *gorm.DB
+	canvasEditProofs     []model.CanvasEditProof
 	canvasChangeNotifier func(string, string)
 	canvasChanges        map[canvasChange]struct{}
 }
@@ -64,7 +65,7 @@ func (r *Repository) WithContext(ctx context.Context) *Repository {
 func (r *Repository) Transaction(fn func(*Repository) error) error {
 	changes := make(map[canvasChange]struct{})
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		return fn(&Repository{db: tx, canvasChangeNotifier: r.canvasChangeNotifier, canvasChanges: changes})
+		return fn(&Repository{db: tx, canvasEditProofs: r.canvasEditProofs, canvasChangeNotifier: r.canvasChangeNotifier, canvasChanges: changes})
 	})
 	if err == nil {
 		for change := range changes {

@@ -116,11 +116,15 @@ type (
 	ChannelOrderItem                       = app.ChannelOrderItem
 	ChannelOrderRequest                    = app.ChannelOrderRequest
 	ChannelRequest                         = app.ChannelRequest
+	CanvasEditLeaseRequest                 = app.CanvasEditLeaseRequest
+	CanvasSyncStatus                       = app.CanvasSyncStatus
 	SystemChannelExport                    = app.SystemChannelExport
 	SystemChannelImportResult              = app.SystemChannelImportResult
 	AgentMemoryProposalDecision            = app.AgentMemoryProposalDecision
 	AgentMemoryRevisionRestore             = app.AgentMemoryRevisionRestore
 	BillingAutoRefundSetting               = app.BillingAutoRefundSetting
+	ProviderCatalogVerifyRequest           = app.ProviderCatalogVerifyRequest
+	ProviderCatalogInstallRequest          = app.ProviderCatalogInstallRequest
 	CharacterAssetSummary                  = app.CharacterAssetSummary
 	CharacterCardSummary                   = app.CharacterCardSummary
 	CharacterRepresentationInput           = app.CharacterRepresentationInput

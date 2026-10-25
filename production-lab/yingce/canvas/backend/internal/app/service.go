@@ -18,6 +18,7 @@ import (
 	"yingce/backend/internal/payment"
 	"yingce/backend/internal/platform"
 	"yingce/backend/internal/prompts"
+	"yingce/backend/internal/providercatalog"
 	"yingce/backend/internal/repository"
 	"yingce/backend/internal/skills"
 	"yingce/backend/internal/sms"
@@ -96,6 +97,8 @@ type Service struct {
 	approvedMediaWg          sync.WaitGroup
 	approvedMediaWaiters     map[string]context.CancelFunc
 	approvedMediaClosed      bool
+	providerCatalogOnce      sync.Once
+	providerCatalog          *providercatalog.Source
 }
 
 const taskWorkerConcurrency = 3

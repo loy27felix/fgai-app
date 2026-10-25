@@ -12,7 +12,11 @@ import { canvasPersistentNodes } from "@/lib/canvas/canvas-persistent-nodes";
 import { hydrateAssistantImages, resetInterruptedGeneration } from "@/lib/canvas/canvas-project-generation";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { createCanvasProjectWithRemoteSync, deleteCanvasProjectsWithRemoteSync, loadCanvasProjectForEditing, saveRemoteUserDataNow, prepareCanvasForCloudAction, subscribeAgentCanvasRefresh, refreshCanvasAfterAgent } from "@/services/user-data-sync";
+import { getCanvasSyncStatus } from "@/services/api/user-data";
+import { canvasEditLeases } from "@/services/canvas-edit-leases";
+import { startCanvasSyncPolling } from "@/services/canvas-sync-polling";
 import { subscribeCanvasRealtime } from "@/services/canvas-realtime";
+import { getActiveUserScope } from "@/lib/user-scope";
 import { waitForCanvasSync } from "@/lib/canvas/sync-recovery";
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCanvasThemeStore } from "@/stores/canvas/use-canvas-theme-store";
@@ -86,6 +90,7 @@ export function useCanvasProjectLifecycle({
     const navigate = useNavigate();
     const hydrated = useCanvasStore((state) => state.hydrated);
     const sessionHydrated = useUserStore((state) => state.hydrated);
+    const userId = useUserStore((state) => state.user?.id);
     const openProject = useCanvasStore((state) => state.openProject);
     const updateProject = useCanvasStore((state) => state.updateProject);
     const renameProject = useCanvasStore((state) => state.renameProject);
@@ -272,40 +277,50 @@ export function useCanvasProjectLifecycle({
 
     useEffect(() => {
         if (!projectLoaded || !sessionHydrated) return;
-        let stopped = false, running = false, requested = false;
-        const refresh = async () => {
-            requested = true;
-            if (running || stopped || navigator.onLine === false || document.hidden) return;
-            running = true;
-            try {
-                requested = false;
-                await refreshCanvasAfterAgent(projectId, "sync");
-            } catch (error) {
-                if (!stopped) useSyncProgressStore.getState().setProjectProgress(projectId, { phase: "pending", errorKind: "network", message: error instanceof Error ? error.message : "协作连接暂时中断，正在自动重试" });
-            } finally {
-                running = false;
-                if (requested && !stopped) void refresh();
-            }
+        const scope = getActiveUserScope();
+        let connected = false;
+        let agentActive = false;
+        // Lease maintenance must continue independently of remote notifications.
+        let ticking = false;
+        const tick = async () => {
+            if (ticking || scope !== getActiveUserScope() || navigator.onLine === false) return;
+            ticking = true;
+            try { await canvasEditLeases.tick(projectId); } finally { ticking = false; }
         };
-        const unsubscribe = subscribeCanvasRealtime(projectId, (_state, event) => { if (event === "invalidate") void refresh(); });
-        const timer = setInterval(() => void refresh(), 10000);
-        const online = () => void refresh();
-        window.addEventListener("online", online);
-        document.addEventListener("visibilitychange", online);
-        return () => { stopped = true; unsubscribe(); clearInterval(timer); window.removeEventListener("online", online); document.removeEventListener("visibilitychange", online); };
-    }, [projectId, projectLoaded, sessionHydrated]);
+        const leaseTimer = setInterval(() => { void tick(); }, 2000);
+        void tick();
+        const stop = startCanvasSyncPolling(async (signal) => {
+            if (scope !== getActiveUserScope()) return;
+            const token = canvasEditLeases.statusToken(projectId);
+            const status = await getCanvasSyncStatus(projectId, signal);
+            if (signal.aborted || scope !== getActiveUserScope()) return;
+            agentActive = Boolean(status.agent);
+            canvasEditLeases.status(projectId, status, token);
+            const current = useCanvasStore.getState().openProject(projectId);
+            // Agent 运行时 SSE 增量会先把本地 revision 推前；轮询响应落后时不应再拉整份快照。
+            if (current && (!Number.isSafeInteger(current.revision) || status.revision > current.revision!)) await refreshCanvasAfterAgent(projectId, "sync");
+        }, undefined, {
+            interval: () => connected && !agentActive ? 30000 : 2000,
+            listen: (wake) => subscribeCanvasRealtime(projectId, (state, event) => {
+                const disconnected = connected && !state.connected;
+                connected = state.connected;
+                if (event === "invalidate" || disconnected) wake();
+            }),
+        });
+        return () => { stop(); clearInterval(leaseTimer); };
+    }, [projectId, projectLoaded, sessionHydrated, userId]);
 
     useEffect(() => {
         if (!projectLoaded || historyPausedRef.current) return;
-        const snapshot = { nodes, connections, chatSessions, activeChatId, canvasAppearance, backgroundMode, showImageInfo };
+        const snapshot = { nodes: persistentNodes, connections, chatSessions, activeChatId, canvasAppearance, backgroundMode, showImageInfo };
         if (!observedContentRef.current || sameCanvasHistorySnapshot(observedContentRef.current, snapshot)) return;
         observedContentRef.current = snapshot;
-        const patch = { nodes, connections, chatSessions, activeChatId, appearance: canvasAppearance, backgroundMode, showImageInfo };
+        const patch = { nodes: persistentNodes, connections, chatSessions, activeChatId, appearance: canvasAppearance, backgroundMode, showImageInfo };
         const stored = useCanvasStore.getState().projects.find((project) => project.id === projectId);
         // 远端结果投影到编辑器不是一次本地编辑，避免改写时间戳并触发反向保存。
         if (stored && sameCanvasPatch(stored, patch)) return;
         updateProject(projectId, patch);
-    }, [activeChatId, backgroundMode, canvasAppearance, chatSessions, connections, historyPausedRef, nodes, projectId, projectLoaded, showImageInfo, updateProject]);
+    }, [activeChatId, backgroundMode, canvasAppearance, chatSessions, connections, historyPausedRef, persistentNodes, projectId, projectLoaded, showImageInfo, updateProject]);
 
     useEffect(() => {
         if (!projectLoaded) return;

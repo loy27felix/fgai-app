@@ -229,7 +229,7 @@ export function ChannelModelManager({ channel, onChanged }: { channel: ModelChan
                     <AdminStatusBadge label="待配置" tone="warning" />
                 ),
         },
-        { key: "creditPrices", title: "规格成本价 / 销售价 / 利润率", width: 310, render: (_, item) => <ChannelModelCostSummary item={item} /> },
+        { key: "creditPrices", title: "规格成本价 / 销售价 / 加价", width: 310, render: (_, item) => <ChannelModelCostSummary item={item} /> },
         { title: "版本", dataIndex: "priceVersion", width: 75, render: (value) => `v${value}` },
         { title: "状态", dataIndex: "enabled", width: 85, render: (enabled) => <AdminStatusBadge label={enabled ? "启用" : "停用"} tone={enabled ? "success" : "neutral"} /> },
         {

@@ -154,6 +154,23 @@ func (r *Repository) ResourceReferenceSnapshotExcludingAssets(userID string, exc
 		return snapshot, err
 	}
 	snapshot.Direct = append(snapshot.Direct, history...)
+	if r.db.Migrator().HasTable(&model.UserFeedback{}) {
+		var feedbacks []model.UserFeedback
+		if err := r.db.Select("id", "title", "attachments").Where("user_id = ?", userID).Find(&feedbacks).Error; err != nil {
+			return snapshot, err
+		}
+		for _, feedback := range feedbacks {
+			var items []model.FeedbackAttachment
+			if json.Unmarshal([]byte(feedback.Attachments), &items) != nil {
+				continue
+			}
+			for _, item := range items {
+				if slices.Contains(resourceIDs, item.ID) {
+					snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "反馈附件", ID: feedback.ID, Title: feedback.Title, ResourceID: item.ID})
+				}
+			}
+		}
+	}
 	var leases []model.CloudAgentResourceLease
 	if err := r.db.Where("user_id = ? AND resource_id IN ? AND expires_at > ?", userID, resourceIDs, time.Now()).Find(&leases).Error; err != nil {
 		return snapshot, err

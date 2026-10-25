@@ -3323,7 +3323,7 @@ function CanvasViewportPage() {
                                 node={textEditorNode}
                                 open={Boolean(textEditorNode)}
                                 onClose={() => setTextEditorNodeId(null)}
-                                onSave={(nodeId, title, content, richText) => {
+                                onChange={(nodeId, title, content, richText) => {
                                     setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, title, metadata: { ...node.metadata, content, richText } } : node)));
                                 }}
                             />

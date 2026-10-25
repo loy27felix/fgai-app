@@ -397,6 +397,30 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 	return selector
 }
 
+// Seedream 5.0 官方 1.5K 尺寸；这些尺寸在 2.36M 像素附近，会被通用阈值误判成 2K。
+var seedream15kSizes = map[string]struct{}{
+	"1536x1536": {}, "2048x1152": {}, "1152x2048": {}, "1792x1344": {},
+	"1344x1792": {}, "1872x1248": {}, "1248x1872": {}, "2352x1008": {},
+}
+
+// imageResolutionTierForSize 把精确像素尺寸归入价格档位；5M 上限覆盖含 1.5K 的 Seedream 2K 尺寸。
+func imageResolutionTierForSize(width, height int64) string {
+	if _, isSeedream15k := seedream15kSizes[fmt.Sprintf("%dx%d", width, height)]; isSeedream15k {
+		return "1.5k"
+	}
+	pixels := width * height
+	switch {
+	case pixels <= 2_000_000:
+		return "1k"
+	case pixels <= 5_000_000:
+		return "2k"
+	case pixels <= 8_294_400:
+		return "4k"
+	default:
+		return ""
+	}
+}
+
 func normalizeImagePriceQuality(rawQuality string, rawSize string) string {
 	quality := strings.ToLower(strings.TrimSpace(rawQuality))
 	if quality != "" && quality != "auto" && quality != "any" {
@@ -411,17 +435,7 @@ func normalizeImagePriceQuality(rawQuality string, rawSize string) string {
 	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 || width > (1<<32)/height {
 		return ""
 	}
-	pixels := width * height
-	switch {
-	case pixels <= 2_000_000:
-		return "1k"
-	case pixels <= 4_300_000:
-		return "2k"
-	case pixels <= 8_294_400:
-		return "4k"
-	default:
-		return ""
-	}
+	return imageResolutionTierForSize(width, height)
 }
 
 func imageResolutionFromSize(rawSize string) string {
@@ -434,22 +448,12 @@ func imageResolutionFromSize(rawSize string) string {
 	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 || width > (1<<32)/height {
 		return ""
 	}
-	pixels := width * height
-	switch {
-	case pixels <= 2_000_000:
-		return "1k"
-	case pixels <= 4_300_000:
-		return "2k"
-	case pixels <= 8_294_400:
-		return "4k"
-	default:
-		return ""
-	}
+	return imageResolutionTierForSize(width, height)
 }
 
 func isImageResolutionTier(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1k", "2k", "4k":
+	case "1k", "1.5k", "2k", "4k":
 		return true
 	default:
 		return false
