@@ -52,7 +52,8 @@ function fixture(overrides = {}) {
     };
 }
 
-describe("commit image reuse", () => {
+// Fixtures execute POSIX mock commands; verify on macOS/Linux, not Windows.
+describe.skipIf(process.platform === "win32")("commit image reuse", () => {
     test("reuses the exact existing digest", () => {
         const repo = fixture();
         expect(repo.run("resolve-image.sh", "ghcr.io/fixture/image:sha-test").status).toBe(0);
@@ -76,7 +77,7 @@ describe("commit image reuse", () => {
     });
 });
 
-describe("digest promotion", () => {
+describe.skipIf(process.platform === "win32")("digest promotion", () => {
     test("current main promotes latest and SHA tags using digests", () => {
         const repo = fixture();
         expect(repo.run("promote-image.sh").status).toBe(0);

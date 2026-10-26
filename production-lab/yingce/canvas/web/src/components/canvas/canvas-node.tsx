@@ -1,6 +1,29 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertCircle, BookOpenCheck, CheckCircle2, ChevronRight, Clapperboard, Copy, Download, Image as ImageIcon, Lock, Maximize2, Music2, Pencil, RefreshCw, ScanSearch, Settings2, Star, Trash2, Type, UserRound, Video, WandSparkles } from "lucide-react";
+import {
+    AlertCircle,
+    BookOpenCheck,
+    CheckCircle2,
+    ChevronRight,
+    Clapperboard,
+    Copy,
+    Download,
+    History,
+    Image as ImageIcon,
+    Lock,
+    Maximize2,
+    Music2,
+    Pencil,
+    RefreshCw,
+    ScanSearch,
+    Settings2,
+    Star,
+    Trash2,
+    Type,
+    UserRound,
+    Video,
+    WandSparkles,
+} from "lucide-react";
 
 import { useCanvasNodeActions } from "./canvas-node-action-context";
 import { CanvasImageLayerControls } from "./canvas-image-layer-controls";
@@ -9,6 +32,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import type { CanvasNodeRenderLOD } from "@/lib/canvas/canvas-node-lod";
 import { canvasConnectionTilt } from "@/lib/canvas/canvas-connection-tilt";
 import { storyboardMinNodeHeight } from "@/lib/canvas/canvas-storyboard-layout";
+import { currentMediaVersion, hasMediaVersionHistory } from "@/lib/canvas/canvas-media-versions";
 import { resourceStorageLabel, resourceStorageLocation, resourceStorageTitle } from "@/lib/canvas/resource-storage-status";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId, type Position } from "@/types/canvas";
@@ -19,7 +43,7 @@ import type { NodeResizeCorner } from "@/lib/canvas/node-resize-geometry";
 import { useCanvasNodeResize } from "./use-canvas-node-resize";
 import { useCanvasConnectionTilt } from "./use-canvas-connection-tilt";
 import { useCanvasNodeResizeStyle } from "./canvas-node-resize-motion";
-import { CanvasNodeContent, CanvasNodeImageInfo, CanvasNodeProducedModel } from "./canvas-node-content";
+import { canvasNodeUsesCustomContent, CanvasNodeContent, CanvasNodeImageInfo, CanvasNodeProducedModel } from "./canvas-node-content";
 
 type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
 
@@ -124,7 +148,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(data.title);
-    const { download: downloadNode, duplicate: duplicateNode, deleteNode } = useCanvasNodeActions();
+    const { download: downloadNode, duplicate: duplicateNode, deleteNode, openMediaVersions } = useCanvasNodeActions();
     const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content || data.metadata?.storageKey);
@@ -135,7 +159,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     const showProducedModel = showImageInfo && hasMediaContent && Boolean(producedModelStored);
     const isBatchRoot = (data.type === CanvasNodeType.Image || data.metadata?.mediaStackKind === "video") && Boolean(data.metadata?.isBatchRoot) && (batchCount > 1 || Boolean(data.metadata?.imageLayerGroup) || data.metadata?.mediaStackKind === "video");
     const isBatchChild = data.type === CanvasNodeType.Image && Boolean(data.metadata?.batchRootId);
-    const showStatusTrack = Boolean(resourceLabel || data.metadata?.locked || isBatchRoot || (isBatchChild && !readOnly) || (hasMediaContent && !readOnly));
+    const showVersionBadge = !readOnly && Boolean(openMediaVersions) && hasMediaVersionHistory(data);
+    const showStatusTrack = Boolean(resourceLabel || data.metadata?.locked || isBatchRoot || (isBatchChild && !readOnly) || (hasMediaContent && !readOnly) || showVersionBadge);
     const isActive = isConnectionTarget || isSelected || isFocusRelated;
     const showConnectionRails = !isConnecting && (hovered || isSelected || isFocusRelated);
     const effectiveRenderLOD: CanvasNodeRenderLOD = renderLOD === "full" || hovered || isEditingContent || isEditingTitle || mediaActive ? "full" : renderLOD;
@@ -195,8 +220,7 @@ export const CanvasNode = React.memo(function CanvasNode({
         if (next !== data.title) onTitleChange?.(data.id, next);
     };
 
-    const connectionTilt = isConnectionTarget && !disableMediaEffects && !dragOffset
-        ? canvasConnectionTilt(data, connectionApproach) : undefined;
+    const connectionTilt = isConnectionTarget && !disableMediaEffects && !dragOffset ? canvasConnectionTilt(data, connectionApproach) : undefined;
     useCanvasConnectionTilt(nodeRef, shellRef, connectionTilt);
 
     return (
@@ -223,33 +247,40 @@ export const CanvasNode = React.memo(function CanvasNode({
             onContextMenu={(event) => onContextMenu(event, data.id)}
             onPointerDownCapture={() => resizeMotion?.finishAll()}
         >
-            {showChrome ? <NodeExternalHeader
-                node={data}
-                scale={scale}
-                dimensionLabel={mediaDimensionLabel}
-                active={isSelected || isFocusRelated}
-                editable={!readOnly && !data.metadata?.locked && Boolean(onTitleChange)}
-                editing={isEditingTitle}
-                draft={titleDraft}
-                theme={theme}
-                onDraftChange={setTitleDraft}
-                onEdit={() => setIsEditingTitle(true)}
-                onCommit={commitTitle}
-                onCancel={() => { setTitleDraft(data.title); setIsEditingTitle(false); }}
-            /> : null}
+            {showChrome ? (
+                <NodeExternalHeader
+                    node={data}
+                    scale={scale}
+                    dimensionLabel={mediaDimensionLabel}
+                    active={isSelected || isFocusRelated}
+                    editable={!readOnly && !data.metadata?.locked && Boolean(onTitleChange)}
+                    editing={isEditingTitle}
+                    draft={titleDraft}
+                    theme={theme}
+                    onDraftChange={setTitleDraft}
+                    onEdit={() => setIsEditingTitle(true)}
+                    onCommit={commitTitle}
+                    onCancel={() => {
+                        setTitleDraft(data.title);
+                        setIsEditingTitle(false);
+                    }}
+                />
+            ) : null}
             <div
                 ref={shellRef}
                 className="canvas-node-shell relative h-full w-full overflow-visible rounded-[var(--node-radius)]"
                 data-node-state={nodeState}
                 data-connection-tilt={connectionTilt ? "true" : undefined}
                 data-state={data.metadata?.status || (isActive ? "active" : isRelated ? "related" : "idle")}
-                style={{
-                    background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
-                    // 固定占位但不绘制描边，避免聚焦切换时边框宽度变化造成白边跳动。
-                    border: isComposerNode ? "0" : "1px solid transparent",
-                    boxShadow: isComposerNode || !showChrome ? "none" : isSelected || isFocusRelated ? theme.node.hoverShadow : theme.node.shadow,
-                    outline: !showChrome && isActive ? `1px solid ${theme.node.activeStroke}` : undefined,
-                } as React.CSSProperties}
+                style={
+                    {
+                        background: hasImageContent || hasVideoContent ? "transparent" : theme.node.fill,
+                        // 固定占位但不绘制描边，避免聚焦切换时边框宽度变化造成白边跳动。
+                        border: isComposerNode ? "0" : "1px solid transparent",
+                        boxShadow: isComposerNode || !showChrome ? "none" : isSelected || isFocusRelated ? theme.node.hoverShadow : theme.node.shadow,
+                        outline: !showChrome && isActive ? `1px solid ${theme.node.activeStroke}` : undefined,
+                    } as React.CSSProperties
+                }
                 onMouseDown={(event) => onMouseDown(event, data.id)}
                 onDoubleClick={(event) => {
                     if (isBatchRoot) {
@@ -295,15 +326,18 @@ export const CanvasNode = React.memo(function CanvasNode({
                             "--batch-from-x": `${batchMotion?.x || 0}px`,
                             "--batch-from-y": `${batchMotion?.y || 0}px`,
                             "--batch-from-rotate": `${6 + (batchMotion?.index || 0) * 4}deg`,
-                            animation: isBatchChild && (batchClosing || batchOpening) ? (batchClosing ? `canvas-batch-child-out var(--motion-dur-base-calc) var(--motion-ease-in-out) both` : `canvas-batch-child-in var(--motion-dur-slow-calc) var(--motion-ease-out) both`) : undefined,
+                            animation:
+                                isBatchChild && (batchClosing || batchOpening)
+                                    ? batchClosing
+                                        ? `canvas-batch-child-out var(--motion-dur-base-calc) var(--motion-ease-in-out) both`
+                                        : `canvas-batch-child-in var(--motion-dur-slow-calc) var(--motion-ease-out) both`
+                                    : undefined,
                             animationDelay: isBatchChild && (batchClosing || batchOpening) ? `${batchClosing ? 0 : 45 + (batchMotion?.index || 0) * 24}ms` : undefined,
                         } as React.CSSProperties
                     }
                 >
                     {/* 节点状态徽章（对应 #97 决策2：左上角 loading/success/error，近距离确认信号）*/}
-                    {showChrome && data.metadata?.status && data.metadata.status !== "idle" && data.type !== CanvasNodeType.Frame ? (
-                        <NodeStatusBadge status={data.metadata.status} />
-                    ) : null}
+                    {showChrome && data.metadata?.status && data.metadata.status !== "idle" && data.type !== CanvasNodeType.Frame ? <NodeStatusBadge status={data.metadata.status} /> : null}
                     <CanvasNodeContent
                         node={data}
                         theme={theme}
@@ -341,7 +375,10 @@ export const CanvasNode = React.memo(function CanvasNode({
                             type="button"
                             className="canvas-node-inline-action inline-flex h-9 items-center gap-2 px-3 text-xs font-medium backdrop-blur-xl transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                             style={{ outlineColor: theme.accent.primary }}
-                            onClick={(event) => { event.stopPropagation(); onOpenTextEditor?.(data); }}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onOpenTextEditor?.(data);
+                            }}
                             aria-label="放大编辑文本"
                         >
                             <Maximize2 className="size-3.5" />
@@ -356,25 +393,33 @@ export const CanvasNode = React.memo(function CanvasNode({
                         {hasMediaContent && !readOnly ? <ResourceStorageBadge storageKey={data.metadata?.storageKey} active={isActive} theme={theme} /> : null}
                         {isBatchRoot ? <BatchToggleBadge media={data.type === CanvasNodeType.Video ? "视频" : "图片"} count={batchCount} expanded={batchExpanded} theme={theme} onToggle={() => onToggleBatch?.(data.id)} /> : null}
                         {data.metadata?.imageLayerGroup && !readOnly ? <CanvasImageLayerControls node={data} /> : null}
-                        {isBatchChild && !data.metadata?.imageLayer && !data.metadata?.layerExtraction && !readOnly ? <BatchPrimaryBadge visible={batchPrimary || hovered || isSelected} selected={batchPrimary} theme={theme} onSelect={() => onSetBatchPrimary?.(data)} /> : null}
+                        {isBatchChild && !data.metadata?.imageLayer && !data.metadata?.layerExtraction && !readOnly ? (
+                            <BatchPrimaryBadge visible={batchPrimary || hovered || isSelected} selected={batchPrimary} theme={theme} onSelect={() => onSetBatchPrimary?.(data)} />
+                        ) : null}
+                        {showVersionBadge ? <MediaVersionBadge node={data} theme={theme} onOpen={() => openMediaVersions?.(data)} /> : null}
                         {data.metadata?.locked ? <NodeLockBadge theme={theme} /> : null}
                     </div>
                 ) : null}
                 {/* 批次子图操作条：成功子项提供下载/副本/设为主图，失败子项提供重试/删除 */}
                 {showChrome && isBatchChild && !readOnly && (hasImageContent || data.metadata?.status === "error") && (hovered || isSelected) ? (
-                    <div
-                        className="absolute inset-x-0 bottom-2 z-[var(--node-z-overlay)] flex justify-center"
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                    >
+                    <div className="absolute inset-x-0 bottom-2 z-[var(--node-z-overlay)] flex justify-center" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
                         <div className="flex items-center gap-0.5 rounded-[var(--r-md)] border px-1 py-1 backdrop-blur-xl" style={{ background: `${theme.toolbar.panel}e6`, borderColor: theme.toolbar.border }}>
                             {hasImageContent ? <BatchChildActionButton theme={theme} label="下载图片" icon={<Download className="size-3.5" />} onClick={() => downloadNode?.(data)} /> : null}
                             {hasImageContent ? <BatchChildActionButton theme={theme} label="创建副本" icon={<Copy className="size-3.5" />} onClick={() => duplicateNode?.(data)} /> : null}
                             {hasImageContent && !data.metadata?.imageLayer && !data.metadata?.layerExtraction ? (
-                                <BatchChildActionButton theme={theme} label={batchPrimary ? "当前主图" : "设为主图"} icon={<Star className={`size-3.5 ${batchPrimary ? "fill-current" : ""}`} style={{ color: theme.accent.primary }} />} onClick={() => onSetBatchPrimary?.(data)} />
+                                <BatchChildActionButton
+                                    theme={theme}
+                                    label={batchPrimary ? "当前主图" : "设为主图"}
+                                    icon={<Star className={`size-3.5 ${batchPrimary ? "fill-current" : ""}`} style={{ color: theme.accent.primary }} />}
+                                    onClick={() => onSetBatchPrimary?.(data)}
+                                />
                             ) : null}
-                            {data.metadata?.status === "error" && data.metadata.resourceReloadAvailable ? <BatchChildActionButton theme={theme} label="重新加载资源" icon={<Download className="size-3.5" />} onClick={() => onReloadResource?.(data)} /> : null}
-                            {data.metadata?.status === "error" ? <BatchChildActionButton theme={theme} label={data.metadata?.taskCanRecoverMedia ? "重试保存" : "重新生成"} icon={<RefreshCw className="size-3.5" />} onClick={() => onRetry?.(data)} /> : null}
+                            {data.metadata?.status === "error" && data.metadata.resourceReloadAvailable ? (
+                                <BatchChildActionButton theme={theme} label="重新加载资源" icon={<Download className="size-3.5" />} onClick={() => onReloadResource?.(data)} />
+                            ) : null}
+                            {data.metadata?.status === "error" ? (
+                                <BatchChildActionButton theme={theme} label={data.metadata?.taskCanRecoverMedia ? "重试保存" : "重新生成"} icon={<RefreshCw className="size-3.5" />} onClick={() => onRetry?.(data)} />
+                            ) : null}
                             {data.metadata?.status === "error" ? <BatchChildActionButton theme={theme} label="删除" icon={<Trash2 className="size-3.5" />} danger onClick={() => deleteNode?.(data)} /> : null}
                         </div>
                     </div>
@@ -395,17 +440,22 @@ export const CanvasNode = React.memo(function CanvasNode({
                     </div>
                 ) : null}
 
-                {showChrome && !readOnly && !data.metadata?.locked && (isSelected || hovered) ? <>
-                    <ResizeHandle corner="top-left" onPointerDown={handleResizePointerDown} />
-                    <ResizeHandle corner="top-right" onPointerDown={handleResizePointerDown} />
-                    <ResizeHandle corner="bottom-left" onPointerDown={handleResizePointerDown} />
-                    <ResizeHandle corner="bottom-right" onPointerDown={handleResizePointerDown} />
-                </> : null}
+                {showChrome && !readOnly && !data.metadata?.locked && (isSelected || hovered) ? (
+                    <>
+                        <ResizeHandle corner="top-left" onPointerDown={handleResizePointerDown} />
+                        <ResizeHandle corner="top-right" onPointerDown={handleResizePointerDown} />
+                        <ResizeHandle corner="bottom-left" onPointerDown={handleResizePointerDown} />
+                        <ResizeHandle corner="bottom-right" onPointerDown={handleResizePointerDown} />
+                    </>
+                ) : null}
             </div>
 
-            {(showChrome || forceInputMounted) && !readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.BatchTable ? <ConnectionSideRail side="left" scale={scale} theme={theme} visible={showConnectionRails} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "target", undefined, anchorRatio)} /> : null}
-            {showChrome && !readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.Config && showOutputConnection ? <ConnectionSideRail side="right" scale={scale} theme={theme} visible={showConnectionRails} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "source", undefined, anchorRatio)} /> : null}
-
+            {(showChrome || forceInputMounted) && !readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.BatchTable ? (
+                <ConnectionSideRail side="left" scale={scale} theme={theme} visible={showConnectionRails} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "target", undefined, anchorRatio)} />
+            ) : null}
+            {showChrome && !readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.Config && showOutputConnection ? (
+                <ConnectionSideRail side="right" scale={scale} theme={theme} visible={showConnectionRails} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "source", undefined, anchorRatio)} />
+            ) : null}
         </div>
     );
 }, areCanvasNodePropsEqual);
@@ -431,7 +481,8 @@ function areCanvasNodePropsEqual(previous: CanvasNodeProps, next: CanvasNodeProp
         previous.readOnly === next.readOnly &&
         previous.resourceLabel === next.resourceLabel &&
         previous.mentionReferences === next.mentionReferences &&
-        previous.renderNodeContent === next.renderNodeContent &&
+        // 页面级 renderNodeContent 随任意业务状态重建；图片/视频/文本节点不调用它，比较它会让整屏节点陪跑重渲染。
+        (previous.renderNodeContent === next.renderNodeContent || !canvasNodeUsesCustomContent(next.data)) &&
         previous.drawingProjectId === next.drawingProjectId &&
         previous.batchCount === next.batchCount &&
         previous.batchPreviewNodes === next.batchPreviewNodes &&
@@ -466,7 +517,11 @@ function areCanvasNodePropsEqual(previous: CanvasNodeProps, next: CanvasNodeProp
 
 function ResourceLabelBadge({ reference, theme }: { reference: CanvasResourceReference; theme: CanvasTheme }) {
     return (
-        <span className="pointer-events-none min-w-0 max-w-28 truncate rounded-md px-1.5 py-1 text-[var(--fs-tiny)] font-medium leading-none" style={{ background: reference.active ? theme.accent.primary : "rgba(0,0,0,.35)", color: reference.active ? theme.accent.onPrimary : "#ffffff", opacity: reference.active ? 1 : 0.75 }} title={reference.title || reference.label}>
+        <span
+            className="pointer-events-none min-w-0 max-w-28 truncate rounded-md px-2 py-1 text-[var(--fs-tiny)] font-medium leading-none"
+            style={{ background: reference.active ? theme.accent.primary : "rgba(0,0,0,.35)", color: reference.active ? theme.accent.onPrimary : "#ffffff", opacity: reference.active ? 1 : 0.75 }}
+            title={reference.title || reference.label}
+        >
             {reference.label}
         </span>
     );
@@ -476,20 +531,69 @@ function ResourceStorageBadge({ storageKey, active, theme }: { storageKey?: stri
     const location = resourceStorageLocation(storageKey);
     const background = active ? (location === "local" ? "rgba(245,158,11,.9)" : theme.accent.primary) : "rgba(0,0,0,.35)";
     return (
-        <span className="pointer-events-auto shrink-0 rounded-md px-1.5 py-1 text-[var(--fs-tiny)] font-medium leading-none" style={{ background, color: active && location !== "local" ? theme.accent.onPrimary : "#ffffff", opacity: active ? 1 : 0.75 }} title={resourceStorageTitle(storageKey)}>
+        <span
+            className="pointer-events-auto shrink-0 rounded-md px-2 py-1 text-[var(--fs-tiny)] font-medium leading-none"
+            style={{ background, color: active && location !== "local" ? theme.accent.onPrimary : "#ffffff", opacity: active ? 1 : 0.75 }}
+            title={resourceStorageTitle(storageKey)}
+        >
             {resourceStorageLabel(storageKey)}
         </span>
     );
 }
 
+function MediaVersionBadge({ node, theme, onOpen }: { node: CanvasNodeData; theme: CanvasTheme; onOpen: () => void }) {
+    const total = node.metadata?.mediaVersions?.length || 0;
+    const current = currentMediaVersion(node);
+    const label = current ? `当前 V${current.number}，共 ${total} 个版本，打开版本历史` : `共 ${total} 个历史版本，打开版本历史`;
+    return (
+        <button
+            type="button"
+            className="canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-semibold tabular-nums backdrop-blur-md"
+            style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }}
+            title={label}
+            aria-label={label}
+            onClick={(event) => {
+                event.stopPropagation();
+                onOpen();
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            <History className="size-3 opacity-70" />
+            <span className="leading-none">
+                {current ? `V${current.number}` : "V–"}
+                <span className="opacity-50">/{total}</span>
+            </span>
+        </button>
+    );
+}
+
 function NodeLockBadge({ theme }: { theme: CanvasTheme }) {
-    return <span className="pointer-events-none grid size-7 shrink-0 place-items-center rounded-md border backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.muted }} title="节点已锁定"><Lock className="size-3.5" /></span>;
+    return (
+        <span className="pointer-events-none grid size-7 shrink-0 place-items-center rounded-md border backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.muted }} title="节点已锁定">
+            <Lock className="size-3.5" />
+        </span>
+    );
 }
 
 function BatchToggleBadge({ count, expanded, theme, onToggle, media = "图片" }: { media?: string; count: number; expanded: boolean; theme: CanvasTheme; onToggle: () => void }) {
     return (
-        <button type="button" className="canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-semibold backdrop-blur-md" style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }} aria-expanded={expanded} aria-label={expanded ? `收起${media}组` : `展开${media}组`} onClick={(event) => { event.stopPropagation(); onToggle(); }} onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
-            <span className="leading-none" style={{ color: theme.accent.primary }}>{count}</span>
+        <button
+            type="button"
+            className="canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-semibold backdrop-blur-md"
+            style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }}
+            aria-expanded={expanded}
+            aria-label={expanded ? `收起${media}组` : `展开${media}组`}
+            onClick={(event) => {
+                event.stopPropagation();
+                onToggle();
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            <span className="leading-none" style={{ color: theme.accent.primary }}>
+                {count}
+            </span>
             <ChevronRight className={`size-3 opacity-55 transition-transform ${expanded ? "rotate-90" : ""}`} />
         </button>
     );
@@ -497,7 +601,19 @@ function BatchToggleBadge({ count, expanded, theme, onToggle, media = "图片" }
 
 function BatchPrimaryBadge({ visible, selected, theme, onSelect }: { visible: boolean; selected: boolean; theme: CanvasTheme; onSelect: () => void }) {
     return (
-        <button type="button" className={`canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-medium backdrop-blur-md transition-opacity ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`} style={{ background: theme.toolbar.panel, borderColor: selected ? theme.accent.primary : theme.toolbar.border, color: selected ? theme.accent.primary : theme.node.text }} aria-label={selected ? "当前主图" : "设置为主图"} aria-pressed={selected} onClick={(event) => { event.stopPropagation(); onSelect(); }} onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+        <button
+            type="button"
+            className={`canvas-node-tool-button inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[var(--fs-tiny)] font-medium backdrop-blur-md transition-opacity ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
+            style={{ background: theme.toolbar.panel, borderColor: selected ? theme.accent.primary : theme.toolbar.border, color: selected ? theme.accent.primary : theme.node.text }}
+            aria-label={selected ? "当前主图" : "设置为主图"}
+            aria-pressed={selected}
+            onClick={(event) => {
+                event.stopPropagation();
+                onSelect();
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
             <Star className={`size-3 ${selected ? "fill-current" : ""}`} style={{ color: theme.accent.primary }} />
             {selected ? "当前主图" : "主图"}
         </button>
@@ -513,7 +629,10 @@ function BatchChildActionButton({ theme, label, icon, onClick, danger = false }:
             style={{ color: danger ? theme.accent.danger : theme.node.text, outlineColor: theme.accent.primary }}
             title={label}
             aria-label={label}
-            onClick={(event) => { event.stopPropagation(); onClick(); }}
+            onClick={(event) => {
+                event.stopPropagation();
+                onClick();
+            }}
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
@@ -528,7 +647,7 @@ function AssetTagBadges({ tags, theme }: { tags: string[]; theme: (typeof canvas
             {tags.map((tag, index) => (
                 <span
                     key={`${tag}-${index}`}
-                    className="max-w-full truncate rounded-md border px-1.5 py-1 text-[var(--fs-tiny)] font-medium leading-none backdrop-blur-sm"
+                    className="max-w-full truncate rounded-md border px-2 py-1 text-[var(--fs-tiny)] font-medium leading-none backdrop-blur-sm"
                     style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
                 >
                     {tag.trim()}
@@ -558,7 +677,20 @@ function formatMediaDimensionLabel(node: CanvasNodeData, hasVisualMediaContent: 
     return `${Math.round(width)}*${Math.round(height)}`;
 }
 
-function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, editing, draft, theme, onDraftChange, onEdit, onCommit, onCancel }: {
+function NodeExternalHeader({
+    node,
+    scale,
+    dimensionLabel,
+    active,
+    editable,
+    editing,
+    draft,
+    theme,
+    onDraftChange,
+    onEdit,
+    onCommit,
+    onCancel,
+}: {
     node: CanvasNodeData;
     scale: number;
     dimensionLabel: string | null;
@@ -581,17 +713,19 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
     return (
         <div
             className="canvas-node-external-header absolute bottom-full left-0 z-[var(--node-z-overlay)] flex h-6 items-center gap-1 overflow-hidden"
-            style={{
-                width: dimensionLabel ? "calc(var(--canvas-node-width) * var(--canvas-live-scale, 1))" : undefined,
-                maxWidth: dimensionLabel ? undefined : maxHeaderWidth,
-                "--canvas-node-width": `${node.width}px`,
-                borderRadius: "var(--r-sm)",
-                background: "transparent",
-                paddingInline: "0",
-                color: active ? theme.node.text : theme.node.label,
-                transform: `scale(var(--canvas-live-inverse-scale, ${inverseScale}))`,
-                transformOrigin: "left bottom",
-            } as React.CSSProperties}
+            style={
+                {
+                    width: dimensionLabel ? "calc(var(--canvas-node-width) * var(--canvas-live-scale, 1))" : undefined,
+                    maxWidth: dimensionLabel ? undefined : maxHeaderWidth,
+                    "--canvas-node-width": `${node.width}px`,
+                    borderRadius: "var(--r-sm)",
+                    background: "transparent",
+                    paddingInline: "0",
+                    color: active ? theme.node.text : theme.node.label,
+                    transform: `scale(var(--canvas-live-inverse-scale, ${inverseScale}))`,
+                    transformOrigin: "left bottom",
+                } as React.CSSProperties
+            }
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
@@ -601,7 +735,8 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
                     <input
                         autoFocus
                         value={draft}
-                        className="h-6 min-w-20 max-w-[190px] flex-1 truncate rounded bg-transparent px-1.5 text-xs font-medium outline-none"
+                        readOnly={!editable}
+                        className="h-6 min-w-20 max-w-[190px] flex-1 truncate rounded bg-transparent px-2 text-xs font-medium outline-none"
                         style={{ background: "transparent", color: theme.node.text }}
                         onChange={(event) => onDraftChange(event.target.value)}
                         onFocus={(event) => event.currentTarget.select()}
@@ -613,15 +748,29 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
                         aria-label="节点名称"
                     />
                 ) : editable ? (
-                    <button type="button" className="group flex min-w-0 flex-1 items-center gap-1 rounded px-0.5 text-xs font-medium outline-none transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1" style={{ opacity: active ? 1 : 0.78, outlineColor: theme.node.muted }} onClick={onEdit} aria-label={`编辑节点名称：${node.title}`}>
-                        <span className="min-w-0 flex-1 truncate" title={node.title}>{node.title}</span>
+                    <button
+                        type="button"
+                        className="group flex min-w-0 flex-1 items-center gap-1 rounded px-0.5 text-xs font-medium outline-none transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1"
+                        style={{ opacity: active ? 1 : 0.78, outlineColor: theme.node.muted }}
+                        onClick={onEdit}
+                        aria-label={`编辑节点名称：${node.title}`}
+                    >
+                        <span className="min-w-0 flex-1 truncate" title={node.title}>
+                            {node.title}
+                        </span>
                         <Pencil className="size-2.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-100" />
                     </button>
                 ) : (
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium" title={node.title} style={{ opacity: active ? 1 : 0.78 }}>{node.title}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium" title={node.title} style={{ opacity: active ? 1 : 0.78 }}>
+                        {node.title}
+                    </span>
                 )}
             </div>
-            {dimensionLabel ? <span className="ml-auto shrink-0 whitespace-nowrap text-[var(--fs-micro)] font-medium leading-none tabular-nums" style={{ color: theme.node.muted }}>{dimensionLabel}</span> : null}
+            {dimensionLabel ? (
+                <span className="ml-auto shrink-0 whitespace-nowrap text-[var(--fs-micro)] font-medium leading-none tabular-nums" style={{ color: theme.node.muted }}>
+                    {dimensionLabel}
+                </span>
+            ) : null}
         </div>
     );
 }
@@ -735,7 +884,7 @@ function ConnectionSideRail({ side, scale, theme, visible, onPointerDown }: { si
         >
             <span
                 ref={handleRef}
-                className="absolute left-1/2 top-1/2 block transition-transform duration-[80ms] ease-out group-hover:brightness-125 group-focus-visible:brightness-125"
+                className="absolute left-1/2 top-1/2 block transition-transform duration-150 ease-out group-hover:brightness-125 group-focus-visible:brightness-125"
                 style={{
                     width: handleSize,
                     height: handleSize,

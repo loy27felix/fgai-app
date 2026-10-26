@@ -63,10 +63,11 @@ test.each([
         submitted++;
     });
     expect(submitted).toBe(1);
-    const preallocatedEmptyTarget = !existing;
+    const preallocatedEmptyTarget = true;
     expect(nodes).toHaveLength(preallocatedEmptyTarget ? 2 : 3);
     const output = nodes.find((node) => node.id === targets[0])!;
     expect(output.parentId).toBe("frame");
+    if (existing) expect(output.metadata?.mediaVersions?.some((v) => v.media.storageKey === source.metadata?.storageKey && v.media.content === source.metadata?.content)).toBe(true);
     if (preallocatedEmptyTarget) expect(output.position).toEqual(source.position);
     if (preallocatedEmptyTarget) expect(output.id).toBe(source.id);
     else expect(output.id).not.toBe(source.id);

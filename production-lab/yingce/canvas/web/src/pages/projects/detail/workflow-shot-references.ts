@@ -90,7 +90,7 @@ export function assertShotCharacterCoverage(prompt: string, context: ShotAssetRe
 }
 
 export function stableShotReferences(references: ShotAssetReference[]) {
-    return references.slice().sort((a, b) => (Date.parse(a.createdAt) - Date.parse(b.createdAt)) || a.id.localeCompare(b.id));
+    return references.slice().sort((a, b) => ((Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0)) || String(a.id || a.assetVersionId || "").localeCompare(String(b.id || b.assetVersionId || "")));
 }
 
 export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: string): ShotAssetReferenceContext {

@@ -22,6 +22,8 @@ const REASON_MESSAGES: Record<string, string> = {
     model_catalog_mismatch: "模型配置已更新，请重新选择模型后再试。",
     invalid_model_selection: "模型选择无效，请重新选择模型后再试。",
     quota_exceeded: "积分或额度不足，请充值后再试。",
+    storage_capacity_exceeded: "账号存储空间不足，请清理素材或购买存储空间后再试。",
+    storage_read_only: "账号已超出存储容量且宽限期已结束，当前为只读状态。请删除素材或购买存储空间。",
     rate_limited: "请求过于频繁，请稍后再试。",
     timeout: "模型服务响应超时，请稍后再试。",
     bad_gateway: "模型服务暂时不可用，请稍后再试。",
@@ -68,6 +70,13 @@ export function generationErrorMessage(error: unknown) {
     const upstreamIndex = original.indexOf("；上游：");
     if (upstreamIndex >= 0) {
         const prefix = original.slice(0, upstreamIndex).trim();
+        const detail = original.slice(upstreamIndex + "；上游：".length).trim();
+        // Preserve useful provider refusal prose, while technical payloads and addresses
+        // still go through the generic/redacted path below.
+        if (detail.length <= 500 && /[\u4e00-\u9fff]{2}/.test(detail) && /防护限制|请重试或修改|内容限制/.test(detail) && !/https?:|\b(?:bearer|token|api[_-]?key)\b|[{}<>]|(?:\d{1,3}\.){3}\d{1,3}/i.test(detail)) {
+            return `${isContentModerationError(prefix) ? CONTENT_MODERATION_MESSAGE : redactUpstreamAddress(prefix)}；上游：${detail}`;
+        }
+        if (/^https?:\/\//i.test(detail)) return NETWORK_ERROR_MESSAGE;
         if (isContentModerationError(prefix)) return CONTENT_MODERATION_MESSAGE;
         const hint = actionableUpstreamReason(original.slice(upstreamIndex + "；上游：".length));
         if (hint) return sanitizeUserVisibleError(prefix ? `${prefix}；${hint}` : hint);

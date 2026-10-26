@@ -172,6 +172,9 @@ func pythonCommandOutsideLocalOnly(document string) string {
 
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
+	if root := os.Getenv("CANVAS_TEST_REPO_ROOT"); root != "" {
+		return root
+	}
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("cannot locate test source for repository-relative tool checks")

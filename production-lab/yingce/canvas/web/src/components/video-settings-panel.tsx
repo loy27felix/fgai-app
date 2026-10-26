@@ -32,12 +32,12 @@ type VideoSettingsPanelProps = {
 export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[292px] space-y-3", referenceOperation }: VideoSettingsPanelProps) {
     const originalProfile = modelCapabilityConfigFor(config, config.model).video!;
     const profile = videoRequiresAdaptiveFrameRatio(config.model, referenceOperation) ? { ...originalProfile, ratios: ["adaptive"] } : originalProfile;
-	const priceTiers = modelPriceTiers(config);
+    const priceTiers = modelPriceTiers(config);
     if (resolveModelRequestConfig(config, config.model).interfaceType === "volcengine-jimeng-video") {
-		return <JiMengVideoSettingsPanel config={config} profile={profile} priceTiers={priceTiers} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+        return <JiMengVideoSettingsPanel config={config} profile={profile} priceTiers={priceTiers} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
     if (isSeedanceVideoConfig(config)) {
-		return <SeedanceVideoSettingsPanel config={config} profile={profile} priceTiers={priceTiers} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+        return <SeedanceVideoSettingsPanel config={config} profile={profile} priceTiers={priceTiers} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 
     const seconds = normalizeVideoDuration(config.videoSeconds);
@@ -54,18 +54,30 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-sm font-semibold">视频设置</div> : null}
                 {sizeSupported ? <RatioCards values={profile.ratios} value={ratio} theme={theme} onChange={(value) => onConfigChange("size", value)} /> : null}
-                {configuredResolutions.length ? <SettingGroup title="清晰度" color={theme.node.muted}>
-                    <div className="grid grid-cols-2 gap-2">
-                        {configuredResolutions.map((item) => (
-							<OptionPill key={item.value} selected={isVideoResolutionMatch(resolution, item.value)} disabled={!hasPriceTierForVideoSelection(priceTiers, item.value, Number(seconds))} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
-                                {item.label}
-                            </OptionPill>
-                        ))}
+                {configuredResolutions.length ? (
+                    <SettingGroup title="清晰度" color={theme.node.muted}>
+                        <div className="grid grid-cols-2 gap-2">
+                            {configuredResolutions.map((item) => (
+                                <OptionPill
+                                    key={item.value}
+                                    selected={isVideoResolutionMatch(resolution, item.value)}
+                                    disabled={!hasPriceTierForVideoSelection(priceTiers, item.value, Number(seconds))}
+                                    theme={theme}
+                                    onClick={() => onConfigChange("vquality", item.value)}
+                                >
+                                    {item.label}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </SettingGroup>
+                ) : null}
+                {dimensions ? (
+                    <div className="text-[var(--fs-tiny)] tabular-nums" style={{ color: theme.node.muted }}>
+                        输出尺寸 {dimensions.width} × {dimensions.height}
                     </div>
-                </SettingGroup> : null}
-                {dimensions ? <div className="text-[var(--fs-tiny)] tabular-nums" style={{ color: theme.node.muted }}>输出尺寸 {dimensions.width} × {dimensions.height}</div> : null}
+                ) : null}
                 <SettingGroup title="视频时长" color={theme.node.muted}>
-					<VideoDurationControl profile={profile} value={Number(seconds)} theme={theme} disabled={(value) => !hasPriceTierForVideoSelection(priceTiers, resolution, value)} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                    <VideoDurationControl profile={profile} value={Number(seconds)} theme={theme} disabled={(value) => !hasPriceTierForVideoSelection(priceTiers, resolution, value)} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 </SettingGroup>
                 {profile.generateAudio.supported ? <AudioControl checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} /> : null}
                 {profile.watermark.supported ? <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} /> : null}
@@ -82,7 +94,7 @@ function JiMengVideoSettingsPanel({ config, profile, priceTiers, onConfigChange,
                 {showTitle ? <div className="text-sm font-semibold">视频设置</div> : null}
                 <RatioCards values={profile.ratios} value={config.size} theme={theme} onChange={(value) => onConfigChange("size", value)} />
                 <SettingGroup title="视频时长" color={theme.node.muted}>
-					<VideoDurationControl profile={profile} value={Number(seconds)} theme={theme} disabled={(value) => !hasPriceTierForVideoSelection(priceTiers, "*", value)} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                    <VideoDurationControl profile={profile} value={Number(seconds)} theme={theme} disabled={(value) => !hasPriceTierForVideoSelection(priceTiers, "*", value)} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 </SettingGroup>
             </div>
         </ImageSettingsTheme>
@@ -108,7 +120,7 @@ function SeedanceVideoSettingsPanel({ config, profile, priceTiers, onConfigChang
                     <div className="grid grid-cols-2 gap-2">
                         {profile.resolutions.map((value) => {
                             const item = { value, label: value.toUpperCase() };
-							const disabled = (item.value === "1080p" && isSeedanceFastModel(model)) || !hasPriceTierForVideoSelection(priceTiers, item.value, duration);
+                            const disabled = (item.value === "1080p" && isSeedanceFastModel(model)) || !hasPriceTierForVideoSelection(priceTiers, item.value, duration);
                             return (
                                 <OptionPill key={item.value} selected={resolution === item.value} disabled={disabled} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                     {item.label}
@@ -119,7 +131,7 @@ function SeedanceVideoSettingsPanel({ config, profile, priceTiers, onConfigChang
                     {isSeedanceFastModel(model) ? <div className="text-[var(--fs-tiny)] leading-4 opacity-55">fast 模型自动使用 720P</div> : null}
                 </SettingGroup>
                 <SettingGroup title="视频时长" color={theme.node.muted}>
-					<VideoDurationControl profile={profile} value={duration} theme={theme} disabled={(value) => !hasPriceTierForVideoSelection(priceTiers, resolution, value)} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                    <VideoDurationControl profile={profile} value={duration} theme={theme} disabled={(value) => !hasPriceTierForVideoSelection(priceTiers, resolution, value)} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 </SettingGroup>
                 {profile.generateAudio.supported ? <AudioControl checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} /> : null}
                 {profile.watermark.supported ? <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} /> : null}
@@ -161,7 +173,16 @@ export function normalizeVideoSizeValue(value: string) {
 
 function OptionPill({ selected, disabled = false, label, theme, onClick, children }: { selected: boolean; disabled?: boolean; label?: string; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
     return (
-        <button type="button" disabled={disabled} aria-label={label} aria-pressed={selected} className="h-8 cursor-pointer whitespace-nowrap rounded-lg border px-1 text-[var(--fs-label)] font-medium leading-none transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-35" style={{ background: selected ? theme.toolbar.activeBg : "transparent", borderColor: selected ? theme.node.text : theme.toolbar.border, color: selected ? theme.node.text : theme.node.muted, outlineColor: theme.node.muted }} onMouseDown={(event) => event.stopPropagation()} onClick={onClick}>
+        <button
+            type="button"
+            disabled={disabled}
+            aria-label={label}
+            aria-pressed={selected}
+            className="h-8 cursor-pointer whitespace-nowrap rounded-lg border px-1 text-[var(--fs-label)] font-medium leading-none transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-35"
+            style={{ background: selected ? theme.toolbar.activeBg : "transparent", borderColor: selected ? theme.node.text : theme.toolbar.border, color: selected ? theme.node.text : theme.node.muted, outlineColor: theme.node.muted }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={onClick}
+        >
             {children}
         </button>
     );
@@ -169,7 +190,7 @@ function OptionPill({ selected, disabled = false, label, theme, onClick, childre
 
 function SettingGroup({ title, color, children }: { title: string; color: string; children: ReactNode }) {
     return (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
             <div className="text-[var(--fs-tiny)] font-semibold" style={{ color }}>
                 {title}
             </div>
@@ -202,7 +223,9 @@ function DurationInput({ value, min, max, theme, normalize, onChange }: { value:
                 }}
                 onMouseDown={(event) => event.stopPropagation()}
             />
-            <span className="shrink-0 px-1.5" style={{ color: theme.node.muted }}>秒</span>
+            <span className="shrink-0 px-2" style={{ color: theme.node.muted }}>
+                秒
+            </span>
         </label>
     );
 }
@@ -212,31 +235,42 @@ function VideoDurationControl({ profile, value, theme, disabled, onChange }: { p
     if (options.length > 4 || (profile.duration.selection === "range" && options.length > 1)) {
         return <DurationRangeControl value={value} options={options} theme={theme} onChange={onChange} />;
     }
-    if (!options.length) return <div className="text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>所选清晰度暂无可用时长</div>;
-    return <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 4)}, minmax(0, 1fr))` }}>
-		{options.map((option) => <OptionPill key={option} selected={normalizedNumber(value) === option} disabled={disabled?.(option)} theme={theme} onClick={() => onChange(option)}>{option}s</OptionPill>)}
-    </div>;
+    if (!options.length)
+        return (
+            <div className="text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
+                所选清晰度暂无可用时长
+            </div>
+        );
+    return (
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 4)}, minmax(0, 1fr))` }}>
+            {options.map((option) => (
+                <OptionPill key={option} selected={normalizedNumber(value) === option} disabled={disabled?.(option)} theme={theme} onClick={() => onChange(option)}>
+                    {option}s
+                </OptionPill>
+            ))}
+        </div>
+    );
 }
 
 function modelPriceTiers(config: AiConfig) {
-	const channel = resolveModelChannel(config, config.model);
-	const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(config.model));
-	return cost?.logicalPriceTiers || [];
+    const channel = resolveModelChannel(config, config.model);
+    const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(config.model));
+    return cost?.logicalPriceTiers || [];
 }
 
 function hasPriceTierForVideoSelection(tiers: ReturnType<typeof modelPriceTiers>, resolution: string, seconds: number) {
-	if (!tiers.length) return true;
-	const normalizedResolution = normalizeTierResolution(resolution);
-	return tiers.some((tier) => {
-		const selector = tier.selector || {};
-		const tierResolution = selector.vquality || tier.resolution;
-		const tierSeconds = selector.videoSeconds ? Number(selector.videoSeconds) : tier.videoSeconds;
-		return (tierResolution === "*" || !tierResolution || normalizeTierResolution(tierResolution) === normalizedResolution) && (!tierSeconds || tierSeconds === seconds);
-	});
+    if (!tiers.length) return true;
+    const normalizedResolution = normalizeTierResolution(resolution);
+    return tiers.some((tier) => {
+        const selector = tier.selector || {};
+        const tierResolution = selector.vquality || tier.resolution;
+        const tierSeconds = selector.videoSeconds ? Number(selector.videoSeconds) : tier.videoSeconds;
+        return (tierResolution === "*" || !tierResolution || normalizeTierResolution(tierResolution) === normalizedResolution) && (!tierSeconds || tierSeconds === seconds);
+    });
 }
 
 function normalizeTierResolution(value: string) {
-	return videoResolutionComparisonKey(value);
+    return videoResolutionComparisonKey(value);
 }
 
 function DurationRangeControl({ value, options, theme, onChange }: { value: number; options: number[]; theme: CanvasTheme; onChange: (value: number) => void }) {
@@ -244,29 +278,31 @@ function DurationRangeControl({ value, options, theme, onChange }: { value: numb
     const max = options[options.length - 1]!;
     const interval = options[1]! - min;
     const regular = options.every((option, index) => option === min + index * interval);
-    const normalize = (candidate: number) => options.reduce((nearest, option) => Math.abs(option - candidate) < Math.abs(nearest - candidate) ? option : nearest, min);
+    const normalize = (candidate: number) => options.reduce((nearest, option) => (Math.abs(option - candidate) < Math.abs(nearest - candidate) ? option : nearest), min);
     const normalized = normalize(Number.isFinite(value) ? value : min);
     const marks = regular ? undefined : Object.fromEntries(options.map((option) => [option, { label: null }]));
-    return <div className="space-y-1.5">
-        <div className="flex min-w-0 items-center gap-2">
-            <Slider
-                min={min}
-                max={max}
-                step={regular ? interval : null}
-                marks={marks}
-                value={normalized}
-                ariaLabelForHandle="视频时长（秒）"
-                tooltip={{ formatter: (seconds) => `${seconds} 秒` }}
-                className="!mx-1 !my-3 min-w-0 flex-1"
-                onChange={(next) => onChange(normalize(next))}
-            />
-            <DurationInput value={normalized} min={min} max={max} theme={theme} normalize={normalize} onChange={onChange} />
+    return (
+        <div className="space-y-2">
+            <div className="flex min-w-0 items-center gap-2">
+                <Slider
+                    min={min}
+                    max={max}
+                    step={regular ? interval : null}
+                    marks={marks}
+                    value={normalized}
+                    ariaLabelForHandle="视频时长（秒）"
+                    tooltip={{ formatter: (seconds) => `${seconds} 秒` }}
+                    className="!mx-1 !my-3 min-w-0 flex-1"
+                    onChange={(next) => onChange(normalize(next))}
+                />
+                <DurationInput value={normalized} min={min} max={max} theme={theme} normalize={normalize} onChange={onChange} />
+            </div>
+            <div className="flex justify-between px-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
+                <span>{min}s</span>
+                <span>{max}s</span>
+            </div>
         </div>
-        <div className="flex justify-between px-0.5 text-[var(--fs-tiny)]" style={{ color: theme.node.muted }}>
-            <span>{min}s</span>
-            <span>{max}s</span>
-        </div>
-    </div>;
+    );
 }
 
 function normalizedNumber(value: number) {
@@ -278,7 +314,7 @@ function SizePreview({ width, height, color }: { width: number; height: number; 
     const longSide = Math.max(width, height);
     const previewWidth = Math.max(7, Math.round((width / longSide) * 16));
     const previewHeight = Math.max(7, Math.round((height / longSide) * 16));
-    return <span className="shrink-0 rounded-[2px] border" style={{ width: previewWidth, height: previewHeight, borderColor: color }} />;
+    return <span className="shrink-0 rounded-[4px] border" style={{ width: previewWidth, height: previewHeight, borderColor: color }} />;
 }
 
 function ratioPreview(ratio: string) {
@@ -294,31 +330,48 @@ function ratioPreview(ratio: string) {
 function RatioCards({ values, value, theme, onChange }: { values: string[]; value: string; theme: CanvasTheme; onChange: (value: string) => void }) {
     const order = ["adaptive", "auto", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"];
     const sorted = [...values].sort((left, right) => (order.indexOf(left) < 0 ? order.length : order.indexOf(left)) - (order.indexOf(right) < 0 ? order.length : order.indexOf(right)));
-    return <SettingGroup title="比例" color={theme.node.muted}>
-        <div className="grid grid-cols-5 gap-2">
-            {sorted.map((option) => {
-                const automatic = option === "adaptive" || option === "auto";
-                const selected = value === option;
-                const preview = automatic ? { width: 16, height: 9 } : ratioPreview(option);
-                return <button key={option} type="button" aria-label={`视频比例 ${option}`} aria-pressed={selected}
-                    className="flex h-16 min-w-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border px-1 text-[var(--fs-tiny)] leading-none transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1"
-                    style={{ background: selected ? theme.toolbar.activeBg : "transparent", borderColor: selected ? theme.node.text : theme.toolbar.border, color: selected ? theme.node.text : theme.node.muted, outlineColor: theme.node.muted }}
-                    onClick={() => onChange(option)}>
-                    <span className="grid h-4 place-items-center"><SizePreview width={preview.width} height={preview.height} color={selected ? theme.node.text : theme.node.muted} /></span>
-                    <span>{automatic ? "Auto" : option}</span>
-                </button>;
-            })}
-        </div>
-    </SettingGroup>;
+    return (
+        <SettingGroup title="比例" color={theme.node.muted}>
+            <div className="grid grid-cols-5 gap-2">
+                {sorted.map((option) => {
+                    const automatic = option === "adaptive" || option === "auto";
+                    const selected = value === option;
+                    const preview = automatic ? { width: 16, height: 9 } : ratioPreview(option);
+                    return (
+                        <button
+                            key={option}
+                            type="button"
+                            aria-label={`视频比例 ${option}`}
+                            aria-pressed={selected}
+                            className="flex h-16 min-w-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border px-1 text-[var(--fs-tiny)] leading-none transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1"
+                            style={{ background: selected ? theme.toolbar.activeBg : "transparent", borderColor: selected ? theme.node.text : theme.toolbar.border, color: selected ? theme.node.text : theme.node.muted, outlineColor: theme.node.muted }}
+                            onClick={() => onChange(option)}
+                        >
+                            <span className="grid h-4 place-items-center">
+                                <SizePreview width={preview.width} height={preview.height} color={selected ? theme.node.text : theme.node.muted} />
+                            </span>
+                            <span>{automatic ? "Auto" : option}</span>
+                        </button>
+                    );
+                })}
+            </div>
+        </SettingGroup>
+    );
 }
 
 function AudioControl({ checked, theme, onChange }: { checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
-    return <SettingGroup title="生成音频" color={theme.node.muted}>
-        <div className="grid grid-cols-2 gap-2">
-            <OptionPill label="生成音频 开启" selected={checked} theme={theme} onClick={() => onChange(true)}>开启</OptionPill>
-            <OptionPill label="生成音频 关闭" selected={!checked} theme={theme} onClick={() => onChange(false)}>关闭</OptionPill>
-        </div>
-    </SettingGroup>;
+    return (
+        <SettingGroup title="生成音频" color={theme.node.muted}>
+            <div className="grid grid-cols-2 gap-2">
+                <OptionPill label="生成音频 开启" selected={checked} theme={theme} onClick={() => onChange(true)}>
+                    开启
+                </OptionPill>
+                <OptionPill label="生成音频 关闭" selected={!checked} theme={theme} onClick={() => onChange(false)}>
+                    关闭
+                </OptionPill>
+            </div>
+        </SettingGroup>
+    );
 }
 
 function SwitchRow({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {

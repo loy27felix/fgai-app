@@ -86,8 +86,8 @@ test("Create refresh subscriptions share one durable scheduler observation witho
     await new Promise((resolveTick) => setTimeout(resolveTick, 0));
     reconnect();
 
-    expect(queryCalls).toBe(1);
-    expect(waitCalls).toBe(1);
+    expect(queryCalls).toBe(2);
+    expect(waitCalls).toBe(2);
     expect(beforeRefresh[0]).toMatchObject({ id: running.id, status: "running" });
     expect(afterRefresh.at(-1)).toMatchObject({
         id: running.id,

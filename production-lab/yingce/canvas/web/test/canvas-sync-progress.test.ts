@@ -28,6 +28,8 @@ const paths: Record<string, string> = {
     "@/lib/canvas/sync-recovery": fileURLToPath(new URL("lib/canvas/sync-recovery.ts", root)),
     "@/lib/canvas/canvas-sync-rebase": join(dir, "rebase.ts"),
     "@/lib/canvas/canvas-text-merge": fileURLToPath(new URL("lib/canvas/canvas-text-merge.ts", root)),
+    "./canvas-edit-leases": join(dir, "leases.ts"),
+    "@/lib/client-id": fileURLToPath(new URL("lib/client-id.ts", root)),
 };
 function copySource(source: string, name: string) {
     const code = readFileSync(new URL(source, root), "utf8");
@@ -55,7 +57,8 @@ export const flushAssetStorePersistence = async () => {};
 export const getGenerationAssetDefaults = () => undefined;
 export const appQueryClient = { invalidateQueries: async () => {} };
 export const repairMissingCanvasAssets = () => ({ createdAssets: 0, updatedProjects: 0 });
-export const rebindInconsistentCanvasAssets = () => ({});
+export const rebindInconsistentCanvasAssets = () => ({ createdAssets: 0, updatedProjects: 0, reboundNodes: 0 });
+export const canvasPromptAssetMentionIds = text => [...new Set([...String(text).matchAll(/@\\[asset:([^\\]]+)\\]/g)].map(match => match[1]).filter(id => id === id.trim()))];
 export class ApiError extends Error { retryable = false; constructor(message, options = {}) { super(message); Object.assign(this, options); } }
 export const apiBaseURL = "/api";
 const unexpected = () => { throw new Error("unexpected dependency call"); };
@@ -126,6 +129,7 @@ export const parseAssetRecordList = records => records;
 export const deleteRemoteAssets = unexpected, deleteRemoteCanvasProject = unexpected, getRemoteUserDataSnapshot = unexpected, listRemoteAssetsPage = unexpected;
 export const getImageBlob = unexpected, getMediaBlob = unexpected, rebaseAssetSnapshot = unexpected, canvasNodeToAsset = unexpected;
 export const useCanvasHistoryStore = {};
+export const changeCanvasEditLease = unexpected;
 `,
 );
 copySource("services/api/resources.ts", "resources.ts");
@@ -134,6 +138,7 @@ copySource("lib/canvas/canvas-content.ts", "content.ts");
 copySource("lib/canvas/canvas-sync-rebase.ts", "rebase.ts");
 copySource("stores/use-sync-progress-store.ts", "progress.ts");
 copySource("services/user-data-sync.ts", "sync.ts");
+copySource("services/canvas-edit-leases.ts", "leases.ts");
 const sync: typeof import("@/services/user-data-sync") = await import(join(dir, "sync.ts"));
 const { useSyncProgressStore }: typeof import("@/stores/use-sync-progress-store") = await import(join(dir, "progress.ts"));
 const { fixture, useCanvasStore, useAssetStore, ApiError } = await import(stubPath);

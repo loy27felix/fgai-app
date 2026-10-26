@@ -2,9 +2,10 @@ import { HardDrive } from "lucide-react";
 import { Link } from "react-router";
 
 import { useAccountFileStorageUsage } from "@/hooks/use-account-file-storage-usage";
-import { accountStorageMeter } from "@/lib/account-storage-usage";
+import { accountStorageMeter, accountStorageStateMessage } from "@/lib/account-storage-usage";
 import { cn } from "@/lib/utils";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
+import { progressFillStyle } from "@/lib/progress-fill";
 
 function StorageGlyph() {
     return (
@@ -18,6 +19,8 @@ export function WorkspaceSidebarStorageMeter({ collapsed }: { collapsed: boolean
     const query = useAccountFileStorageUsage();
     const meter = accountStorageMeter(query.data);
     const usedText = query.data ? `已用 ${meter.usedLabel}` : query.isError ? "容量暂不可用" : "正在统计容量";
+    const stateMessage = accountStorageStateMessage(meter);
+    const summary = `${usedText}，${stateMessage || "个人文件总量不限额"}`;
 
     if (query.isError && !query.data) {
         return (
@@ -42,12 +45,7 @@ export function WorkspaceSidebarStorageMeter({ collapsed }: { collapsed: boolean
     return (
         <Link
             to="/assets"
-            className={cn(
-                "app-workspace-sidebar-storage",
-                collapsed && "is-collapsed",
-                query.data?.usedBytes ? "has-usage" : null,
-                query.isPending && !query.data && "is-pending",
-            )}
+            className={cn("app-workspace-sidebar-storage", collapsed && "is-collapsed", query.data?.usedBytes ? "has-usage" : null, query.isPending && !query.data && "is-pending")}
             title={`${usedText}。文件保存在 NAS，个人文件总量不限额；共享引用不会重复复制文件。`}
             aria-label={`NAS 文件，${usedText}`}
             aria-busy={query.isPending && !query.data}

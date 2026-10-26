@@ -42,6 +42,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { AppChangelogButton } from "@/components/layout/app-changelog-modal";
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
 import { publishWorkspaceSidebarCollapsed, readWorkspaceSidebarCollapsed, subscribeWorkspaceSidebarCollapsed } from "@/components/layout/workspace-sidebar-state";
+import { AppFeedbackProvider } from "@/components/layout/app-feedback";
 import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -155,7 +156,7 @@ function AdminShellLayout() {
 
     return (
         <ConfigProvider theme={getIsolatedAdminAntTheme(dark, appearance.activeSkin)} getPopupContainer={(node) => adminPopupContainer(node)}>
-            <App>
+            <App><AppFeedbackProvider>
                 <main id="admin-root" data-admin-root data-admin-density={density} className="admin-shell fg-glass-admin flex h-full min-h-0 overflow-hidden">
                     <aside className={cn("admin-sidebar hidden shrink-0 flex-col overflow-hidden lg:flex", collapsed && "is-collapsed")}>
                         <div className="admin-sidebar-identity shrink-0">
@@ -171,7 +172,13 @@ function AdminShellLayout() {
                                 />
                             </AdminTooltip>
                         </div>
-                        {!collapsed ? <div className="fg-admin-identity"><span>CONTROL ROOM</span><strong>管理中心</strong><p>运营洞察 · 团队与平台</p></div> : null}
+                        {!collapsed ? (
+                            <div className="fg-admin-identity">
+                                <span>CONTROL ROOM</span>
+                                <strong>管理中心</strong>
+                                <p>运营洞察 · 团队与平台</p>
+                            </div>
+                        ) : null}
                         <AdminNavigation collapsed={collapsed} />
                         <div className={cn("admin-sidebar-footer shrink-0", collapsed && "is-collapsed")}>
                             <div className="admin-sidebar-footer-row">
@@ -207,7 +214,7 @@ function AdminShellLayout() {
                         </Suspense>
                     </section>
                 </main>
-            </App>
+            </AppFeedbackProvider></App>
         </ConfigProvider>
     );
 }
@@ -223,7 +230,7 @@ export function AdminPageFrame({ title, description, actions, back, scroll = fal
         <div className={cn("admin-page-root", scroll && "admin-page-root-scrollable")}>
             <div className={cn("admin-page-frame", scroll && "admin-page-frame-scrollable")}>
                 <header className="admin-page-header flex shrink-0 flex-col sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
                         {back ? (
                             <AdminTooltip title={back.label}>
                                 <button type="button" className="admin-icon-button shrink-0" aria-label={back.label} onClick={back.onClick}>
@@ -340,7 +347,8 @@ function AdminNavigation({ collapsed }: { collapsed: boolean }) {
                     <div key={group.label} className="admin-nav-group">
                         {!collapsed ? (
                             <div className="admin-nav-group-label">
-                                <span>{group.label}</span><small>{visibleItems.length.toString().padStart(2, "0")}</small>
+                                <span>{group.label}</span>
+                                <small>{visibleItems.length.toString().padStart(2, "0")}</small>
                             </div>
                         ) : (
                             <div className="admin-nav-collapsed-separator" />
