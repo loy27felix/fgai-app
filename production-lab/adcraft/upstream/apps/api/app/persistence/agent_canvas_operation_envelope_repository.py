@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import TypeAlias
 
 from pydantic import TypeAdapter
@@ -25,7 +27,7 @@ from app.schemas.agent_canvas_continuation import ContinuationOperationV2
 from app.services.agent_canvas_storyboard_selection_identity import (
     validate_storyboard_envelope_identity,
 )
-from app.services.agent_canvas_envelope_digest import canonical_envelope_json
+from app.services.agent_canvas_envelope_digest import canonical_envelope_json, operation_envelope_digest_matches
 
 
 OperationEnvelopeV1: TypeAlias = (
@@ -198,6 +200,22 @@ class AgentCanvasOperationEnvelopeRepository:
             )
         _validate_storyboard_envelope(envelope)
         return envelope
+
+
+def operation_envelope_digest(envelope: OperationEnvelopeV1) -> str:
+    """Fingerprint immutable content independently of nested mapping order."""
+
+    return hashlib.sha256(_canonical_json(envelope).encode("utf-8")).hexdigest()
+
+
+def matches_operation_envelope_digest(envelope: OperationEnvelopeV1, expected: str) -> bool:
+    """Accept canonical identity or an exactly matching historical fingerprint."""
+
+    return (
+        expected == operation_envelope_digest(envelope)
+        or expected == hashlib.sha256(envelope.model_dump_json().encode("utf-8")).hexdigest()
+        or operation_envelope_digest_matches(envelope, expected)
+    )
 
 
 def _canonical_json(envelope: OperationEnvelopeV1) -> str:

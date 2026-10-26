@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "patch-package",
     "start": "tsx src/main.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "generate:capabilities": "tsx scripts/generate-agent-capabilities.ts",
     "generate:skills": "tsx scripts/generate-skill-manifest.ts",
     "generate:manifest": "npm run generate:capabilities && tsx scripts/generate-runtime-manifest.ts",

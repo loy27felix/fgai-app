@@ -9,6 +9,7 @@ COPY agent/src ./src
 COPY agent/skills ./skills
 COPY agent/scripts ./scripts
 COPY agent/tsconfig.json ./
+COPY agent/tsconfig.build.json ./
 RUN npm run verify:skills
 RUN npm run build
 RUN npm prune --omit=dev

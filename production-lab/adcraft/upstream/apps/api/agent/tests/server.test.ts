@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createAgentRuntimeServer } from "../src/server.js";
+import {loadRuntimeManifest} from "../src/manifest.js";
 import type { AgentModelAdapter, EventSink } from "../src/runtime.js";
 import type { AgentRunRequest } from "../src/generated/agent-runtime.js";
 
@@ -12,24 +13,22 @@ const request: AgentRunRequest = {
   protocol_version: "1",
   run_id: "arun_test",
   request_id: "req_test",
-  agent_name: "front_desk",
-  operation: "workflow_creation",
+  agent_name: "video_agent",
+  operation: "execute_canvas_text",
+  context_snapshot_id: "ctx_test",
+  contract_digest: loadRuntimeManifest().contract_digest,
+  contract_name: "AgentCanvasTextOutput",
   deadline_at: new Date(Date.now() + 5 * 60_000).toISOString(),
-  model_policy_id: "front_desk.workflow_creation.v1",
+  model_policy_id: "video_agent.execute_canvas_text.v1",
   context: {
-    operation: "workflow_creation",
+    operation: "execute_canvas_text",
+    conversation_id: "conversation-test",
     user_input: "Create a product launch workflow.",
   },
   policy: {
-    max_turns: 4,
-    max_tool_calls: 4,
-    max_handoffs: 1,
+    max_handoffs: 0,
     timeout_seconds: 2,
-    max_input_bytes: 4096,
-    max_output_bytes: 4096,
-    max_event_bytes: 4096,
   },
-  credential_ref: "llm-default",
 };
 
 afterEach(async () => {
@@ -222,6 +221,7 @@ describe("agent runtime server", () => {
         ...request,
         run_id: "arun_pool_two",
         request_id: "req_pool_two",
+        context: {...request.context,conversation_id:"second-conversation"},
       }),
     });
     await fetch(`${baseUrl}/internal/v1/agent-runs/arun_pool_one/cancel`, {

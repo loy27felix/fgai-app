@@ -17,10 +17,12 @@ function speech(line: string, removeDirections = false): Speech | undefined {
 }
 
 function soundDirection(line: string): boolean {
-    const label = line.trim().replace(/^(?:[-*]\s+)?(?:\*\*)?/, "").split(/[：:]/, 1)[0].replace(/[\s*]/g, "");
+    const label = line.trim().replace(/^(?:[-*]\s+)?(?:\*\*)?/, "").split(/[：:]/, 1)[0].replace(/[（(][^）)]*[）)]/g, "").replace(/[\s*]/g, "");
     // These labels describe a voice, not a performance. Do not stop scanning:
     // completed model responses also place profiles before or between speeches.
     if (/^(?:基础)?声线(?:设定|说明|特征)?/.test(label) || /声线$/.test(label)) return true;
+    if (/^(?:时间|说话时机|对白时间)$/.test(label) && /秒/.test(line)) return true;
+    if (/^其他(?:人声|人物)$/.test(label) && /(?:无|不说话|不新增(?:具体)?(?:台词|对白)|没有(?:额外)?(?:台词|对白))/.test(line)) return true;
     return /(?:呼救声|呼喊声)$/.test(label) && /(?:无词|没有额外台词|不新增(?:具体)?台词)/.test(line);
 }
 

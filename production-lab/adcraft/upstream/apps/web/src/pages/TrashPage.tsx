@@ -1,3 +1,4 @@
+import { CatalogToolbar, CatalogFilterButton, CatalogSearch } from "../components/CatalogToolbar";
 import { useCallback, useMemo, useState } from "react";
 import { EmptyState, PageHeader } from "../components/Layout";
 import { useApp } from "../AppContextValue";
@@ -5,6 +6,7 @@ import type { RouteName } from "../types";
 import { ProjectCatalogNotice } from "./projects/ProjectCatalogNotice";
 import "./projects.css";
 import { v2Api } from "../api/v2Client";
+import { useLocale, localeText } from "../i18n/locale.tsx";
 
 type TrashListItem = {
   key: string;
@@ -14,6 +16,8 @@ type TrashListItem = {
 };
 
 export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void } = {}) {
+  const { locale } = useLocale();
+  const labels = locale === "zh-CN" ? localeText.zh.trashPage : localeText.en.trashPage;
   const [search, setSearch] = useState("");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
@@ -32,9 +36,9 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
       key: project.project_id,
       projectId: project.project_id,
       name: project.name,
-      meta: `已移入回收站 · ${new Date(project.updated_at).toLocaleDateString()}`,
+      meta: labels.deletedMeta.replace("{date}", new Date(project.updated_at).toLocaleDateString()),
     })),
-    [trashedProjects],
+    [labels, trashedProjects],
   );
 
   const list = useMemo(() => localTrashItems.filter((item) => (
@@ -109,14 +113,16 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
 
     setBatchAction(null);
     if (failedProjectIds.size > 0) {
-      setSelectionError(`${failedProjectIds.size} ${failedProjectIds.size === 1 ? "project could not be" : "projects could not be"} restored.`);
+      setSelectionError(labels.restoredFailed
+        .replace("{count}", String(failedProjectIds.size))
+        .replace("{noun}", locale === "zh-CN" ? "项目" : failedProjectIds.size === 1 ? "project" : "projects"));
       setSelectedProjectIds(failedProjectIds);
       return;
     }
 
     setSelectedProjectIds(new Set());
     setSelectionMode(false);
-  }, [restoreTrashedProject, selectedProjects, selectionBusy]);
+  }, [labels, restoreTrashedProject, selectedProjects, selectionBusy]);
 
   const purge = async (items: TrashListItem[]) => {
     if (!items.length || selectionBusy) return;
@@ -130,49 +136,48 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
 
   return (
     <section className="content-wrap">
-      <PageHeader title="回收站" subtitle="在这里恢复已移入回收站的广告工程。" />
-      <div className="projects-toolbar">
+      <PageHeader title={labels.title} editorial />
+      <CatalogToolbar className="projects-toolbar">
         <div className="toolbar-row">
-          <button className="filter-btn clear-glass-control is-active" type="button" onClick={() => navigate?.("projects")}>
-            广告工程
-          </button>
+          <CatalogFilterButton className=" is-active" type="button" onClick={() => navigate?.("projects")}>
+            {labels.projects}
+          </CatalogFilterButton>
         </div>
-        <div className="project-toolbar-actions">
-          <input className="search-box clear-glass-control is-active" placeholder="搜索已删除工程" value={search} onChange={(event) => changeSearch(event.target.value)} />
+        <div className="catalog-toolbar-actions">
+          <CatalogSearch aria-label={labels.search} placeholder={labels.search} value={search} onChange={(event) => changeSearch(event.target.value)} />
           {!selectionMode ? (
-            <button className="filter-btn clear-glass-control" type="button" onClick={enterSelectionMode}>
-              选择
-            </button>
+            <CatalogFilterButton  type="button" onClick={enterSelectionMode}>
+              {labels.select}
+            </CatalogFilterButton>
           ) : (
             <>
-              <button
-                className={`filter-btn clear-glass-control project-selection-toggle${partiallySelected ? " is-partial" : ""}`}
+              <CatalogFilterButton
+                className={` project-selection-toggle${partiallySelected ? " is-partial" : ""}`}
                 type="button"
                 aria-pressed={allVisibleSelected}
-                aria-label={partiallySelected ? "Select all deleted projects" : undefined}
+                aria-label={partiallySelected ? (locale === "zh-CN" ? "全选已删除项目" : "Select all deleted projects") : undefined}
                 disabled={selectionBusy || list.length === 0}
                 onClick={toggleVisibleSelection}
               >
-                {allVisibleSelected ? "取消全选" : "全选"}
-              </button>
-              <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy} onClick={exitSelectionMode}>
-                完成
-              </button>
+                {allVisibleSelected ? labels.clearSelection : labels.selectAll}
+              </CatalogFilterButton>
+              <CatalogFilterButton  type="button" disabled={selectionBusy} onClick={exitSelectionMode}>
+                {labels.done}
+              </CatalogFilterButton>
             </>
           )}
         </div>
-      </div>
+      </CatalogToolbar>
       {selectionMode ? (
         <div className="project-selection-toolbar" aria-busy={selectionBusy}>
           <div className="project-selection-summary">
-            <strong>{`已选 ${selectedProjects.length} 个工程`}</strong>
+            <strong>{`${selectedProjects.length} ${labels.selected}`}</strong>
             {selectionError ? <span className="project-selection-error" role="alert">{selectionError}</span> : null}
           </div>
           <div className="project-selection-actions">
-            <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void runBatchRestore()}>
-              {selectionBusy ? "恢复中…" : "恢复选中工程"}
-            </button>
-            <button className="filter-btn clear-glass-control" type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void purge(selectedProjects)}>彻底删除选中工程</button>
+            <CatalogFilterButton  type="button" disabled={selectionBusy || selectedProjects.length === 0} onClick={() => void runBatchRestore()}>
+              {selectionBusy ? labels.restoring : labels.restoreSelected}
+            </CatalogFilterButton>
           </div>
         </div>
       ) : null}
@@ -224,13 +229,13 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
                   <button className="small-action" disabled={selectionBusy} onClick={() => void purge([item])}>彻底删除</button>
                   <button
                     className="small-action"
-                    title="恢复工程"
+                    title={labels.restore}
                     onClick={(event) => {
                       event.stopPropagation();
                       void restoreTrashedProject(item.projectId);
                     }}
                   >
-                    恢复
+                    {labels.restore}
                   </button>
                 </div>
               )}
@@ -238,7 +243,7 @@ export function TrashPage({ navigate }: { navigate?: (route: RouteName) => void 
           ))}
         </div>
       ) : (
-        <EmptyState text="回收站为空" />
+        <EmptyState text={labels.empty} />
       )}
     </section>
   );

@@ -83,6 +83,7 @@ import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } fro
 import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterStoryboardFromGenerationTasks, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 import { completeStoryboardBatch } from "@/lib/chapter-storyboard-batches";
+import { useUserStore } from "@/stores/use-user-store";
 import { ChapterBatchModal } from "./chapter-batch-modal";
 
 const CHAPTER_ROW_HEIGHT = 62;
@@ -99,6 +100,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const { message, modal } = App.useApp();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const accountId = useUserStore(state => state.user?.id);
+    const rejectedRecoveryKey = `chapter-recovery-v2:${accountId}:${detail.project.id}`;
+    const [rejectedRecoveries, setRejectedRecoveries] = useState<string[]>(() => {
+        try { const ids:unknown=JSON.parse(sessionStorage.getItem(rejectedRecoveryKey)||"[]"); return Array.isArray(ids)?ids.filter((id):id is string=>typeof id==="string").slice(-100):[]; } catch { return []; }
+    });
     const { chapterId = "" } = useParams();
     const initialSelectedId = detail.units.some((unit) => unit.id === chapterId) ? chapterId : detail.units[0]?.id || "";
     const [selectedId, setSelectedId] = useState(initialSelectedId);
@@ -138,6 +144,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     const locallyOwnedTaskIdsRef = useRef(new Set<string>());
     const recoveredTaskIdsRef = useRef(new Set<string>());
     const recoveringTaskIdsRef = useRef(new Set<string>());
+    useEffect(() => {
+        try { const ids:unknown=JSON.parse(sessionStorage.getItem(rejectedRecoveryKey)||"[]"); setRejectedRecoveries(Array.isArray(ids)?ids.filter((id):id is string=>typeof id==="string").slice(-100):[]); } catch { setRejectedRecoveries([]); }
+        recoveredTaskIdsRef.current.clear();
+    },[rejectedRecoveryKey]);
     const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLocaleLowerCase("zh-CN"));
     const orderedUnits = useMemo(() => {
         const byId = new Map(detail.units.map((unit) => [unit.id, unit]));
@@ -176,8 +186,12 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             const key = chapterOperationKey(identity.chapterId, identity.kind);
             if (!latest.has(key)) latest.set(key, task);
         }
-        return new Set([...latest].filter(([, task]) => task.status === "succeeded" && completeStoryboardBatch(task, chapterTasksQuery.data || [])).map(([key]) => key));
-    }, [chapterTasksQuery.data]);
+        // A provider success means text exists; it does not prove that shots/assets were imported.
+        return new Set([...latest].filter(([, task]) => {
+            const identity=chapterTaskIdentity(task);
+            return identity && task.status === "succeeded" && chapterTaskResultAlreadyApplied(task,identity.chapterId,identity.kind,detail);
+        }).map(([key]) => key));
+    }, [chapterTasksQuery.data,detail]);
     const runningOperationCount = new Set([...Object.keys(chapterOperations), ...serverChapterOperations.keys()]).size;
     const characterOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "characters")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "characters")) : undefined;
     const storyboardOperation = selectedUnit ? chapterOperations[chapterOperationKey(selectedUnit.id, "storyboard")] || serverChapterOperations.get(chapterOperationKey(selectedUnit.id, "storyboard")) : undefined;
@@ -511,7 +525,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             if (!latestByOperation.has(key)) latestByOperation.set(key, { task, ...identity });
         }
         for (const { task, chapterId: taskChapterId, kind } of latestByOperation.values()) {
-            if (task.status !== "succeeded" || locallyOwnedTaskIdsRef.current.has(task.id) || recoveredTaskIdsRef.current.has(task.id) || recoveringTaskIdsRef.current.has(task.id)) continue;
+            if (task.status !== "succeeded" || rejectedRecoveries.includes(task.id) || locallyOwnedTaskIdsRef.current.has(task.id) || recoveredTaskIdsRef.current.has(task.id) || recoveringTaskIdsRef.current.has(task.id)) continue;
             const batchTasks = kind === "storyboard" ? completeStoryboardBatch(task, chapterTasksQuery.data || []) : [task];
             if (!batchTasks) continue;
             if (chapterTaskResultAlreadyApplied(task, taskChapterId, kind, detail)) {
@@ -544,10 +558,15 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             }).catch((error) => {
                 // 本轮已失败的恢复只提示一次；轮询刷新不能无限重放损坏的旧结果。
                 recoveredTaskIdsRef.current.add(task.id);
+                setRejectedRecoveries(ids => {
+                    const next=[...new Set([...ids,task.id])].slice(-100);
+                    try {sessionStorage.setItem(rejectedRecoveryKey,JSON.stringify(next));} catch { /* In-memory suppression still works when session storage is unavailable. */ }
+                    return next;
+                });
                 message.error(error instanceof Error ? `任务结果恢复失败：${error.message}` : "任务结果恢复失败");
             }).finally(() => recoveringTaskIdsRef.current.delete(task.id));
         }
-    }, [chapterTasksQuery.data, detail]);
+    }, [chapterTasksQuery.data, detail, rejectedRecoveries, rejectedRecoveryKey]);
 
     const selectChapter = (unitId: string) => {
         if (unitId === selectedId) return;
@@ -670,6 +689,16 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                         </header>
                         {(characterOperation?.stage === "thinking" || storyboardOperation?.stage === "thinking") && <p role="status" className="border-b border-border/70 px-5 py-2 text-xs text-foreground/60">模型正在思考并规划结构，任务仍在运行；可以继续编辑或切换章节。</p>}
                         <div className="flex min-w-0 items-center border-b border-border/70"><div className="min-w-0 flex-1"><EditorToolbar editor={editor} /></div><Button type="text" size="small" className="mr-2 shrink-0" disabled={!editor} onClick={() => setFormatPreview(scriptTextToHtml(editor?.getText({ blockSeparator: "\n" }) || ""))}>整理排版</Button></div>
+                        {(chapterTasksQuery.data||[]).some(task=>rejectedRecoveries.includes(task.id)&&chapterTaskIdentity(task)?.chapterId===selectedUnit.id) ? (
+                            <div role="status" className="flex items-center justify-between gap-3 border-b border-border px-4 py-2 text-xs text-foreground/65">
+                                <span>本章有已保存的模型结果尚未通过导入检查；已有分镜保留。可重试导入，无需重新生成。</span>
+                                <Button size="small" disabled={Boolean(storyboardOperation)} onClick={()=>{
+                                    const ids=new Set((chapterTasksQuery.data||[]).filter(task=>chapterTaskIdentity(task)?.chapterId===selectedUnit.id).map(task=>task.id));
+                                    ids.forEach(id=>recoveredTaskIdsRef.current.delete(id));
+                                    setRejectedRecoveries(current=>{const next=current.filter(id=>!ids.has(id));try{sessionStorage.setItem(rejectedRecoveryKey,JSON.stringify(next));}catch{}return next;});
+                                }}>重试导入已保存结果</Button>
+                            </div>
+                        ) : null}
                         <div className="project-chapter-editor-scroll thin-scrollbar min-h-0 flex-1 overflow-y-auto bg-foreground/[.012]">
                             <div className="project-chapter-editor-wrap min-h-full"><EditorContent editor={editor} /></div>
                         </div>

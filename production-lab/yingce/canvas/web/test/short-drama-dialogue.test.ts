@@ -3,6 +3,15 @@ import { dramaDialoguePreserved } from "@/lib/short-drama-dialogue";
 
 const prompt = (body: string) => `【声音设计】\n对白：\n${body}\n【负面约束】\n不得新增台词。`;
 
+test("sound schedules after dialogue are not extra speaking characters", () => {
+    const line="SHADOW：I understand.";
+    const notes="时间：约8—11秒说完，剩余保持环境声。\nShadow 声线（以项目设定为准）：中低音，语速平稳。\n其他人声：无，不新增对白。";
+    expect(dramaDialoguePreserved(line,prompt(`${line}\n${notes}`))).toBe(true);
+    expect(dramaDialoguePreserved("EVAN：Stay here.",prompt("EVAN：Stay here.\n声线（EVAN）：青年男声。\n其他人物：本段不说话。"))).toBe(true);
+    expect(dramaDialoguePreserved(line,prompt(`SHADOW：I disagree.\n${notes}`))).toBe(false);
+    expect(dramaDialoguePreserved(line,prompt(`${line}\nMIA：Wait.`))).toBe(false);
+});
+
 describe("分镜对白校验区分台词与声音说明", () => {
     test("声线说明位于对白前后或中间时，不截断、也不冒充演出台词", () => {
         const dialogue = "林默：先走。\n小雨：我等你。";

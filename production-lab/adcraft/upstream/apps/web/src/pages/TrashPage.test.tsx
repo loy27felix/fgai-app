@@ -1,4 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
+import type {ReactNode} from "react";
+import {LocaleProvider} from "../i18n/locale";
+function render(ui:ReactNode){localStorage.setItem("adcraft.locale","zh-CN");return renderUI(ui,{wrapper:({children})=><LocaleProvider initialLocale="zh-CN">{children}</LocaleProvider>});}
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mockState = vi.hoisted(() => ({
@@ -51,8 +54,8 @@ describe("TrashPage", () => {
   it("uses the Projects toolbar and lets a card be selected without restoring it", () => {
     render(<TrashPage />);
 
-    expect(screen.getByRole("button", { name: "广告工程" }).className).toContain("filter-btn clear-glass-control");
-    expect(screen.getByPlaceholderText("搜索已删除工程").className).toContain("search-box clear-glass-control is-active");
+    expect(screen.getByRole("button", { name: "项目" }).className).toContain("filter-btn clear-glass-control");
+    expect(screen.getByPlaceholderText("搜索已删除项目").className).toContain("search-box clear-glass-control is-active");
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     expect(screen.getByRole("button", { name: "全选" })).toBeTruthy();
@@ -62,7 +65,7 @@ describe("TrashPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select Archived campaign" }));
 
     expect((screen.getByRole("checkbox", { name: "Select Archived campaign" }) as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText("已选 1 个工程")).toBeTruthy();
+    expect(screen.getByText("1 已选择")).toBeTruthy();
     expect(mockState.restoreTrashedProject).not.toHaveBeenCalled();
   });
 
@@ -87,11 +90,11 @@ describe("TrashPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "全选" }));
     expect(screen.getAllByRole("checkbox")).toHaveLength(2);
     expect(screen.getAllByRole("checkbox").every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
-    expect(screen.getByRole("button", { name: "取消全选" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "清除选择" })).toBeTruthy();
 
-    fireEvent.change(screen.getByPlaceholderText("搜索已删除工程"), { target: { value: "product" } });
+    fireEvent.change(screen.getByPlaceholderText("搜索已删除项目"), { target: { value: "product" } });
 
-    expect(screen.getByText("已选 0 个工程")).toBeTruthy();
+    expect(screen.getByText("0 已选择")).toBeTruthy();
     expect(screen.getByRole("button", { name: "全选" })).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Select Old product film" }) as HTMLInputElement).checked).toBe(false);
     expect(screen.queryByRole("checkbox", { name: "Select Archived campaign" })).toBeNull();
@@ -116,7 +119,7 @@ describe("TrashPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(screen.getByRole("button", { name: "全选" }));
-    fireEvent.click(screen.getByRole("button", { name: "恢复选中工程" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复所选" }));
 
     await waitFor(() => expect(mockState.restoreTrashedProject).toHaveBeenCalledTimes(2));
     expect(mockState.restoreTrashedProject).toHaveBeenNthCalledWith(1, "project-trash-1");
@@ -147,9 +150,9 @@ describe("TrashPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(screen.getByRole("button", { name: "Select Old product film" }));
-    fireEvent.click(screen.getByRole("button", { name: "恢复选中工程" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复所选" }));
 
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("1 project could not be restored"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("1 个项目无法恢复"));
     expect((screen.getByRole("checkbox", { name: "Select Old product film" }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole("button", { name: "完成" })).toBeTruthy();
   });
@@ -162,7 +165,7 @@ describe("TrashPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "完成" }));
 
     expect(screen.getByRole("button", { name: "选择" })).toBeTruthy();
-    expect(screen.queryByText("已选 1 个工程")).toBeNull();
+    expect(screen.queryByText("1 已选择")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "Select Archived campaign" })).toBeNull();
   });
 });

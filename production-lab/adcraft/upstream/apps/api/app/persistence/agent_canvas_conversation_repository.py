@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Mapping, cast
@@ -28,6 +29,7 @@ from app.persistence.agent_canvas_guidance_authority_repository import (
 )
 from app.persistence.agent_canvas_operation_envelope_repository import (
     AgentCanvasOperationEnvelopeRepository,
+    operation_envelope_digest,
 )
 from app.services.agent_canvas_envelope_digest import operation_envelope_digest
 from app.persistence.agent_canvas_requirement_repository import (
@@ -108,7 +110,10 @@ from app.schemas.agent_canvas_capabilities import (
 from app.schemas.agent_canvas_capability_identity import (
     CAPABILITY_DISPLAY_NAMES,
 )
-from app.schemas.agent_canvas_production_journey import GuidedProductionJourneyV2
+from app.schemas.agent_canvas_production_journey import (
+    GuidedProductionJourneyV2,
+    JourneyEvidenceV2,
+)
 from app.schemas.agent_canvas_guidance import (
     ContinuationTurnRetrySnapshotV1,
     GuidanceAdvanceAuthorityPlanV1,
@@ -130,7 +135,9 @@ from app.schemas.language import BCP47Tag, canonicalize_bcp47_tag
 from app.schemas.v2_persistence import V2EventInsert
 from app.services.agent_canvas_user_presentation import build_presentation_metadata
 from app.services.agent_canvas_production_journey import (
+    CURRENT_GUIDED_JOURNEY_POLICY_REVISION,
     FIXED_JOURNEY_STAGE_DESCRIPTORS,
+    GuidedProductionJourneyPolicyService,
     initial_production_journey,
     parse_production_journey,
 )
@@ -186,6 +193,219 @@ class AgentCanvasConversationRepository:
                 ).scalar_one_or_none()
                 is not None
             )
+
+    def record_post_commit_storyboard_failure(
+        self,
+        turn_id: str,
+        *,
+        error_code: str,
+        error_message: str,
+        retryable: bool,
+    ) -> bool:
+        """Expose a failure that occurs after immutable Storyboard publication.
+
+        Storyboard materialization commits are intentionally terminal: the parent
+        selection Turn and accepted Proposal must remain completed even when a
+        derived prompt-preparation dispatch fails afterwards.  That terminal
+        rule used to make the failure invisible because ``fail_turn`` correctly
+        ignored the already-committed Turn.  Persist a separate Journey failure
+        and assistant timeline message so the user can see and retry the current
+        stage without rewriting the committed Draft or its provenance.
+        """
+
+        now = _now()
+        bounded_code = error_code[:160]
+        bounded_message = error_message[:2_048]
+        with self._database.engine.begin() as connection:
+            committed = (
+                connection.execute(
+                    select(
+                        AgentCanvasMaterializationCommitRow.materialization_id,
+                        AgentCanvasMaterializationCommitRow.workflow_id,
+                        AgentCanvasMaterializationCommitRow.proposal_id,
+                        AgentCanvasChatTurnRow.conversation_id,
+                        AgentCanvasGuidanceSessionRow.session_id,
+                        AgentCanvasGuidanceSessionRow.revision,
+                        AgentCanvasGuidanceSessionRow.journey_state_json,
+                    )
+                    .join(
+                        AgentCanvasConceptProposalRow,
+                        AgentCanvasConceptProposalRow.proposal_id
+                        == AgentCanvasMaterializationCommitRow.proposal_id,
+                    )
+                    .join(
+                        AgentCanvasChatTurnRow,
+                        AgentCanvasChatTurnRow.turn_id
+                        == AgentCanvasMaterializationCommitRow.action_turn_id,
+                    )
+                    .join(
+                        AgentCanvasGuidanceSessionRow,
+                        AgentCanvasGuidanceSessionRow.workflow_id
+                        == AgentCanvasMaterializationCommitRow.workflow_id,
+                    )
+                    .where(
+                        AgentCanvasMaterializationCommitRow.action_turn_id == turn_id,
+                        AgentCanvasConceptProposalRow.proposal_kind == "storyboard",
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if committed is None:
+                return False
+
+            journey = parse_production_journey(str(committed["journey_state_json"]))
+            evidence_id = f"post-commit-storyboard-failure:{turn_id}:{bounded_code}"
+            if any(item.evidence_id == evidence_id for item in journey.transition_evidence):
+                return True
+            evidence = JourneyEvidenceV2(
+                evidence_id=evidence_id,
+                evidence_kind="stage_failed",
+                source_id=str(committed["materialization_id"]),
+                stage=journey.stage,
+                stage_revision=journey.stage_revision,
+                actor="system",
+            )
+            next_journey = GuidedProductionJourneyPolicyService().apply_evidence(
+                journey,
+                evidence,
+                recorded_at=datetime.fromisoformat(now.replace("Z", "+00:00")),
+            )
+            updated = connection.execute(
+                update(AgentCanvasGuidanceSessionRow)
+                .where(
+                    AgentCanvasGuidanceSessionRow.session_id == committed["session_id"],
+                    AgentCanvasGuidanceSessionRow.revision == int(committed["revision"]),
+                )
+                .values(
+                    journey_state_json=next_journey.model_dump_json(),
+                    revision=AgentCanvasGuidanceSessionRow.revision + 1,
+                    updated_at=now,
+                )
+            )
+            if updated.rowcount != 1:
+                raise _error(
+                    "guidance_revision_conflict",
+                    "Guidance session changed while recording a Storyboard failure.",
+                )
+
+            turn = (
+                connection.execute(
+                    select(AgentCanvasChatTurnRow).where(AgentCanvasChatTurnRow.turn_id == turn_id)
+                )
+                .mappings()
+                .one()
+            )
+            actionable_failure = ActionableFailureV1(
+                failure_class="transient" if retryable else "deterministic",
+                retry_scope="turn" if retryable else "none",
+                user_action="retry" if retryable else "none",
+            )
+            assistant_message = (
+                "The committed Storyboard Draft is ready, but prompt preparation failed. "
+                "Retry the current stage after the Agent runtime is available."
+                if retryable
+                else "The committed Storyboard Draft is ready, but prompt preparation failed. "
+                "Review the failure details before continuing."
+            )
+            _publish_assistant_message_in_transaction(
+                connection,
+                events=self._events,
+                turn=turn,
+                assistant_message=assistant_message,
+                entry_id=f"msg_post_commit_storyboard_failure_{turn_id}",
+                metadata={
+                    "status": "failed",
+                    "error_code": bounded_code,
+                    "error_message": bounded_message,
+                    "retryable": retryable,
+                    "operation_stage": "prompt_preparation",
+                    "actionable_failure": actionable_failure.model_dump(mode="json"),
+                },
+                now=now,
+                publication_key=f"conversation:{turn_id}:post_commit_storyboard_failure",
+            )
+            self._events.append_in_transaction(
+                connection,
+                V2EventInsert(
+                    workflow_id=str(committed["workflow_id"]),
+                    conversation_id=str(committed["conversation_id"]),
+                    turn_id=turn_id,
+                    action_id=turn_id,
+                    event_type="journey_stage_failed",
+                    transition_key=evidence_id,
+                    created_at=now,
+                    payload={
+                        "materialization_id": str(committed["materialization_id"]),
+                        "proposal_id": str(committed["proposal_id"]),
+                        "stage": journey.stage,
+                        "stage_revision": journey.stage_revision,
+                        "error_code": bounded_code,
+                        "retryable": retryable,
+                        "evidence_id": evidence_id,
+                    },
+                ),
+            )
+        return True
+
+    def record_brand_interaction_publication_failure(
+        self,
+        workflow_id: str,
+        *,
+        failure_id: str,
+        error_code: str,
+        retryable: bool = True,
+    ) -> bool:
+        """Persist a visible, retryable failure for a committed Brand action."""
+
+        now = _now()
+        bounded_code = error_code[:160]
+        entry_id = f"msg_brand_interaction_failure_{failure_id[:120]}"
+        with self._database.engine.begin() as connection:
+            conversation_id = _ensure_conversation(connection, workflow_id, now)
+            if (
+                connection.execute(
+                    select(AgentCanvasChatEntryRow.entry_id).where(
+                        AgentCanvasChatEntryRow.entry_id == entry_id
+                    )
+                ).first()
+                is not None
+            ):
+                return True
+            locale = _guidance_response_locale(connection, workflow_id)
+            message = (
+                "品牌创意步骤暂时无法继续。已确认的内容已保留；请重试当前品牌步骤。"
+                if locale.lower().startswith("zh")
+                else "The Brand creative step could not continue. Confirmed choices are preserved; retry the current Brand step."
+            )
+            actionable_failure = ActionableFailureV1(
+                failure_class="transient" if retryable else "deterministic",
+                retry_scope="turn" if retryable else "none",
+                user_action="retry" if retryable else "none",
+            )
+            synthetic_turn = {
+                "turn_id": f"brand_interaction_{failure_id}",
+                "workflow_id": workflow_id,
+                "conversation_id": conversation_id,
+            }
+            _publish_assistant_message_in_transaction(
+                connection,
+                events=self._events,
+                turn=synthetic_turn,
+                assistant_message=message,
+                entry_id=entry_id,
+                metadata={
+                    "status": "failed",
+                    "error_code": bounded_code,
+                    "retryable": retryable,
+                    "operation_stage": "brand_interaction_publication",
+                    "retry_path": "brand_next_question",
+                    "actionable_failure": actionable_failure.model_dump(mode="json"),
+                },
+                now=now,
+                publication_key=f"conversation:{workflow_id}:brand_interaction_failure:{failure_id}",
+            )
+        return True
 
     def get_guidance_session(self, workflow_id: str) -> GuidedSessionStateV2:
         session = self.get_guidance_session_or_none(workflow_id)
@@ -281,7 +501,9 @@ class AgentCanvasConversationRepository:
                                     update={
                                         "journey_policy_id": journey_policy_id,
                                         "journey_policy_revision": (
-                                            1 if journey_policy_id is not None else None
+                                            CURRENT_GUIDED_JOURNEY_POLICY_REVISION
+                                            if journey_policy_id is not None
+                                            else None
                                         ),
                                     }
                                 )
@@ -424,6 +646,7 @@ class AgentCanvasConversationRepository:
         interaction_title: str | None = None,
         interaction_context: str | None = None,
         expected_requirement_revision: int | None = None,
+        assistant_metadata: Mapping[str, object] | None = None,
     ) -> ChatTurnV2:
         """Atomically publish clarification authority and complete its source Turn."""
 
@@ -586,6 +809,7 @@ class AgentCanvasConversationRepository:
                         events=self._events,
                         turn=turn,
                         assistant_message=assistant_message,
+                        assistant_metadata=assistant_metadata,
                         now=now,
                     )
                     connection.commit()
@@ -1150,6 +1374,7 @@ class AgentCanvasConversationRepository:
         public_skill: VideoSkillPublicDetailV2,
         request_fingerprint: str,
         idempotency_key: str,
+        connection: Connection | None = None,
     ) -> VideoSkillRunV2:
         """Atomically activate one verified package and its frozen snapshot."""
 
@@ -1168,9 +1393,13 @@ class AgentCanvasConversationRepository:
                 "Style Skill activation state is inconsistent.",
             )
         now = _now()
+        owns_transaction = connection is None
         try:
-            with self._database.engine.connect() as connection:
-                connection.exec_driver_sql("BEGIN IMMEDIATE")
+            with (
+                self._database.engine.connect() if owns_transaction else nullcontext(connection)
+            ) as connection:
+                if owns_transaction:
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
                 try:
                     replay = _load_style_activation_idempotency(
                         connection,
@@ -1178,7 +1407,8 @@ class AgentCanvasConversationRepository:
                         request_fingerprint=request_fingerprint,
                     )
                     if replay is not None:
-                        connection.commit()
+                        if owns_transaction:
+                            connection.commit()
                         return VideoSkillRunV2.model_validate_json(replay)
 
                     _require_workflow(connection, workflow_id)
@@ -1214,7 +1444,8 @@ class AgentCanvasConversationRepository:
                             response_json=result.model_dump_json(),
                             created_at=now,
                         )
-                        connection.commit()
+                        if owns_transaction:
+                            connection.commit()
                         return result
 
                     connection.execute(
@@ -1290,10 +1521,12 @@ class AgentCanvasConversationRepository:
                         response_json=result.model_dump_json(),
                         created_at=now,
                     )
-                    connection.commit()
+                    if owns_transaction:
+                        connection.commit()
                     return result
                 except BaseException:
-                    connection.rollback()
+                    if owns_transaction:
+                        connection.rollback()
                     raise
         except V2PersistenceError:
             raise
@@ -1662,12 +1895,14 @@ class AgentCanvasConversationRepository:
         mentioned_image_asset_ids: tuple[str, ...],
         video_skill_run_id: str | None,
         idempotency_key: str,
+        response_locale: str | None = None,
     ) -> ChatTurnAcceptedV2:
         request = {
             "text": text,
             "mentioned_node_ids": list(mentioned_node_ids),
             "mentioned_image_asset_ids": list(mentioned_image_asset_ids),
             "video_skill_run_id": video_skill_run_id,
+            "response_locale": response_locale,
         }
         return self._create_turn(
             workflow_id,
@@ -2001,9 +2236,12 @@ class AgentCanvasConversationRepository:
     def create_guidance_advance_delivery(
         self,
         plan: GuidanceAdvanceAuthorityPlanV1,
+        *,
+        connection: Connection | None = None,
     ) -> ChatTurnAcceptedV2:
         """Commit one Guidance command only while its complete authority is current."""
 
+        owns_transaction = connection is None
         workflow_id = plan.workflow_id
         request = plan.request.model_dump(mode="json")
         persisted_request = {
@@ -2016,8 +2254,11 @@ class AgentCanvasConversationRepository:
         now = _now()
         outbox = AgentCanvasContinuationOutboxRepository(self._database, self._events)
         try:
-            with self._database.engine.connect() as connection:
-                connection.exec_driver_sql("BEGIN IMMEDIATE")
+            with (
+                self._database.engine.connect() if owns_transaction else nullcontext(connection)
+            ) as connection:
+                if owns_transaction:
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
                 try:
                     existing = (
                         connection.execute(
@@ -2034,7 +2275,8 @@ class AgentCanvasConversationRepository:
                             existing=existing,
                             plan=plan,
                         )
-                        connection.commit()
+                        if owns_transaction:
+                            connection.commit()
                         return _guidance_accepted(connection, receipt)
 
                     _validate_guidance_advance_authority(
@@ -2043,6 +2285,16 @@ class AgentCanvasConversationRepository:
                         requirements=self._requirements,
                         continuations=outbox,
                     )
+                    if plan.request.precondition.journey_stage == "intake":
+                        from app.services.brand_production_handoff import (
+                            BrandProductionHandoffService,
+                        )
+
+                        # Keep the submitted command identity for exact replay. Its child
+                        # envelope is built below from the admitted current authority.
+                        BrandProductionHandoffService(
+                            self._database
+                        ).recover_locked_intake_in_transaction(connection, workflow_id)
                     conversation_id = plan.conversation_id or _ensure_conversation(
                         connection,
                         workflow_id,
@@ -2122,10 +2374,12 @@ class AgentCanvasConversationRepository:
                         retry_attempt_no=1,
                         replayed=False,
                     )
-                    connection.commit()
+                    if owns_transaction:
+                        connection.commit()
                     return _guidance_accepted(connection, receipt)
                 except BaseException:
-                    connection.rollback()
+                    if owns_transaction:
+                        connection.rollback()
                     raise
         except V2PersistenceError:
             raise
@@ -3510,6 +3764,7 @@ class AgentCanvasConversationRepository:
                         max_attempts=5,
                         now=timestamp,
                     )
+                    # The canonical activity helper above publishes this retry atomically.
                     connection.commit()
                     return ChatTurnAcceptedV2(
                         workflow_id=source.workflow_id,
@@ -3688,6 +3943,23 @@ class AgentCanvasConversationRepository:
                             )
                         )
                     )
+                publish_next_action_failure_in_transaction(
+                    connection,
+                    events=self._events,
+                    turn=turn,
+                    code=code,
+                    retryable=retryable,
+                    actionable_failure=actionable_failure,
+                    now=now,
+                )
+                publish_capability_failure_in_transaction(
+                    connection,
+                    events=self._events,
+                    turn=turn,
+                    code=code,
+                    actionable_failure=actionable_failure,
+                    now=now,
+                )
                 activity = (
                     connection.execute(
                         select(AgentCanvasExpertActivityRow).where(
@@ -5422,6 +5694,124 @@ def _complete_turn_in_transaction(
     )
 
 
+def publish_capability_failure_in_transaction(
+    connection: Connection,
+    *,
+    events: EventRepository,
+    turn: RowMapping,
+    code: str,
+    actionable_failure: ActionableFailureV1,
+    now: str,
+) -> None:
+    """Keep failed capability presentation truthful, durable, and non-executing."""
+
+    if turn["turn_kind"] != "capability":
+        return
+    metadata = {
+        "status": "failed",
+        "error_code": code,
+        "retryable": actionable_failure.retryable,
+        "actionable_failure": actionable_failure.model_dump(mode="json"),
+    }
+    activities = connection.execute(
+        select(AgentCanvasChatEntryRow).where(
+            AgentCanvasChatEntryRow.conversation_id == turn["conversation_id"],
+            AgentCanvasChatEntryRow.entry_type == "expert_activity",
+            func.json_extract(AgentCanvasChatEntryRow.metadata_json, "$.turn_id")
+            == turn["turn_id"],
+        )
+    ).mappings()
+    for activity in activities:
+        stored = json.loads(str(activity["metadata_json"]))
+        connection.execute(
+            update(AgentCanvasChatEntryRow)
+            .where(AgentCanvasChatEntryRow.entry_id == activity["entry_id"])
+            .values(
+                content="The creative step failed.",
+                metadata_json=_dump(
+                    {**stored, **metadata, "message_key": "expert_activity.failed"}
+                ),
+            )
+        )
+    entry_id = f"msg_capability_failure_{turn['turn_id']}"
+    if (
+        connection.execute(
+            select(AgentCanvasChatEntryRow.entry_id).where(
+                AgentCanvasChatEntryRow.entry_id == entry_id
+            )
+        ).first()
+        is not None
+    ):
+        return
+    explanation = (
+        "Agent provider request timed out. The current creative step stopped."
+        if code in {"agent_provider_timeout", "agent_deadline_exceeded"}
+        else "The current creative step failed."
+    )
+    recovery = (
+        "Please retry this failed response to continue."
+        if actionable_failure.retry_scope == "turn" and actionable_failure.retryable
+        else "Please review the failure details before continuing."
+    )
+    _publish_assistant_message_in_transaction(
+        connection,
+        events=events,
+        turn=turn,
+        assistant_message=f"{explanation} {recovery}",
+        now=now,
+        entry_id=entry_id,
+        metadata=metadata,
+        publication_key=f"conversation:{turn['turn_id']}:capability_failure_message",
+    )
+
+
+def publish_next_action_failure_in_transaction(
+    connection: Connection,
+    *,
+    events: EventRepository,
+    turn: RowMapping,
+    code: str,
+    retryable: bool,
+    actionable_failure: ActionableFailureV1,
+    now: str,
+) -> None:
+    """Publish a bounded explanation without exposing internal failure messages."""
+
+    if turn["turn_kind"] != "next_action":
+        return
+    entry_id = f"msg_next_action_failure_{turn['turn_id']}"
+    if (
+        connection.execute(
+            select(AgentCanvasChatEntryRow.entry_id).where(
+                AgentCanvasChatEntryRow.entry_id == entry_id
+            )
+        ).first()
+        is not None
+    ):
+        return
+    message = (
+        "Character planning stopped because its character target is missing. "
+        "This workflow needs recovery before you can continue."
+        if code == "character_proposal_scope_invalid"
+        else "The next creative step failed. Please review the failure details before continuing."
+    )
+    _publish_assistant_message_in_transaction(
+        connection,
+        events=events,
+        turn=turn,
+        assistant_message=message,
+        entry_id=entry_id,
+        metadata={
+            "status": "failed",
+            "error_code": code,
+            "retryable": retryable,
+            "actionable_failure": actionable_failure.model_dump(mode="json"),
+        },
+        now=now,
+        publication_key=f"conversation:{turn['turn_id']}:next_action_failure_message",
+    )
+
+
 def _publish_assistant_message_in_transaction(
     connection: Connection,
     *,
@@ -5431,6 +5821,7 @@ def _publish_assistant_message_in_transaction(
     now: str,
     entry_id: str | None = None,
     metadata: Mapping[str, object] | None = None,
+    publication_key: str | None = None,
 ) -> str:
     turn_id = str(turn["turn_id"])
     workflow_id = str(turn["workflow_id"])
@@ -5461,7 +5852,7 @@ def _publish_assistant_message_in_transaction(
             turn_id=(turn_id if deterministic_publication else None),
             event_type="chat_message_created",
             transition_key=(
-                f"conversation:{turn_id}:chat_message_created"
+                publication_key or f"conversation:{turn_id}:chat_message_created"
                 if deterministic_publication
                 else None
             ),
@@ -6116,7 +6507,7 @@ def _proposal(
             expected_session_revision=int(row["guidance_session_revision"]),
             proposal_kind=str(row["proposal_kind"]),
         )
-        if availability == "open" and (len(options) == 3 or require_submit)
+        if availability == "open" and (3 <= len(options) <= 6 or require_submit)
         else (
             _historical_proposal_action_descriptors(
                 proposal_id=str(row["proposal_id"]),

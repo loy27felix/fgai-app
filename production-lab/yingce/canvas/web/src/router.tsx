@@ -41,6 +41,7 @@ const MeilinPage = lazy(() => import("@/pages/meilin"));
 const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
 const FGInspirationPage = lazy(() => import("@/pages/fg-inspiration"));
 const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
+const PersonalExpensesPage = lazy(() => import("@/pages/personal-expenses"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
 const AdminFeedbacksPage = lazy(() => import("@/pages/admin/feedbacks/feedbacks-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
@@ -129,6 +130,7 @@ export const router = createBrowserRouter([
             { path: "/fg-audio-tools", element: <RequireAuth>{deferred(<FGAudioToolsPage />)}</RequireAuth> },
             { path: "/fg-inspiration", element: <RequireAuth>{deferred(<FGInspirationPage />)}</RequireAuth> },
             { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
+            { path: "/my-expenses", element: <RequireAuth>{deferred(<PersonalExpensesPage />)}</RequireAuth> },
             {
                 path: "/toolbox/image",
                 element: (

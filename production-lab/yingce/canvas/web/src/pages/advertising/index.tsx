@@ -44,7 +44,12 @@ export default function AdvertisingPage(){
    <div className="flex flex-wrap items-center gap-2">{archived?w.can_manage&&<><Button disabled={busy} icon={<Undo2 size={15}/>} onClick={()=>void batch([w.id],restoreAdvertisingProject)}>恢复项目</Button><Button danger disabled={busy} onClick={()=>confirmBatch([w.id],true)}>彻底删除</Button></>:<><Button type="primary" loading={busy} onClick={()=>void enter(w.id)}>打开广告工作台 <ArrowUpRight size={15}/></Button>{w.can_manage&&<Button danger aria-label={`删除 ${w.name}`} icon={<Trash2 size={15}/>} onClick={()=>remove(w)}/>}</>}</div>
   </article>)}</div>:<WorkspaceState title={archived?'回收站为空':'还没有广告项目'} description={archived?'删除后保留 30 天可恢复；到期清理对应广告工程的 NAS 文件。':'先写下产品与制作目标。'}/>}
   <AppModal title="新建广告项目" open={open} onCancel={()=>setOpen(false)} okText="创建并打开" confirmLoading={busy} onOk={async()=>{try{const v=await form.validateFields();setBusy(true);const r=await http.post<{id:string}>('/fg/advertising',{...v,budgetCny:v.budgetCny||0});setOpen(false);await enter(r.id);}catch(e){if(e instanceof Error)message.error(e.message);}finally{setBusy(false);}}}>
-   <Form form={form} layout="vertical" initialValues={{budgetCny:0}}><Form.Item name="name" label="广告项目名称" rules={[{required:true}]}><Input maxLength={160}/></Form.Item><Form.Item name="brief" label="产品与广告需求" rules={[{required:true,min:5,message:'请描述产品、卖点和制作目标'}]}><Input.TextArea rows={4} maxLength={10000}/></Form.Item><Form.Item name="budgetCny" label="制作预算（人民币）" extra="不填或 0 为无上限；建立后仅超级管理员可调整。"><InputNumber min={0} max={1000000} precision={2} prefix="¥" style={{width:'100%'}}/></Form.Item></Form>
+   <Form form={form} layout="vertical" initialValues={{budgetCny:0,mode:'creation'}}>
+    <Form.Item name="name" label="广告项目名称" rules={[{required:true}]}><Input maxLength={160}/></Form.Item>
+    <Form.Item name="mode" label="制作方式" extra="自由创作：直接对话搭建画布。品牌专业：先确认品牌、受众和广告规格，再推进创意方案、分镜和制作。创建后保留本项目的制作方式。"><Segmented options={[{value:'creation',label:'自由创作'},{value:'brand',label:'品牌专业'}]}/></Form.Item>
+    <Form.Item name="brief" label="产品与广告需求" rules={[{required:true,min:5,message:'请描述产品、卖点和制作目标'}]}><Input.TextArea rows={4} maxLength={10000}/></Form.Item>
+    <Form.Item name="budgetCny" label="制作预算（人民币）" extra="不填或 0 为无上限；建立后仅超级管理员可调整。"><InputNumber min={0} max={1000000} precision={2} prefix="¥" style={{width:'100%'}}/></Form.Item>
+   </Form>
   </AppModal>
  </WorkspacePage>;
 }
