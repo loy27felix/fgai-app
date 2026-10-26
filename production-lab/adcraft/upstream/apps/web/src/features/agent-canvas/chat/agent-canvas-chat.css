@@ -2966,9 +2966,19 @@ button.agent-chat__node-links--related:hover {
 
 .agent-chat__product-upload-choice > div {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
   gap: 4px;
   margin-left: auto;
+}
+
+.agent-chat__product-upload-choice {
+  flex-wrap: wrap;
+}
+
+.agent-chat__product-upload-choice > span {
+  flex: 1 1 100%;
+  white-space: normal;
 }
 
 .agent-chat__product-upload-choice button,
@@ -4509,6 +4519,47 @@ button.agent-chat__node-links--related:hover {
   padding: 0 12px 8px;
   color: var(--agent-chat-secondary);
   font-size: 9px;
+}
+
+.agent-chat__message-references {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--agent-chat-border);
+  border-radius: 10px;
+  background: var(--agent-chat-panel);
+}
+
+.agent-chat__message-references > strong {
+  color: var(--agent-chat-primary);
+  font-size: 11px;
+}
+
+.agent-chat__message-references > small {
+  color: var(--agent-chat-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.agent-chat__message-reference-list {
+  display: grid;
+  gap: 8px;
+  max-height: 144px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.agent-chat__message-reference-list .agent-chat__context-item {
+  grid-template-columns: 36px minmax(0, 1fr) 26px;
+}
+
+.agent-chat__message-reference-list .agent-chat__context-item > img,
+.agent-chat__message-reference-list .agent-chat__context-item > svg {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 5px;
 }
 
 .agent-chat__context-tray > .agent-chat__recovery {

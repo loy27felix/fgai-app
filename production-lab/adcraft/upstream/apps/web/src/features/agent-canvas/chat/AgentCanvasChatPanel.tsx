@@ -587,7 +587,7 @@ export function AgentCanvasChatPanel({
   async function send() {
     const submittedDraft = draft;
     const text = submittedDraft.trim();
-    if (chat.state.sending || conceptInteractionPending) return;
+    if (chat.state.sending || conceptInteractionPending || pendingContextFiles.length || composerContext.view.uploadState === "uploading") return;
 
     if (conceptInteraction) {
       const request = buildConceptChoiceSubmitRequest({
@@ -1193,6 +1193,17 @@ export function AgentCanvasChatPanel({
                 onClick={() => {
                   const files = pendingContextFiles;
                   setPendingContextFiles([]);
+                  void composerContext.actions.upload(files, { semanticRole: "character_main" });
+                }}
+                disabled={chat.state.sending || composerContext.view.uploadState === "uploading"}
+              >
+                {t("Character reference")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const files = pendingContextFiles;
+                  setPendingContextFiles([]);
                   void composerContext.actions.upload(files, { semanticRole: null });
                 }}
                 disabled={chat.state.sending || composerContext.view.uploadState === "uploading"}
@@ -1233,6 +1244,35 @@ export function AgentCanvasChatPanel({
               <CloseIcon />
             </button>
           </div>
+        ) : null}
+        {composerContext.view.assets.some(asset => asset.assetId !== composerContext.productMainHandoff?.assetId)
+          || composerContext.view.nodes.length ? (
+          <section className="agent-chat__message-references" aria-label={t("References for this message")}>
+            <strong>{t("References for this message")}</strong>
+            <small>{t("Describe which person, scene or style each image should guide. References are attached when you send.")}</small>
+            <div className="agent-chat__message-reference-list">
+              {composerContext.view.assets.filter(asset => asset.assetId !== composerContext.productMainHandoff?.assetId).map(asset => (
+                <div className="agent-chat__context-item" key={asset.assetId}>
+                  {asset.thumbnailUrl ? <StableMediaPreview src={asset.thumbnailUrl} alt={asset.displayName} /> : <AssetsIcon />}
+                  <span>
+                    <strong>{asset.displayName}</strong>
+                    <small>{composerContext.availableImageAssets.find(item => item.asset_id === asset.assetId)?.source_semantic_role === "character_main"
+                      ? t("Character reference") : t("Image reference")}</small>
+                  </span>
+                  <button type="button" aria-label={t("Remove {label} reference", { label: asset.displayName })}
+                    disabled={chat.state.sending} onClick={() => composerContext.actions.removeAsset(asset.assetId)}><CloseIcon /></button>
+                </div>
+              ))}
+              {composerContext.view.nodes.map(node => (
+                <div className="agent-chat__context-item" key={node.nodeId}>
+                  <DocumentIcon />
+                  <span><strong>{node.title}</strong><small>{t("Canvas node")}</small></span>
+                  <button type="button" aria-label={t("Remove {label} reference", { label: node.title })}
+                    disabled={chat.state.sending} onClick={() => composerContext.actions.removeNode(node.nodeId)}><CloseIcon /></button>
+                </div>
+              ))}
+            </div>
+          </section>
         ) : null}
         {conceptInteraction ? (
           <div className="agent-chat__guided-composer-hint" role="status">
@@ -1324,11 +1364,11 @@ export function AgentCanvasChatPanel({
             className="agent-chat__send"
             aria-label={conceptInteraction ? t("Submit guided direction") : t("Send message")}
             title={conceptInteraction ? t("Submit guided direction") : t("Send message")}
-            disabled={conceptInteraction
+            disabled={pendingContextFiles.length > 0 || composerContext.view.uploadState === "uploading" || (conceptInteraction
               ? ((!selectedConceptOptionId && (!draft.trim() || !conceptCustomAllowed))
                 || !conceptSelectionReady
                 || conceptInteractionPending)
-              : (!draft.trim() || chat.state.sending)}
+              : (!draft.trim() || chat.state.sending))}
             onClick={() => void send()}
           >
             <SendIcon />

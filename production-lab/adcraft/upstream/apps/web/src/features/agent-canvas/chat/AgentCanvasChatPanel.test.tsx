@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { agentCanvasApi } from "../../../api/agentCanvasApi.ts";
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -307,7 +308,30 @@ const roleMotionWorkflow: AgentCanvasWorkflowV2 = {
 };
 
 describe("FG local references", () => {
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("uploads a portrait with its explicit role, shows it, and submits its image identity", async () => {
+    const chat = mockChatResult();
+    panelMocks.useAgentCanvasChat.mockReturnValue(chat);
+    const upload = vi.spyOn(agentCanvasApi, "uploadAgentCanvasAsset").mockResolvedValue({
+      workflow_id: roleMotionWorkflow.workflow_id,
+      asset: { asset_id: "portrait-1", version_id: "portrait-v1", media_type: "image", display_name: "My actor", source_semantic_role: "character_main", media_url: "/portrait.png" },
+      pending_handoff_id: null,
+    } as Awaited<ReturnType<typeof agentCanvasApi.uploadAgentCanvasAsset>>);
+    vi.spyOn(agentCanvasApi, "listAgentCanvasProjectAssets").mockResolvedValue({ assets: [] } as Awaited<ReturnType<typeof agentCanvasApi.listAgentCanvasProjectAssets>>);
+    render(<AgentCanvasChatPanel workflow={roleMotionWorkflow} />);
+    const input = screen.getByRole("textbox", { name: "Message AdCraft Video Agent" });
+    fireEvent.change(input, { target: { value: "Use my portrait reference" } });
+    fireEvent.drop(input, { dataTransfer: { types: ["Files"], files: [new File(["portrait"], "actor.png", { type: "image/png" })] } });
+    expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Character reference" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "References for this message" }).textContent).toContain("My actor"));
+    const metadata = JSON.parse(String((upload.mock.calls[0][1] as FormData).get("metadata")));
+    expect(metadata.semantic_role).toBe("character_main");
+    expect(screen.getByRole("img", { name: "My actor" })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "Use this person's appearance, keep the product unchanged" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(chat.actions.submit).toHaveBeenCalledWith(expect.objectContaining({ mentionedImageAssetIds: ["portrait-1"] })));
+  });
   it("accepts desktop images in the composer and asks their purpose before uploading", () => {
     panelMocks.useAgentCanvasChat.mockReturnValue(mockChatResult());
     render(<AgentCanvasChatPanel workflow={roleMotionWorkflow} />);

@@ -40,7 +40,7 @@ function retainExisting(current: string[], authority: Set<string>): string[] {
     : retained;
 }
 
-export type ComposerUploadRole = "product_main" | null;
+export type ComposerUploadRole = "product_main" | "character_main" | null;
 
 interface ComposerUploadOptions {
   semanticRole?: ComposerUploadRole;
@@ -124,10 +124,11 @@ export function useComposerContext({
         return next;
       });
       setUploadedAssets((current) => mergeAssets(current, uploaded));
-      setSelectedAssetIds((current) => [
-        ...current,
-        ...uploaded.map((asset) => asset.asset_id).filter((id) => !current.includes(id)),
-      ]);
+      const replacedProductId = options.semanticRole === "product_main" ? productMainHandoff?.assetId : null;
+      setSelectedAssetIds((current) => [...new Set([
+        ...current.filter(id => id !== replacedProductId),
+        ...uploaded.map((asset) => asset.asset_id),
+      ])]);
       if (options.semanticRole === "product_main") {
         const receipt = imageReceipts[0];
         if (receipt?.asset.version_id) {
@@ -142,17 +143,16 @@ export function useComposerContext({
           setProductMainHandoff(handoff);
           writeProductMainHandoff(handoff);
         }
-      } else if (!options.preserveProductMainHandoff) {
-        setProductMainHandoff(null);
-        clearProductMainHandoff(workflow.workflow_id);
       }
+      // Additional references never revoke the product the user already chose.
+      // Product Main is replaced only by another explicit product upload or X.
       setUploadState("idle");
       await onWorkflowRefresh?.();
     } catch (error) {
       setUploadState("failed");
       setUploadIssue(conversationRecoveryFromError("context", error));
     }
-  }, [onWorkflowRefresh, projectAssets, workflow.workflow_id]);
+  }, [onWorkflowRefresh, productMainHandoff?.assetId, projectAssets, workflow.workflow_id]);
 
   const clearMessageContext = useCallback(() => {
     setSelectedNodeIds([]);
@@ -215,6 +215,7 @@ export function useComposerContext({
         writeProductMainHandoff(handoff);
       },
       clearProductMainHandoff: () => {
+        setSelectedAssetIds(current => current.filter(id => id !== productMainHandoff?.assetId));
         setProductMainHandoff(null);
         clearProductMainHandoff(workflow.workflow_id);
       },

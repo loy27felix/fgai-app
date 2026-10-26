@@ -463,6 +463,19 @@ describe("Agent Conversation Shell v2", () => {
     ));
   });
 
+  it("shows selected image references beside the composer and lets the user remove one", () => {
+    fixture.context.view.assets.push({ assetId: "person-2", displayName: "Actor portrait", mediaType: "image", thumbnailUrl: "/portrait.png" });
+    fixture.context.selectedAssetIds.push("person-2");
+    renderPanel();
+    const references = screen.getByRole("region", { name: "References for this message" });
+    expect(references.textContent).toContain("Hero image");
+    expect(references.textContent).toContain("Actor portrait");
+    expect(references.querySelectorAll("img")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Actor portrait reference" }));
+    expect(fixture.context.actions.removeAsset).toHaveBeenCalledWith("person-2");
+    expect(fixture.context.actions.removeAsset).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves a newer draft while an earlier message is being accepted", async () => {
     let finish!: (accepted: boolean) => void;
     fixture.chat.actions.submit.mockImplementation(() => new Promise<boolean>((resolve) => {
