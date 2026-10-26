@@ -15,3 +15,11 @@ test("chapter import keeps original English and refuses newly translated or mism
     expect(() => chapterStoryboardFromGenerationTask(task("迪伦：别碰那根弦。"))).toThrow("原稿英文");
     expect(() => chapterStoryboardFromGenerationTask(task(english, "Dylan: Please keep your hands off the string."))).toThrow("原英文");
 });
+
+test("English import distinguishes inline voice and action/timing directions from spoken lines", () => {
+    const english = "Dylan: Don't touch that string.";
+    const performed = `动作音：椅子轻响。\n声线设定：Dylan，成年男性，平静低声。\n对白时段：3—8秒。\n${english}`;
+    expect(chapterStoryboardFromGenerationTask(task(english, performed)).rows[0].dialogue).toBe(english);
+    expect(() => chapterStoryboardFromGenerationTask(task(english, performed.replace("Don't touch", "Please touch")))).toThrow("原英文");
+    expect(() => chapterStoryboardFromGenerationTask(task(english, `声线设定（单独列出）：\n${english}`))).toThrow("原英文");
+});

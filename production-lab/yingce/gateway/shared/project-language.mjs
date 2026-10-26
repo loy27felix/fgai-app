@@ -97,6 +97,16 @@ export function assertLockedEnglishPrompt(dialogue, prompt) {
   if(section==null) throw Error('视频提示词缺少可核对的声音设计');
   const header=section.match(/(?:^|\n)\s*对白(?:[（(][^）)\n]*[）)])?\s*[：:]/);
   const body=header?section.slice(header.index+header[0].length):section;
-  const expected=grouped(dialogueCues(dialogue)),actual=grouped(dialogueCues(body));
+  let inVoiceProfile=false;
+  const cues=String(body).replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).flatMap(line=>{
+    if(/^\s*(?:基础)?声线(?:设定|说明|特征)?(?:[（(][^）)\n]*[）)])?\s*[：:]\s*$/.test(line)){inVoiceProfile=true;return [];}
+    const heading=line.match(/^\s*对白(?:[（(][^）)\n]*[）)])?\s*[：:]\s*/);
+    if(heading){inVoiceProfile=false;line=line.slice(heading[0].length);}
+    if(inVoiceProfile)return [];
+    const label=line.trim().split(/[：:]/,1)[0].replace(/[（(][^）)]*[）)]/g,'').replace(/[\s*]/g,'');
+    if(/^(?:基础)?声线(?:设定|说明|特征)?/.test(label)||/声线$/.test(label)||/^(?:动作音|脚步与动作音|接触音效|接触与操作|说明|对白说明|对白时段|对白时间|说话时机|同步参考英文|英语版对应同一句|英文参考|英文对照)$/.test(label))return [];
+    const cue=speech(line);return cue?[cue]:[];
+  });
+  const expected=grouped(dialogueCues(dialogue)),actual=grouped(cues);
   if(actual.some(cue=>han.test(cue.text))||actual.length!==expected.length||expected.some((cue,index)=>cue.speaker!==actual[index]?.speaker||cue.text!==actual[index]?.text)) throw Error('视频提示词中的演出台词与原英文不一致，请先修正，未提交视频生成');
 }

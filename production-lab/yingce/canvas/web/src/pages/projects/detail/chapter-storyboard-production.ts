@@ -103,6 +103,7 @@ export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: Pro
         const description = row.plotDescription.trim() || `镜头 ${shotNumber}`;
         const durationMs = Math.max(1000, Math.round((Number(row.durationSeconds) || 1) * 1000));
         const referencePlan = detail ? storyboardRowReferencePlan(row, detail.assets) : undefined;
+        if (referencePlan?.missingIds.length && !referenceChoices?.[index]) throw new Error(`片段 ${shotNumber} 有已失效参考，请先核对当前项目资产再导入`);
         const assetIds = referenceChoices?.[index] || referencePlan?.selectedIds || storyboardRowAssetIds(row);
         if (assetIds.length > 6) throw new Error(`片段 ${shotNumber} 匹配到 ${assetIds.length} 项参考资产，请核对并精简到 6 项以内`);
         const mentionReferences = assetIds.flatMap((assetId) => {
@@ -127,6 +128,7 @@ export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: Pro
                 negativePrompt: row.negativePrompt.trim(),
                 continuityNotes: row.continuityOut.trim(),
                 actionBeats: [
+                    ...(row.sourceTask ? [{ type: "chapter_storyboard_import", ...row.sourceTask }] : []),
                     ...(referencePlan?.describedOnly.length ? [{ type: "described_assets_without_reference", assetIds: referencePlan.describedOnly.map(asset => asset.id) }] : []),
                     ...(referenceChoices?.[index] ? [{ type: "reviewed_reference_selection", assetIds, candidateAssetIds: referencePlan?.candidates.map(asset => asset.id) }] : []),
                     ...(row.timeBeats.trim() ? [{ description: row.timeBeats.trim() }] : []),
@@ -161,9 +163,11 @@ function storyboardRowAssetIds(row: StoryboardRow) {
  * A name mentioned in reference/voice/negative notes cannot add another actor. */
 export function storyboardRowReferencePlan(row: StoryboardRow, assets: ProjectAsset[]) {
     const explicit = storyboardRowAssetIds(row);
+    const known = new Set(assets.map(asset => asset.id));
+    const missingIds = explicit.filter(id => !known.has(id));
     const narrative = [row.plotDescription, shotNarrativeText(row.videoMotionPrompt), row.performanceBlocking, ...row.characters.map(character => character.characterName)].join("\n");
     const inferred = inferShotVisualAssets(assets, narrative);
-    const required = [...new Set([...explicit, ...inferred.filter(asset => asset.category === "character").map(asset => asset.id)])];
+    const required = [...new Set([...explicit.filter(id => known.has(id)), ...inferred.filter(asset => asset.category === "character").map(asset => asset.id)])];
     const selectedIds = [...required];
     const describedOnly: ProjectAsset[] = [];
     for (const asset of inferred) {
@@ -171,7 +175,7 @@ export function storyboardRowReferencePlan(row: StoryboardRow, assets: ProjectAs
         if (selectedIds.length < 6) selectedIds.push(asset.id);
         else describedOnly.push(asset);
     }
-    return { selectedIds, describedOnly, needsReview: required.length > 6, candidates: assets.filter(asset => selectedIds.includes(asset.id) || describedOnly.some(item => item.id === asset.id)) };
+    return { selectedIds, describedOnly, missingIds, needsReview: required.length > 6 || missingIds.length > 0, candidates: missingIds.length ? assets : assets.filter(asset => selectedIds.includes(asset.id) || describedOnly.some(item => item.id === asset.id)) };
 }
 
 function storyboardAssetType(mediaType: string, category: string): ChapterStoryboardAsset["type"] | null {

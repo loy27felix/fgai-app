@@ -76,7 +76,8 @@ export function chapterStoryboardFromGenerationTasks(tasks: GenerationTask[]) {
     });
     const plan = JSON.stringify(results[0].productionPlan);
     if (results.some(result => JSON.stringify(result.productionPlan) !== plan)) throw new Error("分镜批次制作设置不一致，原分镜未覆盖");
-    return { ...results[0], rows: results.flatMap(result => result.rows).map((row, index) => ({ ...row, shotNumber: index + 1 })) };
+    const rows = results.flatMap(result => result.rows);
+    return { ...results[0], rows: rows.map((row, index) => ({ ...row, shotNumber: index + 1, ...(row.sourceTask ? { sourceTask: { ...row.sourceTask, expectedRows: rows.length } } : {}) })) };
 }
 
 function parseChapterStoryboardPart(task: GenerationTask) {
@@ -106,10 +107,11 @@ function parseChapterStoryboardPart(task: GenerationTask) {
             if (row.characters.some((character) => !character || typeof character !== "object" || typeof character.characterName !== "string")) throw new Error("分镜角色引用格式不完整，未替换原分镜");
             const ids = [...row.assetBindings.map((binding) => binding.nodeId), ...row.characters.flatMap((character) => (character.characterAssetId ? [character.characterAssetId] : []))];
             if (ids.some((id) => !allowed.has(id))) throw new Error("分镜包含不存在的项目资产，未替换原分镜");
-            if (new Set(ids).size > 6) throw new Error("单个片段引用超过 6 个项目资产，请按剧情重新划分，未替换原分镜");
+            // Reference count is reviewed with current assets before the atomic import.
+            // Rejecting here prevents the selection dialog from ever opening.
         }
     }
-    return { ...result, productionPlan: plan };
+    return { ...result, rows: result.rows.map(row => ({ ...row, sourceTask: { taskId: task.id, batchId: storyboardBatchInfo(task)?.id || task.id, expectedRows: result.rows.length, createdAt: task.createdAt } })), productionPlan: plan };
 }
 
 function projectStyleReferenceIds(profileJson?: string): string[] {

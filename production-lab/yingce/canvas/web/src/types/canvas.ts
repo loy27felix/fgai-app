@@ -106,6 +106,8 @@ export type StoryboardCharacterReference = {
 };
 
 export type StoryboardRow = {
+    /** Server task identity, assigned after parsing; never trusted from model output. */
+    sourceTask?: { taskId: string; batchId: string; expectedRows: number; createdAt?: string };
     id: string;
     shotNumber: number;
     durationSeconds: number;

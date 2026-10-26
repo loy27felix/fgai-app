@@ -5,13 +5,14 @@ import type { ProjectAsset } from "@/services/api/projects";
 import type { StoryboardRow } from "@/types/canvas";
 import { storyboardRowReferencePlan } from "./chapter-storyboard-production";
 
-type Review = { index: number; title: string; assets: ProjectAsset[]; selected: string[] };
+type Review = { index: number; title: string; assets: ProjectAsset[]; selected: string[]; missingIds: string[] };
 function ReferenceSelection({ reviews, onChange }: { reviews: Review[]; onChange: (choices: Record<number, string[]>) => void }) {
     const [choices, setChoices] = useState<Record<number, string[]>>(Object.fromEntries(reviews.map(review => [review.index, review.selected])));
     return <div className="max-h-[60vh] space-y-5 overflow-auto">
         <p>模型结果已保存，无需重新生成。请为下面片段选择最多 6 项图片参考；角色身份优先，普通道具可用文字描述。若确实需要超过 6 个出场角色，建议导入后拆分镜头再生成。</p>
         {reviews.map(review => <section key={review.index}>
             <strong>{review.title} · 已选 {choices[review.index].length}/6</strong>
+            {review.missingIds.length > 0 && <p className="text-sm text-amber-600">原结果含 {review.missingIds.length} 项已失效引用，已列出当前项目资产供重新核对；确认后才应用。原剧情与台词保留。</p>}
             <div className="mt-2 grid grid-cols-2 gap-2">{review.assets.map(asset => {
                 const representation = asset.character?.representations.find(item => item.role === "turnaround_sheet") || asset.character?.representations.find(item => item.mediaType === "image");
                 const storageKey = representation ? `resource:${representation.resourceId}` : asset.mediaType === "image" ? asset.storageKey : undefined;
@@ -33,7 +34,7 @@ export function useStoryboardReferenceReview() {
     return (rows: StoryboardRow[], assets: ProjectAsset[]) => {
         const reviews = rows.flatMap((row, index): Review[] => {
             const plan = storyboardRowReferencePlan(row, assets);
-            return plan.needsReview ? [{ index, title: `片段 ${index + 1}`, assets: plan.candidates, selected: plan.selectedIds }] : [];
+            return plan.needsReview ? [{ index, title: `片段 ${index + 1}`, assets: plan.candidates, selected: plan.selectedIds, missingIds: plan.missingIds }] : [];
         });
         if (!reviews.length) return Promise.resolve(undefined);
         return new Promise<Record<number, string[]>>((resolve, reject) => {

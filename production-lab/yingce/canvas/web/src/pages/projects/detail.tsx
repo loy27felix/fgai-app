@@ -17,6 +17,7 @@ const ProjectChaptersView = lazy(() => import("./detail/chapters"));
 const ProjectOverviewView = lazy(() => import("./detail/overview"));
 const ProjectSettingsView = lazy(() => import("./detail/settings"));
 const ProjectWorkflowView = lazy(() => import("./detail/workflow"));
+const StoryboardRecoveryPanel = lazy(() => import("./detail/storyboard-recovery-panel"));
 const ProjectEditorView = lazy(() => import("./detail/editor"));
 
 type DetailView = "overview" | "chapters" | "workflow" | "canvases" | "editor" | "assets" | "settings";
@@ -134,6 +135,7 @@ export default function ProjectDetailPage() {
                 />
                 {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    {(activeView === "chapters" || activeView === "workflow") && workspace && activeUnitId ? <Suspense fallback={null}><StoryboardRecoveryPanel key={`${projectId}:${activeUnitId}`} detail={detail} unitId={activeUnitId} /></Suspense> : null}
                     <div className={activeView === "chapters" || activeView === "workflow" || activeView === "editor" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
                         <Suspense fallback={<WorkspaceLoadingState label="正在准备当前项目视图" detail="只加载当前使用的工作区模块" />}>
                             <div className={activeView === "overview" ? "w-full" : activeView === "chapters" || activeView === "workflow" || activeView === "editor" ? "h-full w-full" : "w-full"}>

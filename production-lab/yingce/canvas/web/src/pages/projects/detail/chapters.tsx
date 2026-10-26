@@ -86,6 +86,7 @@ import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, c
 import { completeStoryboardBatch } from "@/lib/chapter-storyboard-batches";
 import { useUserStore } from "@/stores/use-user-store";
 import { ChapterBatchModal } from "./chapter-batch-modal";
+import { chapterStoryboardWasImported } from "./storyboard-result-import";
 
 const CHAPTER_ROW_HEIGHT = 62;
 const MAX_NOVEL_IMPORT_CHAPTERS = 2500;
@@ -416,7 +417,10 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         const assets = assetSnapshot || await loadChapterStoryboardAssets(detail.project.id);
         const referenceChoices = await reviewStoryboardReferences(rows, assets);
         const shots = storyboardRowsToProjectShots(rows, { ...detail, assets }, productionPlan, referenceChoices);
-        await replaceProjectUnitShots(detail.project.id, unitId, shots, expectedShotIds || detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
+        const saved = await replaceProjectUnitShots(detail.project.id, unitId, shots, expectedShotIds || detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
+        const verified = await getProjectUnitWorkspace(detail.project.id, unitId);
+        if (saved.shots.length !== shots.length || verified.shots.length !== shots.length || saved.shots.some(shot => !verified.shots.some(item => item.id === shot.id))) throw new Error("分镜已提交，但列表尚未确认，请读取已保存结果，不要重新生成");
+        queryClient.setQueryData(["project",detail.project.id,"unit-workspace",unitId],verified);
         await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),
             queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -524,6 +528,8 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         for (const task of [...(chapterTasksQuery.data || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
             const identity = chapterTaskIdentity(task);
             if (!identity) continue;
+            // The shared pending-result panel handles storyboard recovery on both tabs.
+            if (identity.kind === "storyboard") continue;
             const key = chapterOperationKey(identity.chapterId, identity.kind);
             if (!latestByOperation.has(key)) latestByOperation.set(key, { task, ...identity });
         }
@@ -783,7 +789,8 @@ function chapterOperationFromTask(task: GenerationTask): ChapterOperation {
     return { startedAt: Number.isFinite(startedAt) ? startedAt : Date.now(), taskId: task.id, stage };
 }
 
-function chapterTaskResultAlreadyApplied(task: GenerationTask, chapterId: string, kind: ChapterOperationKind, detail: Pick<ProjectDetail, "assetCandidates" | "shots">) {
+function chapterTaskResultAlreadyApplied(task: GenerationTask, chapterId: string, kind: ChapterOperationKind, detail: Pick<ProjectDetail, "assetCandidates" | "shots" | "shotRevisions">) {
+    if (kind === "storyboard") return chapterStoryboardWasImported([task], chapterId, detail);
     const completedAt = Date.parse(task.completedAt || task.updatedAt);
     if (!Number.isFinite(completedAt)) return false;
     const updatedAt = kind === "characters"
