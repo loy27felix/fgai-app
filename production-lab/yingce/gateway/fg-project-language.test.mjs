@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
 import {projectLanguageRoute,guardProjectLanguageTask,applyLanguageToTask} from './fg-project-language.mjs';
-import {originalEnglishDialogue,lockDialogueToOriginal,assertOriginalEnglishRows,assertLockedEnglishPrompt,applyProjectLanguage,normalizeProjectLanguage} from '../shared/project-language.mjs';
+import {originalEnglishDialogue,lockDialogueToOriginal,assertOriginalEnglishRows,assertLockedEnglishPrompt,applyProjectLanguage,normalizeProjectLanguage} from './shared/project-language.mjs';
 const source='<p>迪伦（压低声音）：别碰那根弦。</p><p>Dylan (quietly): Don\'t touch that string.</p><p>艾娃：我没有。</p><p>Ava: I didn’t.</p>';
 test('bilingual source is paired without translating or changing original English',()=>{
  const lines=originalEnglishDialogue(source);assert.equal(lines.length,2);assert.equal(lines[0].text,"Don't touch that string.");

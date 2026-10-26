@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {normalizeProjectLanguage,applyProjectLanguage,projectLanguageTemplateVariables,lockDialogueToOriginal,assertLockedEnglishPrompt} from '../shared/project-language.mjs';
+import {normalizeProjectLanguage,applyProjectLanguage,projectLanguageTemplateVariables,lockDialogueToOriginal,assertLockedEnglishPrompt} from './shared/project-language.mjs';
 
 const idPattern=/^[0-9a-f-]{32,36}$/i;
 const key=id=>'project-language:'+id;
