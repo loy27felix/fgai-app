@@ -2773,6 +2773,7 @@ function CanvasViewportPage() {
                         onOpen={() => setWorkspaceOpen(true)}
                         onInsertAssets={handleProjectAssetsInsert}
                         projectId={projectId}
+                        domainProjectId={linkedProjectId || undefined}
                         nodes={nodes}
                         selectedNodeIds={selectedNodeIds}
                         onClose={() => setWorkspaceOpen(false)}

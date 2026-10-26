@@ -6,14 +6,20 @@ import { CachedResourceImage } from "@/components/cached-resource-image";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { ASSET_CATEGORY_LABELS, type AssetCategory } from "@/lib/asset-category";
 import { assetPanelPresentation } from "@/lib/canvas/asset-panel-presentation";
+import { projectCharacterCover } from "@/pages/projects/detail/project-character-cover";
+import { getProjectCharacter, listProjectAssetsPage, type ProjectAsset } from "@/services/api/projects";
+import { getRemoteAsset } from "@/services/api/user-data";
+import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
 import { loadAssetLibraryPage } from "@/services/user-data-sync";
 import { useUserStore } from "@/stores/use-user-store";
 import type { Asset } from "@/stores/use-asset-store";
 import { assetPickerSelectionToInsertPayloads, type InsertAssetPayload } from "./asset-picker-modal";
 import { Select } from "@/components/ui/base/select";
+import { projectCharacterToInsertPayload, toInsertPayload } from "./canvas-project-asset-modal";
 
 const categories: AssetCategory[] = ["material", "character", "environment", "prop", "other"];
-export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets }: { onInsert: (payloads: InsertAssetPayload[]) => Promise<unknown>; onManage: () => void; onProjectAssets?: () => void }) {
+type PanelAsset = { id: string; title: string; personal?: Asset; project?: ProjectAsset; presentation: ReturnType<typeof assetPanelPresentation> };
+export function CanvasWorkspaceAssetPanel({ domainProjectId, onInsert, onManage, onProjectAssets }: { domainProjectId?: string; onInsert: (payloads: InsertAssetPayload[]) => Promise<unknown>; onManage: () => void; onProjectAssets?: () => void }) {
     const { message } = App.useApp();
     const userId = useUserStore((state) => state.user?.id);
     const hydrated = useUserStore((state) => state.hydrated);
@@ -22,23 +28,62 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
     const [input, setInput] = useState("");
     const [search, setSearch] = useState("");
     const [inserting, setInserting] = useState<string | null>(null);
+    const [personalScope, setPersonalScope] = useState(false);
+    const scopedProjectId = personalScope ? undefined : domainProjectId;
     useEffect(() => {
         const timer = window.setTimeout(() => setSearch(input.trim()), 250);
         return () => window.clearTimeout(timer);
     }, [input]);
     const query = useInfiniteQuery({
-        queryKey: ["canvas-workspace-assets", userId, category, kind, search],
+        queryKey: ["canvas-workspace-assets", userId, scopedProjectId || "personal", category, kind, search],
         initialPageParam: 1,
-        queryFn: ({ signal, pageParam }) => loadAssetLibraryPage({ page: pageParam, pageSize: 40, category, kind: kind === "all" ? undefined : kind, status: "active", query: search, signal }),
-        getNextPageParam: (page, pages) => (pages.reduce((count, item) => count + item.assets.length, 0) < page.total ? pages.length + 1 : undefined),
+        queryFn: async ({ signal, pageParam }): Promise<{ assets: PanelAsset[]; total: number; hasMore: boolean }> => {
+            if (scopedProjectId) {
+                const page = await listProjectAssetsPage(scopedProjectId, { page: pageParam, pageSize: 40, category, mediaType: kind === "all" ? undefined : kind, query: search, signal });
+                return {
+                    ...page,
+                    assets: page.assets.map((project) => {
+                        const representation = projectCharacterCover(project.character?.representations.filter((item) => item.mediaType === "image" && item.resourceId));
+                        const resourceId = representation?.resourceId || resourceIdFromStorageKey(project.storageKey);
+                        return {
+                            id: project.id,
+                            title: project.title,
+                            project,
+                            presentation: {
+                                cover: resourceId && (project.character || project.mediaType === "image") ? resourceFileUrl(resourceId) : "",
+                                storageKey: resourceId ? `resource:${resourceId}` : undefined,
+                                status: project.category === "character" ? (representation ? "形象已就绪" : "形象待完善") : "项目素材",
+                                insertable: Boolean(project.character) || ["image", "video", "audio", "text"].includes(project.mediaType),
+                            },
+                        };
+                    }),
+                };
+            }
+            const page = await loadAssetLibraryPage({ page: pageParam, pageSize: 40, category, kind: kind === "all" ? undefined : kind, status: "active", query: search, signal });
+            return { total: page.total, hasMore: pageParam * 40 < page.total, assets: page.assets.map((personal) => ({ id: personal.id, title: personal.title, personal, presentation: assetPanelPresentation(personal) })) };
+        },
+        getNextPageParam: (page, pages) => (page.hasMore ? pages.length + 1 : undefined),
         enabled: Boolean(userId) && hydrated,
     });
     const assets = query.data?.pages.flatMap((page) => page.assets) ?? [];
-    const insert = async (asset: Asset) => {
+    const insert = async (asset: PanelAsset) => {
         if (inserting) return;
         setInserting(asset.id);
         try {
-            const payloads = await assetPickerSelectionToInsertPayloads([asset.id], [{ id: asset.id, title: asset.title, category: asset.category || "other", kindLabel: asset.kind, asset }]);
+            let payloads: InsertAssetPayload[];
+            if (asset.project && scopedProjectId) {
+                if (asset.project.category === "character") {
+                    const detail = await getProjectCharacter(scopedProjectId, asset.id);
+                    payloads = [projectCharacterToInsertPayload({ ...detail.asset, character: detail.character })];
+                } else {
+                    const project = asset.project;
+                    const media = project.storageKey || (project.mediaType === "text" && project.previewText) ? undefined : (await getRemoteAsset(project.id)).asset;
+                    payloads = [toInsertPayload({ id: project.id, category: project.category, project, media })];
+                }
+            } else {
+                const personal = asset.personal!;
+                payloads = await assetPickerSelectionToInsertPayloads([personal.id], [{ id: personal.id, title: personal.title, category: personal.category || "other", kindLabel: personal.kind, asset: personal }]);
+            }
             await onInsert(payloads);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "插入素材失败");
@@ -50,9 +95,19 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
         <>
             <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
                 <Images className="size-4" />
-                <strong className="text-sm">素材库</strong>
+                <strong className="text-sm">{scopedProjectId ? "项目素材" : "我的素材"}</strong>
                 <span className="text-muted-foreground">{query.data?.pages[0]?.total ?? 0}</span>
             </header>
+            {domainProjectId ? (
+                <div className="sidebar-subtabs border-b border-border p-2" aria-label="素材来源">
+                    <button type="button" className={!personalScope ? "active" : ""} aria-pressed={!personalScope} onClick={() => setPersonalScope(false)}>
+                        项目素材
+                    </button>
+                    <button type="button" className={personalScope ? "active" : ""} aria-pressed={personalScope} onClick={() => setPersonalScope(true)}>
+                        我的素材
+                    </button>
+                </div>
+            ) : null}
             <div className="sidebar-subtabs border-b border-border p-2">
                 {categories.map((id) => (
                     <button key={id} type="button" className={category === id ? "active" : ""} aria-pressed={category === id} onClick={() => setCategory(id)}>
@@ -92,11 +147,18 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
                     </div>
                 ) : null}
                 {assets.map((asset) => {
-                    const { insertable, cover, storageKey, status } = assetPanelPresentation(asset);
+                    const { insertable, cover, storageKey, status } = asset.presentation;
                     return (
                         <div key={asset.id} className="group flex items-center gap-2 rounded-md p-2 hover:bg-surface-hover">
                             <div className="grid h-11 w-14 shrink-0 place-items-center overflow-hidden rounded-md border border-border">
-                                <CachedResourceImage src={cover} storageKey={asset.kind === "entity" || asset.kind === "image" ? storageKey : undefined} variant="thumbnail" alt={asset.title} className="h-full w-full object-contain" fallback={<FileText className="size-4 text-muted-foreground" />} />
+                                <CachedResourceImage
+                                    src={cover}
+                                    storageKey={cover || asset.personal?.kind === "entity" || asset.personal?.kind === "image" ? storageKey : undefined}
+                                    variant="thumbnail"
+                                    alt={asset.title}
+                                    className="h-full w-full object-contain"
+                                    fallback={<FileText className="size-4 text-muted-foreground" />}
+                                />
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="truncate text-sm" title={asset.title}>
@@ -104,7 +166,7 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
                                 </div>
                                 <div className="truncate text-xs text-muted-foreground">
                                     {status}
-                                    {asset.tags?.length ? ` · ${asset.tags[0]}` : ""}
+                                    {asset.personal?.tags?.length ? ` · ${asset.personal.tags[0]}` : ""}
                                 </div>
                             </div>
                             <Button
