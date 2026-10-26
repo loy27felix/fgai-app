@@ -81,6 +81,7 @@ import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
 import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
+import { useStoryboardReferenceReview } from "./storyboard-reference-review";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterStoryboardFromGenerationTasks, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 import { completeStoryboardBatch } from "@/lib/chapter-storyboard-batches";
 import { useUserStore } from "@/stores/use-user-store";
@@ -410,9 +411,11 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         refreshProject();
         return created.candidates.length;
     };
+    const reviewStoryboardReferences = useStoryboardReferenceReview();
     const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"], productionPlan?: DramaProductionPlan, expectedShotIds?: string[], assetSnapshot?: ProjectAsset[]) => {
         const assets = assetSnapshot || await loadChapterStoryboardAssets(detail.project.id);
-        const shots = storyboardRowsToProjectShots(rows, { ...detail, assets }, productionPlan);
+        const referenceChoices = await reviewStoryboardReferences(rows, assets);
+        const shots = storyboardRowsToProjectShots(rows, { ...detail, assets }, productionPlan, referenceChoices);
         await replaceProjectUnitShots(detail.project.id, unitId, shots, expectedShotIds || detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
         await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["project", detail.project.id] }),

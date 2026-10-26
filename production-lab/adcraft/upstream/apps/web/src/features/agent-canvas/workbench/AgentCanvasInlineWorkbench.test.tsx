@@ -337,6 +337,15 @@ describe("AgentCanvasInlineWorkbench", () => {
     expect(screen.getByRole("alert").closest(".agent-node-workbench__image-feedback")).toBeTruthy();
     expect(screen.getByLabelText("Generation prompt")).toBeTruthy();
   });
+  it("keeps a deleted node's prompt visible and offers an explicit refresh without retrying generation", async () => {
+    const refresh = vi.fn();
+    const props = renderWorkbench(makeNode("image"), { onWorkflowRefresh: refresh, onRun: vi.fn().mockRejectedValue(new V2ApiError({ status: 404, code: "node_not_found", message: "Canvas node was not found.", details: {}, violations: [], suggestedActions: [], payload: null })) });
+    fireEvent.click(screen.getByRole("button", { name: "Run image node" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("节点已被删除"));
+    expect(screen.getByDisplayValue("Prepare the image node.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "刷新画布，选择现有节点" }));
+    expect(refresh).toHaveBeenCalledOnce(); expect(props.onRun).toHaveBeenCalledOnce();
+  });
 
   it.each(["image", "text"] as const)("preserves %s prompt text and conflict recovery without adding status rows", async (type) => {
     const patchNode = vi.fn().mockRejectedValueOnce(new V2ApiError({

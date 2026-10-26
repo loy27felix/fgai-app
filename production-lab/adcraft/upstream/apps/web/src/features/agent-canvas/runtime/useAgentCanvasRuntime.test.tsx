@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -106,7 +106,7 @@ function terminalEvent(sequence_no: number, event_type: string) {
 describe("useAgentCanvasRuntime", () => {
   beforeEach(() => {
     EventSourceStub.instances = [];
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     api.agentCanvasEvents
       .mockRejectedValueOnce({
         status: 409,
@@ -124,6 +124,7 @@ describe("useAgentCanvasRuntime", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
   });
 
@@ -933,6 +934,16 @@ describe("useAgentCanvasRuntime", () => {
       }),
       expect.any(String),
     );
+  });
+  it("does not submit an old selected node to a different active workflow", async () => {
+    api.agentCanvasEvents.mockReset().mockResolvedValue({ workflow_id: "workflow-1", events: [], next_cursor: 42 });
+    const callbacks = { applyWorkflow: vi.fn(), mergePublishedAsset: vi.fn(), mergeNode: vi.fn() };
+    const { result, unmount } = renderHook(() => useAgentCanvasRuntime(workflow, callbacks));
+    await waitFor(() => expect(api.openAgentCanvasEventStream).toHaveBeenCalledOnce());
+    const oldNode = { node_id: "old", workflow_id: "another-workflow", node_type: "image", status: "draft" } as CanvasNodeV2;
+    await expect(result.current.actions.runNode(oldNode)).rejects.toThrow("不在这个画布");
+    expect(api.runAgentCanvas).not.toHaveBeenCalled();
+    unmount();
   });
 
   it("exposes settings, document, and Editing preparation event projections without inventing node state", async () => {

@@ -355,6 +355,18 @@ describe("FG local references", () => {
     fireEvent.click(screen.getByRole("button",{name:/Done.*1/}));
     expect((input as HTMLTextAreaElement).value).toBe("Keep my draft");
   });
+  it("shows actual image thumbnails in the reference menu before selecting them", async () => {
+    panelMocks.useAgentCanvasChat.mockReturnValue(mockChatResult());
+    const asset = { asset_id: "visual-1", version_id: "v1", media_type: "image", display_name: "My actor", media_url: "/actor.png" };
+    const workflow = { ...roleMotionWorkflow, assets: [asset] } as AgentCanvasWorkflowV2;
+    render(<AgentCanvasChatPanel workflow={workflow} />);
+    fireEvent.click(screen.getByRole("button", { name: "Mention node or image asset" }));
+    const image = screen.getByRole("img", { name: "My actor" });
+    await waitFor(() => expect(image.getAttribute("src")).toBeTruthy());
+    expect(image.closest("button")?.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(image.closest("button")!);
+    expect(image.closest("button")?.getAttribute("aria-pressed")).toBe("true");
+  });
 });
 
 function capabilityActivity(

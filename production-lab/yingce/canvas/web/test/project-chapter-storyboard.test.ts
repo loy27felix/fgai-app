@@ -20,6 +20,23 @@ describe("章节分镜写入分镜制作", () => {
         expect(shot.assetVersionIds).toEqual(["asset-version-1"]);
         expect(shot.revision.videoPrompt).toContain("@[asset:character-1]");
     });
+    test("optional props do not overflow a complete six-reference plan or block the whole chapter", () => {
+        const row = storyboardRow(), detail = projectDetail();
+        detail.assets = Array.from({ length: 7 }, (_, i) => ({ ...detail.assets[1], id: `prop-${i}`, title: `道具${i}`, primaryVersionId: `v${i}`, storageKey: `resource:p${i}`, status: "confirmed" as const }));
+        row.characters = []; row.assetBindings = detail.assets.slice(0,6).map(asset => ({ nodeId: asset.id, role: "prop", priority: 80 }));
+        row.plotDescription = "道具0、道具1、道具2、道具3、道具4、道具5、道具6在桌上";
+        row.videoMotionPrompt = row.plotDescription;
+        const [shot] = storyboardRowsToProjectShots([row], detail);
+        expect(shot.assetVersionIds).toEqual(["v0","v1","v2","v3","v4","v5"]);
+        expect(shot.revision.actionBeats).toContainEqual({ type: "described_assets_without_reference", assetIds: ["prop-6"] });
+    });
+    test("seven explicit references are never silently sliced; reviewed selections import without another model call", () => {
+        const row = storyboardRow(), detail = projectDetail();
+        detail.assets = Array.from({ length: 7 }, (_, i) => ({ ...detail.assets[1], id: `p${i}`, title: `道具${i}`, primaryVersionId: `v${i}` }));
+        row.characters=[];row.assetBindings=detail.assets.map(asset=>({nodeId:asset.id,role:"prop",priority:80}));
+        expect(()=>storyboardRowsToProjectShots([row],detail)).toThrow("7 项参考资产");
+        expect(storyboardRowsToProjectShots([row],detail,undefined,{0:["p0","p1","p2","p3","p4","p5"]})[0].assetVersionIds).toHaveLength(6);
+    });
     test("将分镜任务结果完整映射为镜头脚本", () => {
         const shots = storyboardRowsToProjectShots([storyboardRow()], projectDetail());
 

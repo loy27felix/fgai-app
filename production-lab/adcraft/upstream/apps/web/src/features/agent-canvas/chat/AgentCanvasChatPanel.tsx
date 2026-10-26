@@ -1388,6 +1388,7 @@ export function AgentCanvasChatPanel({
                   onClick={() => composerContext.actions.toggleNode(node.node_id)}
                 >
                   <span aria-hidden="true">{composerContext.selectedNodeIds.includes(node.node_id) ? "✓" : "○"}</span>
+                  {node.output_asset_id && workflow.assets.some(asset => asset.asset_id === node.output_asset_id && asset.media_type === "image") ? <span className="agent-chat__mention-thumbnail"><StableMediaPreview src={mediaAssetContentPath(workflow.assets.find(asset => asset.asset_id === node.output_asset_id))} alt={node.title} loading="lazy" /></span> : null}
                   <span>{node.title}</span>
                   <small>{node.node_type}</small>
                 </button>
@@ -1399,12 +1400,13 @@ export function AgentCanvasChatPanel({
                 <button
                   type="button"
                   key={asset.asset_id}
-                  className={composerContext.selectedAssetIds.includes(asset.asset_id) ? "is-selected" : ""}
+                  className={`has-preview ${composerContext.selectedAssetIds.includes(asset.asset_id) ? "is-selected" : ""}`}
                   aria-pressed={composerContext.selectedAssetIds.includes(asset.asset_id)}
                   disabled={chat.state.sending}
                   onClick={() => composerContext.actions.toggleAsset(asset.asset_id)}
                 >
                   <span aria-hidden="true">{composerContext.selectedAssetIds.includes(asset.asset_id) ? "✓" : "○"}</span>
+                  <span className="agent-chat__mention-thumbnail"><StableMediaPreview src={mediaAssetContentPath(asset)} alt={asset.display_name} loading="lazy" /></span>
                   <span>{asset.display_name}</span>
                   <small>image</small>
                 </button>

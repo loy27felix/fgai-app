@@ -5,11 +5,11 @@ import { FileText, Images, Plus, RefreshCw } from "lucide-react";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { ASSET_CATEGORY_LABELS, type AssetCategory } from "@/lib/asset-category";
-import { resourceStorageLabel } from "@/lib/canvas/resource-storage-status";
+import { assetPanelPresentation } from "@/lib/canvas/asset-panel-presentation";
 import { loadAssetLibraryPage } from "@/services/user-data-sync";
 import { useUserStore } from "@/stores/use-user-store";
 import type { Asset } from "@/stores/use-asset-store";
-import { assetPickerItemsToInsertPayloads, type InsertAssetPayload } from "./asset-picker-modal";
+import { assetPickerSelectionToInsertPayloads, type InsertAssetPayload } from "./asset-picker-modal";
 import { Select } from "@/components/ui/base/select";
 
 const categories: AssetCategory[] = ["material", "character", "environment", "prop", "other"];
@@ -38,7 +38,7 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
         if (inserting) return;
         setInserting(asset.id);
         try {
-            const payloads = assetPickerItemsToInsertPayloads([asset.id], [{ id: asset.id, title: asset.title, category: asset.category || "other", kindLabel: asset.kind, asset }]);
+            const payloads = await assetPickerSelectionToInsertPayloads([asset.id], [{ id: asset.id, title: asset.title, category: asset.category || "other", kindLabel: asset.kind, asset }]);
             await onInsert(payloads);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "插入素材失败");
@@ -92,19 +92,18 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
                     </div>
                 ) : null}
                 {assets.map((asset) => {
-                    const insertable = ["image", "video", "audio", "text"].includes(asset.kind);
-                    const cover = asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "");
+                    const { insertable, cover, storageKey, status } = assetPanelPresentation(asset);
                     return (
                         <div key={asset.id} className="group flex items-center gap-2 rounded-md p-2 hover:bg-surface-hover">
                             <div className="grid h-11 w-14 shrink-0 place-items-center overflow-hidden rounded-md border border-border">
-                                <CachedResourceImage src={cover} storageKey={asset.kind === "image" ? asset.data.storageKey : undefined} alt="" className="h-full w-full object-cover" fallback={<FileText className="size-4 text-muted-foreground" />} />
+                                <CachedResourceImage src={cover} storageKey={asset.kind === "entity" || asset.kind === "image" ? storageKey : undefined} variant="thumbnail" alt={asset.title} className="h-full w-full object-contain" fallback={<FileText className="size-4 text-muted-foreground" />} />
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="truncate text-sm" title={asset.title}>
                                     {asset.title}
                                 </div>
                                 <div className="truncate text-xs text-muted-foreground">
-                                    {resourceStorageLabel("storageKey" in asset.data ? asset.data.storageKey : undefined)}
+                                    {status}
                                     {asset.tags?.length ? ` · ${asset.tags[0]}` : ""}
                                 </div>
                             </div>

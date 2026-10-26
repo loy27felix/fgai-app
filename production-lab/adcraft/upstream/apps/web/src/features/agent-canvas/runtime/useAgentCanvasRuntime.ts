@@ -89,6 +89,8 @@ export function useAgentCanvasRuntime(
 
   const workflowId = workflow?.workflow_id ?? null;
   const activeWorkflowIdRef = useRef<string | null>(workflowId);
+  const workflowForRunRef = useRef(workflow);
+  workflowForRunRef.current = workflow;
   if (activeWorkflowIdRef.current !== workflowId) {
     activeWorkflowIdRef.current = workflowId;
     cursorRef.current = 0;
@@ -555,6 +557,7 @@ export function useAgentCanvasRuntime(
   ) => {
     if (!workflowId) return;
     if (!["text", "script", "image", "video", "audio"].includes(node.node_type)) return;
+    if (node.workflow_id !== workflowId || !workflowForRunRef.current?.nodes.some(current => current.node_id === node.node_id)) throw new Error("当前节点已不在这个画布中，请刷新后选择现有节点；尚未提交生成。");
     if (isSourceOnlyNode(node)) return;
     if (!new Set(["draft", "failed", "ready"]).has(node.status)) return;
     setRunPending(true);

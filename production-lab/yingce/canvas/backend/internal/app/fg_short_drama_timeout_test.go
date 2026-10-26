@@ -32,3 +32,22 @@ func TestFGShortDramaReasoningTaskTimeout(t *testing.T) {
 		t.Fatal("media budget changed")
 	}
 }
+
+func TestFGChapterStoryboardBudgetIsIndependentOfTextModel(t *testing.T) {
+	policy := platform.DefaultRuntimePolicy().Task
+	for _, name := range []string{"claude-opus-5-5-t3a", "claude-sonnet-5-5-t3a", "gpt-6.1-sol"} {
+		task := &model.Task{Type: "canvas_text", Operation: "storyboard", Model: name, InputJSON: `{"metadata":{"source":"short-drama-chapter-storyboard"}}`}
+		if got := taskExecutionTimeout(task, policy); got != 30*time.Minute {
+			t.Fatalf("storyboard model %s: got %v", name, got)
+		}
+		policy.StoryboardTimeoutMinutes = 45
+		if got := taskExecutionTimeout(task, policy); got != 45*time.Minute {
+			t.Fatalf("configured storyboard budget ignored: %v", got)
+		}
+		policy.StoryboardTimeoutMinutes = 20
+		task.Operation = "text"
+		if name != "gpt-6.1-sol" && taskExecutionTimeout(task, policy) != 8*time.Minute {
+			t.Fatal("ordinary text budget changed")
+		}
+	}
+}

@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { dramaDialoguePreserved } from "@/lib/short-drama-dialogue";
 
+test("a separate parenthesized voice section and production notes are not extra performed dialogue", () => {
+    const dialogue = "普罗米修斯（记忆中）：火还在。\nPrometheus (in the memory): The fire remains.";
+    const prompt = `【声音设计】\n对白：\n${dialogue}\n说明：中文与英文分别对应原稿。\n声线设定（单独列出）：\n普罗米修斯：成年男性，低沉克制。\nPrometheus：同一人物声线。\n【负面约束】无字幕`;
+    expect(dramaDialoguePreserved(dialogue, prompt)).toBe(true);
+    expect(dramaDialoguePreserved(dialogue, prompt.replace("The fire remains.", "The fire is gone."))).toBe(false);
+    expect(dramaDialoguePreserved("宙斯：退后。", "【声音设计】\n对白：\n宙斯：退后。\n（英语版对应同一句，只选其一，不同时说两遍：Step back.）\n宙斯声线：成年低沉男声。")).toBe(true);
+});
+
 const prompt = (body: string) => `【声音设计】\n对白：\n${body}\n【负面约束】\n不得新增台词。`;
 
 test("sound schedules after dialogue are not extra speaking characters", () => {

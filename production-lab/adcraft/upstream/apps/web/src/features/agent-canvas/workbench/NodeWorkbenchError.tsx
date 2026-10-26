@@ -38,6 +38,10 @@ export function NodeWorkbenchError({ draft }: { draft: NodeWorkbenchDraft }) {
   return (
     <p className="agent-node-workbench__error" role="alert">
       <span>{draft.error}</span>
+      {action === "refresh_node" ? <>
+        <button type="button" onClick={() => { void navigator.clipboard?.writeText(draft.prompt); }}>复制当前提示词</button>
+        <button type="button" disabled={draft.pending} onClick={() => void draft.refreshWorkflow?.()}>刷新画布，选择现有节点</button>
+      </> : null}
       {action === "open_api_space" ? <Link to="/api-space">{t("Configure provider")}</Link> : null}
       {action === "sync_models" ? <Link to="/api-space">{t("Sync models")}</Link> : null}
       {action === "choose_model" ? <span> {t("Choose a compatible model below.")}</span> : null}

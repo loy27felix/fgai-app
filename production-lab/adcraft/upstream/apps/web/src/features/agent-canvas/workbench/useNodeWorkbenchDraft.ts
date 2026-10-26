@@ -21,7 +21,7 @@ function defaultLibraryCategory(node: CanvasNodeV2): AgentCanvasImageLibraryCate
   return "character";
 }
 
-type WorkbenchErrorAction = "open_api_space" | "choose_model" | "sync_models" | null;
+type WorkbenchErrorAction = "open_api_space" | "choose_model" | "sync_models" | "refresh_node" | null;
 
 function errorState(error: unknown): { message: string; action: WorkbenchErrorAction } {
   if (!isV2ApiError(error)) {
@@ -31,6 +31,7 @@ function errorState(error: unknown): { message: string; action: WorkbenchErrorAc
     };
   }
   const code = error.code ?? "";
+  if (["node_not_found", "canvas_node_not_found"].includes(code)) return { message: canvasAuthoringErrorMessage(error), action: "refresh_node" };
   const action: WorkbenchErrorAction = ["provider_credentials_missing", "provider_credentials_invalid", "provider_gateway_unavailable", "model_not_configured", "model_default_not_configured", "agent_model_incompatible"].includes(code)
     ? "open_api_space"
     : ["model_not_found", "model_unavailable", "model_capability_mismatch", "model_adapter_unavailable", "model_conformance_required", "model_conformance_revoked", "model_parameter_incompatible", "binding_model_incompatible", "model_selection_invalid"].includes(code)

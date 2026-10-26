@@ -384,12 +384,30 @@ func taskExecutionTimeout(task *model.Task, policy RuntimeTaskPolicy) time.Durat
 	if task == nil {
 		return time.Duration(policy.DefaultTimeoutMinutes) * time.Minute
 	}
+	// Storyboard rows contain full directing, acting, camera, timeline and sound
+	// sections. Their budget follows the operation, not the generic canvas_text
+	// transport or a particular model spelling.
+	if shortDramaStoryboardTask(task) {
+		return max(30*time.Minute, time.Duration(policy.StoryboardTimeoutMinutes)*time.Minute)
+	}
 	// Long structured short-drama output with high reasoning can legitimately
 	// exceed the ordinary eight-minute text budget. Do not retry or switch model.
 	if shortDramaReasoningTask(task) {
 		return max(30*time.Minute, time.Duration(policy.TextTimeoutMinutes)*time.Minute)
 	}
 	return taskExecutionTimeoutWithPolicy(task.Type, policy)
+}
+
+func shortDramaStoryboardTask(task *model.Task) bool {
+	if task == nil || task.Type != "canvas_text" || task.Operation != "storyboard" {
+		return false
+	}
+	var input struct {
+		Metadata struct {
+			Source string `json:"source"`
+		} `json:"metadata"`
+	}
+	return json.Unmarshal([]byte(task.InputJSON), &input) == nil && input.Metadata.Source == "short-drama-chapter-storyboard"
 }
 
 func shortDramaReasoningTask(task *model.Task) bool {
