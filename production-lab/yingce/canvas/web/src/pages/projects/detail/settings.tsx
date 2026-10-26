@@ -15,6 +15,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { modelDisplayName, resolveModelRequestConfig, useEffectiveConfig } from "@/stores/use-config-store";
 
 import type { ProjectDetailViewProps } from "./shared";
+import { ProjectLanguageSettings } from "./project-language-settings";
 
 export default function ProjectSettingsView({ detail, refreshProject }: ProjectDetailViewProps) {
     const { message } = App.useApp();
@@ -112,6 +113,7 @@ export default function ProjectSettingsView({ detail, refreshProject }: ProjectD
                 </div>
             </section>
 
+            <ProjectLanguageSettings projectId={project.id} />
             <section className="border-t border-border/70 py-5">
                 <div className="mb-3"><h3 className="text-sm font-semibold">默认生成模型</h3><p className="mt-0.5 text-[var(--fs-label)] text-foreground/45">分镜图、动作预演与镜头视频优先使用项目默认；未设置或模型不可用时跟随工作台全局默认。</p></div>
                 <div className="grid gap-4 md:grid-cols-2">

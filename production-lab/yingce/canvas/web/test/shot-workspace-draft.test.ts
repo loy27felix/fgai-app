@@ -32,3 +32,8 @@ test("rewrite application accepts manual edits made before generation and refere
     expect(canApplyShotRewrite(result, "s", { videoPrompt: result.original, durationSeconds: 13 })).toBe(false);
     expect(canApplyShotRewrite({ ...result, original: "跟随 @[asset:evan]" }, "s", { videoPrompt: "跟随 @[asset:shadow]", durationSeconds: 15 })).toBe(false);
 });
+test("an English rewrite cannot overwrite dialogue edited after the suggestion was generated", () => {
+    const result = { shotId: "s", original: "正文", seconds: 15, text: "建议", originalDialogue: "迪伦：别碰。", lockedDialogue: "Dylan: Don't." };
+    expect(canApplyShotRewrite(result, "s", { videoPrompt: "正文", durationSeconds: 15, dialogue: result.originalDialogue })).toBe(true);
+    expect(canApplyShotRewrite(result, "s", { videoPrompt: "正文", durationSeconds: 15, dialogue: "Dylan: My new line." })).toBe(false);
+});

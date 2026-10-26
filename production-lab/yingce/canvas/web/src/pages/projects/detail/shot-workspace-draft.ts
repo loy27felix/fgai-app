@@ -3,7 +3,7 @@ import { localForageStorageForScope } from "@/lib/localforage-storage";
 import type { ShotRevisionInput } from "@/services/api/projects";
 
 export type ShotEditorValues = Omit<ShotRevisionInput, "durationMs"> & { title: string; durationSeconds: number; actionBoardPrompt?: string };
-export type ShotRewriteResult = { shotId: string; original: string; seconds: number; text: string };
+export type ShotRewriteResult = { shotId: string; original: string; seconds: number; text: string; originalDialogue?: string; lockedDialogue?: string };
 export type ShotWorkspaceDraft = {
     values?: ShotEditorValues;
     notes: string;
@@ -68,11 +68,12 @@ export function createShotDraftStore(storageForScope: (scope: string) => StateSt
 }
 export const shotDraftStore = createShotDraftStore(localForageStorageForScope);
 
-export function canApplyShotRewrite(result: ShotRewriteResult, shotId: string, values: Pick<ShotEditorValues, "videoPrompt" | "durationSeconds">) {
+export function canApplyShotRewrite(result: ShotRewriteResult, shotId: string, values: Pick<ShotEditorValues, "videoPrompt" | "durationSeconds" | "dialogue">) {
     // Generated standalone reference lines may be refreshed independently of authored text.
     const authored = (text: string) => text.split(/\r?\n/)
         .filter(line => !/^【(?:角色参考|场景与道具参考)】\s*$/.test(line.trim()) && !/^[^：:\n]+[：:]\s*@\[asset:[^\]]+\]\s*$/.test(line.trim()))
         .join("\n").replace(/\n{3,}/g, "\n\n").trim();
     return result.shotId === shotId && Number(result.seconds) === Number(values.durationSeconds)
+        && (result.originalDialogue === undefined || result.originalDialogue === (values.dialogue || ""))
         && authored(result.original) === authored(values.videoPrompt || "");
 }

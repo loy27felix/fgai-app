@@ -27,30 +27,66 @@ export type ShotPromptAssetReference = {
     visualUsage?: "screen-only";
 };
 
-/** 仅按本片段的明确名称匹配，歧义名称与没有视觉素材的设定不自动绑定。 */
-export function inferShotVisualAssets(assets: ProjectAsset[], text: string, explicitIds: string[] = []): ProjectAsset[] {
-    const normalized = text.normalize("NFKC").toLocaleLowerCase();
+function assetNames(asset: ProjectAsset): string[] {
+    const definition = asset.character?.definition || asset.definition || {};
+    const aliases = normalizeAssetCategory(asset.category) === "character" ? definition.aliases : [];
+    return [...new Set([asset.title, ...(Array.isArray(aliases) ? aliases.filter((name): name is string => typeof name === "string") : typeof aliases === "string" ? aliases.split(/[、,，;；]/) : [])]
+        .map(name => name.trim().normalize("NFKC").toLocaleLowerCase()).filter(name => name.length >= 2))];
+}
+
+function namePattern(name: string, global = false) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(/^[a-z0-9 .'-]+$/i.test(name) ? `(?<![a-z0-9])${escaped}(?![a-z0-9])` : escaped, global ? "gi" : "i");
+}
+
+function matchingAssetNames(assets: ProjectAsset[], text: string) {
     const names = new Map<string, ProjectAsset[]>();
     for (const asset of assets) {
-        if (!["character", "environment", "prop"].includes(normalizeAssetCategory(asset.category))) continue;
-        const name = asset.title.trim().normalize("NFKC").toLocaleLowerCase();
-        if (name.length < 2 || !asset.primaryVersionId || !["ready", "confirmed"].includes(asset.status) || !projectAssetReferenceImage(asset)) continue;
-        names.set(name, [...(names.get(name) || []), asset]);
+        for (const name of assetNames(asset)) names.set(name, [...(names.get(name) || []).filter(item => item.id !== asset.id), asset]);
     }
+    const normalized = text.normalize("NFKC").toLocaleLowerCase();
+    return [...names].filter(([name]) => namePattern(name).test(normalized));
+}
+
+/** Full names and confirmed aliases only; an ambiguous alias never chooses an arbitrary face. */
+export function inferShotVisualAssets(assets: ProjectAsset[], text: string, explicitIds: string[] = []): ProjectAsset[] {
     const matched = new Map<string, ProjectAsset>();
     for (const id of explicitIds) {
         const asset = assets.find((item) => item.id === id);
         if (asset) matched.set(id, asset);
     }
-    for (const [name, candidates] of names) {
+    for (const [, candidates] of matchingAssetNames(assets.filter(asset => ["character", "environment", "prop"].includes(normalizeAssetCategory(asset.category))), text)) {
         if (candidates.length !== 1) continue;
-        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const pattern = /^[a-z0-9 .'-]+$/i.test(name)
-            ? new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "i")
-            : new RegExp(escaped, "i");
-        if (pattern.test(normalized)) matched.set(candidates[0].id, candidates[0]);
+        const asset = candidates[0];
+        if (asset.primaryVersionId && ["ready", "confirmed"].includes(asset.status) && projectAssetReferenceImage(asset)) matched.set(asset.id, asset);
     }
     return [...matched.values()];
+}
+
+/** Reference lists and voice notes cannot claim that a character is on screen. */
+export function shotNarrativeText(prompt: string) {
+    const blocks = prompt.split(/(?=【[^】]+】)/u);
+    const timelines = blocks.filter(block => /^【[^】]*(?:分镜.*时间轴|动作时间轴)[^】]*】/u.test(block));
+    const relevant = timelines.length ? timelines : blocks.filter(block => !/^【[^】]*(?:参考|资产|声音|声线|对白|台词|负面|约束|画风)[^】]*】/u.test(block));
+    return relevant.join("\n");
+}
+
+export function assertShotCharacterCoverage(prompt: string, context: ShotAssetReferenceContext, assets: ProjectAsset[], excludedIds: string[] = []) {
+    const characters = assets.filter(asset => normalizeAssetCategory(asset.category) === "character" && !excludedIds.includes(asset.id));
+    let text = shotNarrativeText(prompt);
+    // Explicitly absent and voice-only mentions do not require a visible body.
+    for (const asset of characters) for (const name of assetNames(asset)) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        text = text.replace(new RegExp(`${escaped}\\s*[：:]?\\s*(?:不出场|不入镜|不在本镜|不出现|仅画外音|只以(?:手机)?消息出现|[（(]V\\.?O\\.?[)）])`, "gi"), "");
+    }
+    const bound = new Set(context.assetReferences.filter(ref => normalizeAssetCategory(ref.category) === "character").map(ref => ref.assetId));
+    const missing = new Set<string>();
+    for (const [name, candidates] of matchingAssetNames(characters, text)) {
+        if (candidates.length > 1) {
+            if (candidates.filter(asset => bound.has(asset.id)).length !== 1) throw new Error(`角色别名“${name}”对应多个资产，请先人工确认角色参考，未提交视频生成`);
+        } else if (!bound.has(candidates[0].id)) missing.add(candidates[0].title);
+    }
+    if (missing.size) throw new Error(`本镜头出现的角色未绑定参考图：${[...missing].join("、")}。请点击“重新匹配资产”并确认角色图片，未提交视频生成`);
 }
 
 export function stableShotReferences(references: ShotAssetReference[]) {

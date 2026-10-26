@@ -50,6 +50,13 @@ describe("reviewed shot video execution", () => {
         expect(result.context.referenceImages.map(image => image.id)).toContain("Mia");
         expect(cast.referenceImages.map(image => image.id)).toEqual(characters);
     });
+    test("the actual execution path keeps confirmed aliases and records the submitted image identity", () => {
+        const aliased = { ...cast, assetReferences: cast.assetReferences.map(ref => ref.assetId === "Evan" ? { ...ref, title: "Evan Smith", aliases: ["Evan"] } : ref) };
+        const result = prepareShotVideoExecution("【视频整体概念】\nEvan在客厅。\n【背景人物活动】\n没有背景人物。", aliased);
+        expect(result.context.referenceImages.map(image => image.id)).toEqual(["Evan"]);
+        expect(result.metadata.referenceManifest).toEqual([{ assetId: "Evan", title: "Evan Smith", category: "character", imageIndex: 1, assetVersionId: "Evan-version", storageKey: "resource:Evan", visualUsage: "on-screen" }]);
+        expect(aliased.referenceImages).toHaveLength(3);
+    });
     test("a bound old-episode voice is not automatically sent to each new shot", () => {
         const shots = ["新闻播报", "界面回溯", "风险记录", "更新判断"];
         const results = shots.map(story => prepareShotVideoExecution(`【视频整体概念】\n${story}`, context));

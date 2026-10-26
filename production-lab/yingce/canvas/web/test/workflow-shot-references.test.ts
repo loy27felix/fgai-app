@@ -2,11 +2,35 @@ import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
+import { assertShotCharacterCoverage, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
 import { assertVideoCapability } from "@/services/api/video-validation";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
 
 describe("workflow shot asset references", () => {
+    test("confirmed character aliases resolve without guessing name prefixes", () => {
+        const source = detail();
+        const character = source.assets.find(asset => asset.character)!;
+        character.title = "卡尔文·贝内特";
+        character.character!.definition = { aliases: ["卡尔", "Cal"] };
+        expect(inferShotVisualAssets(source.assets, "卡尔扶住艾玛").map(asset => asset.id)).toEqual([character.id]);
+        expect(inferShotVisualAssets(source.assets, "Cal crosses the bridge").map(asset => asset.id)).toEqual([character.id]);
+        expect(inferShotVisualAssets(source.assets, "Calvinson crosses the bridge")).toEqual([]);
+        source.assets.push({ ...character, id: "another-cal", title: "另一个卡尔", character: { ...character.character!, definition: { aliases: ["Cal"] } } });
+        expect(inferShotVisualAssets(source.assets, "Cal crosses the bridge")).toEqual([]);
+    });
+
+    test("generation rejects a named main character missing from the bound images", () => {
+        const source = detail();
+        const character = source.assets.find(asset => asset.character)!;
+        character.title = "卡尔文·贝内特";
+        character.character!.definition = { aliases: ["卡尔", "Cal"] };
+        const bound = buildShotAssetReferenceContext(source, "shot-1");
+        const missing = { ...bound, assetReferences: bound.assetReferences.filter(ref => ref.assetId !== character.id) };
+        const prompt = "【20秒分镜／动作时间轴】\n人物动作：卡尔跑向断桥。\n镜头运动：跟随卡尔。\n背景：火光闪烁。";
+        expect(() => assertShotCharacterCoverage(prompt, missing, source.assets)).toThrow("卡尔文·贝内特");
+        expect(() => assertShotCharacterCoverage(prompt, bound, source.assets)).not.toThrow();
+        expect(() => assertShotCharacterCoverage("【资产参考】\n卡尔文·贝内特：图片1\n【声音设计】\nCal：Only voice.", missing, source.assets)).not.toThrow();
+    });
     test("polling order changes do not change image indices or reference labels", () => {
         const source = detail();
         const before = buildShotAssetReferenceContext(source, "shot-1");

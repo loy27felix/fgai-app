@@ -1,4 +1,5 @@
-import { ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, type ShotAssetReferenceContext } from "./workflow-shot-references";
+import { assertShotCharacterCoverage, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, type ShotAssetReferenceContext } from "./workflow-shot-references";
+import type { ProjectAsset } from "@/services/api/projects";
 
 function explicitGender(value = "") {
     const male = /男性|男声|\bmale\b/i.test(value), female = /女性|女声|\bfemale\b/i.test(value);
@@ -36,21 +37,21 @@ export function shotSceneReferenceContext(prompt: string, context: ShotAssetRefe
     // These trailing blocks are generated from bindings and cannot prove presence in the story.
     const story = prompt.split(/【(?:角色参考|场景与道具参考|资产参考|镜头台词)】/)[0];
     const roster = story.match(/空间中只有([^。\n]+)/)?.[1];
-    const containsName = (text: string, name: string) => {
-        const names = [name, name.replace(/^(?:Dr\.|Mr\.|Mrs\.|Ms\.|Prof\.)\s+/i, "")];
+    const containsName = (text: string, reference: ShotAssetReferenceContext["assetReferences"][number]) => {
+        const names = [reference.title, reference.title.replace(/^(?:Dr\.|Mr\.|Mrs\.|Ms\.|Prof\.)\s+/i, ""), ...(reference.aliases || [])];
         return names.some(value => {
             const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             return new RegExp(`(?<![a-zA-Z0-9])${escaped}(?![a-zA-Z0-9])`, "i").test(text);
         });
     };
-    const rosterRecognized = Boolean(roster && context.assetReferences.some(reference => reference.category === "character" && containsName(roster, reference.title)));
+    const rosterRecognized = Boolean(roster && context.assetReferences.some(reference => reference.category === "character" && containsName(roster, reference)));
     const noExtraCast = /【背景人物活动】\s*(?:没有|无)背景人物/.test(story)
-        && context.assetReferences.some(reference => reference.category === "character" && containsName(story, reference.title));
+        && context.assetReferences.some(reference => reference.category === "character" && containsName(story, reference));
     const kept = context.assetReferences.flatMap(reference => {
         if (reference.category !== "character") return [reference];
-        const clauses = story.split(/[。\n]/).filter(line => containsName(line, reference.title));
+        const clauses = story.split(/[。\n]/).filter(line => containsName(line, reference));
         const textOnly = clauses.some(line => /(?<!不)(?:只|仅).{0,12}(?:手机消息|文字消息|短信)/.test(line));
-        const excludedByRoster = (rosterRecognized || noExtraCast) && !containsName(story, reference.title);
+        const excludedByRoster = (rosterRecognized || noExtraCast) && !containsName(story, reference);
         if (textOnly || excludedByRoster) return [];
         const screenOnly = clauses.some(line => /(?:只|仅).{0,24}(?:视频通话|手机屏幕|通话画面)/.test(line));
         return [{ ...reference, ...(screenOnly ? { visualUsage: "screen-only" as const } : {}) }];
@@ -79,8 +80,9 @@ export function shotGenerationReferenceContext(context: ShotAssetReferenceContex
 }
 
 /** Media models receive the reviewed shot, never the instructions used to write it. */
-export function prepareShotVideoExecution(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string; useVoiceSamples?: boolean } = {}) {
+export function prepareShotVideoExecution(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string; useVoiceSamples?: boolean; projectAssets?: ProjectAsset[] } = {}) {
     const references = shotGenerationReferenceContext(shotSceneReferenceContext(prompt, context), options.useVoiceSamples);
+    if (options.projectAssets) assertShotCharacterCoverage(prompt, references, options.projectAssets, context.assetReferences.filter(ref => !references.assetReferences.some(selected => selected.assetId === ref.assetId)).map(ref => ref.assetId));
     assertCharacterConsistency(prompt, references);
     const scopedPrompt = ensureShotAssetMentionPrompt(prompt, references.mentionReferences);
     const resolved = resolveShotAssetMentionPrompt(scopedPrompt, references, { dialogue: options.dialogue });
@@ -100,6 +102,12 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
             mediaPromptSource: "approved-shot",
             voiceReferenceMode: references.referenceAudios.length ? "timbre-only" : "description-only",
             referenceAssetIds: references.assetReferences.map(reference => reference.assetId),
+            referenceManifest: references.assetReferences.map(reference => ({
+                assetId: reference.assetId, title: reference.title, category: reference.category, imageIndex: reference.imageIndex,
+                assetVersionId: references.resolvedCharacterVersions.find(item => item.assetId === reference.assetId)?.versionId,
+                storageKey: references.referenceImages[reference.imageIndex - 1]?.storageKey,
+                visualUsage: reference.visualUsage || "on-screen",
+            })),
             excludedReferenceAssetIds: context.assetReferences.filter(reference => !references.assetReferences.some(selected => selected.assetId === reference.assetId)).map(reference => reference.assetId),
         },
     };

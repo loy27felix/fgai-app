@@ -7,6 +7,7 @@ import pg from 'pg';
 import fs from 'node:fs/promises';
 import {applyHostDiskMetrics} from './host-metrics.mjs';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
+import {projectLanguageRoute,guardProjectLanguageTask,nativeProjectAccess} from './fg-project-language.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
 import {budgetInternalRoute} from './fg-budgets.mjs';
 import {initializeSpeech,speechInternalRoute} from './fg-speech.mjs';
@@ -189,7 +190,11 @@ const server = http.createServer(async (req, res) => {
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
     if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
     if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
+    const projectAccess=nativeProjectAccess({web,cookie,publicOrigin});
+    if(await projectLanguageRoute(req,res,{pool,actor,path,access:projectAccess}))return;
     if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin,feeSync}))return;
+    if(!await guardProjectLanguageTask(req,res,{pool,path,access:projectAccess}))return;
+    if(req.fgReplayBody){headers['content-length']=String(req.fgReplayBody.length);delete headers['transfer-encoding'];}
     if (path.pathname.startsWith('/api/admin/system-update')) {
       if (req.method !== 'GET') { respond(res,409,'FG 版本由本公司仓库发布，不执行上游镜像升级','FG_MANAGED_RELEASE'); return; }
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});

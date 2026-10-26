@@ -518,7 +518,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
             const basePrompt = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
             const skillExecution = mode === "video"
-                ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples })
+                ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples, projectAssets: detail.assets })
                 : preparedImage!.execution;
             const submittedReferences = preparedImage?.context || ("context" in skillExecution ? skillExecution.context : shotAssetReferenceContext);
             const referenceTransport = preparedImage ? { mode: preparedImage.transfer.mode, originalBytes: preparedImage.transfer.originalBytes, submittedBytes: preparedImage.transfer.submittedBytes, images: preparedImage.transfer.records } : undefined;
@@ -595,9 +595,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
         rememberDraft({ result: null });
         setRewriteStatus("正在提交提示词修改任务…");
         try {
-            const result = await rewriteShotVideoPrompt({ projectId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current: values, previous: shots[shotIndex - 1] ? currentRevision(detail, shots[shotIndex - 1]) : null, next: shots[shotIndex + 1] ? currentRevision(detail, shots[shotIndex + 1]) : null, references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
+            const result = await rewriteShotVideoPrompt({ projectId, unitId: selectedShot.unitId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current: values, previous: shots[shotIndex - 1] ? currentRevision(detail, shots[shotIndex - 1]) : null, next: shots[shotIndex + 1] ? currentRevision(detail, shots[shotIndex + 1]) : null, references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
             resolveShotAssetMentionPrompt(result.text, shotAssetReferenceContext, { dialogue: values.dialogue });
-            const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text: ensureShotAssetMentionPrompt(result.text, shotAssetReferenceContext.mentionReferences) };
+            const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text: ensureShotAssetMentionPrompt(result.text, shotAssetReferenceContext.mentionReferences), ...(result.lockedDialogue === undefined ? {} : { originalDialogue: values.dialogue || "", lockedDialogue: result.lockedDialogue }) };
             if (activeWorkspaceKey.current === workspaceKey) setRewriteResult(suggestion);
             rememberDraft({ result: suggestion });
             if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus("重写完成，请检查后应用；原提示词和视频仍保留");
@@ -607,6 +607,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const applyRewrite = () => {
         if (!rewriteResult || !canApplyShotRewrite(rewriteResult, selectedShot.id, form.getFieldsValue())) return message.warning("生成建议后正文或时长又有修改，请重新生成建议，避免覆盖新内容");
         form.setFieldValue("videoPrompt", ensureShotAssetMentionPrompt(rewriteResult.text, shotAssetReferenceContext.mentionReferences));
+        if (rewriteResult.lockedDialogue !== undefined) form.setFieldValue("dialogue", rewriteResult.lockedDialogue);
         rememberEditor();
         setRewriteOpen(false);
         message.success("已应用到编辑区，请保存镜头脚本后生成视频");

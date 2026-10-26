@@ -14,6 +14,7 @@ import { dramaStoryboardContract, normalizeDirectorVideoPrompt, parseDramaProduc
 import { shortDramaAssetSkillContext, shortDramaSkillContext, shortDramaSkillProvenance, SHORT_DRAMA_BUILTIN_SKILLS } from "@/lib/prompts/short-drama-skill-context";
 import { completeStoryboardBatch, splitStoryboardSource, storyboardBatchInfo } from "@/lib/chapter-storyboard-batches";
 import { parseStyleProfile } from "@/lib/canvas/style-profile";
+import { getProjectLanguage, applyProjectLanguage, normalizeProjectLanguage, originalEnglishDialogue, assertOriginalEnglishRows, assertLockedEnglishPrompt, type OriginalEnglishCue } from "@/services/api/project-language";
 
 import type { ChapterStoryboardAsset, ChapterStoryboardCharacter } from "./chapter-storyboard-production";
 
@@ -94,6 +95,11 @@ function parseChapterStoryboardPart(task: GenerationTask) {
         result.rows = result.rows.map(row => ({ ...row, videoMotionPrompt: normalizeDirectorVideoPrompt(row.videoMotionPrompt, row.durationSeconds) }));
     }
     validateDramaStoryboard(result.rows, plan);
+    if (metadata.projectLanguagePolicy && normalizeProjectLanguage(metadata.projectLanguagePolicy).spoken === "en-original") {
+        if (!Array.isArray(metadata.originalEnglishDialogue)) throw new Error("原英文台词清单缺失，请核对任务原稿，未导入分镜");
+        assertOriginalEnglishRows(result.rows, metadata.originalEnglishDialogue as OriginalEnglishCue[]);
+        for (const row of result.rows) assertLockedEnglishPrompt(row.dialogue, row.videoMotionPrompt);
+    }
     if (plan && Array.isArray(metadata.dramaAssetIds)) {
         const allowed = new Set(metadata.dramaAssetIds);
         for (const row of result.rows) {
@@ -158,6 +164,7 @@ export async function generateChapterStoryboard(input: ChapterStoryboardGenerati
 }
 
 async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGenerationInput, options?: ChapterTaskOptions) {
+    const { policy } = await getProjectLanguage(input.projectId);
     const parts = splitStoryboardSource(input.sourceText);
     if (!parts.length) throw new Error("当前章节没有可用于分镜的正文");
     const model = input.config.model;
@@ -172,11 +179,13 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
     const batchId = crypto.randomUUID();
     const tasks: GenerationTask[] = [];
     for (const [index, part] of parts.entries()) {
-    const prompt = chapterStoryboardPrompt(input, [skillExecution.prompt,
+    const originalCues = policy.spoken === "en-original" ? originalEnglishDialogue(part.text) : undefined;
+    const prompt = applyProjectLanguage(chapterStoryboardPrompt(input, [skillExecution.prompt,
         `【本批唯一制作范围 ${index + 1}/${parts.length}】全章仅作因果、身份和衔接参考。本次只为下方正文生成分镜，前后批正文不得重复演出；不是每批从故事开头重新生成。每批仍须保留全部导演区块、完整台词及动作／摄影／背景时间轴，不压缩提示词细节。`,
         JSON.stringify({ chapterId: input.chapterId, sourceStart: part.start, sourceEnd: part.end, assignedSource: part.text }),
+        ...(originalCues ? [`【本批唯一允许演出的英文原句】${JSON.stringify(originalCues.map(({ speaker, text }) => ({ speaker, text })))}。逐字、按说话人和先后顺序分配到 rows.dialogue 与视频提示词的声音设计。中文对照不配音，不自行写英文；空清单表示本批不安排对白。`] : []),
         "本批结束在指定正文的真实落点，不添加本章结局、不新增对白；连续性记录为下一批保留人物站位、道具、光声和未完成动作。只输出本批 rows，不在返回中复制整章正文或其他批次。",
-    ].join("\n\n"));
+    ].join("\n\n")), policy, "text");
     const task = await createGenerationTask({
         projectId: input.projectId,
         type: "canvas_text",
@@ -199,6 +208,8 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
                 domainProjectId: input.projectId,
                 chapterId: input.chapterId,
                 source: "short-drama-chapter-storyboard",
+                projectLanguagePolicy: policy,
+                ...(originalCues ? { originalEnglishDialogue: originalCues } : {}),
                 storyboardBatchId: batchId,
                 batchIndex: index + 1,
                 batchCount: parts.length,

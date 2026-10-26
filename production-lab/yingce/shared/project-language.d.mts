@@ -1,0 +1,11 @@
+export type ProjectLanguagePolicy = { version: 1; spoken: "source" | "en-original"; screenText: "source" | "no-zh" | "none" };
+export type OriginalEnglishCue = { speaker: string; text: string; aliases: string[]; translation?: string };
+export const defaultProjectLanguage: Readonly<ProjectLanguagePolicy>;
+export function normalizeProjectLanguage(value?: unknown): ProjectLanguagePolicy;
+export function projectLanguageInstructions(value: unknown, mode?: string): string;
+export function applyProjectLanguage(prompt: string, value: unknown, mode?: string): string;
+export function projectLanguageTemplateVariables(variables: Record<string, string>, policy: unknown, mode?: string): Record<string, string>;
+export function originalEnglishDialogue(source: string): OriginalEnglishCue[];
+export function lockDialogueToOriginal(dialogue: string, source: string): string;
+export function assertOriginalEnglishRows(rows: Array<{ dialogue: string }>, originals: OriginalEnglishCue[]): void;
+export function assertLockedEnglishPrompt(dialogue: string, prompt: string): void;
