@@ -1,7 +1,7 @@
 import { http } from "./request";
-import { applyProjectLanguage, normalizeProjectLanguage, projectLanguageTemplateVariables, type ProjectLanguagePolicy } from "../../../../../gateway/shared/project-language.mjs";
-export { originalEnglishDialogue, lockDialogueToOriginal, assertOriginalEnglishRows, assertLockedEnglishPrompt, projectLanguageInstructions } from "../../../../../gateway/shared/project-language.mjs";
-export type { OriginalEnglishCue } from "../../../../../gateway/shared/project-language.mjs";
+import { applyProjectLanguage, normalizeProjectLanguage, projectLanguageTemplateVariables, type ProjectLanguagePolicy } from "@/lib/project-language-contract.mjs";
+export { originalEnglishDialogue, lockDialogueToOriginal, assertOriginalEnglishRows, assertLockedEnglishPrompt, projectLanguageInstructions } from "@/lib/project-language-contract.mjs";
+export type { OriginalEnglishCue } from "@/lib/project-language-contract.mjs";
 export { applyProjectLanguage, normalizeProjectLanguage };
 export type { ProjectLanguagePolicy };
 export type ProjectLanguageSetting = { policy: ProjectLanguagePolicy; revision: string | null };

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
+import './check-language-contract.mjs';
 import {projectLanguageRoute,guardProjectLanguageTask,applyLanguageToTask} from './fg-project-language.mjs';
 import {originalEnglishDialogue,lockDialogueToOriginal,assertOriginalEnglishRows,assertLockedEnglishPrompt,applyProjectLanguage,normalizeProjectLanguage} from './shared/project-language.mjs';
 const source='<p>迪伦（压低声音）：别碰那根弦。</p><p>Dylan (quietly): Don\'t touch that string.</p><p>艾娃：我没有。</p><p>Ava: I didn’t.</p>';
