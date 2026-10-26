@@ -15,6 +15,9 @@ describe("workflow shot asset references", () => {
         expect(inferShotVisualAssets(source.assets, "卡尔扶住艾玛").map(asset => asset.id)).toEqual([character.id]);
         expect(inferShotVisualAssets(source.assets, "Cal crosses the bridge").map(asset => asset.id)).toEqual([character.id]);
         expect(inferShotVisualAssets(source.assets, "Calvinson crosses the bridge")).toEqual([]);
+        const submitted = resolveShotAssetMentionPrompt("卡尔与 Cal 是同一个人物，扶住桥栏。", buildShotAssetReferenceContext(source, "shot-1"));
+        expect(submitted).toContain("卡尔文·贝内特、卡尔、Cal指同一角色，只从图片2继承面部身份");
+        expect(submitted).toContain("不混用其他角色或场景图中的脸");
         source.assets.push({ ...character, id: "another-cal", title: "另一个卡尔", character: { ...character.character!, definition: { aliases: ["Cal"] } } });
         expect(inferShotVisualAssets(source.assets, "Cal crosses the bridge")).toEqual([]);
     });

@@ -173,7 +173,7 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
     });
     if (unresolved.size) throw new Error(`提示词中的 ${Array.from(unresolved).join("、")} 未绑定到当前镜头，请重新选择资产或删除引用`);
     if (resolved.trim().startsWith("【分镜】")) {
-        const mediaBindings = context.assetReferences.map(reference => `${reference.title}身份或外观参考图片${reference.imageIndex}${reference.audioIndex ? `，音色参考音频${reference.audioIndex}` : ""}`).join("；");
+        const mediaBindings = context.assetReferences.map(reference => `${reference.title}${reference.aliases?.length ? `（同一角色别名：${reference.aliases.join("、")}）` : ""}身份或外观只参考图片${reference.imageIndex}，不与其他参考互换${reference.audioIndex ? `，音色参考音频${reference.audioIndex}` : ""}`).join("；");
         return mediaBindings ? resolved.trim().replace("人物站位：", `人物站位：${mediaBindings}。`) : resolved.trim();
     }
     const dialogueContext = withShotDialogue(context.assetReferences, options.dialogue);
@@ -211,6 +211,7 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
         const media = [`${visualLabel}：图片${reference.imageIndex}`, reference.audioIndex ? `声音参考：音频${reference.audioIndex}` : ""].filter(Boolean).join("；");
         return [
             `- ${reference.title}：${media}`,
+            reference.category === "character" ? `  身份对应：${[reference.title, ...(reference.aliases || [])].join("、")}指同一角色，只从图片${reference.imageIndex}继承面部身份、发型、体态和服装；多人同屏、遮挡或切镜后仍保持各自身份，不混用其他角色或场景图中的脸。` : "  此图仅提供该场景或道具参考，不提供演员身份，不从中增加出场人物。",
             reference.identityDescription ? `  已确认人物设定：${reference.identityDescription}` : "",
             reference.voiceDescription ? `  声音画像：${reference.voiceDescription}` : "",
             reference.dialogue ? `  镜头台词：${reference.dialogue}` : "",
