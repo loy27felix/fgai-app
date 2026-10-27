@@ -50,3 +50,15 @@ def test_deterministic_failures_remain_blocked(code):
 
 def test_untyped_legacy_failure_still_requires_its_own_recovery_authority():
     assert not _turn(failure_row()).retryable
+
+
+def test_repaired_image_context_failure_exposes_only_manual_typed_retry():
+    row = failure_row('capability_reference_plan_invalid')
+    row['error_message'] = 'Mentioned Node is incompatible with the target capability.'
+    assert explicit_turn_retryable(row['error_code'], row['error_message'])
+    assert _turn(row, continuation=delivery('next_action')).retryable
+    assert row['retryable'] is False
+    assert not _turn(row).retryable
+    row['error_message'] = 'Mentioned image asset does not belong to the current project.'
+    assert not explicit_turn_retryable(row['error_code'], row['error_message'])
+    assert not _turn(row, continuation=delivery('next_action')).retryable

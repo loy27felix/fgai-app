@@ -1,5 +1,6 @@
 import type { AgentCanvasChatTurnV2 } from "../../../types-v2.ts";
 import { canRetryFailureInScope, turnActionableFailure } from "./actionableFailure.ts";
+import { fgLabel } from "../../../fg-scope.ts";
 
 export function FailedTurnBubble({
   turn,
@@ -21,16 +22,16 @@ export function FailedTurnBubble({
       role="alert"
       aria-label="Agent response failed"
     >
-      <strong>Agent response failed</strong>
-      <p>{detail}</p>
+      <strong>{fgLabel("Agent response failed")}</strong>
+      <p>{fgLabel(detail)}</p>
       {canRetry ? (
         <button
           type="button"
-          aria-label="Retry failed Agent response"
+          aria-label={fgLabel("Retry failed Agent response")}
           disabled={retrying}
           onClick={onRetry}
         >
-          {retrying ? "Retrying…" : "Retry"}
+          {fgLabel(retrying ? "Retrying…" : "Retry")}
         </button>
       ) : null}
     </section>

@@ -2077,7 +2077,7 @@ class AgentConversationService:
                 turn_id,
                 expected_session_revision=session.revision,
                 journey=session.journey if duration_interaction is not None else duration_journey,
-                assistant_message="Choose the total advertisement duration to continue.",
+                assistant_message=("请选择广告总时长后继续。" if intent.response_locale.lower().startswith("zh") else "Choose the total advertisement duration to continue."),
                 transition_key=(
                     f"intake-duration:{turn_id}:requirements:{requirements.revision_id}"
                 ),
@@ -2087,9 +2087,9 @@ class AgentConversationService:
                     if duration_interaction is not None
                     else f"duration:{turn_id}"
                 ),
-                interaction_title="Choose production duration",
+                interaction_title="选择广告时长" if intent.response_locale.lower().startswith("zh") else "Choose production duration",
                 interaction_context=(
-                    "Confirm the total duration before time-dependent authoring begins."
+                    "确认广告总时长后开始创作。" if intent.response_locale.lower().startswith("zh") else "Confirm the total duration before time-dependent authoring begins."
                 ),
                 assistant_metadata={
                     "intent_mode": intent.mode,
@@ -2671,6 +2671,10 @@ class AgentConversationService:
             "audio_reference": "audio_reference",
         }
         for index, reference in enumerate(reference_plan.references):
+            if definition.node_type in {"text", "script"} and reference.input_role == "image_reference":
+                # The frozen authoring context retains the image mentions;
+                # they are not media connections on the resulting document.
+                continue
             operations.append(
                 {
                     "operation_type": "create_binding",

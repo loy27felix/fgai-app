@@ -48,9 +48,12 @@ export function projectFailedMessageTurns(
   });
   items.forEach((item) => {
     const turnId = structuredMessageTurnId(item);
-    if (!turnId || item.item_type !== "message" || item.speaker !== "user") return;
+    if (!turnId || item.item_type !== "message") return;
     const source = turnsById[turnId];
-    if (source?.turn_kind !== "message") return;
+    const userMessage = item.speaker === "user" && source?.turn_kind === "message";
+    const continuationFailure = item.speaker === "adcraft_video_agent"
+      && item.metadata?.status === "failed" && source?.turn_kind === "next_action";
+    if (!source || (!userMessage && !continuationFailure)) return;
     const chain = latestRetryChain(source, retriesBySource, turns.length);
     const latest = chain[chain.length - 1]!;
     if (latest.status === "completed" || latest.status === "superseded") return;

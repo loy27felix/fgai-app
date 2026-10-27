@@ -321,7 +321,7 @@ class AgentCanvasContinuationWorker:
                     delivery.continuation_turn_id,
                     error_code,
                     error_message[:1_024],
-                    explicit_turn_retryable(error_code) or turn_retryable,
+                    explicit_turn_retryable(error_code, error_message) or turn_retryable,
                 )
             except Exception as error:  # noqa: BLE001 - continuation error is authoritative.
                 logger.error(

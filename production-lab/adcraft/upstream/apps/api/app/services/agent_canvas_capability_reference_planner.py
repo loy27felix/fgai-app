@@ -59,6 +59,11 @@ _SEMANTIC_ROLE = {
     "storyboard_sequence": "storyboard_visual_reference",
 }
 
+# These capabilities author documents, not media Nodes. Their image mentions
+# are visual context for the Agent; materialization creates no image->text
+# Canvas bindings. Keep the graph connection policy strict.
+_IMAGE_CONTEXT_AUTHORING = frozenset({"world_setting", "script_authoring"})
+
 _AUTO_ROLE_PRIORITY: dict[CapabilityIdV1, dict[str, int]] = {
     "product_design": {"world_setting": 900},
     "prop_design": {"world_setting": 900},
@@ -167,6 +172,7 @@ class CapabilityReferencePlanner:
                 explicit=True,
                 required=self._required_reference(capability_id, node.creative_role),
                 target_role=(role_policy.target_role if role_policy is not None else None),
+                authoring_image_context=capability_id in _IMAGE_CONTEXT_AUTHORING,
             )
             if reference is not None:
                 candidates.append(reference)
@@ -191,7 +197,7 @@ class CapabilityReferencePlanner:
                 input_role="image_reference",
                 is_image_asset=True,
             )
-            if not decision.accepted:
+            if not decision.accepted and capability_id not in _IMAGE_CONTEXT_AUTHORING:
                 raise _error("Mentioned image asset is incompatible with the target capability.")
             candidates.append(
                 PlannedCapabilityReferenceV1(
@@ -377,6 +383,7 @@ class CapabilityReferencePlanner:
         explicit: bool,
         required: bool,
         target_role: str | None = None,
+        authoring_image_context: bool = False,
     ) -> PlannedCapabilityReferenceV1 | None:
         if target_role is not None and not explicit:
             source_role = _policy_source_role(node)
@@ -403,7 +410,7 @@ class CapabilityReferencePlanner:
             target_node_type=target_type,
             input_role=input_role,
         )
-        if not decision.accepted:
+        if not decision.accepted and not (authoring_image_context and node.node_type == "image"):
             if explicit:
                 raise _error("Mentioned Node is incompatible with the target capability.")
             return None
@@ -473,6 +480,10 @@ class CapabilityReferencePlanner:
         return normalized, tuple(warnings)
 
     def _model_reference_limit(self, capability_id: CapabilityIdV1) -> int | None:
+        if capability_id in _IMAGE_CONTEXT_AUTHORING:
+            # A media generation model's image budget does not describe the
+            # document author's visual context. Do not silently drop mentions.
+            return None
         if self._model_selection is None:
             return None
         selected = self._model_selection.validate_selection(

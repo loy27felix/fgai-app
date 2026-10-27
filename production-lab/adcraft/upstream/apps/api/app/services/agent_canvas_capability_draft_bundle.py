@@ -650,6 +650,10 @@ def _draft_nodes(
     semantics = AgentCanvasReferenceSemanticPolicy()
     for node, draft in zip(nodes, drafts, strict=True):
         for intent in sorted(draft.reference_intents, key=lambda item: item.display_order):
+            if node.node_type in {"text", "script"} and intent.input_role == "image_reference":
+                # Visual authoring context remains in the immutable envelope,
+                # not an incompatible image->document graph binding.
+                continue
             source = (
                 CanvasBindingSourceNodeV2(source_node_id=intent.source_id)
                 if intent.source_kind == "node"

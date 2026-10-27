@@ -214,7 +214,7 @@ class ChatTurnRetryService:
                 session=session,
                 request=request,
             )
-        if not explicit_turn_retryable(source.error_code or ""):
+        if not explicit_turn_retryable(source.error_code or "", source.error_message):
             raise _error(
                 "chat_turn_not_retryable",
                 "This typed Agent failure is not eligible for explicit retry.",

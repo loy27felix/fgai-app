@@ -5795,6 +5795,15 @@ def publish_next_action_failure_in_transaction(
         if code == "character_proposal_scope_invalid"
         else "The next creative step failed. Please review the failure details before continuing."
     )
+    locale = _guidance_response_locale(connection, str(turn["workflow_id"]))
+    if locale.lower().startswith("zh"):
+        reason = {
+            "capability_reference_plan_invalid": "参考素材与当前创意步骤不兼容，请核对参考素材后继续。",
+            "character_proposal_scope_invalid": "角色创作目标缺失，请重新选择要创作的角色后继续。",
+            "agent_provider_timeout": "模型服务响应超时，已确认的内容已保留。",
+            "agent_deadline_exceeded": "模型服务响应超时，已确认的内容已保留。",
+        }.get(code, "当前创意步骤未完成，已确认的内容已保留，请查看失败详情。")
+        message = reason + (" 可以重试当前步骤。" if retryable else "")
     _publish_assistant_message_in_transaction(
         connection,
         events=events,
@@ -6350,6 +6359,7 @@ def _turn(
     *,
     continuation: ContinuationDeliveryV2 | None = None,
 ) -> ChatTurnV2:
+    from app.services.agent_canvas_explicit_retry import repaired_reference_retryable
     operation_failure = (
         AgentOperationFailureV2.model_validate_json(str(row["operation_failure_json"]))
         if row["operation_failure_json"]
@@ -6361,7 +6371,7 @@ def _turn(
     # references and envelope before it can enqueue a new attempt.
     retryable = bool(row["retryable"]) or (
         str(row["status"]) == "failed"
-        and str(row["error_code"]) == "agent_runtime_unavailable"
+        and (str(row["error_code"]) == "agent_runtime_unavailable" or repaired_reference_retryable(str(row["error_code"]), row["error_message"]))
         and operation_failure is None
         and continuation is not None
         and continuation.operation in {"next_action", "capability_command"}

@@ -61,6 +61,13 @@ function turn(
 }
 
 describe("failed Turn presentation", () => {
+  it("attaches the exact failed continuation to its Agent failure message for manual retry", () => {
+    const failure = { ...message({ messageId: "next-failed", speaker: "adcraft_video_agent", turnId: "next" }), metadata: { turn_id: "next", status: "failed" } };
+    const source = turn("next", { turn_kind: "next_action", error_code: "capability_reference_plan_invalid" });
+    expect(projectFailedMessageTurns([failure], { next: source }).get("next-failed")?.turn_id).toBe("next");
+    expect(projectFailedMessageTurns([failure], { next: { ...source, status: "completed" } })).toHaveLength(0);
+    expect(projectFailedMessageTurns([failure], { other: turn("other", { turn_kind: "next_action" }) })).toHaveLength(0);
+  });
   it("maps a failed message Turn to its structured source user message", () => {
     const items: ChatTimelineItemV2[] = [
       message({ messageId: "user-message-1", turnId: "turn-1" }),
