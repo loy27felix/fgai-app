@@ -6,6 +6,19 @@ import (
 	"yingce/backend/internal/model"
 )
 
+func TestCharacterRepresentationSummaryOnlyReturnsCostumeLabels(t *testing.T) {
+	input := model.AssetRepresentation{Role: "primary", MetadataJSON: `{"prompt":"unrelated long generation record","name":"default"}`}
+	if characterRepresentationSummary(input).Metadata != nil {
+		t.Fatal("default visual exposes unrelated generation metadata")
+	}
+	input.Role = "costume:night"
+	input.MetadataJSON = `{"name":"夜景","clothing":"风衣","prompt":"not needed by wardrobe UI"}`
+	value := characterRepresentationSummary(input)
+	if len(value.Metadata) != 2 || value.Metadata["clothing"] != "风衣" {
+		t.Fatal("costume projection must expose only labels")
+	}
+}
+
 func TestCharacterCostumePreservesDefaultAndBindsPerShotAtomically(t *testing.T) {
 	s, db := newProjectWorkflowV2TestService(t)
 	if err := db.AutoMigrate(&model.VoiceProfile{}); err != nil {

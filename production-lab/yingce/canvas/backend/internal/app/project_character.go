@@ -917,7 +917,16 @@ func validCharacterRepresentationRole(role string) bool {
 }
 
 func characterRepresentationSummary(value model.AssetRepresentation) CharacterRepresentationSummary {
-	metadata := map[string]any{}
-	_ = json.Unmarshal([]byte(value.MetadataJSON), &metadata)
+	var metadata map[string]any
+	if strings.HasPrefix(value.Role, "costume:") {
+		stored := map[string]any{}
+		_ = json.Unmarshal([]byte(value.MetadataJSON), &stored)
+		metadata = map[string]any{}
+		for _, key := range []string{"name", "clothing"} {
+			if text, ok := stored[key].(string); ok {
+				metadata[key] = text
+			}
+		}
+	}
 	return CharacterRepresentationSummary{ID: value.ID, ResourceID: value.ResourceID, MediaType: value.MediaType, Role: value.Role, Metadata: metadata}
 }
