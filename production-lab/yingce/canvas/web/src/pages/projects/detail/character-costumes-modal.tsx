@@ -57,7 +57,7 @@ export function CharacterCostumesModal({projectId, asset, onClose, onRefresh, on
     };
     const tile=(role:string,label:string,image?:CharacterRepresentation)=><button type="button" key={role} aria-pressed={selected===role} className={`rounded-lg border p-2 text-left ${selected===role?"border-blue-500 bg-blue-500/10":"border-border"}`} onClick={()=>setSelected(role)}>{image&&<img className="h-24 w-full object-contain" src={resourceFileUrl(image.resourceId)} alt={label}/>}<span className="block text-sm">{label}</span></button>;
     return <AppModal open title={`${asset.title} · 服装与造型`} width={880} onCancel={onClose} footer={<><Button onClick={onClose}>关闭</Button>{onSelect&&<Button type="primary" loading={busy} disabled={!selectedImage} onClick={async()=>{setBusy(true);try{await onSelect(card!.versionId,selected);onClose();}catch(e){setError(e instanceof Error?e.message:"选择失败");}finally{setBusy(false);}}}>本镜头使用此造型</Button>}</>}>
-        <p className="mb-3 text-sm text-foreground/60">同一角色保留一张脸和声音，按镜头选择服装。切换只影响当前镜头；生成过的视频保留，可手动重新生成。</p>
+        <p className="mb-3 text-sm text-foreground/60">同一角色保留一张脸和声音，按镜头选择服装。切换只影响当前镜头；生成过的视频保留，可手动重新生成。一个镜头需要多套服装时，关闭本窗口，在镜头资产中点击“本镜头内换装”按时间段安排。</p>
         {(error||character.error)&&<Alert type="error" showIcon title={error||"角色读取失败，请重试"}/>}
         <div className="grid grid-cols-3 gap-3">{tile("reference","默认形象",cover)}{looks.map(r=>tile(r.role,r.metadata?.name||"服装造型",r))}</div>
         {selectedImage&&<div className="my-3"><Image src={resourceFileUrl(selectedImage.resourceId)} alt="当前选择的实际参考图" width="100%" height={180} style={{objectFit:"contain"}}/><p className="text-sm">{selectedImage.metadata?.clothing||"默认服装"}</p></div>}

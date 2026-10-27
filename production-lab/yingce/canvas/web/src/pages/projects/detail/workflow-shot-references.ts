@@ -5,6 +5,7 @@ import type { CharacterRepresentation, ProjectAsset, ProjectDetail, ShotAssetRef
 import type { AssetCategory } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio } from "@/types/media";
+import { shotCostumeTimelines, validateShotCostumeTimeline } from "./shot-costume-timeline";
 
 export type ShotAssetReferenceContext = {
     mentionReferences: CanvasResourceReference[];
@@ -12,6 +13,8 @@ export type ShotAssetReferenceContext = {
     referenceAudios: ReferenceAudio[];
     assetReferences: ShotPromptAssetReference[];
     resolvedCharacterVersions: Array<{ assetId: string; versionId: string }>;
+    costumeTimelineError?: string;
+    costumeDurationMs?: number;
 };
 
 export type ShotPromptAssetReference = {
@@ -23,6 +26,8 @@ export type ShotPromptAssetReference = {
     voiceDescription?: string;
     identityDescription?: string;
     costumeDescription?: string;
+    costumeRole?: string;
+    costumeTimeRanges?: Array<{ startMs: number; endMs: number }>;
     aliases?: string[];
     dialogue?: string;
     visualUsage?: "screen-only";
@@ -97,7 +102,7 @@ export function stableShotReferences(references: ShotAssetReference[]) {
 export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: string): ShotAssetReferenceContext {
     const assetByVersionId = new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset]));
     const seenAssetIds = new Set<string>();
-    const entries = stableShotReferences(detail.shotReferences || []).flatMap((reference) => {
+    const baseEntries = stableShotReferences(detail.shotReferences || []).flatMap((reference) => {
         if (reference.shotId !== shotId || reference.status !== "linked") return [];
         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
         if (!asset || seenAssetIds.has(asset.id)) return [];
@@ -106,10 +111,41 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
         seenAssetIds.add(asset.id);
         return [{ asset, image, reference }];
     });
+    const shot = detail.shots?.find(item => item.id === shotId);
+    const revision = detail.shotRevisions?.find(item => item.id === shot?.currentRevisionId);
+    const durationMs = revision?.durationMs || shot?.durationMs || 0;
+    let costumeTimelineError: string | undefined;
+    let costumeDurationMs: number | undefined;
+    type Entry = typeof baseEntries[number] & { timeRanges?: Array<{ startMs: number; endMs: number }> };
+    let entries: Entry[] = baseEntries;
+    try {
+        const plans = shotCostumeTimelines(revision?.actionBeatsJson);
+        const plannedAssets = new Set<string>();
+        for (const plan of plans) {
+            if (plannedAssets.has(plan.assetId)) throw new Error("同一角色有重复的换装计划，请重新设置");
+            plannedAssets.add(plan.assetId);
+            const entry = baseEntries.find(item => item.asset.id === plan.assetId);
+            if (!entry?.asset.character) throw new Error("换装计划的角色已取消绑定，请重新设置或移除本镜头内换装");
+            validateShotCostumeTimeline(plan, durationMs, entry.reference.assetVersionId, entry.reference.referencedVersion?.representations || entry.asset.character.representations);
+        }
+        entries = baseEntries.flatMap(entry => {
+            const plan = plans.find(item => item.assetId === entry.asset.id);
+            if (!plan) return [entry];
+            costumeDurationMs = durationMs;
+            const roles = [...new Set(plan.segments.map(segment => segment.role))];
+            return roles.map((role, index) => {
+                const reference = { ...entry.reference, role };
+                const image = projectAssetReferenceImage(entry.asset, reference)!;
+                return { ...entry, reference, image: { ...image, id: index ? `${entry.asset.id}:${role}` : entry.asset.id }, timeRanges: plan.segments.filter(segment => segment.role === role).map(({startMs,endMs}) => ({startMs,endMs})) };
+            });
+        });
+    } catch (error) {
+        costumeTimelineError = error instanceof Error ? error.message : "镜头内换装设置无效，请重新设置";
+    }
 
     const referenceAudios: ReferenceAudio[] = [];
     const audioIndexByResourceId = new Map<string, number>();
-    const assetReferences = entries.map(({ asset, reference }, index) => {
+    const assetReferences = entries.map(({ asset, reference, timeRanges }, index) => {
         const costume = reference.role.startsWith("costume:") ? reference.referencedVersion?.representations.find(item => item.role === reference.role) : undefined;
         const sampleResourceId = stringValue(asset.character?.voice?.profile.sampleResourceId);
         let audioIndex: number | undefined;
@@ -132,6 +168,7 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
             title: asset.title,
             category: asset.category,
             ...(costume ? { costumeDescription: [costume.metadata?.name, costume.metadata?.clothing].filter(Boolean).join("：") } : {}),
+            ...(timeRanges ? { costumeTimeRanges: timeRanges, costumeRole: reference.role, costumeDescription: costume ? [costume.metadata?.name, costume.metadata?.clothing].filter(Boolean).join("：") : "默认形象" } : {}),
             imageIndex: index + 1,
             ...(audioIndex ? { audioIndex } : {}),
             ...(asset.character ? { voiceDescription: characterVoiceDescription(asset) } : {}),
@@ -143,7 +180,9 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
     });
 
     return {
-        mentionReferences: entries.map(({ asset, image }) => ({
+        ...(costumeTimelineError ? { costumeTimelineError } : {}),
+        ...(costumeDurationMs ? { costumeDurationMs } : {}),
+        mentionReferences: entries.filter((entry,index) => entries.findIndex(item => item.asset.id === entry.asset.id) === index).map(({ asset, image }) => ({
             id: `project-asset:${asset.id}`,
             nodeId: "",
             assetId: asset.id,
@@ -158,13 +197,14 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
         referenceImages: entries.map(({ image }) => image),
         referenceAudios,
         assetReferences,
-        resolvedCharacterVersions: entries.flatMap(({ asset, reference }) => asset.character ? [{ assetId: asset.id, versionId: reference.referencedVersion?.id || reference.assetVersionId || asset.character.versionId }] : []),
+        resolvedCharacterVersions: baseEntries.flatMap(({ asset, reference }) => asset.character ? [{ assetId: asset.id, versionId: reference.referencedVersion?.id || reference.assetVersionId || asset.character.versionId }] : []),
     };
 }
 
 export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string } = {}) {
+    if (context.costumeTimelineError) throw new Error(context.costumeTimelineError);
     const screenOnly = new Set(context.assetReferences.filter(reference => reference.visualUsage === "screen-only").map(reference => reference.assetId));
-    const imageLabelByAssetId = new Map(context.mentionReferences.map((reference, index) => [reference.assetId, `图片${index + 1}${screenOnly.has(reference.assetId || "") ? "（仅用于手机屏幕中的通话影像，不是现场人物）" : ""}`]));
+    const imageLabelByAssetId = new Map(context.mentionReferences.map(reference => [reference.assetId, `图片${context.assetReferences.find(item=>item.assetId===reference.assetId)?.imageIndex}${screenOnly.has(reference.assetId || "") ? "（仅用于手机屏幕中的通话影像，不是现场人物）" : ""}`]));
     const unresolved = new Set<string>();
     const resolved = prompt.replace(/@\[asset:([^\]]+)\]/g, (token, assetId: string) => {
         const label = imageLabelByAssetId.get(assetId);
@@ -177,7 +217,8 @@ export function resolveShotAssetMentionPrompt(prompt: string, context: ShotAsset
     if (unresolved.size) throw new Error(`提示词中的 ${Array.from(unresolved).join("、")} 未绑定到当前镜头，请重新选择资产或删除引用`);
     if (resolved.trim().startsWith("【分镜】")) {
         const mediaBindings = context.assetReferences.map(reference => `${reference.title}${reference.aliases?.length ? `（同一角色别名：${reference.aliases.join("、")}）` : ""}身份或外观只参考图片${reference.imageIndex}，不与其他参考互换${reference.audioIndex ? `，音色参考音频${reference.audioIndex}` : ""}`).join("；");
-        return mediaBindings ? resolved.trim().replace("人物站位：", `人物站位：${mediaBindings}。`) : resolved.trim();
+        const compact = mediaBindings ? resolved.trim().replace("人物站位：", `人物站位：${mediaBindings}。`) : resolved.trim();
+        return context.costumeDurationMs ? [compact, compileShotAssetReferencePrompt(context.assetReferences)].join("\n\n") : compact;
     }
     const dialogueContext = withShotDialogue(context.assetReferences, options.dialogue);
     const assetBlock = compileShotAssetReferencePrompt(dialogueContext.references);
@@ -214,9 +255,9 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
         const media = [`${visualLabel}：图片${reference.imageIndex}`, reference.audioIndex ? `声音参考：音频${reference.audioIndex}` : ""].filter(Boolean).join("；");
         return [
             `- ${reference.title}：${media}`,
-            reference.category === "character" ? `  身份对应：${[reference.title, ...(reference.aliases || [])].join("、")}指同一角色，只从图片${reference.imageIndex}继承面部身份、发型、体态和服装；多人同屏、遮挡或切镜后仍保持各自身份，不混用其他角色或场景图中的脸。` : ["environment", "prop"].includes(normalizeAssetCategory(reference.category)) ? "  此图仅提供该场景或道具参考，不提供演员身份，不从中增加出场人物。" : "",
+            reference.category === "character" ? `  身份对应：${[reference.title, ...(reference.aliases || [])].join("、")}指同一角色，只从图片${reference.imageIndex}继承面部身份、发型、体态${reference.costumeTimeRanges ? "；此角色多张造型图是同一演员在不同时间的服装，不增加分身，服装仅按下方时间范围切换" : "和服装"}；多人同屏、遮挡或切镜后仍保持各自身份，不混用其他角色或场景图中的脸。` : ["environment", "prop"].includes(normalizeAssetCategory(reference.category)) ? "  此图仅提供该场景或道具参考，不提供演员身份，不从中增加出场人物。" : "",
             reference.identityDescription ? `  已确认人物设定：${reference.identityDescription}` : "",
-            reference.costumeDescription ? `  本镜头服装造型：${reference.costumeDescription}。服装与配饰以此参考图为准，保持该角色面部身份和声音，不套用其他造型的衣服。` : "",
+            reference.costumeDescription ? `  ${reference.costumeTimeRanges ? `使用时段：${reference.costumeTimeRanges.map(range=>`${range.startMs/1000}–${range.endMs/1000}秒`).join("、")}；本时段` : "本镜头"}服装造型：${reference.costumeDescription}。服装与配饰以此参考图为准，保持该角色面部身份和声音，不套用其他造型的衣服。` : "",
             reference.voiceDescription ? `  声音画像：${reference.voiceDescription}` : "",
             reference.dialogue ? `  镜头台词：${reference.dialogue}` : "",
         ].filter(Boolean);
@@ -262,15 +303,16 @@ function preferredVisualRepresentation(representations: CharacterRepresentation[
 function withShotDialogue(references: ShotPromptAssetReference[], dialogue?: string) {
     const value = stringValue(dialogue);
     if (!value) return { references, unassignedDialogue: "" };
-    const characters = references.filter((reference) => reference.category === "character");
+    const characters = references.filter((reference,index) => reference.category === "character" && references.findIndex(item=>item.assetId===reference.assetId)===index);
     if (characters.length === 1) {
         return {
-            references: references.map((reference) => reference.assetId === characters[0]?.assetId ? { ...reference, dialogue: value } : reference),
+            references: references.map((reference,index) => reference.assetId === characters[0]?.assetId && references.findIndex(item=>item.assetId===reference.assetId)===index ? { ...reference, dialogue: value } : reference),
             unassignedDialogue: "",
         };
     }
-    const resolved = references.map((reference) => {
+    const resolved = references.map((reference,index) => {
         if (reference.category !== "character") return reference;
+        if (references.findIndex(item=>item.assetId===reference.assetId)!==index) return reference;
         const matched = dialogueForCharacter(value, reference.title);
         return matched ? { ...reference, dialogue: matched } : reference;
     });

@@ -5,8 +5,64 @@ import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
 import { assertShotCharacterCoverage, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, projectAssetReferenceImage, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
 import { assertVideoCapability } from "@/services/api/video-validation";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
+import { replaceShotCostumeTimeline, shotCostumeTimelines, validateShotCostumeTimeline, type ShotCostumeTimeline } from "@/pages/projects/detail/shot-costume-timeline";
+import { prepareShotVideoExecution } from "@/pages/projects/detail/shot-video-execution";
 
 describe("workflow shot asset references", () => {
+    function wardrobeFixture() {
+        const source = detail(), asset = source.assets.find(a => a.character)!;
+        asset.character!.representations.push({id:"night",resourceId:"night-coat",mediaType:"image",role:"costume:night",metadata:{name:"夜景外套",clothing:"深蓝风衣"}});
+        asset.character!.voice = {profile:{sampleResourceId:"male-voice"}} as never;
+        const ref = source.shotReferences.find(r => r.assetVersionId === asset.primaryVersionId)!;
+        ref.asset = asset;
+        ref.referencedVersion = {id:ref.assetVersionId,assetId:asset.id,version:1,representations:asset.character!.representations};
+        const plan: ShotCostumeTimeline = {kind:"character_costume_timeline",assetId:asset.id,assetVersionId:ref.assetVersionId,segments:[{startMs:0,endMs:5000,role:"reference",resourceId:"character-cover"},{startMs:5000,endMs:15000,role:"costume:night",resourceId:"night-coat"}]};
+        source.shots = [{id:"shot-1",currentRevisionId:"revision-1",durationMs:15000}] as ProjectDetail["shots"];
+        source.shotRevisions = [{id:"revision-1",shotId:"shot-1",durationMs:15000,actionBeatsJson:replaceShotCostumeTimeline('[{"kind":"story-beat","text":"keep"}]',asset.id,plan)}] as ProjectDetail["shotRevisions"];
+        return {source,asset,plan,ref};
+    }
+    test("one shot submits both outfits with timed bindings, one identity and one voice sample",()=>{
+        const {source}=wardrobeFixture();
+        const context=buildShotAssetReferenceContext(source,"shot-1");
+        expect(context.referenceImages.map(r=>r.storageKey)).toEqual(["resource:scene-image","resource:character-cover","resource:night-coat"]);
+        expect(new Set(context.referenceImages.map(r=>r.id)).size).toBe(3);
+        expect(context.mentionReferences.filter(r=>r.assetId==="asset-character")).toHaveLength(1);
+        expect(context.referenceAudios).toHaveLength(1);
+        const execution=prepareShotVideoExecution("林默：@[asset:asset-character]在5秒处换上外套。",context,{useVoiceSamples:true});
+        expect(execution.prompt).toContain("0–5秒");
+        expect(execution.prompt).toContain("5–15秒");
+        expect(execution.prompt).toContain("图片3");
+        expect(execution.prompt).toContain("同一角色");
+        expect(execution.metadata.referenceManifest).toHaveLength(3);
+        expect(prepareShotVideoExecution("林默换装",context,{dialogue:"Lin: Keep the original words."}).prompt.match(/Lin: Keep the original words\./g)).toHaveLength(1);
+        expect(()=>prepareShotVideoExecution("林默换装",context,{durationMs:14000})).toThrow("镜头时长已修改");
+        const replay=buildShotAssetReferenceContext(JSON.parse(JSON.stringify(source)),"shot-1");
+        expect(prepareShotVideoExecution("@[asset:asset-character]",replay).metadata.referenceManifest).toEqual(prepareShotVideoExecution("@[asset:asset-character]",context).metadata.referenceManifest);
+        expect(source.shotRevisions[0].actionBeatsJson).toContain('"text":"keep"');
+    });
+    test("returning to an earlier outfit reuses its image and leaves another character's mention index correct",()=>{
+        const {source,plan,asset}=wardrobeFixture();
+        plan.segments[1].endMs=10000;
+        plan.segments.push({startMs:10000,endMs:15000,role:"reference",resourceId:"character-cover"});
+        source.shotRevisions[0].actionBeatsJson=replaceShotCostumeTimeline("[]",asset.id,plan);
+        const scene=source.assets[0];source.assets.push({...scene,id:"another-scene",title:"室内",primaryVersionId:"another-version"});
+        source.shotReferences.push({id:"later",shotId:"shot-1",assetVersionId:"another-version",role:"reference",status:"linked",createdAt:"2026-08-29T00:00:05Z"});
+        const context=buildShotAssetReferenceContext(source,"shot-1");
+        expect(context.referenceImages).toHaveLength(4);
+        expect(resolveShotAssetMentionPrompt("@[asset:another-scene]",context)).toContain("图片4");
+        expect(resolveShotAssetMentionPrompt("回忆",context)).toContain("0–5秒、10–15秒");
+        const sceneFiltered=prepareShotVideoExecution("空间中只有林默。室内无人。",context).context;
+        expect(sceneFiltered.referenceImages.filter(image=>image.storageKey==="resource:night-coat")).toHaveLength(1);
+        expect(shotCostumeTimelines("legacy non-json beat text")).toEqual([]);
+    });
+    test("a changed outfit or duration blocks submission instead of silently falling back",()=>{
+        const {source,plan,ref}=wardrobeFixture();
+        expect(()=>validateShotCostumeTimeline(plan,15000,ref.assetVersionId,ref.referencedVersion!.representations)).not.toThrow();
+        expect(()=>validateShotCostumeTimeline(plan,14000,ref.assetVersionId,ref.referencedVersion!.representations)).toThrow("时间无效");
+        ref.referencedVersion!.representations[1].resourceId="replaced-image";
+        const context=buildShotAssetReferenceContext(source,"shot-1");
+        expect(()=>prepareShotVideoExecution("林默换装",context)).toThrow("参考图已变更");
+    });
     test("bound preview, mention and submission use the same historical image, not the latest cover",()=>{
         const source=detail(), character=source.assets.find(a=>a.character)!;
         const reference=source.shotReferences.find(r=>r.assetVersionId===character.primaryVersionId)!;

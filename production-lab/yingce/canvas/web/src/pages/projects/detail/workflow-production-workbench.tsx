@@ -8,6 +8,8 @@ import { prepareShotVideoExecution, shotGenerationReferenceContext, shotSceneRef
 import { rewriteShotVideoPrompt } from "./shot-prompt-rewrite";
 import { ShotVideoBatchModal } from "./shot-video-batch-modal";
 import { CharacterCostumesModal } from "./character-costumes-modal";
+import { ShotCostumeTimelineModal } from "./shot-costume-timeline-modal";
+import { replaceShotCostumeTimeline, shotCostumeTimelines, validateShotCostumeTimeline, type ShotCostumeTimeline } from "./shot-costume-timeline";
 import { ShotImageGenerationModal, type PreparedShotImage } from "./shot-image-generation-modal";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -39,6 +41,7 @@ import {
     deleteProjectShot,
     linkShotAsset,
     listProjectAssetsPage,
+    getProjectUnitWorkspace,
     saveProjectShot,
     unlinkShotAsset,
     updateWorkflowStep,
@@ -223,6 +226,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const { skills: availableSkills, loading: skillsLoading } = useSkillRuntimeCatalog();
     const shotAssetReferenceContext = useMemo(() => buildShotAssetReferenceContext(detail, selectedShot?.id || ""), [detail, selectedShot?.id]);
     const [costumeTarget,setCostumeTarget] = useState<{asset:ProjectAsset;reference:ShotAssetReference;shotId:string}>();
+    const [costumeTimelineTarget,setCostumeTimelineTarget] = useState<{asset:ProjectAsset;reference:ShotAssetReference;shotId:string}>();
     liveReferenceContext.current = shotAssetReferenceContext;
     const referenceByVersionId = useMemo(() => {
         const references = (detail.shotReferences || []).filter((reference) => reference.shotId === selectedShot?.id && reference.role === "reference" && reference.status === "linked");
@@ -419,6 +423,25 @@ export default function WorkflowProductionWorkbench(props: Props) {
         void shotDraftStore.persist(draftScope, projectId, shotId).catch(() => message.warning("服务端已保存，本地草稿清理失败"));
     };
 
+    const saveCostumeTimeline = async (timeline?: ShotCostumeTimeline) => {
+        const target = costumeTimelineTarget;
+        if (!target || !selectedShot || target.shotId !== selectedShot.id || activeShotIdRef.current !== target.shotId) throw new Error("当前镜头已切换，请重新打开换装设置");
+        const values = await form.validateFields();
+        const workspace = await getProjectUnitWorkspace(projectId,unitId);
+        const latest = workspace.shots.find(shot=>shot.id===target.shotId);
+        if (!latest || latest.currentRevisionId !== selectedShot.currentRevisionId) throw new Error("镜头已在其他位置更新，请刷新后重新设置换装，未覆盖新内容");
+        if (timeline) {
+            const bound = workspace.shotReferences.find(ref=>ref.id===target.reference.id && ref.status==="linked");
+            if (!bound || bound.assetVersionId!==timeline.assetVersionId) throw new Error("角色参考已变更，请刷新后重新设置换装");
+            validateShotCostumeTimeline(timeline,Math.round(values.durationSeconds*1000),bound.assetVersionId,bound.referencedVersion?.representations || target.asset.character?.representations || []);
+        }
+        const beats = replaceShotCostumeTimeline(revision?.actionBeatsJson,target.asset.id,timeline);
+        const saved = await saveProjectShot(projectId,{id:target.shotId,unitId,title:values.title,description:values.plotDescription,position:selectedShot.position,durationMs:Math.round(values.durationSeconds*1000),status:selectedShot.status,revision:revisionInput(values,beats)});
+        acknowledgeSavedValues(saved.shot.id,values);
+        await onRefresh();
+        message.success(timeline?"换装时间轴已保存，两套造型将按时段提交；原视频保留":"已取消分段换装，恢复单套造型");
+    };
+
     const duplicateShot = useMutation({
         mutationFn: async () => {
             if (!selectedShot) throw new Error("请先选择镜头");
@@ -522,7 +545,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             if (!isAiConfigReady(config, routedModel)) throw new Error("当前模型渠道配置不完整，请先到设置中补齐");
             const basePrompt = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
             const skillExecution = mode === "video"
-                ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples, projectAssets: detail.assets })
+                ? prepareShotVideoExecution(basePrompt, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples, projectAssets: detail.assets, durationMs:Math.round(values.durationSeconds*1000) })
                 : preparedImage!.execution;
             const submittedReferences = preparedImage?.context || ("context" in skillExecution ? skillExecution.context : shotAssetReferenceContext);
             const referenceTransport = preparedImage ? { mode: preparedImage.transfer.mode, originalBytes: preparedImage.transfer.originalBytes, submittedBytes: preparedImage.transfer.submittedBytes, images: preparedImage.transfer.records } : undefined;
@@ -582,7 +605,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const values = form.getFieldsValue();
             const base = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
             const prepared = generationCapability === "video"
-                ? prepareShotVideoExecution(base, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples })
+                ? prepareShotVideoExecution(base, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples, durationMs:Math.round(values.durationSeconds*1000) })
                 : await skillRuntime.prepare({ profile: "shortDrama", prompt: resolveShotAssetMentionPrompt(base, shotAssetReferenceContext, { dialogue: values.dialogue }), skills: availableSkills, selectedSkillIds: rewriteSkillIds });
             setPromptPreview({ title: `${stageCopy.label} · 本次将提交的提示词`, text: prepared.prompt });
         } catch (error) { message.error(error instanceof Error ? error.message : "提示词读取失败"); }
@@ -682,7 +705,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                             <Form.Item name="videoPrompt" label="视频提示词" rules={[{ required: true, message: "请输入视频提示词" }]}><ShotAssetMentionTextarea references={shotAssetReferenceContext.mentionReferences} /></Form.Item>
                             <div className="mb-3 flex flex-wrap gap-2"><Button size="small" onClick={() => setRewriteOpen(true)}>提修改意见 / 用 Skill 重写提示词</Button><Button size="small" onClick={() => void inspectPrompt()}>查看{stageCopy.label}完整 Prompt</Button>{activeStage === "video" && <Button size="small" disabled={editorDirty || selectedShotSubmitting} onClick={() => setVideoBatchOpen(true)}>批量生成镜头视频</Button>}</div>
                             <div className="mb-2 flex items-center justify-between gap-2 text-xs text-foreground/60"><span>{assetsAssociating ? "正在自动关联本片段的图片资产…" : "根据片段匹配角色、场景和道具；可从左侧资产栏核对调整"}</span><Button size="small" loading={assetsAssociating} disabled={changeAssetBinding.isPending} onClick={() => void associateShotAssets(selectedShot, [form.getFieldValue("plotDescription"), form.getFieldValue("videoPrompt"), form.getFieldValue("action")].join("\n")).catch((error) => message.error(error instanceof Error ? error.message : "自动关联资产失败"))}>重新匹配资产</Button></div>
-                            <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending || assetsAssociating} onCostumes={(asset,reference)=>setCostumeTarget({asset,reference,shotId:selectedShot.id})} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
+                            <BoundAssets detail={detail} shotId={selectedShot.id} changing={changeAssetBinding.isPending || assetsAssociating} onCostumes={(asset,reference)=>setCostumeTarget({asset,reference,shotId:selectedShot.id})} onTimeline={(asset,reference)=>setCostumeTimelineTarget({asset,reference,shotId:selectedShot.id})} onUnlink={(reference) => changeAssetBinding.mutate({ reference })} />
+                            {shotAssetReferenceContext.costumeTimelineError&&<Alert type="warning" showIcon title={shotAssetReferenceContext.costumeTimelineError} description="请打开该角色的“本镜头内换装”调整或取消；修正前不会提交视频。"/>}
                             <div className="workflow-form-grid">
                                 <Form.Item name="action" label="表演与动作"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="按动作节拍描述人物表演、走位和物体运动" /></Form.Item>
                                 <Form.Item name="dialogue" label="对白 / 旁白"><Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder="填写对白、旁白或需要保留的声音信息" /></Form.Item>
@@ -786,7 +810,8 @@ export default function WorkflowProductionWorkbench(props: Props) {
                 </aside>
             </div>
 
-            {costumeTarget && <CharacterCostumesModal key={`${costumeTarget.shotId}:${costumeTarget.asset.id}`} projectId={projectId} asset={costumeTarget.asset} initialRole={costumeTarget.reference.role.startsWith("costume:")?costumeTarget.reference.role:"reference"} onClose={()=>setCostumeTarget(undefined)} onRefresh={()=>void onRefresh()} onSelect={async(versionId,role)=>{await linkShotAsset(projectId,costumeTarget.shotId,{assetVersionId:versionId,role,replaceReferenceId:costumeTarget.reference.id});await onRefresh();message.success("当前镜头参考图已更新，原视频保留，可重新生成");}} />}
+            {costumeTarget && <CharacterCostumesModal key={`${costumeTarget.shotId}:${costumeTarget.asset.id}`} projectId={projectId} asset={costumeTarget.asset} initialRole={costumeTarget.reference.role.startsWith("costume:")?costumeTarget.reference.role:"reference"} onClose={()=>setCostumeTarget(undefined)} onRefresh={()=>void onRefresh()} onSelect={async(versionId,role)=>{if(shotCostumeTimelines(revision?.actionBeatsJson).some(plan=>plan.assetId===costumeTarget.asset.id))throw new Error("此角色已设置分段换装，请先在“本镜头内换装”中修改或取消，再切换整段造型");await linkShotAsset(projectId,costumeTarget.shotId,{assetVersionId:versionId,role,replaceReferenceId:costumeTarget.reference.id});await onRefresh();message.success("当前镜头参考图已更新，原视频保留，可重新生成");}} />}
+            {costumeTimelineTarget && selectedShot?.id===costumeTimelineTarget.shotId && <ShotCostumeTimelineModal key={`${selectedShot.id}:${costumeTimelineTarget.asset.id}`} asset={costumeTimelineTarget.asset} reference={costumeTimelineTarget.reference} durationMs={Math.round(currentDurationSeconds*1000)} actionBeatsJson={revision?.actionBeatsJson} onClose={()=>setCostumeTimelineTarget(undefined)} onSave={saveCostumeTimeline}/>}
             {imageConfirmation && imageConfirmation.shotId === selectedShot.id && imageConfirmation.stage === activeStage && <ShotImageGenerationModal
                 key={`${projectId}:${unitId}:${selectedShot.id}:${activeStage}`}
                 title={stageCopy.label} context={imageConfirmation.context} config={generationConfig} requirements={modelRequirements}
@@ -907,9 +932,11 @@ function ShotLibrary({ detail, shots, selectedShotId, onSelectShot }: { detail: 
     return <div className="workflow-simple-list">{shots.map((shot, index) => { const video = currentArtifact(detail, shot.id, "video"); return <button key={shot.id} type="button" className={shot.id === selectedShotId ? "is-active" : ""} onClick={() => onSelectShot(shot.id)}><span>{formatShotOrdinal(index)}</span><span className="min-w-0 flex-1"><strong>{customShotTitle(shot.title, index) || "未命名"}</strong><small>{formatDuration(shot.durationMs)}</small></span><ArtifactStatus artifact={video} compact /></button>; })}</div>;
 }
 
-function BoundAssets({ detail, shotId, changing, onUnlink, onCostumes }: { detail: ProjectDetail; shotId: string; changing: boolean; onUnlink: (reference: ShotAssetReference) => void; onCostumes:(asset:ProjectAsset,reference:ShotAssetReference)=>void }) {
+function BoundAssets({ detail, shotId, changing, onUnlink, onCostumes, onTimeline }: { detail: ProjectDetail; shotId: string; changing: boolean; onUnlink: (reference: ShotAssetReference) => void; onCostumes:(asset:ProjectAsset,reference:ShotAssetReference)=>void; onTimeline:(asset:ProjectAsset,reference:ShotAssetReference)=>void }) {
     const references = stableShotReferences((detail.shotReferences || []).filter((item) => item.shotId === shotId));
     const assetByVersionId = useMemo(() => new Map(detail.assets.filter((asset) => asset.primaryVersionId).map((asset) => [asset.primaryVersionId as string, asset])), [detail.assets]);
+    let timelines: ShotCostumeTimeline[] = [];
+    try { timelines=shotCostumeTimelines(currentRevision(detail,detail.shots.find(shot=>shot.id===shotId))?.actionBeatsJson); } catch { /* The workbench shows the validation error. */ }
     return (
         <div className="workflow-bound-assets">
             <div className="workflow-bound-assets-heading"><span className="workflow-field-label">镜头资产</span><small>{references.length ? `已绑定 ${references.length} 项` : "从左侧资产栏点击绑定"}</small></div>
@@ -919,12 +946,15 @@ function BoundAssets({ detail, shotId, changing, onUnlink, onCostumes }: { detai
                     {references.length ? references.map((reference) => {
                         const asset = reference.asset || assetByVersionId.get(reference.assetVersionId);
                         const title = asset?.title || "历史资产版本";
-                        const previewUrl = asset ? projectAssetReferenceImage(asset,reference)?.url || "" : "";
                         const stale = Boolean(asset?.character && asset.primaryVersionId !== reference.assetVersionId);
                         const costume = reference.referencedVersion?.representations.find(r=>r.role===reference.role && r.role.startsWith("costume:"));
+                        const timeline = timelines.find(plan=>plan.assetId===asset?.id);
+                        const previewReference = timeline?.segments[0] ? {...reference,role:timeline.segments[0].role} : reference;
+                        let previewUrl="";
+                        try { previewUrl=asset?projectAssetReferenceImage(asset,previewReference)?.url || "":""; } catch { /* Missing planned images are shown as unavailable, never replaced. */ }
                         return <div key={reference.id} className="workflow-bound-asset-chip">
                             <span className="workflow-bound-asset-preview">{asset?.mediaType === "video" && asset.storageKey ? <VideoMediaPreview storageKey={asset.storageKey} alt={title} className="h-full w-full" fallback={<Film />} /> : previewUrl ? <Image src={previewUrl} alt={`${title}预览`} width={40} height={40} loading="lazy" preview={{ mask: "预览" }} /> : <Box aria-hidden />}</span>
-                            <span className="workflow-bound-asset-copy"><em>{asset ? assetCategoryLabel(asset.category) : "历史"} · v{reference.referencedVersion?.version || "?"}{costume ? ` · ${costume.metadata?.name || "服装造型"}` : ""}</em><strong title={title}>{title}</strong>{asset?.character && <Button type="link" size="small" disabled={changing} onClick={()=>onCostumes(asset,reference)}>{stale?"有新版本 · 更新参考 / 选服装":"选择服装 / 参考图"}</Button>}</span>
+                            <span className="workflow-bound-asset-copy"><em>{asset ? assetCategoryLabel(asset.category) : "历史"} · v{reference.referencedVersion?.version || "?"}{timeline?` · ${timeline.segments.length}段换装`:costume ? ` · ${costume.metadata?.name || "服装造型"}` : ""}</em><strong title={title}>{title}</strong>{asset?.character && <><Button type="link" size="small" disabled={changing} onClick={()=>onCostumes(asset,reference)}>{stale?"有新版本 · 更新参考 / 选服装":"选择服装 / 参考图"}</Button><Button type="link" size="small" disabled={changing} onClick={()=>onTimeline(asset,reference)}>本镜头内换装{timeline?" · 已设置":""}</Button></>}</span>
                             <button type="button" disabled={changing} aria-label={`取消引用 ${title}`} onClick={() => onUnlink(reference)}><X aria-hidden /></button>
                         </div>;
                     }) : <span>尚未绑定角色、场景或道具</span>}

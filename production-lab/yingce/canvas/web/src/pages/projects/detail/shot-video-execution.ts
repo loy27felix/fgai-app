@@ -80,7 +80,9 @@ export function shotGenerationReferenceContext(context: ShotAssetReferenceContex
 }
 
 /** Media models receive the reviewed shot, never the instructions used to write it. */
-export function prepareShotVideoExecution(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string; useVoiceSamples?: boolean; projectAssets?: ProjectAsset[] } = {}) {
+export function prepareShotVideoExecution(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string; useVoiceSamples?: boolean; projectAssets?: ProjectAsset[]; durationMs?: number } = {}) {
+    if (context.costumeTimelineError) throw new Error(context.costumeTimelineError);
+    if (context.costumeDurationMs && options.durationMs !== undefined && context.costumeDurationMs !== options.durationMs) throw new Error("镜头时长已修改，请先调整镜头内换装时间轴，再生成视频");
     const references = shotGenerationReferenceContext(shotSceneReferenceContext(prompt, context), options.useVoiceSamples);
     if (options.projectAssets) assertShotCharacterCoverage(prompt, references, options.projectAssets, context.assetReferences.filter(ref => !references.assetReferences.some(selected => selected.assetId === ref.assetId)).map(ref => ref.assetId));
     assertCharacterConsistency(prompt, references);
@@ -89,6 +91,7 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
     const boundary = [
         "【本镜头生成边界】",
         "仅演绎上方当前镜头的剧情、动作时间轴与对白。参考素材只负责指定的身份、外观或空间，不从参考素材补写其他集的故事。",
+        ...(references.costumeDurationMs ? ["本镜头已确认分段换装：服装按【资产参考】中的使用时段切换，时间均从本条视频0秒起算；这些明确切换是服装连续性规则的例外，其余身份、发型、体型、声音和台词不变。切换边界承接上方剧情的换衣动作、切镜或转场，不自行增加台词、人物或情节。"] : []),
         ...references.assetReferences.filter(reference => reference.visualUsage === "screen-only").map(reference => `${reference.title}只存在于手机屏幕内部的视频通话画面，参考图片${reference.imageIndex}仅锁定屏幕内的脸。不得让其坐在现场对面、出现在同一房间、进入现场双人镜头或拥有现场身体投影；其声音始终来自手机扬声器。`),
         ...(references.referenceAudios.length ? [
             "音频样本仅用于相应角色的音色、口音与发声质感，不是本镜头的对白或配乐。禁止复述、续写、翻译样本中的台词，禁止复制样本的环境声、音乐和音效。",
@@ -107,6 +110,7 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
                 assetVersionId: references.resolvedCharacterVersions.find(item => item.assetId === reference.assetId)?.versionId,
                 storageKey: references.referenceImages[reference.imageIndex - 1]?.storageKey,
                 visualUsage: reference.visualUsage || "on-screen",
+                ...(reference.costumeTimeRanges ? { costumeRole: reference.costumeRole, costumeTimeRanges: reference.costumeTimeRanges } : {}),
             })),
             excludedReferenceAssetIds: context.assetReferences.filter(reference => !references.assetReferences.some(selected => selected.assetId === reference.assetId)).map(reference => reference.assetId),
         },

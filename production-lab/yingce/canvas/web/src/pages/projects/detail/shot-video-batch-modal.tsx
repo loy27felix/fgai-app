@@ -67,7 +67,7 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, onClose, onR
                 const refs = [...workspace.shotReferences, ...autoAssets.map(asset => ({ id: `auto:${asset.id}`, shotId: id, assetVersionId: asset.primaryVersionId!, role: "reference", status: "linked", createdAt: "", asset }))];
                 const boundContext = buildShotAssetReferenceContext({ ...detail, ...workspace, assets, shotReferences: refs }, id);
                 const prompt = shotArtifactPrompt("video", { ...revision, videoPrompt: ensureShotAssetMentionPrompt(revision.videoPrompt, boundContext.mentionReferences) });
-                const execution = prepareShotVideoExecution(prompt, boundContext, { dialogue: revision.dialogue, useVoiceSamples, projectAssets: assets });
+                const execution = prepareShotVideoExecution(prompt, boundContext, { dialogue: revision.dialogue, useVoiceSamples, projectAssets: assets, durationMs:revision.durationMs || shot.durationMs });
                 const context = execution.context;
                 const seconds = (revision.durationMs || shot.durationMs) / 1000;
                 const modelConfig = { ...config, videoSeconds: String(seconds) };
