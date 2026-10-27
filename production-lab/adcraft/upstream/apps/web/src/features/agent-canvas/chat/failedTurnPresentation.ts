@@ -30,6 +30,7 @@ export function projectFailedMessageTurns(
   turnsById: Readonly<Record<string, AgentCanvasChatTurnV2>>,
 ): Map<string, AgentCanvasChatTurnV2> {
   const failedTurnsByMessageId = new Map<string, AgentCanvasChatTurnV2>();
+  const presentedFailures = new Set<string>();
   const turns = Object.values(turnsById);
   const retriesBySource = new Map<string, AgentCanvasChatTurnV2>();
   turns.forEach((turn) => {
@@ -58,7 +59,10 @@ export function projectFailedMessageTurns(
     const latest = chain[chain.length - 1]!;
     if (latest.status === "completed" || latest.status === "superseded") return;
     const failure = [...chain].reverse().find((turn) => turn.status === "failed");
-    if (failure) failedTurnsByMessageId.set(item.message_id, failure);
+    if (failure && !presentedFailures.has(failure.turn_id)) {
+      failedTurnsByMessageId.set(item.message_id, failure);
+      presentedFailures.add(failure.turn_id);
+    }
   });
   return failedTurnsByMessageId;
 }
