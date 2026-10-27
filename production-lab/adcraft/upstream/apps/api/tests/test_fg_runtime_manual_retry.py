@@ -62,3 +62,30 @@ def test_repaired_image_context_failure_exposes_only_manual_typed_retry():
     row['error_message'] = 'Mentioned image asset does not belong to the current project.'
     assert not explicit_turn_retryable(row['error_code'], row['error_message'])
     assert not _turn(row, continuation=delivery('next_action')).retryable
+
+
+def test_only_the_failed_turns_own_single_reservation_is_reconciled():
+    from types import SimpleNamespace
+    from app.services.agent_canvas_explicit_retry import reconcile_repaired_authoring_reservation
+    from app.schemas.agent_canvas_guidance import ContinuationTurnRetrySnapshotV1
+    snapshot = ContinuationTurnRetrySnapshotV1(workflow_id='workflow',conversation_id='chat',
+        session_id='session',workflow_revision=6,session_revision=10,journey_stage='world_view',
+        journey_stage_revision=3,logical_action_id='duration-choice',root_turn_id='source',
+        operation='next_action',envelope_id='envelope',envelope_digest='a'*64,
+        requirement_revision_id='requirements',requirement_digest='b'*64,response_locale='zh-CN')
+    source = SimpleNamespace(turn_kind='next_action',turn_id='failed',
+        error_code='capability_reference_plan_invalid',
+        error_message='Mentioned Node is incompatible with the target capability.')
+    action = SimpleNamespace(status='reserved',turn_id='failed',action_id='journey-action:failed',
+        action_kind='invoke_capability:world_setting',stage='world_view',stage_revision=3)
+    session = SimpleNamespace(session_id='session',revision=11,
+        journey=SimpleNamespace(stage='world_view',stage_revision=3,active_action=action))
+    repaired = reconcile_repaired_authoring_reservation(snapshot,source,session)
+    assert repaired.session_revision == 11 and repaired.logical_action_id == action.action_id
+    assert snapshot.session_revision == 10 and snapshot.logical_action_id == 'duration-choice'
+    assert repaired.envelope_digest == snapshot.envelope_digest
+    assert repaired.requirement_digest == snapshot.requirement_digest
+    session.revision = 12
+    assert reconcile_repaired_authoring_reservation(snapshot,source,session) is snapshot
+    session.revision = 11; action.turn_id = 'someone-else'
+    assert reconcile_repaired_authoring_reservation(snapshot,source,session) is snapshot

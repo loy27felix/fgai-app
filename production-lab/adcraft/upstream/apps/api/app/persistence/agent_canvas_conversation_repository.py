@@ -3661,6 +3661,7 @@ class AgentCanvasConversationRepository:
                     "envelope_id": envelope_id,
                     "source_turn_id": source.turn_id,
                     "next_action_turn_id": turn_id,
+                    "expected_session_revision": retry_snapshot.session_revision,
                     "created_at": timestamp,
                 }
             )

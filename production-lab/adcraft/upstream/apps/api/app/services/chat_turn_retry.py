@@ -29,7 +29,7 @@ from app.schemas.agent_canvas_conversation import (
 )
 from app.schemas.agent_canvas_capabilities import CapabilityCommandEnvelopeV2
 from app.schemas.agent_canvas_guidance import ContinuationTurnRetrySnapshotV1
-from app.services.agent_canvas_explicit_retry import explicit_turn_retryable
+from app.services.agent_canvas_explicit_retry import explicit_turn_retryable, reconcile_repaired_authoring_reservation
 from app.schemas.agent_canvas_retry_repair import (
     RetryEnvelopeDigestRepairReceiptV1,
     RetryEnvelopeDigestRepairV1,
@@ -116,6 +116,8 @@ class ChatTurnRetryService:
             )
         except ValueError as error:
             raise _stale_error() from error
+        snapshot = reconcile_repaired_authoring_reservation(snapshot, source,
+            self._conversations.get_guidance_session_or_none(source.workflow_id))
         return continuation, envelope, snapshot
 
     def validate(
@@ -223,6 +225,7 @@ class ChatTurnRetryService:
             snapshot = ContinuationTurnRetrySnapshotV1.model_validate(raw_snapshot)
         except ValueError as error:
             raise _stale_error() from error
+        snapshot = reconcile_repaired_authoring_reservation(snapshot, source, session)
         current_session_revision = session.revision if session is not None else 0
         if (
             request.expected_workflow_revision != workflow.revision
