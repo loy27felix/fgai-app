@@ -760,7 +760,7 @@ if [[ "$failed_sha" == "$target_sha" ]]; then
 fi
 
 if ! ensure_build_resource_limit; then
-  log "Auto deploy: build deferred until isolated limits and 3.5 GiB VM memory headroom are available; current release preserved"
+  log "Auto deploy: build deferred until isolated limits and 4.5 GiB VM memory headroom are available; current release preserved"
   exit 0
 fi
 
