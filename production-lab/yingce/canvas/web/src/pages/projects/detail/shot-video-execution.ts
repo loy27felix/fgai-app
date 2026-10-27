@@ -1,4 +1,4 @@
-import { assertShotCharacterCoverage, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, type ShotAssetReferenceContext } from "./workflow-shot-references";
+import { assertShotCharacterCoverage, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, resolveExplicitShotCharacterIdentities, type ShotAssetReferenceContext } from "./workflow-shot-references";
 import type { ProjectAsset } from "@/services/api/projects";
 
 function explicitGender(value = "") {
@@ -83,7 +83,8 @@ export function shotGenerationReferenceContext(context: ShotAssetReferenceContex
 export function prepareShotVideoExecution(prompt: string, context: ShotAssetReferenceContext, options: { dialogue?: string; useVoiceSamples?: boolean; projectAssets?: ProjectAsset[]; durationMs?: number } = {}) {
     if (context.costumeTimelineError) throw new Error(context.costumeTimelineError);
     if (context.costumeDurationMs && options.durationMs !== undefined && context.costumeDurationMs !== options.durationMs) throw new Error("镜头时长已修改，请先调整镜头内换装时间轴，再生成视频");
-    const references = shotGenerationReferenceContext(shotSceneReferenceContext(prompt, context), options.useVoiceSamples);
+    const identified=options.projectAssets ? resolveExplicitShotCharacterIdentities(prompt,context,options.projectAssets) : context;
+    const references = shotGenerationReferenceContext(shotSceneReferenceContext(prompt, identified), options.useVoiceSamples);
     if (options.projectAssets) assertShotCharacterCoverage(prompt, references, options.projectAssets, context.assetReferences.filter(ref => !references.assetReferences.some(selected => selected.assetId === ref.assetId)).map(ref => ref.assetId));
     assertCharacterConsistency(prompt, references);
     const scopedPrompt = ensureShotAssetMentionPrompt(prompt, references.mentionReferences);
@@ -105,6 +106,7 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
             mediaPromptSource: "approved-shot",
             voiceReferenceMode: references.referenceAudios.length ? "timbre-only" : "description-only",
             referenceAssetIds: references.assetReferences.map(reference => reference.assetId),
+            ...(references.characterIdentityAssignments?.length ? {characterIdentityAssignments:references.characterIdentityAssignments} : {}),
             referenceManifest: references.assetReferences.map(reference => ({
                 assetId: reference.assetId, title: reference.title, category: reference.category, imageIndex: reference.imageIndex,
                 assetVersionId: references.resolvedCharacterVersions.find(item => item.assetId === reference.assetId)?.versionId,

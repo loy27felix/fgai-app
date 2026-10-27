@@ -9,6 +9,45 @@ import { replaceShotCostumeTimeline, shotCostumeTimelines, validateShotCostumeTi
 import { prepareShotVideoExecution } from "@/pages/projects/detail/shot-video-execution";
 
 describe("workflow shot asset references", () => {
+    function explicitWardrobeFixture() {
+        const source=detail(), original=source.assets.find(asset=>asset.character)!;
+        original.title="艾拉";original.character!.definition={aliases:["Ella"]};
+        const duplicate={...original,id:"duplicate-ella",primaryVersionId:"duplicate-version",character:{...original.character!,definition:{aliases:[]}}};
+        const look={...original,id:"ella-look",title:"艾拉男装",primaryVersionId:"look-version",character:{...original.character!,versionId:"look-version",definition:{aliases:[]},representations:[{id:"look",resourceId:"male-look-image",mediaType:"image",role:"primary"}]}};
+        source.assets.push(duplicate,look);
+        source.shotReferences=source.shotReferences.filter(ref=>ref.assetVersionId!==original.primaryVersionId);
+        source.shotReferences.push({id:"look-binding",shotId:"shot-1",assetVersionId:"look-version",role:"reference",status:"linked",createdAt:"2026-08-29T00:00:03Z",asset:look});
+        return {source,original,look};
+    }
+    test("a single explicit Ella wardrobe reference resolves both Chinese and English story names despite duplicate library cards",()=>{
+        const {source,look}=explicitWardrobeFixture();
+        const prompt="【15秒分镜／动作时间轴】\n人物动作：艾拉摘下帽子，Ella走到窗前。\n镜头运动：跟随。\n背景：窗外下雨。\n【角色参考】\n艾拉男装：@[asset:ella-look]";
+        const execution=prepareShotVideoExecution(prompt,buildShotAssetReferenceContext(source,"shot-1"),{projectAssets:source.assets});
+        expect(execution.context.assetReferences.find(ref=>ref.assetId===look.id)?.aliases).toContain("艾拉");
+        expect(execution.context.assetReferences.find(ref=>ref.assetId===look.id)?.aliases).toContain("Ella");
+        expect(execution.prompt).toContain("艾拉男装、艾拉、Ella指同一角色");
+        expect(execution.context.referenceImages.some(image=>image.storageKey==="resource:male-look-image")).toBe(true);
+        expect(execution.context.assetReferences.some(ref=>ref.assetId==="asset-character" || ref.assetId==="duplicate-ella")).toBe(false);
+        expect(inferShotVisualAssets(source.assets,"艾拉与Ella走到窗前",[look.id]).map(asset=>asset.id)).toEqual([look.id]);
+    });
+    test("a similar name alone, an unselected wardrobe, or two selected Ella looks cannot pick a face",()=>{
+        const {source,look}=explicitWardrobeFixture();
+        const context=buildShotAssetReferenceContext(source,"shot-1");
+        expect(()=>prepareShotVideoExecution("艾拉走到窗前",context,{projectAssets:source.assets})).toThrow("多个资产");
+        look.title="艾拉的妹妹";
+        expect(()=>prepareShotVideoExecution("艾拉走到窗前。@[asset:ella-look]",buildShotAssetReferenceContext(source,"shot-1"),{projectAssets:source.assets})).toThrow("多个资产");
+        look.title="艾拉男装";
+        const second={...look,id:"second-look",title:"艾拉礼服",primaryVersionId:"second-look-version"};source.assets.push(second);
+        source.shotReferences.push({id:"second-binding",shotId:"shot-1",assetVersionId:second.primaryVersionId,role:"reference",status:"linked",createdAt:"2026-08-29T00:00:04Z",asset:second});
+        expect(()=>prepareShotVideoExecution("艾拉走到窗前。@[asset:ella-look] @[asset:second-look]",buildShotAssetReferenceContext(source,"shot-1"),{projectAssets:source.assets})).toThrow("多个资产");
+    });
+    test("an explicit outfit cannot hide another bound canonical actor, and unique canonical cards still work",()=>{
+        const {source,original}=explicitWardrobeFixture();
+        source.shotReferences.push({id:"canonical-binding",shotId:"shot-1",assetVersionId:original.primaryVersionId!,role:"reference",status:"linked",createdAt:"2026-08-29T00:00:04Z",asset:original});
+        expect(()=>prepareShotVideoExecution("艾拉走到窗前。@[asset:ella-look]",buildShotAssetReferenceContext(source,"shot-1"),{projectAssets:source.assets})).toThrow("多个资产");
+        source.shotReferences=source.shotReferences.filter(ref=>ref.assetVersionId!=="look-version");
+        expect(()=>prepareShotVideoExecution("艾拉走到窗前。@[asset:asset-character]",buildShotAssetReferenceContext(source,"shot-1"),{projectAssets:source.assets})).not.toThrow();
+    });
     function wardrobeFixture() {
         const source = detail(), asset = source.assets.find(a => a.character)!;
         asset.character!.representations.push({id:"night",resourceId:"night-coat",mediaType:"image",role:"costume:night",metadata:{name:"夜景外套",clothing:"深蓝风衣"}});

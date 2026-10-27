@@ -15,6 +15,7 @@ export type ShotAssetReferenceContext = {
     resolvedCharacterVersions: Array<{ assetId: string; versionId: string }>;
     costumeTimelineError?: string;
     costumeDurationMs?: number;
+    characterIdentityAssignments?: Array<{assetId:string; canonicalAssetIds:string[]; names:string[]}>;
 };
 
 export type ShotPromptAssetReference = {
@@ -33,11 +34,38 @@ export type ShotPromptAssetReference = {
     visualUsage?: "screen-only";
 };
 
-function assetNames(asset: ProjectAsset): string[] {
+function assetDisplayNames(asset: ProjectAsset): string[] {
     const definition = asset.character?.definition || asset.definition || {};
     const aliases = normalizeAssetCategory(asset.category) === "character" ? definition.aliases : [];
     return [...new Set([asset.title, ...(Array.isArray(aliases) ? aliases.filter((name): name is string => typeof name === "string") : typeof aliases === "string" ? aliases.split(/[、,，;；]/) : [])]
-        .map(name => name.trim().normalize("NFKC").toLocaleLowerCase()).filter(name => name.length >= 2))];
+        .map(name => name.trim().normalize("NFKC")).filter(name => name.length >= 2))];
+}
+
+function assetNames(asset: ProjectAsset) { return assetDisplayNames(asset).map(name=>name.toLocaleLowerCase()); }
+
+/** A selected legacy wardrobe card may name an existing character plus a
+ * closed-set clothing suffix. Never infer identity from an arbitrary prefix,
+ * an unselected library card, or a resource/image resemblance. */
+function explicitWardrobeAssignments(assets: ProjectAsset[], selectedIds: ReadonlySet<string>) {
+    const characters=assets.filter(asset=>normalizeAssetCategory(asset.category)==="character");
+    return characters.filter(asset=>selectedIds.has(asset.id)).flatMap(asset=>{
+        const base=asset.title.trim().normalize("NFKC").match(/^(.{2,}?)(?:\s*[·・_-]?\s*)(?:男装|女装|正装|便装|礼服|睡衣|校服|运动装|居家服|工作服|雨衣|外套)(?:造型)?$/u)?.[1]?.trim();
+        if(!base)return [];
+        const canonical=characters.filter(candidate=>candidate.id!==asset.id && candidate.title.trim().normalize("NFKC").toLocaleLowerCase()===base.toLocaleLowerCase());
+        if(!canonical.length)return [];
+        return [{assetId:asset.id,canonicalAssetIds:canonical.map(candidate=>candidate.id),names:[...new Set(canonical.flatMap(assetDisplayNames))]}];
+    });
+}
+
+export function resolveExplicitShotCharacterIdentities(prompt:string,context:ShotAssetReferenceContext,assets:ProjectAsset[]):ShotAssetReferenceContext {
+    const bound=new Set(context.assetReferences.map(reference=>reference.assetId));
+    const ids=new Set([...prompt.matchAll(/@\[asset:([^\]]+)\]/g)].map(match=>match[1]).filter(id=>bound.has(id)));
+    const assignments=explicitWardrobeAssignments(assets,ids);
+    if(!assignments.length)return context;
+    return {...context,characterIdentityAssignments:assignments,assetReferences:context.assetReferences.map(reference=>{
+        const assigned=assignments.find(assignment=>assignment.assetId===reference.assetId);
+        return assigned?{...reference,aliases:[...new Set([...(reference.aliases||[]),...assigned.names])]}:reference;
+    })};
 }
 
 function namePattern(name: string, global = false) {
@@ -57,11 +85,15 @@ function matchingAssetNames(assets: ProjectAsset[], text: string) {
 /** Full names and confirmed aliases only; an ambiguous alias never chooses an arbitrary face. */
 export function inferShotVisualAssets(assets: ProjectAsset[], text: string, explicitIds: string[] = []): ProjectAsset[] {
     const matched = new Map<string, ProjectAsset>();
+    const explicit = new Set(explicitIds);
+    const assignments = explicitWardrobeAssignments(assets,explicit);
     for (const id of explicitIds) {
         const asset = assets.find((item) => item.id === id);
         if (asset) matched.set(id, asset);
     }
     for (const [, candidates] of matchingAssetNames(assets.filter(asset => ["character", "environment", "prop"].includes(normalizeAssetCategory(asset.category))), text)) {
+        const selected=assignments.filter(assignment=>candidates.every(candidate=>assignment.canonicalAssetIds.includes(candidate.id)));
+        if(selected.length===1 && !selected[0].canonicalAssetIds.some(id=>explicit.has(id))) continue;
         if (candidates.length !== 1) continue;
         const asset = candidates[0];
         if (asset.primaryVersionId && ["ready", "confirmed"].includes(asset.status) && projectAssetReferenceImage(asset)) matched.set(asset.id, asset);
@@ -88,8 +120,13 @@ export function assertShotCharacterCoverage(prompt: string, context: ShotAssetRe
     const bound = new Set(context.assetReferences.filter(ref => normalizeAssetCategory(ref.category) === "character").map(ref => ref.assetId));
     const missing = new Set<string>();
     for (const [name, candidates] of matchingAssetNames(characters, text)) {
+        const assigned=(context.characterIdentityAssignments||[]).filter(assignment=>bound.has(assignment.assetId) && assignment.names.some(value=>value.toLocaleLowerCase()===name) && candidates.every(candidate=>assignment.canonicalAssetIds.includes(candidate.id)));
+        if(assigned.length) {
+            if(assigned.length===1 && !assigned[0].canonicalAssetIds.some(id=>bound.has(id))) continue;
+            throw new Error(`角色别名“${name}”对应多个资产或多张造型卡，请仅保留一张角色身份参考；同一人物的多套服装请使用“本镜头内换装”，未提交视频生成`);
+        }
         if (candidates.length > 1) {
-            if (candidates.filter(asset => bound.has(asset.id)).length !== 1) throw new Error(`角色别名“${name}”对应多个资产，请先人工确认角色参考，未提交视频生成`);
+            if (candidates.filter(asset => bound.has(asset.id)).length !== 1) throw new Error(`角色别名“${name}”对应多个资产（${candidates.map(asset=>asset.title).join("、")}），当前绑定未能唯一确认。请明确引用对应角色卡；同一人物换装请使用“本镜头内换装”，未提交视频生成`);
         } else if (!bound.has(candidates[0].id)) missing.add(candidates[0].title);
     }
     if (missing.size) throw new Error(`本镜头出现的角色未绑定参考图：${[...missing].join("、")}。请点击“重新匹配资产”并确认角色图片，未提交视频生成`);

@@ -605,7 +605,7 @@ export default function WorkflowProductionWorkbench(props: Props) {
             const values = form.getFieldsValue();
             const base = shotArtifactPrompt(activeStage, values, resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson)?.prompt);
             const prepared = generationCapability === "video"
-                ? prepareShotVideoExecution(base, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples, durationMs:Math.round(values.durationSeconds*1000) })
+                ? prepareShotVideoExecution(base, shotAssetReferenceContext, { dialogue: values.dialogue, useVoiceSamples, durationMs:Math.round(values.durationSeconds*1000), projectAssets:detail.assets })
                 : await skillRuntime.prepare({ profile: "shortDrama", prompt: resolveShotAssetMentionPrompt(base, shotAssetReferenceContext, { dialogue: values.dialogue }), skills: availableSkills, selectedSkillIds: rewriteSkillIds });
             setPromptPreview({ title: `${stageCopy.label} · 本次将提交的提示词`, text: prepared.prompt });
         } catch (error) { message.error(error instanceof Error ? error.message : "提示词读取失败"); }
