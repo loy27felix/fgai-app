@@ -3788,21 +3788,32 @@ class AgentCanvasConversationRepository:
             ) from error
 
     def get_retry_snapshot(self, turn_id: str) -> dict[str, object]:
+        from sqlalchemy import func
+        from app.services.agent_canvas_explicit_retry import repaired_reference_retryable, trim_preexisting_deleted_retry_nodes
         try:
             with self._database.engine.connect() as connection:
-                value = connection.execute(
-                    select(AgentCanvasChatTurnRow.retry_snapshot_json).where(
+                row = connection.execute(
+                    select(AgentCanvasChatTurnRow).where(
                         AgentCanvasChatTurnRow.turn_id == turn_id
                     )
-                ).scalar_one_or_none()
+                ).mappings().one_or_none()
+                if row is None:
+                    raise _error("chat_turn_not_found", "Chat turn was not found.")
+                loaded = json.loads(str(row["retry_snapshot_json"]))
+                if not isinstance(loaded, dict):
+                    return {}
+                if row["turn_kind"] == "next_action" and repaired_reference_retryable(row["error_code"], row["error_message"]):
+                    historical = connection.execute(select(
+                        AgentCanvasNodeRow.node_id, AgentCanvasNodeRow.revision,
+                        func.json_extract(AgentCanvasNodeRow.metadata_json, "$._deleted_at").label("deleted_at"),
+                    ).where(AgentCanvasNodeRow.workflow_id == row["workflow_id"],
+                        AgentCanvasNodeRow.node_id.in_(tuple(loaded.get("node_revisions", {}))))).mappings().all()
+                    loaded = trim_preexisting_deleted_retry_nodes(loaded,historical,row["created_at"])
+                return loaded
         except SQLAlchemyError as error:
             raise _error(
                 "agent_conversation_unavailable", "Conversation storage failed."
             ) from error
-        if value is None:
-            raise _error("chat_turn_not_found", "Chat turn was not found.")
-        loaded = json.loads(str(value))
-        return loaded if isinstance(loaded, dict) else {}
 
     def list_retry_children(self, turn_id: str) -> tuple[ChatTurnV2, ...]:
         try:
@@ -4282,13 +4293,14 @@ class AgentCanvasConversationRepository:
                 )
             ).scalar_one()
         )
+        from app.persistence.agent_canvas_repository import _row_is_deleted
         node_revisions = {
-            str(node_id): int(revision)
-            for node_id, revision in connection.execute(
-                select(AgentCanvasNodeRow.node_id, AgentCanvasNodeRow.revision).where(
+            str(row["node_id"]): int(row["revision"])
+            for row in connection.execute(
+                select(AgentCanvasNodeRow.node_id, AgentCanvasNodeRow.revision, AgentCanvasNodeRow.metadata_json).where(
                     AgentCanvasNodeRow.workflow_id == workflow_id
                 )
-            ).all()
+            ).mappings().all() if not _row_is_deleted(row)
         }
         retry_snapshot = ContinuationTurnRetrySnapshotV1(
             workflow_id=workflow_id,

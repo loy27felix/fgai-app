@@ -89,3 +89,15 @@ def test_only_the_failed_turns_own_single_reservation_is_reconciled():
     assert reconcile_repaired_authoring_reservation(snapshot,source,session) is snapshot
     session.revision = 11; action.turn_id = 'someone-else'
     assert reconcile_repaired_authoring_reservation(snapshot,source,session) is snapshot
+
+
+def test_only_unchanged_nodes_deleted_before_the_operation_are_trimmed():
+    from app.services.agent_canvas_explicit_retry import trim_preexisting_deleted_retry_nodes
+    snapshot={'node_revisions':dict(before=1,after=1,changed=1,active=1,foreign=1)}
+    rows=[dict(node_id='before',revision=1,deleted_at='2026-10-26T00:00:00Z'),
+        dict(node_id='after',revision=1,deleted_at='2026-10-28T00:00:00Z'),
+        dict(node_id='changed',revision=2,deleted_at='2026-10-26T00:00:00Z'),
+        dict(node_id='active',revision=1,deleted_at=None)]
+    result=trim_preexisting_deleted_retry_nodes(snapshot,rows,'2026-10-27T00:00:00+00:00')
+    assert set(result['node_revisions'])=={'after','changed','active','foreign'}
+    assert 'before' in snapshot['node_revisions']

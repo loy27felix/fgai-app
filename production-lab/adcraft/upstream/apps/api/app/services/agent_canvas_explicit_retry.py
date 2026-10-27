@@ -1,6 +1,7 @@
 """Closed manual retry policy for typed Agent Canvas operations."""
 
 from __future__ import annotations
+from datetime import datetime
 
 
 _EXPLICIT_RETRYABLE_ERRORS = frozenset(
@@ -58,3 +59,25 @@ def reconcile_repaired_authoring_reservation(snapshot, source, session):
     ):
         return snapshot.model_copy(update={"session_revision": session.revision, "logical_action_id": action.action_id})
     return snapshot
+
+
+def trim_preexisting_deleted_retry_nodes(snapshot, rows, turn_created_at):
+    """Remove only unchanged tombstones that already existed before this turn."""
+    revisions = snapshot.get("node_revisions")
+    if not isinstance(revisions, dict):
+        return snapshot
+    try:
+        created = datetime.fromisoformat(str(turn_created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return snapshot
+    excluded = set()
+    for row in rows:
+        if revisions.get(row["node_id"]) != row["revision"] or not isinstance(row["deleted_at"], str):
+            continue
+        try:
+            deleted = datetime.fromisoformat(row["deleted_at"].replace("Z", "+00:00"))
+            if deleted <= created:
+                excluded.add(row["node_id"])
+        except (ValueError, TypeError):
+            continue
+    return {**snapshot, "node_revisions": {k:v for k,v in revisions.items() if k not in excluded}}
