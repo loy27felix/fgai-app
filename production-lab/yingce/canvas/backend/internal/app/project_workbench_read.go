@@ -292,9 +292,7 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 	}
 	representationsByVersionID := make(map[string][]CharacterRepresentationSummary, len(versionIDs))
 	for _, representation := range storedRepresentations {
-		representationsByVersionID[representation.AssetVersionID] = append(representationsByVersionID[representation.AssetVersionID], CharacterRepresentationSummary{
-			ID: representation.ID, ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role,
-		})
+		representationsByVersionID[representation.AssetVersionID] = append(representationsByVersionID[representation.AssetVersionID], characterRepresentationSummary(representation))
 	}
 	result.ShotReferences = make([]ProjectShotAssetReference, 0, len(shotReferences))
 	for _, reference := range shotReferences {

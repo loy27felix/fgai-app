@@ -49,8 +49,9 @@ type ReplaceProjectUnitShotInput struct {
 }
 
 type LinkShotAssetRequest struct {
-	AssetVersionID string `json:"assetVersionId"`
-	Role           string `json:"role"`
+	AssetVersionID     string `json:"assetVersionId"`
+	Role               string `json:"role"`
+	ReplaceReferenceID string `json:"replaceReferenceId"`
 }
 
 type AssetCandidateInput struct {
@@ -293,9 +294,24 @@ func (s *Service) LinkShotAsset(userID string, projectID string, shotID string, 
 	if !validShotAssetRole(role) {
 		return model.ShotAssetReference{}, BadAuthRequest("不支持的镜头素材用途")
 	}
+	if strings.HasPrefix(role, "costume:") {
+		representations, err := s.repo.AssetRepresentations(versionID)
+		if err != nil {
+			return model.ShotAssetReference{}, err
+		}
+		found := false
+		for _, image := range representations {
+			if image.Role == role && strings.HasPrefix(image.MediaType, "image") {
+				found = true
+			}
+		}
+		if !found {
+			return model.ShotAssetReference{}, BadAuthRequest("所选服装不属于此角色版本")
+		}
+	}
 	now := time.Now()
 	reference := model.ShotAssetReference{ID: newID(), ShotID: shotID, AssetVersionID: versionID, Role: role, Status: "linked", CreatedAt: now}
-	if err := s.repo.UpsertShotAssetReferenceAndInvalidate(projectID, &reference, now); err != nil {
+	if err := s.repo.UpsertShotAssetReferenceAndInvalidate(projectID, &reference, now, strings.TrimSpace(req.ReplaceReferenceID)); err != nil {
 		return model.ShotAssetReference{}, err
 	}
 	return reference, nil
@@ -474,6 +490,9 @@ func addAssetCandidateIdentityKeys(known map[string]struct{}, category model.Ass
 }
 
 func validShotAssetRole(role string) bool {
+	if strings.HasPrefix(role, "costume:") && len(role) > len("costume:") && len(role) <= 32 {
+		return true
+	}
 	switch role {
 	case "reference", "start_frame", "end_frame", "keyframe", "storyboard", "output":
 		return true

@@ -96,6 +96,7 @@ export type CharacterRepresentation = {
     resourceId: string;
     mediaType: string;
     role: "primary" | "front" | "side" | "back" | "turnaround_sheet" | "expression_sheet" | string;
+    metadata?: { name?: string; clothing?: string; [key: string]: unknown };
 };
 
 export type VoiceProfile = {
@@ -600,8 +601,8 @@ export function updateProjectCharacter(projectId: string, assetId: string, input
     return http.patch<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`, input);
 }
 
-export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>) {
-    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations });
+export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>, expectedVersionId?: string) {
+    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations, expectedVersionId });
 }
 
 export function updateProjectAssetVisual(projectId: string, assetId: string, input: { resourceId?: string; versionId?: string; definition?: Record<string, unknown> }) {
@@ -632,7 +633,7 @@ export function replaceProjectUnitShots(projectId: string, unitId: string, shots
     return http.put<{ shots: ProjectShot[] }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, { shots, ...(expectedShotIds ? { expectedShotIds } : {}) });
 }
 
-export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"] }) {
+export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"]; replaceReferenceId?: string }) {
     return http.post<{ reference: ShotAssetReference }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets`, input);
 }
 

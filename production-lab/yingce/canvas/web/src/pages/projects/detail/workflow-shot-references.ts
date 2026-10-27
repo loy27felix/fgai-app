@@ -22,6 +22,7 @@ export type ShotPromptAssetReference = {
     audioIndex?: number;
     voiceDescription?: string;
     identityDescription?: string;
+    costumeDescription?: string;
     aliases?: string[];
     dialogue?: string;
     visualUsage?: "screen-only";
@@ -108,7 +109,8 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
 
     const referenceAudios: ReferenceAudio[] = [];
     const audioIndexByResourceId = new Map<string, number>();
-    const assetReferences = entries.map(({ asset }, index) => {
+    const assetReferences = entries.map(({ asset, reference }, index) => {
+        const costume = reference.role.startsWith("costume:") ? reference.referencedVersion?.representations.find(item => item.role === reference.role) : undefined;
         const sampleResourceId = stringValue(asset.character?.voice?.profile.sampleResourceId);
         let audioIndex: number | undefined;
         if (sampleResourceId) {
@@ -129,6 +131,7 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
             assetId: asset.id,
             title: asset.title,
             category: asset.category,
+            ...(costume ? { costumeDescription: [costume.metadata?.name, costume.metadata?.clothing].filter(Boolean).join("：") } : {}),
             imageIndex: index + 1,
             ...(audioIndex ? { audioIndex } : {}),
             ...(asset.character ? { voiceDescription: characterVoiceDescription(asset) } : {}),
@@ -213,6 +216,7 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
             `- ${reference.title}：${media}`,
             reference.category === "character" ? `  身份对应：${[reference.title, ...(reference.aliases || [])].join("、")}指同一角色，只从图片${reference.imageIndex}继承面部身份、发型、体态和服装；多人同屏、遮挡或切镜后仍保持各自身份，不混用其他角色或场景图中的脸。` : ["environment", "prop"].includes(normalizeAssetCategory(reference.category)) ? "  此图仅提供该场景或道具参考，不提供演员身份，不从中增加出场人物。" : "",
             reference.identityDescription ? `  已确认人物设定：${reference.identityDescription}` : "",
+            reference.costumeDescription ? `  本镜头服装造型：${reference.costumeDescription}。服装与配饰以此参考图为准，保持该角色面部身份和声音，不套用其他造型的衣服。` : "",
             reference.voiceDescription ? `  声音画像：${reference.voiceDescription}` : "",
             reference.dialogue ? `  镜头台词：${reference.dialogue}` : "",
         ].filter(Boolean);
@@ -220,10 +224,12 @@ export function compileShotAssetReferencePrompt(references: ShotPromptAssetRefer
     return ["【资产参考】", "", ...lines].join("\n");
 }
 
-function projectAssetReferenceImage(asset: ProjectAsset, reference?: ShotAssetReference): ReferenceImage | undefined {
+export function projectAssetReferenceImage(asset: ProjectAsset, reference?: ShotAssetReference): ReferenceImage | undefined {
     const boundRepresentations = reference?.referencedVersion?.representations || [];
-    const representation = preferredVisualRepresentation(boundRepresentations)
+    const costume = reference?.role.startsWith("costume:");
+    const representation = costume ? boundRepresentations.find(item => item.role === reference?.role) : preferredVisualRepresentation(boundRepresentations)
         || (asset.character ? preferredVisualRepresentation(asset.character.representations) : undefined);
+    if (costume && !representation) throw new Error(`${asset.title}的所选服装图片不可用，请重新选择造型；未使用其他图片代替`);
     if (representation) {
         return {
             id: asset.id,
@@ -250,7 +256,7 @@ function preferredVisualRepresentation(representations: CharacterRepresentation[
     return representations.find((item) => item.role === "turnaround_sheet")
         || representations.find((item) => item.role === "primary")
         || representations.find((item) => item.role === "front")
-        || representations.find((item) => item.mediaType.startsWith("image"));
+        || representations.find((item) => item.mediaType.startsWith("image") && !item.role.startsWith("costume:"));
 }
 
 function withShotDialogue(references: ShotPromptAssetReference[], dialogue?: string) {

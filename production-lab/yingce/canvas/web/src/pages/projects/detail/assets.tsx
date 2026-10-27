@@ -1,4 +1,5 @@
 import { ProjectCharacterVoiceGenerator } from "./project-character-voice-generator";
+import { CharacterCostumesModal } from "./character-costumes-modal";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, Modal, Popconfirm, Tabs, type FormInstance } from "antd";
@@ -97,6 +98,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const [addOpen, setAddOpen] = useState(false);
     const [editorAsset, setEditorAsset] = useState<ProjectAsset | "new" | null>(null);
     const [imageAsset, setImageAsset] = useState<ProjectAsset | null>(null);
+    const [costumeAsset, setCostumeAsset] = useState<ProjectAsset | null>(null);
     const [generationTarget, setGenerationTarget] = useState<ProjectAsset | "batch" | null>(null);
     const [visualEditor, setVisualEditor] = useState<ProjectAsset | null>(null);
     const [visualDescription, setVisualDescription] = useState("");
@@ -748,6 +750,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 onGenerate={() => openTurnaround(asset)}
                                                 onBindImages={() => openImages(asset)}
                                                 onBindVoice={() => openVoice(asset)}
+                                                onCostumes={() => setCostumeAsset(asset)}
                                                 onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })}
                                                 onRemove={() => unlinkMutation.mutate(asset.id)}
                                             />
@@ -861,6 +864,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     }}
                 />
             )}
+            {costumeAsset && <CharacterCostumesModal key={costumeAsset.id} projectId={detail.project.id} asset={costumeAsset} onClose={()=>setCostumeAsset(null)} onRefresh={()=>void refreshProject()} />}
             <Modal
                 className="workspace-modal workspace-modal-compact"
                 title={folderEditor?.folder ? "重命名文件夹" : "新建文件夹"}

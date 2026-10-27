@@ -44,7 +44,8 @@ type CharacterRepresentationInput struct {
 }
 
 type ReplaceCharacterRepresentationsRequest struct {
-	Representations []CharacterRepresentationInput `json:"representations"`
+	Representations   []CharacterRepresentationInput `json:"representations"`
+	ExpectedVersionID string                         `json:"expectedVersionId"`
 }
 
 type BindCharacterVoiceRequest struct {
@@ -55,10 +56,11 @@ type BindCharacterVoiceRequest struct {
 }
 
 type CharacterRepresentationSummary struct {
-	ID         string `json:"id"`
-	ResourceID string `json:"resourceId"`
-	MediaType  string `json:"mediaType"`
-	Role       string `json:"role"`
+	ID         string         `json:"id"`
+	ResourceID string         `json:"resourceId"`
+	MediaType  string         `json:"mediaType"`
+	Role       string         `json:"role"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 type VoiceProfileSummary struct {
@@ -356,12 +358,17 @@ func (s *Service) UpdateProjectCharacter(userID string, projectID string, assetI
 }
 
 func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectID string, assetID string, req ReplaceCharacterRepresentationsRequest) (ProjectCharacterDetail, error) {
+	s.characterTaskMu.Lock()
+	defer s.characterTaskMu.Unlock()
 	asset, err := s.repo.ProjectCharacterAsset(userID, projectID, strings.TrimSpace(assetID))
 	if err != nil {
 		return ProjectCharacterDetail{}, err
 	}
-	if len(req.Representations) == 0 || len(req.Representations) > 8 {
-		return ProjectCharacterDetail{}, BadAuthRequest("角色形象数量必须在 1 到 8 之间")
+	if req.ExpectedVersionID != "" && req.ExpectedVersionID != asset.PrimaryVersionID {
+		return ProjectCharacterDetail{}, BadAuthRequest("角色图片已被更新，请刷新后重新保存造型；未覆盖新图片")
+	}
+	if len(req.Representations) == 0 || len(req.Representations) > 32 {
+		return ProjectCharacterDetail{}, BadAuthRequest("角色形象数量必须在 1 到 32 之间")
 	}
 	roles := make(map[string]struct{}, len(req.Representations))
 	representations := make([]model.AssetRepresentation, 0, len(req.Representations))
@@ -386,6 +393,19 @@ func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectI
 		}
 		representations = append(representations, model.AssetRepresentation{ID: newID(), TaskID: operationID, ResourceID: resourceID, MediaType: "image", Role: role, MetadataJSON: string(metadata), CreatedAt: time.Now()})
 	}
+	currentImages, err := s.repo.AssetRepresentations(asset.PrimaryVersionID)
+	if err != nil {
+		return ProjectCharacterDetail{}, err
+	}
+	for _, image := range currentImages {
+		if strings.HasPrefix(image.Role, "costume:") {
+			if _, exists := roles[image.Role]; !exists {
+				image.ID = newID()
+				image.TaskID = operationID
+				representations = append(representations, image)
+			}
+		}
+	}
 	if _, err := s.createNextCharacterVersion(projectID, asset, asset.Title, "", representations, nil, false); err != nil {
 		return ProjectCharacterDetail{}, err
 	}
@@ -394,6 +414,9 @@ func (s *Service) ReplaceProjectCharacterRepresentations(userID string, projectI
 
 // 三视图生成是强校验写路径：任务只有在资源已绑定到新角色版本后才能对外显示成功。
 func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[string]interface{}) (bool, error) {
+	if strings.Contains(task.InputJSON, "character_costume") {
+		return s.finalizeCharacterCostumeTask(task, result)
+	}
 	if !strings.Contains(task.InputJSON, "character_turnaround") {
 		return false, nil
 	}
@@ -452,6 +475,18 @@ func (s *Service) finalizeCharacterTurnaroundTask(task model.Task, result map[st
 	representations := []model.AssetRepresentation{
 		{ID: newID(), TaskID: task.ID, ResourceID: resourceID, MediaType: "image", Role: "turnaround_sheet", MetadataJSON: string(sheetMetadata), CreatedAt: now},
 		{ID: newID(), TaskID: task.ID, ResourceID: resourceID, MediaType: "image", Role: "primary", MetadataJSON: string(primaryMetadata), CreatedAt: now},
+	}
+	previousImages, err := s.repo.AssetRepresentations(asset.PrimaryVersionID)
+	if err != nil {
+		return false, err
+	}
+	copyTaskID := newID()
+	for _, image := range previousImages {
+		if strings.HasPrefix(image.Role, "costume:") {
+			image.ID = newID()
+			image.TaskID = copyTaskID
+			representations = append(representations, image)
+		}
 	}
 	if _, err := s.createNextCharacterVersion(projectID, asset, asset.Title, "", representations, nil, false); err != nil {
 		// 多实例同时收尾时，唯一任务视角约束只允许一个事务成功；其余实例按已绑定处理。
@@ -699,7 +734,7 @@ func (s *Service) characterCardVersion(userID string, version *model.AssetVersio
 	representations := make([]CharacterRepresentationSummary, 0, len(stored))
 	roles := make(map[string]bool, len(stored))
 	for _, representation := range stored {
-		representations = append(representations, CharacterRepresentationSummary{ID: representation.ID, ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role})
+		representations = append(representations, characterRepresentationSummary(representation))
 		roles[representation.Role] = true
 	}
 	visualStatus := "missing"
@@ -870,10 +905,19 @@ func voiceProfileSummary(profile model.VoiceProfile) VoiceProfileSummary {
 }
 
 func validCharacterRepresentationRole(role string) bool {
+	if strings.HasPrefix(role, "costume:") && len(role) > len("costume:") && len(role) <= 32 {
+		return true
+	}
 	switch role {
 	case "primary", "front", "side", "back", "turnaround_sheet", "expression_sheet":
 		return true
 	default:
 		return false
 	}
+}
+
+func characterRepresentationSummary(value model.AssetRepresentation) CharacterRepresentationSummary {
+	metadata := map[string]any{}
+	_ = json.Unmarshal([]byte(value.MetadataJSON), &metadata)
+	return CharacterRepresentationSummary{ID: value.ID, ResourceID: value.ResourceID, MediaType: value.MediaType, Role: value.Role, Metadata: metadata}
 }

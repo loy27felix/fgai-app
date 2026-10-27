@@ -242,8 +242,28 @@ func (r *Repository) UpsertShotAssetReference(reference *model.ShotAssetReferenc
 	return r.db.Create(reference).Error
 }
 
-func (r *Repository) UpsertShotAssetReferenceAndInvalidate(projectID string, reference *model.ShotAssetReference, updatedAt time.Time) error {
+func (r *Repository) UpsertShotAssetReferenceAndInvalidate(projectID string, reference *model.ShotAssetReference, updatedAt time.Time, replaceIDs ...string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if len(replaceIDs) > 0 && replaceIDs[0] != "" {
+			var previous model.ShotAssetReference
+			if err := tx.Where("id = ? AND shot_id = ?", replaceIDs[0], reference.ShotID).First(&previous).Error; err != nil {
+				return err
+			}
+			var before, after model.AssetVersion
+			if err := tx.First(&before, "id = ?", previous.AssetVersionID).Error; err != nil {
+				return err
+			}
+			if err := tx.First(&after, "id = ?", reference.AssetVersionID).Error; err != nil {
+				return err
+			}
+			if before.AssetID != after.AssetID {
+				return errors.New("不能用其他角色替换此造型")
+			}
+			reference.ID, reference.CreatedAt = previous.ID, previous.CreatedAt
+			if err := tx.Model(&previous).Updates(map[string]any{"asset_version_id": reference.AssetVersionID, "role": reference.Role, "status": "linked"}).Error; err != nil {
+				return err
+			}
+		}
 		result := tx.Model(&model.ShotAssetReference{}).Where("shot_id = ? AND asset_version_id = ? AND role = ?", reference.ShotID, reference.AssetVersionID, reference.Role).Updates(map[string]any{"status": reference.Status})
 		if result.Error != nil {
 			return result.Error

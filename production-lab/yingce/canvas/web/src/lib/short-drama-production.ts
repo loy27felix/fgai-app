@@ -127,7 +127,7 @@ export function validateDirectorVideoPrompt(prompt: string, seconds: number, ind
         const interval = intervals[i];
         const start = Number(interval[1]),
             end = Number(interval[2]);
-        if (Math.abs(start - previous) > 0.01 || end <= start || end > seconds) fail("动作时间轴存在空缺、重叠或超出总时长");
+        if (Math.abs(start - previous) > 0.01 || end <= start || end > seconds) fail(`动作时间轴存在空缺、重叠或超出总时长（第 ${i + 1} 个时间段：${start}—${end}秒；应从 ${previous} 秒承接，总长 ${seconds} 秒）`);
         const block = timeline!.slice(interval.index, intervals[i + 1]?.index);
         const labels = [...block.matchAll(directorLabels())];
         const missing = ["人物动作", "镜头运动", "背景"].filter((label) => !labels.some((match, j) =>

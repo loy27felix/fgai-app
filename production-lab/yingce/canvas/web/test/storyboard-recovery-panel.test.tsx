@@ -15,3 +15,7 @@ test("a successful child of an incomplete batch explains why no shots exist",()=
     const html=render([{...task,clientContext:{...task.clientContext,storyboardBatchId:"batch",batchIndex:1,batchCount:2}}]);
     expect(html).toContain("批次尚未全部完成");expect(html).not.toContain("核对并导入已保存分镜");
 });
+test("a failed child identifies the batch and offers only a scoped paid retry",()=>{
+    const html=render([{...task,status:"failed",error:"stream disconnected",clientContext:{...task.clientContext,storyboardBatchId:"batch",batchIndex:2,batchCount:4}}]);
+    expect(html).toContain("部分批次失败");expect(html).toContain("stream disconnected");expect(html).toContain("仅重试失败批次");expect(html).toContain("0/4");
+});

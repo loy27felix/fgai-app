@@ -24,6 +24,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { confirmProjectAssetCandidate, ignoreProjectAssetCandidate, listProjectAssetsPage, listProjectAssetCandidates, updateProjectAssetVisual, updateProjectCharacter, type ProjectAsset, type ProjectDetail } from "@/services/api/projects";
 import { characterTurnaroundConfig } from "./project-character-media";
+import { projectCharacterCover } from "./project-character-cover";
 import { ASSET_PROMPT_SKILL, projectAssetExecutionPrompt, projectAssetGenerationPrompt, projectAssetHasImage, projectAssetReferencePlan, runAssetBatch } from "./project-asset-generation-plan";
 import { categoryLabel, categoryLabels } from "./shared";
 import { recommendProjectAsset, projectAssetTaskID } from "./project-asset-review";
@@ -109,8 +110,8 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                             prompt: projectAssetGenerationPrompt(asset, style?.prompt || ""),
                             references: Array.isArray(d.generationReferenceIds)
                                 ? d.generationReferenceIds.filter((id): id is string => typeof id === "string")
-                                : asset.character?.representations[0]?.resourceId
-                                  ? [asset.character.representations[0].resourceId]
+                                : projectCharacterCover(asset.character?.representations)?.resourceId
+                                  ? [projectCharacterCover(asset.character?.representations)!.resourceId]
                                   : asset.storageKey
                                     ? [resourceIdFromStorageKey(asset.storageKey)].filter((id): id is string => Boolean(id))
                                     : [],

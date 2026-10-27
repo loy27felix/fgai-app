@@ -2,11 +2,28 @@ import { describe, expect, test } from "bun:test";
 
 import { canvasResourceMentionToken } from "@/lib/canvas/canvas-resource-references";
 import type { ProjectAsset, ProjectDetail } from "@/services/api/projects";
-import { assertShotCharacterCoverage, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
+import { assertShotCharacterCoverage, buildShotAssetReferenceContext, ensureShotAssetMentionPrompt, inferShotVisualAssets, projectAssetReferenceImage, resolveShotAssetMentionPrompt } from "@/pages/projects/detail/workflow-shot-references";
 import { assertVideoCapability } from "@/services/api/video-validation";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
 
 describe("workflow shot asset references", () => {
+    test("bound preview, mention and submission use the same historical image, not the latest cover",()=>{
+        const source=detail(), character=source.assets.find(a=>a.character)!;
+        const reference=source.shotReferences.find(r=>r.assetVersionId===character.primaryVersionId)!;
+        reference.asset=character;
+        reference.referencedVersion={id:reference.assetVersionId,assetId:character.id,version:1,representations:[{id:"old",resourceId:"old-image",mediaType:"image",role:"primary"}]};
+        const context=buildShotAssetReferenceContext(source,"shot-1");
+        expect(projectAssetReferenceImage(character,reference)?.storageKey).toBe("resource:old-image");
+        expect(context.mentionReferences.find(r=>r.assetId===character.id)?.storageKey).toBe("resource:old-image");
+        expect(context.referenceImages[1].storageKey).toBe("resource:old-image");
+        reference.role="costume:night";
+        reference.referencedVersion.representations.push({id:"night",resourceId:"night-coat",mediaType:"image",role:"costume:night",metadata:{name:"夜景外套",clothing:"深蓝风衣"}});
+        const dressed=buildShotAssetReferenceContext(source,"shot-1");
+        expect(dressed.referenceImages[1].storageKey).toBe("resource:night-coat");
+        expect(resolveShotAssetMentionPrompt("人物进门",dressed)).toContain("深蓝风衣");
+        reference.role="costume:missing";
+        expect(()=>buildShotAssetReferenceContext(source,"shot-1")).toThrow("未使用其他图片代替");
+    });
     test("confirmed character aliases resolve without guessing name prefixes", () => {
         const source = detail();
         const character = source.assets.find(asset => asset.character)!;

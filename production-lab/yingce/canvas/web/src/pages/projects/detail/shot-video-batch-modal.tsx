@@ -61,7 +61,7 @@ export function ShotVideoBatchModal({ open, detail, unitId, config, onClose, onR
                 if (workspace.tasks.some(task => task.clientContext?.shotId === id && task.clientContext?.artifactType === "video" && ["queued", "running"].includes(task.status))) { skipped++; continue; }
                 const revision = currentRevision({ ...detail, ...workspace }, shot);
                 if (!shot.currentRevisionId || !revision?.videoPrompt?.trim()) throw new Error(`${shot.title} 没有已保存的视频提示词`);
-                const existing = workspace.shotReferences.filter(ref => ref.shotId === id && ref.status === "linked" && ref.role === "reference");
+                const existing = workspace.shotReferences.filter(ref => ref.shotId === id && ref.status === "linked");
                 const autoAssets = existing.length ? [] : inferShotVisualAssets(assets, [revision.plotDescription, revision.action, revision.videoPrompt].join("\n"));
                 if (autoAssets.length > 6) throw new Error(`${shot.title} 匹配的参考资产超过6项，请先人工核对`);
                 const refs = [...workspace.shotReferences, ...autoAssets.map(asset => ({ id: `auto:${asset.id}`, shotId: id, assetVersionId: asset.primaryVersionId!, role: "reference", status: "linked", createdAt: "", asset }))];

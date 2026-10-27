@@ -36,3 +36,14 @@ test("existing work or changed script cannot be silently replaced during recover
     await expect(importSavedChapterStoryboard("project","chapter",[f.task],async()=>undefined,[],f.deps)).rejects.toThrow("原文");
     expect(f.writes).toBe(0);
 });
+test("reviewed saved prompt edits keep the provider original and still pass the normal import checks",async()=>{
+    const f=fixture(), original=f.task.resultJson;
+    const document=JSON.parse(JSON.parse(original!).text);document.rows[0].videoMotionPrompt="修正后的时间轴与原剧情";
+    const result=await importSavedChapterStoryboard("project","chapter",[f.task],async()=>({0:f.assets.slice(0,6).map(a=>a.id)}),[],f.deps,{task:JSON.stringify(document)});
+    expect(f.task.resultJson).toBe(original);expect(f.writes).toBe(1);
+    expect(JSON.parse(result.shotRevisions[0].actionBeatsJson)).toContainEqual({type:"storyboard_manual_result_edit",taskIds:["task"]});
+    const invalid=fixture();document.rows[0].assetBindings=[{nodeId:"not-in-project",role:"prop",priority:1}];
+    // The source snapshot and ordinary reference validation remain authoritative.
+    await expect(importSavedChapterStoryboard("project","chapter",[invalid.task],async()=>undefined,[],invalid.deps,{task:JSON.stringify(document)})).rejects.toThrow();
+    expect(invalid.writes).toBe(0);
+});

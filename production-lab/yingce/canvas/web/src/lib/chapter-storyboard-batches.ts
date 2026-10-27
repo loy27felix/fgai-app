@@ -38,8 +38,17 @@ export function storyboardBatchInfo(task: GenerationTask) {
 // A completed child is never a completed chapter. The newest attempt for every
 // index must succeed before a single atomic project replacement is allowed.
 export function completeStoryboardBatch(task: GenerationTask, tasks: GenerationTask[]) {
+    const selected = storyboardBatchTasks(task, tasks);
+    let count: number;
+    try { count = storyboardBatchInfo(task)?.count || 1; } catch { return null; }
+    if (selected.length !== count || selected.some(item => item.status !== "succeeded")) return null;
+    return selected;
+}
+
+/** The same newest-attempt selection drives progress, retry, and atomic import. */
+export function storyboardBatchTasks(task: GenerationTask, tasks: GenerationTask[]) {
     let batch: ReturnType<typeof storyboardBatchInfo>;
-    try { batch = storyboardBatchInfo(task); } catch { return null; }
+    try { batch = storyboardBatchInfo(task); } catch { return []; }
     if (!batch) return [task];
     const selected = new Map<number, GenerationTask>();
     for (const item of [...tasks, task].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
@@ -48,9 +57,8 @@ export function completeStoryboardBatch(task: GenerationTask, tasks: GenerationT
         if (!info || info.id !== batch.id || info.count !== batch.count || item.projectId !== task.projectId) continue;
         const chapter = item.clientContext?.chapterId || JSON.parse(item.inputJson || "{}").metadata?.chapterId;
         const ownChapter = task.clientContext?.chapterId || JSON.parse(task.inputJson || "{}").metadata?.chapterId;
-        if (!chapter || chapter !== ownChapter) return null;
+        if (!chapter || chapter !== ownChapter) return [];
         if (!selected.has(info.index)) selected.set(info.index, item);
     }
-    if (selected.size !== batch.count || [...selected.values()].some(item => item.status !== "succeeded")) return null;
     return [...selected].sort(([a], [b]) => a - b).map(([, item]) => item);
 }

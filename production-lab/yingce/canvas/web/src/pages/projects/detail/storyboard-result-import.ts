@@ -46,11 +46,11 @@ type Dependencies = {
 const dependencies: Dependencies = { queryTask: queryGenerationTask, workspace: getProjectUnitWorkspace, assets: loadChapterStoryboardAssets, replace: replaceProjectUnitShots };
 
 /** A provider result is not imported until the normal write API and read-back both succeed. */
-export async function importSavedChapterStoryboard(projectId: string, chapterId: string, tasks: GenerationTask[], review: (rows: StoryboardRow[], assets: ProjectAsset[]) => Promise<Record<number,string[]> | undefined>, expectedShotIds: string[] = [], deps: Dependencies = dependencies) {
+export async function importSavedChapterStoryboard(projectId: string, chapterId: string, tasks: GenerationTask[], review: (rows: StoryboardRow[], assets: ProjectAsset[]) => Promise<Record<number,string[]> | undefined>, expectedShotIds: string[] = [], deps: Dependencies = dependencies, resultEdits: Record<string,string> = {}) {
     const latest = latestChapterStoryboard(tasks, projectId, chapterId);
     const batch = latest && completeStoryboardBatch(latest, tasks);
     if (!batch) throw new Error("本章分镜批次尚未全部成功，已完成结果保留");
-    const full = await Promise.all(batch.map(task => deps.queryTask(task.id)));
+    const full = (await Promise.all(batch.map(task => deps.queryTask(task.id)))).map(task => resultEdits[task.id] === undefined ? task : ({...task,resultJson:JSON.stringify({...JSON.parse(task.resultJson || "{}"),text:resultEdits[task.id]})}));
     const result = chapterStoryboardFromGenerationTasks(full);
     const workspace = await deps.workspace(projectId, chapterId);
     if (workspace.unit.id !== chapterId || workspace.shots.length !== expectedShotIds.length || workspace.shots.some(shot => !expectedShotIds.includes(shot.id))) throw new Error("本章分镜已发生变化，请重新核对后导入");
@@ -59,6 +59,7 @@ export async function importSavedChapterStoryboard(projectId: string, chapterId:
     const assets = await deps.assets(projectId);
     const choices = await review(result.rows, assets);
     const shots = storyboardRowsToProjectShots(result.rows, { assets } as Parameters<typeof storyboardRowsToProjectShots>[1], result.productionPlan, choices);
+    if (Object.keys(resultEdits).length) for (const shot of shots) shot.revision.actionBeats = [...(shot.revision.actionBeats || []),{type:"storyboard_manual_result_edit",taskIds:Object.keys(resultEdits).filter(id=>batch.some(task=>task.id===id))}];
     const saved = await deps.replace(projectId, chapterId, shots, expectedShotIds);
     const verified = await deps.workspace(projectId, chapterId);
     if (saved.shots.length !== shots.length || verified.shots.length !== shots.length || saved.shots.some(shot => !verified.shots.some(item => item.id === shot.id && item.unitId === chapterId))) throw new Error("分镜已提交，但列表读取尚未确认，请刷新核对；不要重新生成");
