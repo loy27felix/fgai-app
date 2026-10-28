@@ -481,3 +481,11 @@ function videoOperationLabel(operation: string) {
     if (operation === "extend") return "视频续写";
     return "当前生成模式";
 }
+
+// Only these plugin protocols explicitly allow first/last frames with reference images.
+// Seedance and Wan retain their mutually exclusive modes.
+export function supportsMixedVideoFrameImages(config: AiConfig, model: string) {
+    const channel = resolveModelChannel(config, model);
+    const cost = channel.modelCosts?.find(item => item.model === modelOptionName(model));
+    return ["minimax-video", "metaso-h3"].includes(cost?.protocol || channel.interfaceType || "");
+}

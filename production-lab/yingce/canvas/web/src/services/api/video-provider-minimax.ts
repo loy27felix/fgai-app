@@ -20,7 +20,6 @@ export async function createMiniMaxVideoTask(deps: VideoProviderDeps, config: Re
     const frameMode = imagePlan.some(({ role }) => role === "first_frame" || role === "last_frame");
     imageUrls.forEach((url, index) => {
         const role = imagePlan[index]?.role || "reference_image";
-        if (frameMode && role === "reference_image") throw new Error("MiniMax 首尾帧模式不能混合未标记的参考图");
         content.push({ type: "image_url", image_url: { url }, role });
     });
     videoUrls.forEach((url) => content.push({ type: "video_url", video_url: { url }, role: "reference_video" }));

@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 75
+const CurrentSchemaVersion int64 = 78
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -287,6 +287,34 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.ResourceOffloadJob{})
 	}},
 	{version: 75, name: "drama_segment_mode", checksum: "sha256:drama-segment-mode-v71-20261026", apply: migrateDramaSegmentMode},
+	// Upstream 72–74 append after FG 75; existing ledger identities stay intact.
+	{version: 76, name: "referral_center", checksum: "sha256:referral-center-v72-20261027", apply: migrateReferralCenter},
+	{version: 77, name: "drama_episode_source_format", checksum: "sha256:drama-episode-source-format-v73-20261027", apply: func(tx *gorm.DB) error {
+		if tx.Migrator().HasColumn(&model.DramaEpisode{}, "SourceFormat") {
+			return nil
+		}
+		return tx.Migrator().AddColumn(&model.DramaEpisode{}, "SourceFormat")
+	}},
+	{version: 78, name: "drama_segment_references", checksum: "sha256:drama-segment-references-v74-20261027", apply: func(tx *gorm.DB) error {
+		if tx.Migrator().HasColumn(&model.DramaSegment{}, "ReferenceCastIDsJSON") {
+			return nil
+		}
+		return tx.Migrator().AddColumn(&model.DramaSegment{}, "ReferenceCastIDsJSON")
+	}},
+}
+
+func migrateReferralCenter(tx *gorm.DB) error {
+	if !tx.Migrator().HasColumn(&model.User{}, "IsPromoter") {
+		if err := tx.Migrator().AddColumn(&model.User{}, "IsPromoter"); err != nil {
+			return err
+		}
+	}
+	if !tx.Migrator().HasIndex(&model.User{}, "IsPromoter") {
+		if err := tx.Migrator().CreateIndex(&model.User{}, "IsPromoter"); err != nil {
+			return err
+		}
+	}
+	return tx.AutoMigrate(&model.ReferralProfile{}, &model.ReferralBinding{}, &model.ReferralCommission{})
 }
 
 func migrateSQLPerformanceIndexes(tx *gorm.DB) error {

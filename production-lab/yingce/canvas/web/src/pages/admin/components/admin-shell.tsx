@@ -32,6 +32,8 @@ import {
     ShieldAlert,
     ShieldCheck,
     Sun,
+    TicketCheck,
+    Gift,
     ToggleLeft,
     WandSparkles,
     UsersRound,
@@ -58,6 +60,8 @@ import "../theme/admin-glass.css";
 type AdminNavigationItem = {
     path: string;
     label: string;
+    /** 折叠侧栏图标下方的两字名称，与用户端折叠导航保持一致。 */
+    shortLabel: string;
     description: string;
     icon: ReactNode;
     requireFeature?: "frontendModelsEnabled";
@@ -67,48 +71,49 @@ const adminNavigation: Array<{ label: string; items: AdminNavigationItem[] }> = 
     {
         label: "监控与排查",
         items: [
-            { path: "/admin", label: "运行总览", description: "请求质量、队列与成本趋势", icon: <BarChart3 className="size-4" /> },
-            { path: "/admin/logs", label: "请求明细", description: "上游调用与费用", icon: <FileClock className="size-4" /> },
-            { path: "/admin/fg-finance", label: "FG 人民币对账", description: "按项目、人员、小组归集实际费用", icon: <Rows3 className="size-4" /> },
-            { path: "/admin/settings/system-performance", label: "系统性能", description: "主机、数据库与缓存状态", icon: <Activity className="size-4" /> },
+            { path: "/admin", label: "运行总览", shortLabel: "总览", description: "请求质量、队列与成本趋势", icon: <BarChart3 className="size-4" /> },
+            { path: "/admin/logs", label: "请求明细", shortLabel: "请求", description: "上游调用与费用", icon: <FileClock className="size-4" /> },
+            { path: "/admin/fg-finance", label: "FG 人民币对账", shortLabel: "FG", description: "按项目、人员、小组归集实际费用", icon: <Rows3 className="size-4" /> },
+            { path: "/admin/settings/system-performance", label: "系统性能", shortLabel: "性能", description: "主机、数据库与缓存状态", icon: <Activity className="size-4" /> },
         ],
     },
     {
         label: "模型与资源",
         items: [
-            { path: "/admin/channels", label: "系统渠道", description: "模型接入、用量与成本配置", icon: <RadioTower className="size-4" /> },
-            { path: "/admin/models", label: "前台模型", description: "模型展示与线路", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
-            { path: "/admin/prompt-templates", label: "提示词模板", description: "平台创作策略版本", icon: <MessageSquareText className="size-4" /> },
-            { path: "/admin/workbench-tools", label: "工作台工具", description: "生图/视频工具与预设", icon: <WandSparkles className="size-4" /> },
-            { path: "/admin/resources", label: "存储资源", description: "资源列表、容量与预览", icon: <Database className="size-4" /> },
+            { path: "/admin/channels", label: "系统渠道", shortLabel: "渠道", description: "模型接入、用量与成本配置", icon: <RadioTower className="size-4" /> },
+            { path: "/admin/models", label: "前台模型", shortLabel: "模型", description: "模型展示与线路", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
+            { path: "/admin/prompt-templates", label: "提示词模板", shortLabel: "模板", description: "平台创作策略版本", icon: <MessageSquareText className="size-4" /> },
+            { path: "/admin/workbench-tools", label: "工作台工具", shortLabel: "工具", description: "生图/视频工具与预设", icon: <WandSparkles className="size-4" /> },
+            { path: "/admin/resources", label: "存储资源", shortLabel: "资源", description: "资源列表、容量与预览", icon: <Database className="size-4" /> },
         ],
     },
     {
         label: "团队与通知",
         items: [
-            { path: "/admin/users", label: "用户管理", description: "账号、角色与状态", icon: <UsersRound className="size-4" /> },
-            { path: "/admin/login-logs", label: "用户登录日志", description: "登录、失败与主动退出", icon: <FileClock className="size-4" /> },
-            { path: "/admin/feedbacks", label: "用户反馈", description: "Bug、功能提议与收件箱答复", icon: <Inbox className="size-4" /> },
-            { path: "/admin/announcements", label: "系统公告", description: "发布、关闭与历史公告", icon: <BellRing className="size-4" /> },
-            { path: "/admin/banner-announcements", label: "常驻通知", description: "首页顶部常驻滚动通知", icon: <Megaphone className="size-4" /> },
-            { path: "/admin/agent-lessons", label: "Agent 记忆", description: "按用户查看个人记忆", icon: <Sparkles className="size-4" /> },
+            { path: "/admin/users", label: "用户管理", shortLabel: "用户", description: "账号、角色与状态", icon: <UsersRound className="size-4" /> },
+            { path: "/admin/login-logs", label: "用户登录日志", shortLabel: "登录", description: "登录、失败与主动退出", icon: <FileClock className="size-4" /> },
+            { path: "/admin/feedbacks", label: "用户反馈", shortLabel: "反馈", description: "Bug、功能提议与收件箱答复", icon: <Inbox className="size-4" /> },
+            { path: "/admin/announcements", label: "系统公告", shortLabel: "公告", description: "发布、关闭与历史公告", icon: <BellRing className="size-4" /> },
+            { path: "/admin/banner-announcements", label: "常驻通知", shortLabel: "通知", description: "首页顶部常驻滚动通知", icon: <Megaphone className="size-4" /> },
+            { path: "/admin/agent-lessons", label: "Agent 记忆", shortLabel: "记忆", description: "按用户查看个人记忆", icon: <Sparkles className="size-4" /> },
+            { path: "/admin/referral", label: "推广中心", shortLabel: "推广", description: "开放方式、返佣比例与记录", icon: <Gift className="size-4" /> },
         ],
     },
     {
         label: "平台配置",
         items: [
-            { path: "/admin/plugins", label: "插件管理", description: "平台可用性、上传与卸载", icon: <PlugZap className="size-4" /> },
-            { path: "/admin/skill-curation", label: "技能分类", description: "平台策展与分类维护", icon: <PlugZap className="size-4" /> },
-            { path: "/admin/settings/appearance", label: "站点及外观", description: "品牌、SEO、备案与皮肤", icon: <Palette className="size-4" /> },
-            { path: "/admin/settings/features", label: "功能开放", description: "工作台、插件与模型能力", icon: <ToggleLeft className="size-4" /> },
-            { path: "/admin/settings/drawing-engine", label: "绘图工具", description: "画布绘图节点默认引擎", icon: <Paintbrush className="size-4" /> },
-            { path: "/admin/settings/runtime-policy", label: "资源与策略", description: "配额、并发、频控与超时", icon: <Settings2 className="size-4" /> },
-            { path: "/admin/settings/email", label: "邮件服务", description: "注册验证码与 SMTP", icon: <Mail className="size-4" /> },
-            { path: "/admin/settings/storage", label: "存储服务", description: "对象存储与资源存储", icon: <HardDrive className="size-4" /> },
-            { path: "/admin/settings/ark-private-assets", label: "方舟素材库", description: "Seedance 可信参考素材", icon: <CloudUpload className="size-4" /> },
-            { path: "/admin/settings/response-interception", label: "模型响应拦截", description: "先启用策略，再配置替换规则", icon: <ShieldAlert className="size-4" /> },
-            { path: "/admin/settings/third-party", label: "第三方参数配置", description: "先配置凭据，再开放用户入口", icon: <KeyRound className="size-4" /> },
-            { path: "/admin/settings/system-update", label: "FG 运行版本", description: "内部版本与维护说明", icon: <RefreshCw className="size-4" /> },
+            { path: "/admin/plugins", label: "插件管理", shortLabel: "插件", description: "平台可用性、上传与卸载", icon: <PlugZap className="size-4" /> },
+            { path: "/admin/skill-curation", label: "技能分类", shortLabel: "技能", description: "平台策展与分类维护", icon: <PlugZap className="size-4" /> },
+            { path: "/admin/settings/appearance", label: "站点及外观", shortLabel: "外观", description: "品牌、SEO、备案与皮肤", icon: <Palette className="size-4" /> },
+            { path: "/admin/settings/features", label: "功能开放", shortLabel: "功能", description: "工作台、插件与模型能力", icon: <ToggleLeft className="size-4" /> },
+            { path: "/admin/settings/drawing-engine", label: "绘图工具", shortLabel: "绘图", description: "画布绘图节点默认引擎", icon: <Paintbrush className="size-4" /> },
+            { path: "/admin/settings/runtime-policy", label: "资源与策略", shortLabel: "策略", description: "配额、并发、频控与超时", icon: <Settings2 className="size-4" /> },
+            { path: "/admin/settings/email", label: "邮件服务", shortLabel: "邮件", description: "注册验证码与 SMTP", icon: <Mail className="size-4" /> },
+            { path: "/admin/settings/storage", label: "存储服务", shortLabel: "存储", description: "对象存储与资源存储", icon: <HardDrive className="size-4" /> },
+            { path: "/admin/settings/ark-private-assets", label: "方舟素材库", shortLabel: "方舟", description: "Seedance 可信参考素材", icon: <CloudUpload className="size-4" /> },
+            { path: "/admin/settings/response-interception", label: "模型响应拦截", shortLabel: "拦截", description: "先启用策略，再配置替换规则", icon: <ShieldAlert className="size-4" /> },
+            { path: "/admin/settings/third-party", label: "第三方参数配置", shortLabel: "三方", description: "先配置凭据，再开放用户入口", icon: <KeyRound className="size-4" /> },
+            { path: "/admin/settings/system-update", label: "FG 运行版本", shortLabel: "更新", description: "内部版本与维护说明", icon: <RefreshCw className="size-4" /> },
         ],
     },
 ];
@@ -156,65 +161,69 @@ function AdminShellLayout() {
 
     return (
         <ConfigProvider theme={getIsolatedAdminAntTheme(dark, appearance.activeSkin)} getPopupContainer={(node) => adminPopupContainer(node)}>
-            <App><AppFeedbackProvider>
-                <main id="admin-root" data-admin-root data-admin-density={density} className="admin-shell fg-glass-admin flex h-full min-h-0 overflow-hidden">
-                    <aside className={cn("admin-sidebar hidden shrink-0 flex-col overflow-hidden lg:flex", collapsed && "is-collapsed")}>
-                        <div className="admin-sidebar-identity shrink-0">
-                            <AdminTooltip title={collapsed ? (appearance.updates?.enabled ? "查看更新公告" : "查看更新日志") : undefined} placement="right">
-                                <AppChangelogButton
-                                    className={cn("admin-sidebar-brand-button", collapsed && "is-collapsed")}
-                                    icon={<BrandLogoFrame className="admin-sidebar-brand-mark grid shrink-0 place-items-center bg-foreground text-background" logoClassName="size-5 object-contain" alt="" fallback={<InfinityIcon className="size-4" />} />}
-                                    label={appearance.brandName}
-                                    showLabel={!collapsed}
-                                    showVersion={!collapsed}
-                                    labelClassName="admin-sidebar-brand-title"
-                                    versionClassName="admin-sidebar-brand-version"
-                                />
-                            </AdminTooltip>
-                        </div>
-                        {!collapsed ? (
-                            <div className="fg-admin-identity">
-                                <span>CONTROL ROOM</span>
-                                <strong>管理中心</strong>
-                                <p>运营洞察 · 团队与平台</p>
-                            </div>
-                        ) : null}
-                        <AdminNavigation collapsed={collapsed} />
-                        <div className={cn("admin-sidebar-footer shrink-0", collapsed && "is-collapsed")}>
-                            <div className="admin-sidebar-footer-row">
-                                <AdminTooltip title={collapsed ? "返回创作台" : undefined} placement="right">
-                                    <NavLink to="/" aria-label={collapsed ? "返回创作台" : undefined} className={cn("admin-nav-link", collapsed && "is-collapsed")}>
-                                        <Home className="size-4" strokeWidth={1.6} />
-                                        {!collapsed ? <span>返回创作台</span> : null}
-                                    </NavLink>
+            <App>
+                <AppFeedbackProvider>
+                    <main id="admin-root" data-admin-root data-admin-density={density} className="admin-shell fg-glass-admin flex h-full min-h-0 overflow-hidden">
+                        <aside className={cn("admin-sidebar hidden shrink-0 flex-col overflow-hidden lg:flex", collapsed && "is-collapsed")}>
+                            <div className="admin-sidebar-identity shrink-0">
+                                <AdminTooltip title={collapsed ? (appearance.updates?.enabled ? "查看更新公告" : "查看更新日志") : undefined} placement="right">
+                                    <AppChangelogButton
+                                        className={cn("admin-sidebar-brand-button", collapsed && "is-collapsed")}
+                                        icon={
+                                            <BrandLogoFrame className="admin-sidebar-brand-mark grid shrink-0 place-items-center bg-foreground text-background" logoClassName="size-5 object-contain" alt="" fallback={<InfinityIcon className="size-4" />} />
+                                        }
+                                        label={appearance.brandName}
+                                        showLabel={!collapsed}
+                                        showVersion={!collapsed}
+                                        labelClassName="admin-sidebar-brand-title"
+                                        versionClassName="admin-sidebar-brand-version"
+                                    />
                                 </AdminTooltip>
-                                {!collapsed ? (
-                                    <button type="button" className="admin-sidebar-collapse-toggle" onClick={toggleCollapsed} aria-label="收起侧栏" title="收起侧栏" aria-expanded={!collapsed}>
-                                        <PanelLeftClose className="size-4" strokeWidth={1.7} />
+                            </div>
+                            {!collapsed ? (
+                                <div className="fg-admin-identity">
+                                    <span>CONTROL ROOM</span>
+                                    <strong>管理中心</strong>
+                                    <p>运营洞察 · 团队与平台</p>
+                                </div>
+                            ) : null}
+                            <AdminNavigation collapsed={collapsed} />
+                            <div className={cn("admin-sidebar-footer shrink-0", collapsed && "is-collapsed")}>
+                                <div className="admin-sidebar-footer-row">
+                                    <AdminTooltip title={collapsed ? "返回创作台" : undefined} placement="right">
+                                        <NavLink to="/" aria-label={collapsed ? "返回创作台" : undefined} className={cn("admin-nav-link", collapsed && "is-collapsed")}>
+                                            <Home className="size-4" strokeWidth={1.6} />
+                                            {!collapsed ? <span>返回创作台</span> : null}
+                                        </NavLink>
+                                    </AdminTooltip>
+                                    {!collapsed ? (
+                                        <button type="button" className="admin-sidebar-collapse-toggle" onClick={toggleCollapsed} aria-label="收起侧栏" title="收起侧栏" aria-expanded={!collapsed}>
+                                            <PanelLeftClose className="size-4" strokeWidth={1.7} />
+                                        </button>
+                                    ) : null}
+                                </div>
+                                {collapsed ? (
+                                    <button type="button" className="admin-sidebar-collapse-toggle is-collapsed" onClick={toggleCollapsed} aria-label="展开侧栏" title="展开侧栏">
+                                        <PanelLeftOpen className="size-4" strokeWidth={1.7} />
                                     </button>
                                 ) : null}
                             </div>
-                            {collapsed ? (
-                                <button type="button" className="admin-sidebar-collapse-toggle is-collapsed" onClick={toggleCollapsed} aria-label="展开侧栏" title="展开侧栏">
-                                    <PanelLeftOpen className="size-4" strokeWidth={1.7} />
-                                </button>
-                            ) : null}
-                        </div>
-                    </aside>
-                    <section className="fg-admin-stage flex min-w-0 flex-1 flex-col overflow-hidden">
-                        <MobileAdminNavigation />
-                        <Suspense
-                            fallback={
-                                <div className="p-8 text-sm" role="status">
-                                    正在加载管理页面…
-                                </div>
-                            }
-                        >
-                            <Outlet />
-                        </Suspense>
-                    </section>
-                </main>
-            </AppFeedbackProvider></App>
+                        </aside>
+                        <section className="fg-admin-stage flex min-w-0 flex-1 flex-col overflow-hidden">
+                            <MobileAdminNavigation />
+                            <Suspense
+                                fallback={
+                                    <div className="p-8 text-sm" role="status">
+                                        正在加载管理页面…
+                                    </div>
+                                }
+                            >
+                                <Outlet />
+                            </Suspense>
+                        </section>
+                    </main>
+                </AppFeedbackProvider>
+            </App>
         </ConfigProvider>
     );
 }
@@ -358,7 +367,7 @@ function AdminNavigation({ collapsed }: { collapsed: boolean }) {
                                 <AdminTooltip key={item.path} delay={100} title={collapsed ? item.label : undefined} placement="right">
                                     <NavLink to={item.path} end={item.path === "/admin"} aria-label={collapsed ? item.label : undefined} className={({ isActive }) => cn("admin-nav-link", collapsed && "is-collapsed", isActive && "is-active")}>
                                         {item.icon}
-                                        {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                                        {collapsed ? <span className="admin-nav-short-label">{item.shortLabel}</span> : <span className="truncate">{item.label}</span>}
                                     </NavLink>
                                 </AdminTooltip>
                             ))}

@@ -53,6 +53,15 @@ describe("视频参考模式与真实请求报价一致", () => {
         expect(modelQuoteRequest(display, display.model, "video", requirements)).toMatchObject({ intent: { operation: "image_to_video", options: { size: "adaptive", videoSeconds: 20 } } });
         expect(modelQuoteRequest(cfg, cfg.model, "video", { capability: "video", input })).toMatchObject({ intent: { operation: "reference_to_video" } });
     });
+    test("MiniMax 新版协议允许首尾帧搭配角色参考图，其他协议仍受原限制", () => {
+        for (const protocol of ["minimax-video", "metaso-h3"]) {
+            const cfg = config();
+            cfg.channels[0].interfaceType = protocol;
+            const metadata = buildVideoGenerationMetadata(node("image_to_video"), { ...refs, referenceImages: [...refs.referenceImages, { id: "actor", url: "https://example.com/actor.png" }] }, cfg);
+            expect(metadata.videoStartFrameNodeId).toBe("first");
+            expect(metadata.videoEndFrameNodeId).toBe("last");
+        }
+    });
     test("首尾帧拒绝混入音频视频或超过两图", () => {
         expect(() => buildVideoGenerationMetadata(node("image_to_video"), { ...refs, referenceImages: [...refs.referenceImages, { id: "third", url: "https://example.com/c.png" }] }, config())).toThrow("全能参考");
     });

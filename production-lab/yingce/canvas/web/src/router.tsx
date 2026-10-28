@@ -64,7 +64,10 @@ const ProjectDetailPage = lazy(loadProjectDetailPage);
 const ProjectCreatePage = lazy(loadProjectCreatePage);
 const DramaPipelinePage = lazy(() => import("@/pages/drama-pipeline"));
 const DramaPipelineDetailPage = lazy(() => import("@/pages/drama-pipeline/detail"));
+const DramaPipelineCreatePage = lazy(() => import("@/pages/drama-pipeline/create"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
+const ReferralPage = lazy(() => import("@/pages/referral"));
+const AdminReferralPage = lazy(() => import("@/pages/admin/referral/referral-admin-page"));
 const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
 const RequireFeature = lazy(() => import("@/components/auth/require-feature").then((module) => ({ default: module.RequireFeature })));
@@ -175,8 +178,20 @@ export const router = createBrowserRouter(
                 },
                 { path: "/assets", element: <RequireAuth>{deferred(<AssetsPage />)}</RequireAuth> },
                 { path: "/skills", element: <RequireAuth>{deferred(<SkillsPage />)}</RequireAuth> },
-{ path: "/skills/:skillId/edit", element: <RequireAuth>{deferred(<SkillWorkbenchPage />)}</RequireAuth> },
-...[["/drama-pipeline", <DramaPipelinePage />], ["/drama-pipeline/new", <ProjectCreatePage />], ["/drama-pipeline/:projectId/e/:episodeId", <DramaPipelineDetailPage />], ["/drama-pipeline/:projectId", <DramaPipelineDetailPage />]].map(([path, page]) => ({path: path as string, element: <RequireAuth><RequireFeature feature="shortDramaEnabled">{deferred(page)}</RequireFeature></RequireAuth>})),
+                { path: "/skills/:skillId/edit", element: <RequireAuth>{deferred(<SkillWorkbenchPage />)}</RequireAuth> },
+                ...[
+                    ["/drama-pipeline", <DramaPipelinePage />],
+                    ["/drama-pipeline/new", <DramaPipelineCreatePage />],
+                    ["/drama-pipeline/:projectId/e/:episodeId", <DramaPipelineDetailPage />],
+                    ["/drama-pipeline/:projectId", <DramaPipelineDetailPage />],
+                ].map(([path, page]) => ({
+                    path: path as string,
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(page)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                })),
                 {
                     path: "/plugins",
                     element: (
@@ -201,6 +216,7 @@ export const router = createBrowserRouter(
                         </RequireAuth>
                     ),
                 },
+                { path: "/referral", element: <RequireAuth>{deferred(<ReferralPage />)}</RequireAuth> },
                 { path: "/settings", element: <RequireAuth>{deferred(<SettingsPage />)}</RequireAuth> },
                 { path: "/test-voice-recording", element: <RequireAuth>{deferred(<TestVoiceRecording />)}</RequireAuth> },
                 {
@@ -257,7 +273,8 @@ export const router = createBrowserRouter(
                     element: <RequireAuth>{deferred(<AdminPage />)}</RequireAuth>,
                     children: [
                         { index: true, element: <AnalyticsPage /> },
-                        { path: "users", element: <UsersPage /> },
+                        { path: "referral", element: deferred(<AdminReferralPage />) },
+{ path: "users", element: <UsersPage /> },
                         { path: "login-logs", element: <LoginLogsPage /> },
                         { path: "feedbacks", element: <AdminFeedbacksPage /> },
                         { path: "channels", element: <ChannelsPage /> },

@@ -8,7 +8,7 @@ import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { isSeedanceVideoConfig } from "@/lib/seedance-video";
 import { modelCapabilityConfigFor, workflowFieldCurrentValue, workflowFieldHasStoredValue, workflowFieldKey, workflowFieldRandomKey, workflowFieldSubmissionValue, workflowOutputSizeValue, workflowVideoFieldsFromJson } from "@/lib/model-capabilities";
-import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, resolveVideoOperationForModel, videoRequiresAdaptiveFrameRatio, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
+import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, resolveVideoOperationForModel, supportsMixedVideoFrameImages, videoRequiresAdaptiveFrameRatio, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
@@ -336,7 +336,7 @@ export function buildVideoGenerationMetadata(
     const frames = !workflowVideo && operation !== "reference_to_video";
     const startFrame = frames ? requireConnectedVideoFrame(metadata?.videoStartFrameNodeId, "首帧", referenceImageIds) : undefined;
     const endFrame = frames ? requireConnectedVideoFrame(metadata?.videoEndFrameNodeId, "尾帧", referenceImageIds) : undefined;
-    if (operation === "image_to_video" && (input.videoCount || input.audioCount || input.imageCount > 2)) throw new Error("首尾帧模式仅使用一至两张图片，请移除其他参考素材或选择全能参考");
+    if (operation === "image_to_video" && (input.videoCount || input.audioCount || (input.imageCount > 2 && !(config && supportsMixedVideoFrameImages(config, config.model))))) throw new Error("首尾帧模式仅使用一至两张图片，请移除其他参考素材或选择全能参考");
     if (startFrame && startFrame === endFrame) throw new Error("首帧和尾帧请选择不同的图片");
     return {
         ...(config ? generationWorkflowMetadata(config) : {}),

@@ -2,7 +2,7 @@ import { Dropdown } from "antd";
 import { ChevronDown, Images, Video } from "lucide-react";
 import type { AiConfig } from "@/stores/use-config-store";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
-import { resolveVideoOperationForModel, type ModelInputSummary } from "@/lib/model-selection";
+import { resolveVideoOperationForModel, supportsMixedVideoFrameImages, type ModelInputSummary } from "@/lib/model-selection";
 import type { CanvasNodeMetadata, CanvasVideoEditOperation } from "@/types/canvas";
 
 export function CanvasVideoModePicker({ config, input, operation, imageIds, onChange }: {
@@ -18,7 +18,7 @@ export function CanvasVideoModePicker({ config, input, operation, imageIds, onCh
     const modes = [
         { key: "text_to_video", label: "文生视频", disabled: hasMedia || !operations.includes("text_to_video") },
         { key: "reference_to_video", label: "全能参考", disabled: !hasMedia || !operations.includes("reference_to_video") },
-        { key: "image_to_video", label: "首尾帧", disabled: imageIds.length < 1 || imageIds.length > 2 || input.videoCount > 0 || input.audioCount > 0 || !operations.includes("image_to_video") },
+        { key: "image_to_video", label: "首尾帧", disabled: imageIds.length < 1 || (imageIds.length > 2 && !supportsMixedVideoFrameImages(config, config.model)) || input.videoCount > 0 || input.audioCount > 0 || !operations.includes("image_to_video") },
     ];
     return <Dropdown trigger={["click"]} menu={{
         selectedKeys: [resolved], items: modes,
