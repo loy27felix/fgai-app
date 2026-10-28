@@ -75,7 +75,8 @@ func TestPluginViewIncludesDocumentationForEveryOfficialProtocol(t *testing.T) {
 			t.Errorf("plugin %q source = %q, want %s", plugin.Manifest.ID, plugin.Source, expectedSource)
 		}
 		expected := strings.TrimSpace(string(pkg.Files["README.md"])) + "\n\n---\n\n" + strings.TrimSpace(string(pkg.Files["docs/interface.md"]))
-		if strings.TrimSpace(plugin.Manifest.Documentation) != expected {
+		// Text documentation is equivalent across Windows CRLF and release-package LF.
+		if strings.ReplaceAll(strings.TrimSpace(plugin.Manifest.Documentation), "\r\n", "\n") != strings.ReplaceAll(expected, "\r\n", "\n") {
 			t.Errorf("freshly installed plugin %q did not expose its complete packaged documentation", plugin.Manifest.ID)
 		}
 		if !strings.Contains(plugin.Manifest.Documentation, "## Manifest 完整接口定义") {
