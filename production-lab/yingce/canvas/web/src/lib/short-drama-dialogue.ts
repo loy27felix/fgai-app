@@ -23,7 +23,7 @@ function soundDirection(line: string): boolean {
     if (/^(?:基础)?声线(?:设定|说明|特征)?/.test(label) || /声线$/.test(label)) return true;
     if (/^(?:音乐|环境底声|环境音|人群|人群声音|人物近声|脚步与动作音|动作音|接触音效|接触与操作|现场细节声|电子声|空间关系|说明|对白说明)$/.test(label)) return true;
     if (/^（?(?:同步参考英文|英语版对应同一句|英文参考|英文对照)/.test(label)) return true;
-    if (/^(?:时间|说话时机|对白时间)$/.test(label) && /秒/.test(line)) return true;
+    if (/^(?:时间|说话时机|对白时间|时间与表演)$/.test(label) && /秒/.test(line)) return true;
     if (/^其他(?:人声|人物)$/.test(label) && /(?:无|不说话|不新增(?:具体)?(?:台词|对白)|没有(?:额外)?(?:台词|对白))/.test(line)) return true;
     return /(?:呼救声|呼喊声)$/.test(label) && /(?:无词|没有额外台词|不新增(?:具体)?台词)/.test(line);
 }

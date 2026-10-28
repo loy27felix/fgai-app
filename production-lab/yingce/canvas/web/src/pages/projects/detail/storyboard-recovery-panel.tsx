@@ -8,6 +8,7 @@ import { completeStoryboardBatch, storyboardBatchInfo, storyboardBatchTasks } fr
 import { useStoryboardReferenceReview } from "./storyboard-reference-review";
 import { importSavedChapterStoryboard, latestChapterStoryboard, chapterStoryboardWasImported } from "./storyboard-result-import";
 import { chapterTaskIdentity } from "./project-chapter-ai";
+import { readStoryboardBatchFailureMessages } from "./storyboard-batch-diagnostics";
 
 export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: ProjectDetail; unitId: string }) {
     const { modal, message } = App.useApp(), client = useQueryClient();
@@ -29,6 +30,12 @@ export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: Pr
     const batch = latest && completeStoryboardBatch(latest, scopedTasks);
     const shots = detail.shots.filter(shot => shot.unitId === unitId);
     const imported = batch && chapterStoryboardWasImported(batch, unitId, detail);
+    const failedParts = latest ? storyboardBatchTasks(latest, scopedTasks).filter(task => task.status === "failed" || task.status === "cancelled") : [];
+    const failureDetails = useQuery({
+        queryKey: ["chapter-storyboard-failures", detail.project.id, unitId, ...failedParts.map(task => `${task.id}:${task.updatedAt}`)],
+        queryFn: ({signal}) => readStoryboardBatchFailureMessages(detail.project.id, unitId, failedParts, signal),
+        enabled: failedParts.length > 0 && !imported,
+    });
     if (tasks.isError) return <Alert type="warning" showIcon title="分镜任务状态暂时读取失败" action={<Button onClick={() => void tasks.refetch()}>重读状态</Button>} />;
     if (!latest || imported) return null;
     const batchSelector=batches.size>1?<Select className="mb-2 w-full" aria-label="选择已保存分镜批次" value={selectedBatch||storyboardBatchInfo(latest)?.id||latest.id} options={[...batches].map(([value,items])=>({value,label:`${new Date(items![0].createdAt).toLocaleString()} · ${items!.filter(task=>task.status==="succeeded").length}/${storyboardBatchInfo(items![0])?.count||1} 批已返回`}))} onChange={id=>{setSelectedBatch(id);setEditing(false);setEdits({});setError("");}}/>:null;
@@ -44,7 +51,7 @@ export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: Pr
             catch (e) { setError(e instanceof Error ? e.message : "重试未完成"); }
             finally { await tasks.refetch(); setBusy(false); }
         };
-        return <div>{batchSelector}<Alert type={failed.length || error ? "warning" : "info"} showIcon title={failed.length ? "分镜部分批次失败，已完成结果保留" : "本章分镜批次尚未全部完成"} description={<Space orientation="vertical"><span>已完成 {parts.filter(task => task.status === "succeeded").length}/{expected} 批。整章全部返回并通过内容校验后才能导入，请勿重复生成整章。</span><Space wrap>{parts.map(task => <Tag key={task.id} color={task.status === "succeeded" ? "green" : task.status === "failed" ? "red" : "blue"}>第{storyboardBatchInfo(task)?.index || 1}批：{task.status === "succeeded" ? "已返回，待整章校验" : task.status === "failed" || task.status === "cancelled" ? "失败" : "生成中"}</Tag>)}</Space>{parts.length<expected&&<span>有 {expected-parts.length} 批尚未找到提交记录，请核对任务中心，当前不会把部分结果当成整章导入。</span>}{failed.map(task => <span key={task.id}>第{storyboardBatchInfo(task)?.index || 1}批：{task.error || "任务未完成"}</span>)}{error && <span>{error}</span>}</Space>} action={<Space><Button size="small" onClick={() => void tasks.refetch()}>刷新批次状态</Button>{failed.length > 0 && <Button size="small" loading={busy} onClick={() => void retry()}>仅重试失败批次</Button>}</Space>} /></div>;
+        return <div>{batchSelector}<Alert type={failed.length || error ? "warning" : "info"} showIcon title={failed.length ? "分镜部分批次失败，已完成结果保留" : "本章分镜批次尚未全部完成"} description={<Space orientation="vertical">{shots.length > 0 && <span>本章已有 {shots.length} 段分镜，本轮失败不会影响已保存镜头。</span>}<span>已完成 {parts.filter(task => task.status === "succeeded").length}/{expected} 批。整章全部返回并通过内容校验后才能导入，请勿重复生成整章。</span><Space wrap>{parts.map(task => <Tag key={task.id} color={task.status === "succeeded" ? "green" : task.status === "failed" ? "red" : "blue"}>第{storyboardBatchInfo(task)?.index || 1}批：{task.status === "succeeded" ? "已返回，待整章校验" : task.status === "failed" || task.status === "cancelled" ? "失败" : "生成中"}</Tag>)}</Space>{parts.length<expected&&<span>有 {expected-parts.length} 批尚未找到提交记录，请核对任务中心，当前不会把部分结果当成整章导入。</span>}{failed.map(task => <span key={task.id}>第{storyboardBatchInfo(task)?.index || 1}批：{failureDetails.data?.[task.id] || (failureDetails.isFetching ? "正在读取失败原因…" : "请打开任务中心查看失败原因")}</span>)}{error && <span>{error}</span>}</Space>} action={<Space><Button size="small" onClick={() => { void tasks.refetch(); if (failedParts.length) void failureDetails.refetch(); }}>刷新批次状态</Button>{failed.length > 0 && <Button size="small" loading={busy} onClick={() => void retry()}>仅重试失败批次</Button>}</Space>} /></div>;
     }
     const run = async () => {
         if (busy) return;
