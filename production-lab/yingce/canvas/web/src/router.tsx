@@ -205,14 +205,6 @@ export const router = createBrowserRouter(
                         </RequireAuth>
                     ),
                 },
-                {
-                    path: "/wallet",
-                    element: (
-                        <RequireAuth>
-                            <Navigate to="/" replace />
-                        </RequireAuth>
-                    ),
-                },
                 { path: "/settings", element: <RequireAuth>{deferred(<SettingsPage />)}</RequireAuth> },
                 { path: "/test-voice-recording", element: <RequireAuth>{deferred(<TestVoiceRecording />)}</RequireAuth> },
                 {
@@ -285,15 +277,12 @@ export const router = createBrowserRouter(
                         { path: "plugins", element: <AdminPluginsPage /> },
                         { path: "workbench-tools", element: <WorkbenchToolsPage /> },
                         { path: "skill-curation", element: <SkillCurationPage /> },
-                        { path: "payments", element: <Navigate to="/admin" replace /> },
                         { path: "prompt-templates", element: <StoryboardPromptsPage /> },
                         { path: "storyboard-prompts", element: <Navigate to="/admin/prompt-templates" replace /> },
                         { path: "announcements", element: <AnnouncementsPage /> },
                         { path: "banner-announcements", element: <BannerAnnouncementsPage /> },
                         { path: "agent-lessons", element: <AgentLessonsPage /> },
                         { path: "resources", element: <StorageResourcesPage /> },
-                        { path: "credit-operations", element: <Navigate to="/admin" replace /> },
-                        { path: "redemption-codes", element: <Navigate to="/admin" replace /> },
                         { path: "logs", element: <LogsPage /> },
                         { path: "fg-finance", element: <FGFinancePage /> },
                         { path: "settings", element: <Navigate to="runtime-policy" replace /> },

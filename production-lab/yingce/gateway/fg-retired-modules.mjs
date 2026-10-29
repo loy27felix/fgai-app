@@ -2,6 +2,10 @@ export function retiredModulePath(path) {
  return /^\/(?:creator-app|creator-static|creator-presets|arcreel|fg-director)(?:\/|$)/.test(path)
   || /^\/api\/(?:creator|referral|admin\/referral|admin\/settings\/referral)(?:\/|$)/.test(path)
   || /^\/(?:referral|admin\/referral)(?:\/|$)/.test(path)
+  || /^\/(?:wallet|admin\/(?:payments|credit-operations|redemption-codes))(?:\/|$)/.test(path)
+  || /^\/api\/(?:payments|wallet|admin\/(?:payments|credit-operations|redemption-codes|credit-adjustments|redeem-batches|billing-orders))(?:\/|$)/.test(path)
+  || /^\/api\/admin\/users\/[^/]+\/credits\/adjust\/?$/.test(path)
+  || /^\/api\/admin\/settings\/credits(?:\/|$)/.test(path)
   || path.startsWith('/internal/arcreel/');
 }
 
