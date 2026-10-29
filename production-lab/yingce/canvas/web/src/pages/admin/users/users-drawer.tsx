@@ -1,11 +1,11 @@
 import { App, Button, Drawer, Form, Input } from "antd";
-import { Select, Switch } from "@/pages/admin/ui/controls";
+import { Select } from "@/pages/admin/ui/controls";
 import { useEffect, useState } from "react";
 
 import { createAdminUser, updateAdminUser, type AdminUser, type LocalUser } from "@/services/api/auth";
 import { DEFAULT_USER_GROUP_CODE, formatRatioBasisPoints, userGroupCode, type UserGroup } from "@/services/api/user-groups";
 
-type UserFormValues = Pick<LocalUser, "displayName" | "email" | "role" | "status"> & { password?: string; isPromoter: boolean; userGroup: string };
+type UserFormValues = Pick<LocalUser, "displayName" | "email" | "role" | "status"> & { password?: string; userGroup: string };
 
 function userGroupOptions(groups: UserGroup[]) {
     return groups.map((group) => ({ value: group.code, label: `${group.name}（倍率 ${formatRatioBasisPoints(group.ratioBasisPoints)}）` }));
@@ -25,7 +25,6 @@ export function AdminUserEditDrawer({ user, actorId, groups, onClose, onSaved }:
             email: user.email || "",
             role: user.role,
             status: user.status,
-            isPromoter: Boolean(user.isPromoter),
             userGroup: userGroupCode(user.userGroup),
         });
     }, [form, user]);
@@ -56,7 +55,6 @@ export function AdminUserEditDrawer({ user, actorId, groups, onClose, onSaved }:
                 email: values.email?.trim() || "",
                 role: values.role,
                 status: values.status,
-                isPromoter: values.isPromoter,
                 userGroup: values.userGroup,
                 ...(values.password?.trim() ? { password: values.password } : {}),
             });
@@ -118,9 +116,6 @@ export function AdminUserEditDrawer({ user, actorId, groups, onClose, onSaved }:
                 </Form.Item>
                 <Form.Item name="userGroup" label="用户分组" extra="分组决定可见的系统渠道与模型、统一折扣和货币兑换比例；用户下次刷新工作台后生效。">
                     <Select options={userGroupOptions(groups)} />
-                </Form.Item>
-                <Form.Item name="isPromoter" label="推广人" valuePropName="checked" extra="推广中心设为「指定推广人」时，只有推广人能看到推广中心并获得返佣；全民推广时此标记不影响资格。">
-                    <Switch />
                 </Form.Item>
             </Form>
         </Drawer>

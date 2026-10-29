@@ -284,7 +284,6 @@ export default function FeatureAvailabilityPanel() {
                 <div className="admin-feature-coverage-grid">
                     {[
                         ["超级创作 / 超级自由画布", "模型选择来自系统渠道或前台模型目录"],
-                        ["超级综合工作台 / 超级小说转视频", "服务器运行环境与组件配置"],
                         ["超级灵感库", "来源同步与公司登录"],
                         ["音频设置区", "公司音频服务配置；Suno 另需完成生成验证"],
                     ].map(([name, scope]) => (

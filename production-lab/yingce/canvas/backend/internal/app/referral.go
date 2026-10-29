@@ -12,6 +12,7 @@ import (
 	"errors"
 	stdlog "log"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -91,6 +92,9 @@ func validateReferralSetting(setting ReferralSetting) error {
 }
 
 func (s *Service) referralSetting() (ReferralSetting, error) {
+	if os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" {
+		return defaultReferralSetting(), nil
+	}
 	stored, err := s.repo.SystemSetting(referralSettingKey)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return defaultReferralSetting(), nil

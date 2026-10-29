@@ -7,7 +7,11 @@ const webDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = { ...process.env, FG_CANVAS_BASE_PATH: "/fg-six/" };
 for (const entry of ["typescript/bin/tsc", "vite/bin/vite.js"]) {
     const args = entry.startsWith("typescript") ? ["--noEmit"] : ["build"];
-    const result = spawnSync(process.execPath, ["--bun", resolve(webDir, "node_modules", entry), ...args], {
+    // TypeScript 7's native launcher uses Node package imports. Run it with
+    // Node even when this release script is launched by Bun.
+    const runtime = entry.startsWith("typescript") ? "node" : process.execPath;
+    const runtimeArgs = runtime === process.execPath && process.versions.bun ? ["--bun"] : [];
+    const result = spawnSync(runtime, [...runtimeArgs, resolve(webDir, "node_modules", entry), ...args], {
         cwd: webDir, env, stdio: "inherit",
     });
     if (result.error) throw result.error;

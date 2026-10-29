@@ -51,8 +51,6 @@ function buildNav(features: FeatureAvailability, publicDemo = false): { groups: 
                 ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: "短剧 Agent" }] : []),
                 { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: "广告工作台" },
                 ...(features.meilinEnabled ? [{ ...toolItem("projects", "/meilin"), id: "fg-meilin", title: "美林 · 超级导演" }] : []),
-                { ...toolItem("create", "/creator-app"), id: "fg-creator", title: "超级综合工作台" },
-                { ...toolItem("projects", "/arcreel"), id: "fg-arcreel", title: "超级小说转视频" },
                 { ...toolItem("canvas", "/canvas"), title: "超级自由画布" },
             ],
         },

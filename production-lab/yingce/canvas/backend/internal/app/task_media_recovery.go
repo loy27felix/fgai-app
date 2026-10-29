@@ -373,9 +373,6 @@ func (s *Service) RecoverTaskMedia(userID, id string) (*model.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if checkpoint.ManualAttempts >= 3 {
-		return nil, BadAuthRequest("已达到重试保存上限，请联系管理员核对渠道结果")
-	}
 	if time.Since(checkpoint.LastManualAt) < time.Minute {
 		return nil, BadAuthRequest("请稍后再试，重试保存间隔至少一分钟")
 	}
@@ -407,7 +404,7 @@ func (s *Service) RecoverTaskMedia(userID, id string) (*model.Task, error) {
 }
 
 // AdminRecoverTaskMedia 由管理员把“作品已生成但保存失败”的任务重新排队保存。
-// 与用户重试不同：不受手动次数限制，重新给满自动重试窗口，并且可以处理已退款订单。
+// 与用户重试不同：重新给满自动重试窗口，并且可以处理已退款订单。
 // 订单已退款时必须明确选择补扣（charge）或免除（waive）。
 func (s *Service) AdminRecoverTaskMedia(actor *model.User, logID string, refundedBilling string) (result *model.Task, returnErr error) {
 	if err := s.RequireAdmin(actor); err != nil {

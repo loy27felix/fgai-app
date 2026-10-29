@@ -36,7 +36,6 @@ const SystemUpdatePage = lazy(() => import("@/pages/admin/settings/fg-release-pa
 const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-performance-page"));
 const FGProductionPage = lazy(() => import("@/pages/fg-production"));
 const AdvertisingPage = lazy(() => import("@/pages/advertising"));
-const ArcReelPage = lazy(() => import("@/pages/arcreel"));
 const MeilinPage = lazy(() => import("@/pages/meilin"));
 const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
 const FGInspirationPage = lazy(() => import("@/pages/fg-inspiration"));
@@ -67,8 +66,6 @@ const DramaPipelinePage = lazy(() => import("@/pages/drama-pipeline"));
 const DramaPipelineDetailPage = lazy(() => import("@/pages/drama-pipeline/detail"));
 const DramaPipelineCreatePage = lazy(() => import("@/pages/drama-pipeline/create"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
-const ReferralPage = lazy(() => import("@/pages/referral"));
-const AdminReferralPage = lazy(() => import("@/pages/admin/referral/referral-admin-page"));
 const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
 const RequireFeature = lazy(() => import("@/components/auth/require-feature").then((module) => ({ default: module.RequireFeature })));
@@ -146,7 +143,6 @@ export const router = createBrowserRouter(
                 { path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
                 { path: "/fg-production", element: <RequireAuth>{deferred(<FGProductionPage />)}</RequireAuth> },
                 { path: "/advertising", element: <RequireAuth>{deferred(<AdvertisingPage />)}</RequireAuth> },
-                { path: "/arcreel", element: <RequireAuth>{deferred(<ArcReelPage />)}</RequireAuth> },
                 { path: "/meilin", element: <RequireAuth>{deferred(<MeilinPage />)}</RequireAuth> },
                 { path: "/fg-audio-tools", element: <RequireAuth>{deferred(<FGAudioToolsPage />)}</RequireAuth> },
                 { path: "/fg-inspiration", element: <RequireAuth>{deferred(<FGInspirationPage />)}</RequireAuth> },
@@ -217,7 +213,6 @@ export const router = createBrowserRouter(
                         </RequireAuth>
                     ),
                 },
-                { path: "/referral", element: <RequireAuth>{deferred(<ReferralPage />)}</RequireAuth> },
                 { path: "/settings", element: <RequireAuth>{deferred(<SettingsPage />)}</RequireAuth> },
                 { path: "/test-voice-recording", element: <RequireAuth>{deferred(<TestVoiceRecording />)}</RequireAuth> },
                 {
@@ -274,7 +269,6 @@ export const router = createBrowserRouter(
                     element: <RequireAuth>{deferred(<AdminPage />)}</RequireAuth>,
                     children: [
                         { index: true, element: <AnalyticsPage /> },
-                        { path: "referral", element: deferred(<AdminReferralPage />) },
                         { path: "users", element: <UsersPage /> },
                     { path: "user-groups", element: <UserGroupsPage /> },
                         { path: "login-logs", element: <LoginLogsPage /> },

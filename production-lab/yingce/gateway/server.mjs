@@ -17,8 +17,8 @@ import {initializeMusicQueue,musicQueueRoute} from './fg-music-queue.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
 import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
 import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
-import {initializeCreator,creatorCapability,creatorInternalRoute,creatorUserRoute} from './fg-creator.mjs';
-import {initializeArcReel,createArcReelServer} from './fg-arcreel.mjs';
+import {initializeCreator,creatorCapability,creatorInternalRoute} from './fg-creator.mjs';
+import {retiredModulePath,retiredModuleResponse} from './fg-retired-modules.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
 import { platformToken, trustedOrigin, publicResourceRead, publicCanvasShareRead, proxyHeaders, responseHeaders } from './policy.mjs';
 import {publicEntryOrigins, workspaceRequestPath, workspaceEntryURL} from './fg-public-entry.mjs';
@@ -45,7 +45,6 @@ await initializeSpeechJobs(pool);
 await initializeMusicQueue(pool);
 await initializeAdcraft(pool);
 await initializeCreator(pool);
-await initializeArcReel(pool);
 await initializeMeilin(pool);
 await initializeEditorLeases(pool);
 await initializeInspiration(pool);
@@ -120,6 +119,7 @@ const server = http.createServer(async (req, res) => {
     try { parsed = workspaceRequestPath(req.url, publicOrigin); }
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
+    if(retiredModulePath(path.pathname)){retiredModuleResponse(res);return;}
     if(['/api/fg-project-files','/api/fg-story-archive'].includes(path.pathname)){respond(res,403,'工程归档仅供受信任服务调用','FG_INTERNAL_ONLY');return;}
     if(await budgetInternalRoute(req,res,{pool,path}))return;
     if(await meilinInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
@@ -184,7 +184,6 @@ const server = http.createServer(async (req, res) => {
     if(await speechJobRoute(req,res,{pool,actor,path,api:async(p,m='GET',b)=>{
       const r=await fetch(new URL('/api'+p,web),{method:m,headers:{cookie,origin:publicOrigin,'content-type':'application/json'},body:b===undefined?undefined:JSON.stringify(b),signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'音频资源不可用');return d.data;
     }}))return;
-    if(await creatorUserRoute(req,res,{pool,actor,path}))return;
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
     if (req.headers.origin) headers.origin = publicOrigin;
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
@@ -243,8 +242,10 @@ server.headersTimeout = 60000;
 registerCanvasRealtime(server,{web,publicOrigin,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:platformActor,session:canvasSession});
 const speechStreams=registerSpeechStream(server,{pool,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:async req=>{const actor=await platformActor(req);if(actor)await canvasSession(actor);return actor;}});
 server.listen(3010, '0.0.0.0');
-const arcOrigin=new URL(publicOrigin);arcOrigin.port='3017';
-const arcServer=createArcReelServer({pool,platformActor:async req=>{const actor=await platformActor(req);return isPublicDemo(actor)?null:actor;},canvasSession,platformOrigin,publicOrigin:arcOrigin.origin,externalOrigins});
+const arcServer=http.createServer((req,res)=>{
+ if(req.url==='/health/live'){res.writeHead(200);res.end('ok');return;}
+ retiredModuleResponse(res);
+});
 arcServer.requestTimeout=0;
 arcServer.headersTimeout=60000;
 arcServer.listen(3020,'0.0.0.0');
