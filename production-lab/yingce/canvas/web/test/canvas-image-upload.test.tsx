@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createImageUploadPlaceholder, createFileUploadPlaceholder, interruptFileUpload, readUploadImageSize, normalizeCanvasUploadFile, uploadNodeType, uploadPercent, uploadVeilOpacity } from "../src/lib/canvas/canvas-file-upload";
+import { createFileUploadPlaceholder, createImageUploadPlaceholder, interruptFileUpload, normalizeCanvasUploadFile, readUploadImageSize, uploadNodeType, uploadPercent, uploadPreviewClarity, uploadVeilOpacity } from "../src/lib/canvas/canvas-file-upload";
 import { CanvasNodeType } from "../src/types/canvas";
 import { isCanvasImageSourceNode } from "../src/lib/canvas/canvas-image-source";
 import { CanvasFileUploadContent } from "../src/components/canvas/canvas-file-upload-content";
@@ -13,10 +13,15 @@ const file = { name: "photo.png", size: 1234, type: "image/png" };
 const placeholder = () => createImageUploadPlaceholder("upload", file, { x: 100, y: 200 }, { width: 1920, height: 1080 });
 const read = (path: string) => readFileSync(resolve(import.meta.dir, "../src", path), "utf8").replace(/\r\n/g, "\n");
 
-test('desktop media without MIME gets its actual extension type before decode and upload', async () => {
-    for (const [name, type, kind] of [['参考.PNG','image/png',CanvasNodeType.Image],['片段.MP4','video/mp4',CanvasNodeType.Video],['clip.mov','video/quicktime',CanvasNodeType.Video],['voice.m4a','audio/mp4',CanvasNodeType.Audio]] as const) {
-        for (const generic of ['', 'application/octet-stream']) {
-            const input = new File(['original bytes'], name, {type:generic,lastModified:1234});
+test("desktop media without MIME gets its actual extension type before decode and upload", async () => {
+    for (const [name, type, kind] of [
+        ["参考.PNG", "image/png", CanvasNodeType.Image],
+        ["片段.MP4", "video/mp4", CanvasNodeType.Video],
+        ["clip.mov", "video/quicktime", CanvasNodeType.Video],
+        ["voice.m4a", "audio/mp4", CanvasNodeType.Audio],
+    ] as const) {
+        for (const generic of ["", "application/octet-stream"]) {
+            const input = new File(["original bytes"], name, { type: generic, lastModified: 1234 });
             expect(uploadNodeType(input)).toBe(kind);
             const normalized = normalizeCanvasUploadFile(input);
             expect(normalized.type).toBe(type);
@@ -25,14 +30,19 @@ test('desktop media without MIME gets its actual extension type before decode an
             expect(await normalized.text()).toBe(await input.text());
         }
     }
-    const explicit = new File(['pdf'], 'misleading.png', {type:'application/pdf'});
+    const explicit = new File(["pdf"], "misleading.png", { type: "application/pdf" });
     expect(uploadNodeType(explicit)).toBeNull();
     expect(normalizeCanvasUploadFile(explicit)).toBe(explicit);
-    expect(uploadNodeType(new File(['x'], 'program.exe'))).toBeNull();
+    expect(uploadNodeType(new File(["x"], "program.exe"))).toBeNull();
 });
 
 describe("图片上传占位", () => {
-    for (const [width, height] of [[1920, 1080], [900, 1600], [800, 800], [4000, 500]]) {
+    for (const [width, height] of [
+        [1920, 1080],
+        [900, 1600],
+        [800, 800],
+        [4000, 500],
+    ]) {
         test(`按真实尺寸保持比例并围绕落点居中 ${width}x${height}`, () => {
             const node = createImageUploadPlaceholder("upload", file, { x: 100, y: 200 }, { width, height });
             expect(node.width / node.height).toBeCloseTo(width / height);
@@ -67,12 +77,16 @@ describe("图片上传占位", () => {
         let fail = false;
         try {
             URL.createObjectURL = () => "blob:upload-test";
-            URL.revokeObjectURL = (url) => { revoked.push(url); };
+            URL.revokeObjectURL = (url) => {
+                revoked.push(url);
+            };
             globalThis.Image = class {
                 src = "";
                 naturalWidth = 1200;
                 naturalHeight = 800;
-                async decode() { if (fail) throw new Error("decode failed"); }
+                async decode() {
+                    if (fail) throw new Error("decode failed");
+                }
             } as unknown as typeof Image;
             const input = new File(["test"], "test.png", { type: "image/png" });
             expect(await readUploadImageSize(input)).toEqual({ width: 1200, height: 800 });
@@ -93,7 +107,11 @@ describe("图片上传占位", () => {
             expect(html).toContain('aria-busy="true"');
             expect(html).toContain('data-static="true"');
             expect(html).toContain(canvasThemes[mode].node.fill);
-            const error = renderToStaticMarkup(<CanvasNodeActionContext.Provider value={{ upload: () => {} }}><CanvasFileUploadContent node={interruptFileUpload(placeholder())} theme={canvasThemes[mode]} /></CanvasNodeActionContext.Provider>);
+            const error = renderToStaticMarkup(
+                <CanvasNodeActionContext.Provider value={{ upload: () => {} }}>
+                    <CanvasFileUploadContent node={interruptFileUpload(placeholder())} theme={canvasThemes[mode]} />
+                </CanvasNodeActionContext.Provider>,
+            );
             expect(error).toContain("重新选择文件");
             expect(error).toContain('aria-busy="false"');
             expect(error).toContain('data-static="true"');
@@ -106,7 +124,7 @@ describe("图片上传占位", () => {
         expect(create.indexOf("createFileUploadPlaceholder")).toBeLessThan(create.indexOf("await uploadImage(file,"));
         expect(create).toContain("if (!currentNode)");
         expect(create).toContain("fileUpload: undefined");
-        const replace = hook.slice(hook.indexOf('const replaceNodeMedia'), hook.indexOf("const pasteSystemClipboard"));
+        const replace = hook.slice(hook.indexOf("const replaceNodeMedia"), hook.indexOf("const pasteSystemClipboard"));
         expect(replace).toContain("await createFileNode(file, currentNode.position, nodeId)");
         expect(create).toContain("original?.metadata?.content");
         expect(read("components/canvas/canvas-upload-modal.tsx")).toMatch(/onClose\(\);\s*await pendingUpload;/);
@@ -122,19 +140,33 @@ test("真实进度与遮罩浓度反向关联，不生成未知进度", () => {
     expect(uploadVeilOpacity(0)).toBe(1);
     expect(uploadVeilOpacity(50)).toBeCloseTo(0.55);
     expect(uploadVeilOpacity(100)).toBeCloseTo(0.1);
+    // 清晰原图随进度淡入：起点完全磨砂，前段慢后段快，传完仍保留一点磨砂等待保存。
+    expect(uploadPreviewClarity(undefined)).toBe(0);
+    expect(uploadPreviewClarity(0)).toBe(0);
+    expect(uploadPreviewClarity(50)).toBeLessThan(0.3);
+    expect(uploadPreviewClarity(100)).toBeCloseTo(0.88);
+    expect(uploadPreviewClarity(150)).toBeCloseTo(0.88);
 });
 
 test("统一识别图片、视频、音频、纯文本文件，不误收 PDF 或 Word", () => {
     for (const [name, type, expected] of [
-        ["image.png", "image/png", CanvasNodeType.Image], ["video.mp4", "video/mp4", CanvasNodeType.Video],
-        ["sound.ogg", "audio/ogg", CanvasNodeType.Audio], ["sound.wav", "", CanvasNodeType.Audio],
-        ["note.md", "", CanvasNodeType.Text], ["note.txt", "text/plain", CanvasNodeType.Text],
-        ["document.pdf", "application/pdf", null], ["document.docx", "", null],
-    ] as const) expect(uploadNodeType({ name, type })).toBe(expected);
+        ["image.png", "image/png", CanvasNodeType.Image],
+        ["video.mp4", "video/mp4", CanvasNodeType.Video],
+        ["sound.ogg", "audio/ogg", CanvasNodeType.Audio],
+        ["sound.wav", "", CanvasNodeType.Audio],
+        ["note.md", "", CanvasNodeType.Text],
+        ["note.txt", "text/plain", CanvasNodeType.Text],
+        ["document.pdf", "application/pdf", null],
+        ["document.docx", "", null],
+    ] as const)
+        expect(uploadNodeType({ name, type })).toBe(expected);
 });
 
 test("音频与文本在传输前就有独立占位，可重试且不带模型生成状态", async () => {
-    for (const [name, type, expected] of [["voice.mp3", "audio/mpeg", CanvasNodeType.Audio], ["note.md", "text/markdown", CanvasNodeType.Text]] as const) {
+    for (const [name, type, expected] of [
+        ["voice.mp3", "audio/mpeg", CanvasNodeType.Audio],
+        ["note.md", "text/markdown", CanvasNodeType.Text],
+    ] as const) {
         const node = await createFileUploadPlaceholder("file", new File(["content"], name, { type }), { x: 0, y: 0 });
         expect(node.type).toBe(expected);
         expect(node.metadata?.fileUpload).toBe("uploading");
@@ -149,7 +181,7 @@ test("所有资源渲染真实百分比，100% 仍等待保存，磨砂渐淡但
         const node = { ...placeholder(), type, metadata: { fileUpload: "uploading" as const, fileUploadProgress: 50 } };
         const html = renderToStaticMarkup(<CanvasFileUploadContent node={node} theme={canvasThemes.light} />);
         expect(html).toContain("已上传 50%");
-        expect(html).toContain('opacity:0.55');
+        expect(html).toContain("opacity:0.55");
         expect(html).toContain('aria-valuenow="50"');
         const complete = renderToStaticMarkup(<CanvasFileUploadContent node={{ ...node, metadata: { ...node.metadata, fileUploadProgress: 100 } }} theme={canvasThemes.dark} />);
         expect(complete).toContain("文件已传输，正在保存与处理");

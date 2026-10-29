@@ -6,12 +6,13 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
 import { UserAvatar } from "@/components/layout/user-avatar";
+import { UserGroupAvatarRing, UserGroupBadge } from "@/components/layout/user-group-badge";
 import { Kbd } from "@/components/ui/base/kbd";
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { useWorkspaceLogout } from "@/hooks/use-workspace-logout";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { cn } from "@/lib/utils";
-import {fgPlatformURL} from "@/lib/fg-entry-url";
+import { fgPlatformURL } from "@/lib/fg-entry-url";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store";
 
@@ -79,6 +80,7 @@ function buildNav(features: FeatureAvailability, publicDemo = false): { groups: 
 
 function WorkspaceSidebarProfile({ collapsed, user, onExpand, onCollapse }: { collapsed: boolean; user: NonNullable<ReturnType<typeof useUserStore.getState>["user"]> | null; onExpand: () => void; onCollapse: () => void }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    const userGroup = useUserStore((state) => state.userGroup);
     const profileName = user?.displayName || user?.username || "未登录";
 
     if (!user) {
@@ -109,11 +111,13 @@ function WorkspaceSidebarProfile({ collapsed, user, onExpand, onCollapse }: { co
             <div className={cn("app-workspace-sidebar-profile-row", collapsed && "is-collapsed")}>
                 <Popover open={menuOpen} onOpenChange={setMenuOpen} trigger="click" placement="topLeft" arrow={false} rootClassName="workspace-account-popover" content={content}>
                     <button type="button" className={cn("app-workspace-sidebar-profile", collapsed && "is-collapsed")} aria-label="打开账户菜单" title={profileName}>
-                        <UserAvatar user={user} className="app-workspace-sidebar-profile-avatar" />
+                        <UserGroupAvatarRing>
+                            <UserAvatar user={user} className="app-workspace-sidebar-profile-avatar" />
+                        </UserGroupAvatarRing>
                         {!collapsed ? (
                             <span className="app-workspace-sidebar-profile-copy">
                                 <strong>{profileName}</strong>
-                                <span>公司创作空间</span>
+                                {userGroup?.badgeStyle === "vip" || userGroup?.badgeStyle === "svip" ? <UserGroupBadge className="self-start" /> : <span>公司创作空间</span>}
                             </span>
                         ) : null}
                     </button>
@@ -134,13 +138,16 @@ function WorkspaceSidebarProfile({ collapsed, user, onExpand, onCollapse }: { co
 }
 
 function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { collapsed: boolean; onNavigate: () => void; onExpand: () => void; onCollapse: () => void }) {
-
-
     if (collapsed) {
         return (
             <div className="app-workspace-sidebar-brand-row relative shrink-0 flex items-center justify-center px-3 pt-3">
                 <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={`FG超级工作台首页`}>
-                    <BrandLogoFrame className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm" logoClassName="size-5 object-contain" alt="" fallback={<InfinityIcon className="size-4" strokeWidth={2.2} />} />
+                    <BrandLogoFrame
+                        className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm"
+                        logoClassName="size-5 object-contain"
+                        alt=""
+                        fallback={<InfinityIcon className="size-4" strokeWidth={2.2} />}
+                    />
                 </Link>
             </div>
         );
@@ -196,7 +203,34 @@ function NavItem({
     const Icon = item.icon;
     const rowStyle = collapsed ? undefined : ({ paddingLeft: `${level * 12 + 10}px` } as CSSProperties);
 
-    const collapsedTitle = item.id === "home" ? "创作" : item.id === "fg-creator" ? "综合" : item.id === "fg-arcreel" ? "小说" : item.id === "fg-inspiration" ? "灵感" : item.id === "fg-audio-settings" ? "音频" : item.id === "projects" ? "短剧" : item.id === "canvas" ? "画布" : item.id === "assets" ? "资产" : item.id === "skills" ? "技能" : item.id === "plugins" ? "插件" : item.id === "tasks" ? "历史" : item.id === "toolbox-image" ? "图片" : item.id === "toolbox-video" ? "视频" : item.title.slice(0, 2);
+    const collapsedTitle =
+        item.id === "home"
+            ? "创作"
+            : item.id === "fg-creator"
+              ? "综合"
+              : item.id === "fg-arcreel"
+                ? "小说"
+                : item.id === "fg-inspiration"
+                  ? "灵感"
+                  : item.id === "fg-audio-settings"
+                    ? "音频"
+                    : item.id === "projects"
+                      ? "短剧"
+                      : item.id === "canvas"
+                        ? "画布"
+                        : item.id === "assets"
+                          ? "资产"
+                          : item.id === "skills"
+                            ? "技能"
+                            : item.id === "plugins"
+                              ? "插件"
+                              : item.id === "tasks"
+                                ? "历史"
+                                : item.id === "toolbox-image"
+                                  ? "图片"
+                                  : item.id === "toolbox-video"
+                                    ? "视频"
+                                    : item.title.slice(0, 2);
     const rowContent = (
         <>
             <span className="app-workspace-nav-main flex min-w-0 items-center gap-2">
@@ -253,7 +287,14 @@ function NavItem({
                     style={rowStyle}
                     aria-label={collapsed ? item.title : undefined}
                     title={collapsed ? item.title : undefined}
-                    onClick={(event) => { if (item.id === "fg-creator") { event.preventDefault(); window.location.assign(linkTo); } else { handleClick(); } }}
+                    onClick={(event) => {
+                        if (item.id === "fg-creator") {
+                            event.preventDefault();
+                            window.location.assign(linkTo);
+                        } else {
+                            handleClick();
+                        }
+                    }}
                     onFocus={() => preloadWorkspaceRoute(linkTo)}
                     onPointerDown={() => preloadWorkspaceRoute(linkTo)}
                     onPointerEnter={() => preloadWorkspaceRoute(linkTo)}
@@ -388,7 +429,10 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
             </LayoutGroup>
 
             <div className="app-workspace-sidebar-footer shrink-0 px-3 py-3">
-                <a href={fgPlatformURL(window.location.origin)} target="_top" className="mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" title="返回 FG 工作区"><ArrowLeft className="size-4" />{!collapsed && "返回 FG 工作区"}</a>
+                <a href={fgPlatformURL(window.location.origin)} target="_top" className="mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" title="返回 FG 工作区">
+                    <ArrowLeft className="size-4" />
+                    {!collapsed && "返回 FG 工作区"}
+                </a>
                 <WorkspaceSidebarProfile collapsed={collapsed} user={user} onExpand={onExpand} onCollapse={onCollapse} />
                 {footer.length ? (
                     <div className="mt-2 flex flex-col gap-0.5">

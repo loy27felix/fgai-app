@@ -45,6 +45,7 @@ const PersonalExpensesPage = lazy(() => import("@/pages/personal-expenses"));
 const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
 const AdminFeedbacksPage = lazy(() => import("@/pages/admin/feedbacks/feedbacks-page"));
 const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
+const UserGroupsPage = lazy(() => import("@/pages/admin/user-groups/user-groups-page"));
 const AssetsPage = lazy(loadAssetsPage);
 const CanvasPage = lazy(loadCanvasPage);
 const CanvasProjectPage = lazy(loadCanvasProjectPage);
@@ -274,7 +275,8 @@ export const router = createBrowserRouter(
                     children: [
                         { index: true, element: <AnalyticsPage /> },
                         { path: "referral", element: deferred(<AdminReferralPage />) },
-{ path: "users", element: <UsersPage /> },
+                        { path: "users", element: <UsersPage /> },
+                    { path: "user-groups", element: <UserGroupsPage /> },
                         { path: "login-logs", element: <LoginLogsPage /> },
                         { path: "feedbacks", element: <AdminFeedbacksPage /> },
                         { path: "channels", element: <ChannelsPage /> },

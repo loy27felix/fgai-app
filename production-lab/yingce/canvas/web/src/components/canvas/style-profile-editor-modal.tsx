@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { App, Button, Input } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
-import { Braces, Image, Layers3, Save, Sparkles } from "lucide-react";
+import { Braces, Image, Layers3, Save, Check, Palette } from "lucide-react";
 
 import { StyleReferenceImages } from "@/components/canvas/style-reference-images";
 import { createStyleProfileSnapshot, styleProfileValidationMessage, styleReferenceResourceIds, type StyleProfileSnapshot } from "@/lib/canvas/style-profile";
@@ -58,7 +58,7 @@ export function StyleProfileEditorModal({ open, initialProfile, saving = false, 
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
                                 <span className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-foreground/5">
-                                    <Sparkles className="size-3.5" />
+                                    <Palette className="size-3.5" />
                                 </span>
                                 <div>
                                     <h2 className="text-sm font-semibold">风格编辑器</h2>
@@ -90,7 +90,7 @@ export function StyleProfileEditorModal({ open, initialProfile, saving = false, 
                             <Button icon={<Save className="size-3.5" />} disabled={Boolean(validationMessage)} loading={saving} onClick={() => submit(false)}>
                                 保存到我的风格
                             </Button>
-                            <Button type="primary" icon={<Sparkles className="size-3.5" />} disabled={Boolean(validationMessage)} loading={saving} onClick={() => submit(true)}>
+                            <Button type="primary" icon={<Check className="size-3.5" />} disabled={Boolean(validationMessage)} loading={saving} onClick={() => submit(true)}>
                                 保存并应用
                             </Button>
                         </div>

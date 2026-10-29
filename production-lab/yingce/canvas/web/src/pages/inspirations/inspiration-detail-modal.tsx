@@ -1,5 +1,6 @@
 import { Button } from "antd";
-import { Copy, ExternalLink, Heart, Pencil, Trash2, Wand2 } from "lucide-react";
+import { ArrowUpRight, Copy, ExternalLink, Heart, Pencil, Trash2, Wand2 } from "lucide-react";
+import { useState } from "react";
 
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { AppModal } from "@/components/ui/product/app-modal";
@@ -113,7 +114,14 @@ export function InspirationDetailModal({
 
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t border-foreground/8 px-5 py-3">
                         <Button onClick={onClose}>关闭</Button>
-                        <Button type="primary" icon={<Wand2 className="size-4" />} onClick={() => onUse(item)}>
+                        <Button
+                            type="primary"
+                            icon={<ArrowUpRight className="size-4" />}
+                            onClick={() => {
+                                onClose();
+                                onUse(item);
+                            }}
+                        >
                             用这个创意创作
                         </Button>
                     </div>
