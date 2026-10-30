@@ -25,6 +25,12 @@ function soundDirection(line: string): boolean {
     if (/^（?(?:同步参考英文|英语版对应同一句|英文参考|英文对照)/.test(label)) return true;
     if (/^(?:时间|说话时机|对白时间|时间与表演)$/.test(label) && /秒/.test(line)) return true;
     if (/^其他(?:人声|人物)$/.test(label) && /(?:无|不说话|不新增(?:具体)?(?:台词|对白)|没有(?:额外)?(?:台词|对白))/.test(line)) return true;
+    if (/^(?:无线电|对讲机|收音机)(?:结尾|音效|底声|背景声)$/.test(label)) {
+        const direction = line.slice(line.search(/[：:]/) + 1);
+        // 无线电声音描述不是第三位说话者；带引号或角色冒号的台词仍须校验。
+        // Radio sound descriptions are not speakers; quoted or speaker-prefixed dialogue still requires validation.
+        return /(?:声音|电流|静电|杂音|沙沙)/.test(direction) && !/[：:'"“”‘’「」『』]/.test(direction);
+    }
     return /(?:呼救声|呼喊声)$/.test(label) && /(?:无词|没有额外台词|不新增(?:具体)?台词)/.test(line);
 }
 
