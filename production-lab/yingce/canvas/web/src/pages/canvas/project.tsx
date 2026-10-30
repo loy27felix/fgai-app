@@ -2632,8 +2632,9 @@ function CanvasViewportPage() {
         starterMode: currentProject?.starterMode,
     });
     // 短剧精修画布：左侧换成短剧侧栏，不再显示通用工作区轨道（主页/节点/素材库/任务/历史），底部工具条收紧。
-    // 关联的不是短剧（404）时 loadFailed 为真，回到普通画布。
-    const dramaCanvas = Boolean(drama.dramaId) && !drama.loadFailed;
+    // 仅已确认的短剧使用专属侧栏，避免失败查询重取时卸载工作区、重置所选标签。
+    // Use confirmed drama data so failed-query refetches cannot remount the workspace and reset its tab.
+    const dramaCanvas = drama.active;
     const dramaFirstEpisode = drama.summary?.episodes.find((episode) => episode.stats.segments > 0);
     const emptyCanvasState =
         emptyStateKind === "freeform" ? (

@@ -119,8 +119,10 @@ export function useCanvasDrama(input: UseCanvasDramaInput) {
         enabled: Boolean(dramaId),
         // 关联的不是自动制作短剧（404）或无权访问时不重试，画布按普通关联画布处理。
         retry: (count, error) => !(error instanceof ApiError && (error.status === 404 || error.status === 403)) && count < 2,
-        refetchInterval: (query) => (dramaRunning(query.state.data) ? 15_000 : 60_000),
-        refetchOnWindowFocus: true,
+        // 无短剧数据时不轮询；404/403 不随窗口聚焦再次探测。
+        // Poll only confirmed dramas; do not repeat 404/403 probes on window focus.
+        refetchInterval: (query) => (query.state.data ? (dramaRunning(query.state.data) ? 15_000 : 60_000) : false),
+        refetchOnWindowFocus: (query) => !(query.state.error instanceof ApiError && (query.state.error.status === 404 || query.state.error.status === 403)),
     });
     const summary = dramaId ? summaryQuery.data : undefined;
     const active = Boolean(summary);
