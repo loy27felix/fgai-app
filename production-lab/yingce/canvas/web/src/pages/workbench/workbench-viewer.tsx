@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 
 import { RelativeTime } from "@/components/ui/product/relative-time";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
-import { taskBillingLabel } from "@/lib/generation-task-billing";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { WorkbenchKind } from "@/services/api/workbench";
 
@@ -192,12 +191,6 @@ export function WorkbenchViewer({
                                     <div>
                                         <dt>耗时</dt>
                                         <dd>{elapsed}</dd>
-                                    </div>
-                                ) : null}
-                                {billing ? (
-                                    <div>
-                                        <dt>积分</dt>
-                                        <dd>{taskBillingLabel(billing)}</dd>
                                     </div>
                                 ) : null}
                             </dl>

@@ -61,7 +61,8 @@ export function renderEditableParts(editor: HTMLElement, parts: MentionTextPart[
     editor.replaceChildren(...nodes);
     // Chromium needs a final line box to keep the caret after a trailing newline.
     // This placeholder is not part of the prompt or its serialized offsets.
-    if (parts.at(-1)?.type === "text" && (parts.at(-1) as { text: string }).text.endsWith("\n")) {
+    const lastPart = parts.at(-1);
+    if (lastPart?.type === "text" && lastPart.text.endsWith("\n")) {
         const trailingLine = document.createElement("br");
         trailingLine.dataset.mentionTrailingLine = "true";
         trailingLine.setAttribute("aria-hidden", "true");

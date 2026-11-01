@@ -20,6 +20,7 @@ import { creationVideoConfig } from "@/pages/create/creation-generation-config";
 import { resolveBrowserMediaDownloadHref, startBrowserDownload } from "@/services/browser-download";
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteModel } from "@/services/api/logical-models";
+import { FGPricePreview } from "@/components/fg-price-preview";
 import { resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
 import { cancelGenerationTask, createGenerationTask, queryGenerationTask, retryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { capabilitySupportedModes, createWorkbenchTask, listWorkbenchTasks, listWorkbenchTools, resolveWorkbenchResourceURL, type WorkbenchKind, type WorkbenchPromptPreset, type WorkbenchReferenceSlot, type WorkbenchTool } from "@/services/api/workbench";
@@ -1537,7 +1538,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                             <CountStepper kind={kind} value={requestedCount} max={batchLimit} onChange={changeCount} />
                         </ComposerSection>
                     </div>
-                    <ComposerFooter kind={kind} count={requestedCount} taskCount={plan.length} estimate={estimateLabel} busy={busy} disabledReason={disabledReason} onSubmit={() => void submit()} />
+                    <ComposerFooter kind={kind} count={requestedCount} taskCount={plan.length} estimate={creditsEnabled ? estimateLabel : <FGPricePreview config={{ ...composerConfig, count: String(plan[0] || 1) }} model={selectedModel} mode={capability} requirements={pickerRequirements} />} estimateDetail={plan.length > 1 ? "单个任务参考价，按实际请求对账" : undefined} busy={busy} disabledReason={disabledReason} onSubmit={() => void submit()} />
                 </aside>
                 <WorkbenchGallery
                     kind={kind}

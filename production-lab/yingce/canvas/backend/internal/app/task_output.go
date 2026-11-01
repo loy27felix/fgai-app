@@ -60,7 +60,7 @@ type TaskClientContext struct {
 	ShotID                string `json:"shotId,omitempty"`
 	WorkflowStepID        string `json:"workflowStepId,omitempty"`
 	ArtifactType          string `json:"artifactType,omitempty"`
-	BatchID string `json:"batchId,omitempty"`
+	BatchID               string `json:"batchId,omitempty"`
 }
 
 // TaskBillingSummary 是任务列表展示的计费摘要。冻结额与实收分列：只有已结算订单才有实收。
@@ -179,7 +179,7 @@ func taskClientContext(raw string) *TaskClientContext {
 			ShotID            string `json:"shotId"`
 			WorkflowStepID    string `json:"workflowStepId"`
 			ArtifactType      string `json:"artifactType"`
-			Workbench       struct {
+			Workbench         struct {
 				Batch struct {
 					ID    string `json:"id"`
 					Index int    `json:"index"`

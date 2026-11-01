@@ -3125,6 +3125,7 @@ function CanvasViewportPage() {
                                     isDragging={isNodeDragging && Boolean(dragPreview?.nodeIds.has(angleNode.id))}
                                 >
                                     <CanvasNodeAnglePanel
+                                        key={angleNode.id}
                                         dataUrl={angleNode.metadata.content}
                                         config={buildAngleGenerationConfig(effectiveConfig, angleNode)}
                                         onClose={() => setAngleNodeId(null)}

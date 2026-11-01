@@ -582,7 +582,7 @@ export function ComposerFooter({
     kind: WorkbenchKind;
     count: number;
     taskCount: number;
-    estimate: string;
+    estimate: ReactNode;
     estimateDetail?: string;
     busy: boolean;
     disabledReason?: string;
