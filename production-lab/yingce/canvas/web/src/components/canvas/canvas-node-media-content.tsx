@@ -19,7 +19,7 @@ import { bindCanvasVideoHoverPreview } from "@/lib/canvas/canvas-video-hover-pre
 import { resolveVideoMediaUrl } from "@/services/file-storage";
 import { hydrateCanvasVideoPreview } from "@/services/canvas-video-preview";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { fitImageMaterialNodeSize, fitImageNodeSize } from "@/lib/canvas/canvas-node-size";
+import { ensureMediaNodeMinimumSize, fitImageMaterialNodeSize, fitImageNodeSize } from "@/lib/canvas/canvas-node-size";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { isCanvasImageActive, prepareCanvasImage, subscribeCanvasImageActivity } from "@/services/canvas-image-loader";
 import { peekCachedResourceObjectUrl } from "@/services/resource-blob-cache";
@@ -159,7 +159,7 @@ export function VideoNodeContent({ node, theme, mediaActive = false, onMediaPlay
                     nextMetadata.durationMs = durationMs;
                     changed = true;
                 }
-                return changed ? { ...current, metadata: nextMetadata } : current;
+                return ensureMediaNodeMinimumSize(changed ? { ...current, metadata: nextMetadata } : current);
             });
         };
         video.addEventListener("loadedmetadata", handleLoadedMetadata);

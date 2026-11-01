@@ -57,7 +57,7 @@ export async function executeVideoGeneration(
     const draftVideoNode: CanvasNodeData = {
         id: videoId,
         type: CanvasNodeType.Video,
-        title: buildGenerationNodeTitle(prompt, "Generated Video"),
+        title: buildGenerationNodeTitle(effectivePrompt, "Generated Video"),
         position: reuseEmptyTarget ? parent : findAvailableGenerationGroupPosition(canvasNodes, { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y }, spec),
         parentId: sourceNode?.parentId,
         width: spec.width,
@@ -165,7 +165,7 @@ export async function executeAudioGeneration({
     const audioNode: CanvasNodeData = {
         id: audioId,
         type: CanvasNodeType.Audio,
-        title: buildGenerationNodeTitle(prompt, "Generated Audio"),
+        title: buildGenerationNodeTitle(effectivePrompt, "Generated Audio"),
         position: reuseSourceNode ? sourceNode!.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
         width: reuseSourceNode ? sourceNode!.width : spec.width,
         height: reuseSourceNode ? sourceNode!.height : spec.height,
