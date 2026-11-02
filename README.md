@@ -300,7 +300,6 @@ pnpm logs:tunnel          # 只看 Cloudflare Tunnel 日志（含时间戳）
 pnpm logs:monitor         # 查看统一服务状态与新增业务错误告警
 pnpm logs:audit           # 查询最近 168 小时的持久化业务审计事件
 # 浏览器访问 /admin/logs    # SLS 风格统一检索 audit、server、frontend、infra 事件
-pnpm reports:run          # 立即触发一次到期报表检查（仅调用内部 endpoint）
 scripts/audit-events.sh all  # 查询 audit_events 全部历史
 ```
 
@@ -362,17 +361,6 @@ scripts/install-service-monitor.sh
 状态变化会写入 `$HOME/Library/Logs/fg-studio-service-monitor.log`，匹配到的 App 错误会追加到 `$HOME/Library/Logs/fg-studio-monitor/app-errors.log`。如需主动通知，在 `.env.docker` 配置 `FG_MONITOR_WEBHOOK_URL`，并将 `FG_MONITOR_WEBHOOK_TYPE` 设置为 `generic`、`feishu` 或 `wecom`；未配置 webhook 时不影响自动恢复和本地日志。告警只在健康状态发生变化时发送，恢复后也会发送一次，避免重复轰炸。
 
 服务监控、部署失败和浏览器错误/诊断会通过独立的观测接口写入 PostgreSQL；观测写入走异步有界队列并重试，不阻断正常业务。浏览器端上报受限于 `error`、`unhandledrejection`、网络失败、未成功的 `/api/*` 响应和少量关键诊断事件，服务端会限流并脱敏；长时间数据库故障、浏览器离线或保护性限流仍需从 Docker stdout 恢复。内部接口优先使用 `FG_OBSERVABILITY_SECRET`，未配置时兼容使用 `SESSION_SECRET`；启用 Nginx TLS 后，生产部署脚本和监控默认使用 App 的回环端口 `http://127.0.0.1:3001`。
-
-在实际 Docker 主机安装报表 scheduler（每 5 分钟检查一次到期任务，单轮最多生成 4 份，进程带互斥锁，失败或历史补算会在下一轮继续）并访问管理员页面 `/admin/reports`：
-
-```bash
-chmod +x scripts/report-scheduler.sh scripts/install-report-scheduler.sh
-scripts/install-report-scheduler.sh
-```
-
-日报在次日 00:15 后生成临时版，较早日期会在后续窗口生成最终版；周报在周一生成临时版、周三后结算；月报在次月 1 日生成临时版、次月 3 日后结算。每个周期保留 `revision=0` 临时版和 `revision=1` 最终版，不覆盖旧结果。报表将成本分为供应商确认、价格估算和风险预留，并把未知成本调用单独计数；服务观测不完整时不计算可用率结论。可选配置 `FG_REPORT_WEBHOOK_URL` 和 `FG_REPORT_WEBHOOK_TYPE`（`generic`、`feishu`、`wecom`）接收报表任务结果通知。
-
-报表历史按日报、周报、月报分别读取最近 40 条，避免较早的月报被日报挤出。服务监控会检查报表 LaunchAgent 是否加载；仅对已安装、未显式禁用的缺失任务执行 `bootstrap`，已加载任务保持运行。此检查在 Docker 可用性检查前执行，启动时 Docker 尚未就绪也不会漏掉任务恢复。
 
 媒体访问经过应用鉴权，不能直接公开 NAS 目录。带参考图片/视频/音频调用外部 Wetoken 时，应用会先用 Cloudflare Tunnel 的公网 HTTPS 签名 URL 和生成任务的精确 `model` 创建 WeToken 素材，等待 `GetAsset` 返回 `Active`，再把 `asset://asset-...` 交给 Seedance；上传或确定性提交失败时会尽力清理本次新建素材。`192.168.x.x`、localhost 和需要登录的局域网地址无法被素材库下载。签名媒体 URL 会按 TTL 自动过期。纯文生视频不需要素材库上传。该素材库契约仅适用于 Seedance 视频参考素材，Wetoken 文本视觉输入和图片编辑继续使用各自原生协议。不要把 Cloudflare Tunnel 的 token 提交到 Git。
 
