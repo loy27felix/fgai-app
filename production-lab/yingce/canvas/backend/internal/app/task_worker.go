@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -149,15 +150,7 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 		for {
 			select {
 			case <-ticker.C:
-				renewCtx, cancelRenew := taskLeaseRenewContext(ctx)
-				var err error
-				if globalSlot != nil {
-					err = globalSlot.Renew(renewCtx)
-				}
-				if err == nil {
-					err = s.repo.WithContext(renewCtx).RenewTaskLease(taskID, leaseOwner, 45*time.Second)
-				}
-				cancelRenew()
+				err := w.renewTaskLease(ctx, globalSlot, taskID, leaseOwner, leaseDone)
 				if err != nil {
 					leaseLost <- err
 					cancel()
@@ -216,7 +209,7 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 		}
 		// Legacy tasks without an explicit new retry run retain their conservative
 		// submission handling, as in createDirectTaskAttempt.
-		if len(attempts) == 0 && task.RouteRun <= 1 && task.Attempts > 1 {
+		if len(attempts) == 0 && task.RouteRun == 0 && task.Attempts > 1 {
 			uncertain = true
 		}
 		return terminal.markPreparationFailure(task, "渠道不可用", errors.Join(err, readErr), uncertain, "自定义渠道已关闭，上游请求未发出")
@@ -371,6 +364,32 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	}
 	s.noteAgentMemoryCompactTask(*task, result, nil)
 	return terminal.handleSuccess(task)
+}
+
+// Retry only transient renewal timeouts; both leases must still validate the original owner.
+// 仅重试续租的暂时性超时；两类租约仍须校验原 owner，过期或被接管时立即停止。
+func (w *taskWorkerCoordinator) renewTaskLease(ctx context.Context, globalSlot *platform.SlotLease, taskID, owner string, done <-chan struct{}) error {
+	for attempt := range 3 {
+		renewCtx, cancelRenew := taskLeaseRenewContext(ctx)
+		var err error
+		if globalSlot != nil {
+			err = globalSlot.Renew(renewCtx)
+		}
+		if err == nil {
+			err = w.service.repo.WithContext(renewCtx).RenewTaskLease(taskID, owner, 45*time.Second)
+		}
+		cancelRenew()
+		var timeout net.Error
+		if err == nil || attempt == 2 || !(errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()) {
+			return err
+		}
+		select {
+		case <-done:
+			return nil
+		case <-time.After(time.Second):
+		}
+	}
+	return nil
 }
 
 func taskUsesUpstreamReportedProgress(taskType string) bool {

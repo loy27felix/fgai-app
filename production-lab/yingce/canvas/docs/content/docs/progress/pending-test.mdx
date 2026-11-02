@@ -996,6 +996,14 @@ FG 公司语音版本待用户验收：画布音频节点音色切换、创作�
 - 额外检查：`web/` 下 `bun test test/storyboard-recovery-panel.test.tsx` 有 1 项失败：静态渲染用例期望立即显示失败详情，当前组件显示异步加载状态。本次未修改该组件或用例，浏览器恢复导入仍待验收。
 - 待用户验收：刷新章节后恢复已有完整分镜；确实返回空正文的上游任务仍需单独处理，不会与其他批次混合写入。
 
+### 分镜批次执行中断与手动重试
+
+- 已修复：用户明确重试产生的新 `route_run` 不再被历史累计领取次数误判为旧任务自动重发；同一轮已经提交或提交状态不明确的请求仍走原有防重复扣费保护。
+- 已修复：任务续租遇到暂时性超时最多尝试 3 次，每次使用独立的 5 秒 context，间隔 1 秒；租约过期、owner 不符等非超时错误不重试，任务写入仍受原租约校验保护。
+- 已修复：同步文本协议未声明 poll 时，恢复执行不会拿响应 ID 进入异步轮询，也不会自动重新调用模型；失败信息明确要求核对费用后手动重试失败批次。
+- 已验证：`backend/` 下 `go test -race ./internal/app ./internal/repository ./internal/platform -run 'Lease|Deadline|DirectChannelDispatchGuard|QueuedCustomChannelRecheck|RetryIdentity|DeclarativeTextStreaming|TaskRouteExecutor' -count=1` 通过；覆盖既有租约隔离、截止时间、派发防重、显式重试、文本流与路由执行回归，未新增测试代码。
+- 待验证：模拟数据库或协调服务短暂超时，确认续租恢复后完整结果正常保存；持续超时或租约已被其他 worker 接管时，旧 worker 不得保存结果或自动重发模型请求。当前修复未部署，未操作生产任务重试，也未恢复已清空的历史正文。
+
 ## FG 1.4.9 资料与拖入
 
 - 已验证：真实 XLSX/XLS/ODS 多工作表、缓存公式结果、超限报错及 DOCX 正文解析；真实 React 输入组件的图片粘贴、Excel 拖入、上传忙状态和 Agent 拖入事件隔离；选择器按画布发起服务端查询、空结果不串素材、跨画布选择后统一确认。
