@@ -1,15 +1,51 @@
 import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 const webDir = dirname(fileURLToPath(import.meta.url));
 const appVersion = process.env.CANVAS_BUILD_VERSION?.trim() || readFileSync(resolve(webDir, "../VERSION"), "utf8").trim();
-const buildCommit = process.env.CANVAS_BUILD_COMMIT?.trim() || process.env.VITE_BUILD_COMMIT?.trim() || "unknown";
+function git(args: string[]) {
+    try { return execFileSync("git", args, { cwd: webDir, timeout: 1500, maxBuffer: 128 * 1024, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+    catch { return undefined; }
+}
+const checkoutCommit = git(["rev-parse", "--verify", "HEAD^{commit}"]);
+const buildCommit = process.env.CANVAS_BUILD_COMMIT?.trim() || process.env.VITE_BUILD_COMMIT?.trim() || checkoutCommit || "unknown";
 const buildTime = process.env.CANVAS_BUILD_TIME?.trim() || process.env.VITE_BUILD_TIME?.trim() || "unknown";
 const appChangelog = readFileSync(resolve(webDir, "../FG-CHANGELOG.md"), "utf8");
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
+
+function runtimeVersionPlugin(command: "build" | "serve"): Plugin {
+    const status = git(["status", "--porcelain", "--untracked-files=all", "--", ".", "../director-desk", "../VERSION", "../FG-CHANGELOG.md", "../assets"]);
+    const rawDirty = process.env.CANVAS_BUILD_DIRTY;
+    const safe = (value: string) => /^[\w.+:/ -]{1,100}$/.test(value) ? value : "unknown";
+    const manifest = JSON.stringify({ service: "yingce-web", build: {
+        version: safe(appVersion), commit: /^[a-f0-9]{7,40}$/i.test(buildCommit) ? buildCommit.toLowerCase() : "unknown",
+        buildTime: safe(buildTime), environment: command === "serve" ? "development" : "production",
+        dirty: status !== undefined ? rawDirty === "true" || status !== "" || !!(checkoutCommit && !checkoutCommit.startsWith(buildCommit))
+            : rawDirty === "true" ? true : rawDirty === "false" ? false : null,
+    } });
+    // The build asset and dev response use the same metadata as this Vite process, not FG's version.
+    // 静态产物与开发响应来自本次 Vite 构建元数据，不借用 FG 主站版本。
+    return {
+        name: "yingce-runtime-version",
+        configureServer(server) {
+            server.middlewares.use((request, response, next) => {
+                const path = request.url?.split("?", 1)[0];
+                const base = server.config.base.replace(/\/$/, "");
+                if (path !== "/.well-known/fg-runtime.json" && path !== `${base}/.well-known/fg-runtime.json`) return next();
+                if (request.method !== "GET" && request.method !== "HEAD") { response.statusCode = 405; response.end(); return; }
+                response.setHeader("Content-Type", "application/json; charset=utf-8");
+                response.setHeader("Cache-Control", "no-store");
+                response.setHeader("X-Content-Type-Options", "nosniff");
+                response.end(request.method === "HEAD" ? undefined : manifest);
+            });
+        },
+        generateBundle() { this.emitFile({ type: "asset", fileName: ".well-known/fg-runtime.json", source: manifest }); },
+    };
+}
 
 export default defineConfig(({ command }) => {
     if (command === "build" && process.env.CANVAS_BUILD_VERSION?.trim() && !process.env.FG_CANVAS_BASE_PATH?.trim()) {
@@ -17,7 +53,7 @@ export default defineConfig(({ command }) => {
     }
     return {
     base: process.env.FG_CANVAS_BASE_PATH || "/",
-    plugins: [react()],
+    plugins: [react(), runtimeVersionPlugin(command)],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
         __APP_CHANGELOG__: JSON.stringify(appChangelog),

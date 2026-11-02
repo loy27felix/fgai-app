@@ -5,7 +5,7 @@ async function main() {
   const {closeDb,query}=await import('../lib/local/db');
   try {
     if (process.argv.includes('--check')) {
-      await query('SELECT id FROM support_bot_jobs LIMIT 0');
+      await query('SELECT id, images, context, stage FROM support_bot_jobs LIMIT 0');
       console.log('support-bot schema ready; no messages sent');
       return;
     }
@@ -16,6 +16,12 @@ async function main() {
       catch { console.error('support-bot iteration failed; durable queue will retry'); }
       await new Promise(resolve=>setTimeout(resolve,3000));
     }
-  } finally { await closeDb(); }
+  } finally {
+    const { closeSupportOperationConnections } = await import('../lib/support-bot/operations');
+    const { closeProductionLabOperationConnections } = await import('../lib/support-bot/production-operations');
+    await closeSupportOperationConnections();
+    await closeProductionLabOperationConnections();
+    await closeDb();
+  }
 }
 main().catch(()=>{console.error('support-bot worker failed');process.exitCode=1;});

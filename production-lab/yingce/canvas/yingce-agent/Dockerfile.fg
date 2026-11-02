@@ -3,6 +3,16 @@ FROM ghcr.io/ddcat-ai/open-ai-canvas-yingce-agent@sha256:e8f4e89e7501840d0b6f024
 COPY --chmod=0644 backend/agent-runtime/pi/agent-runtime.mjs /app/agent-runtime/agent-runtime.mjs
 COPY --chmod=0644 backend/agent-runtime/pi/model-context.mjs /app/agent-runtime/model-context.mjs
 COPY --chmod=0644 yingce-agent/server.mjs /app/server.mjs
+COPY --chmod=0644 yingce-agent/runtime-version.mjs /app/runtime-version.mjs
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_DIRTY=unknown
+ENV NODE_ENV=production \
+    YINGCE_AGENT_BUILD_VERSION=${BUILD_VERSION} \
+    YINGCE_AGENT_BUILD_COMMIT=${BUILD_COMMIT} \
+    YINGCE_AGENT_BUILD_TIME=${BUILD_TIME} \
+    YINGCE_AGENT_BUILD_DIRTY=${BUILD_DIRTY}
 COPY --chmod=0644 yingce-agent/session-limit.test.mjs /app/session-limit.test.mjs
 RUN node --check /app/agent-runtime/agent-runtime.mjs
 RUN node --test /app/session-limit.test.mjs

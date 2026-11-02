@@ -1,11 +1,12 @@
-import { assertSupportLease, claimSupportJob, completeSupportJob, failSupportJob, saveSupportDiagnosis, type DiagnosisResult } from './store';
+import { assertSupportLease, claimSupportJob, completeSupportJob, failSupportJob, saveSupportDiagnosis, type DiagnosisResult, updateSupportStage } from './store';
 import { diagnoseSupportJob } from './diagnose';
 import { deliverSupportResult } from './feishu';
 import { logServerEvent } from '@/lib/observability/server-log';
 
 export async function runSupportBotOnce() {
-  if (process.env.SUPPORT_BOT_ENABLED !== 'true' || process.env.SUPPORT_BOT_SEND_ENABLED !== 'true') throw new Error('SUPPORT_BOT_SEND_ENABLED 未开启，未领取任务');
-  const job = await claimSupportJob().catch((error) => {
+  if (process.env.SUPPORT_BOT_ENABLED !== 'true') throw new Error('SUPPORT_BOT_ENABLED 未开启');
+  const webOnly = process.env.SUPPORT_BOT_SEND_ENABLED !== 'true';
+  const job = await claimSupportJob(webOnly).catch((error) => {
     logServerEvent('support_bot_job_claim_failed', { service: 'support-bot' }, 'error');
     throw error;
   });
@@ -16,12 +17,14 @@ export async function runSupportBotOnce() {
   try {
     let result: DiagnosisResult;
     if (job.diagnosis) result=job.diagnosis;
-    else result=await diagnoseSupportJob(job);
+    else result=await diagnoseSupportJob(job, { onProgress: stage => updateSupportStage(job, stage) });
     await saveSupportDiagnosis(job,result);
     logServerEvent('support_bot_diagnosis_completed', fields);
     stage = 'delivery';
     await assertSupportLease(job);
-    await deliverSupportResult(job,result);
+    // Web conversations persist results without sending Feishu messages.
+    // 网页会话通过轮询读取结果，不向飞书投递。
+    if (!job.chatId.startsWith('web:')) await deliverSupportResult(job,result);
     logServerEvent('support_bot_delivery_completed', fields);
     stage = 'completion';
     await completeSupportJob(job);

@@ -1,6 +1,7 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
+import { SupportAssistantButton } from "@/components/feedback/support-assistant-button";
 import { TopbarFeedbackButton } from "@/components/feedback/topbar-feedback-button";
 import { SystemAnnouncementCenter } from "@/components/layout/system-announcement-center";
 import { WorkspaceAccountMenu } from "@/components/layout/workspace-account-menu";
@@ -60,6 +61,7 @@ export function WorkspaceTopBar({ sidebarOpen, onToggleSidebar }: { sidebarOpen:
             <WorkspaceTopBarExtensionSlot />
             <div className="app-workspace-topbar-actions">
                 {user ? <TopbarFeedbackButton /> : null}
+                {user ? <SupportAssistantButton userId={user.id} /> : null}
                 {creditsEnabled ? (
                     <button type="button" className="app-workspace-topbar-credit-pill" aria-label={`打开积分中心，可用 ${balance} 积分`} onClick={() => openWorkspaceWallet()}>
                         <WorkspaceCreditGiftMark />

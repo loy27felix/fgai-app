@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { query, withTransaction } from '@/lib/local/db';
+import type { SupportContext } from './context';
 
-export type SupportMessage = { eventId: string; messageId: string; chatId: string; openId: string; text: string; threadId?: string; isGroup?: boolean; botMentioned?: boolean };
+export type SupportMessage = { eventId: string; messageId: string; chatId: string; openId: string; text: string; images?: string[]; context?: SupportContext; userId?: string; threadId?: string; isGroup?: boolean; botMentioned?: boolean };
 export type DiagnosisResult = { userReply: string; internalSummary: string; needsDeveloper: boolean; module: string; evidence: unknown[]; guidanceOnly?: boolean; closed?: boolean };
 export type SupportJob = SupportMessage & { id: string; ticketId: string; attempts: number; leaseToken: string; diagnosis: DiagnosisResult | null };
 let schemaReady: Promise<void> | undefined;
 export function ensureSupportSchema() {
-  schemaReady ??= query('SELECT 1 FROM support_bot_jobs LIMIT 0').then(() => undefined).catch((error) => { schemaReady = undefined; throw error; });
+  schemaReady ??= query('SELECT images, context, stage FROM support_bot_jobs LIMIT 0').then(() => undefined).catch((error) => { schemaReady = undefined; throw error; });
   return schemaReady;
 }
 export async function enqueueSupportMessage(message: SupportMessage) {
@@ -39,38 +40,44 @@ export async function enqueueSupportMessage(message: SupportMessage) {
       ? await db.query("SELECT id FROM support_bot_tickets WHERE chat_id=$1 AND thread_id=$2 AND status='open' AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1", [message.chatId,message.threadId || ''])
       : await db.query("SELECT id FROM support_bot_tickets WHERE open_id=$1 AND chat_id=$2 AND thread_id=$3 AND status='open' AND updated_at>now()-interval '24 hours' ORDER BY updated_at DESC LIMIT 1", [message.openId,message.chatId,message.threadId || '']);
     const ticketId = existing.rows[0]?.id || randomUUID();
-    await db.query('INSERT INTO support_bot_tickets(id,open_id,chat_id,thread_id) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET updated_at=now()', [ticketId,message.openId,message.chatId,message.threadId || '']);
-    await db.query('INSERT INTO support_bot_jobs(id,event_id,message_id,ticket_id,text,is_group) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),message.eventId,message.messageId,ticketId,message.text,!!message.isGroup]);
+    await db.query('INSERT INTO support_bot_tickets(id,open_id,chat_id,thread_id,user_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET updated_at=now(),user_id=COALESCE(support_bot_tickets.user_id,EXCLUDED.user_id)', [ticketId,message.openId,message.chatId,message.threadId || '',message.userId || null]);
+    await db.query('INSERT INTO support_bot_jobs(id,event_id,message_id,ticket_id,text,is_group,images,context) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)',[randomUUID(),message.eventId,message.messageId,ticketId,message.text,!!message.isGroup,JSON.stringify(message.images || []),JSON.stringify(message.context || {})]);
     if (message.text.trim()==='关闭问题') await db.query("UPDATE support_bot_tickets SET status='closed' WHERE id=$1",[ticketId]);
     return { ticketId: ticketId as string, duplicate: false };
   });
 }
-export async function claimSupportJob(): Promise<SupportJob | null> {
+export async function claimSupportJob(webOnly = false): Promise<SupportJob | null> {
   await ensureSupportSchema();
-  await query("UPDATE support_bot_jobs SET status='failed',error='任务租约过期且重试已用尽' WHERE status='processing' AND lease_until<now() AND attempts>=4");
+  await query("UPDATE support_bot_jobs j SET status='failed',error='任务租约过期且重试已用尽' WHERE status='processing' AND lease_until<now() AND attempts>=4 AND ($1::boolean=false OR EXISTS(SELECT 1 FROM support_bot_tickets t WHERE t.id=j.ticket_id AND t.chat_id LIKE 'web:%'))", [webOnly]);
   const token = randomUUID();
   const result = await query(`WITH candidate AS (
-    SELECT j.id FROM support_bot_jobs j WHERE ((j.status='pending' AND j.available_at<=now()) OR (j.status='processing' AND j.lease_until<now())) AND j.attempts<4 AND NOT EXISTS(SELECT 1 FROM support_bot_jobs active WHERE active.ticket_id=j.ticket_id AND active.id<>j.id AND active.status='processing' AND active.lease_until>now())
+    SELECT j.id FROM support_bot_jobs j WHERE ($2::boolean=false OR EXISTS(SELECT 1 FROM support_bot_tickets wt WHERE wt.id=j.ticket_id AND wt.chat_id LIKE 'web:%')) AND ((j.status='pending' AND j.available_at<=now()) OR (j.status='processing' AND j.lease_until<now())) AND j.attempts<4 AND NOT EXISTS(SELECT 1 FROM support_bot_jobs active WHERE active.ticket_id=j.ticket_id AND active.id<>j.id AND active.status='processing' AND active.lease_until>now())
     AND NOT EXISTS(SELECT 1 FROM support_bot_jobs earlier WHERE earlier.ticket_id=j.ticket_id AND (earlier.created_at,earlier.id)<(j.created_at,j.id) AND earlier.status IN ('pending','processing'))
     ORDER BY j.created_at FOR UPDATE SKIP LOCKED LIMIT 1
   ), claimed AS (UPDATE support_bot_jobs j SET status='processing',attempts=attempts+1,lease_token=$1,lease_until=now()+interval '15 minutes' FROM candidate WHERE j.id=candidate.id RETURNING j.*)
-  SELECT claimed.*,t.open_id,t.chat_id,t.thread_id FROM claimed JOIN support_bot_tickets t ON t.id=claimed.ticket_id`,[token]);
+  SELECT claimed.*,t.open_id,t.chat_id,t.thread_id,t.user_id FROM claimed JOIN support_bot_tickets t ON t.id=claimed.ticket_id`,[token,webOnly]);
   const row = result.rows[0];
-  return row ? { id:row.id,ticketId:row.ticket_id,eventId:row.event_id,messageId:row.message_id,openId:row.open_id,chatId:row.chat_id,threadId:row.thread_id,text:row.text,attempts:row.attempts,leaseToken:token,diagnosis:row.diagnosis,isGroup:row.is_group } : null;
+  return row ? { id:row.id,ticketId:row.ticket_id,eventId:row.event_id,messageId:row.message_id,openId:row.open_id,chatId:row.chat_id,threadId:row.thread_id,text:row.text,userId:row.user_id || undefined,context:row.context,images:row.images || [],attempts:row.attempts,leaseToken:token,diagnosis:row.diagnosis,isGroup:row.is_group } : null;
 }
 export async function saveSupportDiagnosis(job: SupportJob, result: DiagnosisResult) {
   const saved = await query("UPDATE support_bot_jobs SET diagnosis=$3::jsonb WHERE id=$1 AND lease_token=$2 AND status='processing' AND lease_until>now() RETURNING id",[job.id,job.leaseToken,JSON.stringify(result)]);
   if (!saved.rowCount) throw new Error('诊断任务租约已失效');
 }
 export async function completeSupportJob(job: SupportJob) {
-  await query("UPDATE support_bot_jobs SET status='completed',lease_until=NULL,error=NULL WHERE id=$1 AND lease_token=$2",[job.id,job.leaseToken]);
+  await query("UPDATE support_bot_jobs SET status='completed',stage='completed',lease_until=NULL,error=NULL WHERE id=$1 AND lease_token=$2",[job.id,job.leaseToken]);
 }
 export async function failSupportJob(job: SupportJob, error: unknown) {
   await query("UPDATE support_bot_jobs SET status=CASE WHEN attempts>=4 THEN 'failed' ELSE 'pending' END,available_at=now()+interval '1 minute',lease_until=NULL,error=$3 WHERE id=$1 AND lease_token=$2",[job.id,job.leaseToken,error instanceof Error ? error.message.slice(0,500) : '任务处理失败']);
 }
 export async function getSupportHistory(ticketId: string) {
-  const result = await query("SELECT text,diagnosis FROM support_bot_jobs WHERE ticket_id=$1 AND status='completed' ORDER BY created_at DESC LIMIT 6",[ticketId]);
-  return result.rows.reverse().map(row => ({ question:row.text,reply:row.diagnosis?.userReply }));
+  const result = await query("SELECT text,diagnosis,jsonb_array_length(images) AS image_count FROM support_bot_jobs WHERE ticket_id=$1 AND status='completed' ORDER BY created_at DESC,id DESC LIMIT 6",[ticketId]);
+  return result.rows.reverse().map(row => ({ question:row.text,reply:row.diagnosis?.userReply,imageCount:row.image_count, hasEvidence:Array.isArray(row.diagnosis?.evidence) && row.diagnosis.evidence.length > 0 }));
+}
+export async function getLatestSupportImages(ticketId: string): Promise<string[]> {
+  // Load only the latest attachment set; never serialize base64 into text history.
+  // 只读取最近一组截图，避免批量加载历史图片或把 base64 当文字发送给模型。
+  const result = await query<{ images: string[] }>("SELECT images FROM support_bot_jobs WHERE ticket_id=$1 AND status='completed' AND jsonb_array_length(images)>0 ORDER BY created_at DESC,id DESC LIMIT 1", [ticketId]);
+  return result.rows[0]?.images ?? [];
 }
 export async function isSupportDeliveryDone(job:SupportJob,step:string) {
   const result=await query('SELECT 1 FROM support_bot_delivery WHERE job_id=$1 AND step=$2',[job.id,step]);
@@ -85,3 +92,16 @@ export async function assertSupportLease(job:SupportJob) {
   if (!result.rowCount) throw new Error('任务租约已失效');
 }
 
+
+export const supportStages: Record<string, string> = {
+  queued: '已收到，等待排查', understanding: '正在结合文字、截图和追问理解问题',
+  runtime: '正在核对运行版本与源码来源', data: '正在核对当前账号的相关操作记录',
+  trace: '正在沿任务、requestId 与 traceId 展开实际请求链路',
+  code: '正在检索相关源码与实现', analysis: '正在核对实际请求链路、错误与运行实现',
+  completed: '排查完成',
+};
+export async function updateSupportStage(job: SupportJob, stage: string) {
+  if (!Object.hasOwn(supportStages, stage)) throw new Error('无效调查阶段');
+  const result = await query("UPDATE support_bot_jobs SET stage=$3,lease_until=now()+interval '15 minutes' WHERE id=$1 AND lease_token=$2 AND status='processing' AND lease_until>now() RETURNING id", [job.id,job.leaseToken,stage]);
+  if (!result.rowCount) throw new Error('诊断任务租约已失效');
+}

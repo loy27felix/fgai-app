@@ -12,6 +12,7 @@ export interface TextChatOptions {
   thinking?: boolean;
   reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
+  logPayloads?: boolean;
   maxTokens?: number;
   traceId?: string;
   taskId?: string;
@@ -41,6 +42,7 @@ export async function chatWithTextModel(options: TextChatOptions, dependencies: 
     ...(options.apiKey ? { apiKey: options.apiKey } : {}),
     ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     jsonOutput: options.jsonOutput,
+    ...(options.logPayloads !== undefined ? { logPayloads: options.logPayloads } : {}),
     maxTokens: options.maxTokens,
     ...(options.traceId ? { traceId: options.traceId } : {}),
     ...(options.taskId ? { taskId: options.taskId } : {}),

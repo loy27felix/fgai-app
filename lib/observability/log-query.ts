@@ -82,6 +82,9 @@ export type LogQueryInput = {
   service?: string;
   event?: string;
   route?: string;
+  // Internal service boundary, separate from the public exact-route filter.
+  // 内部服务边界，独立于公开的精确路由条件。
+  routePrefix?: string;
   outcome?: string;
   traceId?: string;
   requestId?: string;
@@ -101,6 +104,7 @@ export type NormalizedLogQuery = {
   to: Date;
   query: string;
   fullText: string;
+  routePrefix?: string;
   source: LogSourceFilter;
   scope: 'all' | LogCategory;
   focus: 'all' | 'app-first';
@@ -575,6 +579,7 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
   if (literalText !== undefined && rawQuery) throw new LogQueryValidationError('字面全文不能与结构化搜索混用');
   if (literalText && literalText.length > MAX_QUERY_LENGTH) throw new LogQueryValidationError(`搜索词不能超过 ${MAX_QUERY_LENGTH} 个字符`);
   const parsedQuery = parseSlsQuery(rawQuery);
+  if (input.routePrefix !== undefined && (typeof input.routePrefix !== 'string' || !/^\/[A-Za-z0-9/_-]{1,200}$/.test(input.routePrefix))) throw new LogQueryValidationError('路由前缀无效');
   for (const field of TEXT_FILTER_FIELDS) {
     const value = filterText(input[field], field);
     if (value) addTextFilter(parsedQuery.textFilters, field, value);
@@ -597,6 +602,7 @@ export function normalizeLogQuery(input: LogQueryInput = {}): NormalizedLogQuery
     to,
     query: rawQuery,
     fullText: literalText ?? parsedQuery.fullText,
+    routePrefix: input.routePrefix?.replace(/\/$/, ''),
     source: enumFilter(input.source, ['all', ...LOG_SOURCES] as const, 'all', '日志来源'),
     scope: requestedScope === 'all' ? queryScope : requestedScope,
     focus: enumFilter(input.focus, ['all', 'app-first'] as const, 'all', '日志焦点'),
@@ -614,6 +620,11 @@ type FilterDimension = 'category' | 'source' | 'level' | TextFilterField;
 
 function appendDimensionFilters(filters: NormalizedLogQuery, clauses: string[], values: unknown[], startIndex: number, omit?: FilterDimension) {
   let index = startIndex;
+  if (filters.routePrefix) {
+    clauses.push(`(route = $${index} OR starts_with(route, $${index} || '/'))`);
+    values.push(filters.routePrefix);
+    index += 1;
+  }
   if (filters.scope !== 'all' && omit !== 'category') {
     clauses.push(`category = $${index}`);
     values.push(filters.scope);

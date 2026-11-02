@@ -19,6 +19,8 @@ const migrationNames = [
   "015-observability-log-query-indexes.sql",
   "016-support-bot.sql",
   "017-support-bot-group-topic-index.sql",
+  "018-support-bot-images.sql",
+  "019-support-investigation.sql",
 ];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";

@@ -2,12 +2,18 @@ import OpenAI from 'openai';
 import { chatWithTextModel, type TextChatOptions } from '@/lib/ai/text';
 import type { ChatResult } from '@/lib/deepseek';
 import { wetokenProviderDispatcher } from '@/lib/ai/wetoken-transport';
-import { fullLogPayload, logServerEvent } from '@/lib/observability/server-log';
+import { logServerEvent } from '@/lib/observability/server-log';
 import { scrubSupportValue } from './redact';
+
+export class IncompleteSupportModelResponse extends Error {
+  constructor() { super('机器人模型响应不完整'); this.name = 'IncompleteSupportModelResponse'; }
+}
 
 export async function chatWithSupportModel(options: TextChatOptions): Promise<{ result: ChatResult }> {
   const protocol = process.env.SUPPORT_BOT_API_PROTOCOL || 'chat_completions';
-  if (protocol === 'chat_completions') return chatWithTextModel(options);
+  // Screenshots and OCR text may contain private information; record metadata only.
+  // 截图及识别文字可能包含隐私，诊断模型只记录元数据，不记录请求和响应正文。
+  if (protocol === 'chat_completions') return chatWithTextModel({ ...options, logPayloads: false });
   if (protocol !== 'responses') throw new Error('机器人 API 协议配置无效');
   if (!options.apiBaseUrl || !options.apiKey || !options.modelId) throw new Error('机器人 Responses 配置不完整');
 
@@ -26,10 +32,19 @@ export async function chatWithSupportModel(options: TextChatOptions): Promise<{ 
     if (finalUserIndex < 0) throw new Error('机器人 JSON 请求缺少用户消息');
     input[finalUserIndex] = { ...input[finalUserIndex], content: `${input[finalUserIndex].content}\n仅返回一个有效的 json object，不要 Markdown。` };
   }
+  const imageMessageIndex = input.map(message => message.role).lastIndexOf('user');
+  if (options.images?.length && imageMessageIndex < 0) throw new Error('机器人图片请求缺少用户消息');
+  const responseInput: OpenAI.Responses.ResponseInput = input.map((message, index) => {
+    if (index !== imageMessageIndex || !options.images?.length) return message;
+    return { role: 'user', content: [
+      { type: 'input_text', text: message.content },
+      ...options.images.map(url => ({ type: 'input_image' as const, image_url: url, detail: 'auto' as const })),
+    ] };
+  });
   const body = {
     model: options.modelId,
     instructions: options.messages.filter(message => message.role === 'system').map(message => message.content).join('\n'),
-    input,
+    input: responseInput,
     store: false,
     max_output_tokens: options.maxTokens ?? 1024,
     ...(options.jsonOutput ? { text: { format: { type: 'json_object' as const } } } : {}),
@@ -54,7 +69,7 @@ export async function chatWithSupportModel(options: TextChatOptions): Promise<{ 
     }
     const content = response?.output.flatMap(item => item.type === 'message' ? item.content : [])
       .filter(item => item.type === 'output_text').map(item => item.text).join('');
-    if (!response || response.status !== 'completed' || !content) throw new Error('机器人模型响应不完整');
+    if (!response || response.status !== 'completed' || !content) throw new IncompleteSupportModelResponse();
     logServerEvent('support_bot_model_response', {
       ...fields, stage: 'completed', durationMs: Date.now() - started,
       providerRequestId: response.id,
@@ -63,7 +78,6 @@ export async function chatWithSupportModel(options: TextChatOptions): Promise<{ 
         output_tokens: response.usage.output_tokens,
         total_tokens: response.usage.total_tokens,
       } : undefined,
-      responseBody: fullLogPayload({ content }),
     });
     return {
       result: {

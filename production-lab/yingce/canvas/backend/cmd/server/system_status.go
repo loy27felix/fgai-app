@@ -107,6 +107,6 @@ func registerSystemStatusRoutes(api *gin.RouterGroup, status *systemStatus) {
 	api.GET("/health", ready)
 	api.GET("/system/version", func(c *gin.Context) {
 		snapshot := status.snapshot(c.Request.Context())
-		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"build": snapshot.Build, "schema": snapshot.Schema}, "msg": "ok"})
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"service": "canvas", "build": snapshot.Build, "schema": snapshot.Schema}, "msg": "ok"})
 	})
 }

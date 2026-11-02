@@ -5,6 +5,21 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## FG 网页自助排查接入
+
+工作区“反馈”旁的“自助排查”接入同源 FG 主站 `GET/POST /api/support-bot/web`，不是 Canvas Go API；使用 `fg_session` 鉴权，不能用 Canvas token 替代。客户端通过 `http.raw` 读取非 Canvas 信封，独立部署需将该路径代理到 FG 主站。截图、会话隔离、队列开关和数据库迁移以 FG 根 README 的“问题助手（网页 / 飞书）”章节为准；本模块不创建 Canvas 反馈单或外发通知。
+
+- `POST` 请求体保留 `conversationId`、`text`、`images`，增加 `context: { source: "fg" | "canvas", pagePath: string, projectId?: string, taskId?: string, sessionId?: string }`。Canvas 固定发送 `source: "canvas"`，FG 主站固定发送 `source: "fg"`；`pagePath` 仅取 `location.pathname`。三个 ID 仅从 URL search 中显式同名参数读取并忽略空值；未指定 `projectId` 时可从现有项目路由确定，Canvas 支持 `/projects/:projectId`、`/drama-pipeline/:projectId`、`/canvas/:id` 及 `/fg-six` 前缀，FG 支持 `/projects/:id`。其他缺失字段省略，不发送完整 URL、hash、页面标题、Cookie 或 Token。
+- `GET` 的 `messages` 项增加可选 `stage?: string`，表示后端提供的中文阶段说明；`pending` / `processing` 且尚无回复时展示该说明，旧接口缺少或返回空 `stage` 时保留原有“已收到，正在查询任务、日志与相关代码…”文案。失败提示保持不变，最终回复保留多行纯文本展示。
+- 排查会核对相关代码与当前账号相关的操作记录，不会自动修改业务数据。截图仍为每次最多 10 张、每张原图不超过 20 MiB，沿用现有浏览器压缩、预览与上传流程。
+
+### 独立运行取证
+
+- `GET /api/system/version` 的 `data` 增加 `service: "canvas"`；`build` 保留版本、commit、buildTime、goVersion，并提供 `environment` 与 `dirty: boolean | null`。dirty 未知不等于 clean；本地 Go 构建读取编译时 VCS 元数据，容器构建通过 BUILD_COMMIT/BUILD_TIME/BUILD_DIRTY 注入，不读取之后磁盘上的 HEAD 冒充运行版本。
+- `CANVAS_LOG_FORMAT=json` 时 AccessLog 输出 `service: "canvas"`、`event: "support_http_request"`、服务端鉴权成功后的 `user_id`、实际 request/trace、路由模板、状态以及本次二进制 build 信息。客户端用户Header不作为身份，未匹配URL和动态凭据不作为路由原文。成功 GET 等低级别事件仍遵循 `CANVAS_LOG_LEVEL`，需要完整跟踪时显式设为 debug。
+- gateway 与独立 Agent 提供 `GET /health/version`；网页在实际 Vite 开发服务器或构建产物中提供 `/.well-known/fg-runtime.json`。Agent 的原生运行事件只在内部token验证成功后关联 Canvas userId，不记录prompt或请求正文。故障事实由HTTP状态、运行事件与具体源码共同核验，流式HTTP 200不等于Agent成功。
+- FG worker 的日志源、只读账号映射、版本URL及历史缺口规则以根 README 的问题助手章节为准；日志源未配置、已轮转或旧版本未采集的记录不能补造。记录上的运行提交与当前运行服务不一致时不得将当前版本签认给历史故障。
+
 ## FG 云会话、编辑占用与反馈
 
 - `GET /api/agent/conversations`：本人会话目录；`canvasId` 可选，非空时验证画布访问权；`before` 为分页游标，`limit` 为 1—100。

@@ -18,13 +18,15 @@ COPY plugin-packages /src/plugin-packages
 RUN --mount=type=cache,target=/root/.cache/go-build sed -i 's/\r$//' /src/plugin-packages/build-packages.sh && sh /src/plugin-packages/build-packages.sh --payments-only
 ARG BUILD_VERSION=v1.3.1
 ARG BUILD_COMMIT=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_DIRTY=unknown
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app ./internal/handler ./internal/protocol ./internal/repository ./internal/canvas ./internal/prompts ./internal/platform -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/skills -run '^(TestFG|TestBuiltin|TestEnsureBuiltin|TestSkillPresets)' -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/protocol -run '^TestOfficialDolaPoolVideoProfile$' -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app -run '^TestCloudAgentModelStepAdoptsOrphanedStepTask$' -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/auth -run '^(TestTapNow|TestAdaptTapNow|TestLibTV|TestAdaptLibTV)' -count=1
 RUN --mount=type=cache,target=/root/.cache/go-build go test ./internal/app -run '^(TestRemoteResourceMIMEType|TestImportResourceURLRepairsReadyMIME)' -count=1
-RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X yingce/backend/internal/buildinfo.Version=${BUILD_VERSION} -X yingce/backend/internal/buildinfo.Commit=${BUILD_COMMIT}" -o /out/infinite-canvas-backend ./cmd/server
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X yingce/backend/internal/buildinfo.Version=${BUILD_VERSION} -X yingce/backend/internal/buildinfo.Commit=${BUILD_COMMIT} -X yingce/backend/internal/buildinfo.BuildTime=${BUILD_TIME} -X yingce/backend/internal/buildinfo.Dirty=${BUILD_DIRTY}" -o /out/infinite-canvas-backend ./cmd/server
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=1 go build -trimpath -o /out/migrate-schema ./cmd/migrate-schema
 FROM official
 COPY --from=build /out/infinite-canvas-backend /usr/local/bin/infinite-canvas-backend

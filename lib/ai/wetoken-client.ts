@@ -21,6 +21,7 @@ export interface WetokenChatOptions {
   apiKey?: string;
   reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
+  logPayloads?: boolean;
   maxTokens?: number;
   traceId?: string;
   taskId?: string;
@@ -79,7 +80,7 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     method: requestInit.method,
     url: redactProviderUrl(requestUrl),
     headers: safeProviderHeaders(requestInit.headers),
-    body: fullLogPayload(body),
+    body: options.logPayloads === false ? '[omitted]' : fullLogPayload(body),
   };
   logServerEvent("wetoken_chat_exchange", {
     ...baseLogFields,
@@ -134,8 +135,8 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     responseStatusText: response.statusText,
     responseHeaders: safeProviderHeaders(response.headers),
     responseBodyEncoding,
-    responseBody: fullLogPayload(data),
-    ...(responseBodyEncoding === "text" ? { responseBodyText: fullLogPayload(responseText) } : {}),
+    responseBody: options.logPayloads === false ? '[omitted]' : fullLogPayload(data),
+    ...(responseBodyEncoding === "text" && options.logPayloads !== false ? { responseBodyText: fullLogPayload(responseText) } : {}),
     ...(responseBodyReadFailed ? { responseBodyReadFailed: true } : {}),
   }, response.ok ? "info" : "warn");
 

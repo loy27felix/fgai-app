@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
+import { StringDecoder } from "node:string_decoder";
+import { agentRuntimeVersion, sendAgentRuntimeVersion } from './runtime-version.mjs';
 
 const token = process.env.YINGCE_AGENT_TOKEN || "";
 const maxSessionLimit = 100;
@@ -99,6 +101,7 @@ function writeRuntimeError(response, message) {
 }
 
 const server = createServer(async (request, response) => {
+  if (request.method === 'GET' && request.url === '/health/version') { sendAgentRuntimeVersion(response); return; }
   if (request.method === "GET" && request.url === "/healthz") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ ok: true, active, limit: maxSessions, queued: waiters.length }));
@@ -137,18 +140,41 @@ const server = createServer(async (request, response) => {
     return;
   }
   let body;
+  let run;
   try {
     body = await readBody(request);
-    JSON.parse(body.toString("utf8"));
+    run = JSON.parse(body.toString("utf8"));
+    if (!run || typeof run !== 'object' || Array.isArray(run)) throw new Error('invalid run object');
   } catch (error) {
     response.writeHead(400, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: error instanceof Error ? error.message : "invalid request" }));
     return;
   }
+  const safeId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(value) ? value : undefined;
+  // The caller has passed the internal service token; userId originates in Canvas runtime context.
+  // 调用方已通过内部服务Token鉴权，userId来自Canvas运行上下文，不接受匿名客户端自报身份。
+  const requestId = safeId(run.runId) || randomUUID();
+  response.setHeader('x-request-id', requestId);
+  const started = Date.now();
+  let failureCode;
+  let logged = false;
+  const logRun = () => {
+    if (logged || !safeId(run.userId)) return;
+    logged = true;
+    console.log(JSON.stringify({ event: 'support_agent_run', service: 'yingce-agent', time: new Date().toISOString(),
+      build_commit: agentRuntimeVersion.build.commit, build_version: agentRuntimeVersion.build.version, build_dirty: agentRuntimeVersion.build.dirty,
+      user_id: run.userId, request_id: requestId, run_id: safeId(run.runId), session_id: safeId(run.sessionId),
+      method: 'POST', route: '/v1/runs', status: response.writableFinished ? response.statusCode : 499,
+      outcome: failureCode ? 'failed' : response.writableFinished ? 'completed' : 'cancelled',
+      level: failureCode ? 'error' : 'info', error_code: failureCode, latency_ms: Date.now() - started }));
+  };
+  response.once('finish', logRun);
+  response.once('close', logRun);
   try {
     await acquire(response);
   } catch (error) {
     if (response.destroyed) return;
+    failureCode = 'AGENT_QUEUE_CANCELLED';
     response.writeHead(499, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: error instanceof Error ? error.message : "cancelled" }));
     return;
@@ -174,22 +200,45 @@ const server = createServer(async (request, response) => {
     release();
   };
   let sawRuntimeError = false;
+  const decoder = new StringDecoder('utf8');
+  let pendingLine = '';
+  let oversizedLine = false;
+  const inspectOutput = text => {
+    // Parse bounded NDJSON across chunks; never infer failure from quoted user/model content.
+    // 跨chunk解析有界NDJSON，不把用户或模型正文中的错误关键字当成运行失败。
+    const parts = text.split('\n');
+    for (let index = 0; index < parts.length; index++) {
+      if (!oversizedLine) pendingLine += parts[index];
+      if (pendingLine.length > 64 * 1024) { pendingLine = ''; oversizedLine = true; }
+      if (index === parts.length - 1) continue;
+      if (!oversizedLine && pendingLine.trim()) {
+        try {
+          const event = JSON.parse(pendingLine);
+          if (['runtime_error', 'bridge_error'].includes(event?.event)) { sawRuntimeError = true; failureCode = 'AGENT_RUNTIME_ERROR'; }
+        } catch { /* The runtime owns protocol validation. / 协议校验仍由runtime处理。 */ }
+      }
+      pendingLine = '';
+      oversizedLine = false;
+    }
+  };
   const stop = () => {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
   };
   response.once("close", stop);
   response.writeHead(200, { "content-type": "application/x-ndjson" });
   child.stdout.on("data", (chunk) => {
-    const text = chunk.toString("utf8");
-    if (text.includes('"runtime_error"') || text.includes('"bridge_error"')) sawRuntimeError = true;
+    inspectOutput(decoder.write(chunk));
     response.write(chunk);
   });
+  child.stdout.on('end', () => inspectOutput(decoder.end() + '\n'));
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
   child.on("error", (error) => {
+    failureCode = 'AGENT_SPAWN_FAILED';
     writeRuntimeError(response, error.message);
     finish();
   });
   child.on("close", (code) => {
+    if (code) failureCode = 'AGENT_EXIT_NONZERO';
     if (!response.writableEnded) {
       if (code && !sawRuntimeError) {
         response.write(`${JSON.stringify({ event: "runtime_error", message: `Agent runtime exited with code ${code}` })}\n`);
