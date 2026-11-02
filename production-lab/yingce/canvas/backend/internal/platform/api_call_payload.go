@@ -120,7 +120,7 @@ func sanitizeAPICallJSON(value any, key string) any {
 			mediaType := strings.TrimPrefix(strings.SplitN(typed, ";", 2)[0], "data:")
 			return fmt.Sprintf("[内嵌媒体 %s，共 %d 字符]", kernel.DefaultString(mediaType, "未知类型"), len(typed))
 		}
-		if strings.Contains(normalizedKey, "base64") || strings.Contains(normalizedKey, "b64") {
+		if strings.Contains(normalizedKey, "base64") || strings.Contains(normalizedKey, "b64") || normalizedKey == "audiodata" || normalizedKey == "imagedata" {
 			return fmt.Sprintf("[内嵌编码数据，共 %d 字符]", len(typed))
 		}
 		if sanitizedURL, ok := sanitizeAPICallURL(typed); ok {

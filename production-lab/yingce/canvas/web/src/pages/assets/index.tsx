@@ -10,7 +10,7 @@ import { Select } from "@/components/ui/base/select";
 import { AssetFilterGroup, AssetsBatchBar, AssetsEmptyState, AssetDrawer } from "./asset-library-panels";
 import { DeleteButton } from "@/components/ui/base/buttons/delete-button";
 import { cn } from "@/lib/utils";
-import { WorkspaceState } from "@/components/layout/workspace-state";
+import { WorkspaceNoResultsState, WorkspaceState } from "@/components/layout/workspace-state";
 import { AssetCard } from "./asset-library-cards";
 import { Switch } from "@/components/ui/base/switch";
 import { resourceStorageTitle, resourceStorageLabel } from "@/lib/canvas/resource-storage-status";
@@ -28,9 +28,10 @@ import { downloadBrowserMedia } from "@/services/browser-download";
 import { flushAssetStorePersistence, useAssetStore, type AssetCategory, type AssetKind, type ImageAsset } from "@/stores/use-asset-store";
 import { loadAssetLibraryPage, loadAssetsForUse, saveRemoteUserDataNow, localSavedRemotePendingMessage, deleteAssetsWithRemoteSync, deleteAssetWithRemoteSync } from "@/services/user-data-sync";
 import { useUserStore } from "@/stores/use-user-store";
-import { createAssetFolder, deleteAssetFolder, listAssetFolders, updateAssetFolder, type AssetFolder, moveRemoteAssetsToFolder } from "@/services/api/user-data";
+import { createAssetFolder, deleteAssetFolder, listAssetFolders, listRemoteAssetsPage, updateAssetFolder, type AssetFolder, moveRemoteAssetsToFolder } from "@/services/api/user-data";
 import { assetCountMap, assetSearchText, readAssetGridDensity, assetKindIcons } from "./asset-library-format";
 import { ASSET_GRID_DENSITY_KEY, type LibraryAsset } from "./asset-library-format";
+import { selectAssetIds } from "./asset-library-selection";
 
 export { ASSET_GRID_DENSITY_KEY, type LibraryAsset, assetKindIcons } from "./asset-library-format";
 
@@ -57,7 +58,7 @@ const kindOptions = [
     { label: "视频", value: "video" },
     { label: "音频", value: "audio" },
     { label: "3D 模型", value: "model" },
-    { label: "角色", value: "entity" },
+    { label: "资产设定", value: "entity" },
 ];
 
 const categoryOptions = [{ label: "全部分类", value: "all" }, ...ASSET_CATEGORY_OPTIONS];
@@ -113,6 +114,9 @@ function PersonalAssetsPage() {
     const [deletingAsset, setDeletingAsset] = useState<LibraryAsset | null>(null);
     const [archivingAsset, setArchivingAsset] = useState<LibraryAsset | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [selecting, setSelecting] = useState(false);
+    const selectionAnchor = useRef<string | undefined>(undefined);
+    const [batchWorking, setBatchWorking] = useState(false);
     const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
     const [batchArchiveOpen, setBatchArchiveOpen] = useState(false);
     const [batchUploadOpen, setBatchUploadOpen] = useState(false);
@@ -142,7 +146,6 @@ function PersonalAssetsPage() {
     const activeAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status !== "archived"), [allLibraryAssets]);
     const trashAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status === "archived"), [allLibraryAssets]);
     const validAssets = viewMode === "trash" ? trashAssets : activeAssets;
-    const selectedAssets = useMemo(() => validAssets.filter((asset) => selectedIds.includes(asset.id)), [selectedIds, validAssets]);
     const filteredAssets = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return validAssets.filter((asset) => {
@@ -156,7 +159,7 @@ function PersonalAssetsPage() {
     }, [validAssets, keyword, kindFilter, categoryFilter, folderFilter]);
 
     const assetPageQuery = useQuery({
-        queryKey: [...ASSET_LIBRARY_QUERY_KEY, page, pageSize, viewMode, kindFilter, categoryFilter, folderFilter, debouncedKeyword],
+        queryKey: [...ASSET_LIBRARY_QUERY_KEY, userId, page, pageSize, viewMode, kindFilter, categoryFilter, folderFilter, debouncedKeyword],
         queryFn: ({ signal }) => loadAssetLibraryPage({
             page,
             pageSize,
@@ -187,6 +190,7 @@ function PersonalAssetsPage() {
     const visibleAssets = useMemo(() => useRemotePage ? remotePageAssets : localVisibleAssets, [useRemotePage, remotePageAssets, localVisibleAssets]);
     const visibleAssetIds = useMemo(() => visibleAssets.map((asset) => asset.id), [visibleAssets]);
     const allFilteredSelected = visibleAssetIds.length > 0 && visibleAssetIds.every((id) => selectedIds.includes(id));
+    const selectionMode = selecting || selectedIds.length > 0;
     const totalAssets = useRemotePage ? remoteTotal : filteredAssets.length;
     const kindCounts = useMemo(() => assetCountMap(kindOptions, useRemotePage ? assetPageQuery.data?.kindCounts : undefined, viewMode === "trash" ? trashAssets : activeAssets, (asset) => asset.kind), [activeAssets, assetPageQuery.data?.kindCounts, trashAssets, useRemotePage, viewMode]);
     const categoryCounts = useMemo(() => assetCountMap(categoryOptions, useRemotePage ? assetPageQuery.data?.categoryCounts : undefined, viewMode === "trash" ? trashAssets : activeAssets, (asset) => asset.category || "other"), [activeAssets, assetPageQuery.data?.categoryCounts, trashAssets, useRemotePage, viewMode]);
@@ -202,9 +206,18 @@ function PersonalAssetsPage() {
     }, [gridDensity]);
 
     useEffect(() => {
-        const existingIds = new Set(validAssets.map((asset) => asset.id));
-        setSelectedIds((current) => current.filter((id) => existingIds.has(id)));
-    }, [validAssets]);
+        setSelectedIds([]);
+        setSelecting(false);
+        selectionAnchor.current = undefined;
+    }, [userId, viewMode, keyword, kindFilter, categoryFilter, folderFilter]);
+
+    const selectAsset = (id: string, selected: boolean, range = false) => {
+        if (batchWorking || assetPageQuery.isFetching) return;
+        setSelecting(true);
+        const anchorId = range ? selectionAnchor.current : undefined;
+        setSelectedIds((current) => selectAssetIds(current, visibleAssetIds, id, selected, anchorId));
+        selectionAnchor.current = id;
+    };
 
     const folderSelectOptions = useMemo(() => [
         { label: "未分类", value: "" },
@@ -372,7 +385,7 @@ function PersonalAssetsPage() {
 
         await flushAssetStorePersistence();
         try {
-            await saveRemoteUserDataNow();
+            await saveRemoteUserDataNow([]);
             await invalidateAssetLibrary();
             message.success(editingAsset ? "素材已更新" : "素材已保存");
         } catch (error) {
@@ -436,12 +449,42 @@ function PersonalAssetsPage() {
         }
     };
 
-    const exportAllAssets = async () => {
-        if (!validAssets.length) {
-            message.warning("暂无素材可导出");
-            return;
+    const collectAllAssetIds = async (status: "active" | "archived") => {
+        if (!userId)
+            return useAssetStore
+                .getState()
+                .assets.filter((asset) => (asset.status === "archived") === (status === "archived"))
+                .map((asset) => asset.id);
+        // 先提交本机待保存素材，再固定完整集合；删除期间不继续翻页，避免页偏移漏项。
+        await flushAssetStorePersistence();
+        await saveRemoteUserDataNow([]);
+        const ids = new Set<string>();
+        for (let currentPage = 1; ; currentPage++) {
+            if (useUserStore.getState().user?.id !== userId) throw new Error("账号已切换，请重新操作素材库");
+            const result = await listRemoteAssetsPage({ page: currentPage, pageSize, status });
+            if (useUserStore.getState().user?.id !== userId) throw new Error("账号已切换，请重新操作素材库");
+            for (const asset of result.assets) ids.add(asset.id);
+            if (!result.hasMore) return [...ids];
         }
-        await exportAssets(validAssets);
+    };
+
+    const exportAllAssets = async () => {
+        if (batchWorking) return;
+        setBatchWorking(true);
+        try {
+            const ids = await collectAllAssetIds(viewMode === "trash" ? "archived" : "active");
+            if (!ids.length) {
+                message.warning("暂无素材可导出");
+                return;
+            }
+            await loadAssetsForUse(ids);
+            const byId = new Map(useAssetStore.getState().assets.map((asset) => [asset.id, asset]));
+            await exportAssets(ids.map((id) => byId.get(id)!));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "导出失败");
+        } finally {
+            setBatchWorking(false);
+        }
     };
 
     const importAssetZip = async (file?: File) => {
@@ -463,69 +506,56 @@ function PersonalAssetsPage() {
         }
     };
 
-    const restoreAsset = async (asset: LibraryAsset) => {
+    const changeAssetStatus = async (ids: string[], status: "archived" | "confirmed") => {
+        if (!ids.length || batchWorking) return;
+        const assetIds = [...ids];
+        const action = status === "archived" ? "移入回收站" : "还原";
+        let locallyUpdated = false;
+        setBatchWorking(true);
         try {
-            await ensureAssetsInStore([asset.id]);
-            updateAsset(asset.id, { status: "confirmed" });
+            await ensureAssetsInStore(assetIds);
+            for (const id of assetIds) updateAsset(id, { status });
             await flushAssetStorePersistence();
-            await saveRemoteUserDataNow();
-            message.success(`已还原素材「${asset.title}」`);
+            locallyUpdated = true;
+            await saveRemoteUserDataNow([]);
+            setSelectedIds((current) => current.filter((id) => !assetIds.includes(id)));
+            setArchivingAsset(null);
+            setBatchArchiveOpen(false);
+            message.success(`已${action} ${assetIds.length} 个素材`);
+            void invalidateAssetLibrary();
         } catch (error) {
-            message.warning(localSavedRemotePendingMessage("已在本地还原", error));
-        }
-    };
-
-    const batchRestore = async () => {
-        if (!selectedIds.length) return;
-        try {
-            await ensureAssetsInStore(selectedIds);
-            for (const id of selectedIds) updateAsset(id, { status: "confirmed" });
-            const count = selectedIds.length;
-            setSelectedIds([]);
-            await flushAssetStorePersistence();
-            await saveRemoteUserDataNow();
-            message.success(`已还原 ${count} 个素材`);
-        } catch (error) {
-            message.warning(localSavedRemotePendingMessage("已在本地还原", error));
-        }
-    };
-
-    const archiveAsset = async (asset: LibraryAsset) => {
-        try {
-            await ensureAssetsInStore([asset.id]);
-            updateAsset(asset.id, { status: "archived" });
-            await flushAssetStorePersistence();
-            await saveRemoteUserDataNow();
-            message.success(`已将「${asset.title}」移入回收站`);
-        } catch (error) {
-            message.warning(localSavedRemotePendingMessage("已移入回收站", error));
-        }
-    };
-
-    const batchArchive = async () => {
-        if (!selectedIds.length) return;
-        try {
-            await ensureAssetsInStore(selectedIds);
-            for (const id of selectedIds) updateAsset(id, { status: "archived" });
-            const count = selectedIds.length;
-            setSelectedIds([]);
-            await flushAssetStorePersistence();
-            await saveRemoteUserDataNow();
-            message.success(`已将 ${count} 个素材移入回收站`);
-        } catch (error) {
-            message.warning(localSavedRemotePendingMessage("已移入回收站", error));
+            if (locallyUpdated) message.warning(localSavedRemotePendingMessage(`已在本地${action}`, error));
+            else message.error(error instanceof Error ? error.message : `${action}失败`);
+        } finally {
+            setBatchWorking(false);
         }
     };
 
     const emptyTrash = async () => {
-        const count = trashAssets.length;
-        if (!count) return;
+        if (batchWorking) return;
+        setBatchWorking(true);
+        let deletedCount = 0;
         try {
-            await deleteAssetsWithRemoteSync(trashAssets.map((asset) => asset.id));
+            const ids = await collectAllAssetIds("archived");
+            if (!ids.length) {
+                message.info("回收站已为空");
+                return;
+            }
+            for (let offset = 0; offset < ids.length; offset += pageSize) {
+                if (useUserStore.getState().user?.id !== userId) throw new Error("账号已切换，请重新操作素材库");
+                const batch = ids.slice(offset, offset + pageSize);
+                await deleteAssetsWithRemoteSync(batch);
+                deletedCount += batch.length;
+            }
             setSelectedIds([]);
-            message.success(`已彻底清空回收站 ${count} 个素材`);
+            message.success(`已彻底清空回收站 ${deletedCount} 个素材`);
+            void invalidateAssetLibrary();
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "清空回收站失败");
+            const reason = error instanceof Error ? error.message : "清空回收站失败";
+            if (deletedCount) message.warning(`已删除 ${deletedCount} 个素材，其余未完成：${reason}`);
+            else message.error(reason);
+        } finally {
+            setBatchWorking(false);
         }
     };
 
@@ -541,19 +571,33 @@ function PersonalAssetsPage() {
     };
 
     const exportSelectedAssets = async () => {
-        if (!selectedAssets.length) return;
-        await exportAssets(selectedAssets);
+        if (!selectedIds.length || batchWorking) return;
+        const ids = [...selectedIds];
+        setBatchWorking(true);
+        try {
+            await loadAssetsForUse(ids);
+            const byId = new Map(useAssetStore.getState().assets.map((asset) => [asset.id, asset]));
+            await exportAssets(ids.map((id) => byId.get(id)!));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "导出失败");
+        } finally {
+            setBatchWorking(false);
+        }
     };
 
     const confirmBatchDelete = async () => {
-        if (!selectedAssets.length) return;
+        if (!selectedIds.length || batchWorking) return;
+        const ids = [...selectedIds];
+        setBatchWorking(true);
         try {
-            await deleteAssetsWithRemoteSync(selectedAssets.map((asset) => asset.id));
-            message.success(`已彻底删除 ${selectedAssets.length} 个素材`);
+            await deleteAssetsWithRemoteSync(ids);
+            message.success(`已彻底删除 ${ids.length} 个素材`);
             setSelectedIds([]);
             setBatchDeleteOpen(false);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "批量删除失败");
+        } finally {
+            setBatchWorking(false);
         }
     };
 
@@ -567,10 +611,11 @@ function PersonalAssetsPage() {
                         meta={<span className="app-projects-header-meta assets-header-meta">{totalAssets} 个素材</span>}
                         actions={
                             <div className="assets-header-actions">
+                                <AssetStorageUsage />
                                 <div className="assets-header-action-buttons">
                                     {viewMode === "trash" ? (
                                         <>
-                                            {trashAssets.length > 0 ? (
+                                            {userId || trashAssets.length > 0 ? (
                                                 <Popconfirm
                                                     title="确定清空回收站吗？"
                                                     description="清空后所有回收站素材及其文件将被彻底永久删除，不可恢复。"
@@ -579,7 +624,7 @@ function PersonalAssetsPage() {
                                                     okButtonProps={{ danger: true }}
                                                     cancelText="取消"
                                                 >
-                                                    <Button danger icon={<Trash2 className="size-3.5" />}>
+                                                    <Button danger loading={batchWorking} icon={<Trash2 className="size-3.5" />}>
                                                         清空回收站
                                                     </Button>
                                                 </Popconfirm>
@@ -610,7 +655,6 @@ function PersonalAssetsPage() {
                                         </>
                                     )}
                                 </div>
-                                <AssetStorageUsage />
                             </div>
                         }
                     />
@@ -643,6 +687,13 @@ function PersonalAssetsPage() {
                                 options={assetGridDensityOptions}
                                 onChange={(value) => setGridDensity(parseAssetGridDensity(value))}
                             />
+                            <Button aria-pressed={selectionMode} onClick={() => {
+                                setSelecting(!selectionMode);
+                                setSelectedIds([]);
+                                selectionAnchor.current = undefined;
+                            }} disabled={batchWorking}>
+                                {selectionMode ? "退出多选" : "批量选择"}
+                            </Button>
                         </CollectionToolbar>
                 </div>
 
@@ -716,7 +767,7 @@ function PersonalAssetsPage() {
                                         setSelectedIds([]);
                                     }}
                                 >
-                                    <span className="assets-filter-item-label flex items-center gap-1.5">
+                                    <span className="assets-filter-item-label flex items-center gap-2">
                                         <Trash2 className="size-3.5" />
                                         <span>回收站</span>
                                     </span>
@@ -733,15 +784,17 @@ function PersonalAssetsPage() {
                                     </div>
                                 </div>
                             ) : null}
-                            {visibleAssets.length || selectedAssets.length ? (
+                            {selectionMode ? (
                                 <AssetsBatchBar
-                                    count={selectedAssets.length}
+                                    count={selectedIds.length}
                                     isTrash={viewMode === "trash"}
                                     allSelected={allFilteredSelected}
+                                    busy={batchWorking}
+                                    pageLoading={assetPageQuery.isFetching}
                                     onSelectAll={() => setSelectedIds((current) => Array.from(new Set([...current, ...visibleAssetIds])))}
-                                    onClear={() => setSelectedIds([])}
+                                    onClear={() => { setSelectedIds([]); selectionAnchor.current = undefined; }}
                                     onExport={() => void exportSelectedAssets()}
-                                    onRestore={() => void batchRestore()}
+                                    onRestore={() => void changeAssetStatus(selectedIds, "confirmed")}
                                     onArchive={() => setBatchArchiveOpen(true)}
                                     onDelete={() => setBatchDeleteOpen(true)}
                                 />
@@ -755,7 +808,19 @@ function PersonalAssetsPage() {
                             ) : (
                                 <>
                                     {visibleAssets.length === 0 ? (
-                                        <WorkspaceState icon="assets" compact title="没有匹配的素材" description="调整关键词或左侧分类后再试。" />
+                                        <WorkspaceNoResultsState
+                                            icon="assets"
+                                            compact
+                                            query={keyword}
+                                            description="调整关键词或左侧分类，或清除筛选后查看全部。"
+                                            onClear={() => {
+                                                setKeyword("");
+                                                setKindFilter("all");
+                                                setCategoryFilter("all");
+                                                setFolderFilter("all");
+                                                setPage(1);
+                                            }}
+                                        />
                                     ) : (
                                         <CollectionGrid className="library-grid assets-library-grid" style={{ "--collection-grid-min-width": `${assetGridCardMinWidth[gridDensity]}px` } as React.CSSProperties}>
                                             {visibleAssets.map((asset) => (
@@ -763,14 +828,15 @@ function PersonalAssetsPage() {
                                                     key={asset.id}
                                                     asset={asset}
                                                     selected={selectedIds.includes(asset.id)}
+                                                    selectionMode={selectionMode}
                                                     isTrash={viewMode === "trash"}
                                                     retentionDays={retentionDays}
-                                                    onSelect={(selected) => setSelectedIds((current) => (selected ? [...new Set([...current, asset.id])] : current.filter((id) => id !== asset.id)))}
+                                                    onSelect={(selected, range) => selectAsset(asset.id, selected, range)}
                                                     onOpen={() => setPreviewAsset(asset)}
                                                     onEdit={() => void openEdit(asset)}
                                                     onCopy={copyAssetText}
                                                     onDownload={downloadImage}
-                                                    onRestore={() => void restoreAsset(asset)}
+                                                    onRestore={() => void changeAssetStatus([asset.id], "confirmed")}
                                                     onArchive={() => setArchivingAsset(asset)}
                                                     onDelete={() => setDeletingAsset(asset)}
                                                     folderOptions={folderSelectOptions}
@@ -908,7 +974,7 @@ function PersonalAssetsPage() {
                                 <Typography.Text strong ellipsis className="block">
                                     {title || "未命名素材"}
                                 </Typography.Text>
-                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                <div className="mt-2 flex flex-wrap gap-2">
                                     {tags.length ? (
                                         tags.map((tag) => (
                                             <Tag key={tag} className="m-0">
@@ -978,13 +1044,14 @@ function PersonalAssetsPage() {
                 className="library-modal library-confirm-modal"
                 title="移入回收站"
                 open={Boolean(archivingAsset)}
-                onCancel={() => setArchivingAsset(null)}
+                onCancel={() => { if (!batchWorking) setArchivingAsset(null); }}
                 onOk={() => {
                     if (archivingAsset) {
-                        void archiveAsset(archivingAsset);
-                        setArchivingAsset(null);
+                        void changeAssetStatus([archivingAsset.id], "archived");
                     }
                 }}
+                confirmLoading={batchWorking}
+                cancelButtonProps={{ disabled: batchWorking }}
                 okText="移入回收站"
                 cancelText="取消"
             >
@@ -994,15 +1061,14 @@ function PersonalAssetsPage() {
                 className="library-modal library-confirm-modal"
                 title="批量移入回收站"
                 open={batchArchiveOpen}
-                onCancel={() => setBatchArchiveOpen(false)}
-                onOk={() => {
-                    void batchArchive();
-                    setBatchArchiveOpen(false);
-                }}
+                onCancel={() => { if (!batchWorking) setBatchArchiveOpen(false); }}
+                onOk={() => void changeAssetStatus(selectedIds, "archived")}
+                confirmLoading={batchWorking}
+                cancelButtonProps={{ disabled: batchWorking }}
                 okText="移入回收站"
                 cancelText="取消"
             >
-                确定将已选择的 {selectedAssets.length} 个素材移入回收站吗？移入后可随时在回收站批量还原。
+                确定将已选择的 {selectedIds.length} 个素材移入回收站吗？移入后可随时在回收站批量还原。
             </Modal>
             <Modal
                 className="library-modal library-confirm-modal"
@@ -1020,13 +1086,15 @@ function PersonalAssetsPage() {
                 className="library-modal library-confirm-modal"
                 title="批量彻底删除素材"
                 open={batchDeleteOpen}
-                onCancel={() => setBatchDeleteOpen(false)}
+                onCancel={() => { if (!batchWorking) setBatchDeleteOpen(false); }}
                 onOk={() => void confirmBatchDelete()}
+                confirmLoading={batchWorking}
+                cancelButtonProps={{ disabled: batchWorking }}
                 okText="彻底删除"
                 okButtonProps={{ danger: true }}
                 cancelText="取消"
             >
-                确定彻底删除已选择的 {selectedAssets.length} 个素材吗？未被其他素材复用的服务器文件会直接释放，原画布或任务中的旧引用可能失效，操作不可恢复。
+                确定彻底删除已选择的 {selectedIds.length} 个素材吗？未被其他素材复用的服务器文件会直接释放，原画布或任务中的旧引用可能失效，操作不可恢复。
             </Modal>
         </>
     );

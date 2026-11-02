@@ -194,6 +194,10 @@ export default function ProjectsPage() {
     const hasInitialError = query.isError && !query.data;
     return (
         <WorkspacePage className="library-page project-library-page" grid>
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.025] px-4 py-3">
+                <div><strong>小说流水线</strong><p className="text-xs text-foreground/55">导入小说，按集规划、审核提示词，再确认生成素材与视频。</p></div>
+                <Link to="/drama-pipeline"><Button icon={<ArrowRight className="size-4" />}>打开流水线</Button></Link>
+            </div>
             <details className="story-launcher-panel" aria-label="开始一部新短剧">
                 <summary className="story-launcher-head">
                     <div className="story-launcher-title">
@@ -375,7 +379,7 @@ function ProjectRow({ row, onDelete }: { row: ProjectSummary; onDelete: () => Pr
     const styleTitle = projectStyle?.title || parseStyleProfile(row.project.styleProfileJson)?.title || resolveCanvasStylePreset(row.project.stylePresetId)?.title || (row.project.stylePresetId ? "自定义画风" : "未设置画风");
     const coverUrl = row.project.coverResourceId ? resourceFileUrl(row.project.coverResourceId) : projectStyle?.imageUrl;
     return (
-        <Link to={`/projects/${row.project.id}/overview`} className="product-collection-card library-card project-library-card group">
+        <Link to={row.project.type === "drama-pipeline" ? `/drama-pipeline/${row.project.id}` : `/projects/${row.project.id}/overview`} className="product-collection-card library-card project-library-card group">
             <span className="project-library-cover">
                 {coverUrl ? <CachedResourceImage className="project-library-cover-art" src={coverUrl} alt="" fallback={<MediaPlaceholder failed />} /> : <MediaPlaceholder label="故事由此开始" />}
                 <span className="project-library-cover-scrim" />

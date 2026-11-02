@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY *.mjs *.sql *.json ./
+COPY shared ./shared
 COPY protocol-packages ./protocol-packages
 RUN node --test *.test.mjs
 USER node

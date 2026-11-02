@@ -1,4 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
+import type {ReactNode} from "react";
+import {LocaleProvider} from "../../i18n/locale";
+function render(ui:ReactNode){localStorage.setItem("adcraft.locale","zh-CN");return renderUI(ui,{wrapper:({children})=><LocaleProvider initialLocale="zh-CN">{children}</LocaleProvider>});}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectV2Summary } from "../../types-v2";
 import { HomeRecentProjects } from "./HomeRecentProjects";
@@ -14,16 +17,17 @@ afterEach(cleanup);
 describe("HomeRecentProjects", () => {
   it("shows loading rather than demos or a premature empty state", () => {
     render(<HomeRecentProjects {...callbacks} />);
-    expect(screen.getByRole("status").textContent).toContain("Loading recent projects");
-    expect(screen.queryByText("暂无广告工程")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("正在加载最近项目");
+    expect(screen.queryByText("暂无最近项目")).toBeNull();
     expect(screen.queryByText("New fragrance product reel")).toBeNull();
   });
 
   it("shows every real project including missing covers and opens exact project IDs", () => {
     state.projects = ["a", "b", "c", "d"].map(fixture); state.loading = false;
     const view = render(<HomeRecentProjects {...callbacks} />);
-    for (const p of state.projects) { fireEvent.click(screen.getByRole("button", { name: `Open ${p.name}` })); expect(callbacks.onOpenProject).toHaveBeenLastCalledWith(p.project_id); }
-    expect(screen.getAllByText("暂无封面")).toHaveLength(4);
+    for (const p of state.projects) { fireEvent.click(screen.getByRole("button", { name: `打开${p.name}` })); expect(callbacks.onOpenProject).toHaveBeenLastCalledWith(p.project_id); }
+    expect(screen.queryByText("No cover yet")).toBeNull();
+    expect(view.container.querySelectorAll(".recent-card__missing")).toHaveLength(0);
     expect(view.container.querySelectorAll("time[datetime='2026-09-07T00:00:00Z']")).toHaveLength(4);
     expect(view.container.querySelectorAll(".recent-card[data-reveal-item]")).toHaveLength(4);
     expect(screen.queryByRole("button", { name: "View all" })).toBeNull();
@@ -37,8 +41,8 @@ describe("HomeRecentProjects", () => {
     expect(view.container.querySelector("img[src='/poster-1.webp']")).not.toBeNull();
     expect(view.container.querySelector("video")).toBeNull();
     fireEvent.error(view.container.querySelector("img")!);
-    expect(screen.getByText("封面暂不可用")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open Campaign a" }));
+    expect(screen.getByText("封面不可用")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "打开Campaign a" }));
     expect(callbacks.onOpenProject).toHaveBeenCalledWith("a");
   });
 
@@ -51,15 +55,15 @@ describe("HomeRecentProjects", () => {
   it("shows empty only after success and supports creating a project", () => {
     state.projects = []; state.loading = false;
     render(<HomeRecentProjects {...callbacks} />);
-    expect(screen.getByText("暂无广告工程")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    expect(screen.getByText("暂无最近项目")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
     expect(callbacks.onCreateProject).toHaveBeenCalledOnce();
   });
 
   it("keeps cached cards on refresh failure and disables repeat retry while loading", () => {
     state.projects = [fixture("a")]; state.error = true; state.loading = false;
     const view = render(<HomeRecentProjects {...callbacks} />);
-    expect(screen.getByRole("alert").textContent).toContain("最近工程刷新失败");
+    expect(screen.getByRole("alert").textContent).toContain("最近项目刷新失败");
     expect(screen.getByText("Campaign a")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(state.refresh).toHaveBeenCalledOnce();
@@ -71,7 +75,7 @@ describe("HomeRecentProjects", () => {
     state.error = true; state.loading = false;
     render(<HomeRecentProjects {...callbacks} />);
     expect(screen.getByRole("alert")).toBeTruthy();
-    expect(screen.queryByText("暂无广告工程")).toBeNull();
+    expect(screen.queryByText("暂无最近项目")).toBeNull();
     expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
   });
 });

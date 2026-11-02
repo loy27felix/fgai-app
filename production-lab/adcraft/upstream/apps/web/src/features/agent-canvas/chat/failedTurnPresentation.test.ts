@@ -61,6 +61,22 @@ function turn(
 }
 
 describe("failed Turn presentation", () => {
+  it("attaches the exact failed continuation to its Agent failure message for manual retry", () => {
+    const failure = { ...message({ messageId: "next-failed", speaker: "adcraft_video_agent", turnId: "next" }), metadata: { turn_id: "next", status: "failed" } };
+    const source = turn("next", { turn_kind: "next_action", error_code: "capability_reference_plan_invalid" });
+    expect(projectFailedMessageTurns([failure], { next: source }).get("next-failed")?.turn_id).toBe("next");
+    expect(projectFailedMessageTurns([failure], { next: { ...source, status: "completed" } })).toHaveLength(0);
+    expect(projectFailedMessageTurns([failure], { other: turn("other", { turn_kind: "next_action" }) })).toHaveLength(0);
+  });
+  it("shows one retry card for a failed continuation retry chain", () => {
+    const failure = (id: string) => ({ ...message({ messageId: `message-${id}`, speaker: "adcraft_video_agent", turnId: id }), metadata: { turn_id: id, status: "failed" } });
+    const projected = projectFailedMessageTurns([failure("original"), failure("retry")], {
+      original: turn("original", { turn_kind: "next_action" }),
+      retry: turn("retry", { turn_kind: "next_action", retry_of_turn_id: "original", retry_attempt_no: 1 }),
+    });
+    expect(projected.size).toBe(1);
+    expect([...projected.values()][0]?.turn_id).toBe("retry");
+  });
   it("maps a failed message Turn to its structured source user message", () => {
     const items: ChatTimelineItemV2[] = [
       message({ messageId: "user-message-1", turnId: "turn-1" }),

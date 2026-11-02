@@ -1,7 +1,7 @@
 import type { StoryboardRow } from "@/types/canvas";
 import { formatShotOrdinal } from "@/lib/shot-label";
-import type { ProjectDetail, ShotRevisionInput } from "@/services/api/projects";
-import { ensureShotAssetMentionPrompt, inferShotVisualAssets } from "./workflow-shot-references";
+import { listProjectAssetsPage, type ProjectAsset, type ProjectDetail, type ShotRevisionInput } from "@/services/api/projects";
+import { ensureShotAssetMentionPrompt, inferShotVisualAssets, shotNarrativeText } from "./workflow-shot-references";
 import type { DramaProductionPlan } from "@/lib/short-drama-production";
 
 export type ChapterStoryboardAsset = {
@@ -38,6 +38,17 @@ export type ChapterStoryboardReplaceImpact = {
     candidateCount: number;
 };
 
+export async function loadChapterStoryboardAssets(projectId: string): Promise<ProjectAsset[]> {
+    const assets = new Map<string, ProjectAsset>();
+    for (let page = 1; ; page++) {
+        const result = await listProjectAssetsPage(projectId, { page, pageSize: 100 });
+        const previous = assets.size;
+        for (const asset of result.assets) assets.set(asset.id, asset);
+        if (!result.hasMore && assets.size >= result.total) return [...assets.values()];
+        if (!result.hasMore || assets.size === previous) throw new Error("项目资产清单读取不完整，尚未提交生成，请重试");
+    }
+}
+
 export function chapterStoryboardCharacters(detail: ProjectDetail, unitId?: string): ChapterStoryboardCharacter[] {
     const confirmed = detail.assets.flatMap((asset): ChapterStoryboardCharacter[] => {
         const card = asset.character;
@@ -72,10 +83,14 @@ export function chapterStoryboardAssets(detail: ProjectDetail): ChapterStoryboar
             prompt: assetPrompt(asset.previewText, asset.character?.definition, asset.title),
             ...(type === "character" ? { characterAssetId: asset.id, characterVersionId } : {}),
         }];
-    }).slice(0, 60);
+    }).sort((a, b) => storyboardAssetPriority(a) - storyboardAssetPriority(b)).slice(0, 60);
 }
 
-export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: ProjectDetail, productionPlan?: DramaProductionPlan): ProjectShotReplacementInput[] {
+function storyboardAssetPriority(asset: ChapterStoryboardAsset) {
+    return asset.type === "character" ? 0 : asset.category === "environment" || asset.category === "prop" ? 1 : 2;
+}
+
+export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: ProjectDetail, productionPlan?: DramaProductionPlan, referenceChoices?: Record<number, string[]>): ProjectShotReplacementInput[] {
     const versionByAssetId = new Map((detail?.assets || []).flatMap((asset) => asset.primaryVersionId ? [[asset.id, asset.primaryVersionId] as const] : []));
     const mentionReferenceByAssetId = new Map((detail?.assets || []).map((asset) => [asset.id, {
         assetId: asset.id,
@@ -87,7 +102,9 @@ export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: Pro
         const shotNumber = index + 1;
         const description = row.plotDescription.trim() || `镜头 ${shotNumber}`;
         const durationMs = Math.max(1000, Math.round((Number(row.durationSeconds) || 1) * 1000));
-        const assetIds = detail ? inferShotVisualAssets(detail.assets, [row.plotDescription, row.videoMotionPrompt, row.imageGenerationPrompt, row.performanceBlocking, ...row.characters.map((character) => character.characterName)].join("\n"), storyboardRowAssetIds(row)).map((asset) => asset.id) : storyboardRowAssetIds(row);
+        const referencePlan = detail ? storyboardRowReferencePlan(row, detail.assets) : undefined;
+        if (referencePlan?.missingIds.length && !referenceChoices?.[index]) throw new Error(`片段 ${shotNumber} 有已失效参考，请先核对当前项目资产再导入`);
+        const assetIds = referenceChoices?.[index] || referencePlan?.selectedIds || storyboardRowAssetIds(row);
         if (assetIds.length > 6) throw new Error(`片段 ${shotNumber} 匹配到 ${assetIds.length} 项参考资产，请核对并精简到 6 项以内`);
         const mentionReferences = assetIds.flatMap((assetId) => {
             const reference = mentionReferenceByAssetId.get(assetId);
@@ -111,8 +128,12 @@ export function storyboardRowsToProjectShots(rows: StoryboardRow[], detail?: Pro
                 negativePrompt: row.negativePrompt.trim(),
                 continuityNotes: row.continuityOut.trim(),
                 actionBeats: [
+                    ...(row.sourceTask ? [{ type: "chapter_storyboard_import", ...row.sourceTask }] : []),
+                    ...(referencePlan?.describedOnly.length ? [{ type: "described_assets_without_reference", assetIds: referencePlan.describedOnly.map(asset => asset.id) }] : []),
+                    ...(referenceChoices?.[index] ? [{ type: "reviewed_reference_selection", assetIds, candidateAssetIds: referencePlan?.candidates.map(asset => asset.id) }] : []),
                     ...(row.timeBeats.trim() ? [{ description: row.timeBeats.trim() }] : []),
                     ...(productionPlan ? [{ type: "drama_video_segment", productionPlan }] : []),
+                    ...(row.styleReferenceIds?.length ? [{ type: "project_style_references", assetIds: row.styleReferenceIds }] : []),
                 ],
             },
         };
@@ -135,7 +156,26 @@ function storyboardRowAssetIds(row: StoryboardRow) {
     return Array.from(new Set([
         ...row.assetBindings.map((binding) => binding.nodeId),
         ...row.characters.flatMap((character) => character.characterAssetId ? [character.characterAssetId] : []),
-    ])).slice(0, 6);
+    ]));
+}
+
+/** Preserve the model's explicit bindings; only infer optional props into unused slots.
+ * A name mentioned in reference/voice/negative notes cannot add another actor. */
+export function storyboardRowReferencePlan(row: StoryboardRow, assets: ProjectAsset[]) {
+    const explicit = storyboardRowAssetIds(row);
+    const known = new Set(assets.map(asset => asset.id));
+    const missingIds = explicit.filter(id => !known.has(id));
+    const narrative = [row.plotDescription, shotNarrativeText(row.videoMotionPrompt), row.performanceBlocking, ...row.characters.map(character => character.characterName)].join("\n");
+    const inferred = inferShotVisualAssets(assets, narrative);
+    const required = [...new Set([...explicit.filter(id => known.has(id)), ...inferred.filter(asset => asset.category === "character").map(asset => asset.id)])];
+    const selectedIds = [...required];
+    const describedOnly: ProjectAsset[] = [];
+    for (const asset of inferred) {
+        if (selectedIds.includes(asset.id)) continue;
+        if (selectedIds.length < 6) selectedIds.push(asset.id);
+        else describedOnly.push(asset);
+    }
+    return { selectedIds, describedOnly, missingIds, needsReview: required.length > 6 || missingIds.length > 0, candidates: missingIds.length ? assets : assets.filter(asset => selectedIds.includes(asset.id) || describedOnly.some(item => item.id === asset.id)) };
 }
 
 function storyboardAssetType(mediaType: string, category: string): ChapterStoryboardAsset["type"] | null {

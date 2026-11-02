@@ -1,7 +1,19 @@
 import { expect, test } from "bun:test";
-import { projectAssetExecutionPrompt, projectAssetGenerationPrompt, runAssetBatch } from "../src/pages/projects/detail/project-asset-generation-plan";
+import { projectAssetExecutionPrompt, projectAssetGenerationPrompt, projectAssetReferencePlan, runAssetBatch } from "../src/pages/projects/detail/project-asset-generation-plan";
+import type { StyleProfileSnapshot } from "@/lib/canvas/style-profile";
 import type { ProjectAsset } from "../src/services/api/projects";
 const asset = { id: "evan", title: "Evan", category: "character", definition: { appearance: "28岁白人男性，棕色短发" } } as ProjectAsset;
+test("a supporting character does not silently inherit the protagonist's style portrait", () => {
+    const evan = { ...asset, character: { representations: [{ resourceId: "evan-portrait" }] } } as ProjectAsset;
+    const investigator = { ...asset, id: "investigator", title: "调查人员" };
+    const profile = { assets: [{ kind: "reference", status: "validated", referenceResourceIds: ["evan-portrait", "palette"] }] } as StyleProfileSnapshot;
+    const plan = projectAssetReferencePlan(investigator, [], profile, [evan, investigator]);
+    expect(plan.ids).toEqual(["palette"]);
+    expect(plan.excluded).toEqual([{ id: "evan-portrait", name: "Evan" }]);
+    expect(projectAssetReferencePlan(evan, [], profile, [evan]).ids).toContain("evan-portrait");
+    expect(projectAssetReferencePlan(investigator, ["evan-portrait"], profile, [evan]).ids).toContain("evan-portrait");
+    expect(profile.assets[0].referenceResourceIds).toContain("evan-portrait");
+});
 test("asset prompts preserve explicit identity and unstructured global style", () => {
     const prompt = projectAssetGenerationPrompt(asset, "美国纽约，真人心理悬疑电影，蓝灰雨夜");
     expect(prompt).toContain("28岁白人男性");

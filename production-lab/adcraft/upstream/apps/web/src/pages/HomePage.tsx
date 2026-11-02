@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { useHealth } from "../app/useHealth";
 import type { AppNavigate } from "../types";
 import { HomeShowcase } from "./HomeShowcase";
 import { HomeRecentLoading } from "./HomeRecentLoading";
@@ -20,7 +19,6 @@ export function HomePage({ navigate }: { navigate: AppNavigate }) {
   const recentReveal = useHomeSectionReveal();
   const [recentEnabled, setRecentEnabled] = useState(false);
   const discoverReveal = useHomeSectionReveal({ replay: true });
-  const { startNewProject } = useHealth();
   const hasIntroVideo = Boolean(homeProductVideoUrl) && !introVideoFailed;
 
   useEffect(() => {
@@ -40,9 +38,8 @@ export function HomePage({ navigate }: { navigate: AppNavigate }) {
     return () => observer.disconnect();
   }, [recentReveal.sectionRef]);
 
-  async function createProject() {
-    await startNewProject();
-    navigate("workflow", { state: { startNewProject: true } });
+  function createProject() {
+    navigate("projects/new");
   }
 
   return (

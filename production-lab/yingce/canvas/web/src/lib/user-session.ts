@@ -14,6 +14,7 @@ import { defaultModelCapabilityConfig, STANDARD_IMAGE_SIZE_VALUES, type ModelCap
 import { imageSizeConfigWithPresets } from "@/lib/image-size-presets";
 import { useUserStore } from "@/stores/use-user-store";
 import { PLUGIN_STORE_KEY, usePluginStore } from "@/stores/use-plugin-store";
+import { useGlobalAgentStore } from "@/stores/use-global-agent-store";
 import { initializeRemoteUserDataSession, installRemoteUserDataAutoSync, resetRemoteUserDataSync, withRemoteUserDataSyncExclusive } from "@/services/user-data-sync";
 import { clearResourceAccessCache } from "@/services/api/resources";
 import { clearResourceBlobCache } from "@/services/resource-blob-cache";
@@ -51,6 +52,8 @@ export async function applyUserSession(payload: AuthSessionPayload) {
     useUserStore.getState().setRuntimeLimits(payload.runtimeLimits);
     useUserStore.getState().setDrawingEngine(payload.drawingEngine);
     useUserStore.getState().setFeatures(payload.features);
+    useUserStore.getState().setReferralAvailable(payload.referralAvailable);
+    useUserStore.getState().setUserGroup(payload.userGroup);
     installRemoteUserDataAutoSync();
     try {
         // 缓存恢复和同步基线必须先于工作区开放，防止生成/编辑抢跑，或被初始化误记为已同步。
@@ -69,6 +72,8 @@ function resetUserScopedMemory() {
     useConfigStore.setState({ config: normalizeConfigSnapshot({ config: defaultConfig }).config });
     usePluginStore.setState({ hydrated: false, installations: [], runtimeStatuses: {}, pluginStates: {} });
     useCreationPreferencesStore.setState({ hydrated: false, preferences: {} });
+    // 全局 Agent 的开合与待投递消息属于账号会话，切换账号必须清空。
+    useGlobalAgentStore.getState().reset();
 }
 
 async function hydrateUserSessionData(payload: AuthSessionPayload, generation: number) {

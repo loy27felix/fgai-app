@@ -21,14 +21,14 @@ case "$1 $2" in
   [ "${MISSING_BUILDER:-0}" = 0 ]; exit $?;;
  'buildx create') exit "${FAIL_CREATE:-0}";;
  'inspect --format') printf '%s %s\\n' "$TEST_MEMORY" "$TEST_SWAP";;
- 'exec '*) printf '%s\\n' "${TEST_AVAILABLE_KB:-4194304}";;
+ 'exec '*) printf '%s\\n' "${TEST_AVAILABLE_KB:-5242880}";;
  *) exit 99;;
 esac
 ''')
             mock.chmod(0o755)
             env = {**os.environ, 'PATH': str(root) + ':/usr/bin:/bin', 'PROJECT_ROOT': str(root),
                    'FG_BUILD_BUILDER': 'fg-test-limited', 'FG_TEST_LOG': str(root / 'calls'),
-                   'TEST_MEMORY': '3221225472', 'TEST_SWAP': '3221225472', **settings}
+                   'TEST_MEMORY': '4294967296', 'TEST_SWAP': '4294967296', **settings}
             result = subprocess.run(['/bin/bash', '-c', 'source "$1"; ensure_build_resource_limit', 'guard-test', str(GUARD)], env=env, capture_output=True)
             calls = (root / 'calls').read_text() if (root / 'calls').exists() else ''
             return result.returncode, calls
@@ -64,7 +64,7 @@ esac
         self.assertNotEqual(self.replay(TEST_AVAILABLE_KB='unknown')[0], 0)
 
     def test_headroom_boundary_is_admitted(self):
-        self.assertEqual(self.replay(TEST_AVAILABLE_KB='3670016')[0], 0)
+        self.assertEqual(self.replay(TEST_AVAILABLE_KB='4718592')[0], 0)
 
     def replay_build(self, **settings):
         with tempfile.TemporaryDirectory() as directory:
@@ -96,8 +96,8 @@ bounded_compose_build app
         status, calls = self.replay_build()
         self.assertEqual(status, 0)
         self.assertIn('build --print --build-arg APP_DEPLOYMENT_VERSION=deploy-proof app', calls)
-        self.assertIn('*.resources.memory=2560m', calls)
-        self.assertIn('*.resources.memory-swap=2560m', calls)
+        self.assertIn('*.resources.memory=3072m', calls)
+        self.assertIn('*.resources.memory-swap=3072m', calls)
         self.assertIn('--load app', calls)
 
     def test_compose_resolution_failure_never_starts_bake(self):

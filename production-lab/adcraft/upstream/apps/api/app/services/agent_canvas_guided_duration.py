@@ -73,19 +73,19 @@ class GuidedDurationAuthorityPolicy:
         *,
         response_locale: str,
     ) -> GuidedQuestionnaireV1 | None:
-        del response_locale
+        chinese = response_locale.lower().startswith("zh")
         if self.duration_or_none(requirements) is not None:
             return None
         return GuidedQuestionnaireV1(
             questions=(
                 GuidedQuestionV1(
                     question_id=DURATION_QUESTION_ID,
-                    prompt="Choose the total advertisement duration.",
+                    prompt="请选择广告总时长。" if chinese else "Choose the total advertisement duration.",
                     options=tuple(
                         GuidedChoiceOptionV1(
                             option_id=option_id,
-                            title=f"{seconds} seconds",
-                            summary=f"Produce a {seconds}-second advertisement.",
+                            title=f"{seconds} 秒" if chinese else f"{seconds} seconds",
+                            summary=f"制作 {seconds} 秒广告。" if chinese else f"Produce a {seconds}-second advertisement.",
                             recommended=seconds == 30,
                         )
                         for option_id, seconds in DURATION_OPTIONS

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -337,6 +338,13 @@ func (s *Service) RegisterTaskOutput(userID string, projectID string, stepID str
 			return model.WorkflowStepInstance{}, err
 		}
 		asset.Title = fmt.Sprintf("镜头%02d-%s-v%d", shot.Position+1, workflowArtifactLabel(artifact.Type), artifact.Version)
+		if shot.UnitID != "" {
+			if unit, unitErr := s.repo.ProjectUnit(projectID, shot.UnitID); unitErr != nil {
+				return model.WorkflowStepInstance{}, unitErr
+			} else if strings.TrimSpace(unit.Title) != "" {
+				asset.Title = strings.TrimSpace(unit.Title) + "-" + asset.Title
+			}
+		}
 		var payload map[string]any
 		if err := json.Unmarshal([]byte(asset.PayloadJSON), &payload); err != nil {
 			return model.WorkflowStepInstance{}, err
@@ -635,21 +643,17 @@ func (s *Service) ensureGeneratedProjectAsset(task model.Task, projectID string,
 		title = "镜头产物"
 	}
 	title += " · " + label
-	width := resource.Width
-	height := resource.Height
-	if width <= 0 {
-		width = 1
-	}
-	if height <= 0 {
-		height = 1
-	}
+	// 尺寸未知时先补探测已保存的文件；仍未知就如实写 0，不再伪造 1×1。
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), mediaProbeTimeout)
+	s.repairResourceDimensions(probeCtx, resource)
+	cancelProbe()
 	resourceURL := "/api/resources/" + resourceID + "/file"
 	data := map[string]any{
 		"storageKey": "resource:" + resourceID,
 		"mimeType":   resource.MimeType,
 		"bytes":      resource.Size,
-		"width":      width,
-		"height":     height,
+		"width":      max(resource.Width, 0),
+		"height":     max(resource.Height, 0),
 	}
 	if mediaType == "image" {
 		data["dataUrl"] = resourceURL

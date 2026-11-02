@@ -26,6 +26,7 @@ export async function initializeAdcraft(pool){
     CREATE TABLE IF NOT EXISTS fg_adcraft_jobs(id uuid PRIMARY KEY,workspace_id uuid REFERENCES fg_adcraft_workspaces(id),actor_id varchar(36) NOT NULL REFERENCES users(id),logical_key varchar(64) NOT NULL,task_id varchar(36) REFERENCES tasks(id),mode varchar(12) NOT NULL,reserved_cny numeric(16,6) NOT NULL,status varchar(16) NOT NULL DEFAULT 'reserved',error varchar(300) NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(workspace_id,logical_key));`);
   await pool.query('ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_project_id varchar(80); ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS adcraft_workflow_id varchar(80); ALTER TABLE fg_adcraft_workspaces DROP CONSTRAINT IF EXISTS fg_adcraft_workspaces_budget_cny_check; ALTER TABLE fg_adcraft_workspaces ADD CONSTRAINT fg_adcraft_workspaces_budget_cny_check CHECK(budget_cny>=0)');
   await pool.query('ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS purged_at timestamptz');
+  await pool.query("ALTER TABLE fg_adcraft_workspaces ADD COLUMN IF NOT EXISTS mode varchar(16) NOT NULL DEFAULT 'creation' CHECK(mode IN ('creation','brand'))");
 }
 export async function advertisingAccess(pool,actor,id){
   if(!uuid.test(id))return null;
@@ -117,7 +118,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
     try{
       const workspace=await advertisingAccess(pool,actor,openMatch[1]);if(!workspace){json(res,'没有这个广告项目的访问权限',403);return true;}
       if(!workspace.adcraft_project_id){
-        const response=await fetch('http://adcraft-api:8000/w/'+workspace.id+'/api/v2/projects',{method:'POST',headers:{'content-type':'application/json','x-fg-internal':secret(),'x-fg-actor':actor.id,'x-fg-operation':'init-'+workspace.id,'idempotency-key':'fg-'+workspace.id+'-init'},body:JSON.stringify({name:workspace.name,description:workspace.brief}),signal:AbortSignal.timeout(120000)});
+        const response=await fetch('http://adcraft-api:8000/w/'+workspace.id+'/api/v2/projects',{method:'POST',headers:{'content-type':'application/json','x-fg-internal':secret(),'x-fg-actor':actor.id,'x-fg-operation':'init-'+workspace.id,'idempotency-key':'fg-'+workspace.id+'-init'},body:JSON.stringify({name:workspace.name,description:workspace.brief,mode:workspace.mode||'creation'}),signal:AbortSignal.timeout(120000)});
         const created=await response.json();if(!response.ok||!created.project_id||!created.workflow_id)throw Error(adcraftServiceFailure(created,response.status));
         await pool.query('UPDATE fg_adcraft_workspaces SET adcraft_project_id=$2,adcraft_workflow_id=$3 WHERE id=$1',[workspace.id,created.project_id,created.workflow_id]);workspace.adcraft_project_id=created.project_id;
       }else{
@@ -139,10 +140,11 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
       }
       if(req.method==='POST'){
         const input=await body(req,32768);const name=String(input.name||'').trim(),brief=String(input.brief||'').trim(),budget=Number(input.budgetCny||0);
+        const mode=input.mode??'creation';if(!['creation','brand'].includes(mode))throw Error('请选择自由创作或品牌专业模式');
         if(!name||name.length>160||brief.length<5||brief.length>10000||!Number.isFinite(budget)||budget<0||budget>1000000)throw Error('请填写项目名称、广告需求和有效预算');
         if(input.groupId||input.storyId)throw Error('广告项目独立于神话故事小组和故事库');
         const {project}=await nativeAPI(web,cookie,publicOrigin,'/projects','POST',{name,type:'advertising',aspectRatio:input.aspectRatio==='9:16'?'9:16':'16:9',sourceType:'text',description:brief});
-        const id=randomUUID();await pool.query('INSERT INTO fg_adcraft_workspaces(id,owner_id,native_project_id,name,brief,group_id,story_id,budget_cny) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,actor.id,project.id,name,brief,null,null,budget]);
+        const id=randomUUID();await pool.query('INSERT INTO fg_adcraft_workspaces(id,owner_id,native_project_id,name,brief,group_id,story_id,budget_cny,mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,actor.id,project.id,name,brief,null,null,budget,mode]);
         json(res,{id,projectId:project.id});return true;
       }
       json(res,'不支持此操作',405);return true;

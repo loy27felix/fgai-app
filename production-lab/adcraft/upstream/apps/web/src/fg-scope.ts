@@ -4,6 +4,15 @@ export const fgBasename = fgWorkspace ? '/advertising-app/' + fgWorkspace : unde
 let editorToken='';
 export function setFGEditorToken(token:string){editorToken=token;}
 const labels: Record<string, string> = {
+  'Agent response failed':'当前创意步骤未完成',
+  'Retry failed Agent response':'重试当前创意步骤',
+  'The Agent could not complete this response.':'当前步骤未完成，已确认的内容已保留。',
+  'Retrying…':'正在重试…',
+  'Mentioned Node is incompatible with the target capability.':'参考素材与当前创意步骤不兼容。可点击重试重新检查；若仍失败，请调整参考素材。',
+  'Mentioned image asset is incompatible with the target capability.':'参考图片与当前创意步骤不兼容。可点击重试重新检查；若仍失败，请调整参考素材。',
+  'The next creative step failed. Please review the failure details before continuing.':'下一创意步骤未完成，请查看下方失败详情；已确认的内容已保留。',
+  'Choose the total advertisement duration to continue.':'请选择广告总时长后继续。',
+  'Choose the total advertisement duration.':'请选择广告总时长。',
   'The backend workflow data does not match this frontend. Your project selection was preserved; update the frontend and refresh the page.':'广告工程数据与当前页面版本不一致，工程关联已保留；请刷新页面或联系管理员更新。',
   'The backend could not be reached. Your project selection was preserved; retry when the service is available.':'暂时无法连接广告服务，工程关联已保留；请返回广告项目页重试。',
   'The backend project could not be restored. Your project selection was preserved; retry when the service is available.':'广告工程暂时无法恢复，工程关联已保留；请返回广告项目页重试，或联系管理员检查 NAS 连接。',

@@ -1,4 +1,4 @@
-import { localForageStorageForScope } from "@/lib/localforage-storage";
+import { localForageStorageForScope, localForageKeysForScope } from "@/lib/localforage-storage";
 import { markdownPlainText } from "@/lib/markdown-plain-text";
 import { getActiveUserScope } from "@/lib/user-scope";
 import type { AgentPermissionMode, AgentRun } from "@/services/api/agent";
@@ -21,11 +21,18 @@ export type CloudAgentConversationMessage = {
     meta?: string;
     detail?: unknown;
     attachments?: Array<{ id: string; name: string; url: string }>;
-    interjection?: "sent" | "undelivered";
+    interjection?: "sent" | "delivered" | "undelivered" | "withdrawn";
 };
 
 export type CloudAgentConversation = {
     id: string;
+    serverConversationId?: string;
+    runs?: AgentRun[];
+    lastEventSeq?: number;
+    /** 未发送草稿和主动选中的会话只属于本机，不由云端覆盖。 */
+    draft?: string;
+    localNewCanvasId?: string;
+    localSelectedCanvasId?: string;
     title: string;
     messages: CloudAgentConversationMessage[];
     run: AgentRun | null;
@@ -50,27 +57,27 @@ export type CloudAgentPendingSubmission = CloudAgentMessagePresentation & {
     messageId?: string;
 };
 
-const CLOUD_AGENT_CONVERSATIONS_KEY = "cloud-agent-conversations-v1";
+const CLOUD_AGENT_CONVERSATIONS_KEY = "cloud-agent-conversations-v2";
 const historyWrites = new Map<string, Promise<void>>();
 const deletedConversationIds = new Map<string, Set<string>>();
 
-export async function deleteCloudAgentConversation(canvasId: string, id: string, activeId: string | null, conversations: CloudAgentConversation[]) {
-    const key = `${getActiveUserScope()}:${storageKey(canvasId)}`;
+export async function deleteCloudAgentConversation(id: string, activeId: string | null, conversations: CloudAgentConversation[], scope = getActiveUserScope()) {
+    const key = `${scope}:${storageKey()}`;
     const removed = deletedConversationIds.get(key) || new Set<string>();
     deletedConversationIds.set(key, removed);
     removed.add(id);
     try {
-        await saveCloudAgentConversations(canvasId, activeId === id ? null : activeId, conversations.filter((item) => item.id !== id));
+        await saveCloudAgentConversations( activeId === id ? null : activeId, conversations.filter((item) => item.id !== id), scope);
     } catch (error) {
         removed.delete(id);
         throw error;
     }
 }
 
-export async function loadCloudAgentConversations(canvasId: string): Promise<CloudAgentConversationDocument> {
-    if (!canvasId) throw new Error("缺少画布 ID，无法读取 Agent 对话");
-    const value = await localForageStorageForScope(getActiveUserScope()).getItem(storageKey(canvasId));
-    if (!value) return emptyDocument();
+// 平台只有一个 Agent：对话按账号保存，不再按画布分桶。每轮绑定哪个画布由发送时所在页面决定。
+export async function loadCloudAgentConversations(scope = getActiveUserScope()): Promise<CloudAgentConversationDocument> {
+    const value = await localForageStorageForScope(scope).getItem(storageKey());
+    if (!value) return importLegacyConversations(scope);
 
     let parsed: unknown;
     try {
@@ -82,10 +89,38 @@ export async function loadCloudAgentConversations(canvasId: string): Promise<Clo
     return parsed;
 }
 
-export async function saveCloudAgentConversations(canvasId: string, activeId: string | null, conversations: CloudAgentConversation[]) {
-    if (!canvasId) throw new Error("缺少画布 ID，无法保存 Agent 对话");
-    const scope = getActiveUserScope();
-    const key = `${scope}:${storageKey(canvasId)}`;
+// Keep existing per-canvas chats and their original retry identities when moving
+// to the account-wide panel. Legacy records stay intact as a recovery source.
+async function importLegacyConversations(scope: string): Promise<CloudAgentConversationDocument> {
+    const keys = (await localForageKeysForScope(scope)).filter(key => key.startsWith('cloud-agent-conversations-v1:') && !key.includes(':pending:'));
+    const storage = localForageStorageForScope(scope);
+    const conversations = new Map<string, CloudAgentConversation>();
+    for (const key of keys) {
+        const name = key;
+        const raw = await storage.getItem(name);
+        if (!raw) continue;
+        const document: unknown = JSON.parse(raw);
+        if (!isConversationDocument(document)) throw Error('旧画布对话格式无效，原记录已保留');
+        const canvasKey = name.slice('cloud-agent-conversations-v1:'.length);
+        for (const conversation of document.conversations) {
+            const previous = conversations.get(conversation.id);
+            if (!previous || previous.updatedAt < conversation.updatedAt) conversations.set(conversation.id, conversation);
+            const pending = await storage.getItem(`cloud-agent-conversations-v1:pending:${canvasKey}:${encodeURIComponent(conversation.id)}`);
+            if (pending) {
+                const existing = await storage.getItem(pendingStorageKey(conversation.id));
+                if (existing && existing !== pending) throw Error('旧请求恢复记录存在冲突，请先核对原任务');
+                await storage.setItem(pendingStorageKey(conversation.id), pending);
+            }
+        }
+    }
+    const items = [...conversations.values()].sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
+    const result: CloudAgentConversationDocument = { version: 1, activeId: items[0]?.id ?? null, conversations: items };
+    if (items.length) await storage.setItem(storageKey(), JSON.stringify(result));
+    return result;
+}
+
+export async function saveCloudAgentConversations(activeId: string | null, conversations: CloudAgentConversation[], scope = getActiveUserScope()) {
+    const key = `${scope}:${storageKey()}`;
     // 流式标记只属于内存中的观察状态。若网络在最后一个 delta 后断开，
     // 也不能让下次恢复把思考卡片误判为仍在实时展开。
     const persistedConversations = conversations.map((conversation) => ({
@@ -95,7 +130,7 @@ export async function saveCloudAgentConversations(canvasId: string, activeId: st
     const write = (historyWrites.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
         const removed = deletedConversationIds.get(key);
         const document: CloudAgentConversationDocument = { version: 1, activeId: activeId && removed?.has(activeId) ? null : activeId, conversations: persistedConversations.filter((item) => !removed?.has(item.id)) };
-        await localForageStorageForScope(scope).setItem(storageKey(canvasId), JSON.stringify(document));
+        await localForageStorageForScope(scope).setItem(storageKey(), JSON.stringify(document));
     });
     historyWrites.set(key, write);
     try { await write; } finally { if (historyWrites.get(key) === write) historyWrites.delete(key); }
@@ -104,32 +139,48 @@ export async function saveCloudAgentConversations(canvasId: string, activeId: st
 // Keep the retry key outside the chat snapshot. If the response is lost, a
 // page refresh can safely repeat the same request without creating another
 // billed Agent turn.
-export async function loadCloudAgentPendingSubmission(canvasId: string, conversationId: string) {
-    if (!canvasId || !conversationId) return null;
-    const value = await localForageStorageForScope(getActiveUserScope()).getItem(pendingStorageKey(canvasId, conversationId));
+export async function loadCloudAgentPendingSubmission(conversationId: string, scope = getActiveUserScope()) {
+    if (!conversationId) return null;
+    const value = await localForageStorageForScope(scope).getItem(pendingStorageKey(conversationId));
     if (value === null || value === undefined) return null;
     // A corrupt recovery record is not proof that the previous POST never ran.
     // Fail closed rather than discarding its identity and risking another charge.
     try {
         const parsed = JSON.parse(value) as Partial<CloudAgentPendingSubmission> | null;
         if (!parsed || typeof parsed.fingerprint !== "string" || typeof parsed.key !== "string" || parsed.key.length < 8) throw new Error("invalid identity");
-        if (parsed.request !== undefined && (!parsed.request || parsed.request.idempotencyKey !== parsed.key || parsed.request.canvasId !== canvasId || typeof parsed.request.prompt !== "string")) throw new Error("invalid request");
+        if (parsed.request !== undefined && (!parsed.request || parsed.request.idempotencyKey !== parsed.key || typeof parsed.request.canvasId !== "string" || typeof parsed.request.prompt !== "string")) throw new Error("invalid request");
         if (parsed.parentRunId !== undefined && typeof parsed.parentRunId !== "string") throw new Error("invalid parent");
         if (parsed.messageId !== undefined && typeof parsed.messageId !== "string") throw new Error("invalid message");
-        return { fingerprint: parsed.fingerprint, key: parsed.key, request: parsed.request, parentRunId: parsed.parentRunId, messageId: parsed.messageId, displayText: parsed.displayText, canvasReferenceNodeId: parsed.canvasReferenceNodeId } satisfies CloudAgentPendingSubmission;
+        return { fingerprint: parsed.fingerprint, key: parsed.key, request: renameLegacySkillIds(parsed.request), parentRunId: parsed.parentRunId, messageId: parsed.messageId, displayText: parsed.displayText, canvasReferenceNodeId: parsed.canvasReferenceNodeId } satisfies CloudAgentPendingSubmission;
     } catch {
         throw new Error("待确认请求记录损坏，已暂停本对话发送；请先在任务中心核对原运行，不要直接重复生成");
     }
 }
 
-export async function saveCloudAgentPendingSubmission(canvasId: string, conversationId: string, pending: CloudAgentPendingSubmission) {
-    if (!canvasId || !conversationId) throw new Error("缺少 Agent 对话范围，无法保存幂等提交");
-    await localForageStorageForScope(getActiveUserScope()).setItem(pendingStorageKey(canvasId, conversationId), JSON.stringify(pending));
+// 请求字段已改名为 pinnedSkillIds，后端拒绝未知字段：升级前保存、尚未发出的待确认请求改名后再重放，
+// 否则这条对话会一直卡在“上一条请求待确认”。
+function renameLegacySkillIds(request: CloudAgentPendingSubmission["request"]) {
+    if (!request || !("skillIds" in request)) return request;
+    const { skillIds, ...rest } = request as typeof request & { skillIds?: string[] };
+    return { ...rest, pinnedSkillIds: rest.pinnedSkillIds ?? skillIds };
 }
 
-export async function clearCloudAgentPendingSubmission(canvasId: string, conversationId: string) {
-    if (!canvasId || !conversationId) return;
-    await localForageStorageForScope(getActiveUserScope()).removeItem(pendingStorageKey(canvasId, conversationId));
+export async function saveCloudAgentPendingSubmission(conversationId: string, pending: CloudAgentPendingSubmission, scope = getActiveUserScope()) {
+    if (!conversationId) throw new Error("缺少 Agent 对话范围，无法保存幂等提交");
+    await localForageStorageForScope(scope).setItem(pendingStorageKey(conversationId), JSON.stringify(pending));
+}
+
+export async function clearCloudAgentPendingSubmission(conversationId: string, scope = getActiveUserScope()) {
+    if (!conversationId) return;
+    await localForageStorageForScope(scope).removeItem(pendingStorageKey(conversationId));
+}
+
+export function cloudAgentConversationServerId(conversation: CloudAgentConversation) {
+    return conversation.serverConversationId || conversation.run?.conversationId;
+}
+
+export function cloudAgentPendingMatchesRun(pending: CloudAgentPendingSubmission | null, run: AgentRun | null) {
+    return Boolean(pending?.key && run?.idempotencyKey && pending.key === run.idempotencyKey);
 }
 
 export function cloudAgentConversationTitle(messages: CloudAgentConversationMessage[]) {
@@ -141,12 +192,12 @@ function displayConversationTitle(value: string) {
     return markdownPlainText(value.replace(/@\[skill:[^\]]+\]/gu, "技能包")) || "新对话";
 }
 
-function storageKey(canvasId: string) {
-    return `${CLOUD_AGENT_CONVERSATIONS_KEY}:${encodeURIComponent(canvasId)}`;
+function storageKey() {
+    return `${CLOUD_AGENT_CONVERSATIONS_KEY}:global`;
 }
 
-function pendingStorageKey(canvasId: string, conversationId: string) {
-    return `${CLOUD_AGENT_CONVERSATIONS_KEY}:pending:${encodeURIComponent(canvasId)}:${encodeURIComponent(conversationId)}`;
+function pendingStorageKey(conversationId: string) {
+    return `${CLOUD_AGENT_CONVERSATIONS_KEY}:pending:${encodeURIComponent(conversationId)}`;
 }
 
 function emptyDocument(): CloudAgentConversationDocument {

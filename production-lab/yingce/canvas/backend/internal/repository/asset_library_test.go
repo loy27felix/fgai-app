@@ -25,6 +25,43 @@ func newAssetLibraryTestRepository(t *testing.T) (*Repository, *gorm.DB) {
 	return New(db), db
 }
 
+func TestUserAssetsCanvasFilterScopesPagesAndFacets(t *testing.T) {
+	repo, db := newAssetLibraryTestRepository(t)
+	for _, row := range []struct{ id, user, category, payload string }{
+		{"a1", "u1", "material", `{"metadata":{"canvasId":"canvas-a"}}`},
+		{"a2", "u1", "scene", `{"metadata":{"canvasId":"canvas-a"}}`},
+		{"b1", "u1", "material", `{"metadata":{"canvasId":"canvas-b"},"prompt":"canvas-a"}`},
+		{"none", "u1", "other", `{}`},
+		{"foreign", "u2", "material", `{"metadata":{"canvasId":"canvas-a"}}`},
+	} {
+		if err := db.Create(&model.Asset{ID: row.id, UserID: row.user, Kind: "image", Category: model.AssetCategory(row.category), Status: model.AssetVersionStatusConfirmed, Title: row.id, PayloadJSON: row.payload}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	filter := UserAssetPageFilter{CanvasID: "canvas-a", Status: "active"}
+	rows, total, err := repo.UserAssetsPage("u1", 2, 1, filter)
+	if err != nil || total != 2 || len(rows) != 1 || rows[0].ID != "a1" {
+		t.Fatalf("canvas page: total=%d rows=%v err=%v", total, rows, err)
+	}
+	_, categories, _, err := repo.UserAssetFacets("u1", filter)
+	if err != nil || len(categories) != 2 {
+		t.Fatalf("canvas facets=%v err=%v", categories, err)
+	}
+	for _, category := range categories {
+		if category.Count != 1 {
+			t.Fatalf("foreign canvas leaked into facets: %v", categories)
+		}
+	}
+	rows, total, err = repo.UserAssetsPage("u1", 1, 10, UserAssetPageFilter{NoCanvas: true})
+	if err != nil || total != 1 || len(rows) != 1 || rows[0].ID != "none" {
+		t.Fatalf("unassigned: total=%d rows=%v err=%v", total, rows, err)
+	}
+	_, total, err = repo.UserAssetsPage("u1", 1, 10, UserAssetPageFilter{CanvasID: "unknown"})
+	if err != nil || total != 0 {
+		t.Fatalf("empty canvas total=%d err=%v", total, err)
+	}
+}
+
 func TestUserCharacterAssetsPageReturnsStablePages(t *testing.T) {
 	repo, db := newAssetLibraryTestRepository(t)
 	now := time.Now().UTC()

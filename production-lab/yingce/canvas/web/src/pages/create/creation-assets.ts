@@ -6,6 +6,7 @@ import type { ExternalAssetPickerReference } from "@/lib/plugins/plugin-types";
 import type { Asset, AudioAsset, ImageAsset, NewAsset } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import { DOCUMENT_ACCEPT } from "@/services/document-storage";
 
 export type CreationDocumentAttachment = {
     id: string;
@@ -23,7 +24,7 @@ import type { CreationMode } from "@/lib/creation-mode";
 export type { CreationMode };
 export type CreationAttachmentKind = "image" | "video" | "audio" | "file";
 
-const textDocumentExtensions = [".pdf", ".txt", ".md", ".csv", ".json", ".html", ".xml", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"];
+const textDocumentExtensions = DOCUMENT_ACCEPT.split(",");
 
 export type CreationAssetIdentity = {
     taskId?: string;

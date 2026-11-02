@@ -1,4 +1,5 @@
 import { generationErrorMessage } from "@/lib/generation-error";
+import { projectLanguageTaskInput } from "./project-language";
 import { http, apiBaseURL, type BackendEnvelope } from "@/services/api/request";
 import { consumeTaskTextStream, createTaskTextStreamParser, type TaskTextStreamEvent } from "@/services/api/task-text-stream";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
@@ -57,25 +58,35 @@ export type GenerationTask = {
     completedAt?: string;
     createdAt: string;
     updatedAt: string;
+    /** 计费摘要：冻结额与实收分列，只有已结算订单才有 chargedMicrocredits。 */
     billing?: {
+        /** 下单时的冻结额（预授权），不是实际扣费；与 reservedMicrocredits 相同。 */
         amountMicrocredits: number;
+        reservedMicrocredits: number;
+        /** 已结算（settled）时的实收，已扣除差额退回；其余状态不返回。 */
+        chargedMicrocredits?: number;
+        /** 已退回金额：结算时的差额退回，或失败后整笔退回。 */
+        refundedMicrocredits: number;
         status: TaskBillingStatus;
     };
     clientContext?: {
-		assetId?: string;
+        assetId?: string;
         characterVoiceAssetId?: string;
         conversationId?: string;
         messageId?: string;
         nodeId?: string;
+        /** 工作台一次提交拆出的多个任务共用的批次 ID；batchIndex 为 0 时后端省略该字段。 */
+        batchId?: string;
         batchIndex?: number;
         batchCount?: number;
+        storyboardBatchId?: string;
         domainProjectId?: string;
         chapterId?: string;
-		chapterOperation?: "characters" | "storyboard";
-		shotId?: string;
-		workflowStepId?: string;
-		artifactType?: string;
-	};
+        chapterOperation?: "characters" | "storyboard";
+        shotId?: string;
+        workflowStepId?: string;
+        artifactType?: string;
+    };
     created_at?: string;
     updated_at?: string;
 };
@@ -126,10 +137,11 @@ export type CreateTaskInput = {
     prompt: string;
     provider?: string;
     model?: string;
-	logicalModelId?: string;
+    logicalModelId?: string;
     input?: Record<string, unknown>;
 };
-export function createGenerationTask(input: CreateTaskInput) {
+export async function createGenerationTask(input: CreateTaskInput) {
+    input = await projectLanguageTaskInput(input);
     return http.post<GenerationTask>("/tasks", input).then((task) => {
         recordDiagnosticEvent({ level: "info", category: "task", message: "任务已创建", taskId: task.id, projectId: task.projectId });
         notifyCanvasTaskCreated(task);
@@ -156,9 +168,9 @@ type GenerationTaskListDependencies = {
 const defaultGenerationTaskListDependencies: GenerationTaskListDependencies = {
     listBackendPage: async (page, signal) => ({
         tasks: await http.get<GenerationTask[]>("/tasks", {
-                params: { pageSize: Math.min(page.limit, 100), projectId: page.projectId, activeOnly: page.activeOnly || undefined },
-                signal,
-            }),
+            params: { pageSize: Math.min(page.limit, 100), projectId: page.projectId, activeOnly: page.activeOnly || undefined },
+            signal,
+        }),
     }),
 };
 
@@ -248,19 +260,24 @@ export function createGenerationTaskSubscriptionService(dependencies: Generation
             const terminal = await dependencies.waitTask(id, {
                 initialTask: initial,
                 signal: controller.signal,
-                onTaskUpdate: (task) => { entry.failures = 0; publish(entry, task); },
+                onTaskUpdate: (task) => {
+                    entry.failures = 0;
+                    publish(entry, task);
+                },
             });
             publish(entry, terminal);
-        })().catch((error) => {
-            if (controller.signal.aborted) return;
-            console.warn("生成任务观察中断，将重连原任务", { taskId: id, error });
-        }).finally(() => {
-            entry.observation = undefined;
-            if (controller.signal.aborted || !entry.listeners.size || entry.scope !== getActiveUserScope()) return;
-            if (entry.latest && ["succeeded", "failed", "cancelled"].includes(entry.latest.status)) return;
-            const delayMs = Math.min(30_000, 2_000 * 2 ** Math.min(entry.failures++, 4));
-            entry.retry = setTimeout(() => observe(id, entry), delayMs);
-        });
+        })()
+            .catch((error) => {
+                if (controller.signal.aborted) return;
+                console.warn("生成任务观察中断，将重连原任务", { taskId: id, error });
+            })
+            .finally(() => {
+                entry.observation = undefined;
+                if (controller.signal.aborted || !entry.listeners.size || entry.scope !== getActiveUserScope()) return;
+                if (entry.latest && ["succeeded", "failed", "cancelled"].includes(entry.latest.status)) return;
+                const delayMs = Math.min(30_000, 2_000 * 2 ** Math.min(entry.failures++, 4));
+                entry.retry = setTimeout(() => observe(id, entry), delayMs);
+            });
     };
     const reconnect = () => {
         for (const [id, entry] of entries) observe(id, entry);
@@ -397,8 +414,30 @@ function safeTaskLogErrorCode(value: unknown) {
     return undefined;
 }
 
+/**
+ * 后端任务已进入失败/取消终态。只有这类错误代表“生成失败”；轮询连续失败、等待超时、
+ * 结果读取失败都只是页面没跟上原任务，调用方应继续跟进而不是让用户重新付费生成。
+ */
+export class GenerationTaskTerminalError extends Error {
+    readonly task: GenerationTask;
+
+    constructor(message: string, task: GenerationTask) {
+        super(message);
+        this.name = "GenerationTaskTerminalError";
+        this.task = task;
+    }
+}
+
+export function isGenerationTaskTerminalError(error: unknown): error is GenerationTaskTerminalError {
+    return error instanceof GenerationTaskTerminalError || error instanceof GenerationTaskFailure;
+}
+
+function terminalTaskError(task: GenerationTask) {
+    return new GenerationTaskFailure(task);
+}
+
 export type WaitForGenerationTaskOptions = {
-	textEventsSource?: "task" | "agent";
+    textEventsSource?: "task" | "agent";
     signal?: AbortSignal;
     intervalMs?: number;
     timeoutMs?: number;
@@ -442,7 +481,7 @@ export async function waitForGenerationTask(id: string, options?: WaitForGenerat
             }
             if (task.status === "failed" || task.status === "cancelled") {
                 window.dispatchEvent(new CustomEvent("wallet:updated"));
-                throw new GenerationTaskFailure(task);
+                throw terminalTaskError(task);
             }
             await delay(intervalMs, options?.signal);
         }
@@ -538,14 +577,12 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
                 options.onTaskUpdate?.(completed);
                 window.dispatchEvent(new CustomEvent("wallet:updated"));
                 if (completed.status === "succeeded") return completed;
-                if (completed.status === "failed" || completed.status === "cancelled") {
-                    throw new GenerationTaskFailure(completed);
-                }
+                if (completed.status === "failed" || completed.status === "cancelled") throw terminalTaskError(completed);
             }
             lastStreamError = new Error("任务文本流连接提前结束");
         } catch (error) {
             if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-            if (error instanceof TaskTextStreamFatalError) throw error;
+            if (error instanceof TaskTextStreamFatalError || error instanceof GenerationTaskTerminalError) throw error;
             lastStreamError = error;
         }
         await delay(intervalMs, options.signal);
@@ -554,7 +591,7 @@ async function waitForGenerationTaskTextEvents(id: string, options: WaitForGener
 }
 
 function asTaskTextStreamRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function numberValue(value: unknown) {
@@ -581,7 +618,7 @@ export class GenerationTaskFailure extends TaskTextStreamFatalError {
 
 async function taskTextStreamHTTPError(response: Response) {
     try {
-        const payload = await response.json() as { msg?: unknown };
+        const payload = (await response.json()) as { msg?: unknown };
         if (typeof payload.msg === "string" && payload.msg.trim()) return payload.msg;
     } catch {
         // SSE 错误响应可能是空正文或网关 HTML，只返回状态码，避免泄露正文。
@@ -602,9 +639,18 @@ function taskWaitTimeoutMs(task?: GenerationTask) {
 
 function delay(ms: number, signal?: AbortSignal) {
     return new Promise<void>((resolve, reject) => {
-        if (signal?.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
-        const abort = () => { window.clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
-        const timer = window.setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
+        if (signal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+        }
+        const abort = () => {
+            window.clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+        };
+        const timer = window.setTimeout(() => {
+            signal?.removeEventListener("abort", abort);
+            resolve();
+        }, ms);
         signal?.addEventListener("abort", abort, { once: true });
     });
 }

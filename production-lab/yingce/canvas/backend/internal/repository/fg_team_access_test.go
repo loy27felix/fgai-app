@@ -121,7 +121,7 @@ func TestFGSuperadminScopePreservesCanvasSaveStatement(t *testing.T) {
 	sqlDB, _ := db.DB()
 	defer sqlDB.Close()
 	sqlDB.SetMaxOpenConns(1)
-	if err = db.AutoMigrate(&model.Project{}, &model.CanvasProject{}, &model.Resource{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.CanvasShare{}, &model.CanvasUnitLink{}, &model.Task{}); err != nil {
+	if err = db.AutoMigrate(&model.Project{}, &model.CanvasProject{}, &model.Resource{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.CanvasShare{}, &model.CanvasUnitLink{}, &model.Task{}, &model.CanvasEditLease{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sql := range []string{
@@ -281,7 +281,7 @@ func TestFGTeamCanvasIsolationAndAtomicMedia(t *testing.T) {
 	sqlDB, _ := db.DB()
 	defer sqlDB.Close()
 	sqlDB.SetMaxOpenConns(1)
-	if err = db.AutoMigrate(&model.FGCompanyAsset{}, &model.Project{}, &model.CanvasProject{}, &model.Asset{}, &model.Resource{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}); err != nil {
+	if err = db.AutoMigrate(&model.FGCompanyAsset{}, &model.Project{}, &model.CanvasProject{}, &model.Asset{}, &model.Resource{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.CanvasEditLease{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sql := range []string{"CREATE TABLE fg_story_projects(native_project_id TEXT PRIMARY KEY)", "CREATE TABLE fg_resource_grants(project_id TEXT,resource_id TEXT,PRIMARY KEY(project_id,resource_id))", "CREATE TABLE fg_asset_grants(project_id TEXT,asset_id TEXT,PRIMARY KEY(project_id,asset_id))"} {

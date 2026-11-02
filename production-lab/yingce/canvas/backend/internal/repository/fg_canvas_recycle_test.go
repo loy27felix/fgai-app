@@ -18,7 +18,7 @@ func TestFGCanvasRecyclePreservesHistoryAndRejectsStaleSaves(t *testing.T) {
 	}
 	handle, _ := db.DB()
 	defer handle.Close()
-	if err = db.AutoMigrate(&model.CanvasProject{}, &model.CanvasShare{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}); err != nil {
+	if err = db.AutoMigrate(&model.CanvasProject{}, &model.CanvasShare{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{}, &model.CanvasEditLease{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sql := range []string{"CREATE TABLE fg_accounts(user_id TEXT PRIMARY KEY,platform_role TEXT)", "INSERT INTO fg_accounts VALUES('alice','user'),('bob','user'),('admin','superadmin'),('admin2','superadmin')", "CREATE TABLE fg_story_projects(native_project_id TEXT PRIMARY KEY)"} {

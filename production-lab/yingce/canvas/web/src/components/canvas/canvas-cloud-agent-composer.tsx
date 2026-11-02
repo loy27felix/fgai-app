@@ -3,7 +3,7 @@
 // 运行中输入框保持可用（产品约定，勿收紧）：发送走插话，停止由 running 驱动，两者互不排斥。
 
 import type { Skill, SkillPreset } from "@/services/api/skills";
-import { ArrowLeft, ArrowUp, AtSign, Bookmark, Clapperboard, ImagePlus, Layers3, LoaderCircle, Palette, Shapes, Share2, ShoppingBag, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, AtSign, Bookmark, Clapperboard, ImagePlus, Layers3, LoaderCircle, Palette, Shapes, Share2, ShoppingBag, Square, X, Blocks } from "lucide-react";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -15,6 +15,7 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 import { Button } from "antd";
 import { agentAttachmentReferences, type CloudAgentChatAttachment } from "./canvas-cloud-agent-attachments";
 import { DOCUMENT_ACCEPT } from "@/services/document-storage";
+import { filesFromTransfer, imageURLFromTransfer, transferHasMedia } from "@/lib/media-transfer";
 
 export const MIN_AGENT_PROMPT_HEIGHT = 60;
 
@@ -40,7 +41,7 @@ export type AgentSceneBucket = {
 };
 
 /** 场景分类：与 presets.json 的 scene 字段、技能的 tag 字段共用同一套 key。 */
-export const AGENT_SCENE_DEFS: Array<{ key: string; label: string; icon: typeof Sparkles }> = [
+export const AGENT_SCENE_DEFS: Array<{ key: string; label: string; icon: typeof Blocks }> = [
     { key: "frequent", label: "我的常用", icon: Bookmark },
     { key: "drama", label: "短剧故事", icon: Clapperboard },
     { key: "ecommerce", label: "广告电商", icon: ShoppingBag },
@@ -77,7 +78,7 @@ export function AgentSceneCapsules({
     return (
         <div className="agent-scene-capsules mx-3 mb-2 min-w-0" style={{ color: theme.node.text }}>
             <div className="agent-scene-capsules-heading">
-                <Sparkles aria-hidden="true" />
+                <Blocks aria-hidden="true" />
                 <span>{active ? active.label : "技能组合推荐"}</span>
             </div>
             <div className="agent-scene-capsules-scroll thin-scrollbar flex gap-2 overflow-x-auto px-1 py-2">
@@ -136,7 +137,7 @@ export function AgentSceneCapsules({
                                         onPickSkill(skill);
                                     }}
                                 >
-                                    <Sparkles aria-hidden="true" />
+                                    <Blocks aria-hidden="true" />
                                     <span className="agent-scene-capsule-label">{skill.skillName}</span>
                                     <span className="agent-scene-capsule-meta">{owned}</span>
                                 </button>
@@ -178,6 +179,7 @@ export function AgentChatComposer({
     prompt,
     attachments = [],
     disabled,
+    submitDisabled,
     sending,
     running,
     placeholder,
@@ -185,6 +187,7 @@ export function AgentChatComposer({
     onPromptChange,
     onSubmit,
     onAddFiles,
+    onAddImageURL,
     onRemoveAttachment,
     left,
     submitAccessory,
@@ -198,6 +201,7 @@ export function AgentChatComposer({
     prompt: string;
     attachments?: CloudAgentChatAttachment[];
     disabled?: boolean;
+    submitDisabled?: boolean;
     sending?: boolean;
     running?: boolean;
     placeholder: string;
@@ -207,6 +211,7 @@ export function AgentChatComposer({
     onStop?: () => void | Promise<void>;
     stopping?: boolean;
     onAddFiles?: (files: FileList | File[] | null) => void | Promise<void>;
+    onAddImageURL?: (url: string) => void | Promise<void>;
     onRemoveAttachment?: (id: string) => void;
     left?: ReactNode;
     /** 发送按钮左侧的附属控件，例如上下文用量环。 */
@@ -235,9 +240,17 @@ export function AgentChatComposer({
     }, [availableSlashSkills, slash?.query]);
     const attachmentReferences = useMemo(() => agentAttachmentReferences(attachments), [attachments]);
     const skillReferences = useMemo(() => buildSkillMentionReferences(availableSlashSkills), [availableSlashSkills]);
-    const composerReferences = useMemo(() => [...references, ...skillReferences, ...attachmentReferences].filter((reference, index, all) => all.findIndex((item) => item.id === reference.id) === index), [attachmentReferences, references, skillReferences]);
+    // 保留每个 id 第一次出现的引用；用 Set 去重，节点多时不再是平方级。
+    const composerReferences = useMemo(() => {
+        const seen = new Set<string>();
+        return [...references, ...skillReferences, ...attachmentReferences].filter((reference) => {
+            if (seen.has(reference.id)) return false;
+            seen.add(reference.id);
+            return true;
+        });
+    }, [attachmentReferences, references, skillReferences]);
     const canStop = Boolean(running && onStop);
-    const canSubmit = !disabled && !sending && Boolean(prompt.trim() || attachments.length);
+    const canSubmit = !disabled && !submitDisabled && !sending && Boolean(prompt.trim() || attachments.length);
     const reducedMotion = useReducedMotion();
     const activeSlashIndex = Math.min(Math.max(slashIndex, 0), Math.max(slashCandidates.length - 1, 0));
 
@@ -327,12 +340,14 @@ export function AgentChatComposer({
 
     // 保留粘贴图片成附件（contentEditable 模式内部会把粘贴转纯文本，capture 阶段先拦截图片）
     const handlePasteCapture = (event: ReactClipboardEvent) => {
-        if (!onAddFiles) return;
-        const documents = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/") || /\.(docx|pdf|md|txt|csv|json)$/i.test(file.name));
-        if (!documents.length) return;
+        const documents = filesFromTransfer(event.clipboardData);
+        const url = documents.length ? undefined : imageURLFromTransfer(event.clipboardData, window.location.href);
+        if (!documents.length && !url) return;
         event.preventDefault();
         event.stopPropagation();
-        void onAddFiles(documents);
+        if (disabled) return;
+        if (documents.length) void onAddFiles?.(documents);
+        else if (url) void onAddImageURL?.(url);
     };
 
     const insertAttachmentMention = (item: CloudAgentChatAttachment) => {
@@ -342,7 +357,17 @@ export function AgentChatComposer({
     };
 
     return (
-        <div className="agent-composer-wrap min-w-0 shrink-0" onWheelCapture={(event) => event.stopPropagation()}>
+        <div className="agent-composer-wrap min-w-0 shrink-0" onWheelCapture={(event) => event.stopPropagation()}
+            onDragOver={event => { if (transferHasMedia(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; } }}
+            onDrop={event => {
+                const files = filesFromTransfer(event.dataTransfer);
+                const url = files.length ? undefined : imageURLFromTransfer(event.dataTransfer, window.location.href);
+                if (!files.length && !url) return;
+                event.preventDefault(); event.stopPropagation();
+                if (disabled) return;
+                if (files.length) void onAddFiles?.(files);
+                else if (url) void onAddImageURL?.(url);
+            }}>
             {/* 有底部附加内容时，外壳托住输入卡片与底部条，形成一张整卡。 */}
             <div className="agent-composer-shell relative" data-has-footer={footer ? "" : undefined}>
                 {/* 整卡模式下发送光环包住整张卡，避免画在输入区与连接器之间形成一条线。 */}
@@ -430,7 +455,7 @@ export function AgentChatComposer({
                         {slash && slashCandidates.length ? (
                             <div
                                 data-agent-slash-menu
-                                className="absolute bottom-full left-0 z-[var(--z-toolbar)] mb-2 w-full max-w-xs overflow-hidden rounded-2xl p-1.5 shadow-2xl"
+                                className="absolute bottom-full left-0 z-[var(--z-toolbar)] mb-2 w-full max-w-xs overflow-hidden rounded-2xl p-2 shadow-2xl"
                                 style={{ background: theme.toolbar.panel, boxShadow: `0 18px 44px ${theme.spatial.shadow}` }}
                                 onMouseDown={(event) => event.preventDefault()}
                             >
@@ -438,12 +463,12 @@ export function AgentChatComposer({
                                     <button
                                         key={skill.skillId}
                                         type="button"
-                                        className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs"
+                                        className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-xs"
                                         style={{ background: index === activeSlashIndex ? theme.toolbar.itemHover : "transparent", color: theme.node.text }}
                                         onMouseEnter={() => setSlashIndex(index)}
                                         onClick={() => applySlashSkill(skill)}
                                     >
-                                        <Sparkles className="size-3.5 shrink-0 opacity-70" />
+                                        <Blocks className="size-3.5 shrink-0 opacity-70" />
                                         <span className="min-w-0 truncate font-medium">{skill.skillName}</span>
                                         {skill.description ? <span className="min-w-0 flex-1 truncate opacity-50">{skill.description}</span> : null}
                                     </button>
@@ -490,7 +515,7 @@ export function AgentChatComposer({
                                     type="button"
                                     disabled={stopping}
                                     aria-label="停止本轮"
-                                    title="停止当前 Agent 运行"
+                                    title="停止本轮：Agent 不再继续操作；已提交的生成任务会继续完成。只想撤回插话请点消息上的“撤回”"
                                     onClick={() => void onStop?.()}
                                     whileHover={!reducedMotion && !stopping ? { scale: 1.06, y: -1 } : undefined}
                                     whileTap={!reducedMotion && !stopping ? { scale: 0.9, y: 1 } : undefined}

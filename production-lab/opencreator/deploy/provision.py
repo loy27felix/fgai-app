@@ -1,6 +1,9 @@
 """Host-only FG provisioning. Never expose a Docker socket to an Agent."""
 import pathlib,subprocess,json,hmac,hashlib,re,os,ipaddress
 
+# This FG module is retired. Keep user state, but never recreate its runtimes.
+raise SystemExit(0)
+
 ROOT=pathlib.Path('/Users/server/work/fg-six-yingce')
 DOCKER='/usr/local/bin/docker'
 env={}

@@ -194,7 +194,7 @@ function normalizeStoryboardRow(row: Partial<StoryboardRow>): Partial<Storyboard
     return {
         ...row,
         plotDescription: normalizeStoryboardText(row.plotDescription),
-        dialogue: normalizeStoryboardText(row.dialogue).replace(/\\r\\n|\\n/g, "\n"),
+        dialogue: (Array.isArray(row.dialogue) ? row.dialogue.map(normalizeStoryboardText).filter(Boolean).join("\n") : normalizeStoryboardText(row.dialogue)).replace(/\\r\\n|\\n/g, "\n"),
         narrativeIntent: normalizeStoryboardText(row.narrativeIntent),
         viewerPOV: normalizeStoryboardText(row.viewerPOV),
         performanceBlocking: normalizeStoryboardText(row.performanceBlocking),
@@ -241,6 +241,7 @@ export function storyboardRowsFromTask(task: GenerationTask) {
 // 新模型不支持时若残留，会在 buildNodeConfig 的「节点优先、全局兜底」合并中反复叠加（issue #254）。
 const NODE_MODEL_GENERATION_PARAMS: ReadonlyArray<keyof CanvasNodeMetadata> = [
     "size",
+    "imageSizeSource",
     "quality",
     "transparentBackground",
     "count",
@@ -575,5 +576,8 @@ export function buildAngleLabel(params: CanvasImageAngleParams) {
 }
 
 export function buildAnglePrompt(params: CanvasImageAngleParams) {
-    return `基于参考图重新生成同一主体的新视角，保持主体、颜色、材质和画面风格一致，不要只做透视变形。${buildAngleLabel(params)}。`;
+    const angle = Math.abs(params.horizontalAngle);
+    const side = params.horizontalAngle > 0 ? "右" : "左";
+    const view = angle >= 150 ? "必须看到主体的背面、后脑和背部，面部应被头部自然遮挡" : angle >= 65 ? `必须从主体的${side}侧面观察，呈现真实${side}侧轮廓、近侧耳朵与肩部，远侧五官被合理遮挡` : angle >= 15 ? `从主体的${side}前方三分之四视角观察，两侧五官、耳朵和肩膀的可见面积应随角度改变` : "从主体正面观察，两侧结构符合正面透视";
+    return `基于参考图重新生成同一主体的新视角。镜头围绕主体中心移动，主体保持原来的站位、身体朝向和动作，不随相机转向来重新正对镜头。${view}。锁定人物或角色的身份、五官、发型、服装、颜色、材质和画面风格。主体与场景共同满足新的透视、遮挡和光影，不能只改变背景，也不能只做二维透视拉伸或镜像翻转。${buildAngleLabel(params)}。`;
 }

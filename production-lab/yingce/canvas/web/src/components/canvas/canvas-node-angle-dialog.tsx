@@ -9,12 +9,17 @@ import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
+import { ImageSizePicker } from "@/components/image-size-picker";
+import { mergedImageCapabilityConfig } from "@/lib/model-selection";
+import type { ImageSizeSelection } from "@/lib/canvas/canvas-reference-image-size";
+import type { AiConfig } from "@/stores/use-config-store";
 
 export type CanvasImageAngleParams = {
     horizontalAngle: number;
     pitchAngle: number;
     cameraDistance: number;
     wideAngle: boolean;
+    outputSize?: ImageSizeSelection;
 };
 
 type AnglePresetId = "front" | "left" | "right" | "back" | "top" | "bottom";
@@ -35,7 +40,7 @@ function distanceLabel(value: number) {
     return "中景";
 }
 
-export function CanvasNodeAnglePanel({ dataUrl, onClose, onConfirm }: { dataUrl: string; onClose: () => void; onConfirm: (params: CanvasImageAngleParams) => void }) {
+export function CanvasNodeAnglePanel({ dataUrl, config, onClose, onConfirm }: { dataUrl: string; config: AiConfig; onClose: () => void; onConfirm: (params: CanvasImageAngleParams) => void }) {
     const theme = canvasThemes[useActiveTheme()];
     const reducedMotion = useReducedMotion();
     const [params, setParams] = useState(defaultParams);
@@ -43,6 +48,8 @@ export function CanvasNodeAnglePanel({ dataUrl, onClose, onConfirm }: { dataUrl:
     const update = <Key extends keyof CanvasImageAngleParams>(key: Key, value: CanvasImageAngleParams[Key]) => setParams((current) => ({ ...current, [key]: value }));
     const activePreset = presets.find((preset) => preset.horizontalAngle === params.horizontalAngle && preset.pitchAngle === params.pitchAngle);
     const viewLabel = activePreset?.label || "自定义";
+    const output = params.outputSize || { size: config.size, quality: config.quality, imageResolution: config.imageResolution };
+    const profile = mergedImageCapabilityConfig(config, config.model);
 
     return (
         <SpotlightSurface
@@ -56,13 +63,13 @@ export function CanvasNodeAnglePanel({ dataUrl, onClose, onConfirm }: { dataUrl:
             onMouseDown={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
         >
-            <div className="flex h-11 items-center gap-2 border-b px-2.5" style={{ borderColor: theme.toolbar.border }}>
+            <div className="flex h-11 items-center gap-2 border-b px-2" style={{ borderColor: theme.toolbar.border }}>
                 <span className="grid size-7 shrink-0 place-items-center rounded-[var(--r-md)]" style={{ background: theme.toolbar.itemHover }}><Camera className="size-3.5" /></span>
                 <span className="text-xs font-semibold">多角度编辑器</span>
                 <span className="min-w-0 flex-1" />
                 <Tooltip title="关闭"><button type="button" aria-label="关闭多角度编辑器" className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" onClick={onClose}><X className="size-3.5" /></button></Tooltip>
             </div>
-            <div className="flex h-10 items-center gap-1 overflow-x-auto border-b px-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ borderColor: theme.toolbar.border }}>
+            <div className="flex h-10 items-center gap-1 overflow-x-auto border-b px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ borderColor: theme.toolbar.border }}>
                 <AnglePresetButton active={!activePreset} label="自定义" />
                 {presets.map((preset) => (
                     <AnglePresetButton
@@ -98,10 +105,10 @@ export function CanvasNodeAnglePanel({ dataUrl, onClose, onConfirm }: { dataUrl:
                         onTiltChange={(value) => update("pitchAngle", value)}
                     />
                 </div>
-                <div className="flex min-w-0 flex-col justify-center gap-2 rounded-[var(--r-lg)] border px-2.5 py-2" style={{ background: theme.toolbar.itemHover, borderColor: theme.toolbar.border }}>
+                <div className="flex min-w-0 flex-col justify-center gap-2 rounded-[var(--r-lg)] border px-2 py-2" style={{ background: theme.toolbar.itemHover, borderColor: theme.toolbar.border }}>
                     <AngleSeg value={mode} options={[{ label: "天空盒", value: "skybox" }, { label: "摄像头", value: "camera" }]} onChange={(value) => setMode(value as "camera" | "skybox")} />
                     <span className="text-[var(--fs-tiny)] font-medium opacity-70">常用角度</span>
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-2 gap-2">
                         {presets.map((preset) => (
                             <button
                                 key={preset.id}
@@ -123,13 +130,20 @@ export function CanvasNodeAnglePanel({ dataUrl, onClose, onConfirm }: { dataUrl:
                     </div>
                 </div>
             </div>
+            <details className="border-t px-3 py-2" style={{ borderColor: theme.toolbar.border }}>
+                <summary className="cursor-pointer text-xs font-semibold">生成比例与分辨率 · {output.size}（默认跟随原图）</summary>
+                <div className="max-h-56 overflow-y-auto pt-2" data-canvas-wheel-scroll>
+                    <ImageSizePicker profile={profile} size={output.size} quality={output.quality} imageResolution={output.imageResolution} onChange={(size, quality, imageResolution) => update("outputSize", { size, quality, imageResolution })} />
+                </div>
+                <p className="text-xs opacity-60">此处是角度示意；生成会改变主体可见面，实际效果以模型输出为准。</p>
+            </details>
             <div className="flex h-11 items-center gap-2 border-t px-3" style={{ borderColor: theme.toolbar.border }}>
                 <span className="text-[var(--fs-tiny)] opacity-60">当前视角</span>
                 <span className="text-xs font-semibold">{viewLabel}</span>
                 <span className="text-[var(--fs-tiny)] opacity-60">{params.horizontalAngle}° / {params.pitchAngle}° · {params.cameraDistance.toFixed(1)} {distanceLabel(params.cameraDistance)}</span>
                 <span className="flex-1" />
-                <button type="button" className="flex h-8 items-center gap-1.5 rounded-[var(--dock-item-radius)] px-2 text-[var(--fs-label)] font-medium transition hover:bg-black/5 dark:hover:bg-white/10" onClick={() => setParams(defaultParams)}><RotateCcw className="size-3.5" />重置</button>
-                <motion.button type="button" whileHover={reducedMotion ? undefined : { y: -1 }} whileTap={reducedMotion ? undefined : { scale: 0.97 }} className="canvas-angle-generate flex h-8 items-center gap-1.5 rounded-[var(--dock-item-radius)] px-3 text-[var(--fs-label)] font-semibold" style={{ background: theme.node.activeStroke, color: theme.node.panel }} onClick={() => onConfirm(params)}><Send className="size-3.5" />生成新角度</motion.button>
+                <button type="button" className="flex h-8 items-center gap-2 rounded-[var(--dock-item-radius)] px-2 text-[var(--fs-label)] font-medium transition hover:bg-black/5 dark:hover:bg-white/10" onClick={() => setParams(defaultParams)}><RotateCcw className="size-3.5" />重置</button>
+                <motion.button type="button" whileHover={reducedMotion ? undefined : { y: -1 }} whileTap={reducedMotion ? undefined : { scale: 0.97 }} className="canvas-angle-generate flex h-8 items-center gap-2 rounded-[var(--dock-item-radius)] px-3 text-[var(--fs-label)] font-semibold" style={{ background: theme.node.activeStroke, color: theme.node.panel }} onClick={() => onConfirm(params)}><Send className="size-3.5" />生成新角度</motion.button>
             </div>
         </SpotlightSurface>
     );

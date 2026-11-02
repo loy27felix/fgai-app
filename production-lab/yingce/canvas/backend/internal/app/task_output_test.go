@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"yingce/backend/internal/model"
@@ -102,6 +103,17 @@ func TestTaskClientContextRequiresCreatePageMetadata(t *testing.T) {
 	}
 	if context := taskClientContext(`{"metadata":{"source":"other","conversationId":"conversation-1","messageId":"message-1"}}`); context != nil {
 		t.Fatalf("unexpected context for non-create-page task: %+v", context)
+	}
+}
+
+func TestChapterStoryboardBatchContextSurvivesListWithoutSecrets(t *testing.T) {
+	context := taskClientContext(`{"metadata":{"source":"short-drama-chapter-storyboard","domainProjectId":"project","chapterId":"chapter","storyboardBatchId":"batch","batchIndex":2,"batchCount":3},"config":{"apiKey":"private-fixture"}}`)
+	if context == nil || context.StoryboardBatchID != "batch" || context.BatchIndex != 2 || context.BatchCount != 3 || context.ChapterID != "chapter" {
+		t.Fatalf("missing safe batch recovery identity: %+v", context)
+	}
+	encoded, err := json.Marshal(context)
+	if err != nil || strings.Contains(string(encoded), "private-fixture") {
+		t.Fatal("batch context exposed private input")
 	}
 }
 

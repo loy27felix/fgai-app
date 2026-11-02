@@ -81,7 +81,7 @@ func TestFGChapterStoryboardUsesAuthoritativeBudgetThroughProvider(t *testing.T)
 	if err := db.Save(&channel).Error; err != nil {
 		t.Fatal(err)
 	}
-	input, err := svc.resolveSystemChannelModelSelection(map[string]any{
+	input, err := svc.resolveSystemChannelModelSelection(testGroupAccess(svc), map[string]any{
 		"mode": "text", "prompt": "生成完整章节", "metadata": map[string]any{"source": "short-drama-chapter-storyboard"},
 		"textOptions": map[string]any{"stream": false},
 		"config":      map[string]any{"channelId": channel.ID, "model": channelModel.ModelKey, "capabilityConfig": map[string]any{"text": map[string]any{"maxOutputTokens": 999999}}},

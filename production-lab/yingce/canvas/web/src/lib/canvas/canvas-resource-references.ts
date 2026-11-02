@@ -51,6 +51,15 @@ export function canvasToolMentionToken(toolId: number, label: string, type: stri
 
 const TOOL_REF_PATTERN = /@\[tool:(\w+):(\d+):([^:\]]+):([^\]]+)\]/g;
 
+function decodeToolMentionLabel(label: string) {
+    try {
+        return decodeURIComponent(label);
+    } catch {
+        // Keep readable text for malformed imported labels.
+        return label;
+    }
+}
+
 /** 从文本中解析所有 @[tool:type:ID:label:icon] 令牌，返回去重的工具引用。 */
 export function parseToolMentionTokens(text: string): { type: string; toolId: number; label: string; icon: string }[] {
     const results: { type: string; toolId: number; label: string; icon: string }[] = [];
@@ -60,11 +69,21 @@ export function parseToolMentionTokens(text: string): { type: string; toolId: nu
         const identity = `${match[1]}:${toolId}`;
         if (seen.has(identity)) continue;
         seen.add(identity);
-        let label = match[3];
-        try { label = decodeURIComponent(label); } catch { /* Keep readable text for malformed imported labels. */ }
-        results.push({ type: match[1], toolId, label, icon: match[4] });
+        results.push({ type: match[1], toolId, label: decodeToolMentionLabel(match[3]), icon: match[4] });
     }
     return results;
+}
+
+/**
+ * 提示词的单行可读摘要，用于节点标题等展示：工具标签换成名称，节点、素材、技能、附件这类只含内部 ID 的令牌去掉。
+ * 提交生成仍使用原提示词。
+ */
+export function canvasPromptSummaryText(prompt: string) {
+    return prompt
+        .replace(TOOL_REF_PATTERN, (_token, _type: string, _id: string, label: string) => ` ${decodeToolMentionLabel(label)} `)
+        .replace(/@\[(?:node|asset|skill|attachment):[^\]]*\]/gu, " ")
+        .replace(/\s+/gu, " ")
+        .trim();
 }
 
 export function removeToolMentions(prompt: string, type: string) {
@@ -86,6 +105,25 @@ export function canvasNodeMentionToken(nodeId: string) {
 export function canvasReferenceDisplayLabel(reference: Pick<CanvasResourceReference, "kind" | "label" | "title">) {
     const title = reference.title?.trim();
     return reference.kind === "audio" && title && title !== reference.label ? `${reference.label} · ${title}` : reference.label;
+}
+
+const ASSET_MENTION_PATTERN = /@\[asset:([^\]]+)\]/g;
+const ASSET_ID_MAX_BYTES = 80;
+
+/**
+ * 提示词里 @[asset:ID] 只存在于字符串中，不会出现在 assetId 字段里。
+ * 打开画布和生成前据此按需拉取素材；超出服务端 ID 约束的令牌直接忽略，交给生成校验报错。
+ */
+export function canvasPromptAssetMentionIds(text: string): string[] {
+    if (!text.includes("@[asset:")) return [];
+    const encoder = new TextEncoder();
+    const ids = [...text.matchAll(ASSET_MENTION_PATTERN)].map((match) => match[1]).filter((id) => id === id.trim() && encoder.encode(id).length <= ASSET_ID_MAX_BYTES);
+    return [...new Set(ids)];
+}
+
+/** 只有角色卡能作为生成引用；场景、道具设定尚无图片或角色合同。旧记录缺分类时与服务端一致按角色处理。 */
+export function isCharacterEntityAsset(asset: Asset) {
+    return asset.kind === "entity" && (asset.category ?? "character") === "character";
 }
 
 /** 这些工具类型的标签在提示词中唯一，再次选择时直接覆盖旧标签而不是追加。 */
@@ -125,7 +163,11 @@ export function normalizeCanvasNodeMentionTokens(prompt: string, references: Can
         return value.split(canvasNodeMentionToken(reference.nodeId)).join(`@${reference.label}`);
     }, prompt);
     const active = references.filter((reference) => reference.active && !reference.assetId);
-    return normalizeCharacterImageMentions(normalized, active.filter((reference) => reference.kind === "image").length, active.filter((reference) => reference.kind === "character").map((reference) => reference.label));
+    return normalizeCharacterImageMentions(
+        normalized,
+        active.filter((reference) => reference.kind === "image").length,
+        active.filter((reference) => reference.kind === "character").map((reference) => reference.label),
+    );
 }
 
 /** 将提示词内已连接素材的名称替换为对应引用；同名的每处指代都会保留为独立引用。 */
@@ -236,13 +278,15 @@ function canvasResourceReferenceMentionTokens(reference: CanvasResourceReference
 }
 
 function removeCanvasResourceReferenceTokens(prompt: string, references: CanvasResourceReference[]) {
-    return compactRemovedCanvasMentionPrompt(references.reduce((value, reference) => {
-        let next = value;
-        for (const token of canvasResourceReferenceMentionTokens(reference)) {
-            next = removeCanvasMentionToken(next, token);
-        }
-        return next;
-    }, prompt));
+    return compactRemovedCanvasMentionPrompt(
+        references.reduce((value, reference) => {
+            let next = value;
+            for (const token of canvasResourceReferenceMentionTokens(reference)) {
+                next = removeCanvasMentionToken(next, token);
+            }
+            return next;
+        }, prompt),
+    );
 }
 
 function rewriteCanvasPromptAfterReferenceChange(prompt: string, previousReferences: CanvasResourceReference[], nextReferences: CanvasResourceReference[]) {
@@ -258,9 +302,11 @@ function rewriteCanvasPromptAfterReferenceChange(prompt: string, previousReferen
             if (token !== nodeToken) value = replaceCanvasMentionToken(value, token, nodeToken);
         });
     });
-    previousCanvasReferences.filter((reference) => !nextByNodeId.has(reference.nodeId)).forEach((reference) => {
-        value = removeCanvasMentionToken(value, canvasNodeMentionToken(reference.nodeId));
-    });
+    previousCanvasReferences
+        .filter((reference) => !nextByNodeId.has(reference.nodeId))
+        .forEach((reference) => {
+            value = removeCanvasMentionToken(value, canvasNodeMentionToken(reference.nodeId));
+        });
     value = normalizeCanvasNodeMentionTokens(value, nextCanvasReferences);
     return value === prompt ? prompt : compactRemovedCanvasMentionPrompt(value);
 }
@@ -298,9 +344,7 @@ export function replaceCanvasMentionToken(value: string, token: string, replacem
     if (!token) return value;
     const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // Numbered media mentions can touch Chinese prose or another mention, but not a longer number.
-    const boundary = /^@(图片|角色|绘图|视频|音频|文本)\d+$/.test(token)
-        ? "(?![0-9])"
-        : token.startsWith("@[node:") ? "" : `(?=${CANVAS_RESOURCE_MENTION_BOUNDARY.source})`;
+    const boundary = /^@(图片|角色|绘图|视频|音频|文本)\d+$/.test(token) ? "(?![0-9])" : token.startsWith("@[node:") ? "" : `(?=${CANVAS_RESOURCE_MENTION_BOUNDARY.source})`;
     return value.replace(new RegExp(`${escapedToken}${boundary}`, "gu"), replacement);
 }
 
@@ -308,12 +352,7 @@ export function replaceCanvasMentionToken(value: string, token: string, replacem
  * 替换提示词中针对某参考对象的所有引用（包含 @图片1、@原标题、@[node:xxx]）。
  * 只要提示词中存在指向该对象的标记，同步全部替换为新标记。
  */
-export function replaceCanvasReferenceMentions(
-    prompt: string,
-    oldReference: { label?: string; title?: string; nodeId?: string },
-    replacementToken: string,
-    replacementTitle?: string,
-): string {
+export function replaceCanvasReferenceMentions(prompt: string, oldReference: { label?: string; title?: string; nodeId?: string }, replacementToken: string, replacementTitle?: string): string {
     let result = prompt;
     const cleanToken = replacementToken.startsWith("@") ? replacementToken : `@${replacementToken}`;
     const cleanOldLabel = oldReference.label?.replace(/^@/, "");
@@ -343,25 +382,28 @@ function compactRemovedCanvasMentionPrompt(value: string) {
 
 export function buildAssetMentionReferences(assets: Asset[]): CanvasResourceReference[] {
     return assets.flatMap((asset): CanvasResourceReference[] => {
-        if (asset.kind === "model") return [];
+        // @ 菜单只列生成阶段能解析的素材，否则选中后必然报“没有对应的资源”。
+        if (asset.kind === "model" || (asset.kind === "entity" && !isCharacterEntityAsset(asset))) return [];
         const kind: CanvasResourceKind = asset.kind === "entity" ? "character" : asset.kind;
         const previewUrl = asset.kind === "image" ? asset.data.dataUrl : asset.kind === "video" ? canvasVideoAssetPreviewUrl(asset.data.url, asset.coverUrl) : asset.coverUrl;
         const text = asset.kind === "text" ? asset.data.content : undefined;
-        return [{
-            id: `asset:${asset.id}`,
-            nodeId: "",
-            assetId: asset.id,
-            kind,
-            label: asset.title,
-            title: asset.title,
-            previewUrl,
-            mediaUrl: asset.kind === "video" && !previewUrl ? asset.data.url : undefined,
-            storageKey: "storageKey" in asset.data ? asset.data.storageKey : undefined,
-            durationMs: "durationMs" in asset.data ? asset.data.durationMs : undefined,
-            text,
-            active: false,
-            category: asset.category || "other",
-        }];
+        return [
+            {
+                id: `asset:${asset.id}`,
+                nodeId: "",
+                assetId: asset.id,
+                kind,
+                label: asset.title,
+                title: asset.title,
+                previewUrl,
+                mediaUrl: asset.kind === "video" && !previewUrl ? asset.data.url : undefined,
+                storageKey: "storageKey" in asset.data ? asset.data.storageKey : undefined,
+                durationMs: "durationMs" in asset.data ? asset.data.durationMs : undefined,
+                text,
+                active: false,
+                category: asset.category || "other",
+            },
+        ];
     });
 }
 
@@ -384,13 +426,14 @@ export function buildCanvasAgentMentionReferences(nodes: CanvasNodeData[]): Canv
             kind,
             label: node.title?.trim() || fallbackTitle,
             title: node.title?.trim() || fallbackTitle,
-            previewUrl: node.metadata?.workflowKind === "character"
-                ? node.metadata.characterCoverUrl
-                : node.type === CanvasNodeType.Drawing
-                  ? node.metadata?.drawingPreviewUrl
-                  : node.type === CanvasNodeType.Video
-                    ? canvasNodeVideoPreviewUrl(node)
-                    : node.metadata?.previewContent || node.metadata?.content,
+            previewUrl:
+                node.metadata?.workflowKind === "character"
+                    ? node.metadata.characterCoverUrl
+                    : node.type === CanvasNodeType.Drawing
+                      ? node.metadata?.drawingPreviewUrl
+                      : node.type === CanvasNodeType.Video
+                        ? canvasNodeVideoPreviewUrl(node)
+                        : node.metadata?.previewContent || node.metadata?.content,
             storageKey: node.metadata?.storageKey,
             durationMs: node.metadata?.durationMs,
             previewStorageKey: node.type === CanvasNodeType.Video ? node.metadata?.videoPreview?.storageKey : undefined,
@@ -517,9 +560,7 @@ export function reorderCanvasResourceConnections(targetNodeId: string, orderedNo
     const configInputs = configNodeId ? getContextResourceNodes(configNodeId, nodes, connections).filter((node) => node.id !== targetNodeId) : [];
     const receiverId = configInputs.length ? configNodeId! : targetNodeId;
     const orderSet = new Set(uniqueOrder);
-    const slots = connections
-        .map((connection, index) => ({ connection, index }))
-        .filter(({ connection }) => connection.toNodeId === receiverId && orderSet.has(connection.fromNodeId));
+    const slots = connections.map((connection, index) => ({ connection, index })).filter(({ connection }) => connection.toNodeId === receiverId && orderSet.has(connection.fromNodeId));
     if (slots.length !== uniqueOrder.length) return connections;
     const connectionBySource = new Map(slots.map(({ connection }) => [connection.fromNodeId, connection]));
     if (uniqueOrder.some((nodeId) => !connectionBySource.has(nodeId))) return connections;
@@ -547,19 +588,27 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
                 kind,
                 label,
                 title: node.title || label,
-                previewUrl: node.metadata?.workflowKind === "character"
-                    ? node.metadata.characterCoverUrl
-                    : node.type === CanvasNodeType.Drawing
-                      ? node.metadata?.drawingPreviewUrl
-                      : node.type === CanvasNodeType.Video
-                        ? canvasNodeVideoPreviewUrl(node)
-                        : node.metadata?.previewContent || node.metadata?.content,
+                previewUrl:
+                    node.metadata?.workflowKind === "character"
+                        ? node.metadata.characterCoverUrl
+                        : node.type === CanvasNodeType.Drawing
+                          ? node.metadata?.drawingPreviewUrl
+                          : node.type === CanvasNodeType.Video
+                            ? canvasNodeVideoPreviewUrl(node)
+                            : node.metadata?.previewContent || node.metadata?.content,
                 storageKey: node.metadata?.storageKey,
                 durationMs: node.metadata?.durationMs,
                 previewStorageKey: node.type === CanvasNodeType.Video ? node.metadata?.videoPreview?.storageKey : undefined,
                 drawingId: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingId : undefined,
                 drawingRevision: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingRevision : undefined,
-                text: node.metadata?.workflowKind === "character" ? node.metadata.characterPrompt : node.type === CanvasNodeType.Text ? node.metadata?.content || node.metadata?.prompt : node.type === CanvasNodeType.Skill ? skillResourceText(node) : undefined,
+                text:
+                    node.metadata?.workflowKind === "character"
+                        ? node.metadata.characterPrompt
+                        : node.type === CanvasNodeType.Text
+                          ? node.metadata?.content || node.metadata?.prompt
+                          : node.type === CanvasNodeType.Skill
+                            ? skillResourceText(node)
+                            : undefined,
                 active,
                 sourceType: node.type,
             },

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"yingce/backend/internal/model"
 
 	"golang.org/x/sync/errgroup"
@@ -291,9 +292,7 @@ func (s *Service) ProjectUnitWorkspace(userID string, projectID string, unitID s
 	}
 	representationsByVersionID := make(map[string][]CharacterRepresentationSummary, len(versionIDs))
 	for _, representation := range storedRepresentations {
-		representationsByVersionID[representation.AssetVersionID] = append(representationsByVersionID[representation.AssetVersionID], CharacterRepresentationSummary{
-			ID: representation.ID, ResourceID: representation.ResourceID, MediaType: representation.MediaType, Role: representation.Role,
-		})
+		representationsByVersionID[representation.AssetVersionID] = append(representationsByVersionID[representation.AssetVersionID], characterRepresentationSummary(representation))
 	}
 	result.ShotReferences = make([]ProjectShotAssetReference, 0, len(shotReferences))
 	for _, reference := range shotReferences {
@@ -367,12 +366,17 @@ func (s *Service) ProjectAssetCandidatesPage(userID string, projectID string, pa
 	return ProjectAssetCandidatePage{Candidates: candidates, Page: page, PageSize: pageSize, Total: total, HasMore: int64(page*pageSize) < total}, nil
 }
 
-func (s *Service) ProjectAssetsPage(userID string, projectID string, page int, pageSize int, category string, mediaType string, status string, folderID *string, query string) (ProjectAssetPage, error) {
+func (s *Service) ProjectAssetsPage(userID string, projectID string, page int, pageSize int, category string, mediaType string, status string, folderID *string, query string, unitIDs ...string) (ProjectAssetPage, error) {
 	if _, err := s.repo.ProjectForUser(userID, projectID); err != nil {
 		return ProjectAssetPage{}, err
 	}
 	page, pageSize = normalizeProjectPage(page, pageSize, 80)
-	assets, total, err := s.repo.ProjectAssetsPage(userID, projectID, page, pageSize, category, mediaType, status, folderID, query)
+	if len(unitIDs) > 0 && strings.TrimSpace(unitIDs[0]) != "" {
+		if _, err := s.repo.ProjectUnit(projectID, strings.TrimSpace(unitIDs[0])); err != nil {
+			return ProjectAssetPage{}, err
+		}
+	}
+	assets, total, err := s.repo.ProjectAssetsPage(userID, projectID, page, pageSize, category, mediaType, status, folderID, query, unitIDs...)
 	if err != nil {
 		return ProjectAssetPage{}, err
 	}
@@ -391,6 +395,9 @@ func (s *Service) ProjectAssetsPage(userID string, projectID string, page int, p
 		})
 	}
 	if err := group.Wait(); err != nil {
+		return ProjectAssetPage{}, err
+	}
+	if err := s.enrichProjectAssetSources(projectID, summaries); err != nil {
 		return ProjectAssetPage{}, err
 	}
 	categoryRows, folderRows, err := s.repo.ProjectAssetFacets(projectID)

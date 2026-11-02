@@ -50,7 +50,7 @@ func (s *Service) validateStoryboardTaskResult(task model.Task, result map[strin
 	}
 	text, _ := result["text"].(string)
 	if !completeStoryboardJSON(text) {
-		return BadAuthRequest("分镜结果不完整，可能已达到模型输出上限；未写入半批镜头。请重新生成分镜")
+		return BadAuthRequest("模型返回的分镜未完整结束，可能达到单次输出上限；失败草稿已保留，原分镜未覆盖。请使用新版分批生成")
 	}
 	return nil
 }

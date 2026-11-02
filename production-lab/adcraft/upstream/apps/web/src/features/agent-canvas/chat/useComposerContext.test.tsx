@@ -157,6 +157,49 @@ describe("useComposerContext", () => {
     expect(result.current.productMainHandoff).toBeNull();
   });
 
+  it("keeps the product and both character references selected after separate uploads", async () => {
+    const receipt = (id: string, role: string) => ({
+      workflow_id: "workflow-1",
+      asset: { ...asset(id), version_id: `version-${id}`, source_semantic_role: role },
+      pending_handoff_id: role === "product_main" ? "product-handoff" : null,
+    });
+    fixture.uploadFilesWithReceipts
+      .mockResolvedValueOnce([receipt("product", "product_main")])
+      .mockResolvedValueOnce([receipt("person-a", "character_main"), receipt("person-b", "character_main")]);
+    const { result } = renderHook(() => useComposerContext({ workflow: workflow() }));
+    await act(async () => {
+      await result.current.actions.upload([new File(["product"], "product.png", { type: "image/png" })], { semanticRole: "product_main" });
+    });
+    const product = result.current.productMainHandoff;
+    await act(async () => {
+      await result.current.actions.upload([
+        new File(["a"], "person-a.png", { type: "image/png" }),
+        new File(["b"], "person-b.png", { type: "image/png" }),
+      ], { semanticRole: "character_main" });
+    });
+    expect(result.current.productMainHandoff).toEqual(product);
+    expect(result.current.selectedAssetIds).toEqual(["product", "person-a", "person-b"]);
+    expect(result.current.view.assets.map(item => item.assetId)).toEqual(["product", "person-a", "person-b"]);
+    expect(fixture.uploadFilesWithReceipts).toHaveBeenLastCalledWith(expect.anything(), { semanticRole: "character_main" });
+    act(() => result.current.actions.removeAsset("person-a"));
+    expect(result.current.selectedAssetIds).toEqual(["product", "person-b"]);
+    expect(result.current.productMainHandoff).toEqual(product);
+    act(() => result.current.actions.clearProductMainHandoff());
+    expect(result.current.productMainHandoff).toBeNull();
+    expect(result.current.selectedAssetIds).toEqual(["person-b"]);
+  });
+
+  it("does not discard Product Main when a later ordinary reference is uploaded", async () => {
+    fixture.uploadFilesWithReceipts
+      .mockResolvedValueOnce([{ workflow_id: "workflow-1", asset: { ...asset("product"), version_id: "v-product" }, pending_handoff_id: "product-handoff" }])
+      .mockResolvedValueOnce([{ workflow_id: "workflow-1", asset: { ...asset("scene"), version_id: "v-scene" }, pending_handoff_id: null }]);
+    const { result } = renderHook(() => useComposerContext({ workflow: workflow() }));
+    await act(async () => result.current.actions.upload([new File(["p"], "product.png", { type: "image/png" })], { semanticRole: "product_main" }));
+    await act(async () => result.current.actions.upload([new File(["s"], "scene.png", { type: "image/png" })]));
+    expect(result.current.productMainHandoff?.assetId).toBe("product");
+    expect(result.current.selectedAssetIds).toEqual(["product", "scene"]);
+  });
+
   it("projects failed uploads locally and preserves existing selections", async () => {
     fixture.uploadFilesWithReceipts.mockRejectedValue(new Error("Request failed with status 503"));
     const { result } = renderHook(() => useComposerContext({ workflow: workflow() }));

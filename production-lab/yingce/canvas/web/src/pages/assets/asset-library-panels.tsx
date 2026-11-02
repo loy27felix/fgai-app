@@ -17,6 +17,8 @@ export function AssetsBatchBar({
     count,
     isTrash = false,
     allSelected,
+    busy = false,
+    pageLoading = false,
     onSelectAll,
     onClear,
     onExport,
@@ -27,6 +29,8 @@ export function AssetsBatchBar({
     count: number;
     isTrash?: boolean;
     allSelected: boolean;
+    busy?: boolean;
+    pageLoading?: boolean;
     onSelectAll: () => void;
     onClear: () => void;
     onExport: () => void;
@@ -37,33 +41,33 @@ export function AssetsBatchBar({
     return (
         <div className="assets-batch-bar" role="toolbar" aria-label="批量操作">
             <span className="assets-batch-count">
-                已选择 <strong>{count}</strong> 个素材
+                已选择 <strong>{count}</strong> 个素材 · 点击卡片多选，Shift 连选
             </span>
             <div className="assets-batch-actions">
-                <Button size="small" icon={<CheckCheck className="size-3.5" />} disabled={allSelected} onClick={onSelectAll}>
-                    全选
+                <Button size="small" icon={<CheckCheck className="size-3.5" />} disabled={allSelected || busy || pageLoading} onClick={onSelectAll}>
+                    全选本页
                 </Button>
-                <Button size="small" disabled={!count} onClick={onClear}>
+                <Button size="small" disabled={busy} onClick={onClear}>
                     取消选择
                 </Button>
                 {isTrash ? (
                     <>
-                        <Button size="small" type="primary" disabled={!count} icon={<RotateCcw className="size-3.5" />} onClick={onRestore}>
+                        <Button size="small" type="primary" disabled={!count || busy} icon={<RotateCcw className="size-3.5" />} onClick={onRestore}>
                             还原已选
                         </Button>
-                        <Button size="small" danger disabled={!count} icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
+                        <Button size="small" danger disabled={!count || busy} icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
                             彻底删除已选
                         </Button>
                     </>
                 ) : (
                     <>
-                        <Button size="small" disabled={!count} icon={<Download className="size-3.5" />} onClick={onExport}>
+                        <Button size="small" disabled={!count || busy} icon={<Download className="size-3.5" />} onClick={onExport}>
                             导出
                         </Button>
-                        <Button size="small" disabled={!count} icon={<Trash2 className="size-3.5 text-amber-500" />} onClick={onArchive}>
+                        <Button size="small" disabled={!count || busy} icon={<Trash2 className="size-3.5 text-amber-500" />} onClick={onArchive}>
                             移入回收站
                         </Button>
-                        <Button size="small" danger disabled={!count} icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
+                        <Button size="small" danger disabled={!count || busy} icon={<Trash2 className="size-3.5" />} onClick={onDelete}>
                             彻底删除
                         </Button>
                     </>
@@ -189,7 +193,7 @@ function CharacterArchive({ asset }: { asset: Extract<LibraryAsset, { kind: "ent
             <div className="relative aspect-[4/3] overflow-hidden rounded-[var(--r-xl)]">
                 <CharacterAssetCover asset={asset} size="hero" />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-4">
-                    <div className="text-[10px] font-medium uppercase tracking-[.24em] text-white/55">Character{asset.data.version ? ` · v${asset.data.version}` : ""}</div>
+                    <div className="text-[var(--fs-label)] font-medium uppercase tracking-[.24em] text-white/55">Character{asset.data.version ? ` · v${asset.data.version}` : ""}</div>
                     {aliases.length ? <div className="mt-1 truncate text-xs text-white/70">又名 {aliases.join("、")}</div> : null}
                 </div>
             </div>
@@ -202,7 +206,7 @@ function CharacterArchive({ asset }: { asset: Extract<LibraryAsset, { kind: "ent
                     </span>
                 )}
                 <span className="min-w-0">
-                    <span className="block text-[11px] text-foreground/45">声音</span>
+                    <span className="block text-[var(--fs-label)] text-foreground/45">声音</span>
                     <span className="block truncate text-sm font-medium">{asset.data.voiceName || "未绑定声音"}</span>
                 </span>
                 <span className={`ml-auto shrink-0 text-xs ${asset.data.visualStatus === "ready" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground/45"}`}>{asset.data.visualStatus === "ready" ? "形象就绪" : "形象待完善"}</span>
@@ -242,7 +246,12 @@ export function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Lib
                             </p>
                         </div>
                     </div>
-                    {asset.kind === "entity" ? (
+                    {asset.kind === "entity" && (asset.category === "environment" || asset.category === "prop") ? (
+                        <div className="asset-archive-preview-note">
+                            <p>{String(asset.data.definition.description || "待生成图片")}</p>
+                            <p>{String(asset.data.definition.prompt || "")}</p>
+                        </div>
+                    ) : asset.kind === "entity" ? (
                         <CharacterArchive asset={asset} />
                     ) : (
                         <div className="asset-archive-preview">
@@ -266,7 +275,7 @@ export function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Lib
                             )}
                         </div>
                     )}
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-2">
                         {(asset.tags || []).map((tag) => (
                             <Tag key={tag} className="asset-archive-tag m-0">
                                 {tag}
@@ -371,7 +380,7 @@ export function AssetImageZoom({ asset }: { asset: LibraryAsset & { kind: "image
 
 export function assetArchiveFacts(asset: LibraryAsset) {
     const facts: Array<{ label: string; value: string }> = [
-        { label: "类型", value: assetKindLabel(asset.kind) },
+        { label: "类型", value: assetKindLabel(asset.kind, asset.category) },
         { label: "分类", value: assetCategoryLabel(asset.category) },
     ];
     if (asset.kind === "image" || asset.kind === "video") {

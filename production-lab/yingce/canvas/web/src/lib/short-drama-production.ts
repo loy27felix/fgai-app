@@ -1,4 +1,5 @@
 import { modelCapabilityConfigFor, videoDurationAllowed } from "@/lib/model-capabilities";
+import { dramaDialoguePreserved } from "@/lib/short-drama-dialogue";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { StoryboardRow } from "@/types/canvas";
 
@@ -39,6 +40,8 @@ export function dramaStoryboardContract(plan: DramaProductionPlan, modelName: st
         "受击与小型魔法特效只服务已确认剧情和能力：逐项写触发者/动作→接触点或发射来源→传播方向与速度→命中反馈→环境余波→消散。按目标风格选择短促火花、飞屑、尘浪、布料/头发扰动、局部光反射等，不用泛泛的‘炫酷特效’；能量贴合主体并有遮挡和光照反馈，不无故遮脸、变身、凭空新增武器或能力。普通生活片不强加魔法。",
         "连续性逐项核对：上一段末态→本段起态→各时间段末态，记录每人相对门窗/家具的位置、朝向、脚下介质、持物手、道具归属/开闭状态、光源方向和正在进行的声音。写清接触→受力→位移→结果；抬警戒带、过门、传物等必须有实际空隙与先后条件。切镜可以省略无意义等待，但不能造成无依据的换手、换位、穿墙、消失或复位。",
         "完整保留原文对白和明确的 OS，不为抽象心理描述虚构 OS。对白过长时在完整句与剧情落点处另开片段；不加速、不删词、不重复。dialogue 必须包含本片段完整台词，一行一位说话人，使用‘角色名：完整原文台词’格式，videoMotionPrompt 同样逐字包含这些台词。",
+        "说话人标签也须逐字一致：dialogue 和【声音设计】对白清单沿用原文同一个角色名，不自行翻译、缩写或切换中英文名；例如原文 Cal: Hello.，两处均写 Cal：Hello.，不能一处 Cal 一处卡尔，也不能把 Cal: 再嵌入台词正文。声线设定另列在对白清单之外，时间和表演说明不得并入角色姓名。",
+        "角色已确认的性别、外貌、声音性别和绑定样音是跨镜头固定事实；原文或角色设定未明确时，不得在某批次自行锁定为男性或女性，不因老板、医生等职业推断性别。沿用已绑定人物外观和音色，未知项保留未明确，不用本批临时设定覆盖。",
         "script-to-drama-prompt-dev 用于 videoMotionPrompt；按用户时长缩放原 Skill 的 30 秒单元，30 秒通常 6–10 个有效内部镜头，短片段减少镜头，切换须有叙事动机，通常只用 1–2 次有动机的运镜。",
         "short-drama-asset-prompts 只用于角色、场景、道具设定与引用校验；保留原身份、族裔、物种和画风，不将默认亚洲人物、棚拍背景或空景无人要求强加到视频与分镜首帧。引用图分别说明身份与场景用途。",
         "参考绑定优先本片实际出场角色与主场景；只在道具决定剧情、需要身份锁定或明确接触操作时加入道具。分镜图、动作预演、历史生成素材不得因名称相似自动作为人物或场景参考。为每个有效绑定写真实资产ID与用途，系统随后转换成可核对的@资产与对应图片编号。",
@@ -68,12 +71,7 @@ export function validateDramaStoryboard(rows: StoryboardRow[], plan?: DramaProdu
         } else if (!prompt.startsWith("【分镜】") || !prompt.includes("人物站位：") || !prompt.includes("镜头1") || !prompt.includes("【禁止项】") || !prompt.includes("【强制声明】") || !prompt.includes("无背景音乐,仅保留环境音与人声和音效")) {
             throw new Error(`第 ${index + 1} 段缺少完整视频提示词，未替换原分镜`);
         }
-        const comparable = (value: string) => value.replace(/[\s"'“”‘’「」『』]/g, "");
-        const spokenLines = row.dialogue.split(/\r?\n/).flatMap((line) => {
-            const body = line.trim().match(/^[^：:\n]{1,40}[：:]\s*(.+)$/)?.[1];
-            return body ? [comparable(body)] : [];
-        });
-        if (spokenLines.some((line) => !comparable(prompt).includes(line))) throw new Error(`第 ${index + 1} 段视频提示词遗漏或改写了本段对白，未替换原分镜`);
+        if (!dramaDialoguePreserved(row.dialogue, prompt)) throw new Error(`第 ${index + 1} 段视频提示词遗漏或改写了本段对白，未替换原分镜`);
     }
 }
 
@@ -129,7 +127,7 @@ export function validateDirectorVideoPrompt(prompt: string, seconds: number, ind
         const interval = intervals[i];
         const start = Number(interval[1]),
             end = Number(interval[2]);
-        if (Math.abs(start - previous) > 0.01 || end <= start || end > seconds) fail("动作时间轴存在空缺、重叠或超出总时长");
+        if (Math.abs(start - previous) > 0.01 || end <= start || end > seconds) fail(`动作时间轴存在空缺、重叠或超出总时长（第 ${i + 1} 个时间段：${start}—${end}秒；应从 ${previous} 秒承接，总长 ${seconds} 秒）`);
         const block = timeline!.slice(interval.index, intervals[i + 1]?.index);
         const labels = [...block.matchAll(directorLabels())];
         const missing = ["人物动作", "镜头运动", "背景"].filter((label) => !labels.some((match, j) =>

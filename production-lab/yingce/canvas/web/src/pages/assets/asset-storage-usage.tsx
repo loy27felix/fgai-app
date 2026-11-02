@@ -17,9 +17,7 @@ export function AssetStorageUsage() {
             <span className="assets-storage-usage-title">NAS 文件已用</span>
             {usage ? (
                 <>
-                    <span className="assets-storage-usage-value">
-                        {formatStorageBytes(usage.usedBytes)}
-                    </span>
+                    <span className="assets-storage-usage-value">{formatStorageBytes(usage.usedBytes)}</span>
                 </>
             ) : query.isError ? (
                 <span className="assets-storage-usage-status">

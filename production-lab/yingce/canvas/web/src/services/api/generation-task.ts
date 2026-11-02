@@ -1,3 +1,5 @@
+import { createClientUUID } from "@/lib/client-id";
+import { projectLanguageTaskInput } from "./project-language";
 import { normalizeAudioFormatForConfig, normalizeAudioVoiceForConfig } from "@/lib/audio-generation";
 import { imageParameterRequest } from "@/lib/image-parameters";
 import { getMediaBlob } from "@/services/file-storage";
@@ -63,7 +65,7 @@ export type GenerationTaskDependencies = {
 const defaultDependencies: GenerationTaskDependencies = {
     createTask: createGenerationTask,
     waitTask: waitForGenerationTask,
-    createId: () => crypto.randomUUID(),
+    createId: () => createClientUUID(),
 };
 
 type PreparedGenerationReferences = {
@@ -296,7 +298,7 @@ export async function prepareBackendGenerationTask(options: BackendGenerationTas
     assertBackendRuntimeConfigured(options.config, options.mode);
     const prepared = await prepareGenerationReferences(options);
     throwIfAborted(options.signal);
-    return backendGenerationTaskInput(options, prepared);
+    return projectLanguageTaskInput(backendGenerationTaskInput(options, prepared));
 }
 
 function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences): CreateTaskInput {

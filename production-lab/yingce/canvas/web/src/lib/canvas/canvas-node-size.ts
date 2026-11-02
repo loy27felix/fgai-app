@@ -93,6 +93,14 @@ export function ensureMediaNodeMinimumSize(node: CanvasNodeData) {
         if (size.width === node.width && size.height === node.height && title === node.title) return node;
         return { ...node, title, width: size.width, height: size.height, position: { x: node.position.x + node.width / 2 - size.width / 2, y: node.position.y + node.height / 2 - size.height / 2 } };
     }
+    const metadata = node.metadata;
+    if (metadata?.naturalWidth && metadata.naturalHeight && !metadata.manualSize && !metadata.freeResize && !metadata.locked) {
+        const ratio = metadata.naturalWidth / metadata.naturalHeight;
+        if (Math.abs(node.width / Math.max(1, node.height) - ratio) > 0.002) {
+            const size = fitNodeSize(metadata.naturalWidth, metadata.naturalHeight, VIDEO_NODE_MAX_SIZE.width, VIDEO_NODE_MAX_SIZE.height, 0, 0);
+            return { ...node, title, ...size, position: { x: node.position.x + (node.width - size.width) / 2, y: node.position.y + (node.height - size.height) / 2 } };
+        }
+    }
     let width = node.width;
     let height = node.height;
     const emptyStage = isBuiltinCanvasNodeType(node.type) ? NODE_DEFAULT_SIZE[node.type] : undefined;

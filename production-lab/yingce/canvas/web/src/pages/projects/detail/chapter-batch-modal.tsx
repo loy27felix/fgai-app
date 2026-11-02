@@ -6,16 +6,18 @@ import { SkillRuntimePicker, useSkillRuntimeCatalog } from "@/components/skills/
 import { createDramaProductionPlan, dramaSegmentDurations } from "@/lib/short-drama-production";
 import { shortDramaMediaDefault } from "@/lib/short-drama-models";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
-import { createProjectAssetCandidates, getProjectUnitWorkspace, listProjectAssetsPage, replaceProjectUnitShots, type ProjectDetail, type ProjectAsset } from "@/services/api/projects";
+import { createProjectAssetCandidates, getProjectUnitWorkspace, replaceProjectUnitShots, type ProjectDetail } from "@/services/api/projects";
 import { getShortDramaGPTStatus, shortDramaDefaultTextModel } from "@/services/short-drama-text";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import type { GenerationTask } from "@/services/api/task-center";
-import { chapterStoryboardAssets, chapterStoryboardCharacters, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
+import { chapterStoryboardAssets, chapterStoryboardCharacters, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
 import { extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 import { runChapterBatch } from "./chapter-batch-runner";
+import { useStoryboardReferenceReview } from "./storyboard-reference-review";
 
 export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: { detail: ProjectDetail; open: boolean; onClose: () => void; onRefresh: () => void; onTask: (unitId: string, kind: "characters" | "storyboard", task: GenerationTask) => void }) {
     const { message } = App.useApp();
+    const reviewReferences = useStoryboardReferenceReview();
     const config = useEffectiveConfig();
     const { skills, loading } = useSkillRuntimeCatalog();
     const [ids, setIds] = useState<string[]>([]);
@@ -49,14 +51,7 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
         let completed = 0;
         let skipped = 0;
         try {
-            const assets: ProjectAsset[] = [];
-            if (kind === "storyboard") {
-                for (let page = 1; ; page++) {
-                    const result = await listProjectAssetsPage(detail.project.id, { page, pageSize: 100 });
-                    assets.push(...result.assets);
-                    if (assets.length >= result.total || !result.assets.length) break;
-                }
-            }
+            const assets = kind === "storyboard" ? await loadChapterStoryboardAssets(detail.project.id) : [];
             const outcomes = await runChapterBatch(ids, { stopped: () => stop.current || !alive.current, process: async (id, index) => {
                 const workspace = await getProjectUnitWorkspace(detail.project.id, id);
                 if (stop.current || !alive.current) return "skipped";
@@ -78,7 +73,11 @@ export function ChapterBatchModal({ detail, open, onClose, onRefresh, onTask }: 
                 } else {
                     const snapshot = { ...detail, ...workspace, assets };
                     const result = await generateChapterStoryboard({ ...input, projectStyle: { presetId: style!.id, title: style!.title, prompt: style!.prompt, profileJson: detail.project.styleProfileJson }, characters: chapterStoryboardCharacters(snapshot, id), assets: chapterStoryboardAssets(snapshot), skills, selectedSkillIds: skillIds, productionPlan: createDramaProductionPlan(config, videoModel, selectedSeconds, "fixed"), actionDirection: action.trim() || undefined }, options);
-                    await replaceProjectUnitShots(detail.project.id, id, storyboardRowsToProjectShots(result.rows, snapshot, result.productionPlan), workspace.shots.map(shot => shot.id));
+                    const choices = await reviewReferences(result.rows, assets);
+                    const shots = storyboardRowsToProjectShots(result.rows, snapshot, result.productionPlan, choices);
+                    const saved = await replaceProjectUnitShots(detail.project.id, id, shots, workspace.shots.map(shot => shot.id));
+                    const verified = await getProjectUnitWorkspace(detail.project.id, id);
+                    if (saved.shots.length !== shots.length || verified.shots.length !== shots.length || saved.shots.some(shot => !verified.shots.some(item => item.id === shot.id))) throw new Error("分镜已提交，但列表尚未确认，请读取已保存结果，不要重新生成");
                 }
                 onRefresh();
                 return "completed";

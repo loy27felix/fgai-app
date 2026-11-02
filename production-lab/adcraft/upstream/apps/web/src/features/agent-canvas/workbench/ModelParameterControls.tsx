@@ -5,6 +5,7 @@ import {
   modelParameterLabel,
   validateModelParameters,
 } from "./modelParameterDescriptors.ts";
+import { useTranslation } from "../../../i18n/useTranslation.ts";
 
 function updateParameter(
   parameters: Readonly<Record<string, unknown>>,
@@ -30,12 +31,13 @@ export function ModelParameterControls({
   onChange: (parameters: Record<string, unknown>) => void;
   layout?: "grid" | "inline";
 }) {
+  const t = useTranslation("en-US");
   if (!descriptors.length) return null;
   const issues = validateModelParameters(descriptors, parameters);
   const issueByName = new Map(issues.map((issue) => [issue.name, issue.message]));
 
   return (
-    <div className={`agent-node-workbench__model-parameters${layout === "inline" ? " agent-node-workbench__model-parameters--inline" : ""}`} aria-label="Model parameters">
+    <div className={`agent-node-workbench__model-parameters${layout === "inline" ? " agent-node-workbench__model-parameters--inline" : ""}`} aria-label={t("Model parameters")}>
       {descriptors.map((descriptor) => {
         const label = fgLabel(modelParameterLabel(descriptor.name));
         const displayLabel = layout === "inline"
@@ -64,11 +66,11 @@ export function ModelParameterControls({
                 <button
                   type="button"
                   className="agent-node-workbench__parameter-clear"
-                  aria-label={`Clear ${label}`}
+                    aria-label={t("Clear {label}", { label })}
                   disabled={disabled}
                   onClick={() => onChange(updateParameter(parameters, descriptor.name, undefined))}
                 >
-                  {fgLabel('Clear')}
+                    {t("Clear")}
                 </button>
               ) : null}
               {issue ? <p className="agent-node-workbench__field-error">{issue}</p> : null}
@@ -104,9 +106,9 @@ export function ModelParameterControls({
                   event.currentTarget.value || undefined,
                 ))}
               >
-                <option value="">{fgLabel('Not set')}</option>
+                <option value="">{t("Not set")}</option>
                 {typeof value === "string" && !descriptor.allowed_values.includes(value) ? (
-                  <option value={value}>{value} (unsupported)</option>
+                  <option value={value}>{t("{value} (unsupported)", { value })}</option>
                 ) : null}
                 {descriptor.allowed_values.map((option) => (
                   <option value={option} key={option}>{option}</option>

@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {internalSpeechAuthorised,synthesizeSpeech,speechModels,speechUtilities,speechKey,SpeechError} from './fg-speech-provider.mjs';
 import {musicModels,synthesizeMusic} from './fg-music-provider.mjs';
+import {maxSpeechInputBytes} from './fg-seed-audio-references.mjs';
 
 export async function initializeSpeech(pool){
  await pool.query(`CREATE TABLE IF NOT EXISTS fg_speech_usage(
@@ -27,7 +28,7 @@ export async function speechInternalRoute(req,res,{pool,path}){
   reservationId=String(req.headers['x-fg-budget-reservation']||'');
   if(!/^[0-9a-f-]{36}$/.test(reservationId))throw Error('语音请求缺少费用检查记录');
   const reservation=(await pool.query('SELECT model FROM fg_budget_reservations WHERE id=$1',[reservationId])).rows[0];
-  let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>65536)throw new SpeechError('SPEECH_INVALID_INPUT',400);chunks.push(c);}
+  let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>maxSpeechInputBytes)throw new SpeechError('SPEECH_INVALID_INPUT',400);chunks.push(c);}
   const input=JSON.parse(Buffer.concat(chunks));
   if(!reservation||reservation.model!==input.model||!(await enabledSpeechModels(pool)).some(m=>m.id===input.model))throw Error('语音费用记录或模型无效');
   requestId=randomUUID();

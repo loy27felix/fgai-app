@@ -52,3 +52,47 @@ func TestStyleReferenceImagesRejectPendingOrNonImage(t *testing.T) {
 		}
 	}
 }
+
+func TestCharacterStyleDoesNotUseAnotherCharactersPortraitUnlessExplicitlySelected(t *testing.T) {
+	service, db := newProjectWorkflowV2TestService(t)
+	project, _ := seedWorkflowProject(t, db)
+	for _, value := range []any{
+		&model.Asset{ID: "evan", UserID: "user-1", Category: model.AssetCategoryCharacter, Kind: "entity", Title: "Evan", PrimaryVersionID: "evan-v"},
+		&model.Asset{ID: "investigator", UserID: "user-1", Category: model.AssetCategoryCharacter, Kind: "entity", Title: "调查人员", PrimaryVersionID: "investigator-v"},
+		&model.AssetVersion{ID: "evan-v", AssetID: "evan", DefinitionJSON: `{}`},
+		&model.AssetVersion{ID: "investigator-v", AssetID: "investigator", DefinitionJSON: `{}`},
+		&model.ProjectAssetLink{ID: "pal-evan", ProjectID: project.ID, AssetID: "evan"},
+		&model.ProjectAssetLink{ID: "pal-investigator", ProjectID: project.ID, AssetID: "investigator"},
+		&model.AssetRepresentation{ID: "evan-image", AssetVersionID: "evan-v", ResourceID: "evan-portrait", MediaType: "image/png", Role: "primary"},
+	} {
+		if err := db.Create(value).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	makeProfile := func() styleProfileDocument {
+		return styleProfileDocument{Assets: []styleProfileAsset{{Kind: "reference", ReferenceResourceIDs: []string{"evan-portrait", "palette"}}}}
+	}
+	profile := makeProfile()
+	input := canvasGenerationInput{Mode: "image", Prompt: "为调查人员生成三视图", Metadata: map[string]any{"characterAssetId": "investigator"}, ReferenceImages: []providerMedia{{StorageKey: "resource:evan-portrait"}, {StorageKey: "resource:palette"}}}
+	if err := service.isolateCharacterStyleIdentity("user-1", project.ID, &profile, &input); err != nil {
+		t.Fatal(err)
+	}
+	if len(input.ReferenceImages) != 1 || input.ReferenceImages[0].StorageKey != "resource:palette" || len(profile.Assets[0].ReferenceResourceIDs) != 1 {
+		t.Fatalf("protagonist reference leaked: %+v", input.ReferenceImages)
+	}
+	if !strings.Contains(input.Prompt, "唯一主体：调查人员") || input.Metadata["excludedCharacterStyleReferences"] == nil {
+		t.Fatal("missing identity boundary or audit record")
+	}
+	profile = makeProfile()
+	input.Metadata["characterIdentityReferenceIds"] = []string{"evan-portrait"}
+	if err := service.isolateCharacterStyleIdentity("user-1", project.ID, &profile, &input); err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.Assets[0].ReferenceResourceIDs) != 2 {
+		t.Fatal("explicit user selection was discarded")
+	}
+	profile = makeProfile()
+	if err := service.isolateCharacterStyleIdentity("other-user", project.ID, &profile, &input); err == nil {
+		t.Fatal("cross-user character accepted")
+	}
+}

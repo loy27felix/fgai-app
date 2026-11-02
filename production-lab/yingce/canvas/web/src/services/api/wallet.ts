@@ -14,7 +14,7 @@ export type CreditAccount = {
 export type CreditLedgerEntry = {
     id: string;
     userId: string;
-    type: "redeem" | "payment_topup" | "admin_grant" | "consume" | "refund" | "admin_adjustment" | "signup_bonus" | "checkin_bonus";
+    type: "redeem" | "payment_topup" | "admin_grant" | "consume" | "refund" | "admin_adjustment" | "signup_bonus" | "checkin_bonus" | "referral_commission";
     amountMicrocredits: number;
     availableAfterMicrocredits: number;
     reservedAfterMicrocredits: number;
@@ -68,6 +68,8 @@ export type ChannelModel = {
     priceConfigured: boolean;
     enabled: boolean;
     priceVersion: number;
+    /** 价格档售价单位；USD/CNY 下单时按用户分组兑换比例换算成积分。 */
+    priceCurrency?: import("@/services/api/user-groups").PriceCurrency;
     capabilityVersion?: number;
     capabilityConfig?: import("@/lib/model-capabilities").ModelCapabilityConfig;
     priceTiers: ChannelModelPriceTier[];
@@ -117,6 +119,7 @@ export type ChannelModelMutation = {
     capability: ChannelModel["capability"];
     protocol?: ChannelModel["protocol"];
     enabled?: boolean;
+    priceCurrency?: ChannelModel["priceCurrency"];
     capabilityConfig?: ChannelModel["capabilityConfig"];
     priceTiers?: Array<Omit<ChannelModelPriceTier, "id" | "channelModelId" | "selectorKey" | "priceVersion" | "createdAt" | "updatedAt">>;
     billingMode?: ChannelModel["billingMode"];
@@ -264,6 +267,16 @@ export function updateAdminCreditPolicy(policy: CreditPolicy) {
     return http.patch<{ policy: CreditPolicy }>("/admin/settings/credits", policy);
 }
 
+export type BillingAutoRefundSetting = { enabled: boolean; updatedAt?: string };
+
+export function getAdminBillingAutoRefund() {
+    return http.get<{ setting: BillingAutoRefundSetting }>("/admin/settings/billing-auto-refund");
+}
+
+export function updateAdminBillingAutoRefund(enabled: boolean) {
+    return http.patch<{ setting: BillingAutoRefundSetting }>("/admin/settings/billing-auto-refund", { enabled });
+}
+
 export function getAdminLinuxDOSetting() {
     return http.get<{ setting: LinuxDOSetting }>("/admin/settings/linuxdo");
 }
@@ -291,6 +304,23 @@ export function updateAdminEmailSetting(input: Partial<EmailSetting>) {
 
 export function listAdminChannelModels(channelId: string) {
     return http.get<{ models: ChannelModel[] }>(`/admin/channels/${encodeURIComponent(channelId)}/models`);
+}
+
+export type AdminChannelModelListItem = ChannelModel & { channelName: string; channelEnabled: boolean };
+export function listAdminAllChannelModels() {
+    return http.get<{ models: AdminChannelModelListItem[] }>("/admin/channel-models");
+}
+export type AdminChannelModelHealth = {
+    channelId: string; modelKey: string;
+    requests24h: number; succeeded24h: number; failed24h: number; successRate24h: number | null;
+    requests7d: number; successRate7d: number | null; p95DurationMs24h: number;
+    recentResults: boolean[]; lastErrorCode?: string; lastFailedAt?: string; lastCalledAt?: string;
+};
+export function getAdminChannelModelHealth(channelId?: string) {
+    return http.get<{ items: AdminChannelModelHealth[]; computedAt: string; truncated: boolean }>("/admin/channel-models/health", { params: channelId ? { channelId } : undefined });
+}
+export function setAdminChannelModelEnabled(channelId: string, id: string, enabled: boolean) {
+    return http.patch<{ model: ChannelModel }>(`/admin/channels/${encodeURIComponent(channelId)}/models/${encodeURIComponent(id)}/enabled`, { enabled });
 }
 
 // 管理员从上游读取模型目录；确认导入后才会写入渠道模型，价格和启用仍需人工确认。

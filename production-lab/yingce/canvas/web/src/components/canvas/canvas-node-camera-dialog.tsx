@@ -11,18 +11,7 @@ import { aceternityMotion } from "@/lib/aceternity-motion";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
-import {
-    APERTURES,
-    APERTURE_META,
-    CAMERA_PROFILES,
-    FOCAL_LENGTHS,
-    FOCAL_LENGTH_META,
-    LENS_PROFILES,
-    buildCameraPrompt,
-    type CameraControlOptions,
-    type CameraProfile,
-    type LensProfile,
-} from "@/lib/canvas/camera-prompt-library";
+import { APERTURES, APERTURE_META, CAMERA_PROFILES, FOCAL_LENGTHS, FOCAL_LENGTH_META, LENS_PROFILES, buildCameraPrompt, type CameraControlOptions, type CameraProfile, type LensProfile } from "@/lib/canvas/camera-prompt-library";
 
 /* ── SVG renderers ── */
 
@@ -37,7 +26,9 @@ function CameraBodySvg({ profile, className }: { profile: CameraProfile; classNa
                     <rect x="16" y="22" width="34" height="22" rx="3" fill={body} stroke={accent} />
                     <circle cx="52" cy="32" r="10" fill="#0a0a0a" stroke={accent} />
                     <circle cx="52" cy="32" r="5" fill="#22384a" stroke={accent} />
-                    <text x="15" y="18" fontSize="7" fill={accent} fontWeight="bold">IMAX</text>
+                    <text x="15" y="18" fontSize="7" fill={accent} fontWeight="bold">
+                        IMAX
+                    </text>
                     <rect x="12" y="45" width="40" height="3" rx="1" fill={accent} opacity="0.6" />
                 </svg>
             );
@@ -71,7 +62,9 @@ function CameraBodySvg({ profile, className }: { profile: CameraProfile; classNa
                     <circle cx={is_raptor ? "50" : "46"} cy="27" r="9" fill="#050505" stroke={accent} />
                     <circle cx={is_raptor ? "50" : "46"} cy="27" r="5" fill="#1a1a1a" stroke="#666" />
                     <rect x="20" y="8" width="8" height="7" rx="1" fill={accent} opacity="0.85" />
-                    <text x="22" y="36" fontSize="6" fill="#fff" fontWeight="bold">RED</text>
+                    <text x="22" y="36" fontSize="6" fill="#fff" fontWeight="bold">
+                        RED
+                    </text>
                 </svg>
             );
         }
@@ -83,7 +76,9 @@ function CameraBodySvg({ profile, className }: { profile: CameraProfile; classNa
                     <circle cx="52" cy="27" r="9" fill="#050505" stroke={accent} />
                     <rect x="16" y="18" width="6" height="6" rx="1" fill={accent} opacity="0.5" />
                     <rect x="22" y="8" width="16" height="8" rx="1.5" fill={body} />
-                    <text x="22" y="36" fontSize="5.5" fill="#ccc">SONY</text>
+                    <text x="22" y="36" fontSize="5.5" fill="#ccc">
+                        SONY
+                    </text>
                 </svg>
             );
         case "blackmagic_ursa_12k":
@@ -93,7 +88,9 @@ function CameraBodySvg({ profile, className }: { profile: CameraProfile; classNa
                     <circle cx="50" cy="26" r="10" fill="#050505" stroke={accent} />
                     <circle cx="50" cy="26" r="6" fill="#1a1a1a" stroke="#666" />
                     <rect x="24" y="5" width="12" height="8" rx="1" fill={body} />
-                    <text x="18" y="35" fontSize="5" fill={accent} fontWeight="bold">URSA</text>
+                    <text x="18" y="35" fontSize="5" fill={accent} fontWeight="bold">
+                        URSA
+                    </text>
                 </svg>
             );
         case "canon_c500_mk2":
@@ -102,7 +99,9 @@ function CameraBodySvg({ profile, className }: { profile: CameraProfile; classNa
                     <rect x="16" y="12" width="34" height="28" rx="3" fill={body} stroke={accent} />
                     <circle cx="50" cy="26" r="9" fill="#050505" stroke={accent} />
                     <rect x="18" y="16" width="10" height="5" rx="1" fill={accent} opacity="0.7" />
-                    <text x="20" y="36" fontSize="5.5" fill="#eee">Canon</text>
+                    <text x="20" y="36" fontSize="5.5" fill="#eee">
+                        Canon
+                    </text>
                 </svg>
             );
         default:
@@ -127,9 +126,7 @@ function LensBodySvg({ profile, className }: { profile: LensProfile; className?:
             ))}
             <circle cx="58" cy="23" r="7" fill="#050505" stroke={ring} strokeWidth="1.5" />
             <circle cx="58" cy="23" r="3.5" fill="#222" stroke="#888" />
-            {profile.id.startsWith("anamorphic") && (
-                <ellipse cx="58" cy="23" rx="7" ry="3" fill="none" stroke={ring} strokeWidth="0.8" opacity="0.7" />
-            )}
+            {profile.id.startsWith("anamorphic") && <ellipse cx="58" cy="23" rx="7" ry="3" fill="none" stroke={ring} strokeWidth="0.8" opacity="0.7" />}
         </svg>
     );
 }
@@ -199,7 +196,7 @@ const HoverTip = memo(({ title, description, useCase, children }: HoverTipProps)
                 createPortal(
                     <div
                         ref={tipRef}
-                        className="pointer-events-none fixed z-[20000] w-[260px] rounded-lg border p-3 shadow-2xl"
+                        className="pointer-events-none fixed z-[var(--z-max)] w-[260px] rounded-lg border p-3 shadow-2xl"
                         style={{
                             left: `${coords.left}px`,
                             top: coords.placement === "bottom" ? `${coords.top}px` : undefined,
@@ -209,9 +206,17 @@ const HoverTip = memo(({ title, description, useCase, children }: HoverTipProps)
                             color: theme.node.text,
                         }}
                     >
-                        <div className="text-[12px] font-semibold">{title}</div>
-                        {description && <div className="mt-1 text-[11px] leading-5" style={{ color: theme.node.muted }}>{description}</div>}
-                        {useCase && <div className="mt-2 rounded px-2 py-1 text-[10px]" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>使用场景：{useCase}</div>}
+                        <div className="text-[var(--fs-caption)] font-semibold">{title}</div>
+                        {description && (
+                            <div className="mt-1 text-[var(--fs-label)] leading-5" style={{ color: theme.node.muted }}>
+                                {description}
+                            </div>
+                        )}
+                        {useCase && (
+                            <div className="mt-2 rounded px-2 py-1 text-[var(--fs-label)]" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>
+                                使用场景：{useCase}
+                            </div>
+                        )}
                     </div>,
                     document.body,
                 )}
@@ -237,40 +242,32 @@ interface CardColumnProps {
 
 const CardColumn = memo(({ label, tooltipTitle, tooltipDesc, tooltipUseCase, visual, cornerBadge, captionBelow, onPrev, onNext, theme }: CardColumnProps) => {
     return (
-        <div className="flex min-w-0 flex-col items-center gap-1.5">
-            <button
-                type="button"
-                onClick={onPrev}
-                className="flex h-5 w-full items-center justify-center rounded-md transition-colors"
-                style={{ color: theme.node.faint }}
-                title="上一项"
-            >
+        <div className="flex min-w-0 flex-col items-center gap-2">
+            <button type="button" onClick={onPrev} className="flex h-5 w-full items-center justify-center rounded-md transition-colors" style={{ color: theme.node.faint }} title="上一项">
                 <ChevronUp className="size-3.5" />
             </button>
             <HoverTip title={tooltipTitle} description={tooltipDesc} useCase={tooltipUseCase}>
                 <div
-                    className="relative flex h-[clamp(116px,14vw,140px)] w-full min-w-0 cursor-help flex-col items-center justify-between rounded-xl border px-2.5 pt-2 pb-2 transition-colors"
+                    className="relative flex h-[clamp(116px,14vw,140px)] w-full min-w-0 cursor-help flex-col items-center justify-between rounded-xl border px-2 pt-2 pb-2 transition-colors"
                     style={{ borderColor: theme.toolbar.border, background: theme.toolbar.itemHover }}
                 >
-                    <span className="text-[11px] font-medium tracking-wide" style={{ color: theme.node.muted }}>{label}</span>
+                    <span className="text-[var(--fs-label)] font-medium tracking-wide" style={{ color: theme.node.muted }}>
+                        {label}
+                    </span>
                     <div className="flex w-full flex-1 items-center justify-center">{visual}</div>
                     {cornerBadge && (
-                        <div className="absolute right-1.5 top-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "rgba(0,0,0,.5)", color: "rgba(255,255,255,.8)" }}>
+                        <div className="absolute right-1.5 top-1.5 rounded-md px-2 py-0.5 text-[var(--fs-label)] font-medium" style={{ background: "rgba(0,0,0,.5)", color: "rgba(255,255,255,.8)" }}>
                             {cornerBadge}
                         </div>
                     )}
                 </div>
             </HoverTip>
-            <button
-                type="button"
-                onClick={onNext}
-                className="flex h-5 w-full items-center justify-center rounded-md transition-colors"
-                style={{ color: theme.node.faint }}
-                title="下一项"
-            >
+            <button type="button" onClick={onNext} className="flex h-5 w-full items-center justify-center rounded-md transition-colors" style={{ color: theme.node.faint }} title="下一项">
                 <ChevronDown className="size-3.5" />
             </button>
-            <span className="max-w-full truncate text-center text-[11px] leading-4" style={{ color: theme.node.muted }}>{captionBelow}</span>
+            <span className="max-w-full truncate text-center text-[var(--fs-label)] leading-4" style={{ color: theme.node.muted }}>
+                {captionBelow}
+            </span>
         </div>
     );
 });
@@ -278,15 +275,7 @@ CardColumn.displayName = "CardColumn";
 
 /* ── Main panel ── */
 
-export function CanvasNodeCameraPanel({
-    cameraControl,
-    onClose,
-    onConfirm,
-}: {
-    cameraControl?: CameraControlOptions;
-    onClose: () => void;
-    onConfirm: (options: CameraControlOptions, prompt: string) => void;
-}) {
+export function CanvasNodeCameraPanel({ cameraControl, onClose, onConfirm }: { cameraControl?: CameraControlOptions; onClose: () => void; onConfirm: (options: CameraControlOptions, prompt: string) => void }) {
     const theme = canvasThemes[useActiveTheme()];
     const reducedMotion = useReducedMotion();
     const copyText = useCopyText();
@@ -314,16 +303,18 @@ export function CanvasNodeCameraPanel({
 
     const cycleCamera = (dir: 1 | -1) => setCameraIdx((i) => (i + dir + CAMERA_PROFILES.length) % CAMERA_PROFILES.length);
     const cycleLens = (dir: 1 | -1) => setLensIdx((i) => (i + dir + LENS_PROFILES.length) % LENS_PROFILES.length);
-    const cycleFocal = (dir: 1 | -1) => setFocal((f) => {
-        const idx = FOCAL_LENGTHS.indexOf(f as (typeof FOCAL_LENGTHS)[number]);
-        const nextIdx = (idx + dir + FOCAL_LENGTHS.length) % FOCAL_LENGTHS.length;
-        return FOCAL_LENGTHS[nextIdx];
-    });
-    const cycleAperture = (dir: 1 | -1) => setAperture((a) => {
-        const idx = APERTURES.indexOf(a as (typeof APERTURES)[number]);
-        const nextIdx = (idx + dir + APERTURES.length) % APERTURES.length;
-        return APERTURES[nextIdx];
-    });
+    const cycleFocal = (dir: 1 | -1) =>
+        setFocal((f) => {
+            const idx = FOCAL_LENGTHS.indexOf(f as (typeof FOCAL_LENGTHS)[number]);
+            const nextIdx = (idx + dir + FOCAL_LENGTHS.length) % FOCAL_LENGTHS.length;
+            return FOCAL_LENGTHS[nextIdx];
+        });
+    const cycleAperture = (dir: 1 | -1) =>
+        setAperture((a) => {
+            const idx = APERTURES.indexOf(a as (typeof APERTURES)[number]);
+            const nextIdx = (idx + dir + APERTURES.length) % APERTURES.length;
+            return APERTURES[nextIdx];
+        });
 
     const buildPrompt = useCallback(() => {
         if (!enabled) return "";
@@ -350,7 +341,7 @@ export function CanvasNodeCameraPanel({
         setAperture(defaultCameraControl.aperture);
     };
 
-    const secondaryButtonClass = "flex h-8 items-center gap-1.5 rounded-[var(--dock-item-radius)] px-3 text-[var(--fs-label)] font-medium transition hover:bg-black/5 dark:hover:bg-white/10";
+    const secondaryButtonClass = "flex h-8 items-center gap-2 rounded-[var(--dock-item-radius)] px-3 text-[var(--fs-label)] font-medium transition hover:bg-black/5 dark:hover:bg-white/10";
 
     return (
         <SpotlightSurface
@@ -367,30 +358,43 @@ export function CanvasNodeCameraPanel({
             <div className="flex items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: theme.toolbar.border }}>
                 <div className="min-w-0">
                     <div className="text-sm font-semibold tracking-tight">摄像机控制</div>
-                    <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>应用后记住相机、镜头、焦距与光圈；未设置的新节点沿用上次选择</div>
+                    <div className="mt-0.5 truncate text-[11px]" style={{ color: theme.node.muted }}>
+                        应用后记住相机、镜头、焦距与光圈；未设置的新节点沿用上次选择
+                    </div>
                 </div>
-                <button
-                    type="button"
-                    className="grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-white/10"
-                    style={{ color: theme.node.muted }}
-                    onClick={onClose}
-                    aria-label="关闭摄像机控制"
-                    title="关闭"
-                >
+                <button type="button" className="grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-white/10" style={{ color: theme.node.muted }} onClick={onClose} aria-label="关闭摄像机控制" title="关闭">
                     <X className="size-4" />
                 </button>
             </div>
 
             <div className="grid grid-cols-1 gap-3 px-4 pt-4 sm:grid-cols-2">
-                <label className="grid gap-1 text-xs">直接选择相机
-                    <Select aria-label="直接选择相机" value={currentCamera.id} showSearch optionFilterProp="label" getPopupContainer={(trigger) => trigger.parentElement ?? trigger} options={CAMERA_PROFILES.map((camera) => ({ value: camera.id, label: camera.zhName }))} onChange={(id) => setCameraIdx(CAMERA_PROFILES.findIndex((camera) => camera.id === id))} />
+                <label className="grid gap-1 text-xs">
+                    直接选择相机
+                    <Select
+                        aria-label="直接选择相机"
+                        value={currentCamera.id}
+                        showSearch
+                        optionFilterProp="label"
+                        getPopupContainer={(trigger) => trigger.parentElement ?? trigger}
+                        options={CAMERA_PROFILES.map((camera) => ({ value: camera.id, label: camera.zhName }))}
+                        onChange={(id) => setCameraIdx(CAMERA_PROFILES.findIndex((camera) => camera.id === id))}
+                    />
                 </label>
-                <label className="grid gap-1 text-xs">直接选择镜头
-                    <Select aria-label="直接选择镜头" value={currentLens.id} showSearch optionFilterProp="label" getPopupContainer={(trigger) => trigger.parentElement ?? trigger} options={LENS_PROFILES.map((lens) => ({ value: lens.id, label: lens.zhName }))} onChange={(id) => setLensIdx(LENS_PROFILES.findIndex((lens) => lens.id === id))} />
+                <label className="grid gap-1 text-xs">
+                    直接选择镜头
+                    <Select
+                        aria-label="直接选择镜头"
+                        value={currentLens.id}
+                        showSearch
+                        optionFilterProp="label"
+                        getPopupContainer={(trigger) => trigger.parentElement ?? trigger}
+                        options={LENS_PROFILES.map((lens) => ({ value: lens.id, label: lens.zhName }))}
+                        onChange={(id) => setLensIdx(LENS_PROFILES.findIndex((lens) => lens.id === id))}
+                    />
                 </label>
             </div>
             {/* 相机、镜头、焦距和光圈均来自已注册枚举，确认时由纯函数再次强校验。 */}
-            <div className="grid grid-cols-2 gap-2.5 px-4 py-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 px-4 py-4 sm:grid-cols-4">
                 <CardColumn
                     label="相机"
                     tooltipTitle={`${currentCamera.zhName} · ${currentCamera.label}`}
@@ -420,8 +424,10 @@ export function CanvasNodeCameraPanel({
                     tooltipUseCase={focalMeta?.useCase}
                     visual={
                         <div className="flex flex-col items-center">
-                            <div className="text-[40px] font-light leading-none">{focal}</div>
-                            <div className="mt-1 text-[10px] tracking-wider" style={{ color: theme.node.faint }}>mm</div>
+                            <div className="text-[var(--fs-display)] font-normal leading-none">{focal}</div>
+                            <div className="mt-1 text-[var(--fs-label)] tracking-wider" style={{ color: theme.node.faint }}>
+                                mm
+                            </div>
                         </div>
                     }
                     cornerBadge={focalMeta?.zhName}
@@ -437,10 +443,15 @@ export function CanvasNodeCameraPanel({
                     tooltipUseCase={apertureMeta?.useCase}
                     visual={
                         <div className="flex flex-col items-center">
-                            <div className="text-[30px] font-light leading-none">
-                                <span className="text-[18px]" style={{ color: theme.node.faint }}>f/</span>{aperture}
+                            <div className="text-[var(--fs-display)] font-normal leading-none">
+                                <span className="text-[var(--fs-heading)]" style={{ color: theme.node.faint }}>
+                                    f/
+                                </span>
+                                {aperture}
                             </div>
-                            <div className="mt-1 text-[10px] tracking-wider" style={{ color: theme.node.faint }}>aperture</div>
+                            <div className="mt-1 text-[var(--fs-label)] tracking-wider" style={{ color: theme.node.faint }}>
+                                aperture
+                            </div>
                         </div>
                     }
                     cornerBadge={apertureMeta?.zhName}
@@ -452,19 +463,24 @@ export function CanvasNodeCameraPanel({
             </div>
 
             {/* 当前有效配置摘要。 */}
-            <div className="mx-4 mb-3 rounded-lg border px-3.5 py-2.5" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.itemHover }}>
-                <div className="text-[10px] uppercase tracking-wide" style={{ color: theme.node.faint }}>当前配置</div>
+            <div className="mx-4 mb-3 rounded-lg border px-4 py-2" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.itemHover }}>
+                <div className="text-[var(--fs-label)] uppercase tracking-wide" style={{ color: theme.node.faint }}>
+                    当前配置
+                </div>
                 <div className="mt-0.5 text-xs">{summary}</div>
             </div>
 
             {/* 操作区：重置与复制不产生写入，只有应用会提交生成配置。 */}
             <div className="flex min-h-12 flex-wrap items-center gap-2 border-t px-4 py-2" style={{ borderColor: theme.toolbar.border }}>
                 <button type="button" className={secondaryButtonClass} style={{ color: theme.node.muted }} onClick={handleReset}>
-                    <RotateCcw className="size-3.5" />重置参数
+                    <RotateCcw className="size-3.5" />
+                    重置参数
                 </button>
                 <span className="flex-1" />
                 <Tooltip title="复制当前生成的摄像机提示词">
-                    <button type="button" className={secondaryButtonClass} onClick={() => copyText(buildPrompt(), "摄像机提示词已复制")}>复制提示词</button>
+                    <button type="button" className={secondaryButtonClass} onClick={() => copyText(buildPrompt(), "摄像机提示词已复制")}>
+                        复制提示词
+                    </button>
                 </Tooltip>
                 {/* 关闭后仍保留参数选择，但提交空提示词，便于用户无损恢复。 */}
                 <div className="flex items-center gap-2" title={enabled ? "当前启用摄像机控制" : "当前关闭摄像机控制"}>
@@ -482,21 +498,19 @@ export function CanvasNodeCameraPanel({
                             borderColor: enabled ? theme.node.activeStroke : theme.toolbar.border,
                         }}
                     >
-                        <span
-                            className={`inline-block size-3.5 transform rounded-full shadow-sm transition-transform ${enabled ? "translate-x-[18px]" : "translate-x-0.5"}`}
-                            style={{ background: enabled ? theme.node.activeStroke : theme.node.muted }}
-                        />
+                        <span className={`inline-block size-3.5 transform rounded-full shadow-sm transition-transform ${enabled ? "translate-x-[18px]" : "translate-x-0.5"}`} style={{ background: enabled ? theme.node.activeStroke : theme.node.muted }} />
                     </button>
                 </div>
                 <motion.button
                     type="button"
                     whileHover={reducedMotion ? undefined : { y: -1 }}
                     whileTap={reducedMotion ? undefined : { scale: 0.97 }}
-                    className="canvas-node-camera-apply flex h-7 items-center gap-1.5 rounded-[var(--dock-item-radius)] border px-3.5 text-[var(--fs-label)] font-semibold transition-colors"
+                    className="canvas-node-camera-apply flex h-7 items-center gap-2 rounded-[var(--dock-item-radius)] border px-4 text-[var(--fs-label)] font-semibold transition-colors"
                     style={{ borderColor: theme.node.activeStroke, color: theme.node.activeStroke, background: "transparent" }}
                     onClick={handleApply}
                 >
-                    <CameraIcon className="size-3.5" />应用
+                    <CameraIcon className="size-3.5" />
+                    应用
                 </motion.button>
             </div>
         </SpotlightSurface>

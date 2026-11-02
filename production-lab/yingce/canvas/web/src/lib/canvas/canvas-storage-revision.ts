@@ -1,3 +1,4 @@
+import { canonicalize } from "json-canonicalize";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData } from "@/types/canvas";
 import { normalizeAssetCategory } from "@/lib/asset-category";
@@ -111,7 +112,7 @@ export function serializeCanvasStorageDocument(document: CanvasStorageDocument) 
 
 function deepEqual(left: unknown, right: unknown) {
     if (Object.is(left, right)) return true;
-    return JSON.stringify(left) === JSON.stringify(right);
+    return canonicalize(left) === canonicalize(right);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,9 +137,11 @@ function mergeRecord(base: Record<string, unknown>, local: Record<string, unknow
     const merged: Record<string, unknown> = {};
     for (const key of new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(durable)])) {
         if (excluded.has(key)) continue;
-        const baseHas = Object.prototype.hasOwnProperty.call(base, key);
-        const localHas = Object.prototype.hasOwnProperty.call(local, key);
-        const durableHas = Object.prototype.hasOwnProperty.call(durable, key);
+        // JSON 落盘会省略 undefined；它与缺失字段等价，不是并发删除。
+        // JSON omits undefined fields; their absence is not a concurrent deletion.
+        const baseHas = Object.prototype.hasOwnProperty.call(base, key) && base[key] !== undefined;
+        const localHas = Object.prototype.hasOwnProperty.call(local, key) && local[key] !== undefined;
+        const durableHas = Object.prototype.hasOwnProperty.call(durable, key) && durable[key] !== undefined;
         if (!localHas && baseHas) {
             if (durableHas && !deepEqual(durable[key], base[key])) {
                 onConflict?.();
@@ -238,7 +241,8 @@ function mergeEntities<T extends { id: string }>(input: {
         if (!local || (base && deepEqual(base, local))) continue;
 
         if (!durable) {
-            if (base || (input.tombstones[id] ?? 0) > input.baseRevision) {
+            // base 中存在只能证明本地此前读过它；跨写入者删除由更新的墓碑证明。
+            if ((input.tombstones[id] ?? 0) > input.baseRevision) {
                 // A local recreation is still user work. Record the concurrent
                 // deletion, but keep the node and clear the stale tombstone so a
                 // later rebase cannot suppress the same ID forever.

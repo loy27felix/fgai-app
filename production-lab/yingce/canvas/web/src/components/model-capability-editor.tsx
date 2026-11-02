@@ -5,11 +5,11 @@ import { Switch } from "@/components/ui/base/switch";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import type { ReactNode } from "react";
 
-import { defaultImageCapabilityConfig, defaultModelCapabilityConfig, normalizeModelCapabilityConfig, type ImageCapabilityConfig, type ImageResponseFormat, type ModelCapabilityConfig, type TextCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
+import { DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS, defaultImageCapabilityConfig, defaultModelCapabilityConfig, normalizeModelCapabilityConfig, type ImageCapabilityConfig, type ImageResponseFormat, type ModelCapabilityConfig, type TextCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import type { ModelProtocol, ModelProtocolWorkflow } from "@/lib/model-protocols";
 import { ImageParameterSchemaEditor, ImageParameterSizeEditor } from "@/components/image-parameter-fields";
 import { updateImageParameterSchema, resolveImageParameters, type ImageParameter } from "@/lib/image-parameters";
-import { cleanVideoScreenSpecValues, resolveWorkflowVideoScreenSpec, updateWorkflowVideoScreenSpec } from "@/lib/video-screen-specs";
+import { cleanVideoScreenSpecValues, findProtocolWorkflow, resolveWorkflowVideoScreenSpec, updateWorkflowVideoScreenSpec } from "@/lib/video-screen-specs";
 import { VIDEO_RESOLUTION_CAPABILITY_OPTIONS } from "@/lib/video-generation-options";
 import { Select } from "@/components/ui/base/select";
 
@@ -24,6 +24,7 @@ const operationOptions = [
     { label: "运镜调整", value: "camera_motion" },
     { label: "风格迁移", value: "style_transfer" },
     { label: "音频生视频", value: "audio_to_video" },
+    { label: "画质增强", value: "enhance" },
 ];
 
 function ImageSizeHelp() {
@@ -49,7 +50,7 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
     if (capability === "image") {
         return <ImageCapabilityEditor value={value} onChange={onChange} protocol={protocol} model={model} imageParameters={imageParameters} disabled={disabled} section={section} />;
     }
-    const workflow = workflows.find((item) => item.id === model.trim().replace(/^models\//, "") && item.providerId === protocol);
+    const workflow = findProtocolWorkflow(workflows, protocol, model);
     const storedProfile = normalizeModelCapabilityConfig(value || defaultModelCapabilityConfig(protocol, model)).video!;
     const autoDL = protocol === "autodl-comfyui";
     const profile = autoDL ? resolveWorkflowVideoScreenSpec(storedProfile, workflow) : storedProfile;
@@ -59,6 +60,30 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
     const durationValues = (profile.duration.values || []).join(",");
     const resolutionOptions = Array.from(new Set([...VIDEO_RESOLUTION_CAPABILITY_OPTIONS, ...profile.resolutions]));
     const autoDLSpecFields = <AutoDLScreenSpecFields profile={profile} workflow={workflow} disabled={disabled} onChange={(video) => onChange?.({ version: 1, video })} />;
+    // 视频处理模型（画质增强等）：帧率策略与源视频时长上限；生成模型不显示。
+    const processing = profile.processing;
+    const processingFields = processing ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="帧率策略">
+                <Select
+                    className="w-full"
+                    disabled={disabled}
+                    value={processing.fpsPolicy}
+                    options={[
+                        { label: "保持原帧率（按 ≤30fps 档预扣）", value: "keep_source" },
+                        { label: "用户选择帧率", value: "user_select" },
+                    ]}
+                    onChange={(fpsPolicy) => update({ processing: fpsPolicy === "user_select" ? { ...processing, fpsPolicy, fpsOptions: processing.fpsOptions?.length ? processing.fpsOptions : [30, 60] } : { fpsPolicy, maxSourceSeconds: processing.maxSourceSeconds } })}
+                />
+            </Field>
+            {processing.fpsPolicy === "user_select" ? (
+                <Field label="可选帧率（15–120，逗号分隔）">
+                    <Input disabled={disabled} value={(processing.fpsOptions || []).join(",")} placeholder="例如：30,60" onChange={(event) => update({ processing: { ...processing, fpsOptions: parseIntegerList(event.target.value) } })} />
+                </Field>
+            ) : null}
+            <NumberField label={`源视频最长秒数（≤${DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS}）`} value={processing.maxSourceSeconds || DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS} min={1} max={DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS} disabled={disabled} onChange={(value) => update({ processing: { ...processing, maxSourceSeconds: value || DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS } })} />
+        </div>
+    ) : null;
 
     if (section === "references") {
         return (
@@ -196,6 +221,11 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
                             </Field>
                         </div>}
                     </ProtocolParameterCard>
+                    {processingFields ? (
+                        <ProtocolParameterCard step="04" title="视频处理" description="帧率策略与源视频时长上限；任务轮询上限 1 小时">
+                            {processingFields}
+                        </ProtocolParameterCard>
+                    ) : null}
                 </div>
             </div>
         );
@@ -308,6 +338,7 @@ export function ModelCapabilityEditor({ value, onChange, protocol, capability = 
                         </Field>
                     </div>}
                 </CapabilityBlock>
+                {processingFields ? <CapabilityBlock title="视频处理">{processingFields}</CapabilityBlock> : null}
                 {section === "all" ? (
                     <CapabilityBlock title="视频引用">
                         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -684,13 +715,14 @@ function ProtocolParameterCard({ step, title, description, children, className =
 
 function AutoDLScreenSpecFields({ profile, workflow, disabled, onChange }: { profile: VideoCapabilityConfig; workflow?: ModelProtocolWorkflow; disabled: boolean; onChange: (profile: VideoCapabilityConfig) => void }) {
     if (!profile.fixedScreenSpec?.resolutions.length) {
-        return <p className="text-[var(--fs-label)] text-foreground/60">当前插件未声明此工作流的画面规格，请核对上游模型 ID。</p>;
+        return <p className="text-[var(--fs-label)] text-foreground/60">未读取到 AutoDL 插件的分辨率预设，请刷新页面重新加载协议目录；仍出现时请更新 AutoDL 插件到 2.4.0 及以上。</p>;
     }
-    const options = profile.fixedScreenSpec.resolutions;
+    // 预设来自插件；管理员可输入上游工作流支持的其他分辨率标签。
+    const options = cleanVideoScreenSpecValues([...profile.fixedScreenSpec.resolutions, ...profile.resolutions]);
     return (
         <div className="admin-capability-spec-grid">
             <Field label="输出分辨率">
-                <Select ariaLabel="输出分辨率" mode="multiple" className="admin-capability-tags w-full" disabled={disabled} value={profile.resolutions} placeholder="选择分辨率" options={options.map((item) => ({ label: item, value: item }))} onChange={(values: string[]) => {
+                <Select ariaLabel="输出分辨率" mode="tags" className="admin-capability-tags w-full" disabled={disabled} value={profile.resolutions} placeholder="选择预设或输入分辨率后回车" tokenSeparators={[",", "，"]} options={options.map((item) => ({ label: item, value: item }))} onChange={(values: string[]) => {
                     const resolutions = cleanVideoScreenSpecValues(values);
                     const defaultResolution = resolutions.includes(profile.defaultResolution) ? profile.defaultResolution : resolutions[0] || "";
                     onChange(updateWorkflowVideoScreenSpec(profile, workflow, { resolutions, defaultResolution }));
@@ -715,7 +747,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function NumberField({ label, value, min, max, disabled, onChange }: { label: string; value?: number; min: number; max?: number; disabled: boolean; onChange: (value: number | null) => void }) {
     return (
         <label className="admin-capability-number-field block min-w-0">
-            <span className="admin-capability-field-label mb-1.5 block text-xs text-foreground/62">{label}</span>
+            <span className="admin-capability-field-label mb-2 block text-xs text-foreground/62">{label}</span>
             <InputNumber className="w-full" disabled={disabled} min={min} max={max} precision={0} value={value} onChange={onChange} />
         </label>
     );
@@ -723,7 +755,7 @@ function NumberField({ label, value, min, max, disabled, onChange }: { label: st
 
 function BooleanField({ label, value, disabled, onChange }: { label: string; value: { supported: boolean; default: boolean }; disabled: boolean; onChange: (value: { supported: boolean; default: boolean }) => void }) {
     return (
-        <div className="admin-capability-boolean-field flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5">
+        <div className="admin-capability-boolean-field flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
             <div className="min-w-0">
                 <div className="text-xs font-medium">{label}</div>
                 <div className="text-[var(--fs-tiny)] text-foreground/45">可发送参数与默认值</div>
@@ -744,7 +776,7 @@ function BooleanField({ label, value, disabled, onChange }: { label: string; val
 
 function ParameterField({ label, description, supported, disabled, onChange }: { label: string; description: string; supported: boolean; disabled: boolean; onChange: (supported: boolean) => void }) {
     return (
-        <div className="admin-capability-parameter-field flex min-h-12 items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5">
+        <div className="admin-capability-parameter-field flex min-h-12 items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
             <div className="min-w-0">
                 <div className="break-all text-xs font-medium">{label}</div>
                 <div className="mt-0.5 text-[var(--fs-tiny)] leading-5 text-foreground/45">{description}</div>

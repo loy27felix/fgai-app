@@ -8,7 +8,7 @@ export function characterSeedAudioModel(config: AiConfig) {
     return models.find((model) => modelOptionName(model) === "seed-audio-1.0") ?? models.find((model) => modelOptionName(model).startsWith("seed-audio-")) ?? "";
 }
 export function characterVoiceDirection(definition: Record<string, unknown>) {
-    return [definition.voiceLanguage, definition.voiceAge, definition.voiceTimbre, definition.voiceDelivery, definition.personality].filter((value) => typeof value === "string" && value.trim()).join("；");
+    return [definition.voiceLanguage, definition.voiceGender || definition.gender, definition.voiceAge, definition.voiceTimbre, definition.voiceDelivery, definition.personality].filter((value) => typeof value === "string" && value.trim()).join("；");
 }
 export function characterVoiceSamplePrompt(name: string, dialogue: string, direction: string, instructions: string) {
     if (!dialogue.trim()) throw new Error("请填写试音台词");

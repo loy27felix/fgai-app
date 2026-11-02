@@ -6,8 +6,12 @@ import type { ModelCapabilityChoice as EditableCapability } from "@/components/m
 import type { ChannelModelFormValues as FormValues } from "./channel-model-editor-form";
 import { normalizeUpstreamModelKey } from "./channel-model-price-tier-form";
 import { CreditCostFields } from "./credit-cost-fields";
+import { priceCurrencyUnit } from "@/services/api/user-groups";
 import { Select } from "@/components/ui/base/select";
 import { ImageParameterInput } from "@/components/image-parameter-fields";
+import { imageResolutionTiers } from "@/lib/image-size-presets";
+// 价格档分辨率按后端保存口径（2k→1440p、4k→2160p）取值，已存档位才能正确回显。
+import { normalizeTierResolution } from "@/lib/model-pricing";
 
 export function PriceTierFields({
     index,
@@ -31,6 +35,7 @@ export function PriceTierFields({
     onRemove: () => void;
 }) {
     const billingMode = Form.useWatch(["priceTiers", index, "billingMode"], form) || "fixed_request";
+    const priceUnit = priceCurrencyUnit(Form.useWatch("priceCurrency", form));
     const matchMode = Form.useWatch(["priceTiers", index, "matchMode"], form) || "default";
     const priceConfigured = Form.useWatch(["priceTiers", index, "priceConfigured"], form) !== false;
     const tierEnabled = Form.useWatch(["priceTiers", index, "enabled"], form) !== false;
@@ -114,7 +119,12 @@ export function PriceTierFields({
                                 </Form.Item>
                                 {isVideo ? (
                                     <Form.Item className="mb-0" name={[index, "resolution"]} label="分辨率" rules={[{ required: true, message: "请选择分辨率" }]}>
-                                        <Select options={[{ label: "任意分辨率", value: "*" }, ...resolutionOptions.map((value) => ({ label: value.toUpperCase(), value }))]} />
+                                        <Select options={[{ label: "任意分辨率", value: "*" }, ...resolutionOptions.map((value) => ({ label: value.toUpperCase(), value: normalizeTierResolution(value) }))]} />
+                                    </Form.Item>
+                                ) : null}
+                                {isVideo && video?.processing ? (
+                                    <Form.Item className="mb-0" name={[index, "fpsBand"]} label="输出帧率档" tooltip="视频处理按输出帧率分档计价；保持原帧率时按 ≤30fps 档预扣">
+                                        <Select options={fpsBandOptions} />
                                     </Form.Item>
                                 ) : null}
                                 {isImage && image?.parameters
@@ -126,9 +136,14 @@ export function PriceTierFields({
                                               </Form.Item>
                                           ))
                                     : null}
-                                {isImage && !image?.parameters && image?.resolution?.supported ? (
+                                {isImage && !image?.parameters && (image?.resolution?.supported || (image && imageResolutionTiers(image).length > 0)) ? (
                                     <Form.Item className="mb-0" name={[index, "imageResolution"]} label="上游分辨率" rules={[{ required: true, message: "请选择上游分辨率" }]}>
-                                        <Select options={[{ label: "任意分辨率", value: "*" }, ...image.resolution.values.map((value) => ({ label: value.toUpperCase(), value }))]} />
+                                        <Select
+                                            options={[
+                                                { label: "任意分辨率", value: "*" },
+                                                ...[...new Set([...(image?.resolution?.supported ? image.resolution.values : imageResolutionTiers(image!)), "1.5k"])].map((value) => ({ label: value.toUpperCase(), value })),
+                                            ]}
+                                        />
                                     </Form.Item>
                                 ) : null}
                                 {isImage && !image?.parameters && image?.quality.supported ? (
@@ -151,7 +166,7 @@ export function PriceTierFields({
                         <div className="admin-price-tier-panel-heading">
                             <div>
                                 <h3>销售价格</h3>
-                                <p>设置用户完成一次生成实际消耗的积分。</p>
+                                <p>{priceUnit === "积分" ? "设置用户完成一次生成实际消耗的积分。" : `按 ${priceUnit} 填写售价，扣费时按用户分组兑换比例换算为积分。`}</p>
                             </div>
                         </div>
                         <div className="admin-price-tier-billing-grid">
@@ -167,24 +182,29 @@ export function PriceTierFields({
                             </Form.Item>
                             {billingMode === "token" ? (
                                 isVideo ? (
-                                    <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "outputTokenPrice"]} label="积分 / 百万视频 Token" rules={[{ required: true, message: "请输入视频 Token 价格" }]}>
+                                    <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "outputTokenPrice"]} label={`${priceUnit} / 百万视频 Token`} rules={[{ required: true, message: "请输入视频 Token 价格" }]}>
                                         <InputNumber className="w-full" min={0} max={1_000_000} precision={6} step={0.1} />
                                     </Form.Item>
                                 ) : (
                                     <div className="admin-price-tier-token-grid">
-                                        <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "inputTokenPrice"]} label="输入 / 百万 Token" rules={[{ required: true, message: "请输入输入 Token 价格" }]}>
+                                        <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "inputTokenPrice"]} label={`输入 ${priceUnit} / 百万 Token`} rules={[{ required: true, message: "请输入输入 Token 价格" }]}>
                                             <InputNumber className="w-full" min={0} max={1_000_000} precision={6} step={0.1} />
                                         </Form.Item>
-                                        <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "outputTokenPrice"]} label="输出 / 百万 Token" rules={[{ required: true, message: "请输入输出 Token 价格" }]}>
+                                        <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "outputTokenPrice"]} label={`输出 ${priceUnit} / 百万 Token`} rules={[{ required: true, message: "请输入输出 Token 价格" }]}>
                                             <InputNumber className="w-full" min={0} max={1_000_000} precision={6} step={0.1} />
                                         </Form.Item>
-                                        <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "cachedTokenPrice"]} label="缓存 / 百万 Token" rules={[{ required: true, message: "请输入缓存 Token 价格" }]}>
+                                        <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "cachedTokenPrice"]} label={`缓存 ${priceUnit} / 百万 Token`} rules={[{ required: true, message: "请输入缓存 Token 价格" }]}>
                                             <InputNumber className="w-full" min={0} max={1_000_000} precision={6} step={0.1} />
                                         </Form.Item>
                                     </div>
                                 )
                             ) : (
-                                <Form.Item className="admin-price-tier-unit-price mb-0" name={[index, "unitPrice"]} label={billingMode === "per_second" ? "每秒消耗积分" : "每次消耗积分"} rules={[{ required: true, message: "请输入积分价格" }]}>
+                                <Form.Item
+                                    className="admin-price-tier-unit-price mb-0"
+                                    name={[index, "unitPrice"]}
+                                    label={billingMode === "per_second" ? `每秒售价（${priceUnit}）` : `每次售价（${priceUnit}）`}
+                                    rules={[{ required: true, message: "请输入售价" }]}
+                                >
                                     <InputNumber className="w-full" min={0} max={1_000_000} precision={6} step={0.1} />
                                 </Form.Item>
                             )}
@@ -224,6 +244,12 @@ export function PriceTierFields({
 }
 
 function ImagePriceParameterInput({ field, value, onChange }: { field: import("@/lib/image-parameters").ImageParameter; value?: string; onChange?: (value?: string) => void }) {
+    // 分辨率字段始终提供 1.5K：声明式 Seedream 档位包含它，旧定价也需要能选中。
+    if (field.name === "imageResolution") {
+        const standardChoices = ["1k", "1.5k", "2k", "4k"];
+        const values = field.values?.length ? [...new Set([...field.values.map(String), "1.5k"])] : standardChoices;
+        return <Select allowClear placeholder="任意" value={value} options={[{ label: "任意分辨率", value: "*" }, ...values.map((v) => ({ label: v.toUpperCase(), value: v }))]} onChange={onChange} />;
+    }
     const typed = value === undefined || value === "" || value === "*" ? undefined : field.type === "boolean" ? value === "true" : field.type === "number" || field.type === "integer" ? Number(value) : value;
     if (field.type === "boolean")
         return (
@@ -241,10 +267,17 @@ function ImagePriceParameterInput({ field, value, onChange }: { field: import("@
     return <ImageParameterInput field={field} value={typed} onChange={(next) => onChange?.(next === undefined ? undefined : String(next))} />;
 }
 
+const fpsBandOptions = [
+    { label: "任意帧率", value: "*" },
+    { label: "≤30fps", value: "le30" },
+    { label: "30–60fps", value: "le60" },
+    { label: "60–120fps", value: "le120" },
+];
+
 function operationOptions(capability: EditableCapability | undefined) {
     const options = [{ label: "任意生成方式", value: "*" }];
     if (capability === "image") return [...options, { label: "文生图", value: "text_to_image" }, { label: "图生图", value: "image_to_image" }];
-    if (capability === "video") return [...options, { label: "文生视频", value: "text_to_video" }, { label: "图生视频", value: "image_to_video" }, { label: "视频生视频", value: "video_to_video" }];
+    if (capability === "video") return [...options, { label: "文生视频", value: "text_to_video" }, { label: "图生视频", value: "image_to_video" }, { label: "视频生视频", value: "video_to_video" }, { label: "画质增强", value: "enhance" }];
     if (capability === "text") return [...options, { label: "文本生成", value: "text_generation" }];
     return options;
 }

@@ -1,4 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
+import type {ReactNode} from "react";
+import {LocaleProvider} from "../i18n/locale";
+function render(ui:ReactNode){localStorage.setItem("adcraft.locale","zh-CN");return renderUI(ui,{wrapper:({children})=><LocaleProvider initialLocale="zh-CN">{children}</LocaleProvider>});}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectsPage } from "./ProjectsPage.tsx";
 
@@ -80,7 +83,7 @@ describe("ProjectsPage batch selection", () => {
     fireEvent.click(view.container.querySelector('[data-project-id="project-1"] .project-card-open') as HTMLElement);
 
     expect(fixture.openProject).not.toHaveBeenCalled();
-    expect(screen.getByText("已选 1 个工程")).toBeTruthy();
+    expect(screen.getByText("1 已选择")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(true);
   });
 
@@ -89,12 +92,12 @@ describe("ProjectsPage batch selection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(screen.getByRole("button", { name: "全选" }));
-    expect(screen.getByText("已选 2 个工程")).toBeTruthy();
+    expect(screen.getByText("2 已选择")).toBeTruthy();
 
-    fireEvent.change(screen.getByPlaceholderText("搜索工程"), { target: { value: "Summer" } });
+    fireEvent.change(screen.getByPlaceholderText("搜索项目"), { target: { value: "Summer" } });
 
-    expect(screen.getByText("工程列表已更新，已清除选中项。")).toBeTruthy();
-    expect(screen.queryByText("已选 2 个工程")).toBeNull();
+    expect(screen.getByText("项目列表变化，已清除选择。")).toBeTruthy();
+    expect(screen.queryByText("2 已选择")).toBeNull();
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(false);
   });
 
@@ -104,7 +107,7 @@ describe("ProjectsPage batch selection", () => {
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(view.container.querySelector('[data-project-id="project-1"] .project-card-open') as HTMLElement);
 
-    const selectAll = screen.getByRole("button", { name: "Select all projects" });
+    const selectAll = screen.getByRole("button", { name: "全选项目" });
     expect(selectAll.classList.contains("is-partial")).toBe(true);
     expect(selectAll.textContent).toBe("全选");
   });
@@ -114,7 +117,7 @@ describe("ProjectsPage batch selection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "选择" }));
     fireEvent.click(screen.getByRole("button", { name: "全选" }));
-    fireEvent.click(screen.getByRole("button", { name: "收藏选中" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "收藏" }).find(button=>button.closest(".project-selection-actions"))!);
 
     await waitFor(() => expect(fixture.toggleProjectFavorite).toHaveBeenCalledTimes(2));
     expect(fixture.toggleProjectFavorite).toHaveBeenNthCalledWith(1, fixture.savedProjects[0]);
@@ -134,8 +137,8 @@ describe("ProjectsPage batch selection", () => {
     fireEvent.click(screen.getByRole("button", { name: "移入回收站" }));
 
     await waitFor(() => expect(fixture.moveProjectToTrash).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("1 project could not be moved to trash.")).toBeTruthy();
-    expect(screen.getByText("已选 1 个工程")).toBeTruthy();
+    expect(screen.getByText("1 个项目无法移入回收站。")).toBeTruthy();
+    expect(screen.getByText("1 已选择")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Select Winter launch" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("checkbox", { name: "Select Summer launch" }) as HTMLInputElement).checked).toBe(false);
   });

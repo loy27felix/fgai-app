@@ -185,6 +185,10 @@ export function useAgentCanvasSession() {
     return queueRef.current!.enqueue(
       options.coalesce ? `patch:${nodeId}` : createOperationKey(`patch:${nodeId}`),
       async () => {
+        const active = workflowRef.current;
+        if (!active || active.workflow_id !== workflowId || !active.nodes.some(node => node.node_id === nodeId)) {
+          throw new Error("当前节点已不在这个画布中，请刷新后选择现有节点；编辑内容未提交生成。");
+        }
         const response = await agentCanvasApi.patchAgentCanvasNode(workflowId, nodeId, patch);
         applyWorkflow(response.value.workflow);
         setAuthoringError(null);

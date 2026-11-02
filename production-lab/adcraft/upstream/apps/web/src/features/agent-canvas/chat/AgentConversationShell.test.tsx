@@ -238,7 +238,8 @@ describe("Agent Conversation Shell v2", () => {
     const followUp = screen.getByText("The next step is ready.");
 
     expect(Boolean(answer.compareDocumentPosition(followUp) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(screen.queryByText("How long should the ad be?")).toBeNull();
+    expect(screen.getByRole("article", { name: "Agent question" })).toBeTruthy();
+    expect(screen.getByText("How long should the ad be?")).toBeTruthy();
     expect(screen.getByText("30 seconds")).toBeTruthy();
   });
 
@@ -359,7 +360,8 @@ describe("Agent Conversation Shell v2", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
 
     expect(screen.queryByRole("button", { name: "Submit answers" })).toBeNull();
-    expect(screen.getByRole("status", { name: "Guided interaction submitted" })).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "Guided interaction submitted" })).toBeNull();
+    expect(document.querySelector(".agent-chat__current-interaction--overlay")).toBeNull();
 
     finish(false);
     await waitFor(() => expect(screen.getByRole("button", { name: "Submit answers" })).toBeTruthy());
@@ -376,7 +378,8 @@ describe("Agent Conversation Shell v2", () => {
     fireEvent.click(screen.getByRole("radio", { name: /30 seconds/ }));
     fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
     finish(true);
-    await waitFor(() => expect(screen.getByRole("status", { name: "Guided interaction submitted" })).toBeTruthy());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Submit answers" })).toBeNull());
+    expect(document.querySelector(".agent-chat__current-interaction--overlay")).toBeNull();
 
     fixture.chat.state.guidedInteraction = null;
     view.rerender(
@@ -397,7 +400,8 @@ describe("Agent Conversation Shell v2", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: /30 seconds/ }));
     fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
-    await waitFor(() => expect(screen.getByRole("status", { name: "Guided interaction submitted" })).toBeTruthy());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Submit answers" })).toBeNull());
+    expect(document.querySelector(".agent-chat__current-interaction--overlay")).toBeNull();
 
     const failedEvent = {
       workflow_id: "workflow-1",
@@ -457,6 +461,19 @@ describe("Agent Conversation Shell v2", () => {
         skillTitle: "Quiet Product Film",
       }),
     ));
+  });
+
+  it("shows selected image references beside the composer and lets the user remove one", () => {
+    fixture.context.view.assets.push({ assetId: "person-2", displayName: "Actor portrait", mediaType: "image", thumbnailUrl: "/portrait.png" });
+    fixture.context.selectedAssetIds.push("person-2");
+    renderPanel();
+    const references = screen.getByRole("region", { name: "References for this message" });
+    expect(references.textContent).toContain("Hero image");
+    expect(references.textContent).toContain("Actor portrait");
+    expect(references.querySelectorAll("img")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Actor portrait reference" }));
+    expect(fixture.context.actions.removeAsset).toHaveBeenCalledWith("person-2");
+    expect(fixture.context.actions.removeAsset).toHaveBeenCalledTimes(1);
   });
 
   it("preserves a newer draft while an earlier message is being accepted", async () => {

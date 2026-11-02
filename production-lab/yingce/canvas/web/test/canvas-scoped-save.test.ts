@@ -4,6 +4,7 @@ import { apiClient } from "@/services/api/request";
 import { initializeRemoteUserDataSession, resetRemoteUserDataSync, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
+import { canvasContentHash } from "@/lib/canvas/canvas-content";
 
 const adapter = apiClient.defaults.adapter;
 const getItem = localforage.getItem, setItem = localforage.setItem, removeItem = localforage.removeItem;
@@ -19,6 +20,7 @@ beforeEach(async () => {
     Object.defineProperty(globalThis, "window", { configurable: true, value: { setTimeout, clearTimeout, localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } } });
     useCanvasStore.setState({ projects: [canvas("current"), canvas("other")] });
     useAssetStore.setState({ assets: [] });
+    for (const project of useCanvasStore.getState().projects) project.remoteContentHash = await canvasContentHash(project);
     await initializeRemoteUserDataSession("scoped-test-user");
 });
 afterEach(() => {

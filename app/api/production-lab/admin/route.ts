@@ -71,6 +71,20 @@ export async function GET(request: Request) {
   if (!actor) return NextResponse.json({ error: "仅超级管理员可管理第六板块" }, { status: 403 });
   try {
     const url = new URL(request.url);
+    // The active workspace owns its groups; identity refresh must not depend on
+    // the retired pilot database or its historical reports.
+    if (url.searchParams.get("view") === "accounts") {
+      const [accounts, roles] = await Promise.all([
+        createAdminClient().from("app_users").select("id,email,created_at"),
+        createAdminClient().from("profiles").select("id,platform_role"),
+      ]);
+      if (accounts.error || roles.error) throw new Error("读取平台账号失败");
+      const roleById = new Map((roles.data || []).map((role: { id: string; platform_role: string | null }) => [role.id, role.platform_role || "user"]));
+      return NextResponse.json({ users: ((accounts.data || []) as AccountRow[]).map(user => ({
+        id: user.id, email: user.email, displayName: productionLabDisplayName(user.email),
+        platformRole: roleById.get(user.id) || "user", createdAt: user.created_at,
+      })) });
+    }
     if (url.searchParams.get("view") !== "report") return NextResponse.json(await directory());
 
     const [{ rows: mediaJobs }, { rows: mediaCount }, { rows: scriptRuns }, { rows: scriptCount }, { rows: membershipHistoryRows }, state, usersResult, rolesResult, groupsResult] = await Promise.all([

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
+import type {ReactNode} from "react";
+import {LocaleProvider} from "../i18n/locale";
+function render(ui:ReactNode){localStorage.setItem("adcraft.locale","zh-CN");return renderUI(ui,{wrapper:({children})=><LocaleProvider initialLocale="zh-CN">{children}</LocaleProvider>});}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AssetsPage } from "./AssetsPage.tsx";
@@ -121,7 +124,7 @@ describe("AssetsPage", () => {
     await screen.findByRole("button", { name: "Open asset my characters" });
     fireEvent.change(screen.getByRole("textbox", { name: "搜索素材" }), { target: { value: "not present" } });
 
-    expect(screen.getByText("暂无素材")).toBeTruthy();
+    expect(screen.getByText("未找到素材。")).toBeTruthy();
     expect(canonicalApi.listAgentCanvasMyAssets).toHaveBeenCalledTimes(1);
   });
 

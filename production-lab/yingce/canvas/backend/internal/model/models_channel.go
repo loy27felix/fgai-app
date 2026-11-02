@@ -25,8 +25,10 @@ type ModelChannel struct {
 	ProxyURL   string `json:"proxyUrl" gorm:"size:512"`
 	ModelsJSON string `json:"modelsJson" gorm:"type:text"`
 	// RetiredModelsJSON 记录已被一个模型家族吸收的上游 SKU，防止目录拉取时重新创建重复记录。
-	RetiredModelsJSON string         `json:"-" gorm:"type:text"`
-	HeadersJSON       string         `json:"-" gorm:"type:text"`
+	RetiredModelsJSON string `json:"-" gorm:"type:text"`
+	HeadersJSON       string `json:"-" gorm:"type:text"`
+	// CatalogProviderID 记录渠道由哪个目录服务商一键接入；空表示自定义渠道。只用于来源展示。
+	CatalogProviderID string         `json:"catalogProviderId" gorm:"size:64;not null;default:'';index"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	UpdatedAt         time.Time      `json:"updatedAt"`
 	DeletedAt         gorm.DeletedAt `json:"-" gorm:"index"`
@@ -49,7 +51,7 @@ type ChannelModel struct {
 	SortOrder                    int                  `json:"sortOrder" gorm:"not null;default:0"`
 	Icon                         string               `json:"icon" gorm:"size:80"`
 	Capability                   string               `json:"capability" gorm:"size:32;index"`
-	Protocol                     ChannelInterfaceType `json:"protocol" gorm:"size:32;index"`
+	Protocol                     ChannelInterfaceType `json:"protocol" gorm:"size:64;index"`
 	BillingMode                  string               `json:"billingMode" gorm:"size:32"`
 	UnitPriceMicrocredits        int64                `json:"unitPriceMicrocredits"`
 	InputTokenPriceMicrocredits  int64                `json:"inputTokenPriceMicrocredits"`
@@ -58,9 +60,14 @@ type ChannelModel struct {
 	PriceConfigured              bool                 `json:"priceConfigured" gorm:"index"`
 	Enabled                      bool                 `json:"enabled" gorm:"index"`
 	PriceVersion                 int64                `json:"priceVersion"`
-	CapabilityConfigJSON         string               `json:"-" gorm:"type:text"`
-	CapabilityVersion            int64                `json:"capabilityVersion"`
-	CapabilityConfig             map[string]any       `json:"capabilityConfig,omitempty" gorm:"-"`
+	// PriceCurrency 决定价格档售价的单位：credits 直接是微积分；USD/CNY 是百万分之一货币单位，
+	// 下单时按用户分组兑换比例换算为积分。
+	PriceCurrency        string         `json:"priceCurrency" gorm:"size:16;not null;default:credits"`
+	CapabilityConfigJSON string         `json:"-" gorm:"type:text"`
+	CapabilityVersion    int64          `json:"capabilityVersion"`
+	CapabilityConfig     map[string]any `json:"capabilityConfig,omitempty" gorm:"-"`
+	// CatalogModelKey 记录来自服务商目录的推荐模型 key，便于排查来源。
+	CatalogModelKey string `json:"catalogModelKey" gorm:"size:120;not null;default:''"`
 	// PriceTiers 是系统渠道模型的价格真相。标量价格仅为旧调用与历史数据兼容，
 	// 新的创作端报价必须按所选规格命中一个价格档。
 	PriceTiers []ChannelModelPriceTier `json:"priceTiers" gorm:"-"`
@@ -98,9 +105,9 @@ type ChannelModelPriceTier struct {
 }
 
 type ApiCallLog struct {
-    FGBudgetReservationID string `json:"budgetReservationId,omitempty" gorm:"column:fg_budget_reservation_id;size:36;not null;default:''"`
-    FGFeeReferenceID string `json:"feeReferenceId,omitempty" gorm:"column:fg_fee_reference_id;size:160;not null;default:''"`
-    FGFeeReferencesJSON string `json:"feeReferencesJson,omitempty" gorm:"column:fg_fee_references_json;type:text;not null;default:'[]'"`
+	FGBudgetReservationID  string        `json:"budgetReservationId,omitempty" gorm:"column:fg_budget_reservation_id;size:36;not null;default:''"`
+	FGFeeReferenceID       string        `json:"feeReferenceId,omitempty" gorm:"column:fg_fee_reference_id;size:160;not null;default:''"`
+	FGFeeReferencesJSON    string        `json:"feeReferencesJson,omitempty" gorm:"column:fg_fee_references_json;type:text;not null;default:'[]'"`
 	ID                     string        `json:"id" gorm:"primaryKey;size:36"`
 	UserID                 string        `json:"userId" gorm:"index;size:36;index:idx_api_logs_user_created,priority:1"`
 	TraceID                string        `json:"traceId,omitempty" gorm:"index;size:96"`
@@ -114,20 +121,21 @@ type ApiCallLog struct {
 	MediaStage             string        `json:"mediaStage,omitempty" gorm:"-"`
 	BillingOrderID         string        `json:"billingOrderId,omitempty" gorm:"index;size:36"`
 	BillingStatus          BillingStatus `json:"billingStatus,omitempty" gorm:"-"`
-	BillingAmount          int64         `json:"billingAmountMicrocredits" gorm:"-"`
+	BillingReservedAmount  int64         `json:"billingReservedMicrocredits" gorm:"-"`
+	BillingSettledAmount   *int64        `json:"billingSettledMicrocredits,omitempty" gorm:"-"`
 	BillingAvailable       bool          `json:"billingAvailable" gorm:"-"`
 	CreditCostConfigured   bool          `json:"creditCostConfigured" gorm:"-"`
 	CreditCostMicrocredits *int64        `json:"creditCostMicrocredits,omitempty" gorm:"-"`
 	Source                 string        `json:"source" gorm:"index;size:64"`
 	Capability             string        `json:"capability" gorm:"index;size:32"`
 	Operation              string        `json:"operation" gorm:"size:64"`
-	RequestKind            string        `json:"requestKind" gorm:"index;size:24"`
+	RequestKind            string        `json:"requestKind" gorm:"index;size:24;index:idx_api_logs_kind_status_created,priority:1"`
 	Billable               bool          `json:"billable" gorm:"index"`
 	APIFormat              string        `json:"apiFormat" gorm:"size:24"`
 	Method                 string        `json:"method" gorm:"size:16"`
 	Path                   string        `json:"path"`
 	Model                  string        `json:"model" gorm:"size:120;index:idx_api_logs_model_created,priority:1"`
-	Status                 ApiCallStatus `json:"status" gorm:"index;size:24;index:idx_api_logs_status_created,priority:1"`
+	Status                 ApiCallStatus `json:"status" gorm:"index;size:24;index:idx_api_logs_status_created,priority:1;index:idx_api_logs_kind_status_created,priority:2"`
 	StatusCode             int           `json:"statusCode"`
 	DurationMs             int64         `json:"durationMs"`
 	PollCount              int           `json:"pollCount"`
@@ -152,5 +160,17 @@ type ApiCallLog struct {
 	RequestBody            string        `json:"requestBody,omitempty" gorm:"type:text"`
 	ResponseBody           string        `json:"responseBody,omitempty" gorm:"type:text"`
 	StartedAt              time.Time     `json:"startedAt"`
-	CreatedAt              time.Time     `json:"createdAt" gorm:"index;index:idx_api_logs_user_created,priority:2;index:idx_api_logs_channel_created,priority:2;index:idx_api_logs_model_created,priority:2;index:idx_api_logs_status_created,priority:2"`
+	CreatedAt              time.Time     `json:"createdAt" gorm:"index;index:idx_api_logs_user_created,priority:2;index:idx_api_logs_channel_created,priority:2;index:idx_api_logs_model_created,priority:2;index:idx_api_logs_status_created,priority:2;index:idx_api_logs_kind_status_created,priority:3"`
+	CreatedAtEpoch         int64         `json:"-" gorm:"index:idx_api_logs_created_epoch"`
+}
+
+func (a *ApiCallLog) BeforeCreate(tx *gorm.DB) error {
+	if a.CreatedAtEpoch == 0 {
+		if a.CreatedAt.IsZero() {
+			a.CreatedAtEpoch = time.Now().Unix()
+		} else {
+			a.CreatedAtEpoch = a.CreatedAt.Unix()
+		}
+	}
+	return nil
 }

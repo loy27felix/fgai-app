@@ -8,7 +8,7 @@ import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { normalizeVideoDuration, normalizeVideoResolution } from "@/lib/video-generation-options";
 import { isSeedanceVideoConfig } from "@/lib/seedance-video";
 import { modelCapabilityConfigFor, workflowFieldCurrentValue, workflowFieldHasStoredValue, workflowFieldKey, workflowFieldRandomKey, workflowFieldSubmissionValue, workflowOutputSizeValue, workflowVideoFieldsFromJson } from "@/lib/model-capabilities";
-import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, resolveVideoOperationForModel, videoRequiresAdaptiveFrameRatio, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
+import { modelRequestOptions, resolveCompatibleModel, resolveModelGenerationDefaults, resolveVideoOperation, resolveVideoOperationForModel, supportsMixedVideoFrameImages, videoRequiresAdaptiveFrameRatio, type ModelGenerationDefaults, type ModelRequirements } from "@/lib/model-selection";
 import { imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import { ensureMediaNodeMinimumSize } from "@/lib/canvas/canvas-node-size";
@@ -19,6 +19,7 @@ import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, typ
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { generationSpecMetadata, readNodeGenerationSpec, resolveGenerationSelection } from "@/lib/canvas/generation-contract";
+import { withReferenceImageSize, type ImageDimensions } from "@/lib/canvas/canvas-reference-image-size";
 
 export async function runBackendCanvasGenerationTask(
     {
@@ -336,7 +337,7 @@ export function buildVideoGenerationMetadata(
     const frames = !workflowVideo && operation !== "reference_to_video";
     const startFrame = frames ? requireConnectedVideoFrame(metadata?.videoStartFrameNodeId, "首帧", referenceImageIds) : undefined;
     const endFrame = frames ? requireConnectedVideoFrame(metadata?.videoEndFrameNodeId, "尾帧", referenceImageIds) : undefined;
-    if (operation === "image_to_video" && (input.videoCount || input.audioCount || input.imageCount > 2)) throw new Error("首尾帧模式仅使用一至两张图片，请移除其他参考素材或选择全能参考");
+    if (operation === "image_to_video" && (input.videoCount || input.audioCount || (input.imageCount > 2 && !(config && supportsMixedVideoFrameImages(config, config.model))))) throw new Error("首尾帧模式仅使用一至两张图片，请移除其他参考素材或选择全能参考");
     if (startFrame && startFrame === endFrame) throw new Error("首帧和尾帧请选择不同的图片");
     return {
         ...(config ? generationWorkflowMetadata(config) : {}),
@@ -414,7 +415,7 @@ export function generationWorkflowMetadata(config: AiConfig): Pick<CanvasNodeMet
     };
 }
 
-export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements, displayOnly = false): AiConfig {
+export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode, requirements?: ModelRequirements, displayOnly = false, referenceImage?: ImageDimensions): AiConfig {
     const generationSpec = node ? readNodeGenerationSpec(node) : undefined;
     const selection = generationSpec?.mode === mode ? generationSpec.modelSelection : undefined;
     const selectedModel = resolveGenerationSelection(config, selection);
@@ -427,6 +428,8 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const storedModel = resolveCanvasGenerationModel(config, selectedModel || node?.metadata?.model, mode);
     if (selection && selectedModel && !storedModel && !displayOnly) throw new Error("节点选择的模型不支持当前生成模式，请重新选择");
     const preferredModel = storedModel || resolveCanvasGenerationModel(config, defaultModel, mode) || fallbackModel;
+    // 图生图未明确选择尺寸时按参考图比例生成；随后的路由与默认值都把它当作节点选择。
+    if (mode === "image" && workflowProvider === "model" && node) node = withReferenceImageSize(config, node, preferredModel, referenceImage);
     // 先合并节点上的实时选择，再做兼容性匹配。否则路由只看到全局默认值，节点改过的时长、分辨率或布尔能力无法参与分流。
     const workflowParameters = node?.metadata?.workflowParameters || {};
     const runningHubWorkflowId = node?.metadata?.runningHubWorkflowId?.trim() || config.runningHub.workflowId.trim();

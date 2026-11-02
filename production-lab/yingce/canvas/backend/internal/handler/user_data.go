@@ -403,6 +403,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 				folderID = &value
 			}
 			assets, pageErr := svc.UserAssetsPage(user.ID, page, pageSize, service.UserAssetPageFilter{
+				CanvasID: c.Query("canvasId"), NoCanvas: c.Query("noCanvas") == "1",
 				Kind: c.Query("kind"), Category: c.Query("category"), FolderID: folderID,
 				Uncategorized: c.Query("uncategorized") == "1", Status: c.Query("status"), Query: c.Query("q"),
 			})
@@ -670,6 +671,43 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		okCanvasProject(c, project)
 	})
+	r.GET("/canvas-projects/:id/sync-status", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		status, err := svc.UserCanvasSyncStatus(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		ok(c, status)
+	})
+	r.POST("/canvas-projects/:id/edit-lease", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		if !enforceRateLimit(c, "canvas-lease:"+user.ID, 240, time.Minute) {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2048)
+		var req service.CanvasEditLeaseRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, service.BadAuthRequest("编辑租约请求格式错误"))
+			return
+		}
+		result, err := svc.ChangeUserCanvasEditLease(user.ID, c.Param("id"), req)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		ok(c, result)
+	})
 	r.PATCH("/canvas-projects/:id/operations", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {
@@ -708,7 +746,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 }
 
 func hasUserAssetPageFilters(c *gin.Context) bool {
-	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q"} {
+	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q", "canvasId", "noCanvas"} {
 		if _, present := c.GetQuery(key); present {
 			return true
 		}

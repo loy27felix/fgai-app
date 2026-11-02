@@ -17,6 +17,8 @@ import (
 func Models() []any {
 	return []any{
 		&model.CloudAgentExecution{},
+		&model.CanvasEditLease{},
+		&model.UserFeedback{},
 		&model.UploadReservation{},
 		&model.CloudAgentPiSession{},
 		&model.CloudAgentEventRecord{},
@@ -27,7 +29,13 @@ func Models() []any {
 		&model.AgentProfile{},
 		&model.AgentLesson{},
 		&model.AgentMemorySetting{},
+		&model.AgentMemoryProposal{},
+		&model.AgentMemoryRevision{},
+		&model.AgentMemoryDocument{},
+		&model.AgentMemoryDocumentRevision{},
 		&model.User{},
+		&model.UserGroup{},
+		&model.UserGroupChannel{},
 		&model.UserAvatar{},
 		&model.AuthSession{},
 		&model.LoginLog{},
@@ -50,6 +58,9 @@ func Models() []any {
 		&model.ModelPricing{},
 		&model.CreditAccount{},
 		&model.CreditLedgerEntry{},
+		&model.ReferralProfile{},
+		&model.ReferralBinding{},
+		&model.ReferralCommission{},
 		&model.BillingOrder{},
 		&model.TopupProduct{},
 		&model.PaymentProviderConfig{},
@@ -57,6 +68,8 @@ func Models() []any {
 		&model.PaymentNotification{},
 		&model.PaymentReconciliationRun{},
 		&model.PaymentReconciliationItem{},
+		&model.UserStorageGrant{},
+		&model.UserStorageState{},
 		&model.RedeemBatch{},
 		&model.RedeemCode{},
 		&model.AdminAuditEvent{},
@@ -78,6 +91,7 @@ func Models() []any {
 		&model.ToolFavorite{},
 		&model.Resource{},
 		&model.ResourceDeletionJob{},
+		&model.ResourceOffloadJob{},
 		&model.AnnouncementImageDraft{},
 		&model.Asset{},
 		&model.AssetFolder{},
@@ -119,6 +133,13 @@ func Models() []any {
 		&model.TaskTextDelta{},
 		&model.TaskLog{},
 		&model.Result{},
+		&model.DramaProduction{},
+		&model.DramaCast{},
+		&model.DramaEpisode{},
+		&model.DramaShot{},
+		&model.DramaTake{},
+		&model.DramaSegment{},
+		&model.DramaJob{},
 	}
 }
 
@@ -183,14 +204,7 @@ func migrateSchemaV1(db *gorm.DB) error {
 // added after the v34 deployment line. They cannot be added to the baseline
 // model registry alone because existing databases never rerun migration v1.
 func migrateSchemaV35(db *gorm.DB) error {
-	if err := db.AutoMigrate(
-		&model.User{},
-		&model.EmailVerificationCode{},
-		&model.AuthVerification{},
-		&model.NotificationQuota{},
-		&model.SMSChannel{},
-		&model.SMSRecord{},
-	); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.EmailVerificationCode{}, &model.AuthVerification{}, &model.NotificationQuota{}, &model.SMSChannel{}, &model.SMSRecord{}); err != nil {
 		return err
 	}
 	return db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_nonempty ON users(phone) WHERE phone <> ''").Error
@@ -313,11 +327,7 @@ func backfillChannelModelPriceTiers(db *gorm.DB) error {
 // migrateLogicalRoutesToChannelModels 在模型结构切换前把历史 variant 外键转换为渠道模型外键。
 // 写路径不能接受无法映射的历史引用，否则任务恢复和计费会失去明确执行目标。
 func migrateLogicalRoutesToChannelModels(db *gorm.DB) error {
-	legacyTargets := []any{
-		&model.LogicalModelRoute{},
-		&model.Task{},
-		&model.RouteAttempt{},
-	}
+	legacyTargets := []any{&model.LogicalModelRoute{}, &model.Task{}, &model.RouteAttempt{}}
 	legacyReferenceFound := false
 	for _, target := range legacyTargets {
 		if db.Migrator().HasTable(target) && db.Migrator().HasColumn(target, "physical_variant_id") {

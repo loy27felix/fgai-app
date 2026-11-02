@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import {randomUUID, timingSafeEqual} from 'node:crypto';
+import {seedAudioReferences,seedAudioPrompt} from './fg-seed-audio-references.mjs';
 
 const origin = 'https://openspeech.bytedance.com';
 const maxAudioBytes = 80 << 20;
@@ -55,9 +56,10 @@ export function speechPayload(input){
  const text=String(input.input||'').trim(),format=input.response_format||'mp3',speed=Number(input.speed??1);
  if(!text||text.length>12000||!['mp3','wav'].includes(format)||!Number.isFinite(speed)||speed<0.5||speed>2)throw new SpeechError('SPEECH_INVALID_INPUT',400);
  if(input.model==='seed-audio-1.0'){
-  const prompt=[input.instructions,text].filter(Boolean).join('\n');
+  const refs=seedAudioReferences(input,()=>new SpeechError('SPEECH_INVALID_INPUT',400));
+  const prompt=seedAudioPrompt([input.instructions,text].filter(Boolean).join('\n'),refs.audioCount,()=>new SpeechError('SPEECH_INVALID_INPUT',400));
   if(Array.from(prompt).length>3000)throw new SpeechError('SPEECH_PROMPT_TOO_LONG',400);
-  return {path:'/api/v3/tts/create',resource:'',format,body:{model:input.model,text_prompt:prompt,audio_config:{format,sample_rate:48000,pitch_rate:0,speech_rate:0,loudness_rate:0},watermark:{}}};
+  return {path:'/api/v3/tts/create',resource:'',format,body:{model:input.model,text_prompt:prompt,...(refs.references.length?{references:refs.references}:{}),audio_config:{format,sample_rate:48000,pitch_rate:0,speech_rate:0,loudness_rate:0},watermark:{}}};
  }
  const voice=!input.voice||input.voice==='alloy'?defaultSpeechVoice:String(input.voice);
  if(!/^[a-zA-Z0-9_-]{1,100}$/.test(voice))throw new SpeechError('SPEECH_INVALID_INPUT',400);

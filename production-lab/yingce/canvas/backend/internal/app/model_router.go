@@ -191,7 +191,8 @@ func (s *Service) loadRouteCatalog() (*routeCatalogSnapshot, error) {
 // ResolveLogicalModel 将创作意图解析为一次可执行的路由快照。
 // 解析同时约束能力合同、启用状态、价格档和渠道协议；调用方不得在解析完成后自行替换其中任一供应链字段，
 // 否则会出现“目录显示可用、任务实际走另一条线路”的配置漂移。
-func (s *Service) ResolveLogicalModel(logicalModelID string, intent ModelRequestIntent) (*RoutedModel, error) {
+// access 为 nil 时不按用户分组过滤线路，只允许内部能力探测和离线迁移工具使用。
+func (s *Service) ResolveLogicalModel(access *userGroupAccess, logicalModelID string, intent ModelRequestIntent) (*RoutedModel, error) {
 	snapshot, err := s.routeCatalogSnapshot()
 	if err != nil {
 		return nil, err
@@ -209,7 +210,7 @@ func (s *Service) ResolveLogicalModel(logicalModelID string, intent ModelRequest
 	if match := MatchCapability(cached.ProductSpec, intent); !match.Matched {
 		return nil, modelCapabilityMismatchError(match)
 	}
-	eligible := s.eligibleLogicalRoutes(cached.Routes, intent, nil, cached.Model.PricePolicy == "channel")
+	eligible := s.eligibleLogicalRoutes(access, cached.Routes, intent, nil, cached.Model.PricePolicy == "channel")
 	if len(eligible) == 0 {
 		return nil, BadAuthRequest("当前模型暂时无法满足这组输入和参数")
 	}
@@ -224,11 +225,14 @@ func (s *Service) ResolveLogicalModel(logicalModelID string, intent ModelRequest
 	return &RoutedModel{LogicalModel: cached.Model, Revision: cached.Revision, Route: selected.Route, ChannelModel: selected.ChannelModel, CapabilitySpec: selected.CapabilitySpec, PriceTier: priceTier, Defaults: cached.Defaults, Intent: intent}, nil
 }
 
-func (s *Service) eligibleLogicalRoutes(routes []cachedLogicalRoute, intent ModelRequestIntent, tried map[string]bool, requirePriceTier bool) []cachedLogicalRoute {
+func (s *Service) eligibleLogicalRoutes(access *userGroupAccess, routes []cachedLogicalRoute, intent ModelRequestIntent, tried map[string]bool, requirePriceTier bool) []cachedLogicalRoute {
 	eligible := make([]cachedLogicalRoute, 0, len(routes))
 	maxPriority := math.MinInt
 	for _, route := range routes {
 		if !route.Route.Enabled || route.Route.Weight <= 0 || tried[route.Route.ID] || s.logicalRouteBlocked(route) {
+			continue
+		}
+		if access != nil && !access.allowsChannel(route.ChannelModel.ChannelID) {
 			continue
 		}
 		if match := MatchCapability(route.CapabilitySpec, intent); !match.Matched {
@@ -338,7 +342,9 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 		// 价格档按实际参考素材归类。供应商执行仍可使用 reference_to_video、extend
 		// 等细分操作；计价时视频参考优先归为视频生视频，其余图片参考无论数量
 		// 都归为图生视频。
-		if intent.Inputs["video"] > 0 {
+		if selector["operation"] == VideoProcessingOperationEnhance {
+			// 画质增强等处理任务保留自身 operation，价格档可单独按 enhance 定价。
+		} else if intent.Inputs["video"] > 0 {
 			selector["operation"] = "video_to_video"
 		} else if intent.Inputs["image"] > 0 {
 			selector["operation"] = "image_to_video"
@@ -354,6 +360,9 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 		}
 		if audio := normalizedScalar(intent.Options["videoGenerateAudio"]); audio == "true" || audio == "false" {
 			selector["videoGenerateAudio"] = audio
+		}
+		if band := normalizedScalar(intent.Options["fpsBand"]); band == "le30" || band == "le60" || band == "le120" {
+			selector["fpsBand"] = band
 		}
 	case "image":
 		for name, value := range intent.Options {
@@ -392,6 +401,30 @@ func skuSelectorForIntent(intent ModelRequestIntent) map[string]string {
 	return selector
 }
 
+// Seedream 5.0 官方 1.5K 尺寸；这些尺寸在 2.36M 像素附近，会被通用阈值误判成 2K。
+var seedream15kSizes = map[string]struct{}{
+	"1536x1536": {}, "2048x1152": {}, "1152x2048": {}, "1792x1344": {},
+	"1344x1792": {}, "1872x1248": {}, "1248x1872": {}, "2352x1008": {},
+}
+
+// imageResolutionTierForSize 把精确像素尺寸归入价格档位；5M 上限覆盖含 1.5K 的 Seedream 2K 尺寸。
+func imageResolutionTierForSize(width, height int64) string {
+	if _, isSeedream15k := seedream15kSizes[fmt.Sprintf("%dx%d", width, height)]; isSeedream15k {
+		return "1.5k"
+	}
+	pixels := width * height
+	switch {
+	case pixels <= 2_000_000:
+		return "1k"
+	case pixels <= 5_000_000:
+		return "2k"
+	case pixels <= 8_294_400:
+		return "4k"
+	default:
+		return ""
+	}
+}
+
 func normalizeImagePriceQuality(rawQuality string, rawSize string) string {
 	quality := strings.ToLower(strings.TrimSpace(rawQuality))
 	if quality != "" && quality != "auto" && quality != "any" {
@@ -406,17 +439,7 @@ func normalizeImagePriceQuality(rawQuality string, rawSize string) string {
 	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 || width > (1<<32)/height {
 		return ""
 	}
-	pixels := width * height
-	switch {
-	case pixels <= 2_000_000:
-		return "1k"
-	case pixels <= 4_300_000:
-		return "2k"
-	case pixels <= 8_294_400:
-		return "4k"
-	default:
-		return ""
-	}
+	return imageResolutionTierForSize(width, height)
 }
 
 func imageResolutionFromSize(rawSize string) string {
@@ -429,22 +452,12 @@ func imageResolutionFromSize(rawSize string) string {
 	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 || width > (1<<32)/height {
 		return ""
 	}
-	pixels := width * height
-	switch {
-	case pixels <= 2_000_000:
-		return "1k"
-	case pixels <= 4_300_000:
-		return "2k"
-	case pixels <= 8_294_400:
-		return "4k"
-	default:
-		return ""
-	}
+	return imageResolutionTierForSize(width, height)
 }
 
 func isImageResolutionTier(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1k", "2k", "4k":
+	case "1k", "1.5k", "2k", "4k":
 		return true
 	default:
 		return false

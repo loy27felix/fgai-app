@@ -17,6 +17,20 @@ func (r *Repository) LockCanvasMutation(userID, canvasID string) error {
 		UpdateColumn("revision", gorm.Expr("revision")).Error
 }
 
+// Keep the access check inside the first write, avoiding a SQLite read-to-write
+// upgrade while serializing requests from members of the same shared canvas.
+func (r *Repository) LockCanvasMutationForUser(userID, canvasID string) error {
+	result := fgCanvasScope(r.db.Model(&model.CanvasProject{}), userID).Where("id = ?", canvasID).
+		UpdateColumn("revision", gorm.Expr("revision"))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *Repository) CanvasMutationReceiptForUser(userID, canvasID, mutationID string) (*model.CanvasMutationReceipt, error) {
 	var receipt model.CanvasMutationReceipt
 	err := r.db.First(&receipt, "user_id = ? AND canvas_id = ? AND mutation_id = ?", userID, canvasID, mutationID).Error
@@ -44,4 +58,24 @@ func (r *Repository) FinalizeCanvasMutationReceipt(receipt *model.CanvasMutation
 		return errors.New("canvas mutation receipt was not finalized")
 	}
 	return nil
+}
+
+// DeleteCanvasMutationReceiptsBefore 分批删除过期回执，每批独立提交，避免首次清理积压数据时长时间持有锁。
+// 回执只服务于响应丢失后的短期重放；过期后重放的请求按字段/对象基线校验，已生效的操作返回冲突或成为空操作。
+func (r *Repository) DeleteCanvasMutationReceiptsBefore(cutoff time.Time, batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+	var total int64
+	for {
+		expired := r.db.Model(&model.CanvasMutationReceipt{}).Select("id").Where("created_at < ?", cutoff).Order("created_at").Limit(batchSize)
+		result := r.db.Where("id IN (?)", expired).Delete(&model.CanvasMutationReceipt{})
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += result.RowsAffected
+		if result.RowsAffected < int64(batchSize) {
+			return total, nil
+		}
+	}
 }

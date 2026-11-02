@@ -26,8 +26,9 @@ export type UploadedImage = {
 const store = localforage.createInstance({ name: "yingce", storeName: "image_files" });
 const objectUrls = new Map<string, string>();
 
-export async function uploadImage(input: string | Blob, onProgress?: (uploadedBytes: number, totalBytes: number) => void): Promise<UploadedImage> {
-    // FG 上传以服务端资源为准；幂等键避免响应丢失后的重复对象。
+export async function uploadImage(input: string | Blob, onProgress?: (uploadedBytes: number, totalBytes: number) => void, knownSize?: { width: number; height: number }): Promise<UploadedImage> {
+    // FG 上传以服务端资源为准；不将未上传的本地缓存报告为已保存。
+    // 提前生成本地 key，确保两条路径向后端发送相同的幂等标识。
     const storageKey = `image:${getActiveUserScope()}:${nanoid()}`;
     if (typeof input === "string" && shouldImportRemoteImage(input)) {
         try {
@@ -51,7 +52,8 @@ export async function uploadImage(input: string | Blob, onProgress?: (uploadedBy
         blob = await response.blob();
     } else blob = input;
     const previewUrl = URL.createObjectURL(blob);
-    const meta = await readImageMeta(previewUrl);
+    // 调用方已解码过真实尺寸时直接复用，避免同一张大图在上传前再完整解码一次。
+    const meta = knownSize?.width && knownSize.height ? { ...knownSize, mimeType: blob.type || "image/png" } : await readImageMeta(previewUrl);
     try {
         const resource = await uploadResourceFile(blob, "image", { width: meta.width, height: meta.height, fileName: input instanceof File ? input.name : undefined, idempotencyKey: storageKey }, onProgress);
         await primeResourceBlobCache(resourceStorageKey(resource.id), blob).catch(() => "");

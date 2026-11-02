@@ -3,6 +3,7 @@ import {fgLabel} from '../../../fg-scope';
 import { createPortal } from "react-dom";
 import { ChevronDownIcon, ChevronUpIcon } from "../../../icons.tsx";
 import { useWorkbenchMenu } from "./useWorkbenchMenu.ts";
+import { useTranslation } from "../../../i18n/useTranslation.ts";
 
 export function InlineParameterSelect({
   label,
@@ -17,10 +18,11 @@ export function InlineParameterSelect({
   disabled: boolean;
   onChange: (value: string | undefined) => void;
 }) {
+  const t = useTranslation("en-US");
   const menuId = useId();
   const { open, setOpen, menuStyle, triggerRef, menuRef } = useWorkbenchMenu(disabled, options.length);
   const unsupported = Boolean(value) && !options.includes(value);
-  const selectedLabel = unsupported ? `${value} (unsupported)` : value || fgLabel("Not set");
+  const selectedLabel = unsupported ? t("{value} (unsupported)", { value }) : value || t("Not set");
   const select = (next: string | undefined) => {
     if (disabled) return;
     onChange(next);
@@ -60,7 +62,7 @@ export function InlineParameterSelect({
           style={menuStyle}
         >
           <button type="button" role="option" aria-selected={!value} disabled={disabled} onClick={() => select(undefined)}>
-            <strong>{fgLabel('Not set')}</strong>
+            <strong>{t("Not set")}</strong>
           </button>
           {unsupported ? (
             <button type="button" role="option" aria-selected disabled>

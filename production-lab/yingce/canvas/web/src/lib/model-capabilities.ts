@@ -151,7 +151,25 @@ export type VideoCapabilityConfig = {
     watermark: { supported: boolean; default: boolean };
     operations: string[];
     defaultOperation: string;
+    /** 仅 kind=processing 的视频处理模型（如画质增强）配置；生成模型为空。 */
+    processing?: VideoProcessingConfig;
 };
+
+export type VideoProcessingFpsPolicy = "keep_source" | "user_select";
+
+export type VideoProcessingConfig = {
+    fpsPolicy: VideoProcessingFpsPolicy;
+    fpsOptions?: number[];
+    maxSourceSeconds?: number;
+};
+
+/** 与后端一致：轮询上限 1 小时，按 RTF≈20 估算源视频默认不超过 180 秒。 */
+export const DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS = 180;
+export const VOLCENGINE_MEDIAKIT_ENHANCE_VIDEO_PROTOCOL = "volcengine-mediakit-enhance-video";
+/** 火山 MediaKit 画质增强（大模型版）支持的目标分辨率，按从低到高排列。 */
+export const VIDEO_ENHANCE_RESOLUTIONS = ["720p", "1080p", "2k", "4k"] as const;
+/** 目标档对应的短边像素，用于判断是否低于源视频。 */
+export const VIDEO_ENHANCE_SHORT_EDGE: Record<string, number> = { "720p": 720, "1080p": 1080, "2k": 1440, "4k": 2160 };
 
 export type VideoScreenSpecConfig = Pick<VideoCapabilityConfig, "ratios" | "defaultRatio" | "resolutions" | "defaultResolution">;
 
@@ -226,6 +244,18 @@ export function normalizeModelCapabilityConfig(config: ModelCapabilityConfig): M
 export function normalizeLegacyImageResolutionConfig(protocol: ModelProtocol | undefined, image: ImageCapabilityConfig): ImageCapabilityConfig {
     if (image.parameters) return projectImageParameters(image, image.parameters);
     image = { ...image, resolutionUsesQuality: protocol === "gemini-image" };
+    // Seedream 5.0 的档位是 1K / 1.5K / 2K，既不由 quality 承载，也不含 4K。
+    if (protocol === "km-kemei-seedream") {
+        return {
+            ...image,
+            resolution: {
+                supported: true,
+                values: ["1k", "1.5k", "2k"],
+                default: image.resolution?.supported && ["1k", "1.5k", "2k"].includes(image.resolution.default) ? image.resolution.default : "2k",
+            },
+            quality: { supported: false, values: [], default: "auto" },
+        };
+    }
     if (image.resolution.supported || !image.quality.supported) return image;
     const allowed = protocol === "grok-image" ? new Set(["1k", "2k"]) : protocol === "agnes-image" ? new Set(["1k", "2k", "4k"]) : undefined;
     if (!allowed) return image;
@@ -294,6 +324,8 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         const presets = kemeiSeedreamPresets();
         image.references = { ...image.references, maxImages: 10, maskSupported: false };
         image.size = { parameter: "size", values: presets.map((preset) => preset.size), default: "2048x2048", allowCustom: true, presets };
+        // Seedream 5.0 官方档位为 1K / 1.5K / 2K（不含 4K），1.5K 用于独立计价。
+        image.resolution = { supported: true, values: ["1k", "1.5k", "2k"], default: "2k" };
         image.quality = { supported: false, values: [], default: "auto" };
         // 透明输出要求一张含 alpha 的参考图，宿主通用开关不能保证此条件。
         // 此能力通过插件命名空间的 background + output_format 显式配置。
@@ -491,7 +523,7 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.resolutions = ["1080p"];
         video.defaultResolution = "1080p";
     }
-    if (protocol === "minimax-video") {
+    if (protocol === "minimax-video" || protocol === "metaso-h3") {
         video.references.maxImages = 9;
         video.references.maxImageBytes = 30 * 1024 * 1024;
         video.references.maxVideos = 3;
@@ -500,7 +532,7 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.references.maxAudios = 3;
         video.references.maxAudioBytes = 15 * 1024 * 1024;
         video.references.maxAudioDurationSeconds = 15;
-        video.duration = { selection: "enum", values: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], default: 5 };
+        video.duration = { selection: "range", min: 4, max: 30, step: 1, default: 5 };
         video.ratios = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"];
         video.resolutions = ["768P", "2K"];
         video.defaultResolution = "768P";
@@ -518,6 +550,20 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.resolutions = flash ? ["720P"] : ["720P", "960P", "2K"];
         video.defaultResolution = "720P";
         video.operations.push("reference_to_video", "audio_to_video");
+    }
+    if (protocol === VOLCENGINE_MEDIAKIT_ENHANCE_VIDEO_PROTOCOL) {
+        // 与后端默认值一致：只接收一个源视频，帧率默认保持原片。
+        video.references = { ...video.references, minImages: 0, maxImages: 0, maxImageBytes: 0, maxVideos: 1, maxVideoDurationSeconds: DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS, maxAudios: 0 };
+        video.duration = { selection: "range", min: 1, max: DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS, step: 1, default: 5 };
+        video.ratios = [];
+        video.defaultRatio = "";
+        video.resolutions = [...VIDEO_ENHANCE_RESOLUTIONS];
+        video.defaultResolution = "1080p";
+        video.generateAudio = { supported: false, default: false };
+        video.watermark = { supported: false, default: false };
+        video.operations = ["enhance"];
+        video.defaultOperation = "enhance";
+        video.processing = { fpsPolicy: "keep_source", maxSourceSeconds: DEFAULT_VIDEO_PROCESSING_MAX_SOURCE_SECONDS };
     }
     return { version: 1, text, image: defaultImageCapabilityConfig(protocol, model), video };
 }

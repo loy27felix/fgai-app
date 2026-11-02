@@ -99,14 +99,14 @@
     .editor-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        margin-top: -5px;
+        margin-top: -4px;
         height: 14px;
         width: 14px;
         border-radius: 9999px;
         background: var(--director-dock-fg-strong);
         border: 2px solid var(--director-sequencer-surface);
         box-shadow: 0 1px 3px rgb(0 0 0 / 0.45);
-        transition: transform 0.12s ease;
+        transition: transform 150ms ease;
     }
     .editor-slider::-webkit-slider-thumb:hover {
         transform: scale(1.15);

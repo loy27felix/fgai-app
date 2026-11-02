@@ -15,6 +15,8 @@ from app.persistence.agent_canvas_continuation_repository import (
 )
 from app.persistence.agent_canvas_operation_envelope_repository import (
     AgentCanvasOperationEnvelopeRepository,
+    matches_operation_envelope_digest,
+    operation_envelope_digest,
 )
 from app.persistence.agent_canvas_requirement_repository import (
     AgentCanvasRequirementRepository,
@@ -27,8 +29,11 @@ from app.schemas.agent_canvas_conversation import (
 )
 from app.schemas.agent_canvas_capabilities import CapabilityCommandEnvelopeV2
 from app.schemas.agent_canvas_guidance import ContinuationTurnRetrySnapshotV1
-from app.services.agent_canvas_explicit_retry import explicit_turn_retryable
-from app.services.agent_canvas_envelope_digest import operation_envelope_digest_matches
+from app.services.agent_canvas_explicit_retry import explicit_turn_retryable, reconcile_repaired_authoring_reservation
+from app.schemas.agent_canvas_retry_repair import (
+    RetryEnvelopeDigestRepairReceiptV1,
+    RetryEnvelopeDigestRepairV1,
+)
 
 
 class ChatTurnRetryService:
@@ -111,6 +116,8 @@ class ChatTurnRetryService:
             )
         except ValueError as error:
             raise _stale_error() from error
+        snapshot = reconcile_repaired_authoring_reservation(snapshot, source,
+            self._conversations.get_guidance_session_or_none(source.workflow_id))
         return continuation, envelope, snapshot
 
     def validate(
@@ -120,6 +127,46 @@ class ChatTurnRetryService:
         request: ChatTurnRetryRequestV1,
     ) -> tuple[ChatTurnV2, dict[str, object]]:
         """Validate frozen retry authority without creating a retry Turn."""
+
+        return self._validate(workflow_id, turn_id, request)
+
+    def repair_legacy_envelope_digest(
+        self,
+        workflow_id: str,
+        turn_id: str,
+        *,
+        expected_snapshot_digest: str,
+        expected_envelope_digest: str,
+    ) -> RetryEnvelopeDigestRepairReceiptV1:
+        """Operator-only repair; never enqueue work or relax other frozen authority."""
+
+        from app.persistence.agent_canvas_retry_repair_repository import (
+            RetryEnvelopeDigestRepairRepository,
+        )
+
+        command = RetryEnvelopeDigestRepairV1(
+            workflow_id=workflow_id,
+            turn_id=turn_id,
+            expected_snapshot_digest=expected_snapshot_digest,
+            expected_envelope_digest=expected_envelope_digest,
+        )
+        return RetryEnvelopeDigestRepairRepository(
+            self._conversations.database, self._conversations.events
+        ).repair(command, validate=self._validate_digest_repair)
+
+    def _validate_digest_repair(
+        self, workflow_id: str, turn_id: str, request: ChatTurnRetryRequestV1, digest: str
+    ) -> ChatTurnV2:
+        return self._validate(workflow_id, turn_id, request, repair_envelope_digest=digest)[0]
+
+    def _validate(
+        self,
+        workflow_id: str,
+        turn_id: str,
+        request: ChatTurnRetryRequestV1,
+        *,
+        repair_envelope_digest: str | None = None,
+    ) -> tuple[ChatTurnV2, dict[str, object]]:
 
         source = self._conversations.get_turn(turn_id)
         if source.workflow_id != workflow_id:
@@ -169,7 +216,7 @@ class ChatTurnRetryService:
                 session=session,
                 request=request,
             )
-        if not explicit_turn_retryable(source.error_code or ""):
+        if not explicit_turn_retryable(source.error_code or "", source.error_message):
             raise _error(
                 "chat_turn_not_retryable",
                 "This typed Agent failure is not eligible for explicit retry.",
@@ -178,6 +225,7 @@ class ChatTurnRetryService:
             snapshot = ContinuationTurnRetrySnapshotV1.model_validate(raw_snapshot)
         except ValueError as error:
             raise _stale_error() from error
+        snapshot = reconcile_repaired_authoring_reservation(snapshot, source, session)
         current_session_revision = session.revision if session is not None else 0
         if (
             request.expected_workflow_revision != workflow.revision
@@ -226,9 +274,13 @@ class ChatTurnRetryService:
         ):
             raise _stale_error()
         envelope = self._envelopes.get(snapshot.envelope_id)
-        if (
-            envelope.workflow_id != workflow_id
-            or not operation_envelope_digest_matches(envelope, snapshot.envelope_digest)
+        if repair_envelope_digest is not None and (
+            operation_envelope_digest(envelope) != repair_envelope_digest
+            or matches_operation_envelope_digest(envelope, snapshot.envelope_digest)
+        ):
+            raise _stale_error()
+        if envelope.workflow_id != workflow_id or not matches_operation_envelope_digest(
+            envelope, repair_envelope_digest or snapshot.envelope_digest
         ):
             raise _stale_error()
         if isinstance(envelope, CapabilityCommandEnvelopeV2):

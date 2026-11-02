@@ -36,3 +36,9 @@ export function localForageStorageForScope(scope?: string): StateStorage {
 }
 
 export const localForageStorage: StateStorage = localForageStorageForScope();
+
+export async function localForageKeysForScope(scope: string): Promise<string[]> {
+    if (!browserStorageAvailable()) return [];
+    const suffix = `:user:${scope}`;
+    return (await localforage.keys()).filter(key => key.endsWith(suffix)).map(key => key.slice(0, -suffix.length));
+}

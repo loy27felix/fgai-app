@@ -4,6 +4,7 @@ import {fgLabel} from '../../../fg-scope';
 import { ChevronDownIcon, ChevronUpIcon } from "../../../icons.tsx";
 import { useMemo } from "react";
 import { useWorkbenchMenu } from "./useWorkbenchMenu.ts";
+import { useTranslation } from "../../../i18n/useTranslation.ts";
 
 import type { ProviderModelSummaryV1 } from "../../../api/providerRegistry.ts";
 import { modelEligibility } from "../../../api/providerModelPolicy.ts";
@@ -64,6 +65,7 @@ export function CanvasModelPicker({
   showStatusDetails?: boolean;
   defaultModelRef?: string | null;
 }) {
+  const t = useTranslation("en-US");
   const selectedModel = useMemo(() => {
     if (selectionMode !== "explicit" || !modelRef) return null;
     return models.find((model) => model.model_ref === modelRef)
@@ -75,13 +77,13 @@ export function CanvasModelPicker({
   );
   const defaultModelName = models.find((model) => model.model_ref === defaultModelRef)?.display_name;
   const defaultLabel = defaultModelRef === undefined
-    ? fgLabel("Default model")
-    : `${fgLabel("Default model")} · ${error ? fgLabel("Unavailable") : defaultModelName ?? (defaultModelRef ? fgLabel("Name unavailable") : fgLabel("Not configured"))}`;
+    ? t("Default model")
+    : `${t("Default model")} · ${error ? t("Unavailable") : defaultModelName ?? (defaultModelRef ? t("Name unavailable") : t("Not configured"))}`;
   const selectedLabel = selectionMode === "default"
     ? defaultLabel
     : selectedModel
       ? showStatusDetails ? modelSummaryLabel(selectedModel) : selectedModel.display_name
-      : `${modelRef ?? "所选模型"} · 暂不可用`;
+      : `${modelRef ?? t("Selected model")} · ${t("Unavailable")}`;
 
   const { open, setOpen, menuStyle, triggerRef, menuRef } = useWorkbenchMenu(disabled || loading, visibleModels.length);
 
@@ -90,7 +92,7 @@ export function CanvasModelPicker({
       ref={menuRef}
       className={`agent-node-workbench__model-menu${appearance === "monochrome" ? " agent-node-workbench__model-menu--monochrome" : ""}`}
       role="listbox"
-      aria-label={fgLabel('Compatible models')}
+      aria-label={t("Compatible models")}
       style={menuStyle}
     >
       <button
@@ -104,7 +106,7 @@ export function CanvasModelPicker({
         }}
       >
         <strong>{defaultLabel}</strong>
-        {showOptionDetails ? <small>Uses the current API Space default for this node type.</small> : null}
+        {showOptionDetails ? <small>{t("Uses the current API Space default for this node type.")}</small> : null}
       </button>
       {visibleModels.map((model) => {
         const eligibility = modelEligibility(model, "diagnostic");
@@ -140,7 +142,7 @@ export function CanvasModelPicker({
           </button>
         );
       })}
-      {!visibleModels.length && !loading ? <p>当前没有适配的模型。</p> : null}
+      {!visibleModels.length && !loading ? <p>{t("No compatible models are currently available.")}</p> : null}
       {!showStatusDetails && error ? <p role="alert">{error}</p> : null}
     </div>,
     document.body,
@@ -148,13 +150,13 @@ export function CanvasModelPicker({
 
   return (
     <div className={`agent-node-workbench__model-picker${appearance === "monochrome" ? " agent-node-workbench__model-picker--monochrome" : ""}`}>
-      <span className="agent-node-workbench__model-label">模型</span>
+      <span className="agent-node-workbench__model-label">{t("Model")}</span>
       <details
         open={open}
       >
         <summary
           ref={triggerRef}
-          aria-label={fgLabel('Choose model')}
+          aria-label={t("Choose model")}
           aria-expanded={open}
           aria-disabled={disabled || loading}
           title={!showStatusDetails ? error ?? (selectedModel ? modelEligibility(selectedModel, "diagnostic").reason ?? selectedLabel : selectedLabel) : undefined}
@@ -166,7 +168,7 @@ export function CanvasModelPicker({
             setOpen((current) => !current);
           }}
         >
-          <span>{loading ? fgLabel("Loading compatible models...") : selectedLabel}</span>
+          <span>{loading ? t("Loading compatible models...") : selectedLabel}</span>
           {showStatusDetails && selectedModel ? <small className={`is-${selectedModel.availability}`}>{selectedModel.availability}</small> : null}
           {appearance === "monochrome" ? (
             <span className="agent-node-workbench__model-chevron" aria-hidden="true">
@@ -184,7 +186,7 @@ export function CanvasModelPicker({
       ) : null}
       {showStatusDetails && modelResolution ? (
         <p className="agent-node-workbench__model-resolution">
-          Running with {modelResolution.provider_id} · {modelResolution.provider_model_id}
+          {t("Running with {provider} · {model}", { provider: modelResolution.provider_id, model: modelResolution.provider_model_id })}
         </p>
       ) : null}
     </div>

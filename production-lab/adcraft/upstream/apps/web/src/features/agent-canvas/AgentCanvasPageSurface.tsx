@@ -1,4 +1,10 @@
 import { fgLabel } from '../../fg-scope';
+import { useTranslation } from "../../i18n/useTranslation";
+import { ConnectionEffectContext } from "./canvas/connection-effects/connectionEffectContext.ts";
+import { canvasConnectionColor } from "./canvas/connection-effects/connectionColor.ts";
+import { PrimaryNavigation } from "../../components/Layout";
+import { ResizableBrandPanel } from "./brand/ResizableBrandPanel";
+import { useModeLaunch } from "../mode-selection/ModeLaunchContext";
 import {
   applyNodeChanges,
   Controls,
@@ -15,6 +21,7 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -41,6 +48,7 @@ import type {
   CanvasLayoutPositionV2,
   CanvasNodeV2,
   CanvasPositionV2,
+  CanvasRuntimeEventV2,
   NodeRuntimeV2,
   ProjectAssetSummaryV2,
   SaveAgentCanvasImageToLibraryRequestV2,
@@ -50,6 +58,7 @@ import type {
   AgentAssetSourceNodeSelection,
 } from "./assets/AgentAssetBrowser.tsx";
 import { toImageBindingSource } from "./assets/assetSelection.ts";
+import { useCanvasMediaUpload } from "./assets/useCanvasMediaUpload.ts";
 import {
   AgentCanvasNodeRenderer,
   type AgentCanvasFlowNode,
@@ -78,6 +87,7 @@ import {
   type CanvasEdgeZoomController,
 } from "./canvas/canvasEdgeRendering.ts";
 import { FrozenCanvasEdgesOverlay } from "./canvas/FrozenCanvasEdgesOverlay.tsx";
+import { CanvasEdgeFlowAnimator } from "./canvas/connection-effects/CanvasEdgeFlowAnimator.tsx";
 import {
   CanvasPreviewPrefetcher,
   type CanvasPreviewPrefetchHandle,
@@ -88,6 +98,8 @@ import {
   type FrozenCanvasEdgeSnapshot,
 } from "./canvas/frozenCanvasEdges.ts";
 import { shouldPersistAgentCanvasViewport } from "./canvas/canvasViewportPersistence.ts";
+import { BrandDecisionPanel } from "./brand/BrandDecisionPanel.tsx";
+import type { BrandDecisionPanelV1 } from "./brand/brandDecisions.ts";
 import {
   installAgentCanvasWorkflowViewport,
   readAgentCanvasViewport,
@@ -132,6 +144,16 @@ import {
 } from "./model/nodeDefaults.ts";
 import { hasPromptReadyDraft } from "./model/promptPreparation.ts";
 import { useAgentCanvasProviderModels } from "./model/useAgentCanvasProviderModels.ts";
+import {
+  providerBalanceNoticeFromNode,
+  providerBalanceNoticeFromNodeRuntime,
+  providerBalanceNoticeFromRuntimeEvent,
+  providerBalanceNoticeFromText,
+} from "./notifications/providerBalanceNotice.ts";
+import {
+  reportProviderBalanceError,
+  reportProviderBalanceNotice,
+} from "./notifications/providerBalanceNoticeStore.ts";
 import { useAgentCanvasRuntime } from "./runtime/useAgentCanvasRuntime.ts";
 import { useAgentCanvasSession } from "./session/useAgentCanvasSession.ts";
 
@@ -163,6 +185,7 @@ function reducedMotionPreference(): boolean {
 type CanvasInteractionReason = "viewport" | "node-drag";
 
 export function AgentCanvasPage() {
+  const t = useTranslation();
   const { refreshProjects } = useApp();
   const session = useAgentCanvasSession();
   const pointerSpotlight = useCanvasPointerSpotlight<HTMLDivElement>();
@@ -171,6 +194,11 @@ export function AgentCanvasPage() {
     suspend: suspendPointerSpotlight,
   } = pointerSpotlight;
   const workflow = session.state.workflow;
+  const launchReady = useModeLaunch()?.ready;
+  const launchWorkflowId = workflow?.workflow_id;
+  useEffect(() => {
+    if (launchWorkflowId && session.state.workspaceHydrated) launchReady?.();
+  }, [launchWorkflowId, session.state.workspaceHydrated, launchReady]);
   const hasRunnableDraft = workflow ? hasPromptReadyDraft(workflow.nodes) : false;
   const {
     applyWorkflow,
@@ -191,10 +219,23 @@ export function AgentCanvasPage() {
     rollbackNodePositions,
     updateNodePositions,
   } = session.actions;
+  const reserveRevealNodeIdsRef = useRef<(nodeIds: readonly string[]) => void>(() => undefined);
   const runtimeCallbacks = useMemo(() => ({
     applyWorkflow,
     mergePublishedAsset,
     mergeNode,
+    onRuntimeEvent: (event: CanvasRuntimeEventV2) => {
+      reportProviderBalanceNotice(providerBalanceNoticeFromRuntimeEvent(event));
+    },
+    beforeWorkflowApply: (nextWorkflow: AgentCanvasWorkflowV2) => {
+      // Reserve nodes that first appear through a workflow refresh before the
+      // canonical sync layout effect can render them at backend coordinates.
+      const knownNodeIds = new Set(workflowNodesRef.current.map((node) => node.node_id));
+      const createdNodeIds = nextWorkflow.nodes
+        .filter((node) => !knownNodeIds.has(node.node_id))
+        .map((node) => node.node_id);
+      if (createdNodeIds.length) reserveRevealNodeIdsRef.current(createdNodeIds);
+    },
   }), [
     applyWorkflow,
     mergeNode,
@@ -239,11 +280,64 @@ export function AgentCanvasPage() {
     }
   ) | null>(null);
   const [surfaceError, setSurfaceError] = useState<string | null>(null);
+  const [brandDecisions, setBrandDecisions] = useState<BrandDecisionPanelV1 | null>(null);
+  const [brandDecisionsRefreshing, setBrandDecisionsRefreshing] = useState(false);
+  const [brandDecisionsResolved, setBrandDecisionsResolved] = useState(false);
+  const [brandSkillsWorkflowId, setBrandSkillsWorkflowId] = useState<string | null>(null);
+  const brandWorkflowId = workflow?.workflow_id ?? null;
+  const refreshBrandDecisions = useCallback(async () => {
+    if (!brandWorkflowId) return null;
+    setBrandDecisionsRefreshing(true);
+    try {
+      const decisions = await agentCanvasApi.brandDecisions(brandWorkflowId);
+      setBrandDecisions(decisions);
+      return decisions.journey.stage;
+    } catch {
+      // A transient read failure must not erase confirmed Brand decisions.
+      return null;
+    } finally {
+      setBrandDecisionsRefreshing(false);
+      setBrandDecisionsResolved(true);
+    }
+  }, [brandWorkflowId]);
+  useEffect(() => {
+    if (!brandWorkflowId) {
+      setBrandDecisions(null);
+      setBrandDecisionsResolved(true);
+      return undefined;
+    }
+    let cancelled = false;
+    setBrandDecisionsResolved(false);
+    setBrandDecisionsRefreshing(true);
+    agentCanvasApi.brandDecisions(brandWorkflowId)
+      .then((response) => {
+        if (!cancelled) setBrandDecisions(response);
+      })
+      .catch(() => {
+        if (!cancelled) setBrandDecisions(null);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBrandDecisionsRefreshing(false);
+          setBrandDecisionsResolved(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [brandWorkflowId]);
+  const connectionEffects = useContext(ConnectionEffectContext);
+  useEffect(() => () => connectionEffects?.clear(), [connectionEffects, workflow?.workflow_id]);
   const { displayEdges, submit: submitOptimisticConnection, cancelForNodes: cancelPendingNodeConnections, nextOrder: nextConnectionOrder } = useOptimisticCanvasConnections({
     workflow,
     edges,
     createBinding,
     onError: (error) => setSurfaceError(canvasAuthoringErrorMessage(error)),
+    onStarted: (request, connectionId) => {
+      if (!workflow || request.source.kind !== "node_output") return;
+      connectionEffects?.publish(workflow.workflow_id, request.target_node_id, connectionId,
+        canvasConnectionColor(request.source.source_node_id));
+    },
   });
   const [connectionPolicy, setConnectionPolicy] = useState<CanvasConnectionPolicyV2 | null>(null);
   const [connectedNodeMenu, setConnectedNodeMenu] = useState<{
@@ -277,6 +371,19 @@ export function AgentCanvasPage() {
   const activeDraggedNodeIdsRef = useRef(new Set<string>());
   const canvasInteractionReasonsRef = useRef(new Set<CanvasInteractionReason>());
   const dragCancellationPendingRef = useRef(false);
+
+  const closeAssets = useCallback(() => setAssetsOpen(false), []);
+
+  useEffect(() => {
+    if (!assetsOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeAssets();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [assetsOpen, closeAssets]);
 
   if (edgeZoomControllerRef.current === null) {
     edgeZoomControllerRef.current = createCanvasEdgeZoomController({
@@ -394,6 +501,7 @@ export function AgentCanvasPage() {
     syncCanonicalNodeIds: syncRevealCanonicalNodeIds,
     visibleNodeIds: visibleRevealNodeIds,
   } = revealQueue;
+  reserveRevealNodeIdsRef.current = reserveRevealNodeIds;
   const revealAvailableCanvasNodes = useCallback((nodeIds: string[]) => {
     const visibleNodeIds = new Set(flowNodesRef.current.map((node) => node.id));
     revealCanvasNodes(nodeIds.filter((nodeId) => visibleNodeIds.has(nodeId)));
@@ -411,6 +519,39 @@ export function AgentCanvasPage() {
       if (ids.length) reserveRevealNodeIds(ids);
     });
   }, [live.state.chatEvents, reserveRevealNodeIds]);
+
+  // A provider credential that cannot pay shows up either on the node
+  // projection (submit and poll failures keep the provider message) or on the
+  // live runtime snapshot, so both sources feed the same notice store.
+  useEffect(() => {
+    if (!workflow) return;
+    const nodesById = new Map(workflow.nodes.map((node) => [node.node_id, node]));
+    workflow.nodes.forEach((node) => {
+      reportProviderBalanceNotice(providerBalanceNoticeFromNode(node));
+    });
+    const nodeRuntime = live.state.runtime?.node_runtime;
+    if (!nodeRuntime) return;
+    Object.values(nodeRuntime).forEach((runtime) => {
+      const node = nodesById.get(runtime.node_id);
+      if (!node) return;
+      reportProviderBalanceNotice(
+        providerBalanceNoticeFromNodeRuntime(node, runtime.error),
+      );
+    });
+  }, [live.state.runtime, workflow]);
+
+  // Fallback scan: any failure text the surface shows can be the only surviving
+  // trace of a provider billing rejection.
+  useEffect(() => {
+    [
+      surfaceError,
+      session.state.authoringError,
+      live.state.runtimeError,
+    ].forEach((text) => {
+      reportProviderBalanceNotice(providerBalanceNoticeFromText(text));
+    });
+  }, [live.state.runtimeError, session.state.authoringError, surfaceError]);
+
   useEffect(() => {
     let active = true;
     void agentCanvasApi.agentCanvasConnectionPolicy()
@@ -428,7 +569,8 @@ export function AgentCanvasPage() {
   const runNodeById = useCallback((nodeId: string, retryFailed = false) => {
     const node = workflow?.nodes.find((candidate) => candidate.node_id === nodeId);
     if (node) void runNode(node, { retryFailed }).catch((error) => {
-      setSurfaceError(error instanceof Error ? error.message : "Node run failed.");
+      reportProviderBalanceError(error);
+      setSurfaceError(error instanceof Error ? error.message : t("Node run failed."));
     });
   }, [runNode, workflow?.nodes]);
 
@@ -439,12 +581,12 @@ export function AgentCanvasPage() {
 
   const addEditingExportToCanvas = useCallback(async (exportId: string) => {
     if (!workflow || !editingNodeId) {
-      throw new Error("Select an Editing node before importing an export.");
+      throw new Error(t("Select an Editing node before importing an export."));
     }
     const editingNode = workflow.nodes.find((candidate) => (
       candidate.node_id === editingNodeId && candidate.node_type === "editing"
     ));
-    if (!editingNode) throw new Error("The Editing node is no longer available.");
+    if (!editingNode) throw new Error(t("The Editing node is no longer available."));
     const editingAsset = editingNode.output_asset_id
       ? workflow.assets.find((asset) => asset.asset_id === editingNode.output_asset_id) ?? null
       : null;
@@ -474,7 +616,7 @@ export function AgentCanvasPage() {
       });
       setEditingNodeId(null);
     } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "The exported video could not be added to canvas.");
+      setSurfaceError(error instanceof Error ? error.message : t("The exported video could not be added to canvas."));
       throw error;
     }
   }, [editingNodeId, importEditingExport, workflow]);
@@ -489,12 +631,12 @@ export function AgentCanvasPage() {
     const targetNode = session.state.selectedNode;
     if (!workflow || !targetNode || !files.length) return;
     if (targetNode.node_type === "editing") {
-      setSurfaceError("Use connected Video and Audio nodes as Editing inputs.");
+      setSurfaceError(t("Use connected Video and Audio nodes as Editing inputs."));
       return;
     }
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length !== files.length) {
-      setSurfaceError("Only image files can be attached as prompt references.");
+      setSurfaceError(t("Only image files can be attached as prompt references."));
       return;
     }
     setSurfaceError(null);
@@ -533,7 +675,7 @@ export function AgentCanvasPage() {
       }
       await refreshWorkflow();
     } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "Reference upload failed.");
+      setSurfaceError(error instanceof Error ? error.message : t("Reference upload failed."));
     }
   }, [createBinding, refreshWorkflow, session.state.selectedNode, workflow]);
 
@@ -727,7 +869,7 @@ export function AgentCanvasPage() {
         },
       );
     } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "Canvas layout could not be calculated.");
+      setSurfaceError(error instanceof Error ? error.message : t("Canvas layout could not be calculated."));
       return;
     }
 
@@ -754,7 +896,7 @@ export function AgentCanvasPage() {
       })
       .catch((error) => {
         if (activeWorkflowIdRef.current === workflowId) {
-          setSurfaceError(error instanceof Error ? error.message : "Canvas layout could not be saved.");
+          setSurfaceError(error instanceof Error ? error.message : t("Canvas layout could not be saved."));
         }
       });
   }, [pointerSpotlight.hostRef, updateNodePositions, visibleCanonicalNodes, workflow]);
@@ -890,7 +1032,7 @@ export function AgentCanvasPage() {
 
   const connect = useCallback(async (connection: Connection) => {
     if (!workflow || !connectionPolicy || !connection.source || !connection.target || connection.source === connection.target) {
-      if (!connectionPolicy) setSurfaceError("Connection policy is still loading.");
+      if (!connectionPolicy) setSurfaceError(t("Connection policy is still loading."));
       return;
     }
     const source = workflow.nodes.find((node) => node.node_id === connection.source);
@@ -898,7 +1040,7 @@ export function AgentCanvasPage() {
     if (!source || !target) return;
     const rule = connectionRuleForPair(connectionPolicy, source.node_type, target.node_type);
     if (!rule) {
-      setSurfaceError("These node types cannot be connected.");
+      setSurfaceError(t("These node types cannot be connected."));
       return;
     }
     setSurfaceError(null);
@@ -936,7 +1078,7 @@ export function AgentCanvasPage() {
       deleteBinding,
       recoverDeletedCanvasState,
     )
-      .catch((error) => setSurfaceError(error instanceof Error ? error.message : "The connection could not be removed."));
+      .catch((error) => setSurfaceError(error instanceof Error ? error.message : t("The connection could not be removed.")));
   }, [deleteBinding, recoverDeletedCanvasState]);
 
   const deleteNodes = useCallback((deleted: AgentCanvasFlowNode[]) => {
@@ -946,7 +1088,7 @@ export function AgentCanvasPage() {
       deleteNode,
       recoverDeletedCanvasState,
     )
-      .catch((error) => setSurfaceError(error instanceof Error ? error.message : "The node could not be deleted."));
+      .catch((error) => setSurfaceError(error instanceof Error ? error.message : t("The node could not be deleted.")));
   }, [cancelPendingNodeConnections, deleteNode, recoverDeletedCanvasState]);
 
   const deleteContextNode = useCallback((nodeId: string) => {
@@ -977,7 +1119,7 @@ export function AgentCanvasPage() {
     try {
       await cancelRun();
     } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "The run could not be cancelled.");
+      setSurfaceError(error instanceof Error ? error.message : t("The run could not be cancelled."));
     }
   }, [cancelRun]);
 
@@ -1004,16 +1146,16 @@ export function AgentCanvasPage() {
     try {
       await createCanvasNode(createDefaultCanvasNodeRequest(nodeType, position));
     } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "The node could not be created.");
+      setSurfaceError(error instanceof Error ? error.message : t("The node could not be created."));
     }
   }, [createCanvasNode, workflow]);
 
   const addReferences = useCallback(async (selections: AgentAssetReferenceSelection[]) => {
     if (!workflow || !session.state.selectedNode) {
-      throw new Error("Select a target node before adding image references.");
+      throw new Error(t("Select a target node before adding image references."));
     }
     if (session.state.selectedNode.node_type === "editing") {
-      throw new Error("Editing nodes accept connected Video nodes and one BGM node, not image references.");
+      throw new Error(t("Editing nodes accept connected Video nodes and one BGM node, not image references."));
     }
     const targetNodeId = session.state.selectedNode.node_id;
     const startOrder = workflow.bindings.filter((binding) => binding.target_node_id === targetNodeId).length;
@@ -1028,12 +1170,15 @@ export function AgentCanvasPage() {
     }
   }, [createBinding, session.state.selectedNode, workflow]);
 
-  const createReadySourceNode = useCallback(async (selection: AgentAssetSourceNodeSelection) => {
+  const createReadySourceNode = useCallback(async (
+    selection: AgentAssetSourceNodeSelection,
+    requestedPosition?: CanvasPositionV2,
+  ) => {
     if (!workflow) return;
     const instance = flowRef.current;
-    const preferredPosition = instance
+    const preferredPosition = requestedPosition ?? (instance
       ? instance.screenToFlowPosition({ x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 })
-      : { x: 180, y: 160 };
+      : { x: 180, y: 160 });
     const position = findAvailableCanvasPosition(workflow.nodes, preferredPosition, {
       assets: workflow.assets,
       candidateNodeType: selection.mediaType,
@@ -1057,6 +1202,12 @@ export function AgentCanvasPage() {
       source_asset_id: selection.assetId,
     });
   }, [createCanvasNode, workflow]);
+
+  const canvasMediaUpload = useCanvasMediaUpload({
+    workflowId: workflow?.workflow_id,
+    createSourceNode: createReadySourceNode,
+  });
+  const [fileDragOver, setFileDragOver] = useState(false);
 
   const createConnectedNodeFromMenu = useCallback(async (
     nodeType: AgentCanvasVisibleNodeTypeV2,
@@ -1121,7 +1272,7 @@ export function AgentCanvasPage() {
         enqueueReveal(plan);
       })
       .catch((error) => {
-        setSurfaceError(error instanceof Error ? error.message : "New canvas nodes could not be positioned.");
+        setSurfaceError(error instanceof Error ? error.message : t("New canvas nodes could not be positioned."));
       });
   }, [enqueueReveal, placeActionReceiptNodes, releaseRevealNodeIds, reserveRevealNodeIds]);
 
@@ -1145,7 +1296,7 @@ export function AgentCanvasPage() {
         { isolatedRowWidth },
       );
     } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "Canvas layout could not be calculated.");
+      setSurfaceError(error instanceof Error ? error.message : t("Canvas layout could not be calculated."));
       return;
     }
 
@@ -1251,12 +1402,38 @@ export function AgentCanvasPage() {
     : null;
   const running = Boolean(live.state.runtime?.active_execution_id);
   return (
-    <div className={`agent-canvas-page${chatCollapsed ? " is-chat-collapsed" : ""}`}>
+    <div className={`agent-canvas-page${chatCollapsed ? " is-chat-collapsed" : ""}${brandDecisions ? " is-brand-mode" : ""}`}>
+      {brandDecisions ? (
+        <ResizableBrandPanel><BrandDecisionPanel
+          decisions={brandDecisions}
+          refreshing={brandDecisionsRefreshing}
+          onChooseSkills={() => setBrandSkillsWorkflowId(brandDecisions.workflow_id)}
+          onRefresh={() => {
+            void refreshBrandDecisions();
+          }}
+        /></ResizableBrandPanel>
+      ) : null}
+      {brandDecisions ? <PrimaryNavigation placement="brand" /> : null}
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- React Flow owns canvas keyboard and pointer semantics; this listener only distinguishes pane double-clicks. */}
       <div
         ref={pointerSpotlight.hostRef}
         className={`agent-canvas-board${layoutPreview.active ? " is-layout-previewing" : ""}${canvasInteracting ? " is-interacting" : ""}`}
         onContextMenu={(event) => event.preventDefault()}
+        onDragOver={(event) => {
+          if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = canvasMediaUpload.uploading ? "none" : "copy";
+          setFileDragOver(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDragOver(false);
+        }}
+        onDrop={(event) => {
+          if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+          event.preventDefault(); event.stopPropagation(); setFileDragOver(false);
+          const position = flowRef.current?.screenToFlowPosition({x:event.clientX,y:event.clientY});
+          if (position) void canvasMediaUpload.uploadAt(Array.from(event.dataTransfer.files),position);
+        }}
         onPointerMove={pointerSpotlight.onPointerMove}
         onPointerLeave={pointerSpotlight.onPointerLeave}
         onPointerCancel={(event) => {
@@ -1271,6 +1448,7 @@ export function AgentCanvasPage() {
           }
         }}
       >
+        {fileDragOver ? <div className="fg-adcraft-drop-hint" role="status">释放图片或视频到画布</div> : null}
         <ReactFlow<AgentCanvasFlowNode, Edge>
           nodes={nodes}
           edges={renderedEdges}
@@ -1397,6 +1575,7 @@ export function AgentCanvasPage() {
           proOptions={{ hideAttribution: true }}
         >
           <AgentCanvasPointerBackgrounds />
+          <CanvasEdgeFlowAnimator />
           {dragEdgeProjection ? (
             <FrozenCanvasEdgesOverlay snapshots={visibleFrozenSnapshots} />
           ) : null}
@@ -1409,13 +1588,13 @@ export function AgentCanvasPage() {
           boardRef={pointerSpotlight.hostRef}
         />
 
-        <div className="agent-canvas-toolbar" aria-label="Canvas controls">
+        <div className="agent-canvas-toolbar" aria-label={t("Canvas controls")}>
           <div className="agent-canvas-toolbar__add">
             <button
               type="button"
               className={addMenuOpen ? "is-active" : ""}
-              aria-label="Add node"
-              title="Add node"
+              aria-label={t("Add node")}
+              title={t("Add node")}
               onClick={() => setAddMenuOpen((current) => !current)}
             >
               <PlusIcon />
@@ -1423,7 +1602,7 @@ export function AgentCanvasPage() {
             {addMenuOpen ? (
               <AgentCanvasNodePicker
                 className="agent-canvas-node-picker agent-canvas-add-menu"
-                menuLabel="Add node types"
+                menuLabel={t("Add node types")}
                 onSelect={(nodeType) => void createNode(nodeType)}
               />
             ) : null}
@@ -1432,8 +1611,8 @@ export function AgentCanvasPage() {
             <button
               ref={layoutButtonRef}
               type="button"
-              aria-label="Organize canvas"
-              title="Organize canvas"
+              aria-label={t("Organize canvas")}
+              title={t("Organize canvas")}
               disabled={!nodes.length || layoutPreview.active}
               onClick={organizeCanvas}
             >
@@ -1453,8 +1632,8 @@ export function AgentCanvasPage() {
           <button
             type="button"
             className={assetsOpen ? "is-active" : ""}
-            aria-label="Open assets"
-            title="Assets"
+            aria-label={t("Open assets")}
+            title={t("Assets")}
             onClick={() => setAssetsOpen(true)}
           >
             <AssetsIcon />
@@ -1462,8 +1641,8 @@ export function AgentCanvasPage() {
           {running ? (
             <button
               type="button"
-              aria-label="Cancel run"
-              title="Cancel run"
+              aria-label={t("Cancel run")}
+              title={t("Cancel run")}
               onClick={() => void cancelCurrentRun()}
             >
               <PauseIcon />
@@ -1472,11 +1651,12 @@ export function AgentCanvasPage() {
             <button
               type="button"
               className="agent-canvas-toolbar__run"
-              aria-label="Run all draft nodes"
-              title={hasRunnableDraft ? "Run all" : "No prompt-ready drafts"}
+              aria-label={t("Run all draft nodes")}
+              title={t(hasRunnableDraft ? "Run all" : "No prompt-ready drafts")}
               disabled={live.state.runPending || !hasRunnableDraft}
               onClick={() => void runAll().catch((error) => {
-                setSurfaceError(error instanceof Error ? error.message : "Run could not start.");
+                reportProviderBalanceError(error);
+                setSurfaceError(error instanceof Error ? error.message : t("Run could not start."));
               })}
             >
               <PlayIcon />
@@ -1494,24 +1674,31 @@ export function AgentCanvasPage() {
           </div>
         ) : null}
 
-        {(surfaceError || session.state.authoringError || live.state.runtimeError) ? (
+        {(canvasMediaUpload.error || surfaceError || session.state.authoringError || live.state.runtimeError) ? (
           <button
             type="button"
             className="agent-canvas-notice"
             onClick={() => {
+              canvasMediaUpload.clearError();
               setSurfaceError(null);
               clearAuthoringError();
             }}
           >
-            {surfaceError || session.state.authoringError || live.state.runtimeError}
+            {canvasMediaUpload.error || surfaceError || session.state.authoringError || live.state.runtimeError}
           </button>
         ) : null}
 
-        {live.state.autoRunNotice ? (
+        {canvasMediaUpload.uploading ? (
+          <div className="agent-canvas-notice agent-canvas-notice--info" role="status">
+            {t("Uploading media and adding it to the canvas…")}
+          </div>
+        ) : null}
+
+        {live.state.autoRunNotice && !canvasMediaUpload.uploading ? (
           <button
             type="button"
             className="agent-canvas-notice agent-canvas-notice--info"
-            aria-label="Dismiss automatic run notice"
+            aria-label={t("Dismiss automatic run notice")}
             onClick={clearAutoRunNotice}
           >
             {live.state.autoRunNotice}
@@ -1519,13 +1706,22 @@ export function AgentCanvasPage() {
         ) : null}
 
         {assetsOpen ? (
-          <div className="agent-canvas-overlay agent-canvas-overlay--assets" role="dialog" aria-modal="true" aria-label="Project assets">
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the dialog backdrop dismisses on direct pointer input; Escape and the header button provide keyboard dismissal.
+          <div
+            className="agent-canvas-overlay agent-canvas-overlay--assets"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Project assets"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeAssets();
+            }}
+          >
             <Suspense fallback={null}>
               <AgentAssetBrowser
                 workflowId={workflow.workflow_id}
-                onClose={() => setAssetsOpen(false)}
                 onAddReferences={addReferences}
                 onCreateReadySourceNode={createReadySourceNode}
+                onClose={closeAssets}
                 onUploadComplete={refreshWorkflow}
               />
             </Suspense>
@@ -1557,6 +1753,16 @@ export function AgentCanvasPage() {
         ) : null}
 
         <input
+          ref={canvasMediaUpload.inputRef}
+          className="agent-canvas-reference-upload-input"
+          type="file"
+          accept="image/*,video/*"
+          tabIndex={-1}
+          aria-label={t("Upload image or video to canvas")}
+          onChange={(event) => void canvasMediaUpload.onFileChange(event)}
+        />
+
+        <input
           ref={referenceUploadInputRef}
           className="agent-canvas-reference-upload-input"
           type="file"
@@ -1580,6 +1786,11 @@ export function AgentCanvasPage() {
               menuPosition={contextMenu.menuPosition}
               canvasPosition={contextMenu.canvasPosition}
               onCreateNode={(nodeType, position) => void createNode(nodeType, position)}
+              uploading={canvasMediaUpload.uploading}
+              onUploadMedia={(position) => {
+                canvasMediaUpload.openPicker(position);
+                setContextMenu(null);
+              }}
               onClose={() => setContextMenu(null)}
               onRelocate={openCanvasContextMenu}
             />
@@ -1611,6 +1822,24 @@ export function AgentCanvasPage() {
           onWorkflowRefresh={refreshWorkflow}
           onRuntimeRefresh={refreshRuntime}
           onAssetsRefresh={refreshAssets}
+          brandMode={brandDecisions?.mode === "brand"}
+          brandStage={brandDecisions?.journey.stage ?? null}
+          brandDecisions={brandDecisions}
+          brandSkillPickerOpen={brandSkillsWorkflowId === workflow.workflow_id}
+          onBrandSkillPickerOpen={() => setBrandSkillsWorkflowId(workflow.workflow_id)}
+          onBrandSkillPickerClose={() => setBrandSkillsWorkflowId(null)}
+          onBrandDecisionsUpdated={setBrandDecisions}
+          brandContextReady={Boolean(
+            !brandWorkflowId
+            || (
+              brandDecisionsResolved
+              && (brandDecisions === null || brandDecisions.workflow_id === brandWorkflowId)
+            )
+          )}
+          brandTreatmentReady={Boolean(brandDecisions && [
+            "hook", "story", "character", "scene", "visual", "camera", "editing", "sound",
+          ].every((key) => brandDecisions.treatment_steps.some((step) => step.step_key === key)))}
+          onBrandDecisionsRefresh={refreshBrandDecisions}
           onProjectsRefresh={refreshProjects}
           collapsed={chatCollapsed}
           onCollapsedChange={setChatCollapsed}

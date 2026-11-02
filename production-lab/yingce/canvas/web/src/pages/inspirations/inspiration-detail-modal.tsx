@@ -1,5 +1,6 @@
 import { Button } from "antd";
-import { Copy, ExternalLink, Heart, Pencil, Trash2, Wand2 } from "lucide-react";
+import { ArrowUpRight, Copy, ExternalLink, Heart, Pencil, Trash2, Wand2 } from "lucide-react";
+import { useState } from "react";
 
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { AppModal } from "@/components/ui/product/app-modal";
@@ -26,7 +27,9 @@ export function InspirationDetailModal({
     onDelete,
     onToggleFavorite,
     onCopy,
+    showSources = false,
 }: {
+    showSources?: boolean;
     item: CreationInspiration | null;
     categoryLabel: (item: CreationInspiration) => string;
     favorite: boolean;
@@ -54,7 +57,7 @@ export function InspirationDetailModal({
                                 <h2 className="text-[var(--fs-heading,16px)] font-semibold leading-6 text-foreground">{item.title}</h2>
                                 {item.description ? <p className="mt-1 text-xs leading-5 text-foreground/58">{item.description}</p> : null}
                             </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
+                            <div className="flex shrink-0 items-center gap-2">
                                 <Tooltip title={favorite ? "取消收藏" : "收藏"}>
                                     <button type="button" className="inspiration-icon-button" aria-pressed={favorite} onClick={() => onToggleFavorite(item)}>
                                         <Heart className="size-4" fill={favorite ? "currentColor" : "none"} />
@@ -73,11 +76,13 @@ export function InspirationDetailModal({
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5">
-                            <MetaRow label="来源">
-                                {source?.name ?? "原创"}
-                                {item.credit ? ` · ${item.credit}` : ""}
-                            </MetaRow>
+                        <div className="flex flex-col gap-2">
+                            {showSources ? (
+                                <MetaRow label="来源">
+                                    {source?.name ?? (item.sourceId && item.sourceId !== "original" ? (source?.label ?? "未标注来源") : "原创")}
+                                    {item.credit ? ` · ${item.credit}` : ""}
+                                </MetaRow>
+                            ) : null}
                             <MetaRow label="分类">{categoryLabel(item)}</MetaRow>
                             <MetaRow label="类型">
                                 {modeLabels[item.mode]}
@@ -85,7 +90,7 @@ export function InspirationDetailModal({
                             </MetaRow>
                             {item.tags?.length ? (
                                 <MetaRow label="标签">
-                                    <span className="flex flex-wrap gap-1.5">
+                                    <span className="flex flex-wrap gap-2">
                                         {item.tags.map((tag) => (
                                             <span key={tag} className="inspiration-chip">
                                                 {tag}
@@ -109,7 +114,14 @@ export function InspirationDetailModal({
 
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t border-foreground/8 px-5 py-3">
                         <Button onClick={onClose}>关闭</Button>
-                        <Button type="primary" icon={<Wand2 className="size-4" />} onClick={() => onUse(item)}>
+                        <Button
+                            type="primary"
+                            icon={<ArrowUpRight className="size-4" />}
+                            onClick={() => {
+                                onClose();
+                                onUse(item);
+                            }}
+                        >
                             用这个创意创作
                         </Button>
                     </div>

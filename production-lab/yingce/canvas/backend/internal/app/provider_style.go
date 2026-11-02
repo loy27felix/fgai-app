@@ -62,6 +62,9 @@ func (s *Service) applyGenerationStyleProfile(userID string, taskProjectID strin
 	}
 	// 执行计划是前端为即时预览生成的派生数据。平台模型入队后可能改选真实供应线路，
 	// 因此后端必须以最终模型重新编译，不能要求用户手动“刷新配置”来同步内部路由。
+	if err := s.isolateCharacterStyleIdentity(userID, taskProjectID, &profile, input); err != nil {
+		return err
+	}
 	plan, _ := decodeStyleExecutionPlan(input.Metadata["styleExecutionPlan"])
 	stylePrompt, expectedStatus, warnings := resolveGenerationStyleExecution(profile, input.Config.Model, firstNonEmpty(input.Config.InterfaceType, input.Config.APIFormat))
 	input.Prompt = reconcileGenerationStylePrompt(input.Prompt, plan.Prompt, stylePrompt)

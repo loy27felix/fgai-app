@@ -320,7 +320,7 @@ func TestMediaRecoveryTerminalStagesLimitsAndPublicList(t *testing.T) {
 }
 
 func TestMediaRecoveryManualGuardsDoNotChangeBilling(t *testing.T) {
-	for _, name := range []string{"refunded", "wrong-owner", "limit", "cooldown", "deleted-project"} {
+	for _, name := range []string{"refunded", "wrong-owner", "cooldown", "deleted-project"} {
 		t.Run(name, func(t *testing.T) {
 			s, db := newMediaRecoveryTestService(t)
 			task := seedMediaTask(t, db, providerConfig{})
@@ -331,8 +331,6 @@ func TestMediaRecoveryManualGuardsDoNotChangeBilling(t *testing.T) {
 				order.Status = model.BillingStatusRefunded
 			case "wrong-owner":
 				order.UserID = "another-user"
-			case "limit":
-				checkpoint.ManualAttempts = 3
 			case "cooldown":
 				checkpoint.LastManualAt = time.Now()
 			case "deleted-project":
@@ -359,6 +357,40 @@ func TestMediaRecoveryManualGuardsDoNotChangeBilling(t *testing.T) {
 				t.Fatalf("billing changed: %+v %v", unchanged, err)
 			}
 		})
+	}
+}
+
+func TestMediaRecoveryManualRetriesRemainAvailableAfterRepeatedSaveFailures(t *testing.T) {
+	s, db := newMediaRecoveryTestService(t)
+	task := seedMediaTask(t, db, providerConfig{})
+	order := model.BillingOrder{ID: newID(), TaskID: task.ID, UserID: task.UserID, IdempotencyKey: newID(), Status: model.BillingStatusUncertain, ReservedAmountMicrocredits: 100}
+	if err := db.Create(&order).Error; err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := &mediaCheckpoint{Mode: "image", StartedAt: time.Now(), ManualAttempts: 12, Items: []mediaCheckpointItem{{Reference: protocol.MediaReference{URL: "https://example.test/result"}}}}
+	if err := s.saveMediaCheckpoint(task, checkpoint, "download"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(task).Updates(map[string]any{"status": model.TaskStatusFailed, "lease_owner": "", "lease_expires_at": nil, "billing_order_id": order.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		queued, err := s.RecoverTaskMedia(task.UserID, task.ID)
+		if err != nil || queued.ID != task.ID || queued.Status != model.TaskStatusQueued {
+			t.Fatalf("retry %d: %+v %v", i, queued, err)
+		}
+	}
+	saved, err := s.repo.Task(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.decodeMediaCheckpoint(saved)
+	if err != nil || next.ManualAttempts != 13 || next.Attempts != len(mediaRecoveryDelays) {
+		t.Fatalf("duplicate click changed retry budget: %+v %v", next, err)
+	}
+	unchanged, err := s.repo.BillingOrder(order.ID)
+	if err != nil || unchanged.Status != order.Status || unchanged.ReservedAmountMicrocredits != 100 {
+		t.Fatalf("manual save changed billing: %+v %v", unchanged, err)
 	}
 }
 

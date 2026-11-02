@@ -194,7 +194,7 @@ func TestImageParametersLegacyChannelUsesLiveContractForRouteAndBilling(t *testi
 			{Route: model.LogicalModelRoute{ID: "route", Enabled: true, Weight: 1}, CapabilitySpec: spec, ChannelModel: *stored},
 		}},
 	}}
-	routed, err := svc.ResolveLogicalModel("logical", ModelRequestIntent{Capability: "image", Options: map[string]any{"imageResolution": "2k"}})
+	routed, err := svc.ResolveLogicalModel(nil, "logical", ModelRequestIntent{Capability: "image", Options: map[string]any{"imageResolution": "2k"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestImageParametersLegacyChannelUsesLiveContractForRouteAndBilling(t *testi
 	if err != nil || tier == nil || tier.ID != routed.PriceTier.ID {
 		t.Fatalf("billing projection = %#v, %v", tier, err)
 	}
-	quote, err := svc.QuoteLogicalModel("logical", ModelRequestIntent{Capability: "image", Options: map[string]any{"imageResolution": "2k"}})
+	quote, err := svc.QuoteLogicalModel(testGroupUserID(svc), "logical", ModelRequestIntent{Capability: "image", Options: map[string]any{"imageResolution": "2k"}})
 	if err != nil || quote == nil || quote.AmountMicrocredits != tier.UnitPriceMicrocredits {
 		t.Fatalf("quote drift: %#v, %v", quote, err)
 	}
@@ -280,6 +280,38 @@ func TestImageParametersSaveDifferentRatiosPerResolution(t *testing.T) {
 	profile.Image.Size.Presets = profile.Image.Size.Presets[:1]
 	if err := validateImageSizePresetRequirement("image", "opaque-provider", profile); err == nil {
 		t.Fatal("unmapped ratio accepted")
+	}
+}
+
+func TestImageParametersFreePixelEncodingReachesAdapterParameters(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
+	profile.Image.Parameters = []protocol.ImageParameter{{Name: "size", Label: "Size", Type: "string", Default: "1024x1024", Binding: "aspectRatio", Encoding: "pixels"}}
+	profile.Image.Size.Presets = []ImageSizePreset{{Tier: "1k", Ratio: "16:9", Width: 1824, Height: 1024, Size: "1824x1024"}}
+	if err := projectImageParameters(profile.Image); err != nil {
+		t.Fatal(err)
+	}
+	config := providerConfig{InterfaceType: "opaque-provider", Size: "1824x1024", ImageParameters: map[string]any{"size": "16:9"}}
+	if err := applyImageParameterValues(&config, profile.Image); err != nil {
+		t.Fatal(err)
+	}
+	if config.Size != "1824x1024" || config.ImageParameters["size"] != config.Size {
+		t.Fatalf("adapter parameters differ from encoded size: %#v", config)
+	}
+}
+
+func TestImageParametersUnboundedQualityUsesDeclaredContract(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel("opaque-provider", "opaque-model")
+	profile.Image.Parameters = []protocol.ImageParameter{{Name: "quality", Label: "Quality", Type: "string", Default: "custom", Binding: "quality"}}
+	if err := projectImageParameters(profile.Image); err != nil {
+		t.Fatal(err)
+	}
+	input := canvasGenerationInput{Config: providerConfig{Quality: "custom", ImageParameters: map[string]any{"quality": "custom"}}}
+	if err := validateImageTask(profile.Image, input); err != nil {
+		t.Fatalf("unbounded quality rejected: %v", err)
+	}
+	profile.Image.Parameters[0].Values = []any{"standard"}
+	if err := validateImageTask(profile.Image, input); err == nil {
+		t.Fatal("declared quality restrictions ignored")
 	}
 }
 

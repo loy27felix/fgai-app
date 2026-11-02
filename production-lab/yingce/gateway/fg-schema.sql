@@ -69,9 +69,21 @@ CREATE OR REPLACE VIEW fg_fee_matches AS
  UNION ALL SELECT reference_id,call_id,'manual'::text FROM manual;
 CREATE TABLE IF NOT EXISTS fg_fee_usage_matches(reference_id varchar(160) PRIMARY KEY REFERENCES fg_provider_fees(reference_id),call_id varchar(36) UNIQUE NOT NULL REFERENCES api_call_logs(id),evidence jsonb NOT NULL,actor_id varchar(36) NOT NULL REFERENCES users(id),created_at timestamptz NOT NULL DEFAULT now());
 CREATE OR REPLACE VIEW fg_fee_matches AS
- WITH exact AS (
- SELECT f.reference_id,min(c.id) call_id FROM fg_provider_fees f JOIN api_call_logs c ON c.billable AND c.model=f.model AND c.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%')
- AND(c.fg_fee_reference_id=f.reference_id OR c.fg_fee_references_json::jsonb ? f.reference_id OR(c.capability='video' AND c.provider_request_id=f.reference_id))
+ -- Expand each call's reference keys once, rather than repeatedly parsing JSON
+ -- for every same-model provider fee. DISTINCT preserves the original OR's
+ -- one-match-per-call semantics, including duplicate reference keys.
+ WITH call_references AS MATERIALIZED (
+ SELECT DISTINCT c.id call_id,c.model,refs.reference_id
+ FROM api_call_logs c JOIN model_channels m ON m.id=c.channel_id AND m.name LIKE 'WeToken%'
+ CROSS JOIN LATERAL (
+   SELECT c.fg_fee_reference_id::text reference_id
+   UNION SELECT c.provider_request_id::text WHERE c.capability='video'
+   UNION SELECT value #>> '{}' FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.fg_fee_references_json::jsonb)='array' THEN c.fg_fee_references_json::jsonb ELSE '[]'::jsonb END) value WHERE jsonb_typeof(value)='string'
+   UNION SELECT jsonb_object_keys(CASE WHEN jsonb_typeof(c.fg_fee_references_json::jsonb)='object' THEN c.fg_fee_references_json::jsonb ELSE '{}'::jsonb END)
+   UNION SELECT c.fg_fee_references_json::jsonb #>> '{}' WHERE jsonb_typeof(c.fg_fee_references_json::jsonb)='string'
+ ) refs WHERE c.billable
+ ), exact AS (
+ SELECT f.reference_id,min(c.call_id) call_id FROM fg_provider_fees f JOIN call_references c ON c.model=f.model AND c.reference_id=f.reference_id
  WHERE NOT EXISTS(SELECT 1 FROM fg_fee_decisions d WHERE d.reference_id=f.reference_id)
  GROUP BY f.reference_id HAVING count(*)=1
  ), manual AS (SELECT reference_id,call_id FROM fg_fee_decisions WHERE classification='matched'), candidates AS (

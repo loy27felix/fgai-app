@@ -2,7 +2,6 @@ import { compactApiParams, http } from "@/services/api/request";
 import { normalizeAssetCategory, type AssetCategory } from "@/lib/asset-category";
 import type { GenerationTask } from "@/services/api/task-center";
 
-
 export type Project = {
     id: string;
     userId: string;
@@ -53,6 +52,9 @@ export type ProjectUnit = {
 };
 
 export type ProjectAsset = {
+    sourceUnitId?: string;
+    sourceUnitTitle?: string;
+    sourceShotId?: string;
     id: string;
     title: string;
     mediaType: string;
@@ -94,6 +96,7 @@ export type CharacterRepresentation = {
     resourceId: string;
     mediaType: string;
     role: "primary" | "front" | "side" | "back" | "turnaround_sheet" | "expression_sheet" | string;
+    metadata?: { name?: string; clothing?: string; [key: string]: unknown };
 };
 
 export type VoiceProfile = {
@@ -227,6 +230,7 @@ export type WorkflowStep = {
     position: number;
     status: "pending" | "ready" | "running" | "review" | "completed" | "failed" | "skipped" | string;
     error?: string;
+    outputJson?: string;
     updatedAt: string;
 };
 
@@ -266,8 +270,8 @@ export type ProjectDetail = {
     shotRevisions: ShotRevision[];
     shotArtifacts: ShotArtifact[];
     shotReferences: ShotAssetReference[];
-	assetCandidates: ProjectAssetCandidate[];
-	tasks: GenerationTask[];
+    assetCandidates: ProjectAssetCandidate[];
+    tasks: GenerationTask[];
 };
 
 export type ProjectCore = { project: Project };
@@ -367,16 +371,22 @@ export function listProjectCanvases(projectId: string, page = 1, pageSize = 40) 
     return http.get<ProjectCanvasPage>(`/projects/${encodeURIComponent(projectId)}/canvases`, { params: { page, pageSize } });
 }
 
-export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; query?: string } = {}) {
-    return http.get<ProjectAssetPage>(`/projects/${encodeURIComponent(projectId)}/assets`, { params: {
-        page: options.page || 1,
-        pageSize: options.pageSize || 40,
-        category: options.category || undefined,
-        mediaType: options.mediaType || undefined,
-        status: options.status || undefined,
-        folderId: options.folderId,
-        q: options.query || undefined,
-    } }).then((page) => ({ ...page, assets: page.assets.map(normalizeProjectAsset) }));
+export function listProjectAssetsPage(projectId: string, options: { page?: number; pageSize?: number; category?: string; mediaType?: string; status?: string; folderId?: string; unitId?: string; query?: string; signal?: AbortSignal } = {}) {
+    return http
+        .get<ProjectAssetPage>(`/projects/${encodeURIComponent(projectId)}/assets`, {
+            params: {
+                page: options.page || 1,
+                pageSize: options.pageSize || 40,
+                category: options.category || undefined,
+                mediaType: options.mediaType || undefined,
+                status: options.status || undefined,
+                folderId: options.folderId,
+                unitId: options.unitId || undefined,
+                q: options.query || undefined,
+            },
+            signal: options.signal,
+        })
+        .then((page) => ({ ...page, assets: page.assets.map(normalizeProjectAsset) }));
 }
 
 export function listProjectAssets(projectId: string) {
@@ -384,14 +394,18 @@ export function listProjectAssets(projectId: string) {
 }
 
 export function listProjectAssetCandidates(projectId: string, options: { page?: number; pageSize?: number; unitId?: string; status?: string; category?: string; query?: string } = {}) {
-    return http.get<ProjectAssetCandidatePage>(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { params: {
-        page: options.page || 1,
-        pageSize: options.pageSize || 100,
-        unitId: options.unitId || undefined,
-        status: options.status || undefined,
-        category: options.category || undefined,
-        q: options.query || undefined,
-    } }).then((page) => ({ ...page, candidates: page.candidates.map(normalizeProjectAssetCandidate) }));
+    return http
+        .get<ProjectAssetCandidatePage>(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, {
+            params: {
+                page: options.page || 1,
+                pageSize: options.pageSize || 100,
+                unitId: options.unitId || undefined,
+                status: options.status || undefined,
+                category: options.category || undefined,
+                q: options.query || undefined,
+            },
+        })
+        .then((page) => ({ ...page, candidates: page.candidates.map(normalizeProjectAssetCandidate) }));
 }
 
 function normalizeProjectAsset(asset: ProjectAsset): ProjectAsset {
@@ -405,20 +419,22 @@ function normalizeProjectAssetCandidate(candidate: ProjectAssetCandidate): Proje
 function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
     const workflows = Array.isArray(detail.workflows)
         ? detail.workflows.map((workflow) => ({
-            ...workflow,
-            steps: Array.isArray(workflow.steps) ? workflow.steps : [],
-        }))
+              ...workflow,
+              steps: Array.isArray(workflow.steps) ? workflow.steps : [],
+          }))
         : [];
     const assets = Array.isArray(detail.assets)
         ? detail.assets.map((asset) => ({
-            ...normalizeProjectAsset(asset),
-            ...(asset.character ? {
-                character: {
-                    ...asset.character,
-                    representations: Array.isArray(asset.character.representations) ? asset.character.representations : [],
-                },
-            } : {}),
-        }))
+              ...normalizeProjectAsset(asset),
+              ...(asset.character
+                  ? {
+                        character: {
+                            ...asset.character,
+                            representations: Array.isArray(asset.character.representations) ? asset.character.representations : [],
+                        },
+                    }
+                  : {}),
+          }))
         : [];
 
     return {
@@ -434,8 +450,8 @@ function normalizeProjectDetail(detail: ProjectDetail): ProjectDetail {
         shotRevisions: Array.isArray(detail.shotRevisions) ? detail.shotRevisions : [],
         shotArtifacts: Array.isArray(detail.shotArtifacts) ? detail.shotArtifacts : [],
         shotReferences: Array.isArray(detail.shotReferences) ? detail.shotReferences : [],
-		assetCandidates: Array.isArray(detail.assetCandidates) ? detail.assetCandidates.map(normalizeProjectAssetCandidate) : [],
-		tasks: Array.isArray(detail.tasks) ? detail.tasks : [],
+        assetCandidates: Array.isArray(detail.assetCandidates) ? detail.assetCandidates.map(normalizeProjectAssetCandidate) : [],
+        tasks: Array.isArray(detail.tasks) ? detail.tasks : [],
     };
 }
 
@@ -443,7 +459,10 @@ export function createProject(input: { name: string; type: string; aspectRatio: 
     return http.post<{ project: Project }>("/projects", input);
 }
 
-export function updateProject(projectId: string, input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "status">>) {
+export function updateProject(
+    projectId: string,
+    input: Partial<Pick<Project, "name" | "type" | "aspectRatio" | "sourceType" | "description" | "coverResourceId" | "stylePresetId" | "styleProfileJson" | "defaultImageModel" | "defaultVideoModel" | "status">>,
+) {
     return http.patch<{ project: Project }>(`/projects/${encodeURIComponent(projectId)}`, input);
 }
 
@@ -582,8 +601,8 @@ export function updateProjectCharacter(projectId: string, assetId: string, input
     return http.patch<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}`, input);
 }
 
-export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>) {
-    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations });
+export function replaceProjectCharacterRepresentations(projectId: string, assetId: string, representations: Array<{ role: string; resourceId: string; metadata?: Record<string, unknown> }>, expectedVersionId?: string) {
+    return http.put<ProjectCharacterDetail>(`/projects/${encodeURIComponent(projectId)}/characters/${encodeURIComponent(assetId)}/representations`, { representations, expectedVersionId });
 }
 
 export function updateProjectAssetVisual(projectId: string, assetId: string, input: { resourceId?: string; versionId?: string; definition?: Record<string, unknown> }) {
@@ -602,7 +621,7 @@ export function createUnitWorkflow(projectId: string, unitId: string) {
     return http.post<{ workflow: ProjectWorkflow }>(`/projects/${encodeURIComponent(projectId)}/workflows`, { unitId });
 }
 
-export function saveProjectShot(projectId: string, input: { id?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; revision?: Partial<ShotRevisionInput> }) {
+export function saveProjectShot(projectId: string, input: { id?: string; duplicateOf?: string; unitId?: string; title: string; description?: string; position?: number; durationMs?: number; status?: string; revision?: Partial<ShotRevisionInput> }) {
     return http.post<{ shot: ProjectShot }>(`/projects/${encodeURIComponent(projectId)}/shots`, input);
 }
 
@@ -614,7 +633,7 @@ export function replaceProjectUnitShots(projectId: string, unitId: string, shots
     return http.put<{ shots: ProjectShot[] }>(`/projects/${encodeURIComponent(projectId)}/units/${encodeURIComponent(unitId)}/shots`, { shots, ...(expectedShotIds ? { expectedShotIds } : {}) });
 }
 
-export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"] }) {
+export function linkShotAsset(projectId: string, shotId: string, input: { assetVersionId: string; role: ShotAssetReference["role"]; replaceReferenceId?: string }) {
     return http.post<{ reference: ShotAssetReference }>(`/projects/${encodeURIComponent(projectId)}/shots/${encodeURIComponent(shotId)}/assets`, input);
 }
 
@@ -627,7 +646,7 @@ export function createShotRevision(projectId: string, shotId: string, input: Sho
 }
 
 export function createProjectAssetCandidates(projectId: string, candidates: Array<{ unitId?: string; shotId?: string; name: string; category: AssetCategory; details?: Record<string, unknown> }>, source?: "chapter_character_extract" | "agent") {
-	return http.post<{ candidates: ProjectAssetCandidate[] }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { candidates, source });
+    return http.post<{ candidates: ProjectAssetCandidate[] }>(`/projects/${encodeURIComponent(projectId)}/asset-candidates`, { candidates, source });
 }
 
 export function confirmProjectAssetCandidate(projectId: string, candidateId: string, assetId?: string) {
@@ -638,7 +657,11 @@ export function updateWorkflowStep(projectId: string, stepId: string, input: { s
     return http.patch<{ step: WorkflowStep }>(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}`, input);
 }
 
-export function registerProjectTaskOutput(projectId: string, stepId: string, input: { taskId: string; canvasId?: string; unitId?: string; shotId?: string; artifactType?: string; assetVersionId?: string; resourceId?: string; mediaType?: string; role?: string; metadataJson?: string; outputJson?: string }) {
+export function registerProjectTaskOutput(
+    projectId: string,
+    stepId: string,
+    input: { taskId: string; canvasId?: string; unitId?: string; shotId?: string; artifactType?: string; assetVersionId?: string; resourceId?: string; mediaType?: string; role?: string; metadataJson?: string; outputJson?: string },
+) {
     return http.post<{ step: WorkflowStep }>(`/projects/${encodeURIComponent(projectId)}/workflow-steps/${encodeURIComponent(stepId)}/task-output`, input);
 }
 

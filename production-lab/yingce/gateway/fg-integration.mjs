@@ -11,12 +11,14 @@ import {storyCatalogRoute} from './fg-story-catalog.mjs';
 import {feeAuthorizationRoute} from './fg-fee-auth-route.mjs';
 import {financePeriod,inFinancePeriod} from './fg-finance-period.mjs';
 import {companySpeechServices} from './fg-speech.mjs';
+import {personalFinanceRoute,settledFeeCTE} from './fg-personal-finance.mjs';
 
 export async function initializeFG(pool){await pool.query(await fs.readFile(new URL('./fg-schema.sql',import.meta.url),'utf8'));}
 async function jsonBody(req,max=100000){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>max)throw new Error('请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 function send(res,data,status=200){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify({code:status===200?0:status,data:status===200?data:null,msg:status===200?'':data}));}
 export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie,publicOrigin,feeSync}){
   if(!path.pathname.startsWith('/api/fg/'))return false;
+  if(await personalFinanceRoute(req,res,{actor,pool,path},{send}))return true;
   if(path.pathname==='/api/fg/speech/services'&&req.method==='GET'){
     if(!actor.reviewer){send(res,'仅超级管理员可查看系统渠道',403);return true;}
     send(res,await companySpeechServices(pool));return true;
@@ -87,11 +89,7 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
     if(path.pathname==='/api/fg/finance'&&req.method==='GET'){
       const period=financePeriod(path.searchParams.get('month')||'all');
       // Every provider attempt stays separate. Polls/downloads are not a second charge.
-      const {rows}=await pool.query(`WITH settled AS MATERIALIZED (
-        SELECT m.call_id,sum(f.usd*f.fx) settled_cny,string_agg(f.reference_id,', ') settled_reference_id,
-          string_agg(CASE WHEN f.provider_status='failed' AND f.usd=0 THEN 'automatic_provider_zero' ELSE m.method END,', ') match_method
-        FROM fg_fee_matches m JOIN fg_provider_fees f ON f.reference_id=m.reference_id GROUP BY m.call_id
-      ), calls AS (
+      const {rows}=await pool.query(`WITH ${settledFeeCTE}, calls AS (
         SELECT l.id,l.user_id,l.task_id,l.model,l.capability,l.status,t.status task_status,l.created_at,l.input_tokens,l.output_tokens,l.cached_tokens,l.usage_available,l.media_count,l.request_body,l.response_body,l.video_seconds,
           l.fg_fee_reference_id,l.fg_fee_references_json,l.provider_request_id,l.cost_available,l.estimated_cost_micros,l.currency,l.fg_group_name,
           COALESCE(NULLIF(c.project_id,''),p.id) project_id,c.title canvas_title

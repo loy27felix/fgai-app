@@ -2,14 +2,30 @@ import { fitImageNodeSize, fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { CanvasNodeType, type CanvasNodeData, type Position } from "@/types/canvas";
 
-export const CANVAS_UPLOAD_ACCEPT = "image/*,video/*,audio/*,.mp3,.wav,text/plain,text/markdown,.txt,.md,.markdown";
+export const CANVAS_UPLOAD_ACCEPT = "image/*,video/*,audio/*,.png,.jpg,.jpeg,.webp,.gif,.avif,.bmp,.tif,.tiff,.heic,.heif,.mp4,.mov,.webm,.m4v,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,text/plain,text/markdown,.txt,.md,.markdown";
+const EXTENSION_MIME: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", avif: "image/avif", bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", heic: "image/heic", heif: "image/heif",
+    mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", m4v: "video/mp4",
+    mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", ogg: "audio/ogg", opus: "audio/ogg",
+};
+
+function uploadMimeType(file: Pick<File, "name" | "type">) {
+    if (file.type && file.type !== "application/octet-stream") return file.type;
+    return EXTENSION_MIME[file.name.split(".").pop()?.toLowerCase() || ""] || file.type;
+}
+
+export function normalizeCanvasUploadFile(file: File): File {
+    const type = uploadMimeType(file);
+    return type === file.type ? file : new File([file], file.name, { type, lastModified: file.lastModified });
+}
 export function isTextUploadFile(file: Pick<File, "name" | "type">) {
     return /\.(txt|md|markdown)$/i.test(file.name) || file.type === "text/plain" || file.type === "text/markdown";
 }
 export function uploadNodeType(file: Pick<File, "name" | "type">) {
-    if (file.type.startsWith("image/")) return CanvasNodeType.Image;
-    if (file.type.startsWith("video/")) return CanvasNodeType.Video;
-    if (file.type.startsWith("audio/") || /\.(mp3|wav)$/i.test(file.name)) return CanvasNodeType.Audio;
+    const type = uploadMimeType(file);
+    if (type.startsWith("image/")) return CanvasNodeType.Image;
+    if (type.startsWith("video/")) return CanvasNodeType.Video;
+    if (type.startsWith("audio/")) return CanvasNodeType.Audio;
     if (isTextUploadFile(file)) return CanvasNodeType.Text;
     return null;
 }
@@ -19,6 +35,19 @@ export function uploadPercent(loaded: number, total: number): number | undefined
 }
 export function uploadVeilOpacity(percent = 0) {
     return 1 - Math.min(100, Math.max(0, percent)) / 100 * 0.9;
+}
+
+// 字节传完后服务端仍在保存，清晰图保留一点透明度透出磨砂底图，切换为正式节点后才完全清晰。
+const UPLOAD_PREVIEW_SAVING_CLARITY = 0.88;
+
+/**
+ * 本地预览的清晰度（清晰原图叠在磨砂底图上的不透明度）随真实进度上升：刚上传时整张磨砂，传输完成时接近清晰。
+ * 只调整不透明度而不是 CSS 模糊：模糊滤镜在缩放画布时会逐帧重新栅格化整张原图，拖慢整个画布。
+ */
+export function uploadPreviewClarity(percent?: number) {
+    const progress = Math.min(100, Math.max(0, percent ?? 0)) / 100;
+    // 前段变化慢、后段变快，避免小文件一开始就“跳”到清晰。
+    return Math.round(UPLOAD_PREVIEW_SAVING_CLARITY * progress * progress * 1000) / 1000;
 }
 
 export async function createFileUploadPlaceholder(id: string, file: File, position: Position) {

@@ -9,6 +9,9 @@ import subprocess
 import sys
 import fcntl
 
+# This FG module is retired. Keep user state, but never recreate its runtimes.
+raise SystemExit(0)
+
 ROOT=pathlib.Path('/Users/server/work/fg-six-yingce')
 D='/usr/local/bin/docker'
 lock=(ROOT/'.arcreel-provision.lock').open('a')

@@ -1,6 +1,8 @@
 import { isV2ApiError } from "../../../api/agentCanvasApi.ts";
 
 const FRIENDLY_ERRORS: Record<string, string> = {
+  node_not_found: "这个节点已被删除或当前画布仍是旧快照。请先复制提示词，再刷新画布并选择现有节点；尚未提交模型生成。",
+  canvas_node_not_found: "这个节点已被删除或当前画布仍是旧快照。请先复制提示词，再刷新画布并选择现有节点；尚未提交模型生成。",
   canvas_binding_cycle: "This connection would create a dependency cycle.",
   canvas_cycle_detected: "This connection would create a dependency cycle.",
   canvas_connection_cycle: "This connection would create a dependency cycle.",

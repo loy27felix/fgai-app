@@ -22,10 +22,13 @@ describe("storyboardRowsFromTask", () => {
         expect(() => storyboardRowsFromTask(storyboardTask(JSON.stringify({ mode: "text", text })))).toThrow("分镜结果不完整");
     });
     test("从 {mode, reasoning, text} 包装的 text 内层解析分镜行", () => {
-        const payload = { title: "桃源三结义", rows: [
-            { shotNumber: 1, durationSeconds: 8, plotDescription: "朝堂开篇", dialogue: "", characters: ["刘备"], mustHave: ["列队"], optionalDetails: [] },
-            { shotNumber: 2, durationSeconds: 10, plotDescription: "告示墙前叹气", dialogue: "唉……", characters: ["刘备", "关羽"] },
-        ] };
+        const payload = {
+            title: "桃源三结义",
+            rows: [
+                { shotNumber: 1, durationSeconds: 8, plotDescription: "朝堂开篇", dialogue: "", characters: ["刘备"], mustHave: ["列队"], optionalDetails: [] },
+                { shotNumber: 2, durationSeconds: 10, plotDescription: "告示墙前叹气", dialogue: "唉……", characters: ["刘备", "关羽"] },
+            ],
+        };
         const task = storyboardTask(JSON.stringify({ mode: "text", reasoning: "思考过程", text: JSON.stringify(payload) }));
         const result = storyboardRowsFromTask(task);
         expect(result.title).toBe("桃源三结义");
@@ -66,18 +69,24 @@ describe("storyboardRowsFromTask", () => {
         expect(storyboardRowsFromTask(task).rows).toHaveLength(1);
     });
 
-    test("镜头文本字段不是字符串时仍可继续落库", () => {
-        const task = storyboardTask(JSON.stringify({ rows: [{
-            plotDescription: { text: "对象形式的剧情" },
-            dialogue: ["台词一", "台词二"],
-            camera: { value: "中景" },
-            motion: { description: "缓慢推进" },
-            timeBeats: 3,
-        }] }));
+    test("镜头文本字段不是字符串时仍可解析出分镜行", () => {
+        const task = storyboardTask(
+            JSON.stringify({
+                rows: [
+                    {
+                        plotDescription: { text: "对象形式的剧情" },
+                        dialogue: ["台词一", "台词二"],
+                        camera: { value: "中景" },
+                        motion: { description: "缓慢推进" },
+                        timeBeats: 3,
+                    },
+                ],
+            }),
+        );
         const result = storyboardRowsFromTask(task);
         const shots = storyboardRowsToProjectShots(result.rows);
         expect(shots[0]?.description).toBe("对象形式的剧情");
-        expect(shots[0]?.revision.dialogue).toBe("台词一、台词二");
+        expect(shots[0]?.revision.dialogue).toBe("台词一\n台词二");
         expect(shots[0]?.revision.cameraAngle).toBe("中景");
         expect(shots[0]?.revision.cameraMovement).toBe("缓慢推进");
         expect(shots[0]?.revision.actionBeats).toEqual([{ description: "3" }]);

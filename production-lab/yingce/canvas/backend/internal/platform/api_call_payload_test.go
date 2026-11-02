@@ -7,6 +7,13 @@ import (
 	"unicode/utf8"
 )
 
+func TestSeedAudioReferenceBytesDoNotEnterAPILogs(t *testing.T) {
+	got := SanitizeAPICallPayload([]byte(`{"input":"new dialogue","references":[{"audio_data":"cHJpdmF0ZS12b2ljZQ=="},{"image_data":"cHJpdmF0ZS1pbWFnZQ=="}]}`), "application/json")
+	if strings.Contains(got, "cHJpdmF0ZS") || !strings.Contains(got, "new dialogue") || !strings.Contains(got, "内嵌编码数据") {
+		t.Fatalf("media content must be summarized while diagnostic text remains: %s", got)
+	}
+}
+
 // 回归测试：截断必须落在 UTF-8 字符边界上，且产出永远是合法 UTF-8，
 // 否则调用日志写 PostgreSQL 会报 invalid byte sequence，订单被误标 uncertain。
 func TestTruncateAPICallPayloadAlwaysValidUTF8(t *testing.T) {

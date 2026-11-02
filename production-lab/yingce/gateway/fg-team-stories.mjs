@@ -22,9 +22,13 @@ export function canReview(actor){return actor.reviewer===true;}
 export function storyVisible(row,actor){return !row.archived_at&&(row.status==='approved'||row.submitted_by===actor.id||canReview(actor));}
 
 const directoryRefreshed=new WeakMap();
+const directoryWarnings=new WeakMap();
+const directoryFailedAt=new WeakMap();
+const directoryPending=new WeakMap();
+export function accountSyncWarning(pool){return directoryWarnings.get(pool)||'';}
 async function refreshAccounts(pool,platform,platformCookie){
  if(Date.now()-(directoryRefreshed.get(pool)||0)<60000)return;
- const response=await fetch(new URL('/api/production-lab/admin',platform),{headers:{cookie:platformCookie},signal:AbortSignal.timeout(15000),redirect:'error'});
+ const response=await fetch(new URL('/api/production-lab/admin?view=accounts',platform),{headers:{cookie:platformCookie},signal:AbortSignal.timeout(15000),redirect:'error'});
  if(!response.ok)throw new Error('平台账号读取失败');
  const data=await response.json();if(!Array.isArray(data.users))throw new Error('平台账号格式无效');
  const client=await pool.connect();
@@ -41,7 +45,22 @@ async function refreshAccounts(pool,platform,platformCookie){
 export async function bootstrapTeam(pool,actor,platform,platformCookie){
  if(!canReview(actor))return;
  const initialized=(await pool.query("SELECT value FROM fg_company_settings WHERE key='teamImported'" )).rows[0];
- if(initialized){await refreshAccounts(pool,platform,platformCookie);return;}
+ if(initialized){
+  if(Date.now()-(directoryFailedAt.get(pool)||0)<30000)return;
+  try{
+   let pending=directoryPending.get(pool);
+   if(!pending){pending=refreshAccounts(pool,platform,platformCookie);directoryPending.set(pool,pending);}
+   await pending;directoryWarnings.delete(pool);directoryFailedAt.delete(pool);
+  }
+  catch(error){
+   // Live platform authentication remains mandatory. Optional identity refresh
+   // cannot hide saved projects or reset local memberships.
+   directoryWarnings.set(pool,'平台账号目录暂未同步，当前显示已保存的成员资料');
+   directoryFailedAt.set(pool,Date.now());
+   console.error(JSON.stringify({event:'fg_account_sync_unavailable',code:error.code||'platform_unavailable'}));
+  }finally{directoryPending.delete(pool);}
+  return;
+ }
  const r=await fetch(new URL('/api/production-lab/admin',platform),{headers:{cookie:platformCookie},signal:AbortSignal.timeout(15000),redirect:'error'});
  if(!r.ok)throw new Error('小组与平台账号读取失败');
  const data=await r.json();
@@ -80,7 +99,7 @@ export async function teamAndStoryAPI(req,res,ctx,{body,send,topics,api}){
   if(p==='/api/fg/team'&&req.method==='GET'){
    const groups=(await pool.query(`SELECT g.*,count(m.id)::int member_count FROM fg_groups g LEFT JOIN fg_memberships m ON m.group_id=g.id AND m.unassigned_at IS NULL WHERE g.archived_at IS NULL GROUP BY g.id ORDER BY g.created_at,g.name`)).rows;
    const users=(await pool.query(`SELECT u.id,u.display_name,a.email,a.platform_role,m.group_id,m.role group_role,g.name group_name FROM users u JOIN fg_accounts a ON a.user_id=u.id LEFT JOIN fg_memberships m ON m.user_id=u.id AND m.unassigned_at IS NULL LEFT JOIN fg_groups g ON g.id=m.group_id AND g.archived_at IS NULL ORDER BY u.display_name,u.id`)).rows;
-   send(res,{groups,users,canManage:canReview(actor),currentUserId:actor.id,currentGroup:users.find(u=>u.id===actor.id)?.group_id||null});return true;
+   send(res,{groups,users,accountSyncWarning:accountSyncWarning(pool),canManage:canReview(actor),currentUserId:actor.id,currentGroup:users.find(u=>u.id===actor.id)?.group_id||null});return true;
   }
   if(!canReview(actor)){send(res,'仅超级管理员可管理制作小组',403);return true;}
   const input=await body(req);

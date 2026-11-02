@@ -1,4 +1,5 @@
 import { ProjectCharacterVoiceGenerator } from "./project-character-voice-generator";
+import { CharacterCostumesModal } from "./character-costumes-modal";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Dropdown, Form, Input, Modal, Popconfirm, Tabs, type FormInstance } from "antd";
@@ -62,6 +63,7 @@ const pickerCategoryLabels = { all: "全部素材", ...categoryLabels };
 const characterFields = [
     ["role", "剧情定位与人物关系"],
     ["aliases", "别名"],
+    ["gender", "已确认性别（未确定可留空）"],
     ["appearance", "稳定外貌"],
     ["physique", "身高、体型与体态"],
     ["clothing", "默认服装造型"],
@@ -71,6 +73,7 @@ const characterFields = [
     ["multiViewPrompt", "三视图补充约束"],
     ["voiceLanguage", "语言与口音"],
     ["voiceAge", "声音年龄感"],
+    ["voiceGender", "已确认声音性别（未确定可留空）"],
     ["voiceTimbre", "音色气质"],
 ] as const;
 
@@ -83,6 +86,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const updatePersonalAsset = useAssetStore((state) => state.updateAsset);
     const [category, setCategory] = useState("all");
     const [folderId, setFolderId] = useState("");
+    const [sourceUnitId, setSourceUnitId] = useState("");
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(40);
     const [candidatePage, setCandidatePage] = useState(1);
@@ -94,6 +98,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const [addOpen, setAddOpen] = useState(false);
     const [editorAsset, setEditorAsset] = useState<ProjectAsset | "new" | null>(null);
     const [imageAsset, setImageAsset] = useState<ProjectAsset | null>(null);
+    const [costumeAsset, setCostumeAsset] = useState<ProjectAsset | null>(null);
     const [generationTarget, setGenerationTarget] = useState<ProjectAsset | "batch" | null>(null);
     const [visualEditor, setVisualEditor] = useState<ProjectAsset | null>(null);
     const [visualDescription, setVisualDescription] = useState("");
@@ -118,16 +123,17 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     }, [completedAssetTasks, queryClient, detail.project.id]);
 
     const assetsQuery = useQuery({
-        queryKey: ["project", detail.project.id, "assets", page, pageSize, category, folderId, debouncedKeyword],
+        queryKey: ["project", detail.project.id, "assets", page, pageSize, category, folderId, sourceUnitId, debouncedKeyword],
         queryFn: () =>
             listProjectAssetsPage(detail.project.id, {
                 page,
                 pageSize,
                 category: category === "all" ? undefined : category,
                 folderId: folderId === ALL_FOLDERS ? undefined : folderId,
+                unitId: sourceUnitId || undefined,
                 query: debouncedKeyword || undefined,
             }),
-        placeholderData: keepPreviousData,
+        placeholderData: (previous, previousQuery) => previousQuery?.queryKey[7] === sourceUnitId ? previous : undefined,
         refetchInterval: hasActiveAssetTasks ? 5000 : false,
     });
     const foldersQuery = useQuery({ queryKey: ["project", detail.project.id, "asset-folders"], queryFn: () => listProjectAssetFolders(detail.project.id) });
@@ -144,7 +150,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     // 章节提取会产出角色、场景和道具三类候选；待确认列表必须跟随当前分类，否则非角色候选永远无法确认。
     const candidateCategory = category === "all" ? undefined : category;
     const candidateLabel = category === "all" ? "资产" : categoryLabel(category);
-    const showPendingCandidates = folderId === ALL_FOLDERS;
+    const showPendingCandidates = folderId === ALL_FOLDERS && !sourceUnitId;
     const candidatesQuery = useQuery({
         queryKey: ["project", detail.project.id, "asset-candidates", candidatePage, candidatePageSize, candidateCategory || "all", "pending_confirmation", debouncedKeyword],
         queryFn: () => listProjectAssetCandidates(detail.project.id, { page: candidatePage, pageSize: candidatePageSize, category: candidateCategory, status: "pending_confirmation", query: debouncedKeyword || undefined }),
@@ -174,11 +180,13 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     }, [debouncedKeyword]);
 
     const selectFolder = (nextFolderId: string) => {
+        setSourceUnitId("");
         setFolderId(nextFolderId);
         setCategory("all");
         setPage(1);
     };
     const selectCategory = (nextCategory: string) => {
+        setSourceUnitId("");
         setCategory(nextCategory);
         setFolderId(ALL_FOLDERS);
         setPage(1);
@@ -572,6 +580,8 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                         <span className="text-[var(--fs-tiny)] tabular-nums text-foreground/42">{folderCountMap[""] || 0}</span>
                     </button>
                     <ProjectAssetFolderTree folders={assetFolders} folderCounts={folderCountMap} selectedId={folderId} onSelect={selectFolder} />
+                    <div className="mb-1 mt-3 px-2 text-[var(--fs-tiny)] font-medium leading-8 text-foreground/42">按章节查看生成素材</div>
+                    {detail.units.slice().sort((a, b) => a.position - b.position).map(unit => <button key={unit.id} type="button" className={`flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs ${sourceUnitId === unit.id ? "bg-surface-active font-medium" : "text-foreground/55 hover:bg-surface-hover"}`} onClick={() => { setSourceUnitId(unit.id); setFolderId(ALL_FOLDERS); setCategory("material"); setPage(1); }}><Video className="size-3.5 shrink-0" /><span className="truncate" title={unit.title}>{unit.title}</span></button>)}
                     <div className="my-2 h-px bg-foreground/[.08]" />
                     <div className="mb-1 h-8 px-2 text-[var(--fs-tiny)] font-medium leading-8 text-foreground/42">分类筛选</div>
                     {categoryCounts.map((item) => (
@@ -595,7 +605,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             {folderId === ALL_FOLDERS ? (
                                 <>
                                     <span>/</span>
-                                    <span className="font-medium text-foreground">全部资产</span>
+                                    <span className="font-medium text-foreground">{detail.units.find(unit => unit.id === sourceUnitId)?.title || "全部资产"}</span>
                                 </>
                             ) : (
                                 folderPath.map((folder) => (
@@ -740,6 +750,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                                                 onGenerate={() => openTurnaround(asset)}
                                                 onBindImages={() => openImages(asset)}
                                                 onBindVoice={() => openVoice(asset)}
+                                                onCostumes={() => setCostumeAsset(asset)}
                                                 onMove={(nextFolderId) => moveMutation.mutate({ id: asset.id, nextFolderId })}
                                                 onRemove={() => unlinkMutation.mutate(asset.id)}
                                             />
@@ -853,6 +864,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                     }}
                 />
             )}
+            {costumeAsset && <CharacterCostumesModal key={costumeAsset.id} projectId={detail.project.id} asset={costumeAsset} onClose={()=>setCostumeAsset(null)} onRefresh={()=>void refreshProject()} />}
             <Modal
                 className="workspace-modal workspace-modal-compact"
                 title={folderEditor?.folder ? "重命名文件夹" : "新建文件夹"}
@@ -1002,6 +1014,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
                             projectId={detail.project.id}
                             asset={voiceAsset}
                             instructions={voiceInstructions}
+                            referenceSample={voiceSample}
                             onSample={(sample) => {
                                 setVoiceSample(sample);
                                 message.success("已选择生成的声音，试听满意后点击绑定并生成新版本");
@@ -1286,6 +1299,7 @@ function CharacterEditorModal({ open, editing, form, loading, onClose, onSave }:
                                 <div className="grid gap-x-5 sm:grid-cols-2">
                                     {input("role")}
                                     {input("aliases")}
+                                    {input("gender")}
                                     {textArea("appearance", 4)}
                                     {input("physique")}
                                     {input("clothing")}
@@ -1304,6 +1318,7 @@ function CharacterEditorModal({ open, editing, form, loading, onClose, onSave }:
                                     {textArea("personality", 4)}
                                     {input("voiceLanguage")}
                                     {input("voiceAge")}
+                                    {input("voiceGender")}
                                     {input("voiceTimbre")}
                                 </div>
                             ),

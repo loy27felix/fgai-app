@@ -39,6 +39,9 @@ type CreateAssetVersionRequest struct {
 }
 
 type ProjectAssetSummary struct {
+	SourceUnitID     string                   `json:"sourceUnitId,omitempty"`
+	SourceUnitTitle  string                   `json:"sourceUnitTitle,omitempty"`
+	SourceShotID     string                   `json:"sourceShotId,omitempty"`
 	ID               string                   `json:"id"`
 	Title            string                   `json:"title"`
 	MediaType        string                   `json:"mediaType"`
@@ -106,7 +109,38 @@ func (s *Service) ProjectAssets(userID string, projectID string) ([]ProjectAsset
 		}
 		result = append(result, summary)
 	}
+	if err := s.enrichProjectAssetSources(projectID, result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+func (s *Service) enrichProjectAssetSources(projectID string, assets []ProjectAssetSummary) error {
+	ids := make([]string, 0, len(assets))
+	for _, asset := range assets {
+		if asset.Category == model.AssetCategoryMaterial || asset.MediaType == "video" {
+			ids = append(ids, asset.ID)
+		}
+	}
+	rows, err := s.repo.ProjectAssetSources(projectID, ids)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]int, len(assets))
+	for i := range assets {
+		byID[assets[i].ID] = i
+	}
+	for _, row := range rows {
+		i, ok := byID[row.AssetID]
+		if !ok || assets[i].SourceUnitID != "" {
+			continue
+		}
+		assets[i].SourceUnitID, assets[i].SourceUnitTitle, assets[i].SourceShotID = row.UnitID, row.UnitTitle, row.ShotID
+		if row.UnitTitle != "" && !strings.HasPrefix(assets[i].Title, row.UnitTitle+"-") {
+			assets[i].Title = row.UnitTitle + "-" + assets[i].Title
+		}
+	}
+	return nil
 }
 
 func (s *Service) LinkProjectAsset(userID string, projectID string, req LinkProjectAssetRequest) (ProjectAssetSummary, error) {

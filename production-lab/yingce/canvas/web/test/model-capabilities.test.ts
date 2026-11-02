@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 // Bun 直接执行 TypeScript 测试时需要保留扩展名；生产 tsconfig 不包含 test/。
-import { DEFAULT_VIDEO_PROMPT_MAX_CHARS, defaultModelCapabilityConfig, normalizeImageValue, normalizeVideoValue } from "../src/lib/model-capabilities.ts";
+import { DEFAULT_VIDEO_PROMPT_MAX_CHARS, defaultModelCapabilityConfig, normalizeImageValue, normalizeVideoValue, videoDurationAllowed } from "../src/lib/model-capabilities.ts";
 import { imageTierAvailable, imageResolutionTiers } from "../src/lib/image-size-presets.ts";
 import { workflowFieldIsRatioChoices } from "../src/lib/model-capabilities-workflow.ts";
 
@@ -52,6 +52,17 @@ test("switching to MiniMax H3 replaces an unsupported 720p value with 768P", () 
         ratio: "16:9",
         resolution: "768P",
     });
+});
+
+test("MiniMax H3 defaults accept the plugin's 4-30 second range for both protocol names", () => {
+    for (const protocol of ["minimax-video", "metaso-h3"]) {
+        const profile = defaultModelCapabilityConfig(protocol, "MiniMax-H3").video!;
+        assert.equal(profile.duration.default, 5);
+        for (const seconds of [3, 4, 15, 16, 20, 30, 31]) {
+            assert.equal(videoDurationAllowed(profile, seconds), seconds >= 4 && seconds <= 30);
+        }
+        assert.equal(normalizeVideoValue(profile, { seconds: "30" }).seconds, "30");
+    }
 });
 
 // 视频提示词由「输入框文本 + 连线内容 + 技能上下文」合成，技能上下文预算为 32000，
