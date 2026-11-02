@@ -8,7 +8,7 @@ export function normalizeProjectLanguage(value) {
 const begin = '【项目制作语言设置】', end = '【项目制作语言设置结束】';
 export function projectLanguageInstructions(value, mode = 'text') {
   const policy = normalizeProjectLanguage(value), lines = [];
-  if (policy.spoken === 'en-original' && mode !== 'image') lines.push('对白、旁白与可听见的人声只使用原剧本已有的英文原句。中英对照中的中文仅为理解译文，不参与配音。逐字保留原英文的用词、语序、缩写和说话人；不重新翻译、不润色、不意译、不自行新增英文台词。找不到对应英文原句时停止并提示确认原稿，不自行编写。');
+  if (policy.spoken === 'en-original' && mode !== 'image') lines.push('对白、旁白与可听见的人声只使用原剧本已有的英文原句。中英对照中的中文仅为理解译文，不参与配音。台词开头括号内的动作、情绪和表演提示属于制作说明，不是对白，不朗读。逐字保留原英文的用词、语序、缩写和说话人；不重新翻译、不润色、不意译、不自行新增英文台词。找不到对应英文原句时停止并提示确认原稿，不自行编写。');
   if (policy.screenText !== 'source' && mode !== 'audio') lines.push(policy.screenText === 'none'
     ? '画面不渲染任何文字、字幕、人物名、标签、水印或标识。内部资产名与制作说明不属于画面内容。'
     : '画面禁止出现中文字符、中文字幕、中文人物名、中文标注和中文水印。角色多视图不写“正面、侧面、背面”等标签。仅在剧本明确要求时显示已确认的英文画面文字，否则保持无字。');
@@ -27,6 +27,11 @@ export function projectLanguageTemplateVariables(variables, policy, mode = 'text
   values[target]=applyProjectLanguage(values[target]||'',policy,mode);return values;
 }
 const han = /\p{Script=Han}/u;
+// 台词前的表演提示与末尾的秒数标注不配音；保留正文中的其他括号。
+// Exclude leading stage directions and trailing timed cues, not other spoken parentheses.
+const spokenText = text => text.trim()
+  .replace(/^(?:(?:\([^()（）]*\)|（[^()（）]*）)\s*)+/u, '')
+  .replace(/(?:\s*[（(]约?\s*\d+(?:\.\d+)?\s*[—–\-~～至]\s*\d+(?:\.\d+)?\s*秒[^()（）]*[）)])+\s*$/u, '');
 const clean = text => text.normalize('NFKC').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/\s+/g,' ').trim().replace(/^"([\s\S]*)"$/,'$1');
 const speakerKey = text => text.normalize('NFKC').replace(/\s+/g,'').toLowerCase();
 const metadata = /^(?:音乐|环境底声|环境音|人群声音|人物近声|现场细节声|电子声|空间关系|时间|说话时机|对白时间|对白语言|声音语言|声线|基础声线|声线设定|表演要求|声音特征|无对白|地点|时间与天气|场景|出场人物|人物|场次|scene|location|characters|setting|time|music|sound|dialogue|translation|中文|英文)$/i;
@@ -37,7 +42,7 @@ function speech(line) {
   if (!match) return undefined;
   const speaker = match[1].replace(/[（(][^）)]*[）)]/g,'').replace(/(?:画外音|画内音)(?:继续(?:同一句|对白|台词)?)?$/u,'').trim();
   if (!/^[\p{L}\p{N}][\p{L}\p{N} ._'’·\-]*$/u.test(speaker) || metadata.test(speaker) || /声线$/.test(speaker)) return undefined;
-  const text = match[2].trim();
+  const text = spokenText(match[2]);
   return text ? { speaker, text } : undefined;
 }
 function plainScript(value) {
@@ -79,10 +84,12 @@ export function lockDialogueToOriginal(dialogue, source) {
 function grouped(cues, aliases) {
   const result=[];
   for (const cue of cues) {
+    const text = spokenText(cue.text);
+    if (!text) continue;
     const key = aliases?.get(speakerKey(cue.speaker)) || speakerKey(cue.speaker);
     const last=result.at(-1);
-    if(last?.speaker===key) last.text=clean(last.text+' '+cue.text);
-    else result.push({speaker:key,text:clean(cue.text)});
+    if(last?.speaker===key) last.text=clean(last.text+' '+text);
+    else result.push({speaker:key,text:clean(text)});
   }
   return result;
 }
