@@ -8,5 +8,6 @@ export function applyProjectLanguage(prompt: string, value: unknown, mode?: stri
 export function projectLanguageTemplateVariables(variables: Record<string, string>, policy: unknown, mode?: string): Record<string, string>;
 export function originalEnglishDialogue(source: string): OriginalEnglishCue[];
 export function lockDialogueToOriginal(dialogue: string, source: string): string;
+export function normalizeOriginalEnglishDialogue(dialogue: string, originals: OriginalEnglishCue[]): string;
 export function assertOriginalEnglishRows(rows: Array<{ dialogue: string }>, originals: OriginalEnglishCue[]): void;
 export function assertLockedEnglishPrompt(dialogue: string, prompt: string): void;

@@ -178,6 +178,20 @@ export function storyboardRowReferencePlan(row: StoryboardRow, assets: ProjectAs
     return { selectedIds, describedOnly, missingIds, needsReview: required.length > 6 || missingIds.length > 0, candidates: missingIds.length ? assets : assets.filter(asset => selectedIds.includes(asset.id) || describedOnly.some(item => item.id === asset.id)) };
 }
 
+/** Keep every character identity; ordinary props yield reference slots first. */
+export async function automaticStoryboardReferenceChoices(rows:StoryboardRow[],assets:ProjectAsset[]) {
+    const choices:Record<number,string[]>={};
+    for(const [index,row] of rows.entries()){
+        const plan=storyboardRowReferencePlan(row,assets);
+        if(plan.missingIds.length)throw new Error(`片段 ${index+1} 的参考资产已变化，已保存结果保留`);
+        if(!plan.needsReview)continue;
+        const selected=plan.selectedIds.map(id=>assets.find(asset=>asset.id===id)!).filter(Boolean);
+        if(selected.filter(asset=>asset.category==="character").length>6)throw new Error(`片段 ${index+1} 超过6个出场角色，请拆分片段；未丢弃角色`);
+        choices[index]=selected.sort((a,b)=>(a.category==="character"?0:a.category==="environment"?1:2)-(b.category==="character"?0:b.category==="environment"?1:2)).slice(0,6).map(asset=>asset.id);
+    }
+    return Object.keys(choices).length?choices:undefined;
+}
+
 function storyboardAssetType(mediaType: string, category: string): ChapterStoryboardAsset["type"] | null {
     if (category === "character") return "character";
     if (mediaType === "image" || mediaType === "video" || mediaType === "audio") return mediaType;

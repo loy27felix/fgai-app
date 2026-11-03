@@ -2,7 +2,7 @@ import type { GenerationTask } from "@/services/api/task-center";
 
 // Bound the source assigned to each response, not the detail in a video Prompt.
 // Offsets refer to the original string, so no dialogue or punctuation is lost.
-export function splitStoryboardSource(source: string, limit = 1200) {
+export function splitStoryboardSource(source: string, limit = 700) {
     const parts: Array<{ start: number; end: number; text: string }> = [];
     let start = 0;
     while (start < source.length) {

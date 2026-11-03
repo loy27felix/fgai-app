@@ -73,7 +73,10 @@ function dialogueCues(value) {
   });
 }
 export function lockDialogueToOriginal(dialogue, source) {
-  const cues = dialogueCues(dialogue), originals = originalEnglishDialogue(source);
+  return normalizeOriginalEnglishDialogue(dialogue,originalEnglishDialogue(source));
+}
+export function normalizeOriginalEnglishDialogue(dialogue, originals) {
+  const cues = dialogueCues(dialogue);
   if (!cues.length) {
     if (!String(dialogue || '').trim() || /^(?:无(?:对白|台词)|没有对白|none|no dialogue)[。.!]?$/i.test(String(dialogue).trim())) return '';
     throw Error('无法识别本镜头的说话人，请从原稿选择英文原句');

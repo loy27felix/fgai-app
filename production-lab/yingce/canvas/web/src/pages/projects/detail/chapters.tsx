@@ -80,8 +80,7 @@ import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { listGenerationTasks, queryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 
 import { formatCount, formatTime, statusLabel, type ProjectDetailViewProps } from "./shared";
-import { chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
-import { useStoryboardReferenceReview } from "./storyboard-reference-review";
+import { automaticStoryboardReferenceChoices, chapterStoryboardAssets, chapterStoryboardCharacters, chapterStoryboardReplaceImpact, loadChapterStoryboardAssets, storyboardRowsToProjectShots } from "./chapter-storyboard-production";
 import { chapterAssetsFromGenerationTask, chapterStoryboardFromGenerationTask, chapterStoryboardFromGenerationTasks, chapterTaskIdentity, extractChapterAssets, generateChapterStoryboard } from "./project-chapter-ai";
 import { completeStoryboardBatch } from "@/lib/chapter-storyboard-batches";
 import { useUserStore } from "@/stores/use-user-store";
@@ -412,12 +411,21 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         refreshProject();
         return created.candidates.length;
     };
-    const reviewStoryboardReferences = useStoryboardReferenceReview();
     const storeGeneratedStoryboard = async (unitId: string, rows: ReturnType<typeof chapterStoryboardFromGenerationTask>["rows"], productionPlan?: DramaProductionPlan, expectedShotIds?: string[], assetSnapshot?: ProjectAsset[]) => {
         const assets = assetSnapshot || await loadChapterStoryboardAssets(detail.project.id);
-        const referenceChoices = await reviewStoryboardReferences(rows, assets);
+        const referenceChoices = await automaticStoryboardReferenceChoices(rows, assets);
         const shots = storyboardRowsToProjectShots(rows, { ...detail, assets }, productionPlan, referenceChoices);
-        const saved = await replaceProjectUnitShots(detail.project.id, unitId, shots, expectedShotIds || detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));
+        let saved;
+        try {saved=await replaceProjectUnitShots(detail.project.id, unitId, shots, expectedShotIds || detail.shots.filter((shot) => shot.unitId === unitId).map((shot) => shot.id));}
+        catch(error){
+            const current=await getProjectUnitWorkspace(detail.project.id,unitId);
+            const sourceIds=new Set(rows.map(row=>row.sourceTask?.taskId).filter(Boolean));
+            const importedIds=new Set(current.shotRevisions.flatMap(revision=>{
+                try{return JSON.parse(revision.actionBeatsJson||"[]").filter((beat:{type:string})=>beat.type==="chapter_storyboard_import").map((beat:{taskId:string})=>beat.taskId);}catch{return [];}
+            }));
+            if(!sourceIds.size||current.shots.length!==rows.length||![...sourceIds].every(id=>importedIds.has(id)))throw error;
+            saved={shots:current.shots};
+        }
         const verified = await getProjectUnitWorkspace(detail.project.id, unitId);
         if (saved.shots.length !== shots.length || verified.shots.length !== shots.length || saved.shots.some(shot => !verified.shots.some(item => item.id === shot.id))) throw new Error("分镜已提交，但列表尚未确认，请读取已保存结果，不要重新生成");
         queryClient.setQueryData(["project",detail.project.id,"unit-workspace",unitId],verified);
@@ -470,7 +478,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
         if (!planningVideoModel || !planningSeconds) return message.warning("请选择支持至少 13 秒片段的目标视频模型");
         setStoryboardOpen(false);
         beginChapterOperation(unit.id, "storyboard");
-        message.info("分镜将按正文分批生成，全部完成后统一导入，可继续编辑或切换章节");
+        message.info("分镜将分批生成并自动整理保存。不完整或内容校验未通过的批次最多自动校正一次，按渠道正常计费；成功批次不重跑");
         try {
             const [workspace, assets] = await Promise.all([getProjectUnitWorkspace(detail.project.id, unit.id), loadChapterStoryboardAssets(detail.project.id)]);
             const expectedShotIds = workspace.shots.map(shot => shot.id);

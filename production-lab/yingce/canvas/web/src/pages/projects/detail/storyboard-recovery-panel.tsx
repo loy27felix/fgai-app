@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App, Alert, Button, Select, Space, Tag } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listGenerationTasks, retryGenerationTask } from "@/services/api/task-center";
@@ -9,6 +9,7 @@ import { importSavedChapterStoryboard, latestChapterStoryboard, chapterStoryboar
 import { chapterTaskIdentity } from "./project-chapter-ai";
 import { readStoryboardBatchFailureMessages } from "./storyboard-batch-diagnostics";
 import { StoryboardSavedReview } from "./storyboard-saved-review";
+import {automaticStoryboardReferenceChoices} from "./chapter-storyboard-production";
 
 export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: ProjectDetail; unitId: string }) {
     const { modal, message } = App.useApp(), client = useQueryClient();
@@ -27,7 +28,27 @@ export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: Pr
     const latest = latestChapterStoryboard(scopedTasks, detail.project.id, unitId);
     const batch = latest && completeStoryboardBatch(latest, scopedTasks);
     const shots = detail.shots.filter(shot => shot.unitId === unitId);
-    const imported = batch && chapterStoryboardWasImported(batch, unitId, detail);
+    const selectedParts=latest?storyboardBatchTasks(latest,scopedTasks):[];
+    const imported = selectedParts.length>0&&chapterStoryboardWasImported(selectedParts, unitId, detail);
+    const attempted=useRef(new Set<string>());
+    const signature=selectedParts.map(task=>`${task.id}:${task.status}:${task.updatedAt}`).join("|");
+    useEffect(()=>{
+        if(!latest||imported||shots.length||busy||detail.project.status==="archived")return;
+        if(selectedParts.length!==(storyboardBatchInfo(latest)?.count||1)||selectedParts.some(task=>task.status!=="succeeded"&&task.status!=="failed"))return;
+        const key=`${detail.project.id}:${unitId}:${signature}`;
+        if(attempted.current.has(key))return;
+        // Let the foreground generation save finish first. The business API's
+        // expected-empty check remains the authority if another device wins.
+        const timer=setTimeout(()=>{
+            attempted.current.add(key);setBusy(true);
+            void importSavedChapterStoryboard(detail.project.id,unitId,selectedParts,automaticStoryboardReferenceChoices,[]).then(async workspace=>{
+                client.setQueryData(["project",detail.project.id,"unit-workspace",unitId],workspace);
+                await client.invalidateQueries({queryKey:["project",detail.project.id]});
+                void message.success(`已自动整理并保存 ${workspace.shots.length} 段分镜`);
+            }).catch(e=>setError(e instanceof Error?e.message:"保存结果保留，稍后可继续导入")).finally(()=>setBusy(false));
+        },1200);
+        return ()=>clearTimeout(timer);
+    },[detail.project.id,detail.project.status,unitId,signature,imported,shots.length,busy]);
     const failedParts = latest ? storyboardBatchTasks(latest, scopedTasks).filter(task => task.status === "failed" || task.status === "cancelled") : [];
     const failureDetails = useQuery({
         queryKey: ["chapter-storyboard-failures", detail.project.id, unitId, ...failedParts.map(task => `${task.id}:${task.updatedAt}`)],

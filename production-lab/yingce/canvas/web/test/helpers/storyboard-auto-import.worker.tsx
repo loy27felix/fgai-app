@@ -1,0 +1,25 @@
+import {Window} from "happy-dom";
+import React,{act} from "react";
+import {createRoot} from "react-dom/client";
+import {mock} from "bun:test";
+import {strict as assert} from "node:assert";
+const window=new Window({url:"http://localhost/projects/project"});
+for(const key of ["window","document","navigator","HTMLElement","HTMLBodyElement","HTMLHtmlElement","SVGElement","Element","Node","ShadowRoot","MutationObserver","ResizeObserver","getComputedStyle"])Object.defineProperty(globalThis,key,{configurable:true,value:key==="window"?window:(window as any)[key]});
+Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
+window.matchMedia=(()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}})) as any;
+const projects=await import("../../src/services/api/projects"),tasks=await import("../../src/services/api/task-center");
+const task={id:"saved",projectId:"project",type:"canvas_text",status:"succeeded",createdAt:"2026-11-03T01:00:00Z",updatedAt:"2026-11-03T01:02:00Z",attempts:1,prompt:"",inputJson:JSON.stringify({metadata:{source:"short-drama-chapter-storyboard",chapterId:"chapter"}}),resultJson:JSON.stringify({text:JSON.stringify({rows:[{durationSeconds:15,plotDescription:"Evan waits.",dialogue:"Evan: Stay.",videoMotionPrompt:"【声音设计】\n环境底声：风。\n对白：\nWrong: Go.",characters:[],assetBindings:[]}]})})};
+let current:any={unit:{id:"chapter",updatedAt:"2026-11-02T01:00:00Z"},shots:[],shotRevisions:[]},writes=0,savedPrompt="";
+mock.module("../../src/services/api/task-center",()=>({...tasks,listGenerationTasks:async()=>[task],queryGenerationTask:async()=>task}));
+mock.module("../../src/services/api/projects",()=>({...projects,getProjectUnitWorkspace:async()=>current,listProjectAssetsPage:async()=>({assets:[],total:0,hasMore:false}),replaceProjectUnitShots:async(_p:string,_u:string,shots:any[],expected:string[])=>{
+ assert.deepEqual(expected,[]);writes++;savedPrompt=shots[0].revision.videoPrompt;
+ current={...current,shots:[{id:"shot",unitId:"chapter",currentRevisionId:"revision"}],shotRevisions:[{id:"revision",actionBeatsJson:JSON.stringify(shots[0].revision.actionBeats)}]};return {shots:current.shots};
+}}));
+const {QueryClient,QueryClientProvider}=await import("@tanstack/react-query"),{App}=await import("antd"),{default:Panel}=await import("../../src/pages/projects/detail/storyboard-recovery-panel");
+const client=new QueryClient({defaultOptions:{queries:{retry:false}}});client.setQueryData(["project-chapter-generation-tasks","project"],[task]);
+const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
+await act(async()=>{root.render(<QueryClientProvider client={client}><App><Panel detail={{project:{id:"project",status:"active"},shots:[],shotRevisions:[]} as any} unitId="chapter"/></App></QueryClientProvider>);});
+await act(async()=>{await new Promise(r=>setTimeout(r,1700));});
+assert.equal(writes,1);assert(savedPrompt.includes("Evan: Stay."));assert(!savedPrompt.includes("Wrong: Go."));
+await act(async()=>root.unmount());client.clear();window.happyDOM.abort();
+console.log(JSON.stringify({automaticallyImportedWithoutClicks:true,writes}));
