@@ -1,4 +1,6 @@
 import {workspaceEntryDocument} from './fg-workspace-entry.mjs';
+import {observeSupportRequest,safeSupportRoute} from './support-observability.mjs';
+import {sendGatewayRuntimeVersion} from './runtime-version.mjs';
 import http from 'node:http';
 import {createGatewayShutdown} from './fg-gateway-shutdown.mjs';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
@@ -54,6 +56,7 @@ startAdvertisingRetention(pool);
 startInspirationSync(pool);
 
 function respond(res, status, message, reason) {
+  if (res.supportObservation && typeof reason === 'string' && /^[A-Z][A-Z0-9_]{0,99}$/.test(reason)) res.supportObservation.errorCode = reason;
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify({ code: status, data: null, msg: message, reason }));
 }
@@ -114,11 +117,14 @@ async function canvasSession(actor) {
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/health/live') { res.writeHead(200); res.end('ok'); return; }
+  if (req.method === 'GET' && req.url === '/health/version') { sendGatewayRuntimeVersion(res); return; }
+  const observation = observeSupportRequest(req, res);
   try {
     let parsed;
     try { parsed = workspaceRequestPath(req.url, publicOrigin); }
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
+    observation.route = safeSupportRoute(path.pathname);
     if(retiredModulePath(path.pathname)){retiredModuleResponse(res);return;}
     if(['/api/fg-project-files','/api/fg-story-archive'].includes(path.pathname)){respond(res,403,'工程归档仅供受信任服务调用','FG_INTERNAL_ONLY');return;}
     if(await budgetInternalRoute(req,res,{pool,path}))return;
@@ -139,6 +145,7 @@ const server = http.createServer(async (req, res) => {
       upstream.end();return;
     }
     const actor = await platformActor(req);
+    observation.userId = actor?.id;
     if (!actor && req.method === 'GET' && path.pathname === '/api/auth/session') {
       res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
       res.end(JSON.stringify({code:0,data:{user:null},msg:''}));return;
@@ -185,6 +192,7 @@ const server = http.createServer(async (req, res) => {
       const r=await fetch(new URL('/api'+p,web),{method:m,headers:{cookie,origin:publicOrigin,'content-type':'application/json'},body:b===undefined?undefined:JSON.stringify(b),signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'音频资源不可用');return d.data;
     }}))return;
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
+    headers['x-request-id'] = req.headers['x-request-id'];
     if (req.headers.origin) headers.origin = publicOrigin;
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
     if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
@@ -241,13 +249,13 @@ server.requestTimeout = 0;
 server.headersTimeout = 60000;
 registerCanvasRealtime(server,{web,publicOrigin,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:platformActor,session:canvasSession});
 const speechStreams=registerSpeechStream(server,{pool,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:async req=>{const actor=await platformActor(req);if(actor)await canvasSession(actor);return actor;}});
-server.listen(3010, '0.0.0.0');
+server.listen(Number(process.env.FG_GATEWAY_PORT || 3010), '0.0.0.0');
 const arcServer=http.createServer((req,res)=>{
  if(req.url==='/health/live'){res.writeHead(200);res.end('ok');return;}
  retiredModuleResponse(res);
 });
 arcServer.requestTimeout=0;
 arcServer.headersTimeout=60000;
-arcServer.listen(3020,'0.0.0.0');
+arcServer.listen(Number(process.env.FG_RETIRED_GATEWAY_PORT || 3020),'0.0.0.0');
 const shutdownGateway=createGatewayShutdown([server,arcServer],{shutdownStreams:()=>speechStreams.shutdown(),closeDependencies:async()=>{await pool.end();await editorPool.end();}});
 process.on('SIGTERM',()=>{shutdownGateway().then(()=>process.exit(0)).catch(()=>{console.error('FG gateway shutdown failed');process.exit(1);});});

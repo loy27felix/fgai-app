@@ -27,7 +27,6 @@ import {
     canvasImageReferenceLimitError,
     resetGenerationTaskMetadata,
     resolveMetadataReferences,
-    resolveStoredReferenceImages,
     runBackendCanvasGenerationTask,
     runCanvasGenerationTaskToConsumer,
     sourceNodeReferenceImages,
@@ -367,13 +366,7 @@ export function useCanvasGenerationRetry({
                     return;
                 }
             }
-            const storedVideoImages = node.type === CanvasNodeType.Video && !context?.referenceImages.length ? await resolveStoredReferenceImages(node.metadata?.references) : [];
-            if (storedVideoImages === null) {
-                markMissingReferences(node.id, setNodes);
-                message.error("参考图片已丢失，无法继续重试");
-                return;
-            }
-            const videoReferenceImages = context?.referenceImages.length ? context.referenceImages : storedVideoImages;
+            const videoReferenceImages = context?.referenceImages || [];
             const videoContext =
                 node.type === CanvasNodeType.Video
                     ? {

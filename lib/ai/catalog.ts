@@ -10,6 +10,7 @@ export interface TextModel {
 }
 
 export const TEXT_MODELS: TextModel[] = [
+  { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', provider: 'wetoken', apiModel: 'gpt-6.1-sol', supportsImages: true, thinkable: true },
   { id: 'gpt-5.6-luna-t1a', label: 'GPT-5.6 Luna T1A · 快速', provider: 'wetoken', apiModel: 'gpt-5.6-luna-t1a', supportsImages: true, thinkable: true },
   { id: 'gpt-5.6-terra-t1a', label: 'GPT-5.6 Terra T1A · 深度', provider: 'wetoken', apiModel: 'gpt-5.6-terra-t1a', supportsImages: true, thinkable: true },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 · 均衡', provider: 'wetoken', apiModel: 'claude-sonnet-5', supportsImages: true, thinkable: true },
@@ -24,5 +25,6 @@ export function isTextModelId(id: unknown): id is string {
 }
 
 export function resolveTextModel(id?: string): TextModel {
-  return TEXT_MODELS.find((model) => model.id === id) ?? TEXT_MODELS[0];
+  return TEXT_MODELS.find((model) => model.id === id)
+    ?? TEXT_MODELS.find((model) => model.id === DEFAULT_TEXT_MODEL_ID)!;
 }

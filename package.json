@@ -21,13 +21,17 @@
     "logs:nas": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-nas-supervisor.log\" \"$HOME/Library/Logs/fg-studio-nas-supervisor.error.log\"",
     "logs:deploy": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-auto-deploy.log\" \"$HOME/Library/Logs/fg-studio-auto-deploy.error.log\"",
     "logs:monitor": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-service-monitor.log\" \"$HOME/Library/Logs/fg-studio-service-monitor.error.log\" \"$HOME/Library/Logs/fg-studio-monitor/app-errors.log\"",
-    "logs:audit": "scripts/audit-events.sh"
+    "logs:audit": "scripts/audit-events.sh",
+    "support-bot:preflight": "tsx scripts/support-bot-preflight.ts",
+    "support-bot:worker": "tsx scripts/support-bot-worker.ts"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
     "@ant-design/pro-components": "^2.8.10",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
+    "@larksuiteoapi/node-sdk": "^1.76.0",
+    "@next/env": "14.2.15",
     "@tanstack/react-query": "^5.101.4",
     "@uiw/react-codemirror": "^4.25.11",
     "antd": "5.29.3",
@@ -45,6 +49,7 @@
     "nanoid": "3.3.12",
     "next": "14.2.15",
     "ogl": "^1.0.11",
+    "openai": "^7.43.0",
     "pg": "^8.13.1",
     "radix-ui": "^1.6.7",
     "rc-field-form": "^2.7.1",

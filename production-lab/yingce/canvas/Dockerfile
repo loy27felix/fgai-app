@@ -25,10 +25,12 @@ ARG VITE_TLDRAW_LICENSE_KEY
 ARG BUILD_VERSION
 ARG BUILD_COMMIT=unknown
 ARG BUILD_TIME=unknown
+ARG BUILD_DIRTY=unknown
 ENV VITE_TLDRAW_LICENSE_KEY=${VITE_TLDRAW_LICENSE_KEY}
 ENV CANVAS_BUILD_VERSION=${BUILD_VERSION}
 ENV CANVAS_BUILD_COMMIT=${BUILD_COMMIT}
 ENV CANVAS_BUILD_TIME=${BUILD_TIME}
+ENV CANVAS_BUILD_DIRTY=${BUILD_DIRTY}
 # 生产镜像只构建云端工作台前端；Agent Runtime 在后端 Worker 中运行。
 RUN bun test test/fg-official-limits.test.ts test/fg-reference-model.test.ts test/image-size-presets.test.tsx
 RUN bun test test/fg-nas-upload.test.ts

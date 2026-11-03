@@ -33,7 +33,7 @@ function marker(folder, name, value) {
 }
 for (const user of users) {
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(user)) throw Error('Invalid workspace actor');
-  marker(directory('media/' + kind + '/users/' + user), kind === 'arcreel' ? '.fg-arcreel-ready' : '.fg-creator-ready', 'FG private workspace\n');
+  marker(directory('media/' + kind + '/users/' + user), kind === 'arcreel' ? '.fg-arcreel-ready' : '.fg-creator-ready', kind === 'opencreator' ? 'FG private creator workspace\n' : 'FG private workspace\n');
   marker(directory('recycle/' + kind + '/' + user), '.fg-recycle-ready', 'FG actor recycle v1\n');
 }
 console.log('ready');

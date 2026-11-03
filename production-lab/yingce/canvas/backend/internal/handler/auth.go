@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"yingce/backend/internal/logging"
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/service"
 
@@ -626,7 +627,11 @@ func readPayloadModel(body []byte) string {
 }
 
 func currentUser(c *gin.Context, svc *service.Service) (*model.User, error) {
-	return svc.CurrentUser(sessionCookie(c))
+	user, err := svc.CurrentUser(sessionCookie(c))
+	if err == nil && user != nil {
+		logging.SetAuthenticatedUser(c, user.ID)
+	}
+	return user, err
 }
 
 func sessionCookie(c *gin.Context) string {

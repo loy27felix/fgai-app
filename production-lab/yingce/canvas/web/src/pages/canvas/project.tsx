@@ -1394,7 +1394,12 @@ function CanvasViewportPage() {
             const removedConnectionIds = new Set(previousConnections.filter((connection) => connection.fromNodeId === referenceNodeId && (connection.toNodeId === targetNodeId || connection.toNodeId === configNodeId)).map((connection) => connection.id));
             if (!removedConnectionIds.size) return;
             const nextConnections = previousConnections.filter((connection) => !removedConnectionIds.has(connection.id));
-            const nextNodes = applyCanvasConnectionPromptSync(previousNodes, previousConnections, previousNodes, nextConnections);
+            const removedReferenceUrls = new Set([reference.storageKey, reference.mediaUrl, reference.previewUrl].filter((url): url is string => Boolean(url)));
+            const nextNodes = applyCanvasConnectionPromptSync(previousNodes, previousConnections, previousNodes, nextConnections).map((node) => {
+                if (node.id !== targetNodeId || !node.metadata?.references?.length || !removedReferenceUrls.size) return node;
+                const references = node.metadata.references.filter((url) => !removedReferenceUrls.has(url));
+                return references.length === node.metadata.references.length ? node : { ...node, metadata: { ...node.metadata, references } };
+            });
             if (nextNodes !== previousNodes) {
                 nodesRef.current = nextNodes;
                 setNodes(nextNodes);

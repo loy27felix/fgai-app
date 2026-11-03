@@ -17,12 +17,16 @@ export type OpenAIMessage = { role: "system" | "user" | "assistant"; content: st
 export interface WetokenChatOptions {
   model: string;
   messages: OpenAIMessage[];
+  apiBaseUrl?: string;
+  apiKey?: string;
   reasoningEffort?: ReasoningEffort;
   jsonOutput?: boolean;
+  logPayloads?: boolean;
   maxTokens?: number;
   traceId?: string;
   taskId?: string;
   sessionId?: string;
+  signal?: AbortSignal;
 }
 
 type Fetcher = WetokenFetcher;
@@ -44,9 +48,9 @@ function messagesForJsonOutput(messages: OpenAIMessage[]) {
 }
 
 export async function wetokenChat(options: WetokenChatOptions, dependencies: { fetcher?: Fetcher } = {}): Promise<ChatResult> {
-  const key = process.env.WETOKEN_API_KEY;
-  if (!key) throw new Error("缺少 WETOKEN_API_KEY 环境变量");
-  const base = (process.env.WETOKEN_BASE_URL || "https://wetoken.ai/v1").replace(/\/$/, "");
+  const key = options.apiKey || process.env.WETOKEN_API_KEY;
+  if (!key) throw new Error("缺少 WETOKEN_API_KEY 环境变量或独立供应商 API Key");
+  const base = (options.apiBaseUrl || process.env.WETOKEN_BASE_URL || "https://wetoken.ai/v1").replace(/\/$/, "");
   const messages = options.jsonOutput ? messagesForJsonOutput(options.messages) : options.messages;
   const body: Record<string, unknown> = { model: options.model, messages, stream: false, max_tokens: options.maxTokens ?? 2000 };
   const reasoningEffort = providerReasoningEffort(options.reasoningEffort, "wetoken");
@@ -62,7 +66,7 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     // Reverse-prompt requests include an image and may legitimately take over
     // a minute. Keep a finite deadline, but leave the route enough time to
     // return a useful provider error instead of aborting at 55 seconds.
-    signal: AbortSignal.timeout(110_000),
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(110_000)]) : AbortSignal.timeout(110_000),
   };
   const baseLogFields = {
     traceId: options.traceId,
@@ -77,7 +81,7 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     method: requestInit.method,
     url: redactProviderUrl(requestUrl),
     headers: safeProviderHeaders(requestInit.headers),
-    body: fullLogPayload(body),
+    body: options.logPayloads === false ? '[omitted]' : fullLogPayload(body),
   };
   logServerEvent("wetoken_chat_exchange", {
     ...baseLogFields,
@@ -132,8 +136,8 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     responseStatusText: response.statusText,
     responseHeaders: safeProviderHeaders(response.headers),
     responseBodyEncoding,
-    responseBody: fullLogPayload(data),
-    ...(responseBodyEncoding === "text" ? { responseBodyText: fullLogPayload(responseText) } : {}),
+    responseBody: options.logPayloads === false ? '[omitted]' : fullLogPayload(data),
+    ...(responseBodyEncoding === "text" && options.logPayloads !== false ? { responseBodyText: fullLogPayload(responseText) } : {}),
     ...(responseBodyReadFailed ? { responseBodyReadFailed: true } : {}),
   }, response.ok ? "info" : "warn");
 

@@ -17,6 +17,11 @@ const migrationNames = [
   "013-local-media-workers.sql",
   "014-wetoken-provider-reference-guard.sql",
   "015-observability-log-query-indexes.sql",
+  "016-support-bot.sql",
+  "017-support-bot-group-topic-index.sql",
+  "018-support-bot-images.sql",
+  "019-support-investigation.sql",
+  "020-support-stream-progress.sql",
 ];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";

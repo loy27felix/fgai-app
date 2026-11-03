@@ -252,6 +252,86 @@ pnpm dev
 
 配置字段见 [主站环境变量示例](.env.example) 与 [Docker 示例](.env.docker.example)。数据库、会话、模型、Tunnel 凭据仅放服务端配置；不能将真实 Key 放进 README、示例或截图。更改运行服务前先阅读 [项目约束](AGENTS.md)。
 
+### 问题助手（网页 / 飞书）
+
+代码按模块集中在 `lib/support-bot/`，飞书回调入口在 `app/api/support-bot/`，诊断任务由 `scripts/support-bot-worker.ts` 独立进程处理。同仓库用于复用 FG 的日志和模型能力；当前 worker 直接依赖这些库及数据库，不是可脱离 FG 独立部署的服务。若拆为独立服务，FG 侧应提供受控的只读日志接口，机器人服务负责飞书接入、任务队列、诊断和通知，源码通过只读 checkout 提供。
+
+助手支持飞书和网页自助排查。登录本地 FG 后，在 `/production-lab` 顶部打开“自助排查”；网页复用当前登录账号，无需绑定飞书。`GET/POST /api/support-bot/web` 用于读取本人会话与提交问题，网页会话持久化保存并由同一个 worker 异步诊断，浏览器通过 `GET /api/support-bot/web?conversationId=...&stream=1` 的 SSE 实时展示阶段与已完成查询的公开摘要，最终结论通过证据校验后展示；不流出模型推理、未核实草稿或原始日志。断线自动重连并从持久化快照恢复，连接不可用时降级刷新；关闭弹窗不会取消排查；新问题开启独立会话。网页任务不向飞书投递，使用 `SUPPORT_BOT_ENABLED=true SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:worker` 可仅处理网页队列。新版 Canvas 的“反馈”旁同样提供入口；它调用同源 FG 接口并依赖 `fg_session`，独立 Vite/Canvas 服务需将 `/api/support-bot/web` 路由至 FG 后端且具备 FG 登录会话，不能直接使用 Canvas 自身的登录 token 替代。飞书机器人采用默认信任模式，无需绑定或登录 FG 账号。私聊可直接发送问题；群内首次发起问题需要 @机器人，机器人会在原消息下创建或续接主题。同一未关闭主题中的群成员可直接回复续问，不需要再次 @；其他群消息不会入队处理。发送「新问题」另建问题，发送「关闭问题」结束当前主题的问题。
+
+网页弹窗限制在当前视口内，对话区独立滚动；输入框、截图与发送操作整合在固定输入区，Enter 换行、Ctrl/⌘+Enter 发送；时间段/定位编号通过“定位信息”浮层补充，不挤占输入框，详细证据默认折叠，结论、处理建议和未核实事项直接展示。排查等待或执行期间禁止继续发送，输入区只读，“发送”切换为“终止排查”；终止成功或任务结束后恢复发送。服务端按当前账号、会话及明确的任务 ID 取消并撤销租约，worker 检测后中断模型请求、不再启动后续取证，已终止任务不得重试或写回结果；已发出的只读查询可能完成但结果不再采用，终止不能撤回供应商已经处理的请求或费用。此能力需要 Web 与 worker 同步更新。每条完成结果提供“复制结果”，一次复制完整回复（包含折叠的证据与查询范围）。实时新消息不会打断用户向上阅读历史。SSE 只推送本人会话的公开内容，代理需保留 `text/event-stream` 与 `X-Accel-Buffering: no` 响应头并禁用该接口的缓冲/转换。迁移先于新版 Web/worker 发布；旧版代码忽略新增 progress 列，可回退代码而无需删除记录。
+
+网页支持选择或粘贴 PNG / JPEG / WebP 截图，最多 10 张、每张 20 MB（按 20 MiB 校验），允许只发截图。发送前可预览和删除，大图在浏览器内逐张缩放/压缩（长边最多 2560px，单图最多 2 MiB），预览即实际提交图片，不保留大图原件。发送后可在当前会话中查看已提交截图；截图读取校验 FG 登录用户及会话归属，会话快照与事件流只返回图片数量，不重复传输 base64。网页 JSON 接口只接收处理后图片（最多 10 张，每张 2 MiB，总请求 28 MiB），避免 10 张 20 MiB 原件转成巨型 base64 请求。截图保存在 PostgreSQL 并发送至所配置的视觉模型，不支持自动遮盖图片内容，请用户上传前移除个人信息、密码和 API Key。纯文字追问沿用同工单最近一组截图；上传新截图时以本轮截图为准，新问题不继承旧图。截图只是用户报告，不替代已核实日志，网页截图中的清晰定位编号可用于当前账号范围的候选查询，但不作为授权依据。网页问题目前仅落库并显示诊断，不自动同步飞书表格或通知开发人员。
+
+调查流程分为“理解问题 → 核对运行版本 → 查询操作数据/日志 → 读取相关实现 → 关联证据与解决步骤”，网页展示真实持久化阶段。服务端采集入队运行快照与登录身份；浏览器提供 Router 实际页面路径、项目和任务/请求/链路定位提示；可选择发生时间段（浏览器本地时区，提交ISO时间，最长7天），不能指定身份或伪造运行版本。Canvas 同时附带当前用户浏览器已有的失败请求元数据（最多20条，选定时间段或最近15分钟），不上传正文、headers或stack；这些仅为客户端定位线索，必须再查询同编号服务端记录，不能视为已核实运行证据。用户补充模块名称时继续解决原问题，不只复述名称。
+
+产品咨询由程序强制执行源码检索；故障排查还强制查询当前用户的操作记录与日志，即使用户暂时没有任务编号也可以查询本人最近24小时的失败候选。源码检索覆盖全仓业务文本，支持按目录/词语缩小、分页和读取附近50行，最多20次工具调用；敏感文件、日志、依赖和构建产物不会进入模型。开发态核对API与worker的checkout和工作树戳后读取含未提交修改的工作树；生产态根据实际部署版本选择对应Git提交，不以HEAD冒充线上代码。无Git、版本不一致或未知时明确标记参考源码，不能确认线上根因。
+
+服务取证不再只有 FG / Canvas 两种来源：目录区分 FG、Production Lab、Yingce 网页、Canvas Go 后端、gateway、独立 Agent，以及 ArcReel、OpenCreator、AdCraft、Meilin、Suno、基础设施和其他仓库代码。源码搜索仍覆盖全仓，目录不限制搜索范围；读取实现后按所属服务单独核对版本，不能把 FG/Canvas 版本套给其他服务。依赖仅提示待查边界，跨服务关联须有双方授权记录的相同定位编号，不能按时间相近或项目相同拼接链路。
+
+已实现的操作适配包括 FG creator、Canvas 任务/流水线、Production Lab 独立业务库的媒体任务与脚本运行记录，以及 Yingce gateway 的音乐、语音任务/用量、Creator、AdCraft、Meilin 和预算回执七类来源。每个来源保留查询范围、归属校验、缺表/缺字段及截断信息；操作回执不是原生请求日志。其他服务的原生日志与独立运行版本尚未全部接入，未配置或不可验证时明确展示缺口，不回退其他服务数据冒充。
+
+操作数据查询只读、参数化并强制验证归属，模型不能提交SQL、URL或userId。FG接入层日志使用当前网页登录身份过滤，日志详情只能来自本轮授权查询；近期记录仅是候选，不会因存在一个错误就认定是本次故障。Canvas是独立业务运行服务：需要显式配置其只读数据连接与运行版本接口，缺少任一项都会在答复中展示缺口，不用FG同名任务或FG版本替代。故障按用户编号或时间窗口查询后，程序使用 `chain` 沿真实返回的 taskId/requestId/traceId 展开（每条链最多6个编号查询，保留查询范围、截断与失败标记），读取失败节点的脱敏错误摘录。多个编号条件按交集查询，扩展每一跳仍验证归属。Canvas 查询原生 `task_logs` / `api_call_logs`，不以FG接入层日志冒充Canvas请求；其中上游API审计不等于入站HTTP日志。Canvas AccessLog、gateway HTTP与独立Agent运行事件通过各自原生结构化日志接入，身份仅来自服务端已验证会话或内部服务鉴权；未配置日志源或只有旧格式时仍显示缺口，不能补造历史记录。飞书未绑定FG账号时保留按用户文字提供的taskId/requestId/traceId及其已返回关联编号查询的信任模式，不开放无编号全站扫描。
+
+答复分别列出结论、原因/功能依据、解决步骤、实际证据及未核实项。故障不再接受 `likely` 结论。确认根因必须有本次编号关联的真实请求链、具体错误与已读取实现的原文核对以及匹配运行版本；单个状态码、失败任务或“代码存在某机制”不足以确认。证据不足时由服务端只渲染实际查询范围、记录、源码位置与缺失证据，不发布模型猜测的原因或修复步骤；产品功能咨询仍可以说明源码依据。不自动修改业务数据、重新生成任务、执行Shell/SQL或操作生产守护进程。负责人通过 `SUPPORT_BOT_MODULE_OWNERS` 映射，仅飞书入口执行已有通知流程；网页排查与调查证据保存在数据库，不虚称已通知开发。
+
+
+服务端配置见两个环境变量示例中的 Feishu support bot 段落：
+
+**先选环境，再配置数据源。** Web 与 worker 必须显式设置 `SUPPORT_BOT_ENVIRONMENT=local|production`，不能靠地址或 `NODE_ENV` 猜测。`local` 只接受 loopback（`localhost`、`127.0.0.1`、`[::1]`）业务数据库及版本 URL，并禁止飞书外发，`SUPPORT_BOT_SEND_ENABLED` 必须保持 `false`；Docker 服务名、局域网地址和远程数据库不属于 loopback。loopback 隧道也不能绕过数据库环境标记。**loopback 限制仅针对业务数据库和原生版本源，不限制单独配置的模型供应商 URL；本地真实模型验证会调用已配置供应商，不代表离线运行。生产模型凭据由运营单独准备，不从 `.env.local` 复制。** `production` 还要求进程的 `NODE_ENV=production`；Dockerfile 已设置不代表宿主机启动的 worker 也已设置，未满足时检查失败，不能称生产就绪。
+
+FG 主库、Canvas/gateway 业务库和独立 Production Lab 库都必须具备与所选环境一致的**数据库级 GUC** `fg.support_environment='local'` 或 `'production'`。先确认目标实例、数据库名称及用途，再由该库 owner 执行 `ALTER DATABASE "<已确认的目标库>" SET fg.support_environment = 'local'`（生产使用 `'production'`），新连接后验证；这是经确认的配置操作，不是迁移自动设置，也不能通过连接 URL、角色级或会话级 `SET` 冒充数据库标记。缺失或不匹配时停止接入，不通过重标记未知数据库让检查通过。本地 `.env.local` 与生产 `.env.docker` **不互拷**，分别准备本环境连接、凭据、日志挂载及版本地址，应用和 worker 的标识须一致。
+
+1. 在飞书开放平台创建应用并启用机器人，配置 App ID、App Secret、Verification Token 和 Encrypt Key；事件订阅地址为 `https://你的域名/api/support-bot/events`，订阅 `im.message.receive_v1`。开通接收私聊、群内 @消息、`im:message.group_msg`（读取机器人所在群的全部消息，敏感权限）、发送消息和 `im:message.reactions:write_only`（发送消息表情回复）权限。新消息入队后机器人会立即给原消息添加 GET 表情，诊断完成后再回复结果；表情 API 超时或权限不足不会阻断工单处理。启用群入口还需配置机器人自己的 `FEISHU_SUPPORT_BOT_OPEN_ID`。可用 `FEISHU_SUPPORT_TENANT_KEY` 限定租户。
+2. 多维表格可选，需给应用访问表格的权限，同时配置 App Token 和 Table ID。建以下**文本列**：问题编号、问题描述、诊断摘要、模块、状态、用户ID、消息ID、证据摘要。其中用户ID记录提问者的飞书 open_id。表中保留内部诊断信息，应仅供支持和开发人员访问。
+3. `SUPPORT_BOT_MODULE_OWNERS` 是模块名到开发人员 `open_id` 的 JSON 映射，例如 `{"default":"ou_xxx","billing":"ou_yyy"}`。未配置负责人时只记录问题，不发送开发通知。问题排查默认使用 `gpt-6.1-sol`，截图理解、取证规划和最终诊断均默认使用 `high` 思考等级。通过 `SUPPORT_BOT_REASONING_EFFORT` 可设为 `low/medium/high/xhigh/max`，或用 `auto` 保留上游默认值；具体等级需模型与供应商支持，非法配置会报错而不会静默降级。Responses 传递 `reasoning.effort`，Chat Completions 传递 `reasoning_effort`；调整后需重载相应 Web/worker 进程，较高等级可能增加耗时与 token 用量。可配置 `SUPPORT_BOT_API_BASE_URL`（OpenAI-compatible API 根地址，含 `/v1`）和 `SUPPORT_BOT_API_KEY` 单独指定供应商，未配置时回退到 Wetoken 的 `WETOKEN_BASE_URL`、`WETOKEN_API_KEY`。`SUPPORT_BOT_API_PROTOCOL` 默认 `chat_completions`；Codex 通道应设置为 `responses`，使用官方 SDK 流式请求 `/responses` 并设置 `store=false`。`SUPPORT_BOT_MODEL_ID` 指定模型 ID；Responses 模式直接使用该 ID，Chat Completions 模式使用项目模型目录中的 ID。
+4. 应用与 worker 使用同一个数据库，按既有启动迁移执行 `016-support-bot.sql`、`017-support-bot-group-topic-index.sql`、`018-support-bot-images.sql`、`019-support-investigation.sql` 和 `020-support-stream-progress.sql`；这些迁移不负责设置环境 GUC。在项目 checkout 内安装锁定依赖，将开发配置放 `.env.local`，先执行下方 `--check`，再运行 `pnpm support-bot:worker`；单次处理用 `pnpm support-bot:worker --once`。worker 不读取 `.env.docker`，生产须由运行环境注入相应变量，运行时环境变量优先于 env 文件；不能让生产 worker 误读本地配置。另一种调度方式是由受信任调度器 POST `/api/support-bot/process`，携带 `Authorization: Bearer SUPPORT_BOT_WORKER_TOKEN`，每次最多处理一条；无需同时运行两种调度器。
+5. `SUPPORT_BOT_ENABLED=true` 开放接收；`SUPPORT_BOT_SEND_ENABLED=false` 时 worker 和 `/api/support-bot/process` 只处理网页队列，仍会调用诊断模型；设为 `true` 才同时处理飞书队列及外发飞书消息。默认均关闭，不会自动安装或重启生产服务。
+6. 可选接入Canvas：`SUPPORT_BOT_CANVAS_DATABASE_URL` 指向对应环境的PostgreSQL，必须使用仅SELECT权限账号；读取映射表和本人任务/项目，不会建立Canvas session或执行DDL。`SUPPORT_BOT_CANVAS_VERSION_URL` 指向同一部署受信的版本接口（需返回可验证Git commit）；地址只来自服务端配置，不接受用户或模型指定。没有连接时仍可做源码咨询，但Canvas实际操作/线上根因不能宣称已核实。不要将生产连接配置进本地测试环境。
+7. 可选接入 Production Lab：`SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL` 指向同环境独立业务库的只读账号；未配置时读取既有 `PRODUCTION_LAB_DATABASE_URL`，绝不回退 FG 主库。gateway 回执复用 `SUPPORT_BOT_CANVAS_DATABASE_URL`，必须存在 active 账号映射，查询同时校验任务及项目归属。所有适配只读，不建表、不创建服务会话；不会把这些业务记录作为未接入的入站 HTTP 日志。
+8. 独立版本按服务配置：`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 指向各自 `/health/version`，`SUPPORT_BOT_YINGCE_WEB_VERSION_URL` 指向实际网页构建的 `/.well-known/fg-runtime.json`；Canvas 使用 `/api/system/version`。worker 必须能直达这些同环境地址，不把 FG 页面代理结果当作独立服务版本。读取固定安全字段 `service/build.commit/build.version/build.environment/build.dirty`；`local` 对应构建环境 `development`，`production` 对应 `production`，缺失或不匹配即拒绝。生产只有服务身份正确、production、clean 且对应提交源码可用才签认；dev/dirty 明确标记仅供参考，旧 Canvas 缺少身份/clean 证明也不签认。其他服务同样使用 `SUPPORT_BOT_<大写服务名，连字符换下划线>_VERSION_URL`，但前提是其真实端点实现该合同，不能仅填一个地址就称已接通。
+   构建独立镜像时必须传入真实 `BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME`、`BUILD_DIRTY`；clean 状态应由构建时 checkout 检测，不能默认填 false。现有 gateway Compose 构建读取 `CANVAS_BUILD_*`，backend/agent/web 仍使用预构建镜像，须在各自构建流水线传入上述参数；此功能不会自动重建、推送或部署镜像。
+9. `SUPPORT_BOT_NATIVE_LOG_SOURCES` 是仅服务端配置的 JSON，例如 `{"canvas":{"file":"/var/log/fg/canvas.jsonl"},"yingce-gateway":{"container":"gateway"},"yingce-agent":{"file":"/var/log/fg/agent.jsonl"}}`。每服务只能选择一个绝对路径 JSONL 文件或可信容器名。优先由部署侧将日志目录只读提供给 worker；容器模式要求 worker 已具备 Docker CLI/context，不自动挂载 Docker socket、不接受模型指定命令/路径/容器。原生事件含 service、鉴权用户、request/trace、状态及当时 build commit/dirty，正文和凭据不进入调查结果。**日志必须带 `build_environment`，且与所选环境匹配：local → development，production → production；缺失或不匹配的记录不作为证据，不能因日志文件可读就判 ready。** Canvas/Agent 需 active 原生账号映射，gateway 使用 FG 已鉴权用户；匿名和仅伪造用户Header的事件不纳入本人记录。Canvas 设置 `CANVAS_LOG_FORMAT=json`；默认 info 不记录成功 GET 等低级别事件，需要完整请求跟踪时由运行环境显式配置 `CANVAS_LOG_LEVEL=debug`。
+10. 原生日志每次最多读取2MiB/5000行并返回100条，按本人及指定编号/时间交集筛选；不虚构项目归属，不支持显式项目条件时会拒绝而非静默忽略。轮转、日志级别、截断及改版前未采集的请求都可能造成历史缺口。报告核对事件中的 build commit/dirty 与对应源码，不以今天的运行版本冒充旧请求版本。浏览器静态站可核对自身构建，但没有独立服务器业务库；其他独立产品是否运行须分别核实，不能因仓库有目录就宣称正在运行或已接入。
+
+**独立产品接入缺口（源码调查，不是部署验收）：** `lib/support-bot/services.ts` 的 `data: 'unavailable'` 不代表没有原服务。下列五产品尚无可直接供助手使用的完整原生合约版本端点、日志合同和受信账号映射；部分已有健康接口或内部账号隔离，但仅填地址不能变为 ready。
+
+| 产品 | 原生运行入口与数据来源 | 助手尚缺的证据 |
+| --- | --- | --- |
+| ArcReel | `production-lab/arcreel/deploy/entry.py`：每用户 Python 服务，gateway 代理；独立 `/state/arcreel.db`，工程根下 `logs/arcreel.log`。 | 实例归属、原生版本/日志合同及只读数据适配，不能用 gateway 回执代替。 |
+| OpenCreator | `production-lab/opencreator/deploy/entry.mjs`：共享网页 + 每用户 daemon；`/state/opencreator/data/app.sqlite` 及 dataDir 下 `runs/`。 | 实例归属与原生合约；wrapper 过滤普通 stdout/stderr，Docker 输出不等于 run 日志。 |
+| AdCraft | `production-lab/adcraft/upstream/apps/api/fg_main.py`：iframe + gateway + 独立 API/Web/Agent；`/database/<workspace>/v2/adcraft.sqlite3`。 | 各组件版本、原生请求/执行日志及 workspace 归属适配。 |
+| Meilin | `production-lab/meilin/upstream/server/fg-server.mjs`：iframe 经 gateway 进入独立服务；`production-lab/meilin/upstream/schema.sql` 的 `fg_meilin_dramas`、`fg_meilin_members`、`fg_meilin_events`。Compose 需显式启用 `meilin` profile。 | 原生版本/日志及账号权限数据适配；`npm run dev` 的原型入口不是 FG 集成验收。 |
+| Suno | `production-lab/suno/server.ts`：独立适配服务调用外部 Suno；`/state/<operation-id>.json` 和 MP3，当前协议在 `current-api.mjs`。 | operation 到账号的受信映射及合约版本/日志；供应商模型目录不是适配器版本。 |
+
+Yingce 已有 Web 构建清单、Canvas `/api/system/version`、gateway/Agent 各自 `/health/version` 及后端原生事件，仍须逐环境验证配置、身份、构建与日志标记。gateway 的 Creator/AdCraft/Meilin/Suno 提交或任务回执只证明网关侧事实，不代表原服务请求、执行结果或部署版本；`infrastructure`、`repository` 只是分类，不是两个独立运行产品。
+
+**生产配置准备顺序（仅清单，不表示已上线）：**
+
+1. 保持 `SUPPORT_BOT_ENABLED=false`、`SUPPORT_BOT_SEND_ENABLED=false`。独立准备生产私密配置，明确 `SUPPORT_BOT_ENVIRONMENT=production` 和 `NODE_ENV=production`；未核对实际进程前，不认为 Dockerfile 的默认值已经生效。**环境检查为 fail-closed：新代码生效后，生产缺少环境变量或 FG 主库标记、标记不匹配时，support 接口会返回 503，worker 检查也会失败。必须在启用前准备好配置，不能上线开放后再补标记。**
+2. 确认 FG `DATABASE_URL`、`SUPPORT_BOT_CANVAS_DATABASE_URL`、`SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL`（或其回退 `PRODUCTION_LAB_DATABASE_URL`）的真实目标，再由各库 owner 设置数据库级 GUC，准备所需 schema 和角色授权。业务证据连接使用 SELECT-only 账号；FG 主库还承担队列与会话持久化，不能一概改成只读账号。
+3. 单独注入模型配置：`SUPPORT_BOT_MODEL_ID=gpt-6.1-sol`、`SUPPORT_BOT_REASONING_EFFORT=high`、`SUPPORT_BOT_API_PROTOCOL=responses`，以及 `SUPPORT_BOT_API_BASE_URL` / `SUPPORT_BOT_API_KEY`；留空会回退 `WETOKEN_BASE_URL` / `WETOKEN_API_KEY`，也须确认属于预期供应商。生产示例显式选择 Responses，不等同于 `.env.example` 的通用协议默认值。
+4. 准备 `SUPPORT_BOT_CANVAS_VERSION_URL`、`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_WEB_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 及 `SUPPORT_BOT_NATIVE_LOG_SOURCES` 的同环境地址/只读挂载，验证原服务身份、账号映射与构建环境；不填真实地址到示例，不把五产品的缺口隐藏为已接通。
+5. 由获准的发布流程向 Web 和 worker 注入一致的生产配置，建立新连接，保持接收与外发关闭，先执行下方 `--check`，再执行与获准范围一致的 `preflight --require=...`。确认所需项 ready 并记录其余缺口后，才另行授权启用接收并验证实际 API；只有准备好 `SUPPORT_BOT_WORKER_TOKEN`、`FEISHU_SUPPORT_*` 应用/租户/表格变量和 `SUPPORT_BOT_MODULE_OWNERS`、核验飞书权限后，才按需授权生产外发。本地始终禁止飞书外发；本清单不授予启动、重启、部署或生产验证权限。
+
+
+问题、诊断证据、队列租约和各外发步骤结果保存在 PostgreSQL；多维表格按问题编号同步。回复、表格同步、开发通知独立尝试，某个通道失败不会阻断其他通道，重试跳过已成功通道并复用诊断结果。网络中断在远端成功而本地尚未记账的极小窗口仍可能造成重复通知，使用飞书消息 UUID 做额外去重。文字模型输入和外发内容统一脱敏，截图原图不会自动脱敏；关键词按字面全文检索，不能改写定位条件。故障确认须关联同一业务服务、本次定位编号对应的完整请求证据与匹配运行版本的源码；版本未知、仅近期候选或链路不完整时仅展示已查事实，不能换成低置信度标签后继续发布推测正文。已有源码命中时，即使证据不足也要实际读取相关业务实现；文档、测试和搜索摘要不能代替运行实现。产品咨询不套用故障结论。每个飞书身份或网页登录账号有提问与排队上限，持续失败的任务最多尝试四次，最终失败保留在 `support_bot_jobs` 供管理员排查。数据库保留期限遵循现有备份与数据管理策略，需清理时先备份，不能将问题表当作唯一事实来源。
+
+本地代码验证可运行 `pnpm exec tsc --noEmit --incremental false`、`pnpm build`；连接检查使用 `SUPPORT_BOT_ENVIRONMENT=local SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:worker --check`。`--check` 只读验证 **FG 主库连接、数据库级环境标记及问题助手所需表字段**，不设置 GUC、不调用模型、不处理队列或外发；通过不代表 Canvas、gateway、Web、Agent、Production Lab 或五个独立产品已接通。生产仅在另行授权且注入生产配置后，使用 `NODE_ENV=production SUPPORT_BOT_ENVIRONMENT=production SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:worker --check`；不能拿本地成功代替生产核验。
+
+**数据源预检：** `pnpm support-bot:preflight [--require=fg,production-lab,canvas,yingce-gateway,yingce-web,yingce-agent]` 只读输出脱敏覆盖矩阵，列出服务、是否 required、环境、数据源/版本/日志检查结果、ready 与缺口原因。不输出连接串、地址、密钥或原始日志，不调用模型、不处理队列或外发。配置好本地数据源后，可重复运行：
+
+```sh
+SUPPORT_BOT_ENVIRONMENT=local SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:preflight --require=fg,production-lab,canvas,yingce-gateway,yingce-web,yingce-agent
+```
+
+预检验证数据库级环境标记、所需表存在及 SELECT 权限；对 Canvas 和 Production Lab 证据连接，还检查所需表上没有 INSERT/UPDATE/DELETE/TRUNCATE 权限，不执行实际写入。独立服务检查原生版本身份、构建环境及日志服务/事件/`build_environment` 的同环境格式；静态网页只检查自身版本，不虚构业务库或服务器业务日志。**它不扫描实际账号业务记录，不保证每个账号的 active 映射存在，也不是完整模型业务流验收。FG 运行项（Production Lab 复用）来自执行 preflight 的本进程 checkout 快照，不是 Web 远端进程探针**，不能据此证明已运行的 Web/worker 与该 checkout 相同；实际账号权限、映射和业务请求仍需在获准范围内另验。
+
+显式 `--require` 时，仅所需项未 ready 才因覆盖缺口退出非 0，其他缺口仍列出，退出 0 仅表示所选范围通过；参数或全局环境配置无效也会失败。**未指定 `--require` 时，全部真实产品/服务默认 required，包含上述五产品，未接入就不能输出 all-pass，须退出非 0**；`infrastructure`、`repository` 分类桶不参与。上述六项本地数据源预检已通过；默认全服务预检退出 1，并明确列出五产品接入缺口。这是数据源配置/格式层的结果，不代表全产品可用、每个账号映射已验证、完整模型业务流通过或生产已验收。
+
+真实飞书连通、权限和表字段需要生产配置与单独授权才能核验；不要在聊天或仓库中提交真实凭据。本地预检通过不能替代生产环境核验，也不表示生产上线已经完成。
+
+运行日志通过现有结构化日志器输出，`service` 为 `support-bot`，记录接收、忽略原因、入队、诊断与投递阶段，不记录消息正文或飞书凭据。本机联调可将 Web 与 worker 标准输出分别保存到 `.logs/support-bot-web.log` 和 `.logs/support-bot-worker.log`，使用 `tail -f` 实时查看；日志文件由 Git 忽略。飞书后台的「日志检索 → 事件日志检索」用于核对平台是否成功投递，HTTP 200 不代表事件一定进入诊断队列。
+
 ## 许可与上游来源
 
 FG 自有主站代码的许可见 [根目录 LICENSE](LICENSE)。**完整仓库包含许可不同的第三方组件，不应将整套系统简单视为全部 MIT：**

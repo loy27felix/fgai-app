@@ -62,6 +62,8 @@ services:
     environment:
       CANVAS_BACKEND_ADDR: ":8080"
       CANVAS_BACKEND_DATA_DIR: /data/yingce
+      CANVAS_LOG_FORMAT: ${CANVAS_LOG_FORMAT:-json}
+      CANVAS_LOG_LEVEL: ${CANVAS_LOG_LEVEL:-info}
       CANVAS_AUTO_MIGRATE: "false"
       CANVAS_DATABASE_DRIVER: postgres
       DATABASE_URL: ${DATABASE_URL:?required}
@@ -116,7 +118,13 @@ services:
         condition: service_healthy
   gateway:
     image: ${CANVAS_GATEWAY_IMAGE:-fg-six-yingce-gateway}
-    build: ./gateway
+    build:
+      context: ./gateway
+      args:
+        BUILD_VERSION: ${CANVAS_BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${CANVAS_BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${CANVAS_BUILD_TIME:-unknown}
+        BUILD_DIRTY: ${CANVAS_BUILD_DIRTY:-unknown}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:?required}

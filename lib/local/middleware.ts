@@ -16,6 +16,13 @@ export function updateSession(request: NextRequest, traceId?: string) {
     || path === "/api/observability/monitor-events"
     || path === "/api/observability/error-events"
     || path === "/api/observability/request-events"
+    // Feishu callbacks and the worker authenticate independently of browser sessions.
+    // 飞书回调与任务处理入口各自鉴权，不能被网页登录重定向拦截。
+    || path === "/api/support-bot/events"
+    || path === "/api/support-bot/process"
+        // The web API checks the FG session itself and returns JSON 401, not login HTML.
+        // 网页接口自行校验 FG 会话，未登录返回 JSON 401 而不是登录页 HTML。
+        || path === "/api/support-bot/web"
     || path.startsWith("/api/auth") || path.startsWith("/api/local") || path.startsWith("/_next");
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
   if (!hasSession && !isPublic) {

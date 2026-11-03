@@ -6,6 +6,7 @@ test('catalog exposes the exact supported Wetoken text models in UI order', () =
   assert.deepEqual(
     TEXT_MODELS.map(({ id, provider, supportsImages }) => ({ id, provider, supportsImages })),
     [
+      { id: 'gpt-6.1-sol', provider: 'wetoken', supportsImages: true },
       { id: 'gpt-5.6-luna-t1a', provider: 'wetoken', supportsImages: true },
       { id: 'gpt-5.6-terra-t1a', provider: 'wetoken', supportsImages: true },
       { id: 'claude-sonnet-5', provider: 'wetoken', supportsImages: true },
