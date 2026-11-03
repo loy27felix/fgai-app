@@ -18,10 +18,12 @@ import {planningPrompts} from './planning.mjs';
 import {visibleReply} from './turn-stream.mjs';
 import * as studio from './studio.mjs';
 import {chainCatalog} from './studio-skills.mjs';
+import {supportRequest} from './support.mjs';
+import {observeRequest,requestMetadata} from './support-common.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url)),dist=join(root,'web/dist');
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.mp3':'audio/mpeg','.wav':'audio/wav','.woff2':'font/woff2'};
-const send=(res,status,data,type='application/json; charset=utf-8',extra={})=>{res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff',...extra});res.end(typeof data==='string'?data:JSON.stringify(data));};
+const send=(res,status,data,type='application/json; charset=utf-8',extra={})=>{if(status>=400)res.supportErrorCode='MEILIN_REQUEST_FAILED';res.writeHead(status,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff',...extra});res.end(typeof data==='string'?data:JSON.stringify(data));};
 async function body(req){let bytes=0;const chunks=[];for await(const c of req){bytes+=c.length;if(bytes>36*1024*1024)throw Error('上传或请求内容过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString()||'{}');}
 const view=d=>{studio.legacyStudio(d);return production.documentView({...d,permissions:{owner:d._ownerId===context().actor.id,canEdit:d._ownerId===context().actor.id||d._role==='editor'},music:brain.musicCues(d)});};
 async function catalog(){const c=context(),result=await bridge('catalog');c.models=result.models;c.budget=result.budget;c.personalGPTConfigured=result.personalGPTConfigured;return result;}
@@ -50,17 +52,21 @@ function file(res,req,base,name,attachment=false){
 }
 function aiStudio(){const md=readFileSync(join(root,'skills/fg-overseas-drama-script/SKILL.md'),'utf8').replace(/\r\n/g,'\n');return {steps:(md.split('## 2.')[1]?.split('## 3.')[0]||'').split('\n').filter(l=>/^\d+\.\s/.test(l)).map(l=>l.replace(/^\d+\.\s*/,'')),prompts:[...md.matchAll(/### (Prompt [①②③④][^\n]*)\n+```text\n([\s\S]*?)```/g)].map(m=>({name:m[1].trim(),text:m[2].trim()}))};}
 export function createMeilinServer(){return createServer(async(req,res)=>{
+ if(await supportRequest(req,res,send))return;
  if(req.url==='/health/live')return send(res,200,{ok:true});
  let actor;try{actor=readIdentity(req.headers,req.method,req.url,process.env.MEILIN_INTERNAL_SECRET);}catch{return send(res,403,{error:'请从 FG 登录入口访问美林'});}
  const url=new URL(req.url,'http://meilin'),path=url.pathname,match=/^\/api\/dramas\/([a-f0-9-]{36})(?:\/(\w+))?$/.exec(path),dramaId=match?.[1]||'00000000-0000-4000-a000-000000000000';
- await runContext({actor,dramaId,operationId:req.headers['x-fg-operation-id'],textOrdinal:0},async()=>{try{
+ const metadata=requestMetadata(req);if(match)metadata.projectId=match[1];
+ const route=match?'/api/dramas/:projectId'+(match[2]&&['members','costs','export','turn','action','upload','confirm','cancel','requote','studio'].includes(match[2])?'/'+match[2]:''):path==='/api/dramas'?path:path==='/api/config'?path:path.startsWith('/files/')?'/files/:file':'other';
+ observeRequest(req,res,{actorId:actor.id,route,metadata});
+ await runContext({actor,dramaId,operationId:req.headers['x-fg-operation-id'],requestId:metadata.requestId,traceId:metadata.traceId,textOrdinal:0},async()=>{try{
   if(path==='/api/config'){const result=await catalog();return send(res,200,{mode:'live',media:'fg-tasks',chains:chainCatalog(),directions:presets.DIRECTIONS,models:models.publicCatalog(),skills:skills.catalog(),styles:styles.allPresets(),dramaStages:[{id:'brief',name:'立项'},{id:'bible',name:'圣经与画风'}],episodeStages:[{id:'script',name:'剧本'},{id:'cast',name:'本集资产'},{id:'segments',name:'分段提示词'},{id:'shoot',name:'拍摄'},{id:'post',name:'后期'}],aiStudio:aiStudio(),planningPrompts,inspirations:false,budget:result.budget,actor});}
   if(path==='/api/dramas'&&req.method==='GET')return send(res,200,production.documentView(await store.list()));
   if(path==='/api/dramas'&&req.method==='POST'){
-   const operationId=context().operationId;if(!uuid.test(operationId||''))return send(res,400,{error:'创建请求缺少操作编号'});
+   const operationId=context().operationId;if(!uuid.test(operationId||''))return send(res,400,{error:'创建请求缺少操作编号'});metadata.projectId=operationId;
    const existing=await store.get(operationId);if(existing)return send(res,200,view(existing));
    await catalog();for(const kind of ['text','image','video'])if(!models.defaultModel(kind))throw Error(`默认${kind}模型未开启，请联系管理员配置`);
-   const input=await body(req),d=brain.createDrama(input.direction);d.id=operationId;if(input.chain)studio.initializeStudio(d,input);context().dramaId=d.id;await store.save(d);return send(res,200,view(d));
+   const input=await body(req),d=brain.createDrama(input.direction);d.id=operationId;metadata.projectId=d.id;if(input.chain)studio.initializeStudio(d,input);context().dramaId=d.id;await store.save(d);return send(res,200,view(d));
   }
   if(match){const [,id,sub]=match;
    if(!sub&&req.method==='GET'){await catalog();const d=await store.get(id);if(d)brain.migrate(d);return d?send(res,200,view(d)):send(res,404,{error:'剧目不存在'});}
@@ -93,7 +99,7 @@ export function createMeilinServer(){return createServer(async(req,res)=>{
      }
      d.requests[requestId]={reply:result.reply,at:new Date().toISOString()};return result;
     });if(streaming){context().emit('final',out);res.end();return;}return send(res,200,out);
-    }catch(e){if(!streaming)throw e;context().emit('error',{error:e.message});res.end();return;}finally{clearInterval(heartbeat);}
+    }catch(e){if(!streaming)throw e;res.supportErrorCode='MEILIN_REQUEST_FAILED';context().emit('error',{error:e.message});res.end();return;}finally{clearInterval(heartbeat);}
    }
   }
   if(path.startsWith('/files/')&&['GET','HEAD'].includes(req.method)){const name=validateRelativeFile(path.slice(7));if(!await db.fileAccess(name))return send(res,404,{error:'素材不存在'});return file(res,req,files.FILES_DIR,name,!/\.(png|jpg|jpeg|webp|gif|mp4|mp3|wav|m4a)$/i.test(name));}

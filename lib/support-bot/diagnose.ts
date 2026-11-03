@@ -4,7 +4,7 @@ import { scrubSupportValue as scrub } from './redact';
 import { logServerEvent } from '@/lib/observability/server-log';
 import { getSupportHistory, getLatestSupportImages, type SupportJob, type DiagnosisResult } from './store';
 import { resolveSupportRuntime, type RuntimeResolution } from './runtime';
-import { createSupportTools, identifier, hasIdentifier } from './tools';
+import { createSupportTools, identifier, hasIdentifier, supportUserId } from './tools';
 import { buildInvestigationResult, validateInvestigationAnswer, safeText, evidenceRows, evidenceDescription, isAnomaly, type SupportEvidence } from './report';
 import { resolveInvestigationScope } from './investigation-scope';
 import { chainSeeds } from './chain';
@@ -22,7 +22,7 @@ const instructions = `你是FG Studio的只读调查助手。目标是根据用�
 重点覆盖 production-lab、Yingce 网页、Go后端、gateway、独立Agent及其他服务，不限FG主站或Canvas两种来源。services工具列出源码/依赖/数据接入边界；operations/logs/chain/detail必须用args.service选择实际服务，runtime也接受service。code不传path时搜索全仓，指定path时自动按该文件所属服务核对独立版本；搜索命中其他服务必须读取其实际实现。目录依赖只是待查边界，不证明请求实际经过；跨服务关联必须核对双方授权记录的相同task/request/trace编号，不按时间相近、项目相同或错误相似拼接。没有接入的服务必须显示缺口，不能把FG或Canvas的运行版本、操作数据套给gateway/Agent/其他服务。最终JSON增加service字段，指出证据支持的目标服务。
 故障禁止likely、可能、更像是等猜测原因。只有runtime版本一致、已展开本次实际请求链路、具体错误与对应实现吻合，才能确认故障原因。仅有失败任务/HTTP状态码加一段代码不能推导根因。未匹配版本的代码是参考，不能称线上根因。日志没有记录≠没有发生故障；未接通数据源≠用户操作错误。
 工具格式：{"tool":"services|runtime|code|operations|logs|detail|chain","args":{...}}。services：无需参数，返回服务目录与接入边界。runtime：service，核对指定服务运行版本。code：term/path/offset，或者path+line读取邻近实现。operations：service/taskId/requestId/traceId/sessionId/projectId/from/to，不传定位参数则当前账号近期失败；yingce-gateway 可用 provider=suno 或 volcengine 过滤真实渠道回执，不代表供应商原生运行日志。logs：taskId/requestId/traceId/from/to/projectId，FG另支持term/route；Canvas查原生任务/调用日志而非FG接入层。无编号仅查给定时间窗口或默认24h候选，不能称已对齐故障。chain：taskId/requestId/traceId任一项，程序自动展开实际返回的关联编号和失败请求详情，不能以搜索列表代替。detail：已返回的日志id。不允许传userId、任意URL或SQL。
-最终仅一个JSON：{"intent":"product或incident","service":"服务目录中的目标服务id","certainty":"confirmed|likely|needs_info","summary":"直接解答完整问题","cause":"已核实原因/功能依据；未核实故障只写缺口，不给推测","solutions":["具体入口、操作和预期结果"],"evidenceRefs":["E1"],"recordIds":["引用的操作或日志记录id"],"missingInfo":["仍无法通过工具取得的最少必要信息"],"limitations":["未核实部分"],"module":"责任模块","needsDeveloper":false,"internalSummary":"供开发接手的事实与缺口","causeProof":{"chainRef":"链路证据id","recordId":"真实失败请求记录id","errorExcerpt":"错误记录的连续原文至少8字","codeRef":"读取实际实现的证据id","codeExcerpt":"含相同错误原文的实现片段"}}。
+最终仅一个JSON：{"intent":"product或incident","service":"服务目录中的目标服务id","certainty":"confirmed|likely|needs_info","summary":"直接解答完整问题","cause":"已核实原因/功能依据；未核实故障只写缺口，不给推测","solutions":["具体入口、操作和预期结果"],"evidenceRefs":["E1"],"recordIds":["引用的操作或日志记录id"],"missingInfo":["仍无法通过工具取得的最少必要信息"],"limitations":["未核实部分"],"module":"责任模块","needsDeveloper":false,"internalSummary":"供开发接手的事实与缺口","causeProof":{"chainRef":"链路证据id","recordId":"真实失败请求记录id","errorExcerpt":"已采集错误记录的连续原文至少8字；只有错误码但没有错误原文时不得确认根因","codeRef":"读取实际实现的证据id","codeExcerpt":"含相同错误原文的实际实现片段；仅错误码同名命中不构成根因证明"}}。
 答复简洁，优先3到5条可执行步骤。运行版本和查询范围由程序统一展示，limitations不要重复这些已存在的提示。引用必须实际存在。不要把证据不足变成否认功能。只能确认异常时应写异常事实，不夸大成确定根因。incident只能confirmed或needs_info；needs_info只能列已经查到的事实和具体缺失，不要解释“代码可能导致”，不要给未经证实的修复方案。product可用likely说明源码功能，不能混入故障解释。解决建议需基于相关代码/数据，不建议用户盲目重试付费任务或删除数据。仍有工具额度时不能以尚未读取实现就结束。`;
 
 function parseObject(content: string): Record<string, unknown> {
@@ -123,7 +123,7 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     options.signal?.throwIfAborted();
     let resolved = runtimes.get(service);
     if (!resolved) {
-      resolved = await resolveSupportRuntime(job.context?.runtime, service);
+      resolved = await resolveSupportRuntime(job.context?.runtime, service, supportUserId(job));
       runtimes.set(service, resolved);
       const entry = add('runtime', resolved.evidence);
       await options.onEvidence?.(evidenceDescription(entry));
@@ -147,7 +147,7 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     if (['taskId', 'requestId', 'traceId'].includes(key)) relatedIds.add(id);
   }
   for (const key of ['taskId', 'requestId', 'traceId'] as const) if (identifier(job.context?.[key])) relatedIds.add(job.context![key]!);
-  const scope = resolveInvestigationScope(job.context, plan, questions, relatedIds.size > 0);
+  const scope = resolveInvestigationScope(job.context && job.context.source !== target ? { ...job.context, projectId: undefined } : job.context, plan, questions, relatedIds.size > 0);
   if (plan.identifiers.projectId) scope.projectId = plan.identifiers.projectId;
   messages.push({ role: 'user', content: JSON.stringify({ queryScope: scope, instruction: 'reported为用户选择的发生时间，interpreted是用户原文的解释窗口，recent仅为候选。所有候选异常都不能当成本次故障。故障须继续chain读取真实请求链路和具体错误。' }) });
   let calls = 0;
@@ -160,7 +160,7 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
       if (args.service !== undefined && !supportServiceId(args.service)) throw new Error('未知服务');
       const resolved = await ensureRuntime(service);
       let runTool = runners.get(service);
-      if (!runTool) { runTool = createSupportTools(job, resolved.source, questions, scope); runners.set(service, runTool); }
+      if (!runTool) { runTool = createSupportTools(job, resolved.source, questions, service === target ? scope : { ...scope, projectId: undefined }); runners.set(service, runTool); }
       result = tool === 'services' ? { services: supportServiceDirectory() }
         : tool === 'runtime' ? resolved.evidence : await runTool(tool, args);
     } catch { result = { system: service, error: `${supportServices[service].label} 的 ${tool} 查询未完成，请核对该数据源可用性、定位参数与读取权限；未据此推断业务原因。` }; }
@@ -188,8 +188,8 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     const taskId = plan.identifiers.taskId ?? job.context?.taskId;
     const requestId = plan.identifiers.requestId ?? job.context?.requestId;
     const traceId = plan.identifiers.traceId ?? job.context?.traceId;
-    const operations = await collect('operations', { service, taskId, requestId, traceId, sessionId: plan.identifiers.sessionId ?? job.context?.sessionId,
-      projectId: supportServices[service].data === 'native' ? undefined : scope.projectId });
+    const operations = await collect('operations', { service, taskId, requestId, traceId, sessionId: plan.identifiers.sessionId ?? (service === job.context?.source ? job.context.sessionId : undefined),
+      projectId: service === target && supportServices[service].data !== 'native' ? scope.projectId : undefined });
     // Native HTTP logs have authenticated users, not verified project membership.
     // 原生HTTP日志按已鉴权账号查询；页面项目仅用于业务库筛选，不冒充原生日志字段。
     const logs = await collect('logs', { service, taskId, requestId, traceId });
@@ -235,7 +235,7 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
       continue;
     }
     if (runtime.source.mode === 'working-tree') {
-      const current = await resolveSupportRuntime(job.context?.runtime, target);
+      const current = await resolveSupportRuntime(job.context?.runtime, target, supportUserId(job));
       if (!current.verified) { runtimeVerified = false; add('runtime', current.evidence); }
     }
     const issue = validateInvestigationAnswer(answer, evidence, { intent, runtimeVerified, relatedIds, codeSource: runtime.source, target, scope, services: [...runtimes.keys()] });

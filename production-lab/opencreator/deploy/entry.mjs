@@ -5,6 +5,7 @@ import {pipeline} from 'node:stream';
 import {trashRoute} from './fg-trash.mjs';
 import {companyMediaFetch} from './company-media.mjs';
 import {managedTextDefault} from './company-config.mjs';
+import {forwardNativeSupport,writeNativeSupportLog} from './support-proxy.mjs';
 
 const capability=process.env.FG_CREATOR_CAPABILITY;
 const actor=process.env.FG_CREATOR_ACTOR;
@@ -83,17 +84,18 @@ try{
 }catch(error){if(error.code!=='ENOENT')throw error;}
 const child=spawn(process.execPath,['--import','/app/company-media-preload.mjs','apps/daemon/dist/main.js'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});
 let buffer='';
-child.stdout.on('data',chunk=>{buffer=(buffer+chunk).slice(-1048576);let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const parsed=JSON.parse(line);if(parsed.address&&parsed.token)connection=parsed;else if(parsed.type==='opencreator_daemon_bootstrap_error')console.error('Creator bootstrap failed',/^[A-Z_]+$/.test(parsed.code||'')?parsed.code:'UNKNOWN');}catch{}}});
+child.stdout.on('data',chunk=>{buffer=(buffer+chunk).slice(-1048576);let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);try{const parsed=JSON.parse(line);if(parsed.address&&parsed.token)connection=parsed;else if(parsed.event==='support_http_request')writeNativeSupportLog(parsed,actor);else if(parsed.type==='opencreator_daemon_bootstrap_error')console.error('Creator bootstrap failed',/^[A-Z_]+$/.test(parsed.code||'')?parsed.code:'UNKNOWN');}catch{}}});
 // Upstream output may contain provider URLs or prompts. Keep runtime logs private.
 child.stderr.on('data',()=>{});
 child.on('exit',code=>process.exit(code||1));
 http.createServer(async(req,res)=>{
+ if(forwardNativeSupport(req,res,connection,capability))return;
  // Status/configuration reads use the private state volume and remain available
  // during a stale SMB bind, so host recovery can detect idle runtimes safely.
  const stateRead=req.method==='GET'&&['/runs','/creator-services/config'].includes(req.url?.split('?')[0]);
  if(!stateRead)try{if((await fs.readFile('/workspace/.fg-creator-ready','utf8')).trim()!=='FG private creator workspace')throw Error('NAS marker mismatch');}catch{res.writeHead(503);res.end('NAS unavailable');return;}
  if(req.url==='/healthz'){res.writeHead(connection?200:503,{'content-type':'application/json'});res.end(JSON.stringify({ok:!!connection}));return;}
- if(req.headers['x-fg-runtime']!==capability){res.writeHead(403);res.end('Forbidden');return;}
+ if(req.headers['x-fg-runtime']!==capability||req.headers['x-fg-runtime']===process.env.SUPPORT_BOT_NATIVE_READ_TOKEN){res.writeHead(403);res.end('Forbidden');return;}
  if(!connection){res.writeHead(503);res.end('Creator starting');return;}
  try{if(await trashRoute(req,res,connection))return;}catch{res.writeHead(503);res.end('Creator cleanup unavailable');return;}
  const headers={...req.headers,authorization:'Bearer '+connection.token};for(const k of ['host','origin','referer','cookie','x-fg-runtime'])delete headers[k];

@@ -483,6 +483,8 @@ export function queueTurn(d, text, { targetId, stage } = {}) {
   const run = {
     id: context().operationId || randomUUID(),
     actorId: context().actor.id,
+    requestId: context().requestId,
+    traceId: context().traceId,
     status: "queued",
     phase,
     at: iso(),

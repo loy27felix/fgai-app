@@ -6,7 +6,7 @@ import sqlite3
 import re
 from uuid import uuid4
 
-NAS = Path('/nas')
+NAS = Path(os.getenv('FG_ADCRAFT_NAS_ROOT', '/nas'))
 NAS_ROOT = Path('/fg-nas-root')
 
 def require_nas():

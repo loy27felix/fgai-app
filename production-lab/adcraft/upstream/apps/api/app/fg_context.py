@@ -8,14 +8,14 @@ import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 from uuid import uuid4
+from app.fg_backup import NAS
 
 def work_context(resource_id: str, context: dict) -> dict:
     """Persist accepted work attribution; recovery cannot charge another collaborator."""
     workspace = context.get('workspace')
     if not workspace: return context
-    root = Path('/nas/adcraft/workspaces') / workspace / 'fg-context'
+    root = (NAS / 'adcraft/workspaces') / workspace / 'fg-context'
     root.mkdir(parents=True, exist_ok=True)
     path = root / (hashlib.sha256(resource_id.encode()).hexdigest() + '.json')
     if context.get('actor'):

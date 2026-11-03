@@ -47,6 +47,7 @@ export default defineConfig({
   base: process.env.OPENCREATOR_WEB_BASE || '/',
   plugins: [
     react(),
+    opencreatorRuntimeVersionPlugin(),
     opencreatorStaticResourcesPlugin(),
     opencreatorRuntimeDevPlugin()
   ],
@@ -69,6 +70,48 @@ export default defineConfig({
     port: 4173
   }
 });
+
+function opencreatorRuntimeVersionPlugin(): Plugin {
+  const metadata = (key: string) => {
+    const value = process.env[key]?.trim();
+    return value && /^[A-Za-z0-9_.:+-]{1,128}$/.test(value) ? value : 'unknown';
+  };
+  const dirty = process.env.OPENCREATOR_BUILD_DIRTY;
+  // Snapshot at Vite startup/build, not from the gateway or runtime daemon image.
+  // 元数据固定于 Vite 启动/构建，不借用 gateway 或 daemon 镜像的版本。
+  const source = JSON.stringify({
+    service: 'opencreator-web',
+    build: {
+      commit: metadata('OPENCREATOR_BUILD_COMMIT'),
+      version: metadata('OPENCREATOR_BUILD_VERSION'),
+      buildTime: metadata('OPENCREATOR_BUILD_TIME'),
+      environment: metadata('OPENCREATOR_BUILD_ENVIRONMENT'),
+      dirty: dirty === 'true' ? true : dirty === 'false' ? false : 'unknown'
+    }
+  });
+  const fileName = '.well-known/fg-runtime.json';
+  return {
+    name: 'opencreator-runtime-version',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName, source });
+    },
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const pathname = request.url?.split('?')[0];
+        if (pathname !== `/${fileName}` && pathname !== `${server.config.base}${fileName}`) return next();
+        response.setHeader('Cache-Control', 'no-store');
+        response.setHeader('Content-Type', 'application/json');
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          response.statusCode = 405;
+          response.setHeader('Allow', 'GET, HEAD');
+          response.end();
+          return;
+        }
+        response.end(request.method === 'HEAD' ? undefined : source);
+      });
+    }
+  };
+}
 
 function opencreatorStaticResourcesPlugin(): Plugin {
   const presetAssetsRoot = join(creatorPresetCatalogRoot, 'assets');

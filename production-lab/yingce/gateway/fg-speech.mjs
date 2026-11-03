@@ -1,3 +1,4 @@
+import {supportCorrelationHeaders} from './support-observability.mjs';
 import {randomUUID} from 'node:crypto';
 import {internalSpeechAuthorised,synthesizeSpeech,speechModels,speechUtilities,speechKey,SpeechError} from './fg-speech-provider.mjs';
 import {musicModels,synthesizeMusic} from './fg-music-provider.mjs';
@@ -27,14 +28,14 @@ export async function speechInternalRoute(req,res,{pool,path}){
  try{
   reservationId=String(req.headers['x-fg-budget-reservation']||'');
   if(!/^[0-9a-f-]{36}$/.test(reservationId))throw Error('语音请求缺少费用检查记录');
-  const reservation=(await pool.query('SELECT model FROM fg_budget_reservations WHERE id=$1',[reservationId])).rows[0];
+  const reservation=(await pool.query("SELECT r.model,r.user_id FROM fg_budget_reservations r JOIN users u ON u.id=r.user_id JOIN fg_accounts a ON a.user_id=u.id WHERE r.id=$1 AND u.status='active'",[reservationId])).rows[0];
   let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>maxSpeechInputBytes)throw new SpeechError('SPEECH_INVALID_INPUT',400);chunks.push(c);}
   const input=JSON.parse(Buffer.concat(chunks));
   if(!reservation||reservation.model!==input.model||!(await enabledSpeechModels(pool)).some(m=>m.id===input.model))throw Error('语音费用记录或模型无效');
   requestId=randomUUID();
   const inserted=await pool.query("INSERT INTO fg_speech_usage(reservation_id,request_id,model,status) VALUES($1,$2,$3,'submitted') ON CONFLICT DO NOTHING",[reservationId,requestId,input.model]);
   if(!inserted.rowCount)throw Error('语音请求已提交；请查看原任务，不会重复生成');
-  const output=await (input.model==='suno-company-music'?synthesizeMusic:synthesizeSpeech)(input,{requestId});
+  const output=await (input.model==='suno-company-music'?synthesizeMusic:synthesizeSpeech)(input,{requestId,ownerId:reservation.user_id,correlation:supportCorrelationHeaders(req)});
   await pool.query("UPDATE fg_speech_usage SET status='succeeded',usage=$2 WHERE reservation_id=$1",[reservationId,JSON.stringify(output.usage)]);
   res.writeHead(200,{'content-type':output.format==='wav'?'audio/wav':'audio/mpeg','content-length':output.bytes.length,'cache-control':'no-store','x-fg-speech-request-id':requestId});res.end(output.bytes);
  }catch(error){

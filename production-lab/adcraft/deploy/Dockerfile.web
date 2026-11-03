@@ -7,6 +7,12 @@ COPY upstream/apps/web/ ./
 RUN npm run build
 RUN npx vitest run src/fg-scope.test.ts --maxWorkers=1
 RUN npx vitest run src/features/agent-canvas/model/normalizers.test.ts -t "FG workspace media|enforces project asset geometry"
+ARG ADCRAFT_BUILD_COMMIT=unknown
+ARG ADCRAFT_BUILD_VERSION=unknown
+ARG ADCRAFT_BUILD_TIME=unknown
+ARG ADCRAFT_BUILD_ENVIRONMENT=unknown
+ARG ADCRAFT_BUILD_DIRTY=unknown
+RUN node --input-type=module -e 'import fs from "node:fs"; const e=process.env; fs.mkdirSync("dist/.well-known",{recursive:true}); fs.writeFileSync("dist/.well-known/fg-runtime.json", JSON.stringify({service:"adcraft-web",build:{commit:e.ADCRAFT_BUILD_COMMIT,version:e.ADCRAFT_BUILD_VERSION,buildTime:e.ADCRAFT_BUILD_TIME,environment:e.ADCRAFT_BUILD_ENVIRONMENT,dirty:e.ADCRAFT_BUILD_DIRTY==="true"?true:e.ADCRAFT_BUILD_DIRTY==="false"?false:null}}));'
 FROM nginx:1.28-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY deploy/web.conf /etc/nginx/conf.d/default.conf

@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { supportVersion } from "./support-version.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import type {
@@ -147,6 +148,7 @@ export function createAgentRuntimeServer(options: ServerOptions) {
   const activeConversations = new Map<string, string>();
 
   const server = createServer(async (incoming, response) => {
+    if (supportVersion(incoming, response)) return;
     if (!authorized(incoming, options.internalToken)) {
       json(response, 401, { code: "agent_internal_auth_failed" });
       return;

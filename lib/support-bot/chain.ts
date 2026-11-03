@@ -2,7 +2,7 @@ type Row = Record<string, unknown>;
 type Read = (tool: 'logs' | 'operations' | 'detail', args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 export type ChainSeed = { key: 'taskId' | 'requestId' | 'traceId'; value: string };
 const keys = ['taskId', 'requestId', 'traceId'] as const;
-const validId = /^[A-Za-z0-9_-]{1,120}$/;
+const validId = /^[A-Za-z0-9_.:-]{1,120}$/;
 
 export function chainSeeds(rows: Row[]): ChainSeed[] {
   const seen = new Set<string>();

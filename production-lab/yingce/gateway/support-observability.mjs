@@ -1,11 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { gatewayRuntimeVersion } from './runtime-version.mjs';
 
-const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(value) ? value : undefined;
+const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : undefined;
+
+export function supportCorrelationHeaders(req) {
+  req.headers ||= {};
+  const requestId=identifier(req.headers['x-request-id'])||randomUUID();
+  req.headers['x-request-id']=requestId;
+  const traceId=identifier(req.headers['x-trace-id']);
+  return {'x-request-id':requestId,...(traceId?{'x-trace-id':traceId}:{})};
+}
+
+export function captureSupportUpstream(res,headers) {
+  const requestId=identifier(headers['x-request-id']);
+  const traceId=identifier(headers['x-trace-id'])||identifier(headers['x-canvas-trace-id']);
+  if(requestId)res.setHeader('x-request-id',requestId);
+  if(res.supportObservation){res.supportObservation.nativeRequestId=requestId;res.supportObservation.nativeTraceId=traceId;}
+}
 
 export function observeSupportRequest(req, res) {
   const started = Date.now();
-  const requestId = identifier(req.headers['x-request-id']) || randomUUID();
+  const requestId = supportCorrelationHeaders(req)['x-request-id'];
   req.headers['x-request-id'] = requestId;
   res.setHeader('x-request-id', requestId);
   const observation = { userId: undefined, route: undefined, errorCode: undefined };
@@ -21,8 +36,9 @@ export function observeSupportRequest(req, res) {
       build_commit: gatewayRuntimeVersion.build.commit, build_version: gatewayRuntimeVersion.build.version, build_dirty: gatewayRuntimeVersion.build.dirty,
       build_environment: gatewayRuntimeVersion.build.environment,
       time: new Date().toISOString(), level: status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info',
-      fg_user_id: observation.userId, request_id: identifier(res.getHeader('x-request-id')) || requestId,
-      trace_id: identifier(res.getHeader('x-canvas-trace-id')),
+      fg_user_id: observation.userId, request_id: observation.nativeRequestId || identifier(res.getHeader('x-request-id')) || requestId,
+      ...(observation.nativeRequestId && observation.nativeRequestId !== requestId ? {gateway_request_id:requestId} : {}),
+      trace_id: observation.nativeTraceId || identifier(res.getHeader('x-canvas-trace-id')) || identifier(req.headers['x-trace-id']),
       method: req.method, route: observation.route, status, latency_ms: Date.now() - started,
       ...(observation.errorCode ? { error_code: observation.errorCode } : {}) }));
   };

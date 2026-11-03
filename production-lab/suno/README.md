@@ -50,3 +50,19 @@ Cookie 属于账号登录凭据，不进入 GitHub、聊天、截图、浏览器
 每次任务使用持久操作 ID，仅允许一项音乐生成同时运行。提交前明确失败记为 `rejected`，发送后结果不明记为 `uncertain`；已有 ID 不重新提交。一次请求可能返回多个作品，记录全部 ID 并保存首个完成且可下载的音频。管理员可用受内部密钥保护的 `GET /operations/<requestId>` 核对状态和作品 ID。
 
 服务无宿主机公网端口、NAS 文件挂载或 Docker socket。账号 Cookie 仅服务端只读挂载；返回的音频由 FG 原生任务归档到 NAS。没有凭据时可以部署，但音乐生成保持关闭。
+
+## 原生只读排查
+
+`GET /internal/support/version` 返回 `{service:"suno",build}`；`GET /internal/support/evidence` 返回真实归属的 operation 元信息和原生 HTTP 日志。二者仅接受独立 `Authorization: Bearer <SUPPORT_BOT_NATIVE_READ_TOKEN>`，至少 32 字符；未配置/过短/不匹配均 403，不用 `SUNO_SERVICE_SECRET` 兜底。`compose.yml` 已预留此环境变量，空值保持关闭。
+
+Query：`actorId` 必填 UUID；`start/end` 是带时区 ISO 时间，默认 end（缺省当前时间）向前 24h、最大 7 天；`taskId/requestId/traceId/projectId` 可选精确筛选；`limit` 默认 50、范围 1–100。非法、重复或未知 query 返回 400。scope 只回显实际执行的 actor/time 和传入的四个可选筛选，错误提供固定安全 errorCode（兼容 error.code）。返回 `coverage.operations`、`coverage.inboundHttp` 的 `available/reason`（日志含 retention），源不可读/写失败/历史缺口时 `incomplete=true`，数量或扫描预算不足时另有 `truncated=true`，不是用空数据证明 E2E。
+
+业务 Bearer secret 校验通过后，才接受 UUID `x-fg-actor-id` 并写入新 operation 的 `actorId/actorSource=service-secret`。可选关联头是 `x-fg-task-id`、`x-fg-project-id`、`x-request-id`、`x-trace-id`，均按有限长度 identifier 校验；`x-fg-operation-id` 继续负责防重复。没有 actor 的请求仍保持既有业务兼容，但其 operation 不进入 evidence；历史无归属或缺少可信来源标记的文件明确不可见，不根据项目、文件名、时间或当前查询 actor 猜补。相同 operation 不得被其他 actor 重新认领。
+
+有效且已认证的下单请求即使因服务未配置而拒绝，也会持久化 `rejected/SUNO_NOT_CONFIGURED`、真实创建/更新时间和可信归属，再返回 503；不会绕过配置调用供应商，也不将拒绝伪装成成功。已有操作仍不重新提交。文件只保存 fingerprint、状态、关联 ID 等必要元信息，不保存 prompt 或 body。evidence 每次最多扫描 5000 个 operation 文件、2 MiB（单文件最多 64 KiB），有未读/损坏项明确披露。
+
+日志没有复用业务 body 或第三方传输 debug 输出：本服务原先没有业务请求持久 logger，现在按固定字段生成 `support_http_request` JSON 并输出 stdout，同时追加到 `/state/support-http/YYYY-MM-DD.jsonl`（UTC 日文件、0600；目录 0700）。首条真实请求时记录 `since.json`，跨重启保留，不伪造上线前历史、不自动删除；长期存储清理由运维另行管理。`/internal/support/*`、health/version、`/status`、`/validate` 等探针不生成业务证据。只有业务 secret 校验后才能给日志赋 actor，未认证的伪造 actor header 不会污染日志。日志仅包含 timestamp、actor/request/task/project/trace ID、route 模板、method、http_status、耗时、安全错误码和 build 元数据，不含原始 URL/query、prompt、Cookie、Key、body、异常原文。每次日志读取最多 2 MiB/5000 行，预算不足标 truncated/incomplete；任何日志写失败均令本进程 coverage 不可用，即使随后磁盘恢复也不掩盖已丢失的请求。
+
+构建环境变量及 Docker build args：`BUILD_COMMIT`、`BUILD_VERSION`、`BUILD_TIME`（ISO）、`BUILD_ENVIRONMENT`、`BUILD_DIRTY`（`true|false`）。必须在实际打包时注入，不以启动时间代替构建时间；缺失返回 `unknown`，dirty 不明返回 `null`。Suno package 没有发布 version，不能凭空填写版本号；有实际发布版本时再显式传入。
+
+隔离本地运行可设置 `SUNO_STATE_DIR`（默认 `/state`）、`SUNO_ACCOUNT_ENV`（默认 `/run/fg-suno/account.env`）、`SUNO_BIND`（默认 `0.0.0.0`）、`SUNO_PORT`（默认 3050）。本地验证应指向临时空 account.env，保持 `SUNO_ENABLED=false`，禁止读取生产凭据。无供应商凭据只能验收真实服务拒绝、operation/日志持久化、归属和重启查询，不能宣称收费生成、MP3 下载或 NAS 归档完整成功。

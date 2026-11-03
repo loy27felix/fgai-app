@@ -3,6 +3,13 @@ FROM fg-six-creator-runtime:v128 AS build
 COPY upstream/apps/web/src/ /app/apps/web/src/
 COPY upstream/apps/web/public/ /app/apps/web/public/
 COPY upstream/apps/web/index.html /app/apps/web/index.html
+COPY upstream/apps/web/vite.config.ts /app/apps/web/vite.config.ts
+ARG OPENCREATOR_BUILD_COMMIT=unknown
+ARG OPENCREATOR_BUILD_VERSION=unknown
+ARG OPENCREATOR_BUILD_TIME=unknown
+ARG OPENCREATOR_BUILD_ENVIRONMENT=unknown
+ARG OPENCREATOR_BUILD_DIRTY=unknown
+ENV OPENCREATOR_BUILD_COMMIT=$OPENCREATOR_BUILD_COMMIT OPENCREATOR_BUILD_VERSION=$OPENCREATOR_BUILD_VERSION OPENCREATOR_BUILD_TIME=$OPENCREATOR_BUILD_TIME OPENCREATOR_BUILD_ENVIRONMENT=$OPENCREATOR_BUILD_ENVIRONMENT OPENCREATOR_BUILD_DIRTY=$OPENCREATOR_BUILD_DIRTY
 ENV OPENCREATOR_WEB_BASE=/creator-static/ VITE_FG_MANAGED=1
 RUN pnpm --filter @opencreator/web exec vitest run src/features/settings/StartupAgentSetup.test.tsx && pnpm --filter @opencreator/web typecheck && pnpm --filter @opencreator/web build
 FROM nginx:stable-alpine

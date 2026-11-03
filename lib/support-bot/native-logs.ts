@@ -13,7 +13,7 @@ type Source = { file?: string; container?: string };
 const run = promisify(execFile);
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_LINES = 5000;
-const id = (value: unknown): string | undefined => typeof value === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(value) ? value : undefined;
+const id = (value: unknown): string | undefined => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : undefined;
 
 function configuredSource(service: SupportServiceId): Source | undefined {
   const config = JSON.parse(process.env.SUPPORT_BOT_NATIVE_LOG_SOURCES || '{}');

@@ -1,6 +1,6 @@
 type ServiceDefinition = {
   label: string; paths: readonly string[]; dependencies: readonly string[];
-  data: 'fg' | 'production-lab' | 'canvas' | 'gateway' | 'native' | 'unavailable'; runtime: 'fg' | 'canvas' | 'independent';
+  data: 'fg' | 'production-lab' | 'canvas' | 'gateway' | 'native' | 'product' | 'unavailable'; runtime: 'fg' | 'canvas' | 'independent';
 };
 
 // This is a source/service map, not proof that a service is deployed or that a request crossed it.
@@ -12,11 +12,11 @@ export const supportServices = {
   'yingce-gateway': { label: 'Yingce 接入网关、鉴权与音乐/语音任务', paths: ['production-lab/yingce/gateway/'], dependencies: ['canvas', 'fg'], data: 'gateway', runtime: 'independent' },
   canvas: { label: 'Yingce Canvas Go 后端与任务执行', paths: ['production-lab/yingce/canvas/backend/'], dependencies: ['yingce-agent'], data: 'canvas', runtime: 'canvas' },
   'yingce-agent': { label: 'Yingce 独立 Agent 服务', paths: ['production-lab/yingce/canvas/yingce-agent/'], dependencies: ['canvas'], data: 'native', runtime: 'independent' },
-  arcreel: { label: 'ArcReel 小说转视频', paths: ['production-lab/arcreel/'], dependencies: ['yingce-gateway'], data: 'unavailable', runtime: 'independent' },
-  opencreator: { label: 'OpenCreator 创作服务', paths: ['production-lab/opencreator/'], dependencies: ['yingce-gateway'], data: 'unavailable', runtime: 'independent' },
-  adcraft: { label: 'AdCraft 广告工作台', paths: ['production-lab/adcraft/'], dependencies: ['yingce-gateway'], data: 'unavailable', runtime: 'independent' },
-  meilin: { label: 'Meilin 服务', paths: ['production-lab/meilin/'], dependencies: ['yingce-gateway'], data: 'unavailable', runtime: 'independent' },
-  suno: { label: 'Suno 音乐服务', paths: ['production-lab/suno/'], dependencies: ['yingce-gateway'], data: 'unavailable', runtime: 'independent' },
+  arcreel: { label: 'ArcReel 小说转视频', paths: ['production-lab/arcreel/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
+  opencreator: { label: 'OpenCreator 创作服务', paths: ['production-lab/opencreator/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
+  adcraft: { label: 'AdCraft 广告工作台', paths: ['production-lab/adcraft/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
+  meilin: { label: 'Meilin 服务', paths: ['production-lab/meilin/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
+  suno: { label: 'Suno 音乐服务', paths: ['production-lab/suno/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
   infrastructure: { label: '反向代理、部署、数据库与存储基础设施', paths: ['docker/', 'scripts/', 'production-lab/yingce/canvas/docker/', 'production-lab/yingce/canvas/scripts/'], dependencies: [], data: 'unavailable', runtime: 'independent' },
   repository: { label: '其他仓库代码（待确定运行服务）', paths: [], dependencies: [], data: 'unavailable', runtime: 'independent' },
 } as const satisfies Record<string, ServiceDefinition>;

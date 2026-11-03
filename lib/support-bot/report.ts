@@ -61,12 +61,15 @@ function assessEvidence(answer: InvestigationAnswer, evidence: SupportEvidence[]
   const codeExcerpt = safeText(proof.codeExcerpt, 1600);
   // A status code plus unrelated source is not a cause. Require a traversed request and literal error-to-code proof.
   // 状态码加任意源码不构成根因；必须展开真实请求链，并用错误原文与实现相互核对。
+  const literalFailure = errorExcerpt.length >= 8 && safeText(row?.errorExcerpt, 2000).includes(errorExcerpt) && codeExcerpt.includes(errorExcerpt);
+  // An error code is an observation, not proof that a particular source branch executed.
+  // 错误码只能作为已观察事实，不能仅凭源码同名文本证明执行了某个错误分支。
   const causalChain = !!(chain && !chain.result.truncated && !chain.result.incomplete && root?.value && options.relatedIds.has(root.value) && row && row.recordType === 'log' && (row.requestId || row.traceId)
-    && (!String(row.source).endsWith('_native') || (row.buildDirty === false && typeof row.buildCommit === 'string' && options.codeSource.revision.startsWith(row.buildCommit)))
+    && (!String(row.source).endsWith('_native') || (row.buildDirty === false && typeof row.buildCommit === 'string' && /^[a-f0-9]{7,40}$/i.test(row.buildCommit) && options.codeSource.revision.toLowerCase().startsWith(row.buildCommit.toLowerCase())))
     && root.key && row[root.key] === root.value
     && (root.key !== 'traceId' || new Set(evidenceRows(chain).filter(item => item.recordType === 'log' && isAnomaly(item)).map(item => item.requestId || item.taskId || item.id)).size === 1)
     && Array.isArray(chain.result.queries) && !chain.result.queries.some(query => query.error) && chain.result.queries.some(query => query.tool === 'logs' && Number(query.count) > 0)
-    && errorExcerpt.length >= 8 && safeText(row.errorExcerpt, 2000).includes(errorExcerpt) && codeExcerpt.includes(errorExcerpt)
+    && literalFailure
     && implementation && Array.isArray(implementation.result.matches)
     && implementation.result.matches.some(match => typeof match.excerpt === 'string' && safeText(match.excerpt, 5000).includes(codeExcerpt)));
   return { cited, codeRead, linkedAnomaly, causalChain, canConfirm: options.runtimeVerified && matchedCode.length > 0 && (options.intent === 'product' || causalChain) };
@@ -150,12 +153,12 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     }
     if (entry.result.error) gaps.push(safeText(entry.result.error, 240));
     const coverage = entry.result.coverage as { inboundHttp?: { available?: boolean } } | undefined;
-    if (coverage?.inboundHttp?.available === false) gaps.push(`${supportServices[entry.result.system as SupportServiceId].label} 入站 HTTP 请求日志尚未接入可验证账号归属的存储；现有任务/操作记录不能替代页面请求日志，也不能补回缺失的历史链路。`);
+    if (coverage?.inboundHttp?.available === false) gaps.push(`${supportServices[entry.result.system as SupportServiceId].label} 本次查询未取得可验证的原生 HTTP 日志。${safeText(entry.result.note, 350)} 这不等于该服务未接入，也不能证明本次请求经过它。`);
     if (entry.result.note && (entry.result.incomplete || (!evidenceRows(entry).length && evidenceGap.test(String(entry.result.note))))) {
       const note = String(entry.result.note).split(/[。；]/).filter(part => evidenceGap.test(part)).slice(-3).join('；');
       if (note) gaps.push(safeText(note, 300));
     }
-    if (entry.result.truncated) gaps.push(`${entry.id} 结果有截断，不能视为完整链路。`);
+    if (entry.result.truncated) gaps.push(entry.tool === 'code' ? `${entry.id} 源码检索/读取有截断，未返回的片段不属于已核对依据。` : `${entry.id} 结果有截断，不能视为完整链路。`);
     if (Array.isArray(entry.result.queries)) for (const query of entry.result.queries) {
       if (query.error) gaps.push(safeText(query.error, 200));
       if (query.incomplete && query.note) gaps.push(safeText(String(query.note).split(/[。；]/).filter(part => evidenceGap.test(part)).slice(-2).join('；'), 250));

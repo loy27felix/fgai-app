@@ -84,6 +84,7 @@ export async function captureSupportRuntime(): Promise<SupportRuntimeSnapshot> {
 export async function resolveSupportRuntime(
   snapshot?: SupportRuntimeSnapshot,
   source: SupportServiceId = 'fg',
+  userId?: string,
 ): Promise<RuntimeResolution> {
   if (source === 'production-lab') {
     const resolved = await resolveSupportRuntime(snapshot, 'fg');
@@ -94,7 +95,7 @@ export async function resolveSupportRuntime(
   if (source !== 'fg') {
     const reference: SupportCodeSource = { revision: worker.checkoutRevision || '',
       mode: worker.environment === 'development' ? 'working-tree' : 'commit', verified: false, service: source };
-    const runtime = await readNativeRuntime(source);
+    const runtime = await readNativeRuntime(source, userId);
     let reason = runtime.reason;
     if (runtime.commit) {
       try {
@@ -108,7 +109,7 @@ export async function resolveSupportRuntime(
         }
         reference.verified = resolved.available && runtime.identityVerified === true && runtime.environment === 'production' && runtime.dirty === false
           && !!runtime.buildVersion && !/^(dev|development|unknown)$/i.test(runtime.buildVersion);
-        reason = !resolved.available ? 'native_runtime_source_missing' : reference.verified ? 'native_runtime_commit_resolved'
+        reason = !resolved.available ? 'native_runtime_source_missing' : runtime.reason === 'native_runtime_component_missing_or_mismatch' ? runtime.reason : reference.verified ? 'native_runtime_commit_resolved'
           : runtime.environment === 'development' ? 'native_runtime_development_build' : runtime.dirty !== false ? 'native_runtime_dirty_or_unattested' : 'native_runtime_build_unattested';
       } catch { reason = 'native_runtime_source_unavailable'; }
     }
@@ -122,6 +123,8 @@ export async function resolveSupportRuntime(
       native_runtime_source_missing: '对应部署提交缺少该服务源码',
       native_runtime_source_unavailable: '部署提交或源码在本地不可用',
       native_runtime_build_unattested: '版本接口缺少完整生产构建证明',
+      native_runtime_component_missing_or_mismatch: '独立产品的 Web/API/Agent 组件未全部核对或提交不一致，不能用一个组件的版本代表整个产品',
+      native_product_runtime_or_actor_unavailable: '原生版本 relay 或 active 账号/实例映射未取得，未借用其他服务版本',
     };
     return { source: reference, verified: reference.verified, evidence: { requestedSource: source,
       status: reference.verified ? 'verified' : reason === 'native_runtime_service_mismatch' ? 'mismatch' : 'unknown',

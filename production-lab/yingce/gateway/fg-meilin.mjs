@@ -1,3 +1,4 @@
+import {supportCorrelationHeaders,captureSupportUpstream} from './support-observability.mjs';
 import http from 'node:http';
 import {pipeline} from 'node:stream';
 import {createHmac,createHash,timingSafeEqual} from 'node:crypto';
@@ -171,8 +172,8 @@ export async function meilinUserRoute(req,res,ctx){
   const media=/^\/api\/fg\/meilin\/dramas\/([^/]+)\/media\/([^/]+)$/.exec(path.pathname);
   if(media){await accessible(ctx.pool,media[1],actor.id,false);const link=(await ctx.pool.query('SELECT * FROM fg_meilin_calls WHERE drama_id=$1 AND task_id=$2',[media[1],media[2]])).rows[0];if(!link)throw Error('媒体不存在');const producer=await ownerAPI(ctx.pool,link.actor_id,ctx),view=await taskView(ctx.pool,link,ctx);if(!view.result?.resourceId)throw Error('结果尚未归档');const access=await producer.api('/resources/access','POST',[{resourceId:view.result.resourceId,purpose:'copy',variant:'original'}]);const url=new URL(access.items?.[0]?.access?.url,ctx.web);const response=await fetch(new URL(url.pathname+url.search,ctx.web),{headers:{...(req.headers.range?{range:req.headers.range}:{})}});res.writeHead(response.status,{'content-type':response.headers.get('content-type')||'application/octet-stream','cache-control':'no-store',...(response.headers.has('content-range')?{'content-range':response.headers.get('content-range')}:{})});for await(const chunk of response.body)res.write(chunk);res.end();return true;}
   const targetPath=isAPI?path.pathname.replace('/api/fg/meilin','/api')+path.search:(path.pathname.slice('/meilin-app'.length)||'/')+path.search;
-  const headers={...meilinHeaders({id:actor.id,name:actor.name,reviewer:actor.reviewer},req.method,targetPath)};for(const k of ['content-type','content-length','accept','range','x-fg-operation-id'])if(req.headers[k])headers[k]=req.headers[k];
-  const remote=http.request(new URL(targetPath,process.env.MEILIN_URL||'http://meilin:5310'),{method:req.method,headers},response=>{res.writeHead(response.statusCode||502,{...responseHeaders(response.headers),'cache-control':'no-store'});pipeline(response,res,()=>{});});
+  const headers={...supportCorrelationHeaders(req),...meilinHeaders({id:actor.id,name:actor.name,reviewer:actor.reviewer},req.method,targetPath)};for(const k of ['content-type','content-length','accept','range','x-fg-operation-id'])if(req.headers[k])headers[k]=req.headers[k];
+  const remote=http.request(new URL(targetPath,process.env.MEILIN_URL||'http://meilin:5310'),{method:req.method,headers},response=>{captureSupportUpstream(res,response.headers);res.writeHead(response.statusCode||502,{...responseHeaders(response.headers),'cache-control':'no-store'});pipeline(response,res,()=>{});});
   remote.on('error',()=>{if(!res.headersSent)json(res,503,{error:'美林工作台正在准备，请稍后重试'});else res.destroy();});req.on('aborted',()=>remote.destroy());res.on('close',()=>{if(!res.writableEnded)remote.destroy();});pipeline(req,remote,()=>{});
  }catch(e){json(res,403,{error:e.message});}return true;
 }

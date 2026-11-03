@@ -21,7 +21,13 @@ COPY deploy/entry.py /app/fg-entry.py
 COPY deploy/company_cost.py /app/company_cost.py
 COPY deploy/company_request.py /app/company_request.py
 COPY deploy/company_recycle.py /app/company_recycle.py
-RUN chmod 0644 /app/fg-entry.py /app/company_cost.py /app/company_request.py /app/company_recycle.py
+COPY deploy/support_evidence.py /app/support_evidence.py
+ARG BUILD_COMMIT
+ARG BUILD_TIME
+ARG BUILD_ENVIRONMENT
+ARG BUILD_DIRTY
+RUN BUILD_COMMIT="$BUILD_COMMIT" BUILD_TIME="$BUILD_TIME" BUILD_ENVIRONMENT="$BUILD_ENVIRONMENT" BUILD_DIRTY="$BUILD_DIRTY" /app/.venv/bin/python -c 'import datetime,json,os,pathlib,tomllib; p=tomllib.loads(pathlib.Path("/app/pyproject.toml").read_text()); pathlib.Path("/app/arcreel-build.json").write_text(json.dumps({"commit":os.getenv("BUILD_COMMIT") or "unknown","version":p["project"]["version"],"buildTime":os.getenv("BUILD_TIME") or datetime.datetime.now(datetime.UTC).isoformat(),"environment":os.getenv("BUILD_ENVIRONMENT") or "unknown","dirty":os.getenv("BUILD_DIRTY") or "unknown"}))'
+RUN chmod 0644 /app/fg-entry.py /app/company_cost.py /app/company_request.py /app/company_recycle.py /app/support_evidence.py
 COPY --from=frontend-builder /build/frontend/dist/ /app/frontend/dist/
 COPY SOURCE.md /app/FG-SOURCE.md
 COPY upstream/ /app/fg-source/upstream/

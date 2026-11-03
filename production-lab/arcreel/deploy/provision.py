@@ -100,7 +100,7 @@ for actor in users:
             if state['State']['Running'] and not idle(name,actor):continue
             run('rm','-f',name);existing=None
     if not existing:
-        run('run','-d','--name',name,'--user','1000:1000','--restart','unless-stopped','--network',network,'--ip',address,'--add-host','fg-gateway:'+gateway_ip,'--memory','1024m','--cpus','1','--pids-limit','256','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+name+'-state,target=/state','--mount','type=bind,source='+str(directory)+',target=/workspace','--mount','type=bind,source='+str(recycle)+',target=/fg-recycle','-e','FG_ARC_ACTOR='+actor,'-e','FG_ARC_CAPABILITY='+capability,image)
+        run('run','-d','--name',name,'--user','1000:1000','--restart','unless-stopped','--network',network,'--ip',address,'--add-host','fg-gateway:'+gateway_ip,'--memory','1024m','--cpus','1','--pids-limit','256','--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=volume,source='+name+'-state,target=/state','--mount','type=bind,source='+str(directory)+',target=/workspace','--mount','type=bind,source='+str(recycle)+',target=/fg-recycle','-e','FG_ARC_ACTOR='+actor,'-e','FG_ARC_CAPABILITY='+capability,'-e','SUPPORT_BOT_NATIVE_READ_TOKEN='+env.get('SUPPORT_BOT_NATIVE_READ_TOKEN',''),image)
     endpoints[actor]=address
     temporary=metrics/'arcreel-runtimes.new';temporary.write_text(json.dumps(endpoints));temporary.chmod(0o644);temporary.replace(metrics/'arcreel-runtimes.json')
     # Snapshot the private SQLite DB without exposing scoped capabilities on NAS.

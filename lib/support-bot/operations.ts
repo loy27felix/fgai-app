@@ -27,7 +27,7 @@ type OperationRow = {
 
 const DAY_MS = 86_400_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const IDENTIFIER = /^[A-Za-z0-9_-]{1,120}$/;
+const IDENTIFIER = /^[A-Za-z0-9_.:-]{1,120}$/;
 const CORRELATION_ID = /^[A-Za-z0-9._:-]{1,96}$/;
 const QUERY_FAILED = '操作数据暂时无法查询；查询失败不代表本次反馈的故障原因。';
 let canvasPool: Pool | undefined;

@@ -1,3 +1,4 @@
+import {supportCorrelationHeaders,captureSupportUpstream} from './support-observability.mjs';
 import http from 'node:http';
 import {pipeline} from 'node:stream';
 import {createHash,createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
@@ -225,7 +226,7 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
  }
  if(isRuntime&&['/fg-models','/fg-model-selection'].includes(inner)){
   try{
-   const models=await advertisingModels(pool),runtime='http://'+runtimeIP+':8060',headers={'x-fg-runtime':creatorCapability(actor.id)};
+   const models=await advertisingModels(pool),runtime='http://'+runtimeIP+':8060',headers={...supportCorrelationHeaders(req),'x-fg-runtime':creatorCapability(actor.id)};
    const response=await fetch(runtime+'/creator-services/config',{headers});if(!response.ok)throw Error('个人工作区尚未就绪');
    const current=await response.json(),config=current.config;
    if(inner==='/fg-model-selection'){
@@ -248,10 +249,10 @@ export async function creatorUserRoute(req,res,{pool,actor,path}){
  // DNS. The host supplies only this user's managed private bridge address.
  const destination=isRuntime?'http://'+runtimeIP+':8060':'http://creator-web';
  const target=new URL(isRuntime?inner+path.search:path.pathname==='/creator-app'?'/index.html':path.pathname.replace(/^\/creator-static/,''),destination);
- const headers=isRuntime?{'x-fg-runtime':creatorCapability(actor.id)}:{};
+ const headers={...supportCorrelationHeaders(req),...(isRuntime?{'x-fg-runtime':creatorCapability(actor.id)}:{})};
  for(const key of ['content-type','content-length','accept','range','last-event-id'])if(req.headers[key])headers[key]=req.headers[key];
  const upstream=http.request(target,{method:req.method,headers},remote=>{
-
+  captureSupportUpstream(res,remote.headers);
   res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':'no-store'});pipeline(remote,res,()=>{});
  });
  upstream.on('error',()=>{if(!res.headersSent)json(res,{error:{code:'CREATOR_STARTING',message:'个人创作者运行环境正在启动，请稍后重试'}},503);else res.destroy();});

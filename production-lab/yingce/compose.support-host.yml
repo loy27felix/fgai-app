@@ -1,0 +1,29 @@
+# Apply only after an approved deployment window; this file is not included by default.
+# 仅获准部署后才显式叠加此文件；默认运行不加载，不停止任何守护进程。
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${SUPPORT_HOST_CANVAS_DB_PORT:-55441}:5432"
+  gateway:
+    environment:
+      SUPPORT_BOT_NATIVE_READ_TOKEN: ${SUPPORT_BOT_NATIVE_READ_TOKEN:-}
+    ports:
+      - "127.0.0.1:${SUPPORT_HOST_GATEWAY_PORT:-33010}:3010"
+  backend:
+    ports:
+      - "127.0.0.1:${SUPPORT_HOST_CANVAS_PORT:-33019}:8080"
+  yingce-agent:
+    ports:
+      - "127.0.0.1:${SUPPORT_HOST_AGENT_PORT:-33081}:8081"
+  web:
+    ports:
+      - "127.0.0.1:${SUPPORT_HOST_WEB_PORT:-33021}:3000"
+  adcraft-api:
+    environment:
+      SUPPORT_BOT_NATIVE_READ_TOKEN: ${SUPPORT_BOT_NATIVE_READ_TOKEN:-}
+  adcraft-agent:
+    environment:
+      SUPPORT_BOT_NATIVE_READ_TOKEN: ${SUPPORT_BOT_NATIVE_READ_TOKEN:-}
+  meilin:
+    environment:
+      SUPPORT_BOT_NATIVE_READ_TOKEN: ${SUPPORT_BOT_NATIVE_READ_TOKEN:-}

@@ -268,7 +268,7 @@ pnpm dev
 
 服务取证不再只有 FG / Canvas 两种来源：目录区分 FG、Production Lab、Yingce 网页、Canvas Go 后端、gateway、独立 Agent，以及 ArcReel、OpenCreator、AdCraft、Meilin、Suno、基础设施和其他仓库代码。源码搜索仍覆盖全仓，目录不限制搜索范围；读取实现后按所属服务单独核对版本，不能把 FG/Canvas 版本套给其他服务。依赖仅提示待查边界，跨服务关联须有双方授权记录的相同定位编号，不能按时间相近或项目相同拼接链路。
 
-已实现的操作适配包括 FG creator、Canvas 任务/流水线、Production Lab 独立业务库的媒体任务与脚本运行记录，以及 Yingce gateway 的音乐、语音任务/用量、Creator、AdCraft、Meilin 和预算回执七类来源。每个来源保留查询范围、归属校验、缺表/缺字段及截断信息；操作回执不是原生请求日志。其他服务的原生日志与独立运行版本尚未全部接入，未配置或不可验证时明确展示缺口，不回退其他服务数据冒充。
+已实现的操作适配包括 FG creator、Canvas 任务/流水线、Production Lab 独立业务库的媒体任务与脚本运行记录，以及 Yingce gateway 的音乐、语音任务/用量、Creator、AdCraft、Meilin 和预算回执七类来源。每个来源保留查询范围、归属校验、缺表/缺字段及截断信息；操作回执不是原生请求日志。五个独立产品的原生接口、可信归属及运行版本适配见下方清单；实现存在不代表当前环境已部署。未配置或不可验证时明确展示缺口，不回退其他服务数据冒充。
 
 操作数据查询只读、参数化并强制验证归属，模型不能提交SQL、URL或userId。FG接入层日志使用当前网页登录身份过滤，日志详情只能来自本轮授权查询；近期记录仅是候选，不会因存在一个错误就认定是本次故障。Canvas是独立业务运行服务：需要显式配置其只读数据连接与运行版本接口，缺少任一项都会在答复中展示缺口，不用FG同名任务或FG版本替代。故障按用户编号或时间窗口查询后，程序使用 `chain` 沿真实返回的 taskId/requestId/traceId 展开（每条链最多6个编号查询，保留查询范围、截断与失败标记），读取失败节点的脱敏错误摘录。多个编号条件按交集查询，扩展每一跳仍验证归属。Canvas 查询原生 `task_logs` / `api_call_logs`，不以FG接入层日志冒充Canvas请求；其中上游API审计不等于入站HTTP日志。Canvas AccessLog、gateway HTTP与独立Agent运行事件通过各自原生结构化日志接入，身份仅来自服务端已验证会话或内部服务鉴权；未配置日志源或只有旧格式时仍显示缺口，不能补造历史记录。飞书未绑定FG账号时保留按用户文字提供的taskId/requestId/traceId及其已返回关联编号查询的信任模式，不开放无编号全站扫描。
 
@@ -288,30 +288,47 @@ FG 主库、Canvas/gateway 业务库和独立 Production Lab 库都必须具备�
 5. `SUPPORT_BOT_ENABLED=true` 开放接收；`SUPPORT_BOT_SEND_ENABLED=false` 时 worker 和 `/api/support-bot/process` 只处理网页队列，仍会调用诊断模型；设为 `true` 才同时处理飞书队列及外发飞书消息。默认均关闭，不会自动安装或重启生产服务。
 6. 可选接入Canvas：`SUPPORT_BOT_CANVAS_DATABASE_URL` 指向对应环境的PostgreSQL，必须使用仅SELECT权限账号；读取映射表和本人任务/项目，不会建立Canvas session或执行DDL。`SUPPORT_BOT_CANVAS_VERSION_URL` 指向同一部署受信的版本接口（需返回可验证Git commit）；地址只来自服务端配置，不接受用户或模型指定。没有连接时仍可做源码咨询，但Canvas实际操作/线上根因不能宣称已核实。不要将生产连接配置进本地测试环境。
 7. 可选接入 Production Lab：`SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL` 指向同环境独立业务库的只读账号；未配置时读取既有 `PRODUCTION_LAB_DATABASE_URL`，绝不回退 FG 主库。gateway 回执复用 `SUPPORT_BOT_CANVAS_DATABASE_URL`，必须存在 active 账号映射，查询同时校验任务及项目归属。所有适配只读，不建表、不创建服务会话；不会把这些业务记录作为未接入的入站 HTTP 日志。
-8. 独立版本按服务配置：`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 指向各自 `/health/version`，`SUPPORT_BOT_YINGCE_WEB_VERSION_URL` 指向实际网页构建的 `/.well-known/fg-runtime.json`；Canvas 使用 `/api/system/version`。worker 必须能直达这些同环境地址，不把 FG 页面代理结果当作独立服务版本。读取固定安全字段 `service/build.commit/build.version/build.environment/build.dirty`；`local` 对应构建环境 `development`，`production` 对应 `production`，缺失或不匹配即拒绝。生产只有服务身份正确、production、clean 且对应提交源码可用才签认；dev/dirty 明确标记仅供参考，旧 Canvas 缺少身份/clean 证明也不签认。其他服务同样使用 `SUPPORT_BOT_<大写服务名，连字符换下划线>_VERSION_URL`，但前提是其真实端点实现该合同，不能仅填一个地址就称已接通。
+8. 独立版本按服务配置：`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 指向各自 `/health/version`，`SUPPORT_BOT_YINGCE_WEB_VERSION_URL` 指向实际网页构建的 `/.well-known/fg-runtime.json`；Canvas 使用 `/api/system/version`。worker 必须能直达这些同环境地址，不把 FG 页面代理结果当作独立服务版本。读取固定安全字段 `service/build.commit/build.version/build.environment/build.dirty`；`local` 对应构建环境 `development`，`production` 对应 `production`，缺失或不匹配即拒绝。生产只有服务身份正确、production、clean 且对应提交源码可用才签认；dev/dirty 明确标记仅供参考，旧 Canvas 缺少身份/clean 证明也不签认。五个独立产品改由下述带账号归属的受控 relay 获取版本，不再用一个固定 URL 代表所有用户实例；地址有值不代表已经连通。
    构建独立镜像时必须传入真实 `BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME`、`BUILD_DIRTY`；clean 状态应由构建时 checkout 检测，不能默认填 false。现有 gateway Compose 构建读取 `CANVAS_BUILD_*`，backend/agent/web 仍使用预构建镜像，须在各自构建流水线传入上述参数；此功能不会自动重建、推送或部署镜像。
 9. `SUPPORT_BOT_NATIVE_LOG_SOURCES` 是仅服务端配置的 JSON，例如 `{"canvas":{"file":"/var/log/fg/canvas.jsonl"},"yingce-gateway":{"container":"gateway"},"yingce-agent":{"file":"/var/log/fg/agent.jsonl"}}`。每服务只能选择一个绝对路径 JSONL 文件或可信容器名。优先由部署侧将日志目录只读提供给 worker；容器模式要求 worker 已具备 Docker CLI/context，不自动挂载 Docker socket、不接受模型指定命令/路径/容器。原生事件含 service、鉴权用户、request/trace、状态及当时 build commit/dirty，正文和凭据不进入调查结果。**日志必须带 `build_environment`，且与所选环境匹配：local → development，production → production；缺失或不匹配的记录不作为证据，不能因日志文件可读就判 ready。** Canvas/Agent 需 active 原生账号映射，gateway 使用 FG 已鉴权用户；匿名和仅伪造用户Header的事件不纳入本人记录。Canvas 设置 `CANVAS_LOG_FORMAT=json`；默认 info 不记录成功 GET 等低级别事件，需要完整请求跟踪时由运行环境显式配置 `CANVAS_LOG_LEVEL=debug`。
 10. 原生日志每次最多读取2MiB/5000行并返回100条，按本人及指定编号/时间交集筛选；不虚构项目归属，不支持显式项目条件时会拒绝而非静默忽略。轮转、日志级别、截断及改版前未采集的请求都可能造成历史缺口。报告核对事件中的 build commit/dirty 与对应源码，不以今天的运行版本冒充旧请求版本。浏览器静态站可核对自身构建，但没有独立服务器业务库；其他独立产品是否运行须分别核实，不能因仓库有目录就宣称正在运行或已接入。
 
-**独立产品接入缺口（源码调查，不是部署验收）：** `lib/support-bot/services.ts` 的 `data: 'unavailable'` 不代表没有原服务。下列五产品尚无可直接供助手使用的完整原生合约版本端点、日志合同和受信账号映射；部分已有健康接口或内部账号隔离，但仅填地址不能变为 ready。
+**运行清单与退役边界：** 当前 Gateway 源码 `production-lab/yingce/gateway/fg-retired-modules.mjs` 已将 ArcReel、OpenCreator 的用户入口设为 `410 FG_MODULE_RETIRED`，两产品 provisioner 保留禁止重建的保护。原生适配用于已有实例/存量记录的受控取证，不代表恢复用户入口。2026-11-03 的生产只读核验中，两入口也实际返回410；发布前仍须复核当前状态。本次不解除保护、不重建退役产品。旧 Production Lab 独立库也只能在旧路由实际在用时列为生产必需项。全仓源码仍可检索；“目录存在”“适配已实现”“本地样例通过”“生产正在运行”是不同状态，不可互相替代。
 
-| 产品 | 原生运行入口与数据来源 | 助手尚缺的证据 |
+**五个独立产品的原生只读接入（实现与部署验收分开）：** worker 使用 `SUPPORT_BOT_NATIVE_GATEWAY_URL`（仅 origin）和至少32字符的独立随机 `SUPPORT_BOT_NATIVE_READ_TOKEN`，调用 Gateway 的 `/internal/support/<service>/evidence|version`。先经 Canvas SELECT-only 连接核验当前 FG 用户的 active 账号映射，Gateway 再核验并解析受信实例/workspace；不接受用户提供 URL、容器、SQL、账号或文件路径。只读 token 不能用于普通业务接口，也不下发浏览器。服务或映射缺失时明确返回缺口，不回退 gateway 回执冒充原生记录。
+
+| 产品 | 原生数据与归属 | 运行版本边界 |
 | --- | --- | --- |
-| ArcReel | `production-lab/arcreel/deploy/entry.py`：每用户 Python 服务，gateway 代理；独立 `/state/arcreel.db`，工程根下 `logs/arcreel.log`。 | 实例归属、原生版本/日志合同及只读数据适配，不能用 gateway 回执代替。 |
-| OpenCreator | `production-lab/opencreator/deploy/entry.mjs`：共享网页 + 每用户 daemon；`/state/opencreator/data/app.sqlite` 及 dataDir 下 `runs/`。 | 实例归属与原生合约；wrapper 过滤普通 stdout/stderr，Docker 输出不等于 run 日志。 |
-| AdCraft | `production-lab/adcraft/upstream/apps/api/fg_main.py`：iframe + gateway + 独立 API/Web/Agent；`/database/<workspace>/v2/adcraft.sqlite3`。 | 各组件版本、原生请求/执行日志及 workspace 归属适配。 |
-| Meilin | `production-lab/meilin/upstream/server/fg-server.mjs`：iframe 经 gateway 进入独立服务；`production-lab/meilin/upstream/schema.sql` 的 `fg_meilin_dramas`、`fg_meilin_members`、`fg_meilin_events`。Compose 需显式启用 `meilin` profile。 | 原生版本/日志及账号权限数据适配；`npm run dev` 的原型入口不是 FG 集成验收。 |
-| Suno | `production-lab/suno/server.ts`：独立适配服务调用外部 Suno；`/state/<operation-id>.json` 和 MP3，当前协议在 `current-api.mjs`。 | operation 到账号的受信映射及合约版本/日志；供应商模型目录不是适配器版本。 |
+| ArcReel | 真实实例 `FG_ARC_ACTOR`、实例 SQLite/工程记录及结构化请求日志 | 当前用户 Python/内置网页实例的构建，不借用其他用户实例 |
+| OpenCreator | 当前用户 daemon SQLite、run 及请求记录 | daemon 和独立 shared Web 分别采集，不能相互代替 |
+| AdCraft | 受信 owner→workspace 映射及该 workspace SQLite/请求记录 | API、Agent、Web 三个组件分别采集 |
+| Meilin | 原生 PG 的 drama/member/event 及受信 FG 身份 | FG 集成服务，不是原型 dev 页面 |
+| Suno | 带受信 operation→actor 归属的原生状态文件与请求记录；历史未记录归属的文件不补造身份 | adapter 自身构建，不是供应商模型清单 |
 
-Yingce 已有 Web 构建清单、Canvas `/api/system/version`、gateway/Agent 各自 `/health/version` 及后端原生事件，仍须逐环境验证配置、身份、构建与日志标记。gateway 的 Creator/AdCraft/Meilin/Suno 提交或任务回执只证明网关侧事实，不代表原服务请求、执行结果或部署版本；`infrastructure`、`repository` 只是分类，不是两个独立运行产品。
+统一接口只返回固定安全字段（ID、状态、时间、错误码、关联编号、运行构建），不透传 prompt、原始响应、Cookie 或密钥；按本人、时间、精确编号交集查询。无时间默认最近24小时，最多7天、返回50条，接口上限100条；不支持的过滤条件不能静默忽略：若某个源不支持则该源返回空并标明不可用/不完整，仍可返回另一个源已精确过滤的结果；所有源都不支持才拒绝整个请求，绝不扩大范围。例如 ArcReel 存量业务记录缺少 request/trace 关联时，不冒充已关联的操作记录，但仍可查询同编号原生 HTTP 日志。日志截断、重启/轮转、旧版未采集及未归属数据必须在 coverage 中披露。多组件产品只有全部组件服务身份、环境、提交及 clean 证明一致才签认整个产品运行源码；开发构建始终仅作参考。错误码可作为真实观察和代码检索线索，但仅凭同名文本/注释不确认根因；没有真实错误原文及完整运行链证明时保留未确认状态。已指定时间窗的链路展开对所有服务继续执行原时间范围，不能悄悄改查全部历史；窄时间窗无日志也不能反推服务从未接入。
+
+`SUPPORT_BOT_NATIVE_PROBE_USER_ID` 是管理员选定的真实试点 FG 用户 UUID，用于全量预检。可用 `SUPPORT_BOT_NATIVE_PROBE_FROM` / `SUPPORT_BOT_NATIVE_PROBE_TO` 明确验收时间窗（带时区、最多7天）；必须在该窗口内产生真实已鉴权业务请求，不能把 support/health 探针当业务日志。默认过去24小时若早于首次采集，应如实失败；显式新窗口通过不意味着更早的历史已补齐。它仍须通过 active 映射、实例归属与接口鉴权。一个试点用户通过不代表所有用户实例通过，接口返回空集合不代表真实业务闭环完成。各产品持久化日志和构建变量以对应目录 README/部署说明为准。源码目录存在只代表可搜索，**当前本地与生产是否就绪以本轮真实预检和操作回放证据为准，不能从这张实现清单推导已经上线。**
+
+**本轮本地验收（2026-11-03）：** 默认全11服务 preflight（未缩小 `--require`）及五产品共享客户端→账号映射→Gateway→原生记录/日志/版本实测通过。原生共同验收窗口为 `2026-11-03T09:32:00Z`–`09:37:59.834Z`，仅证明该窗口及试点账号的数据源就绪，不覆盖首次采集之前的历史。ArcReel request/trace 只能精确关联 HTTP 日志、不能关联存量业务记录；OpenCreator 未提供 traceId 关联。两者退役入口均保持410，未恢复业务入口。本地截图识别、文本故障、SSE阶段、复制和终止有真实浏览器/API/worker回放证据；旧 Production Lab 是隔离空库验证，未执行付费业务。生产实际部署和试点闭环仍须按下方审批步骤完成，不能以本地结果代替。
 
 **生产配置准备顺序（仅清单，不表示已上线）：**
 
 1. 保持 `SUPPORT_BOT_ENABLED=false`、`SUPPORT_BOT_SEND_ENABLED=false`。独立准备生产私密配置，明确 `SUPPORT_BOT_ENVIRONMENT=production` 和 `NODE_ENV=production`；未核对实际进程前，不认为 Dockerfile 的默认值已经生效。**环境检查为 fail-closed：新代码生效后，生产缺少环境变量或 FG 主库标记、标记不匹配时，support 接口会返回 503，worker 检查也会失败。必须在启用前准备好配置，不能上线开放后再补标记。**
 2. 确认 FG `DATABASE_URL`、`SUPPORT_BOT_CANVAS_DATABASE_URL`、`SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL`（或其回退 `PRODUCTION_LAB_DATABASE_URL`）的真实目标，再由各库 owner 设置数据库级 GUC，准备所需 schema 和角色授权。业务证据连接使用 SELECT-only 账号；FG 主库还承担队列与会话持久化，不能一概改成只读账号。
 3. 单独注入模型配置：`SUPPORT_BOT_MODEL_ID=gpt-6.1-sol`、`SUPPORT_BOT_REASONING_EFFORT=high`、`SUPPORT_BOT_API_PROTOCOL=responses`，以及 `SUPPORT_BOT_API_BASE_URL` / `SUPPORT_BOT_API_KEY`；留空会回退 `WETOKEN_BASE_URL` / `WETOKEN_API_KEY`，也须确认属于预期供应商。生产示例显式选择 Responses，不等同于 `.env.example` 的通用协议默认值。
-4. 准备 `SUPPORT_BOT_CANVAS_VERSION_URL`、`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_WEB_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 及 `SUPPORT_BOT_NATIVE_LOG_SOURCES` 的同环境地址/只读挂载，验证原服务身份、账号映射与构建环境；不填真实地址到示例，不把五产品的缺口隐藏为已接通。
-5. 由获准的发布流程向 Web 和 worker 注入一致的生产配置，建立新连接，保持接收与外发关闭，先执行下方 `--check`，再执行与获准范围一致的 `preflight --require=...`。确认所需项 ready 并记录其余缺口后，才另行授权启用接收并验证实际 API；只有准备好 `SUPPORT_BOT_WORKER_TOKEN`、`FEISHU_SUPPORT_*` 应用/租户/表格变量和 `SUPPORT_BOT_MODULE_OWNERS`、核验飞书权限后，才按需授权生产外发。本地始终禁止飞书外发；本清单不授予启动、重启、部署或生产验证权限。
+4. 确认实际路由：生产 `/production-lab` 若进入 Yingce Gateway，它的数据在 Canvas 库，不要求给不存在的旧 `production_lab_*` 库强行配置连接。仅仍部署旧模块时才验收该独立库。准备 `SUPPORT_BOT_CANVAS_VERSION_URL`、`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_WEB_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 及 `SUPPORT_BOT_NATIVE_LOG_SOURCES` 的同环境地址/只读挂载，验证原服务身份、账号映射与构建环境；同时准备五产品 relay URL、独立只读 token 和试点账号，确认每个原生服务已安装新接口。核心服务可使用已有 Docker 日志读取模式（worker 宿主机已有 Docker CLI 和受信 local context）；此时不依赖并不存在的采集文件，也不向 worker 容器开放 Docker socket。使用文件模式则必须先确认实际采集进程、文件生成及只读挂载；不能仅创建空文件通过验收。
+5. 由获准的发布流程向 Web 和 worker 注入一致的生产配置，建立新连接，保持接收与外发关闭，先执行下方 `--check`，再执行与获准范围一致的 `preflight --require=...`。确认所需项 ready 并记录其余缺口后，才另行授权启用接收并验证实际 API；`--require` 只能来自审核过的实际运行清单，不能为消除失败而删掉在用服务；只有准备好 `SUPPORT_BOT_WORKER_TOKEN`、`FEISHU_SUPPORT_*` 应用/租户/表格变量和 `SUPPORT_BOT_MODULE_OWNERS`、核验飞书权限后，才按需授权生产外发。本地始终禁止飞书外发；本清单不授予启动、重启、部署或生产验证权限。
+
+
+**获准发布时的执行与回退边界（以下尚未自动执行）：**
+
+- 发布前记录当前 Web、worker、Gateway、Canvas、Agent 及实际运行产品所有组件的 commit/image ID/环境；未部署/已退役项单列并保留缺口，不能借其他服务版本代替；核对私密 env 权限为0600、目录0700。只读 token 与模型密钥只给需要的进程；主站网页入队无需持有模型密钥。准备好016–020迁移及目标数据库备份，环境标记由各库 owner 在确认真实目标后设置。
+- 本次准备使用**宿主机独立 worker**，复用已安装的 Node/Git/Docker CLI，不在核查阶段构建新 worker 镜像，也不挂 Docker socket 给新容器。`production-lab/yingce/compose.support-host.yml` 是需显式批准后叠加的可选 overlay：只向127.0.0.1发布 Canvas PG/Gateway/Backend/Agent/Web 的诊断访问端口，并向必要原生服务注入只读 token；默认 Compose 不加载。发布前先核对端口占用、真实容器端口及各实际 env，再决定是否应用；不能把准备好的 overlay 称为生产已配置。Suno 使用自身 Compose；ArcReel/OpenCreator 已退役，不运行其 provisioner 或恢复入口。若需诊断存量实例，另行审核现存实例的只读 token 注入和版本，不绕过退役保护。
+- 在独立准备目录安装锁定依赖，worker 从完整源码仓库根启动（需 Git 对象及所有产品源码）。不要用主站 standalone 镜像冒充完整源码 checkout；主站 `.dockerignore` 排除了多个独立产品。先执行 `node --env-file=/绝对路径/worker.env node_modules/tsx/dist/cli.mjs scripts/support-bot-worker.ts --check`，再在同环境运行 `scripts/support-bot-preflight.ts`。命令示例中的路径由发布清单确定，不从本地 env 复制生产凭据。
+- 镜像构建必须在**获得构建授权后**执行，注入实际 commit/version/time/environment/dirty；不能通过手填 clean、改 tag 或借用当前 checkout 的 SHA 伪造旧镜像版本。先核对产物，再另行确认部署窗口，不在配置核查阶段构建生产镜像。
+- 2026-11-03 只读盘点对应的生产验收候选为 `--require=fg,canvas,yingce-web,yingce-gateway,yingce-agent,adcraft,meilin,suno`；ArcReel/OpenCreator 因实际退役入口410而单列，旧 Production Lab 独立库仅在确认仍部署时追加。此名单须在发布窗口再次核对，不能因为某个在用服务失败就从名单移除。先由真实试点账号产生免费已鉴权业务请求，再用相同新采集时间窗执行 preflight；不得把采集之前的历史缺口消除或改写成成功。
+- 独立 worker 只启动一个受管实例；命令为上述 tsx CLI 去掉 `--check`。通过 `support_bot_worker_started` 的 commit/环境/部署版本和一条真实网页工单的领取→原生取证→SSE阶段→校验后答复核验，不以进程存在代替闭环。保持 `SUPPORT_BOT_SEND_ENABLED=false`，不会通知飞书或重复触发业务生成。
+- 任一必需服务未 ready 或闭环失败，保持网页接收关闭。代码回退保留新增表/列与原始日志，不删除数据或重标记数据库；按已获批准的发布流程切回记录的镜像/checkout。**不停止、卸载或强制重启任何生产守护进程**；若涉及已加载 worker/其他服务停止，必须先获得针对该服务的明确停止授权，普通部署授权不包含此项。
 
 
 问题、诊断证据、队列租约和各外发步骤结果保存在 PostgreSQL；多维表格按问题编号同步。回复、表格同步、开发通知独立尝试，某个通道失败不会阻断其他通道，重试跳过已成功通道并复用诊断结果。网络中断在远端成功而本地尚未记账的极小窗口仍可能造成重复通知，使用飞书消息 UUID 做额外去重。文字模型输入和外发内容统一脱敏，截图原图不会自动脱敏；关键词按字面全文检索，不能改写定位条件。故障确认须关联同一业务服务、本次定位编号对应的完整请求证据与匹配运行版本的源码；版本未知、仅近期候选或链路不完整时仅展示已查事实，不能换成低置信度标签后继续发布推测正文。已有源码命中时，即使证据不足也要实际读取相关业务实现；文档、测试和搜索摘要不能代替运行实现。产品咨询不套用故障结论。每个飞书身份或网页登录账号有提问与排队上限，持续失败的任务最多尝试四次，最终失败保留在 `support_bot_jobs` 供管理员排查。数据库保留期限遵循现有备份与数据管理策略，需清理时先备份，不能将问题表当作唯一事实来源。
@@ -324,9 +341,9 @@ Yingce 已有 Web 构建清单、Canvas `/api/system/version`、gateway/Agent �
 SUPPORT_BOT_ENVIRONMENT=local SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:preflight --require=fg,production-lab,canvas,yingce-gateway,yingce-web,yingce-agent
 ```
 
-预检验证数据库级环境标记、所需表存在及 SELECT 权限；对 Canvas 和 Production Lab 证据连接，还检查所需表上没有 INSERT/UPDATE/DELETE/TRUNCATE 权限，不执行实际写入。独立服务检查原生版本身份、构建环境及日志服务/事件/`build_environment` 的同环境格式；静态网页只检查自身版本，不虚构业务库或服务器业务日志。**它不扫描实际账号业务记录，不保证每个账号的 active 映射存在，也不是完整模型业务流验收。FG 运行项（Production Lab 复用）来自执行 preflight 的本进程 checkout 快照，不是 Web 远端进程探针**，不能据此证明已运行的 Web/worker 与该 checkout 相同；实际账号权限、映射和业务请求仍需在获准范围内另验。
+预检验证数据库级环境标记、所需表存在及 SELECT 权限；对 Canvas 和 Production Lab 证据连接，还检查所需表上没有 INSERT/UPDATE/DELETE/TRUNCATE 权限，不执行实际写入。独立服务检查原生版本身份、构建环境及日志服务/事件/`build_environment` 的同环境格式；静态网页只检查自身版本，不虚构业务库或服务器业务日志。**五产品探针会查询配置的试点账号的有界原生记录，只输出计数/覆盖状态，不保证其他账号的 active 映射，也不是完整模型业务流验收。FG 运行项（Production Lab 复用）来自执行 preflight 的本进程 checkout 快照，不是 Web 远端进程探针**，不能据此证明已运行的 Web/worker 与该 checkout 相同；实际账号权限、映射和业务请求仍需在获准范围内另验。
 
-显式 `--require` 时，仅所需项未 ready 才因覆盖缺口退出非 0，其他缺口仍列出，退出 0 仅表示所选范围通过；参数或全局环境配置无效也会失败。**未指定 `--require` 时，全部真实产品/服务默认 required，包含上述五产品，未接入就不能输出 all-pass，须退出非 0**；`infrastructure`、`repository` 分类桶不参与。上述六项本地数据源预检已通过；默认全服务预检退出 1，并明确列出五产品接入缺口。这是数据源配置/格式层的结果，不代表全产品可用、每个账号映射已验证、完整模型业务流通过或生产已验收。
+显式 `--require` 时，仅所需项未 ready 才因覆盖缺口退出非 0，其他缺口仍列出，退出 0 仅表示所选范围通过；参数或全局环境配置无效也会失败。**未指定 `--require` 时，全部真实产品/服务默认 required，包含上述五产品，未接入就不能输出 all-pass，须退出非 0**；`infrastructure`、`repository` 分类桶不参与。历史六项通过仅是当时限定范围结果。新版本默认全量预检还要求五产品的真实试点账号、原生数据/日志与全部运行组件；缺配置或未启动时仍退出 1。这是数据源配置/格式层的结果，不代表全产品可用、每个账号映射已验证、完整模型业务流通过或生产已验收。
 
 真实飞书连通、权限和表字段需要生产配置与单独授权才能核验；不要在聊天或仓库中提交真实凭据。本地预检通过不能替代生产环境核验，也不表示生产上线已经完成。
 

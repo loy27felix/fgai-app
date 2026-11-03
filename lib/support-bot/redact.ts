@@ -8,7 +8,7 @@ export function scrubSupportValue(value: unknown): unknown {
     return redactServerLogText(text
       .replace(/\b(?:Bearer|Basic)\s+[^\s,"';}\]]+/gi, '[redacted]')
       .replace(/((?:["']?)(?:password|secret|api[_-]?key|access[_-]?key|(?:access[_-]?|refresh[_-]?)?token|client[_-]?secret|authorization|cookie|set-cookie|private[_-]?key|credential|signature)(?:["']?)\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}\]]+)/gi, '$1"[redacted]"')
-      .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
+      .replace(/\b(?:https?|postgres(?:ql)?|rediss?|mysql|mongodb(?:\+srv)?|amqps?):\/\/[^\s]+/gi, '[url redacted]')
       .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email redacted]')
       .replace(/\b(?:sk|key)-[A-Za-z0-9_-]{12,}/g, '[redacted]'), 5000);
   }

@@ -1,3 +1,4 @@
+import {supportCorrelationHeaders,captureSupportUpstream,observeSupportRequest,safeSupportRoute} from './support-observability.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import {pipeline} from 'node:stream';
@@ -33,9 +34,12 @@ export function waitingPage(req,res,message='首次打开需要约一分钟，�
 export function createArcReelServer({pool,platformActor,canvasSession,platformOrigin,publicOrigin,externalOrigins=[]}){
  return http.createServer(async(req,res)=>{
   if(req.url==='/health/live'){res.writeHead(200);res.end('ok');return;}
+  const observation=observeSupportRequest(req,res);
   try{
    const path=workspaceRequestPath(req.url,publicOrigin,'/fg-director').url;
+   observation.route=safeSupportRoute(path.pathname);
    const actor=await platformActor(req);
+   observation.userId=actor?.id;
    if(!actor){failure(res,403,'请从 FG 工作台登录后打开导演工作台');return;}
    if(!trustedOrigin(req.method,req.headers.origin,[publicOrigin,platformOrigin,...externalOrigins])){failure(res,403,'请求来源无效');return;}
    if(managedArcWrite(req.method,path.pathname)){failure(res,403,'公司渠道、密钥和存储由 FG 统一管理；可在导演助手中切换已配置模型');return;}
@@ -51,10 +55,11 @@ export function createArcReelServer({pool,platformActor,canvasSession,platformOr
     return;
    }
    const target=new URL(path.pathname+path.search,'http://'+address+':1241');
-   const headers={'x-fg-runtime':creatorCapability(actor.id)};
+   const headers={...supportCorrelationHeaders(req),'x-fg-runtime':creatorCapability(actor.id)};
    for(const name of ['content-type','content-length','accept','range','last-event-id','accept-language'])if(req.headers[name])headers[name]=req.headers[name];
    const upstream=http.request(target,{method:req.method,headers},remote=>{
     clearTimeout(headerDeadline);
+    captureSupportUpstream(res,remote.headers);
     if((remote.statusCode||502)>=500&&waitingPage(req,res)){remote.resume();return;}
 
     res.writeHead(remote.statusCode||502,publicArcResponseHeaders(remote.headers,target));pipeline(remote,res,()=>{});

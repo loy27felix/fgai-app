@@ -23,15 +23,18 @@ export function audioURL(value){
  if(url.protocol!=='https:'||url.username||url.password||url.port||!allowedHost||!url.pathname.endsWith('.mp3'))throw Error('SUNO_INVALID_RESULT');
  return url.href;
 }
-export async function claim(root,id,input){
+export async function claim(root,id,input,metadata={}){
  if(!/^[0-9a-f-]{36}$/.test(id))throw Error('SUNO_INVALID_OPERATION');
  await mkdir(root,{recursive:true});const path=join(root,id+'.json');
  const fingerprint=createHash('sha256').update(JSON.stringify(input)).digest('hex');
- const temporary=path+'.'+randomUUID()+'.tmp';await writeFile(temporary,JSON.stringify({id,fingerprint,status:'sending'}),{mode:0o600,flag:'wx'});
- try{await link(temporary,path);return {created:true,id,path,fingerprint,status:'sending'};}
- catch(error){if(error.code!=='EEXIST')throw error;const old=JSON.parse(await readFile(path,'utf8'));if(old.fingerprint!==fingerprint)throw Error('SUNO_OPERATION_CONFLICT');return {created:false,path,...old};}
+ const now=new Date().toISOString();
+ const association={};for(const key of ['actorId','actorSource','projectId','taskId','requestId','traceId'])if(metadata[key]!==undefined)association[key]=metadata[key];
+ const data={id,fingerprint,status:'sending',createdAt:now,updatedAt:now,...association};
+ const temporary=path+'.'+randomUUID()+'.tmp';await writeFile(temporary,JSON.stringify(data),{mode:0o600,flag:'wx'});
+ try{await link(temporary,path);return {created:true,path,...data};}
+ catch(error){if(error.code!=='EEXIST')throw error;const old=JSON.parse(await readFile(path,'utf8'));if(old.actorId!==association.actorId||old.actorSource!==association.actorSource||old.fingerprint!==fingerprint)throw Error('SUNO_OPERATION_CONFLICT');return {created:false,path,...old};}
  finally{await unlink(temporary);}
 }
 export async function save(record,update){
- Object.assign(record,update);const path=record.path+'.next';const {created,path:ignored,...data}=record;await writeFile(path,JSON.stringify(data),{mode:0o600});await rename(path,record.path);
+ Object.assign(record,update,{updatedAt:new Date().toISOString()});const path=record.path+'.next';const {created,path:ignored,...data}=record;await writeFile(path,JSON.stringify(data),{mode:0o600});await rename(path,record.path);
 }

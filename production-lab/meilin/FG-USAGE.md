@@ -60,3 +60,14 @@ npm run build
 2026-10-15 已发布 v1.3.11 并开放生产入口 `/fg-six/meilin`。四个容器健康、管理员真实登录入口及页面已验；生产 PostgreSQL 快照迁移重复执行通过，143 张既有表指纹不变，新增 5 张美林表。外部 14 个技能包已只读挂载。真实付费文本、图片、视频及费用核销尚未验收，需要单独明确模型、规格与预算；普通成员登录态也仍待实际体验确认。
 
 语音输入目前保留原型的浏览器识别；未接入公司 ASR，也不调用收费配音或音乐服务。当前美林拍摄引用支持图片资产；音频上传保留名称，但独立声音绑定和视频音频参考选择仍需后续实现，不能视为已具备画布的全部多媒体引用能力。
+
+## 原生只读排查
+
+- `GET /internal/support/version` 返回 `{service:"meilin",build}`；`GET /internal/support/evidence` 返回当前真实归属的剧目、生产/Studio 任务快照、本人操作事件及本人原生 HTTP 日志。不调用供应商、不提交任务、不回显 document、prompt、请求 body、Key 或异常原文。
+- 两个接口仅接受独立 `Authorization: Bearer <SUPPORT_BOT_NATIVE_READ_TOKEN>`，token 至少 32 字符；未配置、过短或不匹配均 403，不能以 `MEILIN_INTERNAL_SECRET` 替代。需在服务运行环境单独注入，不能传给前端。
+- Query：`actorId` 必填 UUID；`start/end` 为带时区 ISO 时间，默认以 end（缺省当前时间）向前 24h，最大 7 天；`projectId/taskId/requestId/traceId` 为可选精确筛选；`limit` 默认 50、范围 1–100。非法、重复或未知 query 返回 400。scope 只回显实际执行的 actor/time 及传入的四个可选筛选；错误提供固定安全 errorCode（兼容 error.code）。
+- PostgreSQL 实际检查 `fg_meilin_dramas.owner_id` 或 `fg_meilin_members.user_id`；事件另要求 `fg_meilin_events.actor_id` 匹配。成员被移除后不再看到该剧目记录。`projectId` 是原生剧 UUID；嵌套任务以父文档 `updatedAt` 快照时间筛选，不冒充供应商任务时间。历史缺失的关联 ID/错误码不猜补。
+- 新增幂等表 `fg_meilin_support_http` 及 actor/time 索引，包含在现有 `upstream/schema.sql`，服务既有初始化执行迁移。仅在业务身份签名校验成功后的真实业务请求完成/断开时持久化固定安全字段并输出 stdout。`/internal/support/*`、health/version、`/api/config` 等探针不生成业务日志；不把查询 evidence 本身当作业务证据。
+- HTTP 日志跨进程重启保留在 PG，不自动清理。每次按 actor、时间和关联 ID 过滤，最多读取 101 条固定字段记录（少于 2 MiB/5000 行），再按 limit 返回。新安装以前、首条持久日志以前没有历史补录。写入失败会使本进程 `coverage.inboundHttp.available=false`，不能把空日志当成健康证明。
+- `coverage.operations` / `coverage.inboundHttp` 提供 `available/reason`，日志另有 `retention/availableSince`。源不可读、写失败或请求时间早于可用日志历史时 `incomplete=true`；命中数量超限另标 `truncated=true`。支持接口在某一源故障时仍返回 200 的部分结果并明确缺口，不能据空数组宣布 E2E 通过。
+- 构建元数据统一为 `BUILD_COMMIT`、`BUILD_VERSION`、`BUILD_TIME`（ISO）、`BUILD_ENVIRONMENT`、`BUILD_DIRTY`（`true|false`）。Dockerfile 接受同名 build args 并保留到镜像 ENV；打包者必须传实际提交、产品版本、打包时间、目标环境和工作树状态。不在服务启动时伪造构建时间，缺省为 `unknown`，dirty 不明为 `null`。本产品 package version 为 `0.1.0`，提交及 dirty 需按实际构建源计算。

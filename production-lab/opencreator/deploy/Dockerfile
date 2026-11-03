@@ -11,9 +11,16 @@ RUN pnpm krillinai:build && pnpm --filter @opencreator/daemon build && pnpm temp
 RUN npm install -g @openai/codex@0.149.0 && codex --version
 RUN OPENCREATOR_GATEWAY_PROTOCOL_TEST_CODEX_BIN=/usr/local/bin/codex OPENCREATOR_GATEWAY_PROTOCOL_TEST_CODEX_SHA256=$(sha256sum /usr/local/bin/codex | cut -d ' ' -f 1) pnpm --filter @opencreator/daemon test -- --maxWorkers=1 --minWorkers=1 --testTimeout=30000
 RUN pnpm --filter @opencreator/web test -- --maxWorkers=1 --minWorkers=1 --testTimeout=30000
+ARG OPENCREATOR_BUILD_COMMIT=unknown
+ARG OPENCREATOR_BUILD_VERSION=unknown
+ARG OPENCREATOR_BUILD_TIME=unknown
+ARG OPENCREATOR_BUILD_ENVIRONMENT=unknown
+ARG OPENCREATOR_BUILD_DIRTY=unknown
+ENV OPENCREATOR_BUILD_COMMIT=$OPENCREATOR_BUILD_COMMIT OPENCREATOR_BUILD_VERSION=$OPENCREATOR_BUILD_VERSION OPENCREATOR_BUILD_TIME=$OPENCREATOR_BUILD_TIME OPENCREATOR_BUILD_ENVIRONMENT=$OPENCREATOR_BUILD_ENVIRONMENT OPENCREATOR_BUILD_DIRTY=$OPENCREATOR_BUILD_DIRTY
 ENV OPENCREATOR_WEB_BASE=/creator-static/ VITE_FG_MANAGED=1
 RUN pnpm --filter @opencreator/web build
 COPY deploy/entry.mjs /app/fg-entry.mjs
+COPY deploy/support-proxy.mjs /app/support-proxy.mjs
 COPY deploy/trash.mjs /app/fg-trash.mjs
 COPY deploy/recycle.mjs /app/fg-recycle.mjs
 COPY deploy/company-media.mjs /app/company-media.mjs

@@ -6,6 +6,7 @@ RUN node /app/package-media-runtime.mjs
 # yt-dlp requires an explicit JavaScript runtime for current YouTube extraction.
 RUN printf '%s\n' '--js-runtimes node' > /etc/yt-dlp.conf
 COPY deploy/entry.mjs /app/fg-entry.mjs
+COPY deploy/support-proxy.mjs /app/support-proxy.mjs
 COPY deploy/trash.mjs /app/fg-trash.mjs
 COPY deploy/recycle.mjs /app/fg-recycle.mjs
 COPY deploy/company-media.mjs /app/company-media.mjs

@@ -1,12 +1,14 @@
 import http from 'node:http';import {readFile,writeFile} from 'node:fs/promises';import {timingSafeEqual} from 'node:crypto';
 import {join} from 'node:path';import {claim,save,musicInput,audioURL} from './contract.mjs';
 import {CurrentSunoAPI,selectSunoModel} from './current-api.mjs';
+import {supportRequest} from './support.mjs';
+import {observeRequest,requestMetadata,actorIdentifier} from './support-common.mjs';
 
 // Private runtime configuration only. No account cookie reaches FG members.
-try{for(const line of (await readFile('/run/fg-suno/account.env','utf8')).split(/\r?\n/)){if(!line||line.startsWith('#'))continue;const at=line.indexOf('=');const key=line.slice(0,at);if(['SUNO_COOKIE','TWOCAPTCHA_KEY','SUNO_MODEL','SUNO_ENABLED'].includes(key))process.env[key]=line.slice(at+1);}}catch{}
+try{for(const line of (await readFile(process.env.SUNO_ACCOUNT_ENV||'/run/fg-suno/account.env','utf8')).split(/\r?\n/)){if(!line||line.startsWith('#'))continue;const at=line.indexOf('=');const key=line.slice(0,at);if(['SUNO_COOKIE','TWOCAPTCHA_KEY','SUNO_MODEL','SUNO_ENABLED'].includes(key))process.env[key]=line.slice(at+1);}}catch{}
 const configured=()=>!!process.env.SUNO_COOKIE?.includes('__client=');
 const enabled=()=>configured()&&process.env.SUNO_ENABLED==='true';
-const state='/state';let apiPromise:Promise<any>|undefined;let active=false;let verification:any;
+const state=process.env.SUNO_STATE_DIR||'/state';let apiPromise:Promise<any>|undefined;let active=false;let verification:any;
 let statusRefresh:Promise<void>|undefined;
 async function api(){return apiPromise??=Promise.resolve(new CurrentSunoAPI({cookie:process.env.SUNO_COOKIE}));}
 async function refreshStatus(){
@@ -18,12 +20,18 @@ async function refreshStatus(){
  })();
  try{await statusRefresh;}finally{statusRefresh=undefined;}
 }
-function json(res:any,status:number,data:any){res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));}
-http.createServer(async(req,res)=>{
+function json(res:any,status:number,data:any){if(status>=400)res.supportErrorCode=data?.error?.code;res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));}
+export function createSunoServer(){return http.createServer(async(req,res)=>{
+ if(await supportRequest(req,res,json,state))return;
  if(req.url==='/health/live'){json(res,200,{ok:true});return;}
  const supplied=String(req.headers.authorization||'').replace(/^Bearer /,'');const expected=process.env.SUNO_SERVICE_SECRET||'';
  const givenBytes=Buffer.from(supplied),expectedBytes=Buffer.from(expected);
  if(!expected||givenBytes.length!==expectedBytes.length||!timingSafeEqual(givenBytes,expectedBytes)){json(res,403,{error:{code:'SUNO_FORBIDDEN'}});return;}
+ const actorId=actorIdentifier(req.headers['x-fg-actor-id']);
+ if(req.headers['x-fg-actor-id']!==undefined&&!actorId){json(res,400,{error:{code:'SUNO_INVALID_ACTOR'}});return;}
+ const metadata=requestMetadata(req);
+ const route=req.url==='/v1/audio/speech'?'/v1/audio/speech':req.url==='/status'?'/status':req.url==='/validate'?'/validate':/^\/operations\/[0-9a-f-]{36}$/.test(req.url||'')?'/operations/:id':/^\/clips\/[0-9a-f-]{36}\/download$/.test(req.url||'')?'/clips/:id/download':'other';
+ observeRequest(req,res,{actorId,route,metadata});
  if(req.url==='/status'&&req.method==='GET'){await refreshStatus();json(res,200,{configured:configured(),enabled:enabled(),model:process.env.SUNO_MODEL||'auto',adapter:'fg-current-web-20261007',captchaMode:'company-manual',generationVerified:false,...verification});return;}
  const download=/^\/clips\/([0-9a-f-]{36})\/download$/.exec(req.url||'');
  if(download&&req.method==='GET'){
@@ -46,7 +54,6 @@ http.createServer(async(req,res)=>{
   catch(error){verification={accountReadable:false,models:[]};const code=error instanceof Error&&/^SUNO_[A-Z_]+$/.test(error.message)?error.message:'SUNO_AUTH_OR_PROTOCOL_FAILED';json(res,502,{error:{code}});}return;
  }
  if(req.url!=='/v1/audio/speech'||req.method!=='POST'){json(res,404,{error:{code:'SUNO_ROUTE_NOT_FOUND'}});return;}
- if(!enabled()){json(res,503,{error:{code:'SUNO_NOT_CONFIGURED'}});return;}
  let record:any;let ownsActive=false;let submitted=false;
  try{
   let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>65536)throw Error('SUNO_INVALID_INPUT');chunks.push(chunk);}
@@ -54,11 +61,12 @@ http.createServer(async(req,res)=>{
   const id=String(req.headers['x-fg-operation-id']||'');
   if(active){json(res,429,{error:{code:'SUNO_BUSY'}});return;}
   active=true;ownsActive=true;
-  record=await claim(state,id,{...input,model:process.env.SUNO_MODEL||'auto'});
+  record=await claim(state,id,{...input,model:process.env.SUNO_MODEL||'auto'},{...metadata,...(actorId?{actorId,actorSource:'service-secret'}:{})});
   if(!record.created){
    if(record.status==='succeeded'){const bytes=await readFile(join(state,id+'.mp3'));res.writeHead(200,{'content-type':'audio/mpeg'});res.end(bytes);return;}
    json(res,409,{error:{code:'SUNO_ALREADY_SUBMITTED'}});return;
   }
+  if(!enabled()){await save(record,{status:'rejected',errorCode:'SUNO_NOT_CONFIGURED'});json(res,503,{error:{code:'SUNO_NOT_CONFIGURED'}});return;}
   const account=await api();const prepared=await account.preflight(input,process.env.SUNO_MODEL||'auto',id);await save(record,{status:'sending',actualModel:prepared.model.external_key});submitted=true;const clips=await account.generate(prepared.payload);
   const ids=clips.map((clip:any)=>clip.id);if(!ids.length||ids.some((v:any)=>!/^[0-9a-f-]{36}$/.test(v)))throw Error('SUNO_INVALID_RESULT');
   await save(record,{status:'submitted',clipIds:ids});
@@ -71,7 +79,9 @@ http.createServer(async(req,res)=>{
   await writeFile(join(state,id+'.mp3'),audio,{mode:0o600});await save(record,{status:'succeeded',clipIds:ids,primaryClipId:complete.id});
   res.writeHead(200,{'content-type':'audio/mpeg','content-length':audio.length,'x-fg-suno-clip-id':complete.id});res.end(audio);
  }catch(error){
-  if(record?.created)await save(record,{status:submitted?'uncertain':'rejected'}).catch(()=>{});
-  const code=error instanceof Error&&/^SUNO_[A-Z_]+$/.test(error.message)?error.message:'SUNO_UPSTREAM_FAILED';json(res,502,{error:{code}});
+  const code=error instanceof Error&&/^SUNO_[A-Z_]+$/.test(error.message)?error.message:'SUNO_UPSTREAM_FAILED';
+  if(record?.created)await save(record,{status:submitted?'uncertain':'rejected',errorCode:code}).catch(()=>{});
+  json(res,502,{error:{code}});
  }finally{if(ownsActive)active=false;}
-}).listen(3050,'0.0.0.0');
+});}
+if(process.env.SUNO_NO_LISTEN!=='1')createSunoServer().listen(Number(process.env.SUNO_PORT||3050),process.env.SUNO_BIND||'0.0.0.0');

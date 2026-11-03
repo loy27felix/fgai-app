@@ -1,3 +1,4 @@
+import {supportCorrelationHeaders,captureSupportUpstream} from './support-observability.mjs';
 import http from 'node:http';
 import {creatorMediaOperation} from './fg-creator-config.mjs';
 import {createHmac, createHash, randomUUID, timingSafeEqual} from 'node:crypto';
@@ -156,7 +157,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
   if(!secret()){json(res,'广告工作台尚未配置',503);return true;}
   if(match&&!await advertisingAccess(pool,actor,match[2])){json(res,'没有这个广告项目的访问权限',403);return true;}
   let target;
-  const headers={'x-fg-internal':secret(),'x-fg-actor':actor.id,'x-fg-operation':String(req.headers['idempotency-key']||randomUUID())};
+  const headers={...supportCorrelationHeaders(req),'x-fg-internal':secret(),'x-fg-actor':actor.id,'x-fg-operation':String(req.headers['idempotency-key']||randomUUID())};
   for(const key of ['content-type','content-length','accept','range','if-match','if-none-match','idempotency-key'])if(req.headers[key])headers[key]=req.headers[key];
   if(match?.[1]==='adcraft-api'){
     const inner=decodeURIComponent(match[3]||'/');
@@ -173,7 +174,7 @@ export async function adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrig
     if(inner.startsWith('/internal/')||(/providers|provider-settings|provider-certifications/.test(inner)&& !['GET','HEAD'].includes(req.method))){json(res,'模型渠道由 FG 管理',403);return true;}
     target=new URL('/w/'+match[2]+inner+path.search,'http://adcraft-api:8000');
   }else target=new URL(staticReference?path.pathname:path.pathname.startsWith('/adcraft-static/')?path.pathname.replace('/adcraft-static',''):'/index.html','http://adcraft-web');
-  const upstream=http.request(target,{method:req.method,headers},remote=>{res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':target.pathname.endsWith('index.html')?'no-store':remote.headers['cache-control']||'private, no-cache'});pipeline(remote,res,()=>{});});
+  const upstream=http.request(target,{method:req.method,headers},remote=>{captureSupportUpstream(res,remote.headers);res.writeHead(remote.statusCode||502,{...responseHeaders(remote.headers),'cache-control':target.pathname.endsWith('index.html')?'no-store':remote.headers['cache-control']||'private, no-cache'});pipeline(remote,res,()=>{});});
   upstream.on('error',()=>{if(!res.headersSent)json(res,'广告工作台正在启动，请稍后重试',503);else res.destroy();});
   req.on('aborted',()=>upstream.destroy());res.on('close',()=>{if(!res.writableEnded)upstream.destroy();});pipeline(req,upstream,()=>{});return true;
 }

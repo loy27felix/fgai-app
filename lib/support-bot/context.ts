@@ -25,7 +25,7 @@ export function parseSupportContext(value: unknown): SupportContext {
   const context: SupportContext = { source: input.source === 'canvas' ? 'canvas' : 'fg' };
   if (typeof input.pagePath === 'string' && /^\/(?!\/)[^?#\x00-\x20]{0,499}$/.test(input.pagePath)) context.pagePath = input.pagePath;
   for (const key of ['projectId', 'taskId', 'sessionId', 'requestId', 'traceId'] as const) {
-    if (typeof input[key] === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(input[key])) context[key] = input[key];
+    if (typeof input[key] === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(input[key])) context[key] = input[key];
   }
   if (input.occurredFrom !== undefined || input.occurredTo !== undefined) {
     const range = supportTimeRange(input.occurredFrom, input.occurredTo);
@@ -40,14 +40,14 @@ export function parseSupportContext(value: unknown): SupportContext {
     context.browserRequests = input.browserRequests.slice(0, 20).flatMap(value => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
       const row = value as Record<string, unknown>;
-      if (typeof row.id !== 'string' || !/^[A-Za-z0-9_-]{1,120}$/.test(row.id)
+      if (typeof row.id !== 'string' || !/^[A-Za-z0-9_.:-]{1,120}$/.test(row.id)
         || typeof row.occurredAt !== 'string' || !Number.isFinite(Date.parse(row.occurredAt))
         || Date.parse(row.occurredAt) < from || Date.parse(row.occurredAt) > to
         || typeof row.route !== 'string' || !/^\/(?!\/)[A-Za-z0-9_./:%-]{0,399}$/.test(row.route)
         || /(?:support-bot|observability|diagnostics|auth|token|share|public|secret|password|api-key)/i.test(row.route)) return [];
       const item: SupportBrowserRequest = { id: row.id, occurredAt: new Date(row.occurredAt).toISOString(), route: row.route };
       for (const key of ['taskId', 'requestId', 'traceId', 'projectId'] as const) {
-        if (typeof row[key] === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(row[key])) item[key] = row[key];
+        if (typeof row[key] === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(row[key])) item[key] = row[key];
       }
       if (typeof row.errorCode === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(row.errorCode)) item.errorCode = row.errorCode;
       if (typeof row.httpStatus === 'number' && Number.isInteger(row.httpStatus) && row.httpStatus >= 100 && row.httpStatus <= 599) item.httpStatus = row.httpStatus;

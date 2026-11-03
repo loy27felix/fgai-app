@@ -12,13 +12,14 @@ import { serviceForCodePath, supportServices } from './services';
 import { queryProductionLabOperations } from './production-operations';
 import { queryGatewayOperations } from './gateway-operations';
 import { queryNativeSupportLogs } from './native-logs';
+import { isNativeProduct, queryProductNative } from './product-native';
 
-const idPattern = /^[A-Za-z0-9_-]{1,120}$/;
+const idPattern = /^[A-Za-z0-9_.:-]{1,120}$/;
 export function identifier(value: unknown): string | undefined {
   return typeof value === 'string' && idPattern.test(value) ? value : undefined;
 }
 export function hasIdentifier(text: string, id: string) {
-  return new RegExp(`(^|[^A-Za-z0-9_-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9_-])`).test(text);
+  return new RegExp(`(^|[^A-Za-z0-9_.:-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^A-Za-z0-9_.:-])`).test(text);
 }
 export function supportUserId(job: SupportJob): string | undefined {
   if (!job.chatId.startsWith('web:') || !job.openId.startsWith('web:')) return undefined;
@@ -43,17 +44,20 @@ export function boundedEvidence(value: unknown): Record<string, unknown> {
 export function createSupportTools(job: SupportJob, source: SupportCodeSource, questions: string, investigation?: InvestigationScope) {
   const owner = supportUserId(job);
   const system = source.service || job.context?.source || 'fg';
+  const contextProject = job.context?.source === system ? job.context.projectId : undefined;
   const accessibleLogs = new Map<string, Record<string, unknown>>();
   const accessibleIds = new Set<string>();
   const fixedNow = new Date(job.context?.runtime?.capturedAt || Date.now());
+  const explicitTime = ['reported', 'interpreted'].includes(investigation?.timeBasis || '');
   function dates(args: Record<string, unknown>, exact = false, chain = false) {
-    const fromInput = args.from ?? (chain ? undefined : investigation?.from);
-    const toInput = args.to ?? (chain ? undefined : investigation?.to);
-    if (exact && fromInput === undefined && toInput === undefined && system !== 'fg' && system !== 'production-lab') return {};
+    const keepScope = !chain || isNativeProduct(system) || explicitTime;
+    const fromInput = args.from ?? (keepScope ? investigation?.from : undefined);
+    const toInput = args.to ?? (keepScope ? investigation?.to : undefined);
+    if (!isNativeProduct(system) && exact && fromInput === undefined && toInput === undefined && system !== 'fg' && system !== 'production-lab') return {};
     const to = toInput === undefined ? fixedNow : new Date(String(toInput));
-    const days = exact && fromInput === undefined && toInput === undefined ? 84 : 1;
+    const days = !isNativeProduct(system) && exact && fromInput === undefined && toInput === undefined ? 84 : 1;
     const from = fromInput === undefined ? new Date(to.getTime() - days * 86400000) : new Date(String(fromInput));
-    const maxDays = exact && fromInput === undefined && toInput === undefined ? 84 : 7;
+    const maxDays = !isNativeProduct(system) && exact && fromInput === undefined && toInput === undefined ? 84 : 7;
     if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || from >= to || to.getTime() - from.getTime() > maxDays * 86400000) throw new Error('操作与日志查询时间范围无效');
     return { from: from.toISOString(), to: to.toISOString() };
   }
@@ -75,8 +79,8 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
     }
   }
   function scope(args: Record<string, unknown>, range: Record<string, unknown>, chain = false) {
-    return { ...range, ...ids(args), projectId: identifier(args.projectId) || investigation?.projectId || job.context?.projectId,
-      timeBasis: chain ? 'identifier' : (args.from && args.from !== investigation?.from) || (args.to && args.to !== investigation?.to) ? 'interpreted' : investigation?.timeBasis || 'recent' };
+    return { ...range, ...ids(args), projectId: identifier(args.projectId) || investigation?.projectId || contextProject,
+      timeBasis: chain && !range.from && !range.to ? 'identifier' : (args.from && args.from !== investigation?.from) || (args.to && args.to !== investigation?.to) ? 'interpreted' : investigation?.timeBasis || 'recent' };
   }
   async function read(tool: string, args: Record<string, unknown>, chain = false): Promise<Record<string, unknown>> {
     if (tool === 'code') {
@@ -89,19 +93,21 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
     if (tool === 'operations') {
       if (!owner) return { system, rows: [], note: '当前入口未绑定FG登录身份，无法查询账号操作数据；仍可按用户提供的编号查询授权日志。' };
       const filters = ids(args);
-      const range = (filters.taskId || filters.requestId || filters.traceId) && args.from === undefined && args.to === undefined && (chain || !investigation?.from) ? {} : dates(args);
-      const input = { userId: owner, projectId: filters.projectId || investigation?.projectId || job.context?.projectId,
+      const range = !isNativeProduct(system) && (filters.taskId || filters.requestId || filters.traceId) && args.from === undefined && args.to === undefined && ((chain && !explicitTime) || (!investigation?.from && !investigation?.to)) ? {} : dates(args, !!(filters.taskId || filters.requestId || filters.traceId), chain);
+      const input = { userId: owner, projectId: filters.projectId || investigation?.projectId || contextProject,
         taskId: filters.taskId, sessionId: filters.sessionId, requestId: filters.requestId, traceId: filters.traceId, ...range };
       const adapter = supportServices[system].data;
       if (args.provider !== undefined && (adapter !== 'gateway' || !['suno', 'volcengine'].includes(String(args.provider)))) throw new Error('该服务不支持指定的供应商筛选');
       const raw = adapter === 'production-lab' ? await queryProductionLabOperations(input)
         : adapter === 'gateway' ? await queryGatewayOperations({ ...input, service: typeof args.provider === 'string' ? args.provider : system })
+        : adapter === 'product' && isNativeProduct(system) ? await queryProductNative({ ...input, service: system }, 'operations')
         : adapter === 'native' ? await queryNativeSupportLogs({ ...input, projectId: filters.projectId, service: system })
         : adapter === 'fg' || adapter === 'canvas' ? await queryUserOperations({ ...input,
           context: { ...job.context, source: adapter, projectId: input.projectId } })
         : { rows: [], incomplete: true, note: `${supportServices[system].label} 尚未接入可校验账号归属的原生操作数据；未查询，不回退其他服务冒充。` };
       const result = boundedEvidence({ ...raw, system });
-      result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain) };
+      if (isNativeProduct(system)) result.requestedScope = scope(args, range, chain);
+      else result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain) };
       if (adapter === 'native') result.scope = { ...(result.scope as object), projectId: filters.projectId };
       remember(result);
       return result;
@@ -114,7 +120,7 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
       if (system === 'canvas') {
         if (!owner) return { system, rows: [], note: 'Canvas 原生日志需有受信账号映射；飞书未绑定，未查询或回退FG库。' };
         const input = { userId: owner,
-          projectId: filters.projectId || investigation?.projectId || job.context?.projectId,
+          projectId: filters.projectId || investigation?.projectId || contextProject,
           taskId: filters.taskId, requestId: filters.requestId, traceId: filters.traceId, ...range };
         const [stored, native] = await Promise.all([queryCanvasSupportLogs(input), queryNativeSupportLogs({ ...input, projectId: filters.projectId, service: system })]);
         const nativeCoverage = native.coverage as { inboundHttp?: { available?: boolean } };
@@ -131,8 +137,11 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
       }
       if (system !== 'fg' && system !== 'production-lab') {
         if (!owner) return { system, rows: [], incomplete: true, note: '独立服务原生日志需要已验证网页登录身份，未查询。' };
-        const result = boundedEvidence(await queryNativeSupportLogs({ service: system, userId: owner, ...filters, ...range }));
-        result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain), projectId: filters.projectId };
+        const result = boundedEvidence(isNativeProduct(system)
+          ? await queryProductNative({ service: system, userId: owner, ...filters, ...range }, 'logs')
+          : await queryNativeSupportLogs({ service: system, userId: owner, ...filters, ...range }));
+        if (isNativeProduct(system)) result.requestedScope = scope(args, range, chain);
+        else result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain), projectId: filters.projectId };
         remember(result);
         return result;
       }
@@ -172,7 +181,8 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
     if (tool !== 'chain') return read(tool, args);
     const seed = (['taskId', 'requestId', 'traceId'] as const).flatMap(key => identifier(args[key]) ? [{ key, value: String(args[key]) }] : [])[0] as ChainSeed | undefined;
     if (!seed || (!owner && !hasIdentifier(questions, seed.value) && !accessibleIds.has(seed.value))) throw new Error('链路查询需要有效且授权的任务、请求或链路编号');
-    const result = await traceSupportChain(seed, (name, input) => read(name, input, true), system);
-    return boundedEvidence({ ...result, scope: { ...investigation, root: seed } });
+    const range = dates(args, true, true);
+    const result = await traceSupportChain(seed, (name, input) => read(name, { ...range, ...input }, true), system);
+    return boundedEvidence({ ...result, scope: { ...scope(args, range, true), root: seed } });
   };
 }

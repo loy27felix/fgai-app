@@ -229,6 +229,7 @@ import {
 } from '../video-metadata/service.js';
 import { prepareSchedulerStartup } from '../startup.js';
 import { requireAuth } from './auth.js';
+import { isNativeSupportRequest, registerNativeSupport } from './support.js';
 import { apiError } from './errors.js';
 import { registerAttachmentRoutes } from './routes.attachments.js';
 import { registerApprovalRoutes } from './routes.approvals.js';
@@ -391,6 +392,7 @@ export async function buildServer(input: BuildServerInput) {
   );
   const db = input.db ?? openRuntimeDatabase(join(dataDir, 'app.sqlite'));
   const ownsDb = input.db === undefined;
+  const nativeSupport = await registerNativeSupport(server, db, input.token, dataDir);
   const runRepository = createRunRepository(db);
   const threadRepository = createThreadRepository(db);
   const scheduleRepository = new ScheduleRepository(db);
@@ -1453,10 +1455,15 @@ export async function buildServer(input: BuildServerInput) {
   server.get('/healthz', async () => ({ ok: true }));
 
   server.addHook('preHandler', async (request, reply) => {
+    if (isNativeSupportRequest(request.url)) return nativeSupport.authorize(request, reply);
     if (request.url === '/healthz') return;
+    if (nativeSupport.isReadCredential(request)) {
+      return reply.code(401).send({ error: { code: 'UNAUTHORIZED' } });
+    }
     if (isAgentToolInternalRequest(request.url)) return;
     if (request.url.startsWith(`${KRILLIN_LLM_ROUTE_PREFIX}/`)) return;
     await auth(request, reply);
+    if (!reply.sent) nativeSupport.markAuthenticatedBusinessRequest(request);
   });
 
   await registerCodexRoutes(server, {

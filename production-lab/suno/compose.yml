@@ -4,6 +4,7 @@ services:
     restart: unless-stopped
     environment:
       SUNO_SERVICE_SECRET: ${SUNO_SERVICE_SECRET:?required}
+      SUPPORT_BOT_NATIVE_READ_TOKEN: ${SUPPORT_BOT_NATIVE_READ_TOKEN:-}
     volumes:
       - ./private-data/suno.private.env:/run/fg-suno/account.env:ro
       - suno-state:/state

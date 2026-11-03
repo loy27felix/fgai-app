@@ -1,5 +1,6 @@
 import {workspaceEntryDocument} from './fg-workspace-entry.mjs';
-import {observeSupportRequest,safeSupportRoute} from './support-observability.mjs';
+import {observeSupportRequest,safeSupportRoute,supportCorrelationHeaders} from './support-observability.mjs';
+import {nativeSupportRoute,nativeSupportToken,nativeSupportFailure} from './fg-support-native.mjs';
 import {sendGatewayRuntimeVersion} from './runtime-version.mjs';
 import http from 'node:http';
 import {createGatewayShutdown} from './fg-gateway-shutdown.mjs';
@@ -62,6 +63,7 @@ function respond(res, status, message, reason) {
 }
 
 async function platformActor(req) {
+  if(nativeSupportToken(req))return null;
   const token = platformToken(req.headers.cookie);
   if (!token) return null;
   if(process.env.FG_SIX_ENABLED==='false')return null;
@@ -125,6 +127,8 @@ const server = http.createServer(async (req, res) => {
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
     observation.route = safeSupportRoute(path.pathname);
+    if(await nativeSupportRoute(req,res,{pool,path}))return;
+    if(nativeSupportToken(req)){nativeSupportFailure(res,403,'support_token_isolated');return;}
     if(retiredModulePath(path.pathname)){retiredModuleResponse(res);return;}
     if(['/api/fg-project-files','/api/fg-story-archive'].includes(path.pathname)){respond(res,403,'工程归档仅供受信任服务调用','FG_INTERNAL_ONLY');return;}
     if(await budgetInternalRoute(req,res,{pool,path}))return;
@@ -180,7 +184,7 @@ const server = http.createServer(async (req, res) => {
     if(await canvasOwnersRoute(req,res,{pool,actor,path}))return;
     if(await inspirationRoute(req,res,{pool,actor,path}))return;
     if(path.pathname==='/api/fg/music/status'&&req.method==='GET'){
-      const status=await musicStatus();const registered=(await pool.query(`SELECT 1 FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name='Suno 音乐 · FG' AND cm.model_key='suno-company-music' AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rowCount>0;
+      const status=await musicStatus({ownerId:actor.id,correlation:supportCorrelationHeaders(req)});const registered=(await pool.query(`SELECT 1 FROM channel_models cm JOIN model_channels c ON c.id=cm.channel_id WHERE c.name='Suno 音乐 · FG' AND cm.model_key='suno-company-music' AND c.enabled AND cm.enabled AND c.deleted_at IS NULL AND cm.deleted_at IS NULL`)).rowCount>0;
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({code:0,data:{...status,enabled:status.enabled&&registered},msg:''}));return;
     }
     if(path.pathname==='/api/fg/speech/generate'){
@@ -249,13 +253,13 @@ server.requestTimeout = 0;
 server.headersTimeout = 60000;
 registerCanvasRealtime(server,{web,publicOrigin,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:platformActor,session:canvasSession});
 const speechStreams=registerSpeechStream(server,{pool,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:async req=>{const actor=await platformActor(req);if(actor)await canvasSession(actor);return actor;}});
-server.listen(Number(process.env.FG_GATEWAY_PORT || 3010), '0.0.0.0');
+server.listen(Number(process.env.FG_GATEWAY_PORT || 3010), process.env.FG_GATEWAY_HOST || '0.0.0.0');
 const arcServer=http.createServer((req,res)=>{
  if(req.url==='/health/live'){res.writeHead(200);res.end('ok');return;}
  retiredModuleResponse(res);
 });
 arcServer.requestTimeout=0;
 arcServer.headersTimeout=60000;
-arcServer.listen(Number(process.env.FG_RETIRED_GATEWAY_PORT || 3020),'0.0.0.0');
+arcServer.listen(Number(process.env.FG_RETIRED_GATEWAY_PORT || 3020),process.env.FG_GATEWAY_HOST || '0.0.0.0');
 const shutdownGateway=createGatewayShutdown([server,arcServer],{shutdownStreams:()=>speechStreams.shutdown(),closeDependencies:async()=>{await pool.end();await editorPool.end();}});
 process.on('SIGTERM',()=>{shutdownGateway().then(()=>process.exit(0)).catch(()=>{console.error('FG gateway shutdown failed');process.exit(1);});});

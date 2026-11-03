@@ -1,3 +1,4 @@
+import {supportCorrelationHeaders} from './support-observability.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {musicStatus,downloadCompanyMusic} from './fg-music-provider.mjs';
 
@@ -42,7 +43,7 @@ export async function musicQueueRoute(req,res,{pool,actor,path,ownerAPI,download
    const brief=musicBrief(input),hash=createHash('sha256').update(JSON.stringify(brief)).digest('hex');
    const existing=(await pool.query('SELECT * FROM fg_music_jobs WHERE owner_id=$1 AND operation_id=$2',[actor.id,input.operationId])).rows[0];
    if(existing){if(existing.input_hash!==hash)throw Error('同一操作不能替换歌词或风格');send(publicMusicJob(existing));return true;}
-   const status=await musicStatus();if(!status.configured)throw Error('公司 Suno 账号尚未连接');
+   const status=await musicStatus({ownerId:actor.id,correlation:supportCorrelationHeaders(req)});if(!status.configured)throw Error('公司 Suno 账号尚未连接');
    if(brief.model!=='auto'&&!status.models?.some(m=>m.id===brief.model))throw Error('音乐模型暂不可用，请刷新公司模型列表');
    const row=(await pool.query('INSERT INTO fg_music_jobs(id,owner_id,operation_id,input_hash,brief) VALUES($1,$2,$3,$4,$5) ON CONFLICT(owner_id,operation_id) DO UPDATE SET operation_id=EXCLUDED.operation_id RETURNING *',[randomUUID(),actor.id,input.operationId,hash,JSON.stringify(brief)])).rows[0];
    if(row.input_hash!==hash)throw Error('同一操作不能替换歌词或风格');send(publicMusicJob(row));return true;
@@ -62,7 +63,7 @@ export async function musicQueueRoute(req,res,{pool,actor,path,ownerAPI,download
   const locked=(await pool.query("UPDATE fg_music_jobs SET clip_id=$2,status='importing',updated_at=now() WHERE id=$1 AND status='processing' RETURNING *",[job.id,input.clipId])).rows[0];
   if(!locked)throw Error('作品正在归档，请稍后刷新');
   try{
-   const audio=await download(input.clipId),form=new FormData();form.set('kind','audio');form.set('file',new Blob([audio],{type:'audio/mpeg'}),(job.brief.title||'FG-Suno')+'.mp3');
+   const audio=await download(input.clipId,{ownerId:job.owner_id,correlation:supportCorrelationHeaders(req)}),form=new FormData();form.set('kind','audio');form.set('file',new Blob([audio],{type:'audio/mpeg'}),(job.brief.title||'FG-Suno')+'.mp3');
    const {resource}=await ownerAPI(job.owner_id,'/resources','POST',form,{'x-idempotency-key':'fg-suno-'+job.id});
    const saved=(await pool.query("UPDATE fg_music_jobs SET status='succeeded',resource_id=$2,updated_at=now() WHERE id=$1 RETURNING *",[job.id,resource.id])).rows[0];send(publicMusicJob(saved));
   }catch(error){await pool.query("UPDATE fg_music_jobs SET status='processing',clip_id=CASE WHEN $2::boolean THEN NULL ELSE clip_id END,updated_at=now() WHERE id=$1 AND status='importing'",[job.id,error.code==='SUNO_CLIP_NOT_OWNED']);throw error;}

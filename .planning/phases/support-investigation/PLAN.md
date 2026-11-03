@@ -82,3 +82,61 @@
 - 验证：主站 `pnpm exec tsc --noEmit --incremental false`；AI/脱敏现有12项测试；Go logging/buildinfo/yingceagent 测试；`/tmp/support-environment-check.ts`（21项环境/权限边界，含显式READ WRITE仍被ACL拒绝）；`/tmp/support-environment-api-check.ts`（GET/POST错环境503、队列不变）；`/tmp/support-native-e2e.ts`（41项隔离HTTP/账号/链路断言）；`/tmp/support-local-sources-check.ts`（实际本机HTTP、原生事件、4个独立版本与空Production Lab库）；`/tmp/support-native-local-check.ts`（实际Web API→worker→模型→日志/版本/源码证据→答复）通过。Agent为真实运行时的故意无效输入负例，不是已定位用户业务故障。
 - Production Lab实际API返回200；Canvas管理员性能接口当前用户返回403，未绕过权限验证其面板。独立Agent接线由本地进程配置及服务直接检查核验，未声称完整真实模型业务流已经全部验收。
 - 上线清单与隔离顺序写入现有README、`.env.example`/`.env.docker.example`；没有填生产密钥、没有访问/部署生产。ArcReel/OpenCreator/AdCraft/Meilin/Suno仍需原生合约、可信账号/实例映射与服务各自的只读适配，不是填URL即可完成。
+
+## 全产品原生接入补齐（2026-11-03，本地验收完成，发布待审批）
+目标是可准备部署，不是直接部署。FG、Yingce Web/Gateway/Canvas/Agent 及 ArcReel、OpenCreator、AdCraft、Meilin、Suno 全部逐项验收；旧 Production Lab 与生产实际路由明确区分。
+
+- [x] 五个产品真实持久化业务记录的受控只读接口，使用真实账号/实例/workspace 归属；不接受用户自报身份或任意 URL。
+- [x] 原生请求日志与运行版本随真实服务生成；production/clean/commit 对应是程序签认门槛，开发态明确仅作参考；缺数据不伪造。生产新构建的实际签认仍是部署后验收项，不算本地完成项。
+- [x] 助手 tools、预检及部署配置覆盖新接口；不能靠缩小 --require 掩盖缺口。
+- [x] 隔离本地真实服务逐项验证：操作→持久化→请求日志→运行版本→助手证据；覆盖跨用户拒绝、错误请求、文本与截图、取消及无证据兜底。
+- [x] 复核安全边界和资源上限；更新既有部署文档、迁移/只读授权/worker/采集/回退命令，明确上线前人工确认点。
+
+执行分工：各产品原生接口与观测独立实施，主进程负责共享取证合同、可信路由、预检、整体验收。使用已有依赖与测试，不自动 commit/push；不操作生产、不构建生产镜像、不停任何生产守护进程。所有未真实验证项目保留未完成状态。
+
+### 本轮共享链路初始进展（后续全量验收见末节）
+- 新增 `product-native` 受控只读客户端并接入工具、运行版本和全量预检：先查同环境 active 账号映射，唯一受信 Gateway origin + 独立 token，流量/时间/条数有界，缺口不回退别的服务。
+- OpenCreator daemon/Web、AdCraft API/Agent/Web 要分别核验版本；一个组件不能代表全产品。native 日志保留事件 commit/dirty，并沿用根因确认门槛。
+- 跨服务调查不再自动套用反馈页面的 Canvas projectId；不支持的 session 筛选 fail-closed。
+- 复跑现有 AI/脱敏 tests：12/12；`/tmp/support-environment-check.ts`：21项隔离回归；`support-bot:worker --check`：通过。未生成仓库测试文件。
+- 初次新全量 preflight：核心六项可查询，五产品缺试点账号/relay配置，退出1（预期且不隐藏）；后续须接入真实本地进程再次核验，不能拿这个结果称全量完成。
+- 仅生成 `/tmp/fg-support-native-integration/` 中0700目录/0600本地随机只读token，未改生产配置或复制生产密钥。既有开发模型供应商配置仍与业务数据源隔离。
+
+### 已完成的共享链路与真实交互核验（2026-11-03，本轮继续）
+- `product-native` 白名单投影、严格 actor/time/filter echo、坏行传导 incomplete、环境隔离与独立组件版本校验落地。错误码仅作观察/检索线索，不单凭同名文本或注释确认根因；原生日志签认拒绝空/过短/非法 commit。定向复核：report 20 组、native 投影 33 组边界通过（内存 fixtures，不冒充 E2E）。
+- 真实本地 AdCraft 页面截图，经网页上传→现有 high 模型 worker→全仓实际源码读取，识别 AdCraft 首页并定位 `HomeShowcase.tsx`/`HomePage.tsx` 创建入口；26次可见状态变化、SSE重连、完整结果剪贴板逐字一致。真实运行中发送被409拒绝，终止后 worker 中止模型并保留 cancelled；未 mock API/clipboard。首次 UI 断言误检查 disabled 而非实际 readOnly，已修正验证脚本并通过真实控制回归，没有为测试更改 UI 行为。
+- 真实 Suno 本地关闭供应商的503请求，经网页API→worker→模型读取同任务/请求/毫秒时间窗的 operation、原生日志及 `SUNO_NOT_CONFIGURED` 实际实现，核对自身版本后 SSE 返回事实与缺口。开发 dirty 版本不签认生产根因；未收费生成。
+- 实际联调发现并修复所有服务 chain 展开丢弃已报告时间窗的问题；Gateway/Suno 真实查询分支保留原窗口。报告不再把窄窗口无可验证日志误称为该服务从未接入，源码分页也不再称请求链截断。
+- 本地核心源复跑：真实 Canvas/Gateway 404、Agent 原生运行负例、四个版本接口、跨用户拒绝、旧 Production Lab 空独立库通过。现有 AI/脱敏12项、环境边界21项通过。五产品仍以最终整合矩阵为准，不以此替代。
+- 临时、私密本地证据集中 `/tmp/fg-support-native-integration/`；真实验证脚本 `/tmp/support-products-ui-controls.mjs`、`/tmp/support-native-text-e2e.ts`、`/tmp/support-native-shared-live.ts`、`/tmp/support-native-scope-regression.ts`。这些不是持久仓库测试套件。
+
+### 生产只读核验（2026-11-03 17:29–17:31，Asia/Shanghai）
+- 仅 SSH alias `server` 读取容器/版本、退役路由及两库 catalog；无构建、迁移、配置写入、启停、push 或部署。
+- 主站实际 `/api/version` 仍为 `deploy-20261103T055055Z-baadc2fd5e4f`。不能把本地5806及本轮未提交代码称为生产运行版本。
+- 生产 ArcReel、OpenCreator 用户入口均实际返回410；当前仅保留 creator shared Web 容器，不代表 daemon/业务入口在用。本轮不解除退役保护、不重建实例。
+- 生产 FG 库 `fg_studio` 尚无助手表/列；FG 与 Canvas 库 `fg_yingce` 的数据库级环境标记均未设置。Canvas 的 `fg_support_readonly` 角色存在；此存在性检查不代替之前SELECT权限验收。
+- 未发现 `scripts/support-bot-worker.ts/js` 进程，所查相关容器均未注入新原生只读token。生产私密草稿未应用，不能宣称生产接通或闭环已通过。
+- 部署门槛仍是：用户批准窗口→核对/备份→016–020及产品幂等schema→环境标记/授权→批准的构建与实际元数据→只读token/loopback overlay/宿主worker→生产preflight与真实试点闭环。只有准备材料可审阅，不提前执行以上变更。
+
+
+### 最终整合验收（2026-11-03，本地）
+
+- `node --env-file=/tmp/fg-support-native-integration/worker.env --import ./node_modules/tsx/dist/loader.mjs /tmp/support-native-shared-live.ts arcreel opencreator adcraft meilin suno` 全部通过：使用真实进程和持久化存储，读取严格 scoped 原生证据、独立版本、链路和跨账号拒绝；不使用 mock 代理/伪日志。
+- `SUPPORT_BOT_NATIVE_PROBE_FROM=2026-11-03T09:32:00.000Z SUPPORT_BOT_NATIVE_PROBE_TO=2026-11-03T09:37:59.834Z node --env-file=/tmp/fg-support-native-integration/worker.env --import ./node_modules/tsx/dist/loader.mjs scripts/support-bot-preflight.ts`：默认全11项 required/ready，无 `--require`。五产品在共同窗口内均有真实已鉴权业务 HTTP 日志；不把探针/health 充当日志，不宣称窗口之前历史完整。
+
+| 真实本地原生证据 | 操作条数 | HTTP日志条数 | 独立组件与边界 |
+| --- | ---: | ---: | --- |
+| ArcReel | 1 | 1 | Python实例；request/trace只关联日志，操作源明确partial；入口退役未恢复 |
+| OpenCreator | 2 | 3 | daemon + Web；日志跨重启持久化；trace不支持；入口退役未恢复 |
+| AdCraft | 2 | 1 | API + Agent + Web，受信workspace归属 |
+| Meilin | 1 | 1 | FG集成服务、PG记录与持久日志 |
+| Suno | 1 | 1 | adapter自身版本、状态文件和原生503，不是供应商生成验收 |
+
+- 其余六项：FG与旧 Production Lab 的数据库/环境结构，Canvas/Gateway/Agent 的实际原生日志与版本，Web自身构建元数据；Web无服务端业务库/日志，旧 Production Lab 为隔离空库，均不冒充非空业务闭环。
+- 最终主站 `pnpm exec tsc --noEmit --incremental false` 与 `git diff --check` 通过。真实日志/数据/版本测试的安全凭据只在私密 `/tmp` 目录，未写仓库；临时证据不作为长期测试套件。
+- 现存生产仅做只读核验；本轮不 commit/push、不构建部署生产、不应用overlay、不修改生产配置/数据库、不停止生产守护进程。达到的是**代码与隔离本地验证可进入发布审批**，不是生产已接通。发布仍须先取得用户批准，再按 README 的备份/迁移/环境标记/原生接口与版本部署/worker/预检/真实试点顺序执行。
+
+- 最终代码加载后，确认本地无 pending/processing 工单，仅重载已核实 cwd/PID 的自建本地 worker，`--check`通过，飞书发送保持关闭。`/tmp/support-native-text-e2e.ts`再次通过：工单`1b815570-221d-47cd-b0ac-2bec5654ac31`、21个SSE状态快照，实际消费 Suno 503/SUNO_NOT_CONFIGURED、精确 task/request/时间窗和源码；开发dirty版本仍明确未确认根因，不把预期的证据门槛降级为猜测。
+- 最后复跑 AI/脱敏既有12项全部通过；测试日志有一次异步 observability 持久化连接超时提示，不影响断言结果，不能据此声称该测试进程的日志落库成功。真实本地worker持久化与网页读取由上述E2E单独验证。
+- 补做第二个**真实 active owner** 的隔离验收，不仅是未映射随机账号：`node /tmp/fg-support-active-owner-isolation/verify.mjs`，42个真实relay请求通过；AdCraft/Meilin/Suno在B账号与独立workspace下查询A的实际编号及伪造A headers均无泄漏，Arc/OC因B无实例明确503且不fallback。只清理本次创建的B四条映射/账号/项目记录，残留0、A未改变；Meilin无task fixture，该单项不称已验证。证据 `/tmp/fg-support-active-owner-isolation/run-18m5qU/report.json`。
+- 结束子代理后发现其终端托管的本地AdCraft三进程退出；已由主进程使用原启动脚本detached接管并保留原fixtures。启动完成前的A正向控制503如实记失败，确认监听和版本可读后才重跑隔离验收；最终42请求及默认全11预检重新通过。没有停止/改动生产进程。

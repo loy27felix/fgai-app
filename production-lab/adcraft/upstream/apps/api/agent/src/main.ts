@@ -43,7 +43,7 @@ if (process.env.FG_ADCRAFT_MODE === 'true') {
   const workspaces = new Map<string, ReturnType<typeof createAgentRuntimeServer>>();
   server.on('request', (req, res) => {
     const match = /^\/w\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})(\/internal\/v1\/.*)$/.exec(req.url || '');
-    if (!match) { if (req.url !== '/internal/v1/health') { res.writeHead(404); res.end(); return; } original.forEach(listener => listener.call(server, req, res)); return; }
+    if (!match) { if (req.url !== '/internal/v1/health' && req.url?.split('?')[0] !== '/internal/support/version') { res.writeHead(404); res.end(); return; } original.forEach(listener => listener.call(server, req, res)); return; }
     const workspace = match[1]!;
     let scoped = workspaces.get(workspace);
     if (!scoped) { scoped = createAgentRuntimeServer({ internalToken: token, mode, maxConcurrentRuns: 100, adapter: new PiModelAdapter(new PythonInternalClient({ baseUrl: pythonBaseUrl + '/w/' + workspace, internalToken: token })) }); workspaces.set(workspace, scoped); }

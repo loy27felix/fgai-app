@@ -32,6 +32,9 @@ async function main() {
   const environment = supportEnvironment();
   const { supportServices, supportServiceId } = await import('../lib/support-bot/services');
   const { readNativeRuntime } = await import('../lib/support-bot/native-runtime');
+  const { isNativeProduct, probeProductNative } = await import('../lib/support-bot/product-native');
+  const probeUser = process.env.SUPPORT_BOT_NATIVE_PROBE_USER_ID;
+  const probeRange = { from: process.env.SUPPORT_BOT_NATIVE_PROBE_FROM || undefined, to: process.env.SUPPORT_BOT_NATIVE_PROBE_TO || undefined };
   const { probeSupportNativeLogs } = await import('../lib/support-bot/native-logs');
   const { captureSupportRuntime, resolveSupportRuntime } = await import('../lib/support-bot/runtime');
   const services = Object.keys(supportServices).filter(id => !['infrastructure', 'repository'].includes(id)) as Array<keyof typeof supportServices>;
@@ -47,19 +50,20 @@ async function main() {
   const matrix: Record<string, unknown>[] = [];
   for (const service of services) {
     const runtime = ['fg', 'production-lab'].includes(service) ? { connected: fgRuntime.verified, environment: snapshot.environment, reason: fgRuntime.evidence.reason }
-      : await readNativeRuntime(service);
-    const logs = ['fg', 'production-lab'].includes(service) ? fg : service === 'yingce-web'
-      ? { ready: true, reason: 'browser_has_no_native_business_log; inspect_gateway_and_canvas' } : await probeSupportNativeLogs(service);
-    const data = service === 'fg' ? fg : service === 'production-lab' ? production
+      : await readNativeRuntime(service, probeUser);
+    const product = isNativeProduct(service) ? await probeProductNative(service, probeUser, probeRange) : undefined;
+    const logs = product || (['fg', 'production-lab'].includes(service) ? fg : service === 'yingce-web'
+      ? { ready: true, reason: 'browser_has_no_native_business_log; inspect_gateway_and_canvas' } : await probeSupportNativeLogs(service));
+    const data = product || (service === 'fg' ? fg : service === 'production-lab' ? production
       : service === 'yingce-gateway' ? gateway : ['canvas', 'yingce-agent'].includes(service) ? canvas
       : service === 'yingce-web' ? { ready: true, reason: 'browser_has_no_business_database' }
-      : { ready: false, reason: 'native_adapter_and_trusted_instance_mapping_not_implemented' };
-    const versionReady = runtime.connected && runtime.environment === (environment === 'local' ? 'development' : 'production')
-      && (environment === 'local' || ['fg', 'production-lab'].includes(service) || (await resolveSupportRuntime(undefined, service)).verified);
+      : { ready: false, reason: 'native_source_not_configured' });
+    const versionReady = runtime.connected && (!isNativeProduct(service) || ('identityVerified' in runtime && runtime.identityVerified === true)) && runtime.environment === (environment === 'local' ? 'development' : 'production')
+      && (environment === 'local' || ['fg', 'production-lab'].includes(service) || (await resolveSupportRuntime(undefined, service, probeUser)).verified);
     matrix.push({ service, required: requested.includes(service), ready: !!(fg.ready && data.ready && logs.ready && versionReady), data, logs, runtime });
   }
   const ready = matrix.every(row => !row.required || row.ready);
-  console.log(JSON.stringify({ environment, ready, matrix, note: 'Configuration/source readiness only; development builds are reference-only. No model requests, job claiming, or external notifications.' }, null, 2));
+  console.log(JSON.stringify({ environment, ready, matrix, note: 'Configuration/source readiness only; product instances are checked for the configured probe actor, not all users. Empty data is not E2E proof; development builds are reference-only. No model requests, job claiming, or external notifications.' }, null, 2));
   if (!ready) process.exitCode = 1;
 }
 main().catch(() => { console.error('support-bot preflight failed: check environment configuration and --require service names'); process.exitCode = 1; });

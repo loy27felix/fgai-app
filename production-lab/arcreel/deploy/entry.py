@@ -7,13 +7,14 @@ import urllib.request
 
 actor = os.environ['FG_ARC_ACTOR']
 capability = os.environ['FG_ARC_CAPABILITY']
-base = 'http://fg-gateway:3010/internal/arcreel/' + actor
+gateway = os.environ.get('FG_ARC_GATEWAY_URL', 'http://fg-gateway:3010').rstrip('/')
+base = gateway + '/internal/arcreel/' + actor
 from company_request import install as install_company_request
 install_company_request(base, capability)
 
 if os.getuid() == 0:
     raise RuntimeError('Director must run as the unprivileged FG user')
-Path('/state/home').mkdir(exist_ok=True)
+Path(os.environ.get('HOME', '/state/home')).mkdir(parents=True, exist_ok=True)
 
 # FG owns admission and recovery. An uncertain paid response is never submitted
 # again by a transport or decorator retry in the imported production tool.
@@ -150,6 +151,7 @@ from fastapi import Request
 from fastapi.responses import FileResponse, JSONResponse
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 import hmac
+from support_evidence import SUPPORT_PATHS, install as install_support_evidence
 
 # The per-actor container provides filesystem/process isolation. Keep the
 # native file hooks and whitelist fallback, and reject arbitrary shell tools.
@@ -159,8 +161,11 @@ AgentAccessPolicy.is_bash_command_whitelisted = classmethod(lambda cls, command:
 
 @native.app.middleware('http')
 async def company_access(request: Request, call_next):
+    if request.url.path in SUPPORT_PATHS:
+        return await call_next(request)
     if request.url.path != '/health' and not hmac.compare_digest(request.headers.get('x-fg-runtime', ''), capability):
         return JSONResponse({'detail': 'FG workspace access required'}, status_code=403)
+    request.state.fg_arcreel_admitted = True
     if request.method == 'DELETE' and request.url.path.startswith('/api/v1/projects/') and request.url.path.removeprefix('/api/v1/projects/').count('/') == 0:
         archive_path = project_dir = None
         from company_recycle import preflight_delete
@@ -185,10 +190,12 @@ async def company_access(request: Request, call_next):
             return JSONResponse({'detail': '工程暂不能删除：请确认制作任务已结束且 NAS recycle/arcreel 可写；原工程仍保留'}, status_code=409)
     return await call_next(request)
 
+install_support_evidence(native.app)
+
 @native.app.get('/fg-source.tar.gz', include_in_schema=False)
 async def corresponding_source():
     return FileResponse('/app/fg-source.tar.gz', filename='FG-ArcReel-source.tar.gz')
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(native.app, host='0.0.0.0', port=1241)
+    uvicorn.run(native.app, host=os.environ.get('LISTEN_HOST', '0.0.0.0'), port=int(os.environ.get('LISTEN_PORT', '1241')))

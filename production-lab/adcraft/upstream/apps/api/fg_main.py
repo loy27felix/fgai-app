@@ -3,22 +3,24 @@ import asyncio
 from contextlib import AsyncExitStack
 from dataclasses import fields, replace
 import os
-from pathlib import Path
 import re
+import time
 import httpx
 from uuid import uuid4
 from starlette.responses import JSONResponse
 from app.core.config import Settings
 from app.fg_context import fg_context
-from app.fg_backup import backup, restore, require_nas, require_workspace, purge_workspace, purge_trashed_project
+from app.fg_backup import NAS, backup, restore, require_nas, require_workspace, purge_workspace, purge_trashed_project
 from app.fg_cpu import install as install_render_limit
 from app.main import create_app
+from app.fg_support import IDENTIFIER, SupportEvidence
 
 ID = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$')
 install_render_limit()
 
 class FGApplication:
     def __init__(self):
+        self.support = SupportEvidence()
         self.apps = {}
         self.lock = asyncio.Lock()
         self.stack = AsyncExitStack()
@@ -42,7 +44,7 @@ class FGApplication:
         async with self.lock:
             if workspace not in self.apps:
                 await asyncio.to_thread(restore, workspace)
-                base = 'http://gateway:3010/internal/adcraft/' + workspace
+                base = os.getenv('FG_ADCRAFT_GATEWAY_BASE_URL', 'http://gateway:3010').rstrip('/') + '/internal/adcraft/' + workspace
                 from app.services.provider_model_catalog import install_fg_catalog
                 async with httpx.AsyncClient(timeout=20) as client:
                     catalog = await client.get(base + '/models', headers={'x-fg-internal': os.environ['FG_ADCRAFT_SECRET']})
@@ -50,9 +52,9 @@ class FGApplication:
                     install_fg_catalog(catalog.json()['models'])
                 settings = Settings.from_env()
                 overrides = {f.name: 'gpt-6.1-sol' for f in fields(settings) if f.name.startswith('llm_') and f.name.endswith('_model')}
-                overrides.update(app_name='FG 广告工作台', app_version='1.4.20', media_data_dir=Path('/nas/adcraft/workspaces') / workspace,
+                overrides.update(app_name='FG 广告工作台', app_version='1.4.20', media_data_dir=(NAS / 'adcraft/workspaces') / workspace,
                     media_mode='real', agent_runtime_mode='real', skip_audio_agents=True,
-                    agent_runtime_internal_token=os.environ['FG_ADCRAFT_SECRET'], agent_runtime_base_url='http://adcraft-agent:8765/w/' + workspace,
+                    agent_runtime_internal_token=os.environ['FG_ADCRAFT_SECRET'], agent_runtime_base_url=os.getenv('FG_ADCRAFT_AGENT_BASE_URL', 'http://adcraft-agent:8765').rstrip('/') + '/w/' + workspace,
                     llm_api_key='fg-internal-only', llm_base_url=base + '/v1',
                     image_generation_api_key='fg-internal-only', image_generation_endpoint=base + '/images/generations',
                     image_generation_model='doubao-seedream-5-0-lite-260128',
@@ -89,6 +91,8 @@ class FGApplication:
                     await send({'type': 'lifespan.shutdown.complete'})
                     return
         if scope['type'] != 'http': return
+        if scope['path'] in ('/internal/support/evidence', '/internal/support/version'):
+            return await self.support.handle(scope, receive, send)
         if scope['path'] == '/health/live':
             try: require_nas()
             except RuntimeError: return await JSONResponse({'status': 'NAS unavailable'}, status_code=503)(scope, receive, send)
@@ -135,16 +139,34 @@ class FGApplication:
             return await JSONResponse({'detail': 'Workspace busy'}, status_code=503)(scope, receive, send)
         self.inflight[match[1]] = self.inflight.get(match[1], 0) + 1
         context = {'workspace': match[1], 'actor': headers.get(b'x-fg-actor', b'').decode(), 'operation': headers.get(b'x-fg-operation', b'').decode() or str(uuid4())}
+        incoming_request_id = headers.get(b'x-request-id', b'').decode('ascii', errors='replace')
+        context['request_id'] = incoming_request_id if IDENTIFIER.fullmatch(incoming_request_id) else str(uuid4())
         token = fg_context.set(context)
+        started = time.monotonic()
+        status = 500
+        inner = dict(scope, path=match[2], raw_path=match[2].encode(), root_path='')
+        async def log_send(message):
+            nonlocal status
+            if message['type'] == 'http.response.start':
+                status = message['status']
+                response_headers = list(message.get('headers', []))
+                returned_id = next((value.decode('ascii', errors='replace') for key, value in response_headers if key.lower() == b'x-request-id'), '')
+                if IDENTIFIER.fullmatch(returned_id):
+                    context['request_id'] = returned_id
+                else:
+                    response_headers = [(key, value) for key, value in response_headers if key.lower() != b'x-request-id']
+                    response_headers.append((b'x-request-id', context['request_id'].encode()))
+                    message = dict(message, headers=response_headers)
+            await send(message)
         try:
             try: require_workspace(match[1])
-            except RuntimeError as error: return await JSONResponse({'detail': str(error)}, status_code=503)(scope, receive, send)
+            except RuntimeError as error: return await JSONResponse({'detail': str(error)}, status_code=503)(scope, receive, log_send)
             app = await self.workspace(match[1])
-            inner = dict(scope, path=match[2], raw_path=match[2].encode(), root_path='')
-            await app(inner, receive, send)
+            await app(inner, receive, log_send)
             if scope['method'] not in ('GET','HEAD','OPTIONS'):
                 await self.snapshot(match[1])
         finally:
+            self.support.log_request(match[1], context, inner, status, started)
             self.inflight[match[1]] -= 1
             fg_context.reset(token)
 
