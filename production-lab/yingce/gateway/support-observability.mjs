@@ -19,6 +19,7 @@ export function observeSupportRequest(req, res) {
     const status = res.writableFinished ? res.statusCode : 499;
     console.log(JSON.stringify({ event: 'support_http_request', service: 'yingce-gateway',
       build_commit: gatewayRuntimeVersion.build.commit, build_version: gatewayRuntimeVersion.build.version, build_dirty: gatewayRuntimeVersion.build.dirty,
+      build_environment: gatewayRuntimeVersion.build.environment,
       time: new Date().toISOString(), level: status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info',
       fg_user_id: observation.userId, request_id: identifier(res.getHeader('x-request-id')) || requestId,
       trace_id: identifier(res.getHeader('x-canvas-trace-id')),

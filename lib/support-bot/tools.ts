@@ -1,3 +1,4 @@
+import { assertSupportPrimaryEnvironment } from './environment';
 import { queryLogExplorer, getLogDetail } from '@/lib/observability/log-query';
 import { searchSupportCode } from './code-search';
 import { queryUserOperations, supportOperationErrorEvidence } from './operations';
@@ -137,6 +138,7 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
       }
       // FG log storage has no trustworthy project join; never imply that a project filter was applied.
       // FG日志没有可靠项目归属关联，不得把未执行的项目筛选冒充已执行条件。
+      await assertSupportPrimaryEnvironment();
       const result = await queryLogExplorer({ ...range, taskId: filters.taskId, requestId: filters.requestId, traceId: filters.traceId,
         ...(owner ? { userId: owner } : {}), routePrefix: system === 'production-lab' ? '/api/production-lab' : undefined,
         route: typeof args.route === 'string' ? args.route.slice(0, 200) : undefined,
@@ -155,6 +157,7 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
       const known = accessibleLogs.get(id);
       if (!known) throw new Error('仅可读取本轮已授权查询返回的详情');
       if (system !== 'fg' && system !== 'production-lab') return { ...known, system };
+      await assertSupportPrimaryEnvironment();
       const detail = await getLogDetail(id);
       if (!detail || (owner && detail.userId !== owner)) throw new Error('日志详情不可用或不属于当前用户');
       const { details, contextPreview, actorEmail, userId, ...row } = detail;

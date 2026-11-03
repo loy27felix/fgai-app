@@ -1,8 +1,10 @@
+import { assertSupportPrimaryEnvironment } from '@/lib/support-bot/environment';
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
 import { query } from '@/lib/local/db';
-import { enqueueSupportMessage, supportStages } from '@/lib/support-bot/store';
+import { cancelSupportJobs, enqueueSupportMessage, SupportConversationBusy } from '@/lib/support-bot/store';
+import { readSupportMessages, supportConversationStream } from '@/lib/support-bot/web-stream';
 
 import { parseSupportContext } from '@/lib/support-bot/context';
 import { captureSupportRuntime } from '@/lib/support-bot/runtime';
@@ -19,6 +21,9 @@ async function userId() {
 }
 
 export async function GET(request: Request) {
+  try { await assertSupportPrimaryEnvironment(); } catch {
+    return NextResponse.json({ error: '排查环境未配置或数据源环境不匹配，请联系管理员' }, { status: 503 });
+  }
   const id = await userId();
   if (!id) return NextResponse.json({ error: '请先登录' }, { status: 401 });
   const params = new URL(request.url).searchParams;
@@ -47,24 +52,35 @@ export async function GET(request: Request) {
     }
     // Scope every read to the authenticated owner, never a caller-supplied user ID.
     // 所有读取限定登录用户，避免通过会话编号读取他人的问题。
-    const result = await query(`SELECT j.id,j.text,j.status,j.stage,jsonb_array_length(j.images) AS "imageCount",j.ticket_id AS "ticketId",
-      CASE WHEN j.status='completed' THEN j.diagnosis->>'userReply' ELSE NULL END AS reply
-      FROM support_bot_jobs j JOIN support_bot_tickets t ON t.id=j.ticket_id
-      WHERE t.open_id=$1 AND t.chat_id=$2 ORDER BY j.created_at DESC,j.id DESC LIMIT 100`, [`web:${id}`, `web:${conversationId}`]);
-    return NextResponse.json({ conversationId, messages: result.rows.reverse().map(row => ({ ...row, stage: supportStages[row.stage] || supportStages.queued })) }, { headers: { 'Cache-Control': 'no-store' } });
+    const messages = await readSupportMessages(id, conversationId);
+    if (params.get('stream') === '1') return supportConversationStream(request, id, conversationId, messages);
+    return NextResponse.json({ conversationId, messages }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
     return NextResponse.json({ error: '暂时无法读取排查记录，请稍后重试' }, { status: 503 });
   }
 }
 
 export async function POST(request: Request) {
+  try { await assertSupportPrimaryEnvironment(); } catch {
+    return NextResponse.json({ error: '排查环境未配置或数据源环境不匹配，请联系管理员' }, { status: 503 });
+  }
   const id = await userId();
   if (!id) return NextResponse.json({ error: '请先登录' }, { status: 401 });
-  if (process.env.SUPPORT_BOT_ENABLED !== 'true') return NextResponse.json({ error: '自助排查尚未启用' }, { status: 503 });
   let body;
   try { body = await readBody(request); } catch (error) {
     return NextResponse.json({ error: error instanceof BodyTooLarge ? '请求过大；最多 10 张处理后的截图，每张不超过 2 MiB（网页支持选择 20 MiB 原图并自动压缩）' : '请求格式无效' }, { status: error instanceof BodyTooLarge ? 413 : 400 });
   }
+  if (body?.action === 'cancel') {
+    if (!validId(body.conversationId) || !Array.isArray(body.jobIds) || !body.jobIds.length || body.jobIds.length > 100 || !body.jobIds.every(validId)) {
+      return NextResponse.json({ error: '终止请求参数无效' }, { status: 400 });
+    }
+    try {
+      const cancelled = await cancelSupportJobs(id, body.conversationId, body.jobIds);
+      if (cancelled === null) return NextResponse.json({ error: '排查任务不存在' }, { status: 404 });
+      return NextResponse.json({ cancelled, messages: await readSupportMessages(id, body.conversationId) }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch { return NextResponse.json({ error: '终止失败，请重试' }, { status: 503 }); }
+  }
+  if (process.env.SUPPORT_BOT_ENABLED !== 'true') return NextResponse.json({ error: '自助排查尚未启用' }, { status: 503 });
   if (!body || !validId(body.conversationId) || typeof body.text !== 'string' || body.text.length > 8000) {
     return NextResponse.json({ error: '请提供有效会话编号，问题文字不超过 8000 字' }, { status: 400 });
   }
@@ -77,8 +93,9 @@ export async function POST(request: Request) {
     const context = { ...hints, runtime: await captureSupportRuntime() };
     const messageId = `web:${randomUUID()}`;
     const result = await enqueueSupportMessage({ eventId: messageId, messageId, chatId: `web:${body.conversationId}`, openId: `web:${id}`, text: body.text.trim() || '请根据附带截图排查问题。', images, context, userId: id });
-    return NextResponse.json({ ticketId: result.ticketId }, { status: 202 });
+    return NextResponse.json({ ticketId: result.ticketId, jobId: result.jobId }, { status: 202 });
   } catch (error) {
+    if (error instanceof SupportConversationBusy) return NextResponse.json({ error: error.message }, { status: 409 });
     const limited = error instanceof Error && error.message.includes('提问过于频繁');
     return NextResponse.json({ error: limited ? '提问过于频繁，请稍后重试' : '提交失败，请稍后重试' }, { status: limited ? 429 : 503 });
   }

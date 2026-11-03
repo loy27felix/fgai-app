@@ -1,0 +1,65 @@
+import { loadEnvConfig } from '@next/env';
+import { Pool } from 'pg';
+import { supportEnvironment, assertSupportTarget, assertSupportDatabaseEnvironment } from '../lib/support-bot/environment';
+
+loadEnvConfig(process.cwd());
+
+type Probe = { ready: boolean; reason: string; [key: string]: unknown };
+async function database(value: string | undefined, tables: string[], readOnly: boolean): Promise<Probe> {
+  if (!value) return { ready: false, reason: 'not_configured' };
+  let pool: Pool | undefined;
+  try {
+    assertSupportTarget(value, 'database');
+    pool = new Pool({ connectionString: value, max: 1, connectionTimeoutMillis: 2000, statement_timeout: 3000 });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN READ ONLY');
+      await assertSupportDatabaseEnvironment(client);
+      const result = await client.query<{ name: string; readable: boolean; writable: boolean }>(`SELECT name,
+        CASE WHEN to_regclass(name) IS NOT NULL THEN has_table_privilege(current_user, name, 'SELECT') ELSE false END AS readable,
+        CASE WHEN to_regclass(name) IS NOT NULL THEN has_table_privilege(current_user, name, 'INSERT,UPDATE,DELETE,TRUNCATE') ELSE false END AS writable
+        FROM unnest($1::text[]) name`, [tables]);
+      const missing = result.rows.filter(row => !row.readable).map(row => row.name);
+      if (!missing.length && tables.includes('support_bot_jobs')) await client.query('SELECT id, images, context, stage, progress FROM support_bot_jobs LIMIT 0');
+      const writable = readOnly && result.rows.some(row => row.writable);
+      return { ready: !missing.length && !writable, reason: missing.length ? 'schema_or_select_grant_missing' : writable ? 'source_role_not_read_only' : 'environment_and_schema_verified', missing };
+    } finally { await client.query('ROLLBACK').catch(() => undefined); client.release(); }
+  } catch { return { ready: false, reason: 'environment_connection_or_schema_failed' }; }
+  finally { await pool?.end(); }
+}
+
+async function main() {
+  const environment = supportEnvironment();
+  const { supportServices, supportServiceId } = await import('../lib/support-bot/services');
+  const { readNativeRuntime } = await import('../lib/support-bot/native-runtime');
+  const { probeSupportNativeLogs } = await import('../lib/support-bot/native-logs');
+  const { captureSupportRuntime, resolveSupportRuntime } = await import('../lib/support-bot/runtime');
+  const services = Object.keys(supportServices).filter(id => !['infrastructure', 'repository'].includes(id)) as Array<keyof typeof supportServices>;
+  const requested = process.argv.find(arg => arg.startsWith('--require='))?.slice('--require='.length).split(',') ?? services;
+  if (!requested.length || requested.some(id => !supportServiceId(id) || !services.includes(id as keyof typeof supportServices))) throw new Error('Invalid required services');
+  const fg = await database(process.env.DATABASE_URL, ['support_bot_jobs', 'support_bot_tickets', 'observability_log_events', 'observability_error_events', 'observability_service_events', 'audit_events'], false);
+  const canvas = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'task_logs', 'api_call_logs', 'drama_jobs', 'drama_productions'], true);
+  const gateway = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'fg_music_jobs', 'fg_speech_jobs', 'fg_speech_usage', 'fg_creator_jobs', 'fg_adcraft_jobs', 'fg_adcraft_workspaces', 'fg_meilin_calls', 'fg_meilin_projects', 'fg_budget_reservations'], true);
+  const production = await database(process.env.SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL || process.env.PRODUCTION_LAB_DATABASE_URL,
+    ['production_lab_state', 'production_lab_media_jobs', 'production_lab_media_job_events', 'production_lab_script_runs'], true);
+  const snapshot = await captureSupportRuntime();
+  const fgRuntime = await resolveSupportRuntime(snapshot, 'fg');
+  const matrix: Record<string, unknown>[] = [];
+  for (const service of services) {
+    const runtime = ['fg', 'production-lab'].includes(service) ? { connected: fgRuntime.verified, environment: snapshot.environment, reason: fgRuntime.evidence.reason }
+      : await readNativeRuntime(service);
+    const logs = ['fg', 'production-lab'].includes(service) ? fg : service === 'yingce-web'
+      ? { ready: true, reason: 'browser_has_no_native_business_log; inspect_gateway_and_canvas' } : await probeSupportNativeLogs(service);
+    const data = service === 'fg' ? fg : service === 'production-lab' ? production
+      : service === 'yingce-gateway' ? gateway : ['canvas', 'yingce-agent'].includes(service) ? canvas
+      : service === 'yingce-web' ? { ready: true, reason: 'browser_has_no_business_database' }
+      : { ready: false, reason: 'native_adapter_and_trusted_instance_mapping_not_implemented' };
+    const versionReady = runtime.connected && runtime.environment === (environment === 'local' ? 'development' : 'production')
+      && (environment === 'local' || ['fg', 'production-lab'].includes(service) || (await resolveSupportRuntime(undefined, service)).verified);
+    matrix.push({ service, required: requested.includes(service), ready: !!(fg.ready && data.ready && logs.ready && versionReady), data, logs, runtime });
+  }
+  const ready = matrix.every(row => !row.required || row.ready);
+  console.log(JSON.stringify({ environment, ready, matrix, note: 'Configuration/source readiness only; development builds are reference-only. No model requests, job claiming, or external notifications.' }, null, 2));
+  if (!ready) process.exitCode = 1;
+}
+main().catch(() => { console.error('support-bot preflight failed: check environment configuration and --require service names'); process.exitCode = 1; });

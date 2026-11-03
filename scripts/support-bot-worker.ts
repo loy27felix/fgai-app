@@ -2,10 +2,11 @@ import { loadEnvConfig } from '@next/env';
 
 loadEnvConfig(process.cwd());
 async function main() {
-  const {closeDb,query}=await import('../lib/local/db');
+  const {closeDb}=await import('../lib/local/db');
   try {
     if (process.argv.includes('--check')) {
-      await query('SELECT id, images, context, stage FROM support_bot_jobs LIMIT 0');
+      const { ensureSupportSchema } = await import('../lib/support-bot/store');
+      await ensureSupportSchema();
       console.log('support-bot schema ready; no messages sent');
       return;
     }

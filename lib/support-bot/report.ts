@@ -108,7 +108,7 @@ function rowDescription(row: Record<string, unknown>): string {
   const error = failureText(row).replace(/\s+/g, ' ').slice(0, 360);
   return `${parts.filter(Boolean).join(' · ')}${error ? `\n记录摘要：${error}` : ''}`;
 }
-function evidenceDescription(entry: SupportEvidence): string {
+export function evidenceDescription(entry: SupportEvidence): string {
   if (entry.result.error) return `${entry.id} ${entry.tool}：${safeText(entry.result.error, 160)}`;
   if (entry.tool === 'runtime') return `${entry.id} 运行环境：${safeText(entry.result.description, 350) || '已采集，版本是否匹配见限制说明'}`;
   if (entry.tool === 'code') {

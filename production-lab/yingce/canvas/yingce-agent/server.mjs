@@ -11,6 +11,7 @@ let maxSessions = positiveInt(process.env.MAX_CONCURRENT_SESSIONS, 30, maxSessio
 const memoryMB = positiveInt(process.env.NODE_MAX_OLD_SPACE_SIZE, 512, 8192);
 const runtimePath = process.env.YINGCE_AGENT_RUNTIME || "/app/agent-runtime/agent-runtime.mjs";
 const port = Number(process.env.PORT || 8081);
+const host = process.env.YINGCE_AGENT_HOST?.trim() || "0.0.0.0";
 const bodyLimit = 32 * 1024 * 1024;
 
 if (token.length < 32) {
@@ -163,6 +164,7 @@ const server = createServer(async (request, response) => {
     logged = true;
     console.log(JSON.stringify({ event: 'support_agent_run', service: 'yingce-agent', time: new Date().toISOString(),
       build_commit: agentRuntimeVersion.build.commit, build_version: agentRuntimeVersion.build.version, build_dirty: agentRuntimeVersion.build.dirty,
+      build_environment: agentRuntimeVersion.build.environment,
       user_id: run.userId, request_id: requestId, run_id: safeId(run.runId), session_id: safeId(run.sessionId),
       method: 'POST', route: '/v1/runs', status: response.writableFinished ? response.statusCode : 499,
       outcome: failureCode ? 'failed' : response.writableFinished ? 'completed' : 'cancelled',
@@ -253,7 +255,7 @@ const server = createServer(async (request, response) => {
 server.requestTimeout = 0;
 server.headersTimeout = 0;
 server.timeout = 0;
-server.listen(port, "0.0.0.0", () => {
+server.listen(port, host, () => {
   const address = server.address();
   console.log(`YINGCE_AGENT_READY ${address.port}`);
 });

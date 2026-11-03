@@ -81,6 +81,7 @@ func AccessLog(redactPath func(string) string) gin.HandlerFunc {
 			slog.String("build_commit", build.Commit),
 			slog.String("build_version", build.Version),
 			slog.Any("build_dirty", build.Dirty),
+			slog.String("build_environment", build.Environment),
 			slog.String("service", "canvas"),
 			slog.String("event", "support_http_request"),
 			slog.String("user_id", userID),

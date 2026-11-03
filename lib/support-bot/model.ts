@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { chatWithTextModel, type TextChatOptions } from '@/lib/ai/text';
+import { normalizeReasoningEffort } from '@/lib/ai/reasoning';
 import type { ChatResult } from '@/lib/deepseek';
 import { wetokenProviderDispatcher } from '@/lib/ai/wetoken-transport';
 import { logServerEvent } from '@/lib/observability/server-log';
@@ -10,10 +11,15 @@ export class IncompleteSupportModelResponse extends Error {
 }
 
 export async function chatWithSupportModel(options: TextChatOptions): Promise<{ result: ChatResult }> {
+  options.signal?.throwIfAborted();
   const protocol = process.env.SUPPORT_BOT_API_PROTOCOL || 'chat_completions';
+  const configuredEffort = options.reasoningEffort ?? (process.env.SUPPORT_BOT_REASONING_EFFORT?.trim() || 'high');
+  const reasoningEffort = normalizeReasoningEffort(configuredEffort);
+  if (reasoningEffort !== configuredEffort || reasoningEffort === 'ultra') throw new Error('机器人思考等级配置无效');
+  const effort = reasoningEffort === 'auto' ? undefined : reasoningEffort;
   // Screenshots and OCR text may contain private information; record metadata only.
   // 截图及识别文字可能包含隐私，诊断模型只记录元数据，不记录请求和响应正文。
-  if (protocol === 'chat_completions') return chatWithTextModel({ ...options, logPayloads: false });
+  if (protocol === 'chat_completions') return chatWithTextModel({ ...options, reasoningEffort, logPayloads: false });
   if (protocol !== 'responses') throw new Error('机器人 API 协议配置无效');
   if (!options.apiBaseUrl || !options.apiKey || !options.modelId) throw new Error('机器人 Responses 配置不完整');
 
@@ -46,19 +52,20 @@ export async function chatWithSupportModel(options: TextChatOptions): Promise<{ 
     instructions: options.messages.filter(message => message.role === 'system').map(message => message.content).join('\n'),
     input: responseInput,
     store: false,
+    ...(effort ? { reasoning: { effort } } : {}),
     max_output_tokens: options.maxTokens ?? 1024,
     ...(options.jsonOutput ? { text: { format: { type: 'json_object' as const } } } : {}),
   };
   const fields = {
     service: 'support-bot', provider: 'openai-compatible', operation: 'responses',
-    taskId: options.taskId, sessionId: options.sessionId, model: options.modelId,
+    taskId: options.taskId, sessionId: options.sessionId, model: options.modelId, reasoningEffort: effort || 'auto',
   };
   logServerEvent('support_bot_model_request', { ...fields, stage: 'request_sent' });
   const started = Date.now();
   try {
     // Read the completed snapshot through the SDK; compatible gateways may emit extra events.
     // 通过官方 SDK 读取完成事件的完整响应，兼容网关额外发送的心跳等事件。
-    const stream = await client.responses.create({ ...body, stream: true });
+    const stream = await client.responses.create({ ...body, stream: true }, { signal: options.signal });
     let response: OpenAI.Responses.Response | undefined;
     for await (const event of stream) {
       if (event.type === 'response.completed') response = event.response;
@@ -91,6 +98,10 @@ export async function chatWithSupportModel(options: TextChatOptions): Promise<{ 
       },
     };
   } catch (error) {
+    if (options.signal?.aborted) {
+      logServerEvent('support_bot_model_cancelled', { ...fields, durationMs: Date.now() - started });
+      throw error;
+    }
     logServerEvent('support_bot_model_failed', {
       ...fields, durationMs: Date.now() - started,
       httpStatus: error instanceof OpenAI.APIError ? error.status : undefined,

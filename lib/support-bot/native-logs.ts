@@ -1,4 +1,5 @@
-import { execFile } from 'node:child_process';
+import { supportEnvironment, supportRuntimeEnvironment } from './environment';
+import { execFile, spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
@@ -40,10 +41,38 @@ async function readSource(source: Source, from: string | null, to: string | null
   }
   // Container names come only from server configuration, never model or request arguments.
   // 容器只允许服务端配置，模型和用户参数均不能控制命令或日志源。
-  const args = ['logs', '--timestamps', '--tail', String(MAX_LINES), ...(from ? ['--since', from] : []), ...(to ? ['--until', to] : []), source.container!];
-  const { stdout, stderr } = await run('docker', args, { timeout: 5000, maxBuffer: MAX_BYTES, encoding: 'utf8' });
-  const lines = `${stdout}\n${stderr}`.split('\n');
-  return { lines, truncated: lines.filter(Boolean).length >= MAX_LINES, transport: 'docker' };
+  const dockerArgs: string[] = [];
+  if (supportEnvironment() === 'local') {
+    const context = (await run('docker', ['context', 'show'], { timeout: 3000, maxBuffer: 4096 })).stdout.trim();
+    const host = process.env.DOCKER_HOST && !process.env.DOCKER_CONTEXT ? process.env.DOCKER_HOST
+      : (await run('docker', ['context', 'inspect', context, '--format', '{{.Endpoints.docker.Host}}'], { timeout: 3000, maxBuffer: 4096 })).stdout.trim();
+    if (!host.startsWith('unix:///')) throw new Error('Local Docker endpoint required');
+    dockerArgs.push('--host', host);
+  }
+  const args = [...dockerArgs, 'logs', '--timestamps', '--tail', String(MAX_LINES), ...(from ? ['--since', from] : []), ...(to ? ['--until', to] : []), source.container!];
+  // Drain the CLI while retaining a bounded tail; a noisy container must not exhaust memory or hide all recent logs.
+  // 持续排空 CLI、只保留有界尾部，避免高日志量耗尽内存或让近期日志全部不可读。
+  const data = await new Promise<{ text: string; truncated: boolean }>((resolve, reject) => {
+    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...(dockerArgs.length ? { DOCKER_CONTEXT: '' } : {}) } });
+    const chunks: Buffer[] = [];
+    let bytes = 0, truncated = false;
+    const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('Log CLI timeout')); }, 5000);
+    const append = (chunk: Buffer) => {
+      chunks.push(chunk); bytes += chunk.length;
+      while (bytes > MAX_BYTES && chunks.length) {
+        truncated = true;
+        const excess = bytes - MAX_BYTES;
+        if (chunks[0].length <= excess) bytes -= chunks.shift()!.length;
+        else { chunks[0] = chunks[0].subarray(excess); bytes -= excess; }
+      }
+    };
+    child.stdout.on('data', append); child.stderr.on('data', append);
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('close', code => { clearTimeout(timer); if (code !== 0) reject(new Error('Log CLI failed')); else resolve({ text: Buffer.concat(chunks).toString('utf8'), truncated }); });
+  });
+  const lines = data.text.split('\n');
+  if (data.truncated) lines.shift();
+  return { lines: lines.slice(-MAX_LINES), truncated: data.truncated || lines.filter(Boolean).length >= MAX_LINES, transport: 'docker' };
 }
 
 function parseLine(line: string): Record<string, unknown> | undefined {
@@ -73,6 +102,8 @@ export async function queryNativeSupportLogs(input: Input): Promise<Record<strin
       owner = mapped;
     }
     const data = await readSource(source, scope.from, scope.to);
+    const environment = supportRuntimeEnvironment();
+    let environmentRejected = 0;
     let recognized = 0;
     let legacy = 0;
     const rows: Record<string, unknown>[] = [];
@@ -80,6 +111,7 @@ export async function queryNativeSupportLogs(input: Input): Promise<Record<strin
       const record = parseLine(line);
       if (!record || typeof record !== 'object') continue;
       if (record.service !== input.service || !['support_http_request', 'support_agent_run'].includes(String(record.event))) continue;
+      if (record.build_environment !== environment) { environmentRejected++; continue; }
       recognized++;
       const actor = input.service === 'canvas' || input.service === 'yingce-agent' ? record.user_id : record.fg_user_id;
       if (!id(actor)) { legacy++; continue; }
@@ -96,6 +128,7 @@ export async function queryNativeSupportLogs(input: Input): Promise<Record<strin
         source: `${input.service}_native`, occurredAt: new Date(time).toISOString(), taskId, requestId, traceId, projectId,
         buildCommit: typeof record.build_commit === 'string' && /^[a-f0-9]{7,40}$/i.test(record.build_commit) ? record.build_commit.toLowerCase() : undefined,
         buildVersion: typeof record.build_version === 'string' && /^[\w.+-]{1,100}$/.test(record.build_version) ? record.build_version : undefined,
+        buildEnvironment: environment,
         buildDirty: typeof record.build_dirty === 'boolean' ? record.build_dirty : undefined,
         runId: id(record.run_id), sessionId: id(record.session_id),
         event: record.event, method: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(String(record.method)) ? record.method : undefined,
@@ -108,7 +141,25 @@ export async function queryNativeSupportLogs(input: Input): Promise<Record<strin
     }
     const sorted = [...new Map(rows.map(row => [row.id, row])).values()].sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
     return { ...envelope, rows: sorted.slice(0, 100), incomplete: recognized === 0, truncated: data.truncated || sorted.length > 100,
-      coverage: { inboundHttp: { available: recognized > 0 }, source: data.transport, formatVerified: recognized > 0, unownedRecordsIgnored: legacy > 0 },
-      note: recognized ? `已读取 ${input.service} 自身结构化日志，仅返回受信鉴权身份匹配的记录。最多读取2MiB或5000行，返回100条；轮转、采集级别或截断可能缺失历史，未提供请求/响应正文。${input.service === 'canvas' ? 'Canvas成功GET等请求只在debug级别采集；未查到不能证明未发生。' : ''}` : '日志源可读，但未发现带服务标识的新格式原生日志；历史未采集记录不能补回，未把普通输出猜成请求证据。' };
+      coverage: { inboundHttp: { available: recognized > 0 }, source: data.transport, formatVerified: recognized > 0, unownedRecordsIgnored: legacy > 0, environment, environmentRejected },
+      note: recognized ? `已读取 ${input.service} 自身结构化日志，仅返回受信鉴权身份匹配的记录。最多读取2MiB或5000行，返回100条；轮转、采集级别或截断可能缺失历史，未提供请求/响应正文。${input.service === 'canvas' ? 'Canvas成功GET等请求只在debug级别采集；未查到不能证明未发生。' : ''}` : '日志源可读，但未发现服务及环境标识均匹配的新格式原生日志；历史未采集记录不能补回，未把普通输出猜成请求证据。' };
   } catch { return { ...envelope, note: `${input.service} 原生日志源配置、只读连接或读取失败；未返回路径、连接凭据或原始进程输出。` }; }
+}
+
+// Configuration probe returns counts/status only, never users, paths, or log records.
+// 配置探针只返回数量和状态，不返回用户、路径或日志内容。
+export async function probeSupportNativeLogs(service: SupportServiceId) {
+  try {
+    const environment = supportRuntimeEnvironment();
+    const source = configuredSource(service);
+    if (!source) return { configured: false, ready: false, reason: 'not_configured' };
+    const data = await readSource(source, null, null);
+    let matching = 0, rejected = 0;
+    for (const line of data.lines) {
+      const record = parseLine(line);
+      if (record?.service !== service || !['support_http_request', 'support_agent_run'].includes(String(record.event))) continue;
+      if (record.build_environment === environment) matching++; else rejected++;
+    }
+    return { configured: true, ready: matching > 0, reason: matching ? 'environment_verified' : 'no_matching_environment_events', matching, rejected, truncated: data.truncated };
+  } catch { return { configured: true, ready: false, reason: 'source_unavailable_or_environment_invalid' }; }
 }

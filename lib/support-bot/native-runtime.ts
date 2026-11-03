@@ -1,3 +1,4 @@
+import { assertSupportTarget, supportRuntimeEnvironment, SupportEnvironmentError } from './environment';
 import { supportServices, type SupportServiceId } from './services';
 
 export type NativeRuntime = {
@@ -27,7 +28,7 @@ export async function readNativeRuntime(service: SupportServiceId): Promise<Nati
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3_000);
   try {
-    const url = new URL(configured);
+    const url = assertSupportTarget(configured, 'runtime');
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search) {
       return failure('native_runtime_url_invalid');
     }
@@ -65,6 +66,7 @@ export async function readNativeRuntime(service: SupportServiceId): Promise<Nati
     if (!build || typeof build.commit !== 'string' || !/^[a-f0-9]{7,40}$/i.test(build.commit.trim())) {
       return failure('native_runtime_commit_missing', true);
     }
+    if (build.environment !== supportRuntimeEnvironment()) return failure('native_runtime_environment_mismatch', true);
     // Project responses into a fixed safe shape; never forward endpoint fields or exception text.
     // 仅投影固定安全字段，不透传接口附带字段或可能携带凭据的异常文本。
     const text = (value: unknown) => typeof value === 'string' && /^[\w.+:/ -]{1,100}$/.test(value) ? value : undefined;
@@ -73,7 +75,8 @@ export async function readNativeRuntime(service: SupportServiceId): Promise<Nati
       environment: build.environment === 'production' || build.environment === 'development' ? build.environment : undefined,
       dirty: typeof build.dirty === 'boolean' ? build.dirty : undefined,
       checkedAt: new Date().toISOString(), reason: 'native_runtime_read' };
-  } catch {
+  } catch (error) {
+    if (error instanceof SupportEnvironmentError) return failure(error.reason);
     return failure(controller.signal.aborted ? 'native_runtime_request_timeout' : 'native_runtime_request_failed');
   } finally { clearTimeout(timer); }
 }

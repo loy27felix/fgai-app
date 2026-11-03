@@ -72,3 +72,13 @@
 - `/tmp/support-native-e2e.ts` 41项真实独立HTTP→原生日志→助手chain断言通过；真实模型另4项断言核对native日志、独立版本及实际实现，dirty状态未猜根因。隔离验证初次缺Redis、请求ID误以为客户端可指定及model脚本env/重复close清理问题均已修正；只清理了本轮临时容器。
 - `/tmp/support-native-local-check.ts` 当前本机Web API→当前worker→真实Canvas JSONL/gateway Docker日志→模型答复闭环通过，不仅是手工构造日志或隔离数据库。用户看到的证据含同一实际requestId、双方404、服务版本及源码，未将开发构建签认为线上根因。
 - 边界：日志采集前的历史不可补回；info级别缺少成功GET等低级别日志。其他未部署/未配置服务仍显示真实缺口，原分镜异常根因未在本轮确认。未push、未部署生产。
+
+## 本地适配、环境隔离与上线配置准备（2026-11-03）
+- 范围：先让现有 FG / Production Lab / Yingce Web / gateway / Canvas / 独立 Agent 在本机可核验，准备生产配置；不操作生产、不自动提交。五个其他原生产品仍是明确缺口，不能将 gateway 回执冒充其原生数据。
+- 隔离：新增强制 `SUPPORT_BOT_ENVIRONMENT`，本地业务数据库及版本地址限制 loopback、外发关闭；数据库须有同环境数据库级 `fg.support_environment` 标记，拒绝连接参数覆盖目标/标记。主库读写入口、辅助只读事务、独立版本和结构化日志均检查环境，缺失/不符 fail closed。数据库只读来源改用专用 SELECT 角色，不只依赖 URL 的 readonly options。
+- 原生事件增加真实 `build_environment`；本地 Docker 日志只允许 Unix socket，读取改为有界流式保留尾部，修复大量历史日志超过2MiB时整个来源不可读。旧无环境事件不签认、不补造历史。
+- 本机：新建隔离 Production Lab 库，按真实001–006迁移和空状态初始化；应用与助手使用不同权限角色。Canvas/gateway 使用已确认本机库，Canvas 改接 loopback 独立 Agent，Agent 使用真实 Pi runtime/锁定依赖；Vite、Next 与 worker 已启动，飞书外发关闭。仅重载了已核实且空闲的本地服务。
+- 配置预检：`pnpm support-bot:preflight --require=fg,production-lab,canvas,yingce-gateway,yingce-web,yingce-agent` 通过；无 `--require` 时全部真实产品都为 required，五个缺口导致退出1，未伪报全覆盖。该检查只证明配置/源可读，不替代真实故障或生产验收。
+- 验证：主站 `pnpm exec tsc --noEmit --incremental false`；AI/脱敏现有12项测试；Go logging/buildinfo/yingceagent 测试；`/tmp/support-environment-check.ts`（21项环境/权限边界，含显式READ WRITE仍被ACL拒绝）；`/tmp/support-environment-api-check.ts`（GET/POST错环境503、队列不变）；`/tmp/support-native-e2e.ts`（41项隔离HTTP/账号/链路断言）；`/tmp/support-local-sources-check.ts`（实际本机HTTP、原生事件、4个独立版本与空Production Lab库）；`/tmp/support-native-local-check.ts`（实际Web API→worker→模型→日志/版本/源码证据→答复）通过。Agent为真实运行时的故意无效输入负例，不是已定位用户业务故障。
+- Production Lab实际API返回200；Canvas管理员性能接口当前用户返回403，未绕过权限验证其面板。独立Agent接线由本地进程配置及服务直接检查核验，未声称完整真实模型业务流已经全部验收。
+- 上线清单与隔离顺序写入现有README、`.env.example`/`.env.docker.example`；没有填生产密钥、没有访问/部署生产。ArcReel/OpenCreator/AdCraft/Meilin/Suno仍需原生合约、可信账号/实例映射与服务各自的只读适配，不是填URL即可完成。

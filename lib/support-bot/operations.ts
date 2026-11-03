@@ -1,3 +1,4 @@
+import { assertSupportTarget, assertSupportDatabaseEnvironment, assertSupportPrimaryEnvironment } from './environment';
 import { Pool, type PoolClient } from 'pg';
 import { withTransaction } from '@/lib/local/db';
 import type { SupportContext } from './context';
@@ -140,6 +141,7 @@ async function creatorOperations(scope: Scope): Promise<Record<string, unknown>>
   if ((scope.taskId && !UUID.test(scope.taskId)) || (scope.sessionId && !UUID.test(scope.sessionId))) {
     return { rows: [], error: '任务或会话标识格式无效，未执行操作数据查询。' };
   }
+  await assertSupportPrimaryEnvironment();
   return withTransaction(async (client) => {
     await client.query('SET TRANSACTION READ ONLY');
     await client.query("SET LOCAL statement_timeout = '3000ms'");
@@ -196,6 +198,7 @@ export async function supportCanvasUser(client: PoolClient, fgUserId: string): P
 export async function withSupportCanvasReadOnly<T>(read: (client: PoolClient) => Promise<T>): Promise<T> {
   const connectionString = process.env.SUPPORT_BOT_CANVAS_DATABASE_URL;
   if (!connectionString) throw new Error('Canvas read-only source not configured');
+  assertSupportTarget(connectionString, 'database');
   if (!canvasPool) {
     canvasPool = new Pool({ connectionString, max: 2, connectionTimeoutMillis: 2000, idleTimeoutMillis: 10000, statement_timeout: 3000 });
     canvasPool.on('error', () => undefined);
@@ -205,6 +208,7 @@ export async function withSupportCanvasReadOnly<T>(read: (client: PoolClient) =>
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     await client.query("SET LOCAL statement_timeout = '3000ms'");
     await client.query("SET LOCAL idle_in_transaction_session_timeout = '5000ms'");
+    await assertSupportDatabaseEnvironment(client);
     const result = await read(client);
     await client.query('COMMIT');
     return result;

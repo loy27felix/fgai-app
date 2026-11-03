@@ -17,6 +17,7 @@ export interface TextChatOptions {
   traceId?: string;
   taskId?: string;
   sessionId?: string;
+  signal?: AbortSignal;
 }
 
 type TextDependencies = { wetoken?: typeof wetokenChat };
@@ -44,6 +45,7 @@ export async function chatWithTextModel(options: TextChatOptions, dependencies: 
     jsonOutput: options.jsonOutput,
     ...(options.logPayloads !== undefined ? { logPayloads: options.logPayloads } : {}),
     maxTokens: options.maxTokens,
+    ...(options.signal ? { signal: options.signal } : {}),
     ...(options.traceId ? { traceId: options.traceId } : {}),
     ...(options.taskId ? { taskId: options.taskId } : {}),
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),

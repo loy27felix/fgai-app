@@ -1,3 +1,4 @@
+import { assertSupportTarget, assertSupportDatabaseEnvironment } from './environment';
 import { Pool, type PoolClient } from 'pg';
 import {
   normalizeSupportOperationScope,
@@ -77,6 +78,7 @@ function connectionString(): string | null {
 }
 
 async function withReadOnly<T>(url: string, read: (client: PoolClient) => Promise<T>): Promise<T> {
+  assertSupportTarget(url, 'database');
   if (!pool) {
     pool = new Pool({ connectionString: url, max: 2, connectionTimeoutMillis: 3000, idleTimeoutMillis: 10000, statement_timeout: 3000, allowExitOnIdle: true });
     pool.on('error', () => undefined);
@@ -86,6 +88,7 @@ async function withReadOnly<T>(url: string, read: (client: PoolClient) => Promis
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     await client.query("SET LOCAL statement_timeout = '3000ms'");
     await client.query("SET LOCAL idle_in_transaction_session_timeout = '5000ms'");
+    await assertSupportDatabaseEnvironment(client);
     const result = await read(client);
     await client.query('COMMIT');
     return result;

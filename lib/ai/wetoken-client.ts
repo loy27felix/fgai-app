@@ -26,6 +26,7 @@ export interface WetokenChatOptions {
   traceId?: string;
   taskId?: string;
   sessionId?: string;
+  signal?: AbortSignal;
 }
 
 type Fetcher = WetokenFetcher;
@@ -65,7 +66,7 @@ export async function wetokenChat(options: WetokenChatOptions, dependencies: { f
     // Reverse-prompt requests include an image and may legitimately take over
     // a minute. Keep a finite deadline, but leave the route enough time to
     // return a useful provider error instead of aborting at 55 seconds.
-    signal: AbortSignal.timeout(110_000),
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(110_000)]) : AbortSignal.timeout(110_000),
   };
   const baseLogFields = {
     traceId: options.traceId,
