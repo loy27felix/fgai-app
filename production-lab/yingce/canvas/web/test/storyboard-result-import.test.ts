@@ -47,3 +47,12 @@ test("reviewed saved prompt edits keep the provider original and still pass the 
     await expect(importSavedChapterStoryboard("project","chapter",[invalid.task],async()=>undefined,[],invalid.deps,{task:JSON.stringify(document)})).rejects.toThrow();
     expect(invalid.writes).toBe(0);
 });
+
+test("a failed format draft imports only after an explicit complete edit and keeps its original task failed",async()=>{
+    const f=fixture();f.task.status="failed";f.task.textDraft="{\"rows\":[";
+    const corrected=JSON.parse(f.task.resultJson!).text;f.task.resultJson="{}";
+    await expect(importSavedChapterStoryboard("project","chapter",[f.task],async()=>undefined,[],f.deps)).rejects.toThrow("尚未全部成功");
+    expect(f.writes).toBe(0);
+    await importSavedChapterStoryboard("project","chapter",[f.task],async()=>({0:f.assets.slice(0,6).map(a=>a.id)}),[],f.deps,{task:corrected});
+    expect(f.writes).toBe(1);expect(f.task.status).toBe("failed");expect(f.task.textDraft).toBe("{\"rows\":[");
+});

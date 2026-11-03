@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { changeAgentPanelLayout, clampAgentPanelLayout, defaultAgentPanelLayout, restoreAgentPanelLayout } from "@/lib/canvas/agent-panel-layout";
 import { agentErrorPresentation, agentSubmissionErrorTitle } from "@/lib/canvas/agent-error-presentation";
 import { ApiError } from "@/services/api/request";
@@ -54,12 +54,15 @@ describe("Agent window layout", () => {
 
 describe("Agent submission sync preflight contract", () => {
     it("scopes submit and approval saves to the active canvas before Agent POST", () => {
-        const source = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-cloud-agent-panel.tsx"), "utf8").replaceAll('\r\n', '\n');
+        const source = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-cloud-agent-panel.tsx"), "utf8").replaceAll("\r\n", "\n");
         // 提交同步当前页面绑定的画布；审批同步该轮运行自己的画布（离开画布后仍能审批写回）。无画布时都跳过。
         expect(source).toContain("if (canvasId) await prepareCanvasForCloudAction(canvasId);");
         expect(source).toContain('if (decision === "approve" && run.canvasId) {');
         expect(source).toContain("await prepareCanvasForCloudAction(run.canvasId);");
         expect(source).not.toContain("cloudNodeIds");
+        // 发送新一轮时画布占用会禁用按钮；排队只写本机，不受占用影响。
+        expect(source).toContain('composerSubmitMode === "send"\n            ? (otherAgentRunning && !pendingNow?.request)');
+        expect(source).toContain("submitDisabled={composerSubmitDisabled}");
         expect(source).toContain("重新读取记录");
         expect(source).toContain("requestSent = true;\n            const result = submission.parentRunId ? await sendAgentMessage");
         expect(source).toContain("agentSubmissionErrorTitle(cause, accepted, requestSent)");

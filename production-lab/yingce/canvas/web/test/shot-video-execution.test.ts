@@ -8,6 +8,14 @@ const context: ShotAssetReferenceContext = {
     assetReferences: [{ assetId: "evan", title: "Evan", category: "character", imageIndex: 1, audioIndex: 1, voiceDescription: "低沉、克制、慢速" }],
 };
 
+test("a silent shot never uploads character sample speech even when voice samples were previously enabled", () => {
+    for (const prompt of ["Evan walks to the window.", "【声音设计】\n对白：无。只保留脚步声。", "No dialogue, footsteps only."]) {
+        const result = prepareShotVideoExecution(prompt, context, { useVoiceSamples: true });
+        expect(result.context.referenceAudios).toHaveLength(0);
+        expect(result.prompt).not.toContain("声音参考：音频");
+    }
+});
+
 describe("reviewed shot video execution", () => {
     const characters = ["Mia", "Evan", "Shadow"];
     const cast: ShotAssetReferenceContext = {
@@ -25,7 +33,7 @@ describe("reviewed shot video execution", () => {
         expect(result.prompt).toContain("不得让其坐在现场对面");
     });
     test("an explicitly limited cast excludes an unmentioned bound character and reindexes images and voices", () => {
-        const result = prepareShotVideoExecution("【背景人物活动】\n空间中只有 Evan 与 Shadow。\n【角色参考】\nMia：@[asset:Mia]\nEvan：@[asset:Evan]\nShadow：@[asset:Shadow]", cast, { useVoiceSamples: true });
+        const result = prepareShotVideoExecution("【背景人物活动】\n空间中只有 Evan 与 Shadow。\n【声音设计】\n对白：\nEvan: Stay here.\nShadow: I will.\n【角色参考】\nMia：@[asset:Mia]\nEvan：@[asset:Evan]\nShadow：@[asset:Shadow]", cast, { useVoiceSamples: true });
         expect(result.context.referenceImages.map(image => image.id)).toEqual(["Evan", "Shadow"]);
         expect(result.context.referenceAudios.map(audio => audio.id)).toEqual(["Evan", "Shadow"]);
         expect(result.context.resolvedCharacterVersions.map(reference => reference.assetId)).toEqual(["Evan", "Shadow"]);

@@ -3,11 +3,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { resolveCanvasAppearance, resolveCanvasGridColor, type CanvasAppearance } from "@/lib/canvas/canvas-appearance";
 import { resolveCanvasPointerIntent } from "@/lib/canvas/canvas-selection";
 import { isDiscreteCanvasWheel } from "@/lib/canvas/canvas-wheel";
+import { canvasWheelBelongsToViewport, canvasWheelIntentTarget, createCanvasWheelIntent } from "@/lib/canvas/canvas-wheel-intent";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { applyCanvasLiveViewport, CANVAS_GRID_BLEED, canvasGridMetrics, subscribeCanvasViewportPreview } from "@/lib/canvas/canvas-live-viewport";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
-import {resolveMediaUrl} from '@/services/file-storage';
+import { resolveMediaUrl } from "@/services/file-storage";
 import { transferHasFiles } from "@/lib/media-transfer";
 
 type CanvasViewportProps = {
@@ -72,12 +73,29 @@ export function CanvasViewport({
 }: CanvasViewportProps) {
     const colorTheme = useActiveTheme();
     const resolvedAppearance = resolveCanvasAppearance(appearance, colorTheme);
-    const [backgroundImage,setBackgroundImage]=useState('');
-    const backgroundKey=appearance?.mode==='custom'?appearance.custom?.backgroundImage?.storageKey:undefined;
-    useEffect(()=>{let active=true;setBackgroundImage('');if(backgroundKey)void resolveMediaUrl(backgroundKey).then(url=>{if(active)setBackgroundImage(url);}).catch(()=>{if(active)setBackgroundImage('');});return()=>{active=false;};},[backgroundKey]);
-    const inertiaFrame=useRef<number|null>(null);
-    const panVelocity=useRef({x:0,y:0,lastX:0,lastY:0,time:0});
-    const stopInertia=()=>{if(inertiaFrame.current!==null)cancelAnimationFrame(inertiaFrame.current);inertiaFrame.current=null;};
+    const [backgroundImage, setBackgroundImage] = useState("");
+    const backgroundKey = appearance?.mode === "custom" ? appearance.custom?.backgroundImage?.storageKey : undefined;
+    useEffect(() => {
+        let active = true;
+        setBackgroundImage("");
+        if (backgroundKey)
+            void resolveMediaUrl(backgroundKey)
+                .then((url) => {
+                    if (active) setBackgroundImage(url);
+                })
+                .catch(() => {
+                    if (active) setBackgroundImage("");
+                });
+        return () => {
+            active = false;
+        };
+    }, [backgroundKey]);
+    const inertiaFrame = useRef<number | null>(null);
+    const panVelocity = useRef({ x: 0, y: 0, lastX: 0, lastY: 0, time: 0 });
+    const stopInertia = () => {
+        if (inertiaFrame.current !== null) cancelAnimationFrame(inertiaFrame.current);
+        inertiaFrame.current = null;
+    };
     const panState = useRef({
         isPanning: false,
         pointerId: -1,
@@ -97,6 +115,7 @@ export function CanvasViewport({
     const interactingRef = useRef(false);
     const touchPointsRef = useRef(new Map<number, TouchPoint>());
     const pinchStateRef = useRef<PinchState>({ active: false, pointerIds: [-1, -1], initialDistance: 1, worldX: 0, worldY: 0, initialScale: viewport.k });
+    const wheelIntentRef = useRef(createCanvasWheelIntent<Element>());
     const spacePressedRef = useRef(false);
     const controlPressedRef = useRef(false);
     const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -201,6 +220,7 @@ export function CanvasViewport({
         };
 
         const handleBlur = () => {
+            wheelIntentRef.current.reset();
             controlPressedRef.current = false;
             spacePressedRef.current = false;
             setIsSpacePressed(false);
@@ -219,25 +239,40 @@ export function CanvasViewport({
     const handleWheel = useCallback(
         (event: WheelEvent) => {
             stopInertia();
+            const container = containerRef.current;
             const target = event.target instanceof Element ? event.target : null;
+            if (!container || event.defaultPrevented || !canvasWheelBelongsToViewport(target, container)) return;
+            if (target?.closest(".ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown,[role='dialog'],[role='menu'],[role='listbox'],[data-canvas-resource-mention-menu]")) return;
+
             const deltaX = wheelDeltaToPixels(event.deltaX, event.deltaMode);
             const deltaY = wheelDeltaToPixels(event.deltaY, event.deltaMode);
             const absX = Math.abs(deltaX);
             const absY = Math.abs(deltaY);
             const isPinchZoom = event.ctrlKey || event.metaKey;
-            // Chromium also sets ctrlKey for touchpad pinch, but does not send a Control keydown.
-            const editing = document.activeElement?.matches("input,textarea,select,[contenteditable]:not([contenteditable='false'])");
-            if (event.ctrlKey && controlPressedRef.current && !event.metaKey && !event.shiftKey && !editing && !target?.closest(CANVAS_WHEEL_IGNORE_SELECTOR) && onSelectedImageWheel?.(deltaY)) {
-                event.preventDefault();
-                return;
-            }
-            if (target?.closest(CANVAS_WHEEL_IGNORE_SELECTOR) && !isPinchZoom) {
-                // 内部区域保留纵向滚动，但横向手势不能泄漏为 macOS 浏览器前进/后退。
+            const intentTarget = canvasWheelIntentTarget(target);
+            const forceCanvas = isPinchZoom || event.shiftKey || absX > absY;
+            const wheelOwner = wheelIntentRef.current.resolve(intentTarget, event, performance.now(), forceCanvas);
+            if (intentTarget && wheelOwner === "scroll") return;
+            if (!intentTarget && target?.closest(CANVAS_WHEEL_IGNORE_SELECTOR) && !isPinchZoom) {
+                // 普通滚动仍留在既有输入、弹层和滚动面板边界内。
                 if (event.shiftKey || absX > absY) event.preventDefault();
                 return;
             }
 
-            // Ctrl/Meta + 滚轮在画布内始终由画布接管，避免浮层区域触发浏览器页面缩放。
+            if (
+                event.ctrlKey &&
+                controlPressedRef.current &&
+                !event.metaKey &&
+                !event.shiftKey &&
+                !document.activeElement?.matches("input,textarea,select,[contenteditable]:not([contenteditable='false'])") &&
+                !target?.closest(CANVAS_WHEEL_IGNORE_SELECTOR) &&
+                onSelectedImageWheel?.(deltaY)
+            ) {
+                event.preventDefault();
+                return;
+            }
+
+            // Modifier wheel/pinch is canvas zoom only inside this canvas or its prompt panel.
             event.preventDefault();
             interactingRef.current = true;
             const current = viewportRef.current;
@@ -257,7 +292,7 @@ export function CanvasViewport({
                 return;
             }
 
-            const rect = containerRectRef.current || containerRef.current?.getBoundingClientRect();
+            const rect = containerRectRef.current || container.getBoundingClientRect();
             if (!rect) return;
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
@@ -282,7 +317,7 @@ export function CanvasViewport({
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         if (!interactive) return;
         stopInertia();
-        panVelocity.current={x:0,y:0,lastX:event.clientX,lastY:event.clientY,time:performance.now()};
+        panVelocity.current = { x: 0, y: 0, lastX: event.clientX, lastY: event.clientY, time: performance.now() };
         const target = event.target instanceof Element ? event.target : null;
         // AntD 浮层通过 Portal 渲染到节点 DOM 之外；若不统一排除，会被误判为画布空白并捕获指针。
         if (target?.closest(CANVAS_POINTER_IGNORE_SELECTOR)) return;
@@ -399,8 +434,10 @@ export function CanvasViewport({
 
             const dx = event.clientX - panState.current.startX;
             const dy = event.clientY - panState.current.startY;
-            const sample=panVelocity.current,now=performance.now(),dt=Math.max(1,now-sample.time);
-            panVelocity.current={x:Math.max(-2.5,Math.min(2.5,(event.clientX-sample.lastX)/dt)),y:Math.max(-2.5,Math.min(2.5,(event.clientY-sample.lastY)/dt)),lastX:event.clientX,lastY:event.clientY,time:now};
+            const sample = panVelocity.current,
+                now = performance.now(),
+                dt = Math.max(1, now - sample.time);
+            panVelocity.current = { x: Math.max(-2.5, Math.min(2.5, (event.clientX - sample.lastX) / dt)), y: Math.max(-2.5, Math.min(2.5, (event.clientY - sample.lastY) / dt)), lastX: event.clientX, lastY: event.clientY, time: now };
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
                 panState.current.hasMoved = true;
             }
@@ -441,11 +478,26 @@ export function CanvasViewport({
             syncViewport();
             setIsPanning(false);
             document.body.style.cursor = "";
-            const velocity=panVelocity.current;
-            if(event.type==='pointerup'&&panState.current.hasMoved&&performance.now()-velocity.time<70&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
-                let vx=velocity.x,vy=velocity.y,last=performance.now();
-                const tick=(now:number)=>{const dt=Math.min(32,now-last);last=now;const decay=Math.exp(-dt/140);vx*=decay;vy*=decay;const current=viewportRef.current;scheduleViewportChange({...current,x:current.x+vx*dt,y:current.y+vy*dt},true);if(Math.hypot(vx,vy)>.015)inertiaFrame.current=requestAnimationFrame(tick);else{inertiaFrame.current=null;syncViewport();}};
-                inertiaFrame.current=requestAnimationFrame(tick);
+            const velocity = panVelocity.current;
+            if (event.type === "pointerup" && panState.current.hasMoved && performance.now() - velocity.time < 70 && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                let vx = velocity.x,
+                    vy = velocity.y,
+                    last = performance.now();
+                const tick = (now: number) => {
+                    const dt = Math.min(32, now - last);
+                    last = now;
+                    const decay = Math.exp(-dt / 140);
+                    vx *= decay;
+                    vy *= decay;
+                    const current = viewportRef.current;
+                    scheduleViewportChange({ ...current, x: current.x + vx * dt, y: current.y + vy * dt }, true);
+                    if (Math.hypot(vx, vy) > 0.015) inertiaFrame.current = requestAnimationFrame(tick);
+                    else {
+                        inertiaFrame.current = null;
+                        syncViewport();
+                    }
+                };
+                inertiaFrame.current = requestAnimationFrame(tick);
             }
         };
 
@@ -466,15 +518,25 @@ export function CanvasViewport({
         const updateRect = () => {
             containerRectRef.current = container.getBoundingClientRect();
         };
+        const handleWheelPointerMove = (event: PointerEvent) => {
+            const target = event.target instanceof Element ? event.target : null;
+            const belongs = canvasWheelBelongsToViewport(target, container);
+            const promptEditorModal = target?.closest(".canvas-prompt-editor-modal");
+            const popup = target?.closest(".ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown,[role='dialog'],[role='menu'],[role='listbox'],[data-canvas-resource-mention-menu]");
+            const intentTarget = belongs && (!popup || promptEditorModal) ? canvasWheelIntentTarget(target) : null;
+            wheelIntentRef.current.move(intentTarget, event, performance.now());
+        };
         updateRect();
         const observer = new ResizeObserver(updateRect);
         observer.observe(container);
         window.addEventListener("resize", updateRect);
-        container.addEventListener("wheel", handleWheel, { passive: false, capture: true });
+        window.addEventListener("pointermove", handleWheelPointerMove, true);
+        window.addEventListener("wheel", handleWheel, { passive: false, capture: true });
         return () => {
             observer.disconnect();
             window.removeEventListener("resize", updateRect);
-            container.removeEventListener("wheel", handleWheel, { capture: true });
+            window.removeEventListener("pointermove", handleWheelPointerMove, true);
+            window.removeEventListener("wheel", handleWheel, { capture: true });
         };
     }, [interactive, containerRef, handleWheel]);
 
@@ -485,18 +547,24 @@ export function CanvasViewport({
             data-popover-anchor-container
             data-canvas-pan-state={isPanning ? "grabbing" : isSpacePressed || !boxSelectEnabled ? "grab" : undefined}
             className={`relative h-full w-full select-none overflow-hidden touch-none ${isPanning ? "cursor-grabbing" : isSpacePressed || !boxSelectEnabled ? "cursor-grab" : "canvas-cursor-select"}`}
-            style={{
-                backgroundColor: resolvedAppearance.background,
-                backgroundImage: resolvedAppearance.baseTheme==='dark'?`radial-gradient(ellipse at 15% 10%,rgba(112,122,164,.13),transparent 55%),radial-gradient(ellipse at 90% 80%,rgba(102,84,146,.09),transparent 50%),linear-gradient(145deg,${resolvedAppearance.background},#101217)`:'radial-gradient(ellipse at 20% 10%,rgba(128,156,191,.08),transparent 65%)',
-                backgroundSize:'cover',backgroundPosition:'center',
-                overscrollBehavior: "none",
-                "--canvas-live-x": `${viewport.x}px`,
-                "--canvas-live-y": `${viewport.y}px`,
-                "--canvas-live-scale": viewport.k,
-                "--canvas-live-inverse-scale": 1 / Math.max(viewport.k, 0.05),
-                "--canvas-committed-scale": viewport.k,
-                "--canvas-live-scale-ratio": 1,
-            } as React.CSSProperties}
+            style={
+                {
+                    backgroundColor: resolvedAppearance.background,
+                    backgroundImage:
+                        resolvedAppearance.baseTheme === "dark"
+                            ? `radial-gradient(ellipse at 15% 10%,rgba(112,122,164,.13),transparent 55%),radial-gradient(ellipse at 90% 80%,rgba(102,84,146,.09),transparent 50%),linear-gradient(145deg,${resolvedAppearance.background},#101217)`
+                            : "radial-gradient(ellipse at 20% 10%,rgba(128,156,191,.08),transparent 65%)",
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    overscrollBehavior: "none",
+                    "--canvas-live-x": `${viewport.x}px`,
+                    "--canvas-live-y": `${viewport.y}px`,
+                    "--canvas-live-scale": viewport.k,
+                    "--canvas-live-inverse-scale": 1 / Math.max(viewport.k, 0.05),
+                    "--canvas-committed-scale": viewport.k,
+                    "--canvas-live-scale-ratio": 1,
+                } as React.CSSProperties
+            }
             onPointerDown={handlePointerDown}
             onDoubleClick={(event) => {
                 const target = event.target instanceof Element ? event.target : null;
@@ -557,7 +625,13 @@ export function CanvasViewport({
                 onDrop?.(event);
             }}
         >
-            {backgroundImage?<div aria-hidden className="absolute inset-0 pointer-events-none" style={{backgroundImage:`url(${JSON.stringify(backgroundImage)})`,backgroundPosition:'center',backgroundSize:'cover',opacity:(appearance?.custom?.backgroundImage?.opacity??100)/100}}/>:null}
+            {backgroundImage ? (
+                <div
+                    aria-hidden
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ backgroundImage: `url(${JSON.stringify(backgroundImage)})`, backgroundPosition: "center", backgroundSize: "cover", opacity: (appearance?.custom?.backgroundImage?.opacity ?? 100) / 100 }}
+                />
+            ) : null}
             <CanvasGrid appearance={appearance} mode={backgroundMode} viewport={viewport} />
             {graphicsLayer}
             <div data-canvas-world-layer data-popover-anchor-container className="canvas-world-layer absolute origin-top-left">

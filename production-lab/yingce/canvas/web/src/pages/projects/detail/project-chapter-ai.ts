@@ -63,12 +63,12 @@ export function chapterStoryboardFromGenerationTask(task: GenerationTask) {
     return parseChapterStoryboardPart(task);
 }
 
-export function chapterStoryboardFromGenerationTasks(tasks: GenerationTask[]) {
+export function chapterStoryboardFromGenerationTasks(tasks: GenerationTask[], options: { reviewedDialogue?: boolean } = {}) {
     if (!tasks.length) throw new Error("没有完整的章节分镜批次");
     const ordered = completeStoryboardBatch(tasks[0], tasks);
     if (!ordered || ordered.length !== tasks.length) throw new Error("章节分镜批次尚未全部成功，原分镜未覆盖");
     const results = ordered.map((task, index) => {
-        try { return parseChapterStoryboardPart(task); }
+        try { return parseChapterStoryboardPart(task, options); }
         catch (error) {
             if (ordered.length === 1 || !(error instanceof Error)) throw error;
             throw new Error(`第 ${index + 1}/${ordered.length} 批：${error.message}`);
@@ -80,7 +80,7 @@ export function chapterStoryboardFromGenerationTasks(tasks: GenerationTask[]) {
     return { ...results[0], rows: rows.map((row, index) => ({ ...row, shotNumber: index + 1, ...(row.sourceTask ? { sourceTask: { ...row.sourceTask, expectedRows: rows.length } } : {}) })) };
 }
 
-function parseChapterStoryboardPart(task: GenerationTask) {
+function parseChapterStoryboardPart(task: GenerationTask, options: { reviewedDialogue?: boolean } = {}) {
     const result = storyboardRowsFromTask(task);
     const metadata = generationTaskMetadata(task.inputJson);
     const plan = parseDramaProductionPlan(metadata.dramaProductionPlan);
@@ -95,8 +95,8 @@ function parseChapterStoryboardPart(task: GenerationTask) {
     if (plan?.promptFormat === "director-v2") {
         result.rows = result.rows.map(row => ({ ...row, videoMotionPrompt: normalizeDirectorVideoPrompt(row.videoMotionPrompt, row.durationSeconds) }));
     }
-    validateDramaStoryboard(result.rows, plan);
-    if (metadata.projectLanguagePolicy && normalizeProjectLanguage(metadata.projectLanguagePolicy).spoken === "en-original") {
+    validateDramaStoryboard(result.rows, plan, options);
+    if (!options.reviewedDialogue && metadata.projectLanguagePolicy && normalizeProjectLanguage(metadata.projectLanguagePolicy).spoken === "en-original") {
         if (!Array.isArray(metadata.originalEnglishDialogue)) throw new Error("原英文台词清单缺失，请核对任务原稿，未导入分镜");
         assertOriginalEnglishRows(result.rows, metadata.originalEnglishDialogue as OriginalEnglishCue[]);
         for (const row of result.rows) assertLockedEnglishPrompt(row.dialogue, row.videoMotionPrompt);

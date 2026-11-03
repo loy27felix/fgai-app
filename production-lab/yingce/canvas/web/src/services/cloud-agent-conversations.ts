@@ -21,8 +21,14 @@ export type CloudAgentConversationMessage = {
     meta?: string;
     detail?: unknown;
     attachments?: Array<{ id: string; name: string; url: string }>;
-    interjection?: "sent" | "delivered" | "undelivered" | "withdrawn";
+    interjection?: CloudAgentInterjectionState;
 };
+
+/**
+ * 插话气泡状态。sending：请求还没返回（只在内存里，不写入本机快照）；
+ * requeued：未送达后已转为下一轮（重新进入队列），不再提供转发入口。
+ */
+export type CloudAgentInterjectionState = "sending" | "sent" | "delivered" | "undelivered" | "withdrawn" | "requeued";
 
 export type CloudAgentConversation = {
     id: string;
@@ -67,7 +73,11 @@ export async function deleteCloudAgentConversation(id: string, activeId: string 
     deletedConversationIds.set(key, removed);
     removed.add(id);
     try {
-        await saveCloudAgentConversations( activeId === id ? null : activeId, conversations.filter((item) => item.id !== id), scope);
+        await saveCloudAgentConversations(
+            activeId === id ? null : activeId,
+            conversations.filter((item) => item.id !== id),
+            scope,
+        );
     } catch (error) {
         removed.delete(id);
         throw error;
@@ -92,7 +102,7 @@ export async function loadCloudAgentConversations(scope = getActiveUserScope()):
 // Keep existing per-canvas chats and their original retry identities when moving
 // to the account-wide panel. Legacy records stay intact as a recovery source.
 async function importLegacyConversations(scope: string): Promise<CloudAgentConversationDocument> {
-    const keys = (await localForageKeysForScope(scope)).filter(key => key.startsWith('cloud-agent-conversations-v1:') && !key.includes(':pending:'));
+    const keys = (await localForageKeysForScope(scope)).filter((key) => key.startsWith("cloud-agent-conversations-v1:") && !key.includes(":pending:"));
     const storage = localForageStorageForScope(scope);
     const conversations = new Map<string, CloudAgentConversation>();
     for (const key of keys) {
@@ -100,20 +110,20 @@ async function importLegacyConversations(scope: string): Promise<CloudAgentConve
         const raw = await storage.getItem(name);
         if (!raw) continue;
         const document: unknown = JSON.parse(raw);
-        if (!isConversationDocument(document)) throw Error('旧画布对话格式无效，原记录已保留');
-        const canvasKey = name.slice('cloud-agent-conversations-v1:'.length);
+        if (!isConversationDocument(document)) throw Error("旧画布对话格式无效，原记录已保留");
+        const canvasKey = name.slice("cloud-agent-conversations-v1:".length);
         for (const conversation of document.conversations) {
             const previous = conversations.get(conversation.id);
             if (!previous || previous.updatedAt < conversation.updatedAt) conversations.set(conversation.id, conversation);
             const pending = await storage.getItem(`cloud-agent-conversations-v1:pending:${canvasKey}:${encodeURIComponent(conversation.id)}`);
             if (pending) {
                 const existing = await storage.getItem(pendingStorageKey(conversation.id));
-                if (existing && existing !== pending) throw Error('旧请求恢复记录存在冲突，请先核对原任务');
+                if (existing && existing !== pending) throw Error("旧请求恢复记录存在冲突，请先核对原任务");
                 await storage.setItem(pendingStorageKey(conversation.id), pending);
             }
         }
     }
-    const items = [...conversations.values()].sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
+    const items = [...conversations.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const result: CloudAgentConversationDocument = { version: 1, activeId: items[0]?.id ?? null, conversations: items };
     if (items.length) await storage.setItem(storageKey(), JSON.stringify(result));
     return result;
@@ -123,17 +133,24 @@ export async function saveCloudAgentConversations(activeId: string | null, conve
     const key = `${scope}:${storageKey()}`;
     // 流式标记只属于内存中的观察状态。若网络在最后一个 delta 后断开，
     // 也不能让下次恢复把思考卡片误判为仍在实时展开。
+    // 发送中的插话气泡同理：结果未知，刷新后由事件回放补回已被接收的那条，原文仍在本机队列里。
     const persistedConversations = conversations.map((conversation) => ({
         ...conversation,
-        messages: conversation.messages.map((message) => ({ ...message, streaming: false })),
+        messages: conversation.messages.filter((message) => message.interjection !== "sending").map((message) => ({ ...message, streaming: false })),
     }));
-    const write = (historyWrites.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
-        const removed = deletedConversationIds.get(key);
-        const document: CloudAgentConversationDocument = { version: 1, activeId: activeId && removed?.has(activeId) ? null : activeId, conversations: persistedConversations.filter((item) => !removed?.has(item.id)) };
-        await localForageStorageForScope(scope).setItem(storageKey(), JSON.stringify(document));
-    });
+    const write = (historyWrites.get(key) || Promise.resolve())
+        .catch(() => {})
+        .then(async () => {
+            const removed = deletedConversationIds.get(key);
+            const document: CloudAgentConversationDocument = { version: 1, activeId: activeId && removed?.has(activeId) ? null : activeId, conversations: persistedConversations.filter((item) => !removed?.has(item.id)) };
+            await localForageStorageForScope(scope).setItem(storageKey(), JSON.stringify(document));
+        });
     historyWrites.set(key, write);
-    try { await write; } finally { if (historyWrites.get(key) === write) historyWrites.delete(key); }
+    try {
+        await write;
+    } finally {
+        if (historyWrites.get(key) === write) historyWrites.delete(key);
+    }
 }
 
 // Keep the retry key outside the chat snapshot. If the response is lost, a
@@ -151,7 +168,15 @@ export async function loadCloudAgentPendingSubmission(conversationId: string, sc
         if (parsed.request !== undefined && (!parsed.request || parsed.request.idempotencyKey !== parsed.key || typeof parsed.request.canvasId !== "string" || typeof parsed.request.prompt !== "string")) throw new Error("invalid request");
         if (parsed.parentRunId !== undefined && typeof parsed.parentRunId !== "string") throw new Error("invalid parent");
         if (parsed.messageId !== undefined && typeof parsed.messageId !== "string") throw new Error("invalid message");
-        return { fingerprint: parsed.fingerprint, key: parsed.key, request: renameLegacySkillIds(parsed.request), parentRunId: parsed.parentRunId, messageId: parsed.messageId, displayText: parsed.displayText, canvasReferenceNodeId: parsed.canvasReferenceNodeId } satisfies CloudAgentPendingSubmission;
+        return {
+            fingerprint: parsed.fingerprint,
+            key: parsed.key,
+            request: renameLegacySkillIds(parsed.request),
+            parentRunId: parsed.parentRunId,
+            messageId: parsed.messageId,
+            displayText: parsed.displayText,
+            canvasReferenceNodeId: parsed.canvasReferenceNodeId,
+        } satisfies CloudAgentPendingSubmission;
     } catch {
         throw new Error("待确认请求记录损坏，已暂停本对话发送；请先在任务中心核对原运行，不要直接重复生成");
     }
@@ -211,11 +236,13 @@ function isConversationDocument(value: unknown): value is CloudAgentConversation
     return document.conversations.every((conversation) => {
         if (!conversation || typeof conversation !== "object") return false;
         const candidate = conversation as Partial<CloudAgentConversation>;
-        return typeof candidate.id === "string"
-            && typeof candidate.title === "string"
-            && Array.isArray(candidate.messages)
-            && typeof candidate.createdAt === "string"
-            && typeof candidate.updatedAt === "string"
-            && ["read_only", "auto", "request_approval"].includes(candidate.permissionMode || "");
+        return (
+            typeof candidate.id === "string" &&
+            typeof candidate.title === "string" &&
+            Array.isArray(candidate.messages) &&
+            typeof candidate.createdAt === "string" &&
+            typeof candidate.updatedAt === "string" &&
+            ["read_only", "auto", "request_approval"].includes(candidate.permissionMode || "")
+        );
     });
 }

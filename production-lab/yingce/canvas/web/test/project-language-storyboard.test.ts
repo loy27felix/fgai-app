@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chapterStoryboardFromGenerationTask } from "@/pages/projects/detail/project-chapter-ai";
+import { chapterStoryboardFromGenerationTask, chapterStoryboardFromGenerationTasks } from "@/pages/projects/detail/project-chapter-ai";
 import { originalEnglishDialogue } from "@/services/api/project-language";
 import type { GenerationTask } from "@/services/api/task-center";
 const original = "迪伦：别碰那根弦。\nDylan: Don't touch that string.";
@@ -14,6 +14,14 @@ test("chapter import keeps original English and refuses newly translated or mism
     expect(chapterStoryboardFromGenerationTask(task(english)).rows[0].dialogue).toBe(english);
     expect(() => chapterStoryboardFromGenerationTask(task("迪伦：别碰那根弦。"))).toThrow("原稿英文");
     expect(() => chapterStoryboardFromGenerationTask(task(english, "Dylan: Please keep your hands off the string."))).toThrow("原英文");
+});
+
+test("only explicitly reviewed saved imports may accept an authored video line over the original script",()=>{
+    const value=task("Dylan: Don't touch that string.","Dylan: Stay here.");
+    expect(()=>chapterStoryboardFromGenerationTasks([value])).toThrow();
+    const reviewed=chapterStoryboardFromGenerationTasks([value],{reviewedDialogue:true});
+    expect(reviewed.rows[0].videoMotionPrompt).toContain("Dylan: Stay here.");
+    expect(value.resultJson).toContain("Stay here.");
 });
 
 test("English import distinguishes inline voice and action/timing directions from spoken lines", () => {

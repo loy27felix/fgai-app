@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Checkbox, Input } from "antd";
-import { ArrowLeft, BookMarked, Check, ChevronRight, Cpu, Gauge, LockKeyhole, PlugZap, Search, ShieldCheck, Sparkles, Wrench, Blocks, CirclePlay } from "lucide-react";
+import { ArrowLeft, BookMarked, Check, ChevronRight, Cpu, Gauge, LockKeyhole, PlugZap, Search, ShieldCheck, Sparkles, Wrench, Blocks, CirclePlay, X } from "lucide-react";
 
 import { ModelPicker } from "@/components/model-picker";
 import { Switch } from "@/components/ui/base/switch";
@@ -9,6 +9,7 @@ import AgentMemoryPane from "@/pages/settings/agent-memory-pane";
 import type { AgentPermissionMode, AgentProfileLayer, AgentProfileScope, AgentProfileView, AgentReasoningMode } from "@/services/api/agent";
 import type { Skill, SkillAgentMode } from "@/services/api/skills";
 import type { AiConfig } from "@/stores/use-config-store";
+import { AgentConnectorsBar } from "./canvas-cloud-agent-connectors";
 
 /** 对话固定的技能上限；与技能商店弹窗一致，后端另有含点名在内的 16 个硬上限。 */
 export const AGENT_PINNED_SKILL_LIMIT = 8;
@@ -44,6 +45,8 @@ type AgentSettingsProps = {
     maxGenerationTasks: string;
     maxVideoSeconds: string;
     onBack: () => void;
+    /** 设置页也能直接收起 Agent，不必先返回对话。 */
+    onCollapse?: () => void;
     onModelChange: (model: string) => void;
     onPermissionChange: (mode: AgentPermissionMode) => void;
     onContextToggle: (value: AgentContextKey) => void;
@@ -59,10 +62,11 @@ type AgentSettingsProps = {
     onMaxVideoSecondsChange: (value: string) => void;
 };
 
-const permissionOptions: Array<{ value: AgentPermissionMode; label: string; description: string; icon: typeof ShieldCheck; color: string }> = [
-    { value: "read_only", label: "只读", description: "只分析和建议", icon: LockKeyhole, color: "#4f7cff" },
-    { value: "request_approval", label: "请求审批", description: "写入和生成前确认", icon: ShieldCheck, color: "#b58336" },
-    { value: "auto", label: "自动执行", description: "预算内执行已授权工具", icon: CirclePlay, color: "#429477" },
+// 颜色走状态语义 token，明暗主题和皮肤自动适配；short 是输入框权限胶囊上的两字名。
+const permissionOptions: Array<{ value: AgentPermissionMode; label: string; short: string; description: string; icon: typeof ShieldCheck; color: string }> = [
+    { value: "read_only", label: "只读", short: "只读", description: "只分析和建议", icon: LockKeyhole, color: "var(--status-loading)" },
+    { value: "request_approval", label: "请求审批", short: "审批", description: "写入和生成前确认", icon: ShieldCheck, color: "var(--status-warning)" },
+    { value: "auto", label: "自动执行", short: "自动", description: "预算内执行已授权工具", icon: CirclePlay, color: "var(--status-success)" },
 ];
 
 const contextOptions: Array<{ value: AgentContextKey; label: string; description: string }> = [{ value: "canvas", label: "画布节点目录", description: "每次请求只带节点 id、类型和标题；正文按页读取，不含媒体或未同步修改" }];
@@ -93,6 +97,7 @@ export function CanvasCloudAgentSettings(props: AgentSettingsProps) {
                         {section === "skills" ? `${props.selectedSkillIds.length} 已固定` : "当前 Agent"}
                     </span>
                 ) : null}
+                {props.onCollapse ? <Button type="text" shape="circle" icon={<X className="size-4" />} onClick={props.onCollapse} aria-label="收起 Agent" title="收起" /> : null}
             </header>
 
             {section === "home" ? <SettingsHome props={props} theme={theme} onOpen={setSection} /> : null}
@@ -522,6 +527,10 @@ function McpWorkspace({ theme }: { theme: CanvasTheme }) {
                     </div>
                 ))}
             </section>
+            <section>
+                <SettingLabel label="第三方连接" hint="即将支持" />
+                <AgentConnectorsBar />
+            </section>
             <p className="text-xs leading-5" style={{ color: theme.node.muted }}>
                 自定义 MCP 暂未开放。实际工具权限、密钥和调用配额需由 Agent 后端校验，不能在浏览器中假设已启用。
             </p>
@@ -644,9 +653,12 @@ function sectionSubtitle(section: SettingsSection) {
 export function agentPermissionLabel(mode: AgentPermissionMode) {
     return permissionOptions.find((option) => option.value === mode)?.label || "请求审批";
 }
+export function agentPermissionShortLabel(mode: AgentPermissionMode) {
+    return permissionOptions.find((option) => option.value === mode)?.short || "审批";
+}
 export function agentPermissionVisual(mode: AgentPermissionMode) {
     const option = permissionOptions.find((item) => item.value === mode) || permissionOptions[0];
-    return { color: option.color, soft: `${option.color}1f`, icon: option.icon };
+    return { color: option.color, soft: `color-mix(in srgb, ${option.color} 12%, transparent)`, icon: option.icon };
 }
 export function agentPermissionMenuItems(mode: AgentPermissionMode, onChange: (mode: AgentPermissionMode) => void) {
     return permissionOptions.map((option) => ({

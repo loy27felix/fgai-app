@@ -72,11 +72,14 @@ export function refreshCanvasCharacterReferenceNodes(nodes: CanvasNodeData[], as
     return changed ? next : nodes;
 }
 
-export function compileCharacterReferencePrompt(name: string, definition: Record<string, unknown>) {
-    const parts = [definition.role, definition.appearance, definition.physique, definition.clothing, definition.personality, definition.props, definition.consistencyPrompt]
+export function compileCharacterReferencePrompt(name: string, definition: Record<string, unknown>, options: { includeWardrobe?: boolean } = {}) {
+    const parts = options.includeWardrobe === false
+        ? [definition.role, definition.gender, definition.physique, "身份、发型和服装以本次选定参考图为准；同场景保持同一造型，不补写衣服款式、颜色或配饰，不自行换装。"]
+        : [definition.role, definition.appearance, definition.physique, definition.clothing, definition.personality, definition.props, definition.consistencyPrompt];
+    const text = parts
         .map((value) => typeof value === "string" ? value.trim() : "")
         .filter(Boolean);
-    return [`【角色卡：${name}】`, ...parts].join("\n");
+    return [`【角色卡：${name}】`, ...text].join("\n");
 }
 
 export function normalizeCharacterName(value?: string) {

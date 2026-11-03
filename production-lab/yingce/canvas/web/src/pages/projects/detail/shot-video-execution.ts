@@ -1,5 +1,6 @@
 import { assertShotCharacterCoverage, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, resolveExplicitShotCharacterIdentities, type ShotAssetReferenceContext } from "./workflow-shot-references";
 import type { ProjectAsset } from "@/services/api/projects";
+import { hasAuthoredCharacterSpeech, VIDEO_SPEECH_BOUNDARY } from "@/lib/character-voice-reference-policy";
 
 function explicitGender(value = "") {
     const male = /男性|男声|\bmale\b/i.test(value), female = /女性|女声|\bfemale\b/i.test(value);
@@ -84,7 +85,13 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
     if (context.costumeTimelineError) throw new Error(context.costumeTimelineError);
     if (context.costumeDurationMs && options.durationMs !== undefined && context.costumeDurationMs !== options.durationMs) throw new Error("镜头时长已修改，请先调整镜头内换装时间轴，再生成视频");
     const identified=options.projectAssets ? resolveExplicitShotCharacterIdentities(prompt,context,options.projectAssets) : context;
-    const references = shotGenerationReferenceContext(shotSceneReferenceContext(prompt, identified), options.useVoiceSamples);
+    const scene = shotSceneReferenceContext(prompt, identified);
+    const speaking = new Set(scene.assetReferences.filter(ref => hasAuthoredCharacterSpeech(prompt, [ref.title, ...(ref.aliases || [])])).map(ref => ref.audioIndex));
+    const allowedAudios = scene.referenceAudios.flatMap((audio, index) => speaking.has(index + 1) ? [{ audio, oldIndex: index + 1 }] : []);
+    const references = shotGenerationReferenceContext({ ...scene, referenceAudios: allowedAudios.map(item => item.audio), assetReferences: scene.assetReferences.map(({ audioIndex, ...ref }) => {
+        const index = allowedAudios.findIndex(item => item.oldIndex === audioIndex);
+        return { ...ref, ...(index >= 0 ? { audioIndex: index + 1 } : {}) };
+    }) }, options.useVoiceSamples);
     if (options.projectAssets) assertShotCharacterCoverage(prompt, references, options.projectAssets, context.assetReferences.filter(ref => !references.assetReferences.some(selected => selected.assetId === ref.assetId)).map(ref => ref.assetId));
     assertCharacterConsistency(prompt, references);
     const scopedPrompt = ensureShotAssetMentionPrompt(prompt, references.mentionReferences);
@@ -93,6 +100,7 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
     const boundary = [
         "【本镜头生成边界】",
         "仅演绎上方当前镜头的剧情、动作时间轴与对白。参考素材只负责指定的身份、外观或空间，不从参考素材补写其他集的故事。",
+        VIDEO_SPEECH_BOUNDARY,
         ...(references.costumeDurationMs ? ["本镜头已确认分段换装：服装按【资产参考】中的使用时段切换，时间均从本条视频0秒起算；这些明确切换是服装连续性规则的例外，其余身份、发型、体型、声音和台词不变。切换边界承接上方剧情的换衣动作、切镜或转场，不自行增加台词、人物或情节。"] : []),
         ...references.assetReferences.filter(reference => reference.visualUsage === "screen-only").map(reference => `${reference.title}只存在于手机屏幕内部的视频通话画面，参考图片${reference.imageIndex}仅锁定屏幕内的脸。不得让其坐在现场对面、出现在同一房间、进入现场双人镜头或拥有现场身体投影；其声音始终来自手机扬声器。`),
         ...(references.referenceAudios.length ? [

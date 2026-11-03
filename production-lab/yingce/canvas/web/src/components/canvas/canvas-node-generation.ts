@@ -10,6 +10,7 @@ import { isNeutralColorGrade, resolveCanvasColorGradeReference } from "@/lib/can
 import { getNodeGenerationMode, getNodeResourceKind } from "@/lib/canvas/node-registry";
 import { mediaConversionSourceFingerprint } from "@/lib/media-conversion/contracts";
 import { audioFileExtension } from "@/lib/character-voice-formats";
+import { hasAuthoredCharacterSpeech, VIDEO_SPEECH_BOUNDARY } from "@/lib/character-voice-reference-policy";
 import { resolveCanvasDrawingReference } from "@/lib/canvas/canvas-drawing-reference";
 import { compileCharacterReferencePrompt, normalizeCharacterImageMentions } from "@/lib/canvas/canvas-character-reference";
 import { createCanvasReferenceLabeler } from "@/lib/canvas/canvas-reference-slots";
@@ -535,7 +536,7 @@ export async function hydrateNodeGenerationContext(
         const primaryLabel = nodeId ? orderedIndexByNodeId.get(nodeId) : undefined;
         const supplementLabels = nodeId ? supplementLabelsByNodeId.get(nodeId) || [] : [];
         const referenceLine = primaryLabel ? `参考图片：@${imageReferenceLabel(primaryLabel - 1)}${supplementLabels.length ? `；补充视角：${supplementLabels.join("、")}` : ""}` : "";
-        const heading = includeCharacterPrompt ? compileCharacterReferencePrompt(detail.asset.title, detail.character.definition) : `【角色卡：${detail.asset.title}】`;
+        const heading = includeCharacterPrompt ? compileCharacterReferencePrompt(detail.asset.title, detail.character.definition, { includeWardrobe: mode !== "video" }) : `【角色卡：${detail.asset.title}】`;
         return [heading, referenceLine].filter(Boolean).join("\n");
     });
     const resolvedCharacterVersions = details.map((detail) => ({ assetId: detail.asset.id, versionId: detail.character.versionId }));
@@ -560,18 +561,28 @@ export async function hydrateNodeGenerationContext(
             instructions: [language && `语言与口音：${language}`, voiceAge && `声音年龄感：${voiceAge}`, timbre && `音色气质：${timbre}`, deliveryInstructions].filter(Boolean).join("；"),
         }];
     });
-    const usedAudioResourceIds = new Set(context.referenceAudios.map((audio) => getResourceIdFromStorageKey(audio.storageKey)).filter(Boolean));
+    const speakingVoices = new Set(resolvedCharacterVoices.filter(voice => {
+        const definition = details.find(detail => detail.asset.id === voice.assetId)?.character.definition;
+        const aliases = Array.isArray(definition?.aliases) ? definition.aliases.filter((name): name is string => typeof name === "string") : [];
+        return hasAuthoredCharacterSpeech(context.prompt, [voice.characterName, ...aliases]);
+    }).map(voice => voice.assetId));
+    const connectedAudios = mode === "video" ? context.referenceAudios.filter(audio => {
+        const matching = resolvedCharacterVoices.filter(voice => voice.sampleResourceId === getResourceIdFromStorageKey(audio.storageKey));
+        return !matching.length || matching.some(voice => speakingVoices.has(voice.assetId));
+    }) : context.referenceAudios;
+    const usedAudioResourceIds = new Set(connectedAudios.map((audio) => getResourceIdFromStorageKey(audio.storageKey)).filter(Boolean));
     const voiceSamples: ResolvedCharacterVoice[] = [];
     // 视频模型接收声音样本；独立配音任务仍通过 voiceKey 选音色，不能把两种协议混用。
     if (mode === "video" && includeCharacterVoiceSamples) {
         resolvedCharacterVoices.forEach((voice) => {
+            if (!speakingVoices.has(voice.assetId)) return;
             if (!voice.sampleResourceId || usedAudioResourceIds.has(voice.sampleResourceId)) return;
             usedAudioResourceIds.add(voice.sampleResourceId);
             voiceSamples.push(voice);
         });
     }
     const maxAudios = referenceLimits?.maxAudios ?? 3;
-    if (context.referenceAudios.length + voiceSamples.length > maxAudios) throw new Error(`当前模型参考音频容量不足：已连接 ${context.referenceAudios.length} 个音频，角色声音样本还需要 ${voiceSamples.length} 个名额`);
+    if (connectedAudios.length + voiceSamples.length > maxAudios) throw new Error(`当前模型参考音频容量不足：已连接 ${connectedAudios.length} 个音频，角色声音样本还需要 ${voiceSamples.length} 个名额`);
     const characterVoiceAudios = await Promise.all(voiceSamples.map(async (voice) => {
         const resource = await getResource(voice.sampleResourceId!);
         const extension = audioFileExtension(resource.mimeType, resource.objectKey);
@@ -583,7 +594,13 @@ export async function hydrateNodeGenerationContext(
             storageKey: resourceStorageKey(voice.sampleResourceId!),
         } satisfies ReferenceAudio;
     }));
-    const referenceAudios = [...context.referenceAudios, ...characterVoiceAudios];
+    const referenceAudios = [...connectedAudios, ...characterVoiceAudios];
+    const speechSafePrompt = mode === "video" ? compiledPrompt.replace(/@音频([1-9]\d*)(?!\d)/g, (token, number: string) => {
+        const audio = context.referenceAudios[Number(number) - 1];
+        if (!audio) return token;
+        const index = connectedAudios.indexOf(audio);
+        return index < 0 ? "（此角色未指定对白，样音不发送）" : `@音频${index + 1}`;
+    }) : compiledPrompt;
     const voiceBlocks = mode === "video" ? resolvedCharacterVoices.flatMap((voice) => {
         const sampleIndex = voice.sampleResourceId ? referenceAudios.findIndex((audio) => getResourceIdFromStorageKey(audio.storageKey) === voice.sampleResourceId) : -1;
         if (sampleIndex < 0 && !includeCharacterPrompt) return [];
@@ -594,7 +611,7 @@ export async function hydrateNodeGenerationContext(
     }) : [];
     return {
         ...context,
-        prompt: [compiledPrompt.trim(), ...characterBlocks, ...voiceBlocks].filter(Boolean).join("\n\n"),
+        prompt: [speechSafePrompt.trim(), ...characterBlocks, ...voiceBlocks, ...(mode === "video" && details.length ? [VIDEO_SPEECH_BOUNDARY] : [])].filter(Boolean).join("\n\n"),
         referenceImages,
         referenceAudios,
         resolvedCharacterVersions,
