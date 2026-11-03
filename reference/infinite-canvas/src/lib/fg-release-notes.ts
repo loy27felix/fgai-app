@@ -12,7 +12,7 @@ export const CURRENT_RELEASE_LABEL = "更新内容";
  * 发布规则：每次发布新系统版本时，必须同时更新此版本号、日期和下面的中文说明。
  * 不直接展示 Git 提交信息，避免合并、构建等技术提交干扰用户理解。
  */
-export const CURRENT_RELEASE_VERSION = "1.4.6";
+export const CURRENT_RELEASE_VERSION = "1.6.1";
 
 if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
     throw new Error(
@@ -23,6 +23,16 @@ if (CURRENT_RELEASE_VERSION !== SYSTEM_VERSION) {
 export const FG_RELEASE_NOTES: ReleaseInfo[] = [
     {
         version: CURRENT_RELEASE_VERSION,
+        date: "2026年11月3日",
+        items: [
+            { type: "新增", content: "Production Lab 与影策画布增加自助排查入口，启用后可描述问题、上传或粘贴截图并继续补充信息；最多10张截图，每张原图不超过20MiB。" },
+            { type: "优化", content: "排查结合已接入服务的任务、时间段、请求链、日志与运行版本核对仓库源码；缺少证据时明确说明，不把猜测当作已确认原因。" },
+            { type: "优化", content: "排查进度与已核实证据实时展示，进行中可终止，完成后可一键复制结果；保留对话记录并隔离本地与生产数据。" },
+            { type: "修复", content: "完善分镜输出预算、结果校验与失败任务重试确认，保留已完成批次和用户修改；主站默认文字模型不受问题助手模型配置影响。" },
+        ],
+    },
+    {
+        version: "1.4.6",
         date: "2026年10月19日",
         items: [
             { type: "修复", content: "美林正确识别供应商返回的余额不足，不再将 WeToken 预扣费不足误报为 API Key 鉴权失败。" },
