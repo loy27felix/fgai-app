@@ -14,6 +14,7 @@ test("shared chapter/workflow panel exposes completed but unimported output with
 test("a successful child of an incomplete batch explains why no shots exist",()=>{
     const html=render([{...task,clientContext:{...task.clientContext,storyboardBatchId:"batch",batchIndex:1,batchCount:2}}]);
     expect(html).toContain("批次尚未全部完成");expect(html).not.toContain("核对并导入已保存分镜");
+    expect(html).toContain("仅补交缺失的");expect(html).toContain("此按钮才会补交尚未提交的批次");
 });
 test("a failed child identifies the batch and offers only a scoped paid retry",()=>{
     const html=render([{...task,status:"failed",error:"stream disconnected",clientContext:{...task.clientContext,storyboardBatchId:"batch",batchIndex:2,batchCount:4}}]);

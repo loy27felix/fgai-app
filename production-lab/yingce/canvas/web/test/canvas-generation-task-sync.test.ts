@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test, spyOn } from "bun:test";
+import * as storage from "@/services/file-storage";
+import * as cache from "@/services/resource-blob-cache";
 
 import { applyGeneratedMediaResultMetadata, applyGenerationTaskResultToNodes, generationTaskOutputsApplied, shouldRecoverCanvasImageOutputs, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { commitCanvasGenerationResult } from "@/lib/canvas/canvas-generation-result";
@@ -26,6 +28,19 @@ function videoNode(assetId: string, storageKey: string): CanvasNodeData {
 }
 
 describe("applyGeneratedMediaResultMetadata", () => {
+    test("a server-saved video can be delivered without downloading a full browser Blob", async () => {
+        const cached = spyOn(cache, "getCachedResourceBlob").mockRejectedValue(new Error("full download unavailable"));
+        const address = spyOn(storage, "resolveVideoMediaUrl").mockResolvedValue("/api/resources/cloud/file?variant=playback");
+        try {
+            const node = { ...videoNode("", ""), metadata: { taskId: "task" } };
+            const task = { id: "task", type: "canvas_video", status: "succeeded" as const, prompt: "unchanged", attempts: 1, createdAt: "", updatedAt: "", resultJson: JSON.stringify({ video: { storageKey: "resource:cloud", dataUrl: "/api/resources/cloud/file", width: 720, height: 1280, bytes: 8302626 } }) };
+            const result = await applyGenerationTaskResultToNodes([node], task, node.id);
+            expect(result.node?.metadata).toMatchObject({ status: "success", storageKey: "resource:cloud", content: "/api/resources/cloud/file?variant=playback", bytes: 8302626 });
+            expect(cached).not.toHaveBeenCalled();
+            address.mockRejectedValue(new Error("resource access denied"));
+            await expect(applyGenerationTaskResultToNodes([node], task, node.id)).rejects.toThrow("resource access denied");
+        } finally { cached.mockRestore(); address.mockRestore(); }
+    });
     test("旧 Midjourney 单图节点需要补齐结果，新堆叠与普通模型不重复恢复", () => {
         const old = { ...videoNode("asset", "resource:old"), type: CanvasNodeType.Image, metadata: { content: "/old.png", status: "success" as const, taskId: "task", producedModel: "CHANNEL::Midjourney v8.2 高速" } };
         const task = { id: "task", type: "canvas_image", status: "succeeded" as const, prompt: "", attempts: 1, createdAt: "", updatedAt: "", resultJson: JSON.stringify({ images: Array.from({ length: 4 }, () => ({ dataUrl: "/image.png" })) }) };

@@ -194,6 +194,9 @@ func (s *Service) ReplaceProjectUnitShots(userID string, projectID string, unitI
 	}
 	// 章节级重生成是一个整体写操作，旧镜头与引用必须和新镜头在同一事务中替换。
 	if err := s.repo.ReplaceProjectUnitShots(projectID, unitID, shots, revisions, references, req.ExpectedShotIDs); err != nil {
+		if errors.Is(err, repository.ErrProjectUnitShotsGenerating) {
+			return nil, BadAuthRequest("本章旧镜头仍在生成，请等待任务结束后再导入保存的分镜；已有镜头和新结果均保留，无需重新生成")
+		}
 		if errors.Is(err, repository.ErrProjectUnitShotsChanged) {
 			return nil, BadAuthRequest("本章分镜已发生变化，请刷新后重新确认")
 		}

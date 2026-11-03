@@ -519,7 +519,7 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
             content: (
                 <div className="space-y-2 text-sm leading-6 text-foreground/62">
                     <p>新分镜生成成功后，系统才会整体替换本章数据；如果生成失败，现有分镜不会受到影响。</p>
-                    <p>替换会移除 {impact.shotCount} 个镜头、{impact.revisionCount} 个脚本版本、{impact.referenceCount} 个资产引用、{impact.artifactCount} 个生成产物{impact.candidateCount ? `及 ${impact.candidateCount} 个相关候选资产` : ""}，此操作无法撤销。</p>
+                    <p>当前章节会更新为新镜头。{impact.artifactCount > 0 ? `已有的 ${impact.shotCount} 个镜头、脚本版本、引用及 ${impact.artifactCount} 个生成产物会保留到独立的“成品保留”章节，可继续查看和下载，不会重新生成或复制媒体文件。` : "当前未生成媒体的旧镜头、脚本版本和引用将被替换。"}</p>
                 </div>
             ),
             okText: "生成成功后替换",

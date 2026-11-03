@@ -8,6 +8,7 @@ import { createGenerationTask, waitForGenerationTask, queryGenerationTask, retry
 import type { Skill } from "@/services/api/skills";
 import { skillRuntime } from "@/services/skill-runtime";
 import { runShortDramaText } from "@/services/short-drama-text";
+import { submitStoryboardRequests } from "./storyboard-submission";
 import { logicalModelIDForConfig, type AiConfig } from "@/stores/use-config-store";
 import { modelOptionName } from "@/stores/use-config-store";
 import { dramaStoryboardContract, normalizeDirectorVideoPrompt, parseDramaProductionPlan, validateDramaStoryboard, type DramaProductionPlan } from "@/lib/short-drama-production";
@@ -220,7 +221,7 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
     });
     // 技能上下文只描述工作流，不会约束输出结构；必须显式带上输出契约，否则模型返回 Markdown 表格。
     const batchId = crypto.randomUUID();
-    const tasks: GenerationTask[] = [];
+    const submissions: CreateTaskInput[] = [];
     const requests=new Map<string,CreateTaskInput>();
     for (const [index, part] of parts.entries()) {
     const originalCues = policy.spoken === "en-original" ? originalEnglishDialogue(part.text) : undefined;
@@ -256,6 +257,8 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
                 projectLanguagePolicy: policy,
                 ...(originalCues ? { originalEnglishDialogue: originalCues } : {}),
                 storyboardBatchId: batchId,
+                storyboardSubmissionKey: `${batchId}:${index + 1}`,
+                storyboardSourceText: input.sourceText,
                 batchIndex: index + 1,
                 batchCount: parts.length,
                 storyboardSourceRange: { start: part.start, end: part.end },
@@ -267,13 +270,14 @@ async function generateChapterStoryboardWithConfig(input: ChapterStoryboardGener
             },
         },
     };
-    const task=await createGenerationTask(request);
-    requests.set(task.id,request);
-    options?.onTaskUpdate?.(task);
-    tasks.push(task);
+    submissions.push(request);
     }
-    // Waiting starts only after submission. Recovery requires every index, even
-    // if a refresh interrupts submission; each task retains native billing.
+    const tasks=await submitStoryboardRequests(submissions,task=>{
+        requests.set(task.id,submissions[storyboardBatchInfo(task)!.index-1]);
+        options?.onTaskUpdate?.(task);
+    });
+    // Wait for admission slots instead of abandoning the chapter at the
+    // concurrent-task limit. Each index retains its native billing identity.
     const outcomes = await Promise.allSettled(tasks.map(task => waitForStoryboardPart(task,options?.onTaskUpdate,{
         wait:waitForGenerationTask,query:queryGenerationTask,retry:retryGenerationTask,
         repair:async(failed,reason)=>{

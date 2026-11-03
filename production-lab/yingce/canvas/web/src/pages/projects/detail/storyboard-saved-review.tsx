@@ -30,7 +30,7 @@ export function StoryboardSavedReview({detail,unitId,tasks}:{detail:ProjectDetai
  };
  const save=async()=>{
   const ids=detail.shots.filter(shot=>shot.unitId===unitId).map(shot=>shot.id);
-  if(ids.length&&!await new Promise<boolean>(resolve=>modal.confirm({title:`替换本章 ${ids.length} 个现有镜头？`,content:"会替换本章镜头及其脚本、引用和关联产物。请确认已核对；不调用模型，不重新扣费。",okText:"确认替换",okButtonProps:{danger:true},onOk:()=>resolve(true),onCancel:()=>resolve(false)})))return;
+  if(ids.length&&!await new Promise<boolean>(resolve=>modal.confirm({title:`替换本章 ${ids.length} 个现有镜头？`,content:"当前章节会更新为核对后的分镜；已有生成产物的旧镜头、脚本和引用会保留到独立的“成品保留”章节。不调用模型，不重新扣费。",okText:"确认替换",okButtonProps:{danger:true},onOk:()=>resolve(true),onCancel:()=>resolve(false)})))return;
   setBusy(true);setError("");
   try {
    const workspace=await importSavedChapterStoryboard(detail.project.id,unitId,tasks,review,ids,undefined,edits,{reviewedDialogue});

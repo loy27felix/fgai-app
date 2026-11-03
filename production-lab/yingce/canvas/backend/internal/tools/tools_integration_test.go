@@ -28,6 +28,22 @@ func TestToolsVisibilityTokensSeedAndReferences(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Run("environment preset expands without forcing character isolation", func(t *testing.T) {
+		brief := "保持整间厨房与墙上小屏幕的位置，生成厨房的反打机位。"
+		expanded, err := svc.ResolveToolMentionTokens("alice", "image", "@[tool:nine_grid:79:多机位九宫格:Grid3x3]\n"+brief)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, required := range []string{"SCENE / ENVIRONMENT REFERENCE", "entire depicted environment is the subject", "Do not extract that screen", "same physical room", "Never replace a scene with a neutral studio background", "CHARACTER / PRODUCT REFERENCE", "NO frontal face and NO looking back", brief} {
+			if !strings.Contains(expanded, required) {
+				t.Fatalf("resolved preset lost reference-scope instruction: %s", required)
+			}
+		}
+		tool, err := svc.Detail("alice", 79)
+		if err != nil || tool.Ratio != "original" || strings.Contains(expanded, "@[tool:") {
+			t.Fatal("preset lost source-ratio or token expansion contract")
+		}
+	})
 	list, err := svc.List("alice", tools.ToolListRequest{PageSize: 80})
 	if err != nil || list.TotalCount != 89 || !list.HasMore {
 		t.Fatalf("seed/pagination: %+v %v", list, err)

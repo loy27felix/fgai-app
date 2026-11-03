@@ -140,6 +140,7 @@ type CreateTaskRequest struct {
 }
 
 type TaskListOptions struct {
+	BeforeID      string
 	Limit         int
 	ProjectID     string
 	ActiveOnly    bool
@@ -265,7 +266,7 @@ func (s *Service) Tasks(userID string, limit int) ([]TaskSummary, error) {
 }
 
 func (s *Service) TasksWithOptions(userID string, options TaskListOptions) ([]TaskSummary, error) {
-	tasks, err := s.repo.TasksWithWorkbenchKind(userID, options.Limit, options.ProjectID, options.ActiveOnly, options.WorkbenchKind)
+	tasks, err := s.repo.TasksWithWorkbenchKindBefore(userID, options.Limit, options.ProjectID, options.ActiveOnly, options.WorkbenchKind, options.BeforeID)
 	if err != nil {
 		return nil, err
 	}

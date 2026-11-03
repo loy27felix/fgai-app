@@ -284,7 +284,7 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         id: "multi_camera_nine_grid",
         label: "多机位九宫格",
         section: "分镜宫格",
-        description: "生成 3x3 多机位联系表",
+        description: "场景保留完整空间；人物或产品展示八方向与细节",
         icon: () => <Grid3x3 className="size-3.5" />,
         group: "sheet",
         order: 10,

@@ -377,6 +377,10 @@ func (r *Repository) Tasks(userID string, limit int, projectID string, activeOnl
 }
 
 func (r *Repository) TasksWithWorkbenchKind(userID string, limit int, projectID string, activeOnly bool, workbenchKind string) ([]model.Task, error) {
+	return r.TasksWithWorkbenchKindBefore(userID, limit, projectID, activeOnly, workbenchKind, "")
+}
+
+func (r *Repository) TasksWithWorkbenchKindBefore(userID string, limit int, projectID string, activeOnly bool, workbenchKind string, beforeID string) ([]model.Task, error) {
 	var tasks []model.Task
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -385,6 +389,13 @@ func (r *Repository) TasksWithWorkbenchKind(userID string, limit int, projectID 
 		Where("user_id = ?", userID)
 	if strings.TrimSpace(projectID) != "" {
 		query = query.Where("project_id = ?", strings.TrimSpace(projectID))
+	}
+	if beforeID != "" {
+		var cursor model.Task
+		if err := r.db.Select("id", "created_at").Where("id = ? AND user_id = ?", beforeID, userID).First(&cursor).Error; err != nil {
+			return nil, err
+		}
+		query = query.Where("created_at < ? OR (created_at = ? AND id < ?)", cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
 	}
 	if activeOnly {
 		query = query.Where("status IN ?", []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning})
@@ -397,7 +408,7 @@ func (r *Repository) TasksWithWorkbenchKind(userID string, limit int, projectID 
 			query = query.Where("(workbench_kind = ? AND type = ?) OR (type = ? AND json_extract(input_json, '$.metadata.source') = ? AND json_extract(input_json, '$.metadata.workbenchKind') = ?)", workbenchKind, taskType, taskType, "workbench", workbenchKind)
 		}
 	}
-	err := query.Order("created_at desc").Limit(limit).Find(&tasks).Error
+	err := query.Order("created_at desc, id desc").Limit(limit).Find(&tasks).Error
 	return tasks, err
 }
 
