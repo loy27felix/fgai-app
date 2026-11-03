@@ -92,6 +92,9 @@ func (r *Repository) ReplaceProjectUnitShots(projectID string, unitID string, sh
 				return ErrProjectUnitShotsChanged
 			}
 		}
+		if err := archiveProjectUnitOutputsTx(tx, projectID, unitID); err != nil {
+			return err
+		}
 		shotIDs := tx.Model(&model.Shot{}).Select("id").Where("project_id = ? AND unit_id = ?", projectID, unitID)
 		if err := tx.Where("project_id = ? AND unit_id = ?", projectID, unitID).Delete(&model.ShotArtifact{}).Error; err != nil {
 			return err

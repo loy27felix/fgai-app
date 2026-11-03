@@ -71,6 +71,7 @@ test("shot generation submits historical character image, current voice and asse
                         voice: { profile: { sampleResourceId: "character-audio-1", language: "普通话", timbre: "沉稳" }, instructions: "内心独白语气" },
                     },
                 },
+                role: "reference",
                 referencedVersion: {
                     id: "character-version-1",
                     assetId: "character-1",
@@ -78,12 +79,12 @@ test("shot generation submits historical character image, current voice and asse
                     representations: [{ id: "representation-1", resourceId: "character-image-1", mediaType: "image/png", role: "primary" }],
                 },
             },
-            { shotId: "shot-1", assetVersionId: "scene-version-1", status: "linked" },
+            { shotId: "shot-1", assetVersionId: "scene-version-1", status: "linked", role: "reference" },
         ],
     } as ProjectDetail;
 
     const context = buildShotAssetReferenceContext(detail, "shot-1");
-    const { prompt } = prepareShotVideoExecution("张天昊在 @[asset:scene-1] 睁开眼睛", context, { dialogue: "我穿越了？瓦西国张家废柴少主？", useVoiceSamples: true });
+    const { prompt } = prepareShotVideoExecution("张天昊在 @[asset:scene-1] 睁开眼睛\n对白：张天昊：我穿越了？瓦西国张家废柴少主？", context, { dialogue: "这行旧台词不得夹带。", useVoiceSamples: true });
 
     expect(context.referenceImages).toHaveLength(2);
     expect(context.referenceImages[0]?.storageKey).toBe("resource:character-image-1");
@@ -93,7 +94,8 @@ test("shot generation submits historical character image, current voice and asse
     expect(prompt).toContain("张天昊在 图片2 睁开眼睛");
     expect(prompt).toContain("- 张天昊：人物参考：图片1；声音参考：音频1");
     expect(prompt).toContain("声音画像：普通话；青年男性；略带疲惫和震惊；内心独白语气");
-    expect(prompt).toContain("镜头台词：我穿越了？瓦西国张家废柴少主？");
+    expect(prompt).toContain("对白：张天昊：我穿越了？瓦西国张家废柴少主？");
+    expect(prompt).not.toContain("这行旧台词不得夹带。");
     expect(prompt).toContain("- 坑底场景：场景参考：图片2");
 
     let createdInput: Parameters<GenerationTaskDependencies["createTask"]>[0] | undefined;
@@ -138,7 +140,7 @@ test("shot generation submits historical character image, current voice and asse
         runLocal: async () => ({ mode: "video" }), createId: () => "id-2", now: () => "2026-08-30T00:00:00.000Z",
     });
     expect(createdInput?.prompt).toContain("下一集：张天昊进入山谷");
-    expect(createdInput?.prompt).toContain("这不是上一集。");
+    expect(createdInput?.prompt).not.toContain("这不是上一集。");
     expect(createdInput?.prompt).not.toContain("声音参考：音频");
     expect(createdInput?.input.referenceAudios).toEqual([]);
     expect(createdInput?.input.metadata?.voiceReferenceMode).toBe("description-only");

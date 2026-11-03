@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -8,6 +9,48 @@ import (
 	"gorm.io/gorm"
 	"yingce/backend/internal/model"
 )
+
+func TestTasksCursorPaginatesBeyondHundredWithoutLosingEqualTimestamps(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Task{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for i := 0; i < 118; i++ {
+		row := model.Task{ID: fmt.Sprintf("task-%03d", i), UserID: "user", ProjectID: "project", Type: "canvas_text", InputJSON: `{}`, CreatedAt: now}
+		if i >= 115 {
+			row.UserID = "other"
+		}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := New(db)
+	first, err := repo.TasksWithWorkbenchKindBefore("user", 100, "project", false, "", "")
+	if err != nil || len(first) != 100 {
+		t.Fatalf("first page: %d, %v", len(first), err)
+	}
+	second, err := repo.TasksWithWorkbenchKindBefore("user", 100, "project", false, "", first[99].ID)
+	if err != nil || len(second) != 15 {
+		t.Fatalf("second page: %d, %v", len(second), err)
+	}
+	seen := map[string]bool{}
+	for _, task := range append(first, second...) {
+		if seen[task.ID] {
+			t.Fatal("repeated task", task.ID)
+		}
+		seen[task.ID] = true
+	}
+	if len(seen) != 115 {
+		t.Fatal("lost tasks")
+	}
+	if _, err := repo.TasksWithWorkbenchKindBefore("user", 100, "project", false, "", "task-117"); err == nil {
+		t.Fatal("another user's cursor was accepted")
+	}
+}
 
 func TestTasksWithWorkbenchKindRequiresMatchingTaskType(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

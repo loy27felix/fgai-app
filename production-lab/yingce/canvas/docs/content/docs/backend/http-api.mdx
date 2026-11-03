@@ -19,6 +19,13 @@ description: 信封、错误码与 OpenAPI
 - `CANVAS_LOG_FORMAT=json` 时 AccessLog 输出 `service: "canvas"`、`event: "support_http_request"`、服务端鉴权成功后的 `user_id`、实际 request/trace、路由模板、状态以及本次二进制 build 信息。客户端用户Header不作为身份，未匹配URL和动态凭据不作为路由原文。成功 GET 等低级别事件仍遵循 `CANVAS_LOG_LEVEL`，需要完整跟踪时显式设为 debug。
 - gateway 与独立 Agent 提供 `GET /health/version`；网页在实际 Vite 开发服务器或构建产物中提供 `/.well-known/fg-runtime.json`。Agent 的原生运行事件只在内部token验证成功后关联 Canvas userId，不记录prompt或请求正文。故障事实由HTTP状态、运行事件与具体源码共同核验，流式HTTP 200不等于Agent成功。
 - FG worker 的日志源、只读账号映射、版本URL及历史缺口规则以根 README 的问题助手章节为准；日志源未配置、已轮转或旧版本未采集的记录不能补造。记录上的运行提交与当前运行服务不一致时不得将当前版本签认给历史故障。
+## 章节分镜替换与成品保留
+
+章节分镜缺失批次补交沿用原 `storyboardBatchId`、`batchIndex`、`batchCount` 和 `chapterId`，并提供 `storyboardSubmissionKey = "批次ID:序号"`。服务器将账号、项目、章节和该键组合为稳定任务标识，重复提交返回本人原任务；新批次仍经过现有模型路由、权限、配额与计费事务。单独自动修正任务不复用此标识。活动任务已满返回 HTTP 429 与 `reason=active_task_limit`，前端排队等待；未知网络错误不盲目重发。
+
+`GET /api/tasks` 支持 `before`（上一页最后一条任务 ID），按 `created_at desc, id desc` 返回更早的本人任务，保留项目和工作台过滤；游标只能属于当前用户。单页最多 100 条，前端任务列表按需翻页。
+
+`PUT /api/projects/:projectId/units/:unitId/shots` 保留现有权限检查、`expectedShotIds` 并发校验与原子写入。若当前章节已有生成产物，替换前在同一事务内新建项目内的“成品保留 · 原章节名”章节，保留原镜头、全部脚本版本、资产引用、视频/图片历史及任务关联；产物继续引用原 `resourceId`。当前章节使用新镜头与新脚本，不把旧视频自动认作新剧情的成品。没有生成产物时不创建保留章节；任一写入失败则整笔事务回滚。接口响应仍为新分镜列表，客户端通过原有项目刷新读取新增保留章节。
 
 ## FG 云会话、编辑占用与反馈
 

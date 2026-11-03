@@ -10,14 +10,18 @@ import { chapterTaskIdentity } from "./project-chapter-ai";
 import { readStoryboardBatchFailureMessages } from "./storyboard-batch-diagnostics";
 import { StoryboardSavedReview } from "./storyboard-saved-review";
 import {automaticStoryboardReferenceChoices} from "./chapter-storyboard-production";
+import { resumeMissingStoryboardParts } from "./storyboard-submission";
+import { useConfigStore } from "@/stores/use-config-store";
+import { getProjectUnit } from "@/services/api/projects";
 
 export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: ProjectDetail; unitId: string }) {
     const { modal, message } = App.useApp(), client = useQueryClient();
     const [busy, setBusy] = useState(false), [error, setError] = useState("");
+    const config=useConfigStore(state=>state.config);
     const [selectedBatch,setSelectedBatch]=useState("");
     useEffect(()=>{setSelectedBatch("");setError("");},[detail.project.id,unitId]);
     const review = useStoryboardReferenceReview();
-    const tasks = useQuery({ queryKey: ["project-chapter-generation-tasks", detail.project.id], queryFn: () => listGenerationTasks(1000, { projectId: detail.project.id }), refetchInterval: query => query.state.data?.some(task => task.status === "running" || task.status === "queued") ? 2000 : false });
+    const tasks = useQuery({ queryKey: ["project-chapter-generation-tasks", detail.project.id], queryFn: () => listGenerationTasks(1000, { projectId: detail.project.id }), refetchInterval: query => query.state.data?.some(task => chapterTaskIdentity(task)?.chapterId === unitId && (task.status === "running" || task.status === "queued")) ? 4000 : false });
     const batches=new Map<string,typeof tasks.data>();
     for(const task of [...(tasks.data||[])].sort((a,b)=>b.createdAt.localeCompare(a.createdAt))) {
         const identity=chapterTaskIdentity(task);
@@ -62,6 +66,18 @@ export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: Pr
         const parts = storyboardBatchTasks(latest, scopedTasks);
         const expected = storyboardBatchInfo(latest)?.count || 1;
         const failed = parts.filter(task => task.status === "failed" || task.status === "cancelled");
+        const missing=expected-parts.length;
+        const resume=async()=>{
+            if(busy)return;
+            if(!await new Promise<boolean>(resolve=>modal.confirm({title:`仅补交缺少的 ${missing} 批分镜？`,content:"已返回和正在运行的批次不会重新生成。仅缺失批次会调用原模型，按正常渠道计费；排队提交期间请保持页面打开，已提交任务会由后台继续。全部完成后会自动导入仍为空的章节。",okText:"补交缺失批次",onOk:()=>resolve(true),onCancel:()=>resolve(false)})))return;
+            setBusy(true);setError("");
+            try {
+                const {unit}=await getProjectUnit(detail.project.id,unitId);
+                await resumeMissingStoryboardParts(detail.project.id,unit,parts,config,task=>{client.setQueryData(["project-chapter-generation-tasks",detail.project.id],(current:typeof tasks.data)=>[task,...(current||[]).filter(item=>item.id!==task.id)]);});
+                void message.success("缺失批次已补交，后台会继续生成；完成后自动导入空章节");
+            } catch(e){setError(e instanceof Error?e.message:"补交未完成，已提交批次保留，请刷新后继续");}
+            finally {await tasks.refetch();setBusy(false);}
+        };
         const retry = async () => {
             if (busy || !failed.length) return;
             if (!await new Promise<boolean>(resolve => modal.confirm({ title: `仅重试 ${failed.length} 个失败批次？`, content: "已成功的批次保留，不会重跑整章。失败批次重新调用模型，按正常规则计费。", okText: "确认重试失败批次", onOk: () => resolve(true), onCancel: () => resolve(false) }))) return;
@@ -70,11 +86,11 @@ export default function StoryboardRecoveryPanel({ detail, unitId }: { detail: Pr
             catch (e) { setError(e instanceof Error ? e.message : "重试未完成"); }
             finally { await tasks.refetch(); setBusy(false); }
         };
-        return <div>{batchSelector}<Alert type={failed.length || error ? "warning" : "info"} showIcon title={failed.length ? "分镜部分批次失败，已完成结果保留" : "本章分镜批次尚未全部完成"} description={<Space orientation="vertical">{shots.length > 0 && <span>本章已有 {shots.length} 段分镜，本轮失败不会影响已保存镜头。</span>}<span>已完成 {parts.filter(task => task.status === "succeeded").length}/{expected} 批。整章全部返回并通过内容校验后才能导入，请勿重复生成整章。</span><Space wrap>{parts.map(task => <Tag key={task.id} color={task.status === "succeeded" ? "green" : task.status === "failed" ? "red" : "blue"}>第{storyboardBatchInfo(task)?.index || 1}批：{task.status === "succeeded" ? "已返回，待整章校验" : task.status === "failed" || task.status === "cancelled" ? "失败" : "生成中"}</Tag>)}</Space>{parts.length<expected&&<span>有 {expected-parts.length} 批尚未找到提交记录，请核对任务中心，当前不会把部分结果当成整章导入。</span>}{failed.map(task => <span key={task.id}>第{storyboardBatchInfo(task)?.index || 1}批：{failureDetails.data?.[task.id] || task.error || (failureDetails.isFetching ? "正在读取失败原因…" : "请打开任务中心查看失败原因")}</span>)}{error && <span>{error}</span>}</Space>} action={<Space><Button size="small" onClick={() => { void tasks.refetch(); if (failedParts.length) void failureDetails.refetch(); }}>刷新批次状态</Button>{failed.length > 0 && <Button size="small" loading={busy} onClick={() => void retry()}>仅重试失败批次</Button>}{parts.length===expected&&parts.every(task=>task.status==="succeeded"||task.status==="failed")&&<StoryboardSavedReview detail={detail} unitId={unitId} tasks={parts}/>}</Space>} /></div>;
+        return <div>{batchSelector}{missing>0&&<div className="mb-2 flex items-center gap-2"><Button size="small" type="primary" loading={busy} disabled={detail.project.status==="archived"} onClick={()=>void resume()}>仅补交缺失的 {missing} 批</Button><span className="text-xs text-foreground/60">刷新只读状态；此按钮才会补交尚未提交的批次</span></div>}<Alert type={failed.length || error ? "warning" : "info"} showIcon title={failed.length ? "分镜部分批次失败，已完成结果保留" : "本章分镜批次尚未全部完成"} description={<Space orientation="vertical">{shots.length > 0 && <span>本章已有 {shots.length} 段分镜，本轮失败不会影响已保存镜头。</span>}<span>已完成 {parts.filter(task => task.status === "succeeded").length}/{expected} 批。整章全部返回并通过内容校验后才能导入，请勿重复生成整章。</span><Space wrap>{parts.map(task => <Tag key={task.id} color={task.status === "succeeded" ? "green" : task.status === "failed" ? "red" : "blue"}>第{storyboardBatchInfo(task)?.index || 1}批：{task.status === "succeeded" ? "已返回，待整章校验" : task.status === "failed" || task.status === "cancelled" ? "失败" : "生成中"}</Tag>)}</Space>{parts.length<expected&&<span>有 {expected-parts.length} 批尚未找到提交记录，请核对任务中心，当前不会把部分结果当成整章导入。</span>}{failed.map(task => <span key={task.id}>第{storyboardBatchInfo(task)?.index || 1}批：{failureDetails.data?.[task.id] || task.error || (failureDetails.isFetching ? "正在读取失败原因…" : "请打开任务中心查看失败原因")}</span>)}{error && <span>{error}</span>}</Space>} action={<Space><Button size="small" onClick={() => { void tasks.refetch(); if (failedParts.length) void failureDetails.refetch(); }}>刷新批次状态</Button>{failed.length > 0 && <Button size="small" loading={busy} onClick={() => void retry()}>仅重试失败批次</Button>}{parts.length===expected&&parts.every(task=>task.status==="succeeded"||task.status==="failed")&&<StoryboardSavedReview detail={detail} unitId={unitId} tasks={parts}/>}</Space>} /></div>;
     }
     const run = async () => {
         if (busy) return;
-        if (shots.length && !await new Promise<boolean>(resolve => modal.confirm({ title: `用已保存结果替换本章 ${shots.length} 个现有镜头？`, content: "会替换本章镜头、脚本版本、引用和关联产物；不会调用模型或扣费。若要保留现有编辑，请取消。", okText: "核对并替换", okButtonProps: { danger: true }, onOk: () => resolve(true), onCancel: () => resolve(false) }))) return;
+        if (shots.length && !await new Promise<boolean>(resolve => modal.confirm({ title: `用已保存结果替换本章 ${shots.length} 个现有镜头？`, content: "当前章节会更新为保存的分镜；如已有生成产物，旧镜头、版本、引用和成品会保留到独立的“成品保留”章节。不会调用模型或扣费。", okText: "核对并替换", okButtonProps: { danger: true }, onOk: () => resolve(true), onCancel: () => resolve(false) }))) return;
         setBusy(true); setError("");
         try {
             const workspace = await importSavedChapterStoryboard(detail.project.id, unitId, scopedTasks, review, shots.map(shot => shot.id), undefined);

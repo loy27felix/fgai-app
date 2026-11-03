@@ -12,6 +12,7 @@ import type { GenerationTask, GenerationTaskOutput } from "@/services/api/task-c
 import { resolveMediaUrl, resolveVideoMediaUrl, type UploadedFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { getCachedResourceBlob } from "@/services/resource-blob-cache";
+import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { CanvasGenerationDurableAckError } from "@/services/canvas-generation-consumer";
 import { runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -290,12 +291,12 @@ type GeneratedVideoResult = {
 };
 
 /**
- * 生成任务的远程视频只有在浏览器已拿到可复用的 Blob 后才进入成功态。
- * 节点仍保存稳定的资源文件地址，Blob 只作为本地缓存和后续字节处理的加速层。
+ * 已落库的资源通过播放地址交付；浏览器整段 Blob 缓存不构成保存确认。
+ * 旧的本机存储键仍须有实际文件，不能把失效本机副本误报为可用。
  */
 async function cacheGeneratedRemoteVideo(result: GeneratedVideoResult & { storageKey: string }): Promise<UploadedFile> {
-    const blob = await getCachedResourceBlob(result.storageKey);
-    if (!blob) throw new Error("生成视频资源缓存失败，未标记为成功");
+    const blob = resourceIdFromStorageKey(result.storageKey) ? undefined : await getCachedResourceBlob(result.storageKey);
+    if (!resourceIdFromStorageKey(result.storageKey) && !blob) throw new Error("生成视频资源缓存失败，未标记为成功");
     const url = await resolveVideoMediaUrl(result.storageKey, result.dataUrl || "");
     if (!url) throw new Error("生成视频资源地址为空，未标记为成功");
     return {
@@ -304,8 +305,8 @@ async function cacheGeneratedRemoteVideo(result: GeneratedVideoResult & { storag
         width: result.width,
         height: result.height,
         durationMs: result.durationMs,
-        bytes: result.bytes || blob.size,
-        mimeType: result.mimeType || blob.type || "video/mp4",
+        bytes: result.bytes || blob?.size || 0,
+        mimeType: result.mimeType || blob?.type || "video/mp4",
     };
 }
 

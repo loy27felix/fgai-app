@@ -166,12 +166,13 @@ type GenerationTaskListDependencies = {
 };
 
 const defaultGenerationTaskListDependencies: GenerationTaskListDependencies = {
-    listBackendPage: async (page, signal) => ({
-        tasks: await http.get<GenerationTask[]>("/tasks", {
-            params: { pageSize: Math.min(page.limit, 100), projectId: page.projectId, activeOnly: page.activeOnly || undefined },
+    listBackendPage: async (page, signal) => {
+        const tasks = await http.get<GenerationTask[]>("/tasks", {
+            params: { pageSize: Math.min(page.limit, 100), projectId: page.projectId, activeOnly: page.activeOnly || undefined, before: page.cursor },
             signal,
-        }),
-    }),
+        });
+        return { tasks, nextCursor: tasks.length === Math.min(page.limit, 100) ? tasks.at(-1)?.id : undefined };
+    },
 };
 
 export async function listGenerationTasks(limit = 30, options?: { projectId?: string; activeOnly?: boolean }, dependencies: GenerationTaskListDependencies = defaultGenerationTaskListDependencies, signal?: AbortSignal) {
