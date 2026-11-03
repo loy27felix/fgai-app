@@ -6,6 +6,20 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 FG 公司语音版本待用户验收：画布音频节点音色切换、创作台录音上传及配音、导演音频默认模型、广告项目预算提示、识别记录恢复和字幕导出。已通过真实提供商接口验证不等于所有界面完成验收；费用核销仍需公司账单。
 
 # 待测试
+
+## 流水线分镜输出预算与失败重试
+
+- 已实现：流水线 `script` 作业复用分镜输出预算，默认最高 64,000 tokens，同时遵守模型能力和显式请求上限；预算在预估费用与执行请求前保持一致，其他流水线任务不变。
+- 已实现：生成任务成功前按流水线 `shots` 结构校验 JSON 和可用镜头；不完整结果进入任务失败流程。原始上游 HTTP 日志保留，另补不计费的 `INTERNAL /task/result-validation` 失败记录（`invalid_storyboard_result`），不将内容校验失败误写为请求未发送。
+- 已实现：用户“全部重试”时排除旧版误标成功的残缺分镜，不再循环解析同一份坏结果；完整结果仍复用原任务，清除错误不增加 episode revision，避免复用结果失效而重复付费。所有调用全量重试的入口（包括角色页）均在重试前提示重新生成可能产生新费用，历史请求与结果不删除、不改写。
+- 已通过本地验证：在 `backend/` 执行 `go test ./internal/app ./internal/repository ./internal/production -run 'Test(FG.*(Storyboard|Output|TextTask|TextUses|ClaudeUses)|EnsureFailedProviderAttemptLogged|Drama|ParseScript|ExtractJSONObject)' -count=1`；在 `web/` 执行 `bun run typecheck --incremental false` 与 `bunx eslint src/pages/drama-pipeline/detail.tsx`。
+- [ ] 联调验收：长剧本生成、截断后请求明细失败筛选、旧失败分镜重试，以及完整结果回写失败不重复生成。本次未调用付费模型或手工修改生产历史记录；超过模型或 64,000-token 上限的内容仍需缩短单集，本次未加入自动拆批。
+
+- 新增自动化测试：`drama_storyboard_result_test.go` 覆盖输出预算与非 script 隔离、三类协议的流式/非流式实际请求、残缺 JSON 校验、旧任务项目隔离、失败日志及草稿、完整结果复用与用户重试前不自动重新生成。`go test -race ./internal/app -run '^TestDramaStoryboard' -count=1` 通过。
+- 扩大验证：`go test ./internal/app ./internal/repository ./internal/production -count=1` 中 repository、production 通过；app 的 12 个顶层测试失败，均已在未修改的生产后端基线 `047391d86` 复现，涉及缺失 Agent runtime 的 `undici` 依赖和 NAS 路径校验，不宣称全套通过。
+- 发布隔离验证：以线上前后端各自基线准备只含本次修复的本地候选，`bun run build:fg` 通过，9 个入口资源路径检查通过；没有混入主站自助排查等其他修改。浏览器交互和生产端到端尚未验收。
+- 部署审批与结果：收到用户明确批准后，于 2026-11-02 17:24（Asia/Shanghai）完成第六板块前后端部署，版本 `1.5.9+pipelinefix.20261102`。切换前连续确认活跃 Worker 和未完成任务为零；新前后端 healthy、代理健康接口返回新版本，线上 HTML SHA-256 与候选一致，9 个入口资源请求通过，其他第六板块容器未替换，6 个受保护 LaunchAgent 均保持加载。未执行数据库迁移，未自动重试历史付费任务。原后端 `fg-release159-backend:047391d86`、原前端 `fg-storyboard-web:624e77687046` 及配置备份保留用于回滚。
+
 ## 图片 / 视频生成页改版：电商场景与批量生成
 
 - 已实现：`/toolbox/image`、`/toolbox/video` 改为左侧创作面板加右侧作品区。创作面板依次是出品场景、商品素材、画面描述（背景、光线、构图、风格等灵感词可点选加入或移除）、模型与规格、生成数量，底部固定显示预估积分和生成按钮；作品区按批次分组，可按进行中 / 已完成 / 失败筛选并搜索。新增大图查看（上一个 / 下一个、同批缩略图、下载、用作参考图、做成视频）和「全部场景」场景库（按电商用途分类、可搜索）。
