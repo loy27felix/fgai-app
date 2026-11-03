@@ -1,4 +1,8 @@
 export const defaultProjectLanguage = Object.freeze({ version: 1, spoken: 'source', screenText: 'source' });
+export function usesSubmittedShotVideoPrompt(body) {
+  return (body?.input?.mode || String(body?.type || '').replace(/^canvas_/, '')) === 'video'
+    && typeof body?.input?.metadata?.shotId === 'string' && Boolean(body.input.metadata.shotId.trim());
+}
 export function normalizeProjectLanguage(value) {
   if (typeof value === 'string') value = value.trim() ? JSON.parse(value) : undefined;
   if (value == null) return { ...defaultProjectLanguage };
@@ -100,20 +104,26 @@ export function assertOriginalEnglishRows(rows, originals) {
   if(actual.some(cue=>han.test(cue.text)) || actual.length!==expected.length || expected.some((cue,index)=>cue.speaker!==actual[index]?.speaker||cue.text!==actual[index]?.text)) throw Error('分镜对白未逐字沿用本批原稿英文，未导入。请核对原英文台词，不重新翻译或润色');
 }
 export function assertLockedEnglishPrompt(dialogue, prompt) {
-  const section=String(prompt).split('【声音设计】')[1]?.split(/【[^】]+】/)[0];
-  if(section==null) throw Error('视频提示词缺少可核对的声音设计');
-  const header=section.match(/(?:^|\n)\s*对白(?:[（(][^）)\n]*[）)])?\s*[：:]/);
+  const rawSection=String(prompt).split('【声音设计】')[1]?.split(/【[^】]+】/)[0];
+  if(rawSection==null) throw Error('视频提示词缺少【声音设计】，请在其中保留本镜头原英文台词，未提交视频生成');
+  const section=rawSection.replace(/\\r\\n|\\n/g,'\n').replace(/\*\*/g,'').replace(/^\s*#{1,6}\s*/gm,'');
+  const header=section.match(/(?:^|\n)\s*(?:对白|台词)(?:[（(][^）)\n]*[）)])?\s*[：:]/);
   const body=header?section.slice(header.index+header[0].length):section;
   let inVoiceProfile=false;
   const cues=String(body).replace(/\\r\\n|\\n/g,'\n').split(/\r?\n/).flatMap(line=>{
     if(/^\s*(?:基础)?声线(?:设定|说明|特征)?(?:[（(][^）)\n]*[）)])?\s*[：:]\s*$/.test(line)){inVoiceProfile=true;return [];}
-    const heading=line.match(/^\s*对白(?:[（(][^）)\n]*[）)])?\s*[：:]\s*/);
+    const heading=line.match(/^\s*(?:对白|台词)(?:[（(][^）)\n]*[）)])?\s*[：:]\s*/);
     if(heading){inVoiceProfile=false;line=line.slice(heading[0].length);}
     if(inVoiceProfile)return [];
     const label=line.trim().split(/[：:]/,1)[0].replace(/[（(][^）)]*[）)]/g,'').replace(/[\s*]/g,'');
-    if(/^(?:基础)?声线(?:设定|说明|特征)?/.test(label)||/声线$/.test(label)||/^(?:动作音|脚步与动作音|接触音效|接触与操作|说明|对白说明|对白时段|对白时间|说话时机|同步参考英文|英语版对应同一句|英文参考|英文对照)$/.test(label))return [];
+    if(/^(?:基础)?声线(?:设定|说明|特征)?/.test(label)||/声线$/.test(label)||/^(?:背景音乐|背景音乐BGM|配乐|配乐BGM|BGM|环境声|环境音效|背景声|音效|音效SFX|SFX|动作音效|脚步声|呼吸声|动作音|脚步与动作音|接触音效|接触与操作|说明|对白说明|对白时段|对白时间|说话时机|同步参考英文|英语版对应同一句|英文参考|英文对照)$/i.test(label))return [];
     const cue=speech(line);return cue?[cue]:[];
   });
   const expected=grouped(dialogueCues(dialogue)),actual=grouped(cues);
-  if(actual.some(cue=>han.test(cue.text))||actual.length!==expected.length||expected.some((cue,index)=>cue.speaker!==actual[index]?.speaker||cue.text!==actual[index]?.text)) throw Error('视频提示词中的演出台词与原英文不一致，请先修正，未提交视频生成');
+  const help='动作、服装和运镜可以修改；请核对【声音设计】里的对白并沿用原英文，未提交视频生成';
+  if(actual.some(cue=>han.test(cue.text))) throw Error('声音设计里的演出台词包含中文或制作说明。'+help);
+  if(actual.length<expected.length) throw Error(`声音设计缺少本镜头的原英文台词（应有${expected.length}段，识别到${actual.length}段）。`+help);
+  if(actual.length>expected.length) throw Error('声音设计出现额外对白或未识别的声音栏目。'+help);
+  const mismatch=expected.findIndex((cue,index)=>cue.speaker!==actual[index]?.speaker||cue.text!==actual[index]?.text);
+  if(mismatch!==-1) throw Error(`声音设计第${mismatch+1}句台词或说话人与原英文不一致。`+help);
 }

@@ -73,7 +73,7 @@ describe("workflow shot asset references", () => {
         expect(execution.prompt).toContain("图片3");
         expect(execution.prompt).toContain("同一角色");
         expect(execution.metadata.referenceManifest).toHaveLength(3);
-        expect(prepareShotVideoExecution("林默换装",context,{dialogue:"Lin: Keep the original words."}).prompt.match(/Lin: Keep the original words\./g)).toHaveLength(1);
+        expect(prepareShotVideoExecution("林默换装。\nLin: Keep the original words.",context,{dialogue:"Lin: Old script words."}).prompt.match(/Lin: Keep the original words\./g)).toHaveLength(1);
         expect(()=>prepareShotVideoExecution("林默换装",context,{durationMs:14000})).toThrow("镜头时长已修改");
         const replay=buildShotAssetReferenceContext(JSON.parse(JSON.stringify(source)),"shot-1");
         expect(prepareShotVideoExecution("@[asset:asset-character]",replay).metadata.referenceManifest).toEqual(prepareShotVideoExecution("@[asset:asset-character]",context).metadata.referenceManifest);

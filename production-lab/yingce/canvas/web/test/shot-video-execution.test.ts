@@ -72,10 +72,11 @@ describe("reviewed shot video execution", () => {
         expect(context.assetReferences[0].audioIndex).toBe(1);
     });
     test("explicit voice use binds timbre while excluding sample dialogue and sounds", () => {
-        const result = prepareShotVideoExecution("【视频整体概念】\n当前场景", context, { useVoiceSamples: true, dialogue: "Evan: Only this line." });
+        const result = prepareShotVideoExecution("【视频整体概念】\n当前场景\n【声音设计】\nEvan: Only this line.", context, { useVoiceSamples: true, dialogue: "Evan: Old script dialogue." });
         expect(result.context.referenceAudios).toHaveLength(1);
         expect(result.prompt).toContain("声音参考：音频1");
         expect(result.prompt).toContain("Only this line.");
+        expect(result.prompt).not.toContain("Old script dialogue.");
         expect(result.prompt).toContain("禁止复述、续写、翻译样本中的台词");
         expect(result.prompt).toContain("禁止复制样本的环境声、音乐和音效");
         expect(result.metadata.voiceReferenceMode).toBe("timbre-only");
@@ -87,5 +88,12 @@ describe("reviewed shot video execution", () => {
         expect(result.prompt).not.toContain("skill-context");
         expect(result.prompt).not.toContain("【用户任务】");
         expect(result.metadata.mediaPromptSource).toBe("approved-shot");
+    });
+    test("a silent manual prompt does not inherit old dialogue through reference assets", () => {
+        const prompt = "主角走向门口，全程无对白。";
+        const result = prepareShotVideoExecution(prompt, context, { dialogue: "Evan: Old script dialogue." });
+        expect(result.prompt.startsWith(prompt)).toBe(true);
+        expect(result.prompt).not.toContain("Old script dialogue.");
+        expect(result.prompt).not.toContain("【镜头台词】");
     });
 });

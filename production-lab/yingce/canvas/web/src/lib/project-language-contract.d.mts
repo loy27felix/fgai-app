@@ -1,6 +1,7 @@
 export type ProjectLanguagePolicy = { version: 1; spoken: "source" | "en-original"; screenText: "source" | "no-zh" | "none" };
 export type OriginalEnglishCue = { speaker: string; text: string; aliases: string[]; translation?: string };
 export const defaultProjectLanguage: Readonly<ProjectLanguagePolicy>;
+export function usesSubmittedShotVideoPrompt(body: { type?: string; input?: Record<string, unknown> }): boolean;
 export function normalizeProjectLanguage(value?: unknown): ProjectLanguagePolicy;
 export function projectLanguageInstructions(value: unknown, mode?: string): string;
 export function applyProjectLanguage(prompt: string, value: unknown, mode?: string): string;

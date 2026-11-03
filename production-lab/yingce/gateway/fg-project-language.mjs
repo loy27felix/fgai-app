@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {normalizeProjectLanguage,applyProjectLanguage,projectLanguageTemplateVariables,lockDialogueToOriginal,assertLockedEnglishPrompt} from './shared/project-language.mjs';
+import {normalizeProjectLanguage,applyProjectLanguage,projectLanguageTemplateVariables,usesSubmittedShotVideoPrompt} from './shared/project-language.mjs';
 
 const idPattern=/^[0-9a-f-]{32,36}$/i;
 const key=id=>'project-language:'+id;
@@ -46,6 +46,8 @@ export async function projectLanguageRoute(req,res,{pool,actor,path,access}){
  return true;
 }
 export function applyLanguageToTask(body,saved){
+ // The reviewed video text is authoritative; language preferences guide text authoring only.
+ if(usesSubmittedShotVideoPrompt(body))return body;
  const policy=saved.policy,input=body.input&&typeof body.input==='object'?body.input:{},metadata=input.metadata||{};
  if(metadata.projectLanguagePolicy&&JSON.stringify(normalizeProjectLanguage(metadata.projectLanguagePolicy))!==JSON.stringify(policy))throw failure('项目语言设置已变化，请重新预览生成内容',409);
  const mode=input.mode||String(body.type||'').replace(/^canvas_/,'');
@@ -66,13 +68,12 @@ export async function guardProjectLanguageTask(req,res,{pool,path,access}){
   const row=(await pool.query("SELECT id FROM projects WHERE id=$1 UNION ALL SELECT project_id id FROM canvas_projects WHERE id=$1 AND project_id<>'' LIMIT 1",[body.projectId])).rows[0];
   if(!row)return true;
   const saved=await load(pool,row.id),m=body.input?.metadata||{};
-  if(!m.projectLanguagePolicy&&saved.policy.spoken==='source'&&saved.policy.screenText==='source')return true;
+  if(!m.projectLanguagePolicy&&saved.policy.spoken==='source'&&saved.policy.screenText==='source'&&!usesSubmittedShotVideoPrompt(body))return true;
   await access(row.id);
   const next=checkPolicy(()=>applyLanguageToTask(body,saved)),mode=next.input.mode||String(next.type||'').replace(/^canvas_/,'');
-  if(mode==='video'&&saved.policy.spoken==='en-original'&&m.shotId){
-   const shot=(await pool.query('SELECT s.current_revision_id,r.dialogue,u.source_text FROM shots s JOIN shot_revisions r ON r.id=s.current_revision_id JOIN project_units u ON u.id=s.unit_id WHERE s.project_id=$1 AND s.id=$2',[row.id,m.shotId])).rows[0];
+  if(usesSubmittedShotVideoPrompt(body)){
+   const shot=(await pool.query('SELECT s.current_revision_id FROM shots s WHERE s.project_id=$1 AND s.id=$2',[row.id,m.shotId])).rows[0];
    if(!shot||m.shotRevisionId!==shot.current_revision_id)throw failure('镜头版本已变化，请保存并重新预览',409);
-   checkPolicy(()=>assertLockedEnglishPrompt(lockDialogueToOriginal(shot.dialogue,shot.source_text),body.prompt));
   }
   if(mode==='audio'&&saved.policy.spoken==='en-original'&&m.operation==='character_voice_sample'){
    const line=String(body.prompt).split('试音台词：')[1]?.split('【项目制作语言设置】')[0].trim();

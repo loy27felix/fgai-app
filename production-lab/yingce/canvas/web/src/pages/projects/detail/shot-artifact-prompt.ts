@@ -3,8 +3,8 @@ export type ShotPromptValues = { videoPrompt?: string; imagePrompt?: string; act
 export function shotArtifactPrompt(stage: string, values: ShotPromptValues, projectStyle = "") {
     if (stage === "video") {
         const prompt = values.videoPrompt?.trim();
-        if (prompt?.startsWith("【分镜】") || prompt?.includes("【视频整体概念】")) return prompt;
-        return [prompt || values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n");
+        if (prompt) return prompt;
+        return [values.plotDescription, values.action, values.dialogue && `台词：${values.dialogue}`, values.continuityNotes].filter(Boolean).join("\n");
     }
     if (stage === "previz") return values.actionBoardPrompt?.trim() || [
         "黑白动作预演分镜图，一张图按时间顺序展示关键动作、走位和摄影机变化；每格是同一空间中实际发生的下一拍，保持人物身份、轴线、持物手、通行路径和道具状态。不要彩色定妆图，不添加原文没有的动作。",

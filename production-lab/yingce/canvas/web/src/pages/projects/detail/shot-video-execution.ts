@@ -88,7 +88,8 @@ export function prepareShotVideoExecution(prompt: string, context: ShotAssetRefe
     if (options.projectAssets) assertShotCharacterCoverage(prompt, references, options.projectAssets, context.assetReferences.filter(ref => !references.assetReferences.some(selected => selected.assetId === ref.assetId)).map(ref => ref.assetId));
     assertCharacterConsistency(prompt, references);
     const scopedPrompt = ensureShotAssetMentionPrompt(prompt, references.mentionReferences);
-    const resolved = resolveShotAssetMentionPrompt(scopedPrompt, references, { dialogue: options.dialogue });
+    // Asset bindings supply identity and timbre, never an older script's spoken lines.
+    const resolved = resolveShotAssetMentionPrompt(scopedPrompt, { ...references, assetReferences: references.assetReferences.map(({ dialogue: _oldDialogue, ...reference }) => reference) });
     const boundary = [
         "【本镜头生成边界】",
         "仅演绎上方当前镜头的剧情、动作时间轴与对白。参考素材只负责指定的身份、外观或空间，不从参考素材补写其他集的故事。",
