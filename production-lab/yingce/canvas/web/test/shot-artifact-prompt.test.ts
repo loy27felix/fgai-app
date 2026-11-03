@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { shotArtifactPrompt, actionBoardPromptFromBeats } from "@/pages/projects/detail/shot-artifact-prompt";
 
+test("自由编辑的视频提示词直接提交，不拼入旧剧本动作和对白", () => {
+    const prompt = "只拍主角站起走向楼梯。对白：无。";
+    expect(shotArtifactPrompt("video", { videoPrompt: prompt, plotDescription: "旧剧情", action: "旧动作", dialogue: "Old: Old dialogue.", continuityNotes: "旧衔接" })).toBe(prompt);
+});
+
 test("分镜首帧采用全局画风，动作预演独立使用黑白动作要求", () => {
     const values = { plotDescription: "小林在门右侧", imagePrompt: "雨夜门廊开场", action: "右手抬起警戒带，小雨接住后通过", continuityNotes: "灯在左手" };
     const storyboard = shotArtifactPrompt("storyboard", values, "暖色手绘动画");

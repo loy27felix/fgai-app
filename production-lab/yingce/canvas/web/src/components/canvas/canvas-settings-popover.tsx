@@ -42,7 +42,7 @@ export function CanvasSettingsPopover({ label, summary, children, placement = "t
             arrow={false}
             destroyOnHidden
             // shift 只会把浮层推到视口边缘；外层上下留 12px 透明内边距作为与视口、触发按钮的间距，内边距不接收指针。
-            styles={{ root: { zIndex: "var(--z-dialog-popover)", paddingBlock: SETTINGS_POPOVER_VIEWPORT_GAP, pointerEvents: "none" }, container: { background: theme.canvas.background, color: theme.node.text, padding: 12, pointerEvents: "auto" } }}
+            styles={{ root: { paddingBlock: SETTINGS_POPOVER_VIEWPORT_GAP, pointerEvents: "none" }, container: { background: theme.canvas.background, color: theme.node.text, padding: 12, pointerEvents: "auto" } }}
             content={
                 <section
                     id={id}

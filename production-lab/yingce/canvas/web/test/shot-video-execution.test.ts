@@ -8,6 +8,14 @@ const context: ShotAssetReferenceContext = {
     assetReferences: [{ assetId: "evan", title: "Evan", category: "character", imageIndex: 1, audioIndex: 1, voiceDescription: "低沉、克制、慢速" }],
 };
 
+test("a silent shot never uploads character sample speech even when voice samples were previously enabled", () => {
+    for (const prompt of ["Evan walks to the window.", "【声音设计】\n对白：无。只保留脚步声。", "No dialogue, footsteps only."]) {
+        const result = prepareShotVideoExecution(prompt, context, { useVoiceSamples: true });
+        expect(result.context.referenceAudios).toHaveLength(0);
+        expect(result.prompt).not.toContain("声音参考：音频");
+    }
+});
+
 describe("reviewed shot video execution", () => {
     const characters = ["Mia", "Evan", "Shadow"];
     const cast: ShotAssetReferenceContext = {
@@ -25,7 +33,7 @@ describe("reviewed shot video execution", () => {
         expect(result.prompt).toContain("不得让其坐在现场对面");
     });
     test("an explicitly limited cast excludes an unmentioned bound character and reindexes images and voices", () => {
-        const result = prepareShotVideoExecution("【背景人物活动】\n空间中只有 Evan 与 Shadow。\n【角色参考】\nMia：@[asset:Mia]\nEvan：@[asset:Evan]\nShadow：@[asset:Shadow]", cast, { useVoiceSamples: true });
+        const result = prepareShotVideoExecution("【背景人物活动】\n空间中只有 Evan 与 Shadow。\n【声音设计】\n对白：\nEvan: Stay here.\nShadow: I will.\n【角色参考】\nMia：@[asset:Mia]\nEvan：@[asset:Evan]\nShadow：@[asset:Shadow]", cast, { useVoiceSamples: true });
         expect(result.context.referenceImages.map(image => image.id)).toEqual(["Evan", "Shadow"]);
         expect(result.context.referenceAudios.map(audio => audio.id)).toEqual(["Evan", "Shadow"]);
         expect(result.context.resolvedCharacterVersions.map(reference => reference.assetId)).toEqual(["Evan", "Shadow"]);
@@ -72,10 +80,11 @@ describe("reviewed shot video execution", () => {
         expect(context.assetReferences[0].audioIndex).toBe(1);
     });
     test("explicit voice use binds timbre while excluding sample dialogue and sounds", () => {
-        const result = prepareShotVideoExecution("【视频整体概念】\n当前场景", context, { useVoiceSamples: true, dialogue: "Evan: Only this line." });
+        const result = prepareShotVideoExecution("【视频整体概念】\n当前场景\n【声音设计】\nEvan: Only this line.", context, { useVoiceSamples: true, dialogue: "Evan: Old script dialogue." });
         expect(result.context.referenceAudios).toHaveLength(1);
         expect(result.prompt).toContain("声音参考：音频1");
         expect(result.prompt).toContain("Only this line.");
+        expect(result.prompt).not.toContain("Old script dialogue.");
         expect(result.prompt).toContain("禁止复述、续写、翻译样本中的台词");
         expect(result.prompt).toContain("禁止复制样本的环境声、音乐和音效");
         expect(result.metadata.voiceReferenceMode).toBe("timbre-only");
@@ -87,5 +96,12 @@ describe("reviewed shot video execution", () => {
         expect(result.prompt).not.toContain("skill-context");
         expect(result.prompt).not.toContain("【用户任务】");
         expect(result.metadata.mediaPromptSource).toBe("approved-shot");
+    });
+    test("a silent manual prompt does not inherit old dialogue through reference assets", () => {
+        const prompt = "主角走向门口，全程无对白。";
+        const result = prepareShotVideoExecution(prompt, context, { dialogue: "Evan: Old script dialogue." });
+        expect(result.prompt.startsWith(prompt)).toBe(true);
+        expect(result.prompt).not.toContain("Old script dialogue.");
+        expect(result.prompt).not.toContain("【镜头台词】");
     });
 });

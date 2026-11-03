@@ -210,7 +210,7 @@ export function buildShotAssetReferenceContext(detail: ProjectDetail, shotId: st
             ...(audioIndex ? { audioIndex } : {}),
             ...(asset.character ? { voiceDescription: characterVoiceDescription(asset) } : {}),
             ...(asset.character ? {
-                identityDescription: [asset.character.definition?.gender, asset.character.definition?.appearance, asset.character.definition?.physique].map(stringValue).filter(Boolean).join("；"),
+                identityDescription: [asset.character.definition?.gender, asset.character.definition?.physique].map(stringValue).filter(Boolean).join("；"),
                 aliases: Array.isArray(asset.character.definition?.aliases) ? asset.character.definition.aliases.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : stringValue(asset.character.definition?.aliases).split(/[、,，;]/).map(name => name.trim()).filter(Boolean),
             } : {}),
         } satisfies ShotPromptAssetReference;

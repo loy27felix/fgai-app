@@ -112,7 +112,11 @@ describe("剧情视频片段规划与恢复", () => {
             prompt.replace("14.3—16.3秒 EVAN：", "14.3—16.3秒 MIA："),
             prompt.replace("13—13.8秒 EVAN（低声）：“It's fine.”（之后留半秒静默）\n14.3—16.3秒 EVAN：“I'll handle the follow-up.”", "13—16.3秒 EVAN：“I'll handle the follow-up. It's fine.”"),
             prompt.replace("8.8—11.3秒 BOSS：“Let's keep this to what we can verify.”\n", "").replace("声线 EVAN：", "声线 BOSS：Let's keep this to what we can verify.\n声线 EVAN："),
-        ]) expect(() => chapterStoryboardFromGenerationTask(taskFor(bad))).toThrow("遗漏或改写");
+        ]) {
+            const fixed=chapterStoryboardFromGenerationTask(taskFor(bad)).rows[0];
+            expect(fixed.videoMotionPrompt).toContain(dialogue[0]);expect(fixed.videoMotionPrompt).toContain(dialogue[1]);
+            expect(fixed.sourceTask?.automaticRepairs).toContain("sound_dialogue_from_row");
+        }
     });
     test("最长15秒的模型不出现20/25/30，固定与剧情策略保留合法长片段", () => {
         expect(dramaSegmentDurations(config(15), config().model)).toEqual([13, 15]);
@@ -138,7 +142,7 @@ describe("剧情视频片段规划与恢复", () => {
         expect(() => validateDramaStoryboard([{ ...row, durationSeconds: 3 }], plan)).toThrow("未替换");
         expect(() => validateDramaStoryboard([{ ...row, durationSeconds: 15 }], plan)).toThrow("未替换");
         expect(() => validateDramaStoryboard([{ ...row, videoMotionPrompt: "慢推人物" }], plan)).toThrow("未替换");
-        expect(() => validateDramaStoryboard([{ ...row, dialogue: "林默：这句台词必须保留。" }], plan)).toThrow("遗漏或改写");
+        expect(() => validateDramaStoryboard([{ ...row, dialogue: "林默：这句台词必须保留。" }], plan)).toThrow("本段对白不同");
         const shot = storyboardRowsToProjectShots([row], undefined, plan)[0];
         expect(dramaPlanFromBeats(JSON.stringify(shot.revision.actionBeats))).toEqual(plan);
         expect(shot.durationMs).toBe(20000);

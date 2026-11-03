@@ -78,6 +78,17 @@ function videoConfig() {
 }
 
 describe("canvas character reference delivery", () => {
+    test("silent character samples are removed while explicit background audio retains the correct slot", async () => {
+        const a=detail("a");
+        a.character.voice={profile:{id:"voice",name:"声音",provider:"sample",voiceKey:"voice-key",language:"英语",timbre:"低沉",sampleResourceId:"sample-a",compatibleModels:[],status:"ready"},instructions:"平静"};
+        mockResources([a]);
+        const context=contextFor([characterNode("a"),node("sample",CanvasNodeType.Audio,{storageKey:"resource:sample-a"}),node("music",CanvasNodeType.Audio,{storageKey:"resource:music"})],"@角色1走向窗边，全程无对白。@音频1仅音色，@音频2作为环境底声。");
+        const hydrated=await hydrateNodeGenerationContext(context,"canvas",undefined,"video",true,true,undefined,false);
+        expect(hydrated.referenceAudios.map(audio=>audio.storageKey)).toEqual(["resource:music"]);
+        expect(hydrated.prompt).toContain("@音频1作为环境底声");
+        expect(hydrated.prompt).not.toContain("@音频2");
+        expect(hydrated.prompt).not.toContain("声音参考：@音频");
+    });
     test("saved resource references stay as storage keys without browser materialization", async () => {
         const { images } = mockResources([]);
         const context = contextFor([node("scene", CanvasNodeType.Image, { storageKey: "resource:scene" })], "@图片1");
@@ -136,7 +147,7 @@ describe("canvas character reference delivery", () => {
         };
         const context = contextFor(
             [characterNode("a"), node("scene", CanvasNodeType.Image, { storageKey: "resource:scene" }), characterNode("b"), node("audio", CanvasNodeType.Audio, { storageKey: "resource:music" })],
-            "@图片2场景里@角色3看向@角色1，参考@[asset:library-image]，配合@音频1",
+            "@图片2场景里@角色3看向@角色1，参考@[asset:library-image]，配合@音频1\n【声音设计】\n对白：\na：Stay.\nb：Okay.",
             [asset],
         );
         const hydrated = await hydrateNodeGenerationContext(context, "canvas", undefined, "video", true, false, { maxImages: 6, maxVideos: 1, maxAudios: 2 });

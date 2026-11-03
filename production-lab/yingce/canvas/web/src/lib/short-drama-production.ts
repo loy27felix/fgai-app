@@ -42,6 +42,7 @@ export function dramaStoryboardContract(plan: DramaProductionPlan, modelName: st
         "完整保留原文对白和明确的 OS，不为抽象心理描述虚构 OS。对白过长时在完整句与剧情落点处另开片段；不加速、不删词、不重复。dialogue 必须包含本片段完整台词，一行一位说话人，使用‘角色名：完整原文台词’格式，videoMotionPrompt 同样逐字包含这些台词。",
         "说话人标签也须逐字一致：dialogue 和【声音设计】对白清单沿用原文同一个角色名，不自行翻译、缩写或切换中英文名；例如原文 Cal: Hello.，两处均写 Cal：Hello.，不能一处 Cal 一处卡尔，也不能把 Cal: 再嵌入台词正文。声线设定另列在对白清单之外，时间和表演说明不得并入角色姓名。",
         "角色已确认的性别、外貌、声音性别和绑定样音是跨镜头固定事实；原文或角色设定未明确时，不得在某批次自行锁定为男性或女性，不因老板、医生等职业推断性别。沿用已绑定人物外观和音色，未知项保留未明确，不用本批临时设定覆盖。",
+        "服装以用户在该镜头选定的角色造型参考图为准。同一场景默认沿用同一造型，分镜提示词不再补写衣服款式、颜色、材质、鞋或配饰；只写‘沿用已选角色造型’。仅当原剧本明确发生换装或用户明确要求时描述该变化，并交由服装与造型选择或分段换装时间轴落实，不能每批自行设计新衣服。",
         "script-to-drama-prompt-dev 用于 videoMotionPrompt；按用户时长缩放原 Skill 的 30 秒单元，30 秒通常 6–10 个有效内部镜头，短片段减少镜头，切换须有叙事动机，通常只用 1–2 次有动机的运镜。",
         "short-drama-asset-prompts 只用于角色、场景、道具设定与引用校验；保留原身份、族裔、物种和画风，不将默认亚洲人物、棚拍背景或空景无人要求强加到视频与分镜首帧。引用图分别说明身份与场景用途。",
         "参考绑定优先本片实际出场角色与主场景；只在道具决定剧情、需要身份锁定或明确接触操作时加入道具。分镜图、动作预演、历史生成素材不得因名称相似自动作为人物或场景参考。为每个有效绑定写真实资产ID与用途，系统随后转换成可核对的@资产与对应图片编号。",
@@ -60,7 +61,7 @@ export function dramaStoryboardContract(plan: DramaProductionPlan, modelName: st
     ].join("\n\n");
 }
 
-export function validateDramaStoryboard(rows: StoryboardRow[], plan?: DramaProductionPlan) {
+export function validateDramaStoryboard(rows: StoryboardRow[], plan?: DramaProductionPlan, options: { reviewedDialogue?: boolean } = {}) {
     if (!plan) return;
     for (const [index, row] of rows.entries()) {
         if (!plan.allowedSeconds.includes(row.durationSeconds)) throw new Error(`第 ${index + 1} 段时长不符合所选模型与片段规划，未替换原分镜`);
@@ -71,7 +72,7 @@ export function validateDramaStoryboard(rows: StoryboardRow[], plan?: DramaProdu
         } else if (!prompt.startsWith("【分镜】") || !prompt.includes("人物站位：") || !prompt.includes("镜头1") || !prompt.includes("【禁止项】") || !prompt.includes("【强制声明】") || !prompt.includes("无背景音乐,仅保留环境音与人声和音效")) {
             throw new Error(`第 ${index + 1} 段缺少完整视频提示词，未替换原分镜`);
         }
-        if (!dramaDialoguePreserved(row.dialogue, prompt)) throw new Error(`第 ${index + 1} 段视频提示词遗漏或改写了本段对白，未替换原分镜`);
+        if (!options.reviewedDialogue && !dramaDialoguePreserved(row.dialogue, prompt)) throw new Error(`第 ${index + 1} 段视频提示词与本段对白不同，请核对已保存结果中的台词和提示词；无需重新生成`);
     }
 }
 

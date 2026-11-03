@@ -1,4 +1,5 @@
 import { applyVideoStackPrimary } from "@/lib/canvas/canvas-video-stack";
+import { parseStoryboardJSON } from "@/lib/storyboard-json";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/constant/canvas";
 import { PromptTemplateOperation } from "@/lib/prompts";
 import { STORYBOARD_HEADER_HEIGHT, STORYBOARD_ROW_HEIGHT, storyboardTableHeight } from "@/lib/canvas/canvas-storyboard-layout";
@@ -157,7 +158,7 @@ function parseStoryboardRowsPayload(raw: string): { title?: string; rows?: Array
         const end = inner.lastIndexOf("}");
         if (start >= 0 && end > start) {
             try {
-                const innerParsed = JSON.parse(inner.slice(start, end + 1)) as { title?: string; rows?: Array<Partial<StoryboardRow>> };
+                const innerParsed = parseStoryboardJSON(inner.slice(start, end + 1)) as { title?: string; rows?: Array<Partial<StoryboardRow>> };
                 if (Array.isArray(innerParsed.rows)) return innerParsed;
             } catch {
                 if (/"rows"\s*:/.test(inner)) throw new Error("分镜结果不完整，可能已达到模型输出上限；未写入半批镜头。请重新生成分镜");

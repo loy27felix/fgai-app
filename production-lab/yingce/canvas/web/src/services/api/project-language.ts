@@ -1,5 +1,5 @@
 import { http } from "./request";
-import { applyProjectLanguage, normalizeProjectLanguage, projectLanguageTemplateVariables, type ProjectLanguagePolicy } from "@/lib/project-language-contract.mjs";
+import { applyProjectLanguage, normalizeProjectLanguage, projectLanguageTemplateVariables, usesSubmittedShotVideoPrompt, type ProjectLanguagePolicy } from "@/lib/project-language-contract.mjs";
 export { originalEnglishDialogue, lockDialogueToOriginal, assertOriginalEnglishRows, assertLockedEnglishPrompt, projectLanguageInstructions } from "@/lib/project-language-contract.mjs";
 export type { OriginalEnglishCue } from "@/lib/project-language-contract.mjs";
 export { applyProjectLanguage, normalizeProjectLanguage };
@@ -14,6 +14,7 @@ export function saveProjectLanguage(projectId: string, setting: ProjectLanguageS
     return http.put<ProjectLanguageSetting>(`/fg/project-language/${projectId}`, { policy: normalizeProjectLanguage(policy), expectedRevision: setting.revision });
 }
 export async function projectLanguageTaskInput<T extends { projectId?: string; prompt: string; type?: string; input?: Record<string, unknown> }>(body: T): Promise<T> {
+    if (usesSubmittedShotVideoPrompt(body)) return body;
     const setting = await getProjectLanguage(body.projectId);
     const metadata = (body.input?.metadata || {}) as Record<string, unknown>;
     if (metadata.projectLanguagePolicy && JSON.stringify(normalizeProjectLanguage(metadata.projectLanguagePolicy)) !== JSON.stringify(setting.policy)) throw new Error("项目语言设置已变化，请重新预览生成内容");

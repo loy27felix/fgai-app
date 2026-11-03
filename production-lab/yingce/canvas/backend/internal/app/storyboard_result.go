@@ -77,18 +77,27 @@ func (s *Service) validateStoryboardTaskResult(task model.Task, result map[strin
 		return nil
 	}
 	if !completeStoryboardJSON(text) {
-		return &storyboardResultError{cause: BadAuthRequest("模型返回的分镜未完整结束，可能达到单次输出上限；失败草稿已保留，原分镜未覆盖。请使用新版分批生成")}
+		var value any
+		err := json.Unmarshal([]byte(storyboardJSONBody(text)), &value)
+		if err != nil && !strings.Contains(err.Error(), "unexpected end of JSON input") {
+			return &storyboardResultError{cause: BadAuthRequest("模型返回的分镜 JSON 格式不合法；失败草稿已保留，原分镜未覆盖。可核对并修正已保存草稿，无需重跑成功批次")}
+		}
+		return &storyboardResultError{cause: BadAuthRequest("模型返回的分镜未完整结束或没有可用镜头；失败草稿已保留，原分镜未覆盖。请核对草稿或仅重试失败批次")}
 	}
 	return nil
 }
 
-func completeStoryboardJSON(text string) bool {
+func storyboardJSONBody(text string) string {
 	text = strings.TrimSpace(text)
 	if first, last := strings.Index(text, "{"), strings.LastIndex(text, "}"); first >= 0 && last > first {
 		text = text[first : last+1]
 	}
+	return text
+}
+
+func completeStoryboardJSON(text string) bool {
 	var output struct {
 		Rows []json.RawMessage `json:"rows"`
 	}
-	return json.Unmarshal([]byte(text), &output) == nil && len(output.Rows) > 0
+	return json.Unmarshal([]byte(storyboardJSONBody(text)), &output) == nil && len(output.Rows) > 0
 }

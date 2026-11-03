@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { importSavedChapterStoryboard, chapterStoryboardWasImported } from "@/pages/projects/detail/storyboard-result-import";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { ProjectUnitWorkspace, ProjectAsset } from "@/services/api/projects";
+import {automaticStoryboardReferenceChoices} from "@/pages/projects/detail/chapter-storyboard-production";
 
 function fixture() {
     const assets = Array.from({length:7},(_,i)=>({id:`p${i}`,primaryVersionId:`v${i}`,title:`道具${i}`,category:"prop",mediaType:"image"})) as ProjectAsset[];
@@ -17,6 +18,32 @@ test("completed output reaches reference review, normal write and read-back befo
     const result=await importSavedChapterStoryboard("project","chapter",[f.task],async(rows,assets)=>{reviewed=true;expect(rows.length).toBe(1);expect(assets.length).toBe(7);return{0:assets.slice(0,6).map(a=>a.id)};},[],f.deps);
     expect(reviewed).toBe(true);expect(f.writes).toBe(1);expect(result.shots.length).toBe(1);
     expect(chapterStoryboardWasImported([f.task],"chapter",result)).toBe(true);
+});
+
+test("automatic import repairs sound dialogue, selects six references, writes and reads back without a review dialog",async()=>{
+ const f=fixture(),raw=JSON.parse(JSON.parse(f.task.resultJson!).text);
+ raw.rows[0].dialogue="Evan: Stay.";raw.rows[0].videoMotionPrompt="【声音设计】\n环境底声：雨声。\n对白：\nMia: Go.";
+ f.task.resultJson=JSON.stringify({text:JSON.stringify(raw)});const original=f.task.resultJson;
+ let actual:any;
+ const replace=f.deps.replace;f.deps.replace=async(p,c,shots,ids)=>{actual=shots;return replace(p,c,shots,ids);};
+ const result=await importSavedChapterStoryboard("project","chapter",[f.task],automaticStoryboardReferenceChoices,[],f.deps);
+ expect(f.writes).toBe(1);expect(result.shots.length).toBe(1);expect(actual[0].revision.videoPrompt).toContain("Evan: Stay.");
+ expect(actual[0].revision.videoPrompt).not.toContain("Mia: Go.");expect(actual[0].assetVersionIds.length).toBe(6);expect(f.task.resultJson).toBe(original);
+});
+
+test("complete saved format-failed draft is automatically imported and source status remains unchanged",async()=>{
+ const f=fixture();f.task.status="failed";f.task.errorCode="invalid_storyboard_result";f.task.textDraft=JSON.parse(f.task.resultJson!).text.replace('"rows":','"rows":\n');f.task.resultJson="{}";
+ const result=await importSavedChapterStoryboard("project","chapter",[f.task],automaticStoryboardReferenceChoices,[],f.deps);
+ expect(f.writes).toBe(1);expect(chapterStoryboardWasImported([f.task],"chapter",result)).toBe(true);expect(f.task.status).toBe("failed");
+});
+
+test("foreground save and refresh recovery completing together do not overwrite or report a false failure",async()=>{
+ const f=fixture();const original=f.deps.replace;
+ f.deps.replace=async(p,c,shots,ids)=>{await original(p,c,shots,ids);throw Error("simulated concurrent response loss");};
+ const result=await importSavedChapterStoryboard("project","chapter",[f.task],automaticStoryboardReferenceChoices,[],f.deps);
+ expect(result.shots.length).toBe(1);expect(f.writes).toBe(1);
+ await importSavedChapterStoryboard("project","chapter",[f.task],automaticStoryboardReferenceChoices,[],f.deps);
+ expect(f.writes).toBe(1);
 });
 test("an unrelated newly edited shot is not evidence that the model result was imported",()=>{
     const f=fixture();
@@ -46,4 +73,13 @@ test("reviewed saved prompt edits keep the provider original and still pass the 
     // The source snapshot and ordinary reference validation remain authoritative.
     await expect(importSavedChapterStoryboard("project","chapter",[invalid.task],async()=>undefined,[],invalid.deps,{task:JSON.stringify(document)})).rejects.toThrow();
     expect(invalid.writes).toBe(0);
+});
+
+test("a failed format draft imports only after an explicit complete edit and keeps its original task failed",async()=>{
+    const f=fixture();f.task.status="failed";f.task.textDraft="{\"rows\":[";
+    const corrected=JSON.parse(f.task.resultJson!).text;f.task.resultJson="{}";
+    await expect(importSavedChapterStoryboard("project","chapter",[f.task],async()=>undefined,[],f.deps)).rejects.toThrow("尚未全部成功");
+    expect(f.writes).toBe(0);
+    await importSavedChapterStoryboard("project","chapter",[f.task],async()=>({0:f.assets.slice(0,6).map(a=>a.id)}),[],f.deps,{task:corrected});
+    expect(f.writes).toBe(1);expect(f.task.status).toBe("failed");expect(f.task.textDraft).toBe("{\"rows\":[");
 });
