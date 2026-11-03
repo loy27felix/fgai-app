@@ -56,7 +56,11 @@ func (s *Service) ensureFailedProviderAttemptLogged(task model.Task, taskErr err
 	errorCode := "request_not_sent"
 	statusCode := 0
 	var httpErr providerHTTPError
-	if errors.As(taskErr, &httpErr) {
+	var resultErr *storyboardResultError
+	if errors.As(taskErr, &resultErr) {
+		path = "/task/result-validation"
+		errorCode = "invalid_storyboard_result"
+	} else if errors.As(taskErr, &httpErr) {
 		path = "/task/provider-request"
 		errorCode = "provider_request_unlogged"
 		statusCode = httpErr.StatusCode

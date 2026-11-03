@@ -23,8 +23,6 @@ AUTO_DEPLOY_PLIST="$HOME/Library/LaunchAgents/$AUTO_DEPLOY_LABEL.plist"
 NAS_SUPERVISOR_LABEL="com.fgstudio.nas-supervisor"
 NAS_SUPERVISOR_PLIST="$HOME/Library/LaunchAgents/$NAS_SUPERVISOR_LABEL.plist"
 NAS_SUPERVISOR_AGENT_STATUS="unchecked"
-REPORT_SCHEDULER_LABEL="com.fgstudio.report-scheduler"
-REPORT_SCHEDULER_PLIST="$HOME/Library/LaunchAgents/$REPORT_SCHEDULER_LABEL.plist"
 
 source "$PROJECT_ROOT/scripts/observability-outbox.sh"
 
@@ -801,36 +799,8 @@ check_auto_deploy() {
   fi
 }
 
-check_report_scheduler() {
-  local disabled_entry=""
-  if launchctl print "$USER_DOMAIN/$REPORT_SCHEDULER_LABEL" >/dev/null 2>&1; then
-    update_state report-scheduler healthy "LaunchAgent is loaded"
-    return
-  fi
-  if [[ ! -f "$REPORT_SCHEDULER_PLIST" ]]; then
-    update_state report-scheduler unhealthy "LaunchAgent plist is missing: $REPORT_SCHEDULER_PLIST"
-    return
-  fi
-  if ! disabled_entry="$(launchctl print-disabled "$USER_DOMAIN" 2>/dev/null)"; then
-    update_state report-scheduler unknown "Cannot confirm whether report scheduler is allowed to start"
-    return
-  fi
-  if printf '%s\n' "$disabled_entry" | awk -v label="$REPORT_SCHEDULER_LABEL" '$1 == "\"" label "\"" && $2 == "=>" && ($3 == "disabled" || $3 == "true") { found = 1 } END { exit !found }'; then
-    update_state report-scheduler unhealthy "LaunchAgent is explicitly disabled; leaving it disabled"
-    return
-  fi
-  # RunAtLoad starts only a missing, enabled agent; never restart a loaded job.
-  # 仅恢复缺失且允许启动的报表任务，避免漏加载后持续停更。
-  if launchctl bootstrap "$USER_DOMAIN" "$REPORT_SCHEDULER_PLIST" >/dev/null 2>&1; then
-    update_state report-scheduler healthy "LaunchAgent was restored by service monitor"
-  else
-    update_state report-scheduler unhealthy "LaunchAgent is missing and automatic restoration failed"
-  fi
-}
-
 [[ -f "$ENV_FILE" ]] || { log "Monitor: missing environment file $ENV_FILE"; exit 1; }
 ensure_nas_supervisor_agent || true
-check_report_scheduler
 check_nas
 # Capacity reporting only reads the host mount and atomically writes FG's local snapshot.
 # 容量采集只读取宿主机挂载并原子更新本地快照，不依赖 Docker 可用。

@@ -201,7 +201,7 @@ export default function LogExplorer({ initialSnapshot, initialSearch, initialErr
     <main ref={deskRef} className={`log-desk ${row ? 'has-inspector' : ''} ${isQueryCollapsed ? 'has-collapsed-query' : ''}`}>
       <header className="log-desk__header">
         <div><span className="log-desk__eyebrow">OBSERVABILITY CONSOLE</span><h1>日志检索</h1><p>按类别、请求、任务和完整上下文定位一次异常，不再在混杂的运行日志里猜字段。</p></div>
-        <nav><a href="/admin/reports">服务监控报表</a><a href="/admin">管理后台</a></nav>
+        <nav><a href="/admin">管理后台</a></nav>
       </header>
       <LogQueryBar draft={state.draft} applied={state.applied} loading={state.requestState === 'loading'} isCollapsed={isQueryCollapsed} showToggle={hasScrolled} onToggle={() => setQueryCollapsed((value) => !value)} onDraftChange={(patch) => dispatch({ type: 'editDraft', patch })} onRun={runDraft} onReset={reset} onScopeChange={(scope) => applySearchPatch({ scope })} onFocusChange={(focus) => applySearchPatch({ focus })} onPreset={setPreset} />
       {state.error && <div className="log-desk__alert" role="alert">{state.error}</div>}

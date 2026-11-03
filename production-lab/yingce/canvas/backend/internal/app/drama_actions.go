@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -515,6 +516,33 @@ func (s *Service) RetryFailedDrama(userID, projectID string) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
+	jobs, err := s.repo.DramaJobsByStatus(project.ID, model.DramaJobFailed)
+	if err != nil {
+		return nil, err
+	}
+	var invalidTaskIDs []string
+	for _, job := range jobs {
+		if job.Kind != model.DramaJobScript || job.TaskID == "" {
+			continue
+		}
+		task, err := s.repo.Task(job.TaskID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if task.Status != model.TaskStatusSucceeded {
+			continue
+		}
+		text, parseErr := dramaTaskText(task)
+		if parseErr == nil {
+			_, parseErr = production.ParseScript(text)
+		}
+		if parseErr != nil {
+			invalidTaskIDs = append(invalidTaskIDs, task.ID)
+		}
+	}
 	segments, err := s.repo.FailedDramaSegments(project.ID, 5000)
 	if err != nil {
 		return nil, err
@@ -537,7 +565,7 @@ func (s *Service) RetryFailedDrama(userID, projectID string) (map[string]any, er
 			return nil, err
 		}
 	}
-	if err := s.repo.RetryDramaResultJobs(project.ID); err != nil {
+	if err := s.repo.RetryDramaResultJobs(project.ID, invalidTaskIDs...); err != nil {
 		return nil, err
 	}
 	casts, err := s.repo.DramaCasts(project.ID)
@@ -560,7 +588,9 @@ func (s *Service) RetryFailedDrama(userID, projectID string) (map[string]any, er
 	}
 	for _, episode := range episodes {
 		if episode.Error != "" {
-			if err := s.repo.UpdateDramaEpisodeUser(episode.ID, map[string]any{"error": ""}); err != nil {
+			// 重试只清除错误，不修改内容版本，否则已成功的结果会失效并重复付费生成。
+			// Clearing a retry error must not invalidate a reusable paid result's revision.
+			if _, err := s.repo.UpdateDramaEpisodeIfRevision(episode.ID, episode.Revision, map[string]any{"error": ""}); err != nil {
 				return nil, err
 			}
 		}

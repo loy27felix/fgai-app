@@ -22,7 +22,6 @@
     "logs:deploy": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-auto-deploy.log\" \"$HOME/Library/Logs/fg-studio-auto-deploy.error.log\"",
     "logs:monitor": "tail -n 200 -F \"$HOME/Library/Logs/fg-studio-service-monitor.log\" \"$HOME/Library/Logs/fg-studio-service-monitor.error.log\" \"$HOME/Library/Logs/fg-studio-monitor/app-errors.log\"",
     "logs:audit": "scripts/audit-events.sh",
-    "reports:run": "scripts/report-scheduler.sh",
     "support-bot:preflight": "tsx scripts/support-bot-preflight.ts",
     "support-bot:worker": "tsx scripts/support-bot-worker.ts"
   },

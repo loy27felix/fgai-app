@@ -838,10 +838,15 @@ func (r *Repository) RequestDramaSegmentVideos(projectID, episodeID string, inde
 	})
 }
 
-func (r *Repository) RetryDramaResultJobs(projectID string) error {
+func (r *Repository) RetryDramaResultJobs(projectID string, invalidTaskIDs ...string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		// A successful provider task is re-applied, never submitted a second time.
-		if err := tx.Model(&model.DramaJob{}).Where("project_id = ? AND status = ? AND task_id IN (?)", projectID, "failed", tx.Model(&model.Task{}).Select("id").Where("status = ?", model.TaskStatusSucceeded)).Updates(map[string]any{"status": "running", "error": "", "finished_at": nil}).Error; err != nil {
+		// 只重放可用的成功结果；旧版误标成功的残缺分镜由用户重试后重新生成。
+		// Replay usable successful results only; invalid legacy scripts require fresh generation.
+		query := tx.Model(&model.DramaJob{}).Where("project_id = ? AND status = ? AND task_id IN (?)", projectID, "failed", tx.Model(&model.Task{}).Select("id").Where("status = ?", model.TaskStatusSucceeded))
+		if len(invalidTaskIDs) > 0 {
+			query = query.Where("task_id NOT IN ?", invalidTaskIDs)
+		}
+		if err := query.Updates(map[string]any{"status": "running", "error": "", "finished_at": nil}).Error; err != nil {
 			return err
 		}
 		return nil

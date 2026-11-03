@@ -61,6 +61,11 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 	// 不把“已提交但结果未知”伪装成成功，也不把下载失败降级成空结果。
 	request := protocolRequestFromInput(input)
 	taskID := resumedProviderRequestID(ctx)
+	if taskID != "" && input.Mode == "text" && adapter.Metadata().Poll == "" {
+		// A synchronous response ID is audit evidence, not a recoverable polling job.
+		// 同步文本响应 ID 只能证明曾经提交，不能当作支持回查的异步任务 ID。
+		return nil, routeDispatchUncertainError{"文本生成已提交，但执行中断且当前协议不支持回查；为避免重复扣费未自动重发，请核对费用后手动重试失败批次"}
+	}
 	detached := protocolDetachedPolling(adapter, input.Mode)
 	var created protocol.CreateResult
 	if taskID == "" {

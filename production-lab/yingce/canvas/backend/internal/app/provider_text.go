@@ -220,7 +220,7 @@ func applyTextOutputLimit(body map[string]interface{}, limit int, field string) 
 func textTaskOutputLimit(input canvasGenerationInput) int {
 	if input.TextOptions.MaxOutputTokens <= 0 && os.Getenv("CANVAS_FG_TEAM_WORKSPACE") == "true" {
 		input.TextOptions.MaxOutputTokens = 16384
-		if metadataString(input.Metadata, "source") == "short-drama-chapter-storyboard" {
+		if metadataString(input.Metadata, "source") == "short-drama-chapter-storyboard" || isDramaScriptMetadata(input.Metadata) {
 			input.TextOptions.MaxOutputTokens = 64000
 		}
 	}

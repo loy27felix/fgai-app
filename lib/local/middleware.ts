@@ -16,7 +16,6 @@ export function updateSession(request: NextRequest, traceId?: string) {
     || path === "/api/observability/monitor-events"
     || path === "/api/observability/error-events"
     || path === "/api/observability/request-events"
-    || path === "/api/observability/report-runner"
     // Feishu callbacks and the worker authenticate independently of browser sessions.
     // 飞书回调与任务处理入口各自鉴权，不能被网页登录重定向拦截。
     || path === "/api/support-bot/events"

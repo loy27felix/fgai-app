@@ -148,8 +148,15 @@ export default function DramaStudioPage() {
     });
     const retry = useMutation({
         mutationFn: () => retryFailedDrama(projectId),
-        onSuccess: (result) => { invalidate(episodeId); message.success(`已重新排队 ${result.segments + result.casts} 项`); },
+        onSuccess: () => { invalidate(episodeId); message.success("已提交失败任务重试"); },
         onError: (error) => errorMessage(error, "重试失败"),
+    });
+    const confirmRetry = () => modal.confirm({
+        title: "重试失败任务？",
+        content: "完整结果仅重新处理，不重复生成；分镜不完整或生成失败的任务会重新调用模型，可能产生新的费用。",
+        okText: "确认重试",
+        cancelText: "取消",
+        onOk: () => retry.mutateAsync(),
     });
     // 收件箱按组重试：设定重做参考图（不连带剧情段），剧情段失败统一重新排队。
     const [retryingGroup, setRetryingGroup] = useState("");
@@ -212,7 +219,7 @@ export default function DramaStudioPage() {
     const waitingForMedia = awaitingCount > 0 && !(summary.jobCounts.running || summary.jobCounts.queued) && production.status === "running";
     // 本集还没有镜头时按真实状态说明：失败、暂停、未开始、排队都不能显示成“正在编写”。
     const episodeEmpty: EpisodeEmpty = detail?.episode.error
-        ? { title: "本集剧本编写失败", text: "失败原因见上方提示。可以直接重新改编本集，或在底部队列全部重试。", active: false, action: <Button type="primary" loading={rescript.isPending} onClick={() => rescript.mutate()}>重新改编本集</Button> }
+        ? { title: "本集剧本编写失败", text: "失败原因见上方提示。可重新改编本集，或在底部队列全部重试；重新生成可能产生新的费用。", active: false, action: <Button type="primary" loading={rescript.isPending} onClick={() => rescript.mutate()}>重新改编本集</Button> }
         : production.status === "paused"
           ? { title: "制作已暂停，本集剧本还没开始写", text: "继续制作后会立即为本集编写剧本与分镜。", active: false, action: <Button type="primary" icon={<Play className="size-4" />} loading={toggleRun.isPending} onClick={() => toggleRun.mutate()}>继续制作</Button> }
           : production.status === "draft"
@@ -263,8 +270,8 @@ export default function DramaStudioPage() {
                     </div>
                 </header>
 
-                {view === "cast" ? <CastPanel projectId={projectId} cast={cast} ratios={{ character: production.settings.assets.characterRatio }} focusId={castFocus} retrying={retry.isPending} assetsPending={production.settings.mediaMode === "manual" && !production.assetsReleased} releasing={release.isPending && release.variables?.target === "assets"} onReleaseAssets={() => release.mutate({ target: "assets" })} onFocus={(id) => setParams({ cast: id })} onRetry={() => retry.mutate()} onChanged={() => invalidate(episodeId)} onOpenCanvas={(castId) => void canvas.open({ kind: "cast", castId })} canvasOpening={canvas.opening?.startsWith("cast:") ? canvas.opening.slice("cast:".length) : undefined} />
-                : view === "inbox" ? <InboxPanel items={summary.inbox} castById={castById} retrying={retry.isPending} retryingGroup={retryingGroup} releasing={release.isPending} onRetryAll={() => retry.mutate()} onRetryGroup={(key, items) => retryGroup.mutate({ key, items })} onOpen={openInbox} onOpenSettings={() => openView("settings")} onReleaseAll={confirmReleaseAll} />
+                {view === "cast" ? <CastPanel projectId={projectId} cast={cast} ratios={{ character: production.settings.assets.characterRatio }} focusId={castFocus} retrying={retry.isPending} assetsPending={production.settings.mediaMode === "manual" && !production.assetsReleased} releasing={release.isPending && release.variables?.target === "assets"} onReleaseAssets={() => release.mutate({ target: "assets" })} onFocus={(id) => setParams({ cast: id })} onRetry={confirmRetry} onChanged={() => invalidate(episodeId)} onOpenCanvas={(castId) => void canvas.open({ kind: "cast", castId })} canvasOpening={canvas.opening?.startsWith("cast:") ? canvas.opening.slice("cast:".length) : undefined} />
+                : view === "inbox" ? <InboxPanel items={summary.inbox} castById={castById} retrying={retry.isPending} retryingGroup={retryingGroup} releasing={release.isPending} onRetryAll={confirmRetry} onRetryGroup={(key, items) => retryGroup.mutate({ key, items })} onOpen={openInbox} onOpenSettings={() => openView("settings")} onReleaseAll={confirmReleaseAll} />
                 : view === "settings" ? <SettingsPanel projectId={projectId} summary={summary} cast={cast} onChanged={() => invalidate(episodeId)} />
                 : !episodes.length ? <StudioGenesis summary={summary} /> : (
                     <div className={`drama-body is-inspector-hidden ${openSegmentIndex !== undefined ? "is-covered" : ""}`} data-mobile-pane={mobilePane}>
@@ -434,7 +441,7 @@ export default function DramaStudioPage() {
                     </div>
                 )}
 
-                <QueueBar projectId={projectId} summary={summary} retrying={retry.isPending} onRetry={() => retry.mutate()} onJump={jumpToJob} />
+                <QueueBar projectId={projectId} summary={summary} retrying={retry.isPending} onRetry={confirmRetry} onJump={jumpToJob} />
                 <AddEpisodeModal
                     open={adding}
                     projectId={projectId}
