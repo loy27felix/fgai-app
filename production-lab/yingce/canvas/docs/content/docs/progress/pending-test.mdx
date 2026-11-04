@@ -15,6 +15,10 @@ FG 公司语音版本待用户验收：画布音频节点音色切换、创作�
 
 # 待测试
 
+## FG Backend 镜像构建依赖
+
+构建阶段已补齐 `scripts/provider-catalog/catalog.json`，保留原有测试，不再因 `TestMetasoCatalogBuild` 缺少文件而中断。本地专项测试、修补镜像的全部 Dockerfile 测试及隔离容器 `/api/health/live` 运行版本核对已通过；隔离验证只使用临时 SQLite，不连接生产数据库。修补镜像验证不等同正式发布验收；正式镜像必须基于已提交的干净 commit 重建并核对 `dirty=false`，不能将 `dirty=true` 的临时产物作为正式候选。
+
 ## 宫格分镜：故事板与调度故事板
 
 - 已实现：将 Tamen Web 宫格预设中的 `short_storyboard` 与 `blocking_storyboard` 原始提示词接入后端内置工具库，在图片节点「宫格与设定 → 分镜宫格」及图片输入框「预设 → 分镜宫格」提供「故事板」「调度故事板」。后端重启时同步新增预设。

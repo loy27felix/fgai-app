@@ -16,6 +16,7 @@ COPY --from=agent-dependencies /agent/node_modules ./agent-runtime/pi/node_modul
 COPY --from=official /app/plugin-packages /src/plugin-packages
 COPY plugin-packages /src/plugin-packages
 RUN --mount=type=cache,target=/root/.cache/go-build sed -i 's/\r$//' /src/plugin-packages/build-packages.sh && sh /src/plugin-packages/build-packages.sh --payments-only
+COPY scripts/provider-catalog/catalog.json /src/scripts/provider-catalog/catalog.json
 ARG BUILD_VERSION=v1.3.1
 ARG BUILD_COMMIT=unknown
 ARG BUILD_TIME=unknown
