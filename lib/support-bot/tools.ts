@@ -2,6 +2,7 @@ import { assertSupportPrimaryEnvironment } from './environment';
 import { queryLogExplorer, getLogDetail } from '@/lib/observability/log-query';
 import { searchSupportCode } from './code-search';
 import { queryUserOperations, supportOperationErrorEvidence } from './operations';
+import { queryCanvasAssets } from './canvas-assets';
 import { queryCanvasSupportLogs } from './canvas-logs';
 import { traceSupportChain, type ChainSeed } from './chain';
 import type { InvestigationScope } from './investigation-scope';
@@ -89,6 +90,19 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
         line: args.line === undefined ? undefined : Number(args.line), offset: args.offset === undefined ? undefined : Number(args.offset),
       }, source.revision, source.mode);
       return boundedEvidence({ ...result, system, matches: result.matches.map(match => ({ ...match, service: serviceForCodePath(match.path) })) });
+    }
+    if (tool === 'assets') {
+      if (system !== 'canvas' || !owner) return { system, rows: [], incomplete: true, note: '素材快照需要选择 canvas 服务并验证网页登录身份。' };
+      for (const key of ['projectId', 'assetId', 'versionId']) if (args[key] !== undefined && !identifier(args[key])) throw new Error('素材筛选编号无效');
+      return boundedEvidence(await queryCanvasAssets({ userId: owner,
+        projectId: identifier(args.projectId) || investigation?.projectId || contextProject,
+        assetId: identifier(args.assetId), versionId: identifier(args.versionId),
+        category: args.category as string | undefined, offset: args.offset as number | undefined,
+        versionOffset: args.versionOffset as number | undefined }));
+    }
+    if (supportServices[system].data === 'browser' && ['operations', 'logs'].includes(tool)) {
+      return { system, rows: [], applicable: false, requiredServices: supportServices[system].dependencies,
+        note: '浏览器界面没有独立业务库或服务端原生日志。应分别查询 canvas / yingce-gateway 的业务数据及请求；它们不是浏览器日志。前端闪屏等渲染问题仍需浏览器异常或复现证据。' };
     }
     if (tool === 'operations') {
       if (!owner) return { system, rows: [], note: '当前入口未绑定FG登录身份，无法查询账号操作数据；仍可按用户提供的编号查询授权日志。' };

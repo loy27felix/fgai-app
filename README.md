@@ -287,11 +287,20 @@ FG 主库、Canvas/gateway 业务库和独立 Production Lab 库都必须具备�
 4. 应用与 worker 使用同一个数据库，按既有启动迁移执行 `016-support-bot.sql`、`017-support-bot-group-topic-index.sql`、`018-support-bot-images.sql`、`019-support-investigation.sql` 和 `020-support-stream-progress.sql`；这些迁移不负责设置环境 GUC。在项目 checkout 内安装锁定依赖，将开发配置放 `.env.local`，先执行下方 `--check`，再运行 `pnpm support-bot:worker`；单次处理用 `pnpm support-bot:worker --once`。worker 不读取 `.env.docker`，生产须由运行环境注入相应变量，运行时环境变量优先于 env 文件；不能让生产 worker 误读本地配置。另一种调度方式是由受信任调度器 POST `/api/support-bot/process`，携带 `Authorization: Bearer SUPPORT_BOT_WORKER_TOKEN`，每次最多处理一条；无需同时运行两种调度器。
 5. `SUPPORT_BOT_ENABLED=true` 开放接收；`SUPPORT_BOT_SEND_ENABLED=false` 时 worker 和 `/api/support-bot/process` 只处理网页队列，仍会调用诊断模型；设为 `true` 才同时处理飞书队列及外发飞书消息。默认均关闭，不会自动安装或重启生产服务。
 6. 可选接入Canvas：`SUPPORT_BOT_CANVAS_DATABASE_URL` 指向对应环境的PostgreSQL，必须使用仅SELECT权限账号；读取映射表和本人任务/项目，不会建立Canvas session或执行DDL。`SUPPORT_BOT_CANVAS_VERSION_URL` 指向同一部署受信的版本接口（需返回可验证Git commit）；地址只来自服务端配置，不接受用户或模型指定。没有连接时仍可做源码咨询，但Canvas实际操作/线上根因不能宣称已核实。不要将生产连接配置进本地测试环境。
+   素材/服装/引用问题还需只读访问 `assets`、`project_asset_links`、`asset_versions`、`asset_representations`、`resources`、`shots`、`shot_asset_references`。`support-bot:preflight` 会检查这些表及 SELECT 权限，缺失不能算 Canvas 取证就绪。数据库 owner 在确认目标环境和既有 support 只读角色后，使用 psql 的 `support_role` 变量执行以下最小授权（不创建新用户、不赋予写权限；生产须按发布授权单独执行）：
+   ```sql
+   BEGIN;
+   GRANT SELECT ON public.assets, public.project_asset_links, public.asset_versions,
+     public.asset_representations, public.resources, public.shots, public.shot_asset_references
+     TO :"support_role";
+   COMMIT;
+   ```
+   `assets` 工具始终验证 active 身份映射、本人项目和本人素材，按项目及可选 assetId/versionId 查询当前版本、图片绑定、资源记录状态与分镜引用；不返回 prompt、URL、存储凭据，也不检查或修改媒体文件。当前快照不能证明昨天的状态或丢失原因，资源记录存在不等于文件可读。默认截断时应缩小到具体素材/版本，不因空结果扩大到其他账号或项目。
 7. 可选接入 Production Lab：`SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL` 指向同环境独立业务库的只读账号；未配置时读取既有 `PRODUCTION_LAB_DATABASE_URL`，绝不回退 FG 主库。gateway 回执复用 `SUPPORT_BOT_CANVAS_DATABASE_URL`，必须存在 active 账号映射，查询同时校验任务及项目归属。所有适配只读，不建表、不创建服务会话；不会把这些业务记录作为未接入的入站 HTTP 日志。
 8. 独立版本按服务配置：`SUPPORT_BOT_YINGCE_GATEWAY_VERSION_URL`、`SUPPORT_BOT_YINGCE_AGENT_VERSION_URL` 指向各自 `/health/version`，`SUPPORT_BOT_YINGCE_WEB_VERSION_URL` 指向实际网页构建的 `/.well-known/fg-runtime.json`；Canvas 使用 `/api/system/version`。worker 必须能直达这些同环境地址，不把 FG 页面代理结果当作独立服务版本。读取固定安全字段 `service/build.commit/build.version/build.environment/build.dirty`；`local` 对应构建环境 `development`，`production` 对应 `production`，缺失或不匹配即拒绝。生产只有服务身份正确、production、clean 且对应提交源码可用才签认；dev/dirty 明确标记仅供参考，旧 Canvas 缺少身份/clean 证明也不签认。五个独立产品改由下述带账号归属的受控 relay 获取版本，不再用一个固定 URL 代表所有用户实例；地址有值不代表已经连通。
    构建独立镜像时必须传入真实 `BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME`、`BUILD_DIRTY`；clean 状态应由构建时 checkout 检测，不能默认填 false。现有 gateway Compose 构建读取 `CANVAS_BUILD_*`，backend/agent/web 仍使用预构建镜像，须在各自构建流水线传入上述参数；此功能不会自动重建、推送或部署镜像。
 9. `SUPPORT_BOT_NATIVE_LOG_SOURCES` 是仅服务端配置的 JSON，例如 `{"canvas":{"file":"/var/log/fg/canvas.jsonl"},"yingce-gateway":{"container":"gateway"},"yingce-agent":{"file":"/var/log/fg/agent.jsonl"}}`。每服务只能选择一个绝对路径 JSONL 文件或可信容器名。优先由部署侧将日志目录只读提供给 worker；容器模式要求 worker 已具备 Docker CLI/context，不自动挂载 Docker socket、不接受模型指定命令/路径/容器。原生事件含 service、鉴权用户、request/trace、状态及当时 build commit/dirty，正文和凭据不进入调查结果。**日志必须带 `build_environment`，且与所选环境匹配：local → development，production → production；缺失或不匹配的记录不作为证据，不能因日志文件可读就判 ready。** Canvas/Agent 需 active 原生账号映射，gateway 使用 FG 已鉴权用户；匿名和仅伪造用户Header的事件不纳入本人记录。Canvas 设置 `CANVAS_LOG_FORMAT=json`；默认 info 不记录成功 GET 等低级别事件，需要完整请求跟踪时由运行环境显式配置 `CANVAS_LOG_LEVEL=debug`。
-10. 原生日志每次最多读取2MiB/5000行并返回100条，按本人及指定编号/时间交集筛选；不虚构项目归属，不支持显式项目条件时会拒绝而非静默忽略。轮转、日志级别、截断及改版前未采集的请求都可能造成历史缺口。报告核对事件中的 build commit/dirty 与对应源码，不以今天的运行版本冒充旧请求版本。浏览器静态站可核对自身构建，但没有独立服务器业务库；其他独立产品是否运行须分别核实，不能因仓库有目录就宣称正在运行或已接入。
+10. 容器原生日志按指定时间窗口读取，不用当前最新5000行过滤历史窗口；单次最多扫描16MiB、保留2MiB/5000行并返回100条，达到扫描上限明确标为不完整，需按任务时间缩小窗口。文件源最多读取末尾2MiB/5000行。按本人及指定编号/时间交集筛选；不虚构项目归属，不支持显式项目条件时会拒绝而非静默忽略。轮转、日志级别、截断及改版前未采集的请求都可能造成历史缺口。报告核对事件中的 build commit/dirty 与对应源码，不以今天的运行版本冒充旧请求版本。浏览器静态站可核对自身构建，但没有独立服务器业务库；其他独立产品是否运行须分别核实，不能因仓库有目录就宣称正在运行或已接入。
 
 **运行清单与退役边界：** 当前 Gateway 源码 `production-lab/yingce/gateway/fg-retired-modules.mjs` 已将 ArcReel、OpenCreator 的用户入口设为 `410 FG_MODULE_RETIRED`，两产品 provisioner 保留禁止重建的保护。原生适配用于已有实例/存量记录的受控取证，不代表恢复用户入口。2026-11-03 的生产只读核验中，两入口也实际返回410；发布前仍须复核当前状态。本次不解除保护、不重建退役产品。旧 Production Lab 独立库也只能在旧路由实际在用时列为生产必需项。全仓源码仍可检索；“目录存在”“适配已实现”“本地样例通过”“生产正在运行”是不同状态，不可互相替代。
 
@@ -304,6 +313,8 @@ FG 主库、Canvas/gateway 业务库和独立 Production Lab 库都必须具备�
 | AdCraft | 受信 owner→workspace 映射及该 workspace SQLite/请求记录 | API、Agent、Web 三个组件分别采集 |
 | Meilin | 原生 PG 的 drama/member/event 及受信 FG 身份 | FG 集成服务，不是原型 dev 页面 |
 | Suno | 带受信 operation→actor 归属的原生状态文件与请求记录；历史未记录归属的文件不补造身份 | adapter 自身构建，不是供应商模型清单 |
+
+`yingce-web` 是浏览器界面，没有独立业务库或服务端原生业务日志，不应配置虚假的网页 JSON 日志来通过验收。助手核对其运行版本，并分别查询 Canvas/Gateway 的真实来源；网页预检同时要求这两个依赖的数据源就绪。闪屏、灰屏等纯渲染问题仍需要浏览器异常或可复现证据，不能用后端成功请求代替。故障时间优先使用用户选择范围；本轮文字中的“前天/昨天/今天”可按 Asia/Shanghai 日历日期生成标注为待确认的候选窗口，不将历史轮次的相对日期重新解释为今天。模型解释的查询终点不超过本轮提交时间，避免把提交后的新请求混入原问题。
 
 统一接口只返回固定安全字段（ID、状态、时间、错误码、关联编号、运行构建），不透传 prompt、原始响应、Cookie 或密钥；按本人、时间、精确编号交集查询。无时间默认最近24小时，最多7天、返回50条，接口上限100条；不支持的过滤条件不能静默忽略：若某个源不支持则该源返回空并标明不可用/不完整，仍可返回另一个源已精确过滤的结果；所有源都不支持才拒绝整个请求，绝不扩大范围。例如 ArcReel 存量业务记录缺少 request/trace 关联时，不冒充已关联的操作记录，但仍可查询同编号原生 HTTP 日志。日志截断、重启/轮转、旧版未采集及未归属数据必须在 coverage 中披露。多组件产品只有全部组件服务身份、环境、提交及 clean 证明一致才签认整个产品运行源码；开发构建始终仅作参考。错误码可作为真实观察和代码检索线索，但仅凭同名文本/注释不确认根因；没有真实错误原文及完整运行链证明时保留未确认状态。已指定时间窗的链路展开对所有服务继续执行原时间范围，不能悄悄改查全部历史；窄时间窗无日志也不能反推服务从未接入。
 

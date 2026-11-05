@@ -21,7 +21,7 @@ const instructions = `你是FG Studio的只读调查助手。目标是根据用�
 源码工具覆盖全仓业务文本，不按模块或语言设白名单；只排除凭据和生成产物。先搜截图独特标题/提示和功能关键词；用户说导入可能叫上传，人设图可能叫角色形象图。找到模块目录后必须用path+line读取实际实现，不能只引用搜索命中或产品文档；沿功能动作检索并读取实现，不能反复只找导航。truncated不是全部结果，缩小path或分页。
 重点覆盖 production-lab、Yingce 网页、Go后端、gateway、独立Agent及其他服务，不限FG主站或Canvas两种来源。services工具列出源码/依赖/数据接入边界；operations/logs/chain/detail必须用args.service选择实际服务，runtime也接受service。code不传path时搜索全仓，指定path时自动按该文件所属服务核对独立版本；搜索命中其他服务必须读取其实际实现。目录依赖只是待查边界，不证明请求实际经过；跨服务关联必须核对双方授权记录的相同task/request/trace编号，不按时间相近、项目相同或错误相似拼接。没有接入的服务必须显示缺口，不能把FG或Canvas的运行版本、操作数据套给gateway/Agent/其他服务。最终JSON增加service字段，指出证据支持的目标服务。
 故障禁止likely、可能、更像是等猜测原因。只有runtime版本一致、已展开本次实际请求链路、具体错误与对应实现吻合，才能确认故障原因。仅有失败任务/HTTP状态码加一段代码不能推导根因。未匹配版本的代码是参考，不能称线上根因。日志没有记录≠没有发生故障；未接通数据源≠用户操作错误。
-工具格式：{"tool":"services|runtime|code|operations|logs|detail|chain","args":{...}}。services：无需参数，返回服务目录与接入边界。runtime：service，核对指定服务运行版本。code：term/path/offset，或者path+line读取邻近实现。operations：service/taskId/requestId/traceId/sessionId/projectId/from/to，不传定位参数则当前账号近期失败；yingce-gateway 可用 provider=suno 或 volcengine 过滤真实渠道回执，不代表供应商原生运行日志。logs：taskId/requestId/traceId/from/to/projectId，FG另支持term/route；Canvas查原生任务/调用日志而非FG接入层。无编号仅查给定时间窗口或默认24h候选，不能称已对齐故障。chain：taskId/requestId/traceId任一项，程序自动展开实际返回的关联编号和失败请求详情，不能以搜索列表代替。detail：已返回的日志id。不允许传userId、任意URL或SQL。
+工具格式：{"tool":"services|runtime|code|assets|operations|logs|detail|chain","args":{...}}。services：无需参数，返回服务目录与接入边界。runtime：service，核对指定服务运行版本。code：term/path/offset，或者path+line读取邻近实现。assets：仅canvas，projectId必填（可使用页面项目），可按assetId/versionId/category缩小范围或offset分页（查看assetIndex/nextOffset），指定assetId后可versionOffset分页查看旧版本（nextVersionOffset）；读取本人项目素材、服装图片绑定、版本和分镜引用当前快照，不代表过去状态；素材消失、没有服装、引用无图等问题必须先查assets，不能仅查生成失败任务。operations：service/taskId/requestId/traceId/sessionId/projectId/from/to，不传定位参数则当前账号近期失败；yingce-gateway 可用 provider=suno 或 volcengine 过滤真实渠道回执，不代表供应商原生运行日志。logs：taskId/requestId/traceId/from/to/projectId，FG另支持term/route；Canvas查原生任务/调用日志而非FG接入层。无编号仅查给定时间窗口或默认24h候选，不能称已对齐故障。chain：taskId/requestId/traceId任一项，程序自动展开实际返回的关联编号和失败请求详情，不能以搜索列表代替。detail：已返回的日志id。不允许传userId、任意URL或SQL。
 最终仅一个JSON：{"intent":"product或incident","service":"服务目录中的目标服务id","certainty":"confirmed|likely|needs_info","summary":"直接解答完整问题","cause":"已核实原因/功能依据；未核实故障只写缺口，不给推测","solutions":["具体入口、操作和预期结果"],"evidenceRefs":["E1"],"recordIds":["引用的操作或日志记录id"],"missingInfo":["仍无法通过工具取得的最少必要信息"],"limitations":["未核实部分"],"module":"责任模块","needsDeveloper":false,"internalSummary":"供开发接手的事实与缺口","causeProof":{"chainRef":"链路证据id","recordId":"真实失败请求记录id","errorExcerpt":"已采集错误记录的连续原文至少8字；只有错误码但没有错误原文时不得确认根因","codeRef":"读取实际实现的证据id","codeExcerpt":"含相同错误原文的实际实现片段；仅错误码同名命中不构成根因证明"}}。
 答复简洁，优先3到5条可执行步骤。运行版本和查询范围由程序统一展示，limitations不要重复这些已存在的提示。引用必须实际存在。不要把证据不足变成否认功能。只能确认异常时应写异常事实，不夸大成确定根因。incident只能confirmed或needs_info；needs_info只能列已经查到的事实和具体缺失，不要解释“代码可能导致”，不要给未经证实的修复方案。product可用likely说明源码功能，不能混入故障解释。解决建议需基于相关代码/数据，不建议用户盲目重试付费任务或删除数据。仍有工具额度时不能以尚未读取实现就结束。`;
 
@@ -63,7 +63,7 @@ async function ask(job: SupportJob, messages: Message[], images: string[], maxTo
   throw new Error('模型重试耗尽');
 }
 async function understand(job: SupportJob, messages: Message[], images: string[], signal?: AbortSignal): Promise<Plan> {
-  const planning: Message = { role: 'user', content: `服务目录：${JSON.stringify(supportServiceDirectory())}\n` + '现在只规划，不回答或声称查过资料。返回 {"intent":"product|incident","resolvedQuestion":"结合本轮补充和未解决历史的完整问题","observations":"截图可见模块/错误/界面状态，文字看不清就说明","target":"服务目录中的主目标id，不能将Yingce所有目录都归为Canvas后端", "services":["本次操作可能涉及的其他服务id，最多2个；根据代码边界而不是反馈入口选择"],"searchTerms":["模块独特文案","具体功能动作"],"identifiers":{"taskId":"有则填","requestId":"有则填","traceId":"有则填","sessionId":"有则填","projectId":"有则填"},"from":"用户明确给出的发生时间范围起点，ISO含时区，可省略","to":"范围终点，ISO含时区，可省略","timeText":"提取时间的用户原文，须逐字存在于文字描述；没有明确时间就省略from/to/timeText，不能把提交时刻或截图时钟当故障时间"}。至少2个不同短检索词，每个1-120字符。编号只能来自用户文字或可清晰辨认的截图，不能编造，也不能从历史助手建议里提取。缺省不填。' };
+  const planning: Message = { role: 'user', content: `服务目录：${JSON.stringify(supportServiceDirectory())}\n` + '现在只规划，不回答或声称查过资料。返回 {"intent":"product|incident","resolvedQuestion":"结合本轮补充和未解决历史的完整问题","observations":"截图可见模块/错误/界面状态，文字看不清就说明","target":"服务目录中的主目标id，不能将Yingce所有目录都归为Canvas后端", "services":["本次操作可能涉及的其他服务id，最多2个；根据代码边界而不是反馈入口选择"],"searchTerms":["模块独特文案","具体功能动作"],"identifiers":{"taskId":"有则填","requestId":"有则填","traceId":"有则填","sessionId":"有则填","projectId":"有则填"},"from":"用户明确给出的发生时间范围起点，ISO含时区，可省略","to":"范围终点，ISO含时区，可省略","timeText":"提取时间的用户原文，须逐字存在于文字描述；“昨天/今天/前天”应基于提交时刻按Asia/Shanghai解释为对应日历日期的候选窗口；没有明确时间就省略from/to/timeText，不能把提交时刻或截图时钟当故障时间"}。至少2个不同短检索词，每个1-120字符。编号只能来自用户文字或可清晰辨认的截图，不能编造，也不能从历史助手建议里提取。缺省不填。' };
   for (let attempt = 0; attempt < 2; attempt++) {
     // Use a dedicated planner contract rather than conflicting with the final-answer schema.
     // 理解阶段使用独立协议，避免被最终诊断JSON格式覆盖；截图只在此阶段送入视觉模型。
@@ -147,7 +147,7 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     if (['taskId', 'requestId', 'traceId'].includes(key)) relatedIds.add(id);
   }
   for (const key of ['taskId', 'requestId', 'traceId'] as const) if (identifier(job.context?.[key])) relatedIds.add(job.context![key]!);
-  const scope = resolveInvestigationScope(job.context && job.context.source !== target ? { ...job.context, projectId: undefined } : job.context, plan, questions, relatedIds.size > 0);
+  const scope = resolveInvestigationScope(job.context && job.context.source !== target ? { ...job.context, projectId: undefined } : job.context, plan, job.text, relatedIds.size > 0);
   if (plan.identifiers.projectId) scope.projectId = plan.identifiers.projectId;
   messages.push({ role: 'user', content: JSON.stringify({ queryScope: scope, instruction: 'reported为用户选择的发生时间，interpreted是用户原文的解释窗口，recent仅为候选。所有候选异常都不能当成本次故障。故障须继续chain读取真实请求链路和具体错误。' }) });
   let calls = 0;
@@ -155,7 +155,8 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     calls++;
     await progress(tool === 'code' ? 'code' : tool === 'chain' ? 'trace' : 'data');
     let result: Record<string, unknown>;
-    const service = tool === 'code' && typeof args.path === 'string' ? serviceForCodePath(args.path) : supportServiceId(args.service) ?? target;
+    const service = tool === 'code' && typeof args.path === 'string' ? serviceForCodePath(args.path)
+      : tool === 'assets' && args.service === undefined ? 'canvas' : supportServiceId(args.service) ?? target;
     try {
       if (args.service !== undefined && !supportServiceId(args.service)) throw new Error('未知服务');
       const resolved = await ensureRuntime(service);
@@ -183,8 +184,16 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
   };
   const queriedServices = new Set<SupportServiceId>();
   const collectIncident = async (service: SupportServiceId) => {
-    if (queriedServices.has(service) || calls > MAX_TOOL_CALLS - 4) return;
+    if (queriedServices.has(service) || calls > MAX_TOOL_CALLS - 6) return;
     queriedServices.add(service);
+    if (supportServices[service].data === 'browser') {
+      add('coverage', { system: service, applicable: false, requiredServices: supportServices[service].dependencies,
+        note: '浏览器无独立业务库或服务端原生日志；分别核对 Canvas 与网关的真实数据，不把后端证据冒充前端渲染证据。闪屏/灰屏仍需浏览器异常或可复现的界面证据。' });
+      return;
+    }
+    const assetProject = plan.identifiers.projectId || (job.context?.source === 'canvas' ? job.context.projectId : undefined);
+    const assets = service === 'canvas' && assetProject && /人设|角色|服装|素材|参考图|绑定|引用|艾特/.test(plan.resolvedQuestion)
+      ? await collect('assets', { service, projectId: assetProject, ...(/人设|角色|服装/.test(plan.resolvedQuestion) ? { category: 'character' } : {}) }) : undefined;
     const taskId = plan.identifiers.taskId ?? job.context?.taskId;
     const requestId = plan.identifiers.requestId ?? job.context?.requestId;
     const traceId = plan.identifiers.traceId ?? job.context?.traceId;
@@ -194,12 +203,15 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     // 原生HTTP日志按已鉴权账号查询；页面项目仅用于业务库筛选，不冒充原生日志字段。
     const logs = await collect('logs', { service, taskId, requestId, traceId });
     const exactSeeds = chainSeeds([{ taskId, requestId, traceId }]).filter(seed => relatedIds.has(seed.value));
+    const assetSeeds = assets ? chainSeeds(evidenceRows(assets).flatMap(row => Array.isArray(row.representations) ? row.representations : [])) : [];
+    // Inspect the actual asset-producing tasks before unrelated recent failures; candidates remain unconfirmed.
+    // 优先追查素材真实绑定的生成任务，而非无关的近期失败；不把候选编号升级为用户已确认的故障。
     await expand(exactSeeds.length ? exactSeeds : job.context?.browserRequests?.length
-      ? chainSeeds(job.context.browserRequests).slice(0, 2) : scope.timeBasis === 'reported' || scope.timeBasis === 'interpreted'
+      ? chainSeeds(job.context.browserRequests).slice(0, 2) : assetSeeds.length ? assetSeeds.slice(0, 2) : scope.timeBasis === 'reported' || scope.timeBasis === 'interpreted'
       ? chainSeeds([...evidenceRows(logs), ...evidenceRows(operations)].filter(isAnomaly)).slice(0, 2) : [], service);
   };
   if (intent === 'incident') {
-    const services = [...new Set([target, ...plan.services, ...supportServices[target].dependencies])].slice(0, 3) as SupportServiceId[];
+    const services = [...new Set([target, ...(supportServices[target].data === 'browser' ? supportServices[target].dependencies : []), ...plan.services, ...supportServices[target].dependencies])].slice(0, 3) as SupportServiceId[];
     for (const service of services) await collectIncident(service);
   }
   for (const term of plan.searchTerms) await collect('code', { term });

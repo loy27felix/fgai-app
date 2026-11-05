@@ -41,7 +41,8 @@ async function main() {
   const requested = process.argv.find(arg => arg.startsWith('--require='))?.slice('--require='.length).split(',') ?? services;
   if (!requested.length || requested.some(id => !supportServiceId(id) || !services.includes(id as keyof typeof supportServices))) throw new Error('Invalid required services');
   const fg = await database(process.env.DATABASE_URL, ['support_bot_jobs', 'support_bot_tickets', 'observability_log_events', 'observability_error_events', 'observability_service_events', 'audit_events'], false);
-  const canvas = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'task_logs', 'api_call_logs', 'drama_jobs', 'drama_productions'], true);
+  const { SUPPORT_CANVAS_ASSET_TABLES } = await import('../lib/support-bot/canvas-assets');
+  const canvas = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'task_logs', 'api_call_logs', 'drama_jobs', 'drama_productions', ...SUPPORT_CANVAS_ASSET_TABLES], true);
   const gateway = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'fg_music_jobs', 'fg_speech_jobs', 'fg_speech_usage', 'fg_creator_jobs', 'fg_adcraft_jobs', 'fg_adcraft_workspaces', 'fg_meilin_calls', 'fg_meilin_projects', 'fg_budget_reservations'], true);
   const production = await database(process.env.SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL || process.env.PRODUCTION_LAB_DATABASE_URL,
     ['production_lab_state', 'production_lab_media_jobs', 'production_lab_media_job_events', 'production_lab_script_runs'], true);
@@ -52,15 +53,22 @@ async function main() {
     const runtime = ['fg', 'production-lab'].includes(service) ? { connected: fgRuntime.verified, environment: snapshot.environment, reason: fgRuntime.evidence.reason }
       : await readNativeRuntime(service, probeUser);
     const product = isNativeProduct(service) ? await probeProductNative(service, probeUser, probeRange) : undefined;
-    const logs = product || (['fg', 'production-lab'].includes(service) ? fg : service === 'yingce-web'
+    const logs = product || (['fg', 'production-lab'].includes(service) ? fg : supportServices[service].data === 'browser'
       ? { ready: true, reason: 'browser_has_no_native_business_log; inspect_gateway_and_canvas' } : await probeSupportNativeLogs(service));
     const data = product || (service === 'fg' ? fg : service === 'production-lab' ? production
       : service === 'yingce-gateway' ? gateway : ['canvas', 'yingce-agent'].includes(service) ? canvas
-      : service === 'yingce-web' ? { ready: true, reason: 'browser_has_no_business_database' }
+      : supportServices[service].data === 'browser' ? { ready: true, reason: 'browser_has_no_business_database' }
       : { ready: false, reason: 'native_source_not_configured' });
     const versionReady = runtime.connected && (!isNativeProduct(service) || ('identityVerified' in runtime && runtime.identityVerified === true)) && runtime.environment === (environment === 'local' ? 'development' : 'production')
       && (environment === 'local' || ['fg', 'production-lab'].includes(service) || (await resolveSupportRuntime(undefined, service, probeUser)).verified);
     matrix.push({ service, required: requested.includes(service), ready: !!(fg.ready && data.ready && logs.ready && versionReady), data, logs, runtime });
+  }
+  // A browser-only check must not pass while its required backend evidence sources are disconnected.
+  // 网页自身不需要业务库，但验收不能跳过其实际依赖的后端数据源。
+  for (const row of matrix) if (row.required && row.service === 'yingce-web') {
+    const dependencies = supportServices['yingce-web'].dependencies.map(service => matrix.find(item => item.service === service));
+    row.ready = row.ready && dependencies.every(item => item?.ready === true);
+    row.dataDependencies = dependencies.map(item => ({ service: item?.service, ready: item?.ready === true }));
   }
   const ready = matrix.every(row => !row.required || row.ready);
   console.log(JSON.stringify({ environment, ready, matrix, note: 'Configuration/source readiness only; product instances are checked for the configured probe actor, not all users. Empty data is not E2E proof; development builds are reference-only. No model requests, job claiming, or external notifications.' }, null, 2));

@@ -111,6 +111,15 @@ function rowDescription(row: Record<string, unknown>): string {
   const error = failureText(row).replace(/\s+/g, ' ').slice(0, 360);
   return `${parts.filter(Boolean).join(' · ')}${error ? `\n记录摘要：${error}` : ''}`;
 }
+function assetSnapshotDescription(row: Record<string, unknown>): string {
+  const representations = Array.isArray(row.representations) ? row.representations : [];
+  const unavailable = representations.filter(item => item.resourceVisible === false).length;
+  return `素材 ${safeText(row.assetTitle, 120) || safeText(row.assetId, 120)}（assetId=${safeText(row.assetId, 120)}）：`
+    + `主版本记录${row.primaryVersionPresent ? '存在' : '缺失或未设置'}，版本 ${row.versionNumber ?? '无'}${row.isPrimary ? '（当前主版本）' : ''}，图片/媒体绑定 ${Number(row.representationCount) || 0}，`
+    + `服装绑定 ${Number(row.costumeCount) || 0}，分镜引用 ${Number(row.shotReferenceCount) || 0}；`
+    + `本次返回绑定中资源记录缺失或不可见 ${unavailable}。快照时间 ${safeText(String(row.snapshotAt), 60)}。`
+    + '这不是历史变更记录，不证明何时丢失或物理文件已删除。';
+}
 export function evidenceDescription(entry: SupportEvidence): string {
   if (entry.result.error) return `${entry.id} ${entry.tool}：${safeText(entry.result.error, 160)}`;
   if (entry.tool === 'runtime') return `${entry.id} 运行环境：${safeText(entry.result.description, 350) || '已采集，版本是否匹配见限制说明'}`;
@@ -121,6 +130,7 @@ export function evidenceDescription(entry: SupportEvidence): string {
       : `${entry.id} 源码：本次检索未命中，不能据此断言功能不存在`;
   }
   const rows = evidenceRows(entry);
+  if (entry.tool === 'assets') return `${entry.id} 素材当前快照：${rows.length ? assetSnapshotDescription(rows[0]) : safeText(entry.result.note, 350)}`;
   const row = rows.find(isAnomaly) || rows[0];
   return row ? `${entry.id} ${entry.tool === 'operations' ? '操作记录' : entry.tool === 'chain' ? '请求链路' : '日志'}：${rowDescription(row)}`
     : `${entry.id} ${entry.tool === 'operations' ? '操作记录' : '日志'}：${safeText(entry.result.note, 220) || '限定范围内无匹配记录'}`;
@@ -129,9 +139,9 @@ function rangeDescription(scope?: InvestigationScope) {
   if (!scope) return '本次未取得明确的故障发生时间范围。';
   if (!scope.from || !scope.to) return '按任务/请求/链路编号定位；各数据源查询时限见取证记录。';
   const title = scope.timeBasis === 'reported' ? '用户选择的发生时间段' : scope.timeBasis === 'interpreted' ? `按用户时间描述“${safeText(scope.timeText, 120)}”解析的候选窗口（待确认）` : '最近24小时候选窗口（不是已确认的故障时间）';
-  return `${title}：${scope.from} 至 ${scope.to}${scope.projectId ? `；项目 ${scope.projectId}` : ''}。`;
+  return `${title}${scope.timeZone ? `（${scope.timeZone}）` : ''}：${scope.from} 至 ${scope.to}${scope.projectId ? `；项目 ${scope.projectId}` : ''}。`;
 }
-const evidenceGap = /未配置|未接入|缺失|缺表|不可用(?!于)|未找到|未执行|未覆盖|不支持|无可靠关联|失败|暂不|暂无/;
+const evidenceGap = /扫描上限|范围尚未读完|截断|未配置|未接入|缺失|缺表|不可用(?!于)|未找到|未执行|未覆盖|不支持|无可靠关联|失败|暂不|暂无/;
 
 function buildUnresolvedIncident(evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
   const actual = evidence.filter(entry => supportServiceId(entry.result.system) && (options.services || [options.target]).includes(entry.result.system as SupportServiceId));
@@ -140,10 +150,28 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
   const failures = [...records.values()].sort((a, b) => Number(isLinked(b.row, options.relatedIds)) - Number(isLinked(a.row, options.relatedIds))).slice(0, 4);
   const facts = failures.map(({ entry, row }) => `${entry.id} [${entry.result.system}] ${isLinked(row, options.relatedIds) || (entry.tool === 'chain' && options.relatedIds.has(String((entry.result.root as { value?: string })?.value))) ? '编号关联的异常记录' : '候选异常，尚未确认属于本次反馈'}：${rowDescription(row)}`);
   if (!facts.length) facts.push('在本次已查询的范围内，未取得可关联的异常请求记录；这不代表问题未发生。');
+  const assetEvidence = actual.filter(entry => entry.tool === 'assets');
+  const targetedAssets = new Set(assetEvidence.flatMap(entry => {
+    const scope = entry.result.scope as Record<string, unknown> | undefined;
+    return typeof scope?.assetId === 'string' ? [scope.assetId] : [];
+  }));
+  const snapshots = [...new Map(assetEvidence.flatMap(entry => evidenceRows(entry)
+    .filter(row => row.source === 'canvas_asset_snapshot').map(row => [`${row.assetId}:${row.versionId}`, { entry, row }] as const))).values()];
+  snapshots.sort((a, b) => Number(targetedAssets.has(String(b.row.assetId))) - Number(targetedAssets.has(String(a.row.assetId)))
+    || Number(b.row.isPrimary) - Number(a.row.isPrimary) || Number(a.row.representationCount) - Number(b.row.representationCount));
+  const snapshotFacts = snapshots.slice(0, 4).map(({ entry, row }) => {
+    // Pair versions from the same query only; current bindings never establish historical deletion or its cause.
+    // 只对照同一次查询中的版本；当前绑定不证明历史删除行为或变化原因。
+    const otherVersions = row.isPrimary && Number(row.representationCount) === 0 ? snapshots.filter(item => item.entry.id === entry.id
+      && item.row.assetId === row.assetId && item.row.versionId !== row.versionId && Number(item.row.representationCount) > 0).slice(0, 3) : [];
+    const comparison = otherVersions.map(item => `版本 ${item.row.versionNumber}（versionId=${safeText(item.row.versionId, 120)}）有 ${Number(item.row.representationCount)} 个图片/媒体绑定`).join('；');
+    return `${entry.id} [canvas] ${assetSnapshotDescription(row)}${comparison ? `\n同次查询中该素材其他版本：${comparison}。这只说明不同版本当前绑定不同，不证明图片何时消失，也不证明物理文件可读。` : ''}`;
+  });
   const gaps = [!options.runtimeVerified ? '实际运行版本尚未与所读实现核验一致，不能确认运行根因。' : '',
     '尚未完成“本次失败请求 → 关联链路/具体错误 → 对应运行实现”的因果核对，暂不提供原因判断或修复结论。'];
   const sourceGaps: string[] = [];
   for (const entry of actual) {
+    if (entry.result.applicable === false) continue;
     if (Array.isArray(entry.result.coverage)) {
       const skipped = entry.result.coverage.filter(item => item && item.status !== 'queried');
       for (const status of new Set(skipped.map(item => item.status))) {
@@ -155,21 +183,27 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     const coverage = entry.result.coverage as { inboundHttp?: { available?: boolean } } | undefined;
     if (coverage?.inboundHttp?.available === false) gaps.push(`${supportServices[entry.result.system as SupportServiceId].label} 本次查询未取得可验证的原生 HTTP 日志。${safeText(entry.result.note, 350)} 这不等于该服务未接入，也不能证明本次请求经过它。`);
     if (entry.result.note && (entry.result.incomplete || (!evidenceRows(entry).length && evidenceGap.test(String(entry.result.note))))) {
-      const note = String(entry.result.note).split(/[。；]/).filter(part => evidenceGap.test(part)).slice(-3).join('；');
+      const note = String(entry.result.note).split(/[。；]/).filter(part => evidenceGap.test(part) && !part.includes('日志源未配置或历史缺失时不能补造记录')).slice(-3).join('；');
       if (note) gaps.push(safeText(note, 300));
     }
     if (entry.result.truncated) gaps.push(entry.tool === 'code' ? `${entry.id} 源码检索/读取有截断，未返回的片段不属于已核对依据。` : `${entry.id} 结果有截断，不能视为完整链路。`);
     if (Array.isArray(entry.result.queries)) for (const query of entry.result.queries) {
       if (query.error) gaps.push(safeText(query.error, 200));
-      if (query.incomplete && query.note) gaps.push(safeText(String(query.note).split(/[。；]/).filter(part => evidenceGap.test(part)).slice(-2).join('；'), 250));
+      if (query.incomplete && query.note) gaps.push(safeText(String(query.note).split(/[。；]/).filter(part => evidenceGap.test(part) && !part.includes('日志源未配置或历史缺失时不能补造记录')).slice(-2).join('；'), 250));
     }
   }
-  const next = !options.relatedIds.size
+  const missingAssetAccess = actual.some(entry => entry.tool === 'assets' && Array.isArray(entry.result.missingSources) && entry.result.missingSources.length);
+  const next = missingAssetAccess
+    ? '素材数据源缺少只读授权，需管理员补齐上面列出的表权限后继续查询；这不是用户填写信息的问题，无需重新提交相同编号。'
+    : snapshots.length
+    ? '已查到素材当前状态，但尚未证明变化原因。请确认本次异常对应的角色/素材名称或 assetId，继续核对该素材各版本、图片绑定和关联生成请求；这些快照不能代替昨天的历史状态。'
+    : !options.relatedIds.size
     ? options.scope?.timeBasis === 'reported' || options.scope?.timeBasis === 'interpreted'
       ? '请确认上面的时间范围及候选请求是否对应本次异常；若不对应，请补充任务ID或失败请求的 requestId/traceId，继续定位原链路。'
       : '请在“发生时间段”选择异常发生的起止时间，或提供任务ID / requestId / traceId 任一项；助手将按该范围查真实请求，不把最近24小时的任意错误当成本次故障。'
     : '已按提供的编号展开可访问链路；缺失的数据源或版本证据需开发补齐后继续核对，无需重复提供相同编号。';
   const runtimes = [...new Map(evidence.filter(entry => entry.tool === 'runtime').map(entry => [entry.result.requestedSource, entry])).values()];
+  const boundaries = [...new Set(actual.filter(entry => entry.result.applicable === false).map(entry => safeText(entry.result.note, 400)))];
   const queried = actual.filter(entry => ['operations', 'logs'].includes(entry.tool)).map(entry => {
     const scope = entry.result.scope as Record<string, unknown> | undefined;
     if (!scope) return '';
@@ -183,8 +217,10 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     `查询范围\n${rangeDescription(options.scope)}${queried.length ? `\n${queried.join("\n")}` : ""}`,
     browser.length ? `浏览器失败请求线索（尚未用服务端日志核实）\n${browser.map(rowDescription).join('\n\n')}` : '',
     `实际查到的记录\n${facts.join('\n\n')}`,
+    snapshotFacts.length ? `素材与绑定当前状态\n${snapshotFacts.join('\n\n')}` : '',
     runtimes.length ? `逐服务运行环境\n${runtimes.map(evidenceDescription).join('\n')}` : '',
     code.length ? `已核对源码（不等于本次故障原因）\n${code.map(evidenceDescription).join('\n')}` : '',
+    boundaries.length ? `浏览器取证边界\n${boundaries.join('\n')}` : '',
     `取证缺口\n${[...new Set([...gaps, ...sourceGaps].filter(Boolean))].slice(0, 8).join('\n')}`,
     `继续定位\n${next}\n排查期间不需要重新付费生成、删除素材或修改业务数据。`,
   ].filter(Boolean).join('\n\n');

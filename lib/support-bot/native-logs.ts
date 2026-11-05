@@ -12,6 +12,7 @@ type Input = { service: SupportServiceId; userId: string; taskId?: string; reque
 type Source = { file?: string; container?: string };
 const run = promisify(execFile);
 const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_SCAN_BYTES = 16 * 1024 * 1024;
 const MAX_LINES = 5000;
 const id = (value: unknown): string | undefined => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : undefined;
 
@@ -36,7 +37,7 @@ async function readSource(source: Source, from: string | null, to: string | null
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
       const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n');
       if (offset) lines.shift();
-      return { lines: lines.slice(-MAX_LINES), truncated: offset > 0 || lines.length > MAX_LINES, transport: 'file' };
+      return { lines: lines.slice(-MAX_LINES), truncated: offset > 0 || lines.length > MAX_LINES, scanLimited: false, transport: 'file' };
     } finally { await handle.close(); }
   }
   // Container names come only from server configuration, never model or request arguments.
@@ -49,30 +50,36 @@ async function readSource(source: Source, from: string | null, to: string | null
     if (!host.startsWith('unix:///')) throw new Error('Local Docker endpoint required');
     dockerArgs.push('--host', host);
   }
-  const args = [...dockerArgs, 'logs', '--timestamps', '--tail', String(MAX_LINES), ...(from ? ['--since', from] : []), ...(to ? ['--until', to] : []), source.container!];
-  // Drain the CLI while retaining a bounded tail; a noisy container must not exhaust memory or hide all recent logs.
-  // 持续排空 CLI、只保留有界尾部，避免高日志量耗尽内存或让近期日志全部不可读。
-  const data = await new Promise<{ text: string; truncated: boolean }>((resolve, reject) => {
+  // Docker tails the current log before applying an old --until window; this can hide retained history.
+  // Docker 会先截取当前日志尾部，再过滤历史截止时间，导致仍在磁盘上的历史记录被漏掉。
+  const args = [...dockerArgs, 'logs', '--timestamps', '--tail', from || to ? 'all' : String(MAX_LINES), ...(from ? ['--since', from] : []), ...(to ? ['--until', to] : []), source.container!];
+  // Bound both scanning and retained output; stop only this reader CLI, never the container or worker.
+  // 同时限制扫描量和保留量；达到上限只终止本次读取 CLI，绝不停止业务容器或 worker。
+  const data = await new Promise<{ text: string; truncated: boolean; scanLimited: boolean }>((resolve, reject) => {
     const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...(dockerArgs.length ? { DOCKER_CONTEXT: '' } : {}) } });
     const chunks: Buffer[] = [];
-    let bytes = 0, truncated = false;
+    let bytes = 0, scanned = 0, truncated = false, scanLimited = false;
     const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('Log CLI timeout')); }, 5000);
     const append = (chunk: Buffer) => {
-      chunks.push(chunk); bytes += chunk.length;
+      if (scanLimited) return;
+      const accepted = chunk.subarray(0, MAX_SCAN_BYTES - scanned);
+      scanned += accepted.length;
+      chunks.push(accepted); bytes += accepted.length;
       while (bytes > MAX_BYTES && chunks.length) {
         truncated = true;
         const excess = bytes - MAX_BYTES;
         if (chunks[0].length <= excess) bytes -= chunks.shift()!.length;
         else { chunks[0] = chunks[0].subarray(excess); bytes -= excess; }
       }
+      if (scanned >= MAX_SCAN_BYTES) { truncated = true; scanLimited = true; child.kill('SIGTERM'); }
     };
     child.stdout.on('data', append); child.stderr.on('data', append);
     child.once('error', error => { clearTimeout(timer); reject(error); });
-    child.once('close', code => { clearTimeout(timer); if (code !== 0) reject(new Error('Log CLI failed')); else resolve({ text: Buffer.concat(chunks).toString('utf8'), truncated }); });
+    child.once('close', code => { clearTimeout(timer); if (code !== 0 && !scanLimited) reject(new Error('Log CLI failed')); else resolve({ text: Buffer.concat(chunks).toString('utf8'), truncated, scanLimited }); });
   });
   const lines = data.text.split('\n');
   if (data.truncated) lines.shift();
-  return { lines: lines.slice(-MAX_LINES), truncated: data.truncated || lines.filter(Boolean).length >= MAX_LINES, transport: 'docker' };
+  return { lines: lines.slice(-MAX_LINES), truncated: data.truncated || lines.filter(Boolean).length >= MAX_LINES, scanLimited: data.scanLimited, transport: 'docker' };
 }
 
 function parseLine(line: string): Record<string, unknown> | undefined {
@@ -140,9 +147,11 @@ export async function queryNativeSupportLogs(input: Input): Promise<Record<strin
         ...(error.summary ? { error: error.summary } : {}), ...(error.errorExcerpt ? { errorExcerpt: error.errorExcerpt } : {}) });
     }
     const sorted = [...new Map(rows.map(row => [row.id, row])).values()].sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
-    return { ...envelope, rows: sorted.slice(0, 100), incomplete: recognized === 0, truncated: data.truncated || sorted.length > 100,
-      coverage: { inboundHttp: { available: recognized > 0 }, source: data.transport, formatVerified: recognized > 0, unownedRecordsIgnored: legacy > 0, environment, environmentRejected },
-      note: recognized ? `已读取 ${input.service} 自身结构化日志，仅返回受信鉴权身份匹配的记录。最多读取2MiB或5000行，返回100条；轮转、采集级别或截断可能缺失历史，未提供请求/响应正文。${input.service === 'canvas' ? 'Canvas成功GET等请求只在debug级别采集；未查到不能证明未发生。' : ''}` : '日志源可读，但未发现服务及环境标识均匹配的新格式原生日志；历史未采集记录不能补回，未把普通输出猜成请求证据。' };
+    return { ...envelope, rows: sorted.slice(0, 100), incomplete: recognized === 0 || data.scanLimited, truncated: data.truncated || sorted.length > 100,
+      coverage: { inboundHttp: { available: recognized > 0 }, source: data.transport, formatVerified: recognized > 0, scanLimited: data.scanLimited, unownedRecordsIgnored: legacy > 0, environment, environmentRejected },
+      note: (recognized ? `已读取 ${input.service} 自身结构化日志，仅返回受信鉴权身份匹配的记录。最多扫描16MiB，保留末尾2MiB或5000行，返回100条；轮转、采集级别或截断可能缺失历史，未提供请求/响应正文。${input.service === 'canvas' ? 'Canvas成功GET等请求只在debug级别采集；未查到不能证明未发生。' : ''}`
+        : '日志源可读，本次保留样本中未发现服务及环境标识均匹配的新格式原生日志；不能据此断言整个时间范围没有原生日志，未把普通输出猜成请求证据。')
+        + (data.scanLimited ? '已达到扫描上限，指定时间范围尚未读完；请按实际任务时间缩小窗口，不能把未返回的历史当成没有发生。' : '') };
   } catch { return { ...envelope, note: `${input.service} 原生日志源配置、只读连接或读取失败；未返回路径、连接凭据或原始进程输出。` }; }
 }
 
