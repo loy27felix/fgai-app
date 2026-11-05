@@ -32,14 +32,15 @@ build_memory_headroom_available() {
   (( available >= 4718592 ))
 }
 
-# Compose resolves the real service context, tags and deployment arguments;
-# Bake adds limits for RUN processes, not just for the BuildKit daemon.
+# RUN descendants inherit the verified 4 GiB container limit; per-RUN Bake limits
+# fail when the nested cgroup v2 memory controller is not delegated.
+# RUN 子进程继承已核验的容器整体 4 GiB 上限；嵌套 cgroup v2 未委派 memory 控制器时，
+# 逐 RUN 的 Bake 限额会在启动进程前失败，因此保留容器硬上限而不重复设置子组限额。
 bounded_compose_build() (
   local bake_file
   bake_file="$(mktemp "$BUILD_LOG_ROOT/.bounded-bake.XXXXXX")" || return 1
   trap 'rm -f "$bake_file"' EXIT
   compose build --print --build-arg "APP_DEPLOYMENT_VERSION=$APP_DEPLOYMENT_VERSION" "$@" > "$bake_file" || return 1
   docker buildx bake --builder "$FG_BUILD_BUILDER" --file "$bake_file" \
-    --set '*.resources.memory=3072m' --set '*.resources.memory-swap=3072m' \
     --load "$@"
 )

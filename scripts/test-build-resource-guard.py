@@ -92,12 +92,12 @@ bounded_compose_build app
             self.assertEqual(list(root.glob('.bounded-bake.*')), [])
             return result.returncode, calls
 
-    def test_build_preserves_compose_arguments_and_sets_run_limits(self):
+    def test_build_preserves_compose_arguments_and_uses_bounded_builder(self):
         status, calls = self.replay_build()
         self.assertEqual(status, 0)
         self.assertIn('build --print --build-arg APP_DEPLOYMENT_VERSION=deploy-proof app', calls)
-        self.assertIn('*.resources.memory=3072m', calls)
-        self.assertIn('*.resources.memory-swap=3072m', calls)
+        self.assertIn('buildx bake --builder ', calls)
+        self.assertNotIn('resources.memory', calls)
         self.assertIn('--load app', calls)
 
     def test_compose_resolution_failure_never_starts_bake(self):

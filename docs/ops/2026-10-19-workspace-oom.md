@@ -27,3 +27,26 @@ The initial bounded build did not finish, and the existing healthy app remained 
 An isolated full compilation also ran out of memory while the backend remained healthy. At idle, the shared VM exposed only about 1.7 GiB MemAvailable. A new admission check requires 3.5 GiB MemAvailable before release compilation; low or unreadable headroom defers the release without recording it as a failed build or changing the running app. A full app image has not been validated with this configuration and must not be reported as released.
 
 Validation: four mocked recovery cases, twelve mocked builder admission/build cases (including low/unreadable headroom), an actual bounded scratch-image build/load, and Bake resource argument resolution. The active builder container resource settings were inspected directly. Tests do not deliberately induce OOM or stop real production workers.
+
+## Current build guard (2026-11-05)
+
+The deployed builder uses a 4 GiB container memory limit and a 4 GiB combined
+memory/swap limit (no additional swap), a 256 MiB Go target, and one concurrent
+build operation. Admission requires at least 4.5 GiB `MemAvailable` and continues
+to reject missing, unreadable, or unbounded resource limits.
+
+On Docker Desktop with BuildKit v0.33.1, the builder's nested `buildkit` cgroup
+has no delegated memory controller. Bake's per-RUN memory flags therefore fail
+before the command starts: `memory.max: no such file or directory`. The guard
+no longer passes these flags. RUN processes remain descendants of the limited
+builder cgroup and share its aggregate 4 GiB hard cap; this does not enable an
+unbounded Docker-driver fallback or change live application limits.
+
+Validation uses an uncached, isolated Compose/Bake build through the production
+guard, including a real RUN and image load, plus the existing guard tests. This
+is a build-infrastructure check, not a new full application build or deployment.
+
+Apply guard changes through the normal committed-source rollout. The production
+auto-deployer rejects an uncommitted checkout before checking for a new release;
+a temporary validation patch must be restored afterward, not hidden from Git or
+left in place as a purported permanent fix.
