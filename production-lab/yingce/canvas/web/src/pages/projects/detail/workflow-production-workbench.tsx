@@ -917,7 +917,7 @@ function ShotAssetMentionTextarea({ value = "", onChange = () => undefined, refe
     return <>
         {!isScene && <div className="mb-2 flex justify-end"><Button type="text" size="small" icon={<Maximize2 className="size-3.5" />} onClick={() => setExpanded(true)}>展开编辑完整提示词</Button></div>}
         {editor()}
-        <AppModal title="视频提示词 · 完整编辑" open={expanded} width={1000} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
+        <AppModal stablePromptEditor title="视频提示词 · 完整编辑" open={expanded} width={1000} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
             <p className="mb-3 text-sm text-foreground/65">修改与当前镜头同步；输入 @ 可引用已绑定资产，关闭后可保存脚本。</p>
             {editor(true)}
         </AppModal>

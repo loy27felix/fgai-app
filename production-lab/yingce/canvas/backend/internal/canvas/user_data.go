@@ -94,50 +94,99 @@ func (s *Service) UpsertUserAssetValidated(userID string, raw json.RawMessage, v
 		return UserDataSummary{}, err
 	}
 	err = s.host.WithStorageLock(func() error {
-		if validate != nil {
-			if err := validate(); err != nil {
-				return err
-			}
-		}
-		if asset.FolderID != "" {
-			if _, err := s.repo.AssetFolderForUser(userID, asset.FolderID); err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return kernel.BadAuthRequest("素材分类不存在")
+		return s.repo.Transaction(func(repo *repository.Repository) error {
+			s := New(repo, s.host)
+			if validate != nil {
+				if err := validate(); err != nil {
+					return err
 				}
+			}
+			if asset.FolderID != "" {
+				if _, err := s.repo.AssetFolderForUser(userID, asset.FolderID); err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						return kernel.BadAuthRequest("素材分类不存在")
+					}
+					return err
+				}
+			}
+			existing, existingErr := s.repo.AssetForUser(userID, asset.ID)
+			if existingErr != nil && !errors.Is(existingErr, gorm.ErrRecordNotFound) {
+				return existingErr
+			}
+			existingBytes := int64(0)
+			if existing != nil {
+				if existing.UserID != userID {
+					return kernel.NewAppError(http.StatusForbidden, "共享素材请先复制到自己的素材库再修改")
+				}
+				existingBytes = int64(len([]byte(existing.PayloadJSON)))
+				locked, err := s.repo.LockAssetForSync(userID, asset.ID)
+				if err != nil {
+					return err
+				}
+				if err := preserveVersionedAssetState(&asset, *locked); err != nil {
+					return err
+				}
+			}
+			if existing != nil && existing.PayloadJSON != asset.PayloadJSON {
+				if err := s.ValidateAssetCanvasReferences(userID, asset); err != nil {
+					return err
+				}
+			}
+			if err := s.host.StructuredQuota(userID, "asset", errors.Is(existingErr, gorm.ErrRecordNotFound), int64(len(asset.PayloadJSON))-existingBytes); err != nil {
 				return err
 			}
-		}
-		existing, existingErr := s.repo.AssetForUser(userID, asset.ID)
-		if existingErr != nil && !errors.Is(existingErr, gorm.ErrRecordNotFound) {
-			return existingErr
-		}
-		if existing != nil && existing.PayloadJSON != asset.PayloadJSON {
-			if err := s.ValidateAssetCanvasReferences(userID, asset); err != nil {
+			if err := s.repo.UpsertAsset(&asset); err != nil {
 				return err
 			}
-		}
-		existingBytes := int64(0)
-		if existing != nil {
-			if existing.UserID != userID {
-				return kernel.NewAppError(http.StatusForbidden, "共享素材请先复制到自己的素材库再修改")
+			if existingErr != nil {
+				s.host.RecordActivity(userID, "asset", 1)
 			}
-			existingBytes = int64(len([]byte(existing.PayloadJSON)))
-		}
-		if err := s.host.StructuredQuota(userID, "asset", errors.Is(existingErr, gorm.ErrRecordNotFound), int64(len(raw))-existingBytes); err != nil {
-			return err
-		}
-		if err := s.repo.UpsertAsset(&asset); err != nil {
-			return err
-		}
-		if existingErr != nil {
-			s.host.RecordActivity(userID, "asset", 1)
-		}
-		return nil
+			return nil
+		})
 	})
 	if err != nil {
 		return UserDataSummary{}, err
 	}
 	return UserDataSummary{ID: asset.ID, FolderID: asset.FolderID, Kind: asset.Kind, Category: string(asset.Category), Status: string(asset.Status), Title: asset.Title, CreatedAt: asset.CreatedAt, UpdatedAt: asset.UpdatedAt}, nil
+}
+
+// A browser library snapshot may rename or file a character, but only the
+// character/version APIs may change its image, costume, voice or current version.
+func preserveVersionedAssetState(incoming *model.Asset, current model.Asset) error {
+	if current.PrimaryVersionID == "" {
+		return nil
+	}
+	var saved, browser map[string]any
+	if err := json.Unmarshal([]byte(current.PayloadJSON), &saved); err != nil {
+		return err
+	}
+	if saved == nil {
+		saved = map[string]any{}
+	}
+	if err := json.Unmarshal([]byte(incoming.PayloadJSON), &browser); err != nil {
+		return err
+	}
+	for _, key := range []string{"title", "folderId", "tags"} {
+		if value, ok := browser[key]; ok {
+			saved[key] = value
+		} else {
+			delete(saved, key)
+		}
+	}
+	incoming.PrimaryVersionID = current.PrimaryVersionID
+	incoming.Kind, incoming.Category, incoming.Status = current.Kind, current.Category, current.Status
+	incoming.CreatedAt = current.CreatedAt
+	if incoming.UpdatedAt.Before(current.UpdatedAt) {
+		incoming.UpdatedAt = current.UpdatedAt
+	}
+	saved["primaryVersionId"] = current.PrimaryVersionID
+	saved["kind"], saved["category"], saved["status"] = current.Kind, current.Category, current.Status
+	saved["createdAt"], saved["updatedAt"] = incoming.CreatedAt, incoming.UpdatedAt
+	raw, err := json.Marshal(saved)
+	if err == nil {
+		incoming.PayloadJSON = string(raw)
+	}
+	return err
 }
 
 func (s *Service) DeleteUserAsset(userID string, id string) error {
@@ -182,19 +231,35 @@ func (s *Service) ReplaceUserAssets(userID string, req AssetsSyncRequest) ([]jso
 		totalBytes += int64(len(raw))
 	}
 	err := s.host.WithStorageLock(func() error {
-		if err := s.ValidateAssetReplacementCanvasReferences(userID, assets); err != nil {
-			return err
-		}
-		if err := s.host.StructuredReplacementQuota(userID, "asset", len(assets), totalBytes); err != nil {
-			return err
-		}
-		if err := s.repo.ReplaceAssets(userID, assets); err != nil {
-			return err
-		}
-		if len(assets) > 0 {
-			s.host.RecordActivity(userID, "asset", len(assets))
-		}
-		return nil
+		return s.repo.Transaction(func(repo *repository.Repository) error {
+			s := New(repo, s.host)
+			totalBytes = 0
+			for index := range assets {
+				current, err := repo.LockAssetForSync(userID, assets[index].ID)
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				if err == nil {
+					if err := preserveVersionedAssetState(&assets[index], *current); err != nil {
+						return err
+					}
+				}
+				totalBytes += int64(len(assets[index].PayloadJSON))
+			}
+			if err := s.ValidateAssetReplacementCanvasReferences(userID, assets); err != nil {
+				return err
+			}
+			if err := s.host.StructuredReplacementQuota(userID, "asset", len(assets), totalBytes); err != nil {
+				return err
+			}
+			if err := s.repo.ReplaceAssets(userID, assets); err != nil {
+				return err
+			}
+			if len(assets) > 0 {
+				s.host.RecordActivity(userID, "asset", len(assets))
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		return nil, err

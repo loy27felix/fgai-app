@@ -1,4 +1,5 @@
-import { Button, InputNumber, Modal } from "antd";
+import { Button, InputNumber } from "antd";
+import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUp, ChevronDown, FileText, ImagePlus, LayoutList, LoaderCircle, Maximize2, Music2, SlidersHorizontal, Video, X, PenLine } from "lucide-react";
@@ -720,7 +721,7 @@ export function CanvasNodePromptPanel({
                 {renderComposerControls(false)}
                 <FGPricePreview config={config} model={config.model} mode={mode} requirements={resolvedRequirements} />
 
-                <Modal
+                <AppModal stablePromptEditor
                     className="canvas-prompt-editor-modal"
                     open={expandedPromptOpen}
                     title={null}
@@ -763,7 +764,7 @@ export function CanvasNodePromptPanel({
                         </div>
                         <PromptModalResizeHandle size={expandedModalSize} measure={measureExpandedModalSize} onResize={setExpandedModalSize} accent={theme.node.muted} />
                     </div>
-                </Modal>
+                </AppModal>
             </div>
         </CanvasPromptOptimizerDrawer>
     );

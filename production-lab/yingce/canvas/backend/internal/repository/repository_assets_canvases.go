@@ -53,6 +53,14 @@ func (r *Repository) UpsertAsset(asset *model.Asset) error {
 	return r.db.Create(asset).Error
 }
 
+// LockAssetForSync serializes browser metadata writes with character-version writes.
+// Call inside Transaction; the owner predicate must not include shared grants.
+func (r *Repository) LockAssetForSync(userID, id string) (*model.Asset, error) {
+	var asset model.Asset
+	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", id, userID).First(&asset).Error
+	return &asset, err
+}
+
 func (r *Repository) DeleteAsset(userID string, id string) error {
 	return r.DeleteAssetAndResources(userID, id, nil, nil, false)
 }
