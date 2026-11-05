@@ -10,9 +10,11 @@ const FLUSH_STYLES = {
 export type AppModalProps = ModalProps & {
     /** 内容自带外壳时去掉 AntD 默认内边距，避免每个业务弹窗复制同一套 styles。 */
     flush?: boolean;
+    /** 长文提示词需在系统截图/切换窗口后保持打开，不使用 GPU 模糊层。 */
+    stablePromptEditor?: boolean;
 };
 
-export function AppModal({ flush = false, destroyOnHidden = true, styles, ...props }: AppModalProps) {
+export function AppModal({ flush = false, stablePromptEditor = false, destroyOnHidden = true, styles, ...props }: AppModalProps) {
     const mergeResolvedStyles = (resolved: unknown) => {
         const base = resolved && typeof resolved === "object" ? (resolved as Record<string, unknown>) : {};
         if (!flush) return base;
@@ -29,5 +31,14 @@ export function AppModal({ flush = false, destroyOnHidden = true, styles, ...pro
             ? (info: { props: ModalProps }) => mergeResolvedStyles(styles(info))
             : mergeResolvedStyles(styles);
 
-    return <Modal destroyOnHidden={destroyOnHidden} {...props} styles={mergedStyles as ModalProps["styles"]} />;
+    return <Modal destroyOnHidden={destroyOnHidden} {...props}
+        {...(stablePromptEditor ? {
+            rootClassName: [props.rootClassName, "fg-stable-prompt-editor"].filter(Boolean).join(" "),
+            keyboard: false,
+            mask: { closable: false },
+            transitionName: "",
+            maskTransitionName: "",
+            wrapProps: { ...props.wrapProps, "data-canvas-prompt-editor-open": props.open ? "true" : undefined },
+        } : {})}
+        styles={mergedStyles as ModalProps["styles"]} />;
 }

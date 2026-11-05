@@ -88,6 +88,9 @@ export function useCanvasKeyboard({
     useEffect(() => {
         if (!enabled) return;
         const handleKeyDown = (event: KeyboardEvent) => {
+            // Screen capture can return focus to body. Do not let Escape or
+            // other canvas shortcuts deselect/unmount the still-open editor.
+            if (document.querySelector('[data-canvas-prompt-editor-open="true"]')) return;
             const target = event.target instanceof Element ? event.target : null;
             if (target?.closest(".canvas-node-toolbar, .canvas-node-toolbar-menu")) return;
             const key = event.key.toLowerCase();
@@ -203,6 +206,7 @@ export function useCanvasKeyboard({
         };
 
         const handlePaste = (event: ClipboardEvent) => {
+            if (document.querySelector('[data-canvas-prompt-editor-open="true"]')) return;
             const target = event.target instanceof Element ? event.target : null;
             if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true']")) return;
             // 节点标记写入失败或仍在写入时避开旧系统图片，其余情况保持系统内容优先。
