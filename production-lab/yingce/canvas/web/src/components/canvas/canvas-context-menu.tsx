@@ -37,6 +37,7 @@ type CanvasNodeContextMenuProps = {
     onUpload: () => void;
     onOpenAssets: () => void;
     onOpenProjectCharacters: () => void;
+    onOpenPoseLibrary?: () => void;
     onUndo: () => void;
     onRedo: () => void;
     onPaste: () => void;
@@ -85,6 +86,7 @@ export function CanvasNodeContextMenu({
     onUpload,
     onOpenAssets,
     onOpenProjectCharacters,
+    onOpenPoseLibrary,
     onUndo,
     onRedo,
     onPaste,
@@ -314,6 +316,7 @@ export function CanvasNodeContextMenu({
                         onUpload={() => runAction(onUpload)}
                         onOpenAssets={() => runAction(onOpenAssets)}
                         onOpenProjectCharacters={() => runAction(onOpenProjectCharacters)}
+                        onOpenPoseLibrary={onOpenPoseLibrary ? () => runAction(onOpenPoseLibrary) : undefined}
                     />
                 ) : null}
             </AnimatePresence>
@@ -321,7 +324,7 @@ export function CanvasNodeContextMenu({
     );
 }
 
-function AddNodeContextMenu({ parentPosition, workspaceMode, isProjectLinked, onAddNode, onAddFolder, onChooseStyle, onOpenPrevis, onUpload, onOpenAssets, onOpenProjectCharacters }: { parentPosition: { left: number; top: number }; workspaceMode: CanvasWorkspaceMode; isProjectLinked: boolean; onAddNode: (type: CanvasNodeTypeId) => void; onAddFolder: () => void; onChooseStyle: () => void; onOpenPrevis: () => void; onUpload: () => void; onOpenAssets: () => void; onOpenProjectCharacters: () => void }) {
+function AddNodeContextMenu({ parentPosition, workspaceMode, isProjectLinked, onAddNode, onAddFolder, onChooseStyle, onOpenPrevis, onUpload, onOpenAssets, onOpenProjectCharacters, onOpenPoseLibrary }: { parentPosition: { left: number; top: number }; workspaceMode: CanvasWorkspaceMode; isProjectLinked: boolean; onAddNode: (type: CanvasNodeTypeId) => void; onAddFolder: () => void; onChooseStyle: () => void; onOpenPrevis: () => void; onUpload: () => void; onOpenAssets: () => void; onOpenProjectCharacters: () => void; onOpenPoseLibrary?: () => void }) {
     const theme = canvasThemes[useActiveTheme()];
     const installations = usePluginStore((state) => state.installations);
     const pluginStates = usePluginStore((state) => state.pluginStates);
@@ -346,6 +349,7 @@ function AddNodeContextMenu({ parentPosition, workspaceMode, isProjectLinked, on
             onUpload,
             onOpenMyAssets: onOpenAssets,
             onOpenProjectCharacters,
+            onOpenPoseLibrary,
         },
     };
     const commands: CanvasCreateCommand[] = resolveAddNodeMenuCommands(createContext).map((command) => ({

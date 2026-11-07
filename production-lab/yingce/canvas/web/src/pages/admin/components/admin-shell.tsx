@@ -82,6 +82,7 @@ const adminNavigation: Array<{ label: string; items: AdminNavigationItem[] }> = 
             { path: "/admin/channels", label: "系统渠道", shortLabel: "渠道", description: "模型接入、用量与成本配置", icon: <RadioTower className="size-4" /> },
             { path: "/admin/models", label: "前台模型", shortLabel: "模型", description: "模型展示与线路", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
             { path: "/admin/prompt-templates", label: "提示词模板", shortLabel: "模板", description: "平台创作策略版本", icon: <MessageSquareText className="size-4" /> },
+            { path: "/admin/pose-library", label: "姿势库", shortLabel: "姿势", description: "姿势参考图导入与管理", icon: <Shapes className="size-4" /> },
             { path: "/admin/workbench-tools", label: "工作台工具", shortLabel: "工具", description: "生图/视频工具与预设", icon: <Shapes className="size-4" /> },
             { path: "/admin/resources", label: "存储资源", shortLabel: "资源", description: "资源列表、容量与预览", icon: <Database className="size-4" /> },
         ],

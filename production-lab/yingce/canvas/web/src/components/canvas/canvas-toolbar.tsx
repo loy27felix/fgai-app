@@ -56,6 +56,7 @@ export function CanvasToolbar({
     onOpenWorkspace,
     onOpenMyAssets,
     onOpenProjectCharacters,
+    onOpenPoseLibrary,
     compact = false,
 }: {
     selectedCount: number;
@@ -94,6 +95,7 @@ export function CanvasToolbar({
     onOpenWorkspace?: () => void;
     onOpenMyAssets: () => void;
     onOpenProjectCharacters: () => void;
+    onOpenPoseLibrary?: () => void;
     /** 紧凑尺寸：短剧精修画布把视野留给节点。 */
     compact?: boolean;
 }) {
@@ -161,6 +163,7 @@ export function CanvasToolbar({
         onOpenWorkspace,
     onOpenMyAssets,
         onOpenProjectCharacters,
+        onOpenPoseLibrary,
         onBackgroundModeChange,
         onShowImageInfoChange,
         onToggleAddPanel: (event: ReactMouseEvent<HTMLElement>) => { placePanel(event); setAppearanceOpen(false); setSettingsOpen(false); setAddOpen((value) => !value); },
@@ -203,7 +206,7 @@ export function CanvasToolbar({
     createCommands.push({id: "fg-company-audio", label: "音乐、配音与字幕", icon: <AudioLines className="size-4" />, section: "workflow", onClick: () => runAddAction(() => window.open(`${fgWorkspaceBasePath(location.pathname)}/fg-audio-tools?tab=music`, "_blank", "noopener,noreferrer"))});
 
     return (
-        <div ref={rootRef} data-canvas-no-zoom className="pointer-events-none absolute inset-x-[var(--canvas-inset-x)] bottom-[var(--canvas-inset-y)] flex justify-center" style={{ zIndex }} onPointerDownCapture={bringToFront} onFocusCapture={bringToFront}>
+        <div ref={rootRef} data-canvas-no-zoom className="canvas-main-toolbar pointer-events-none absolute inset-x-[var(--canvas-inset-x)] bottom-[var(--canvas-inset-y)] flex justify-center" style={{ zIndex }} onPointerDownCapture={bringToFront} onFocusCapture={bringToFront}>
             <AnimatePresence>
                 {addOpen ? (
                     <AddNodeMenu
@@ -214,7 +217,8 @@ export function CanvasToolbar({
                 ) : null}
             </AnimatePresence>
 
-            <FloatingDock ref={dockRef} items={items} size={compact ? "compact" : "default"} className="canvas-floating-dock pointer-events-auto max-w-full" style={canvasDockStyle(theme)} />
+            {/* canvas-zoom-controls 按底部同排规则（canvasBottomRowLayout）写入 --canvas-main-toolbar-shift。 */}
+            <FloatingDock ref={dockRef} items={items} size={compact ? "compact" : "default"} className="canvas-floating-dock pointer-events-auto relative left-[var(--canvas-main-toolbar-shift,0px)] max-w-full" style={canvasDockStyle(theme)} />
 
             <AnimatePresence>
                 {appearanceOpen ? (

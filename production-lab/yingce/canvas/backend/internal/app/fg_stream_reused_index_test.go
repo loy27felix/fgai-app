@@ -17,6 +17,7 @@ func TestFGStreamSeparatesSequentialToolIDsSharingWireIndex(t *testing.T) {
 			p.consume("text/event-stream", append(append([]byte("data: "), b...), []byte("\n\n")...))
 		}
 	}
+	p.consume("text/event-stream", []byte("data: [DONE]\n\n"))
 	p.flush()
 	result, err := p.result()
 	if err != nil {
@@ -47,6 +48,7 @@ func TestFGStreamEmptyArgumentToolBeforeReusedIndexBatch(t *testing.T) {
 	for _, frame := range frames {
 		p.consumeChatCompletionEvent(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{frame}}}}})
 	}
+	p.consume("text/event-stream", []byte("data: [DONE]\n\n"))
 	result, err := p.result()
 	if err != nil {
 		t.Fatal(err)
