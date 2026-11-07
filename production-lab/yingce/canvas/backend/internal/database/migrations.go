@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 84
+const CurrentSchemaVersion int64 = 85
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -327,6 +327,27 @@ var schemaMigrations = []migration{
 			if !tx.Migrator().HasColumn(column.model, column.field) {
 				if err := tx.Migrator().AddColumn(column.model, column.field); err != nil {
 					return err
+				}
+			}
+		}
+		return nil
+	}},
+	{version: 85, name: "drama_reference_controls", checksum: "sha256:fg-drama-reference-controls-v85-20261107", apply: func(tx *gorm.DB) error {
+		for _, change := range []struct {
+			entity any
+			fields []string
+		}{
+			{&model.DramaCast{}, []string{"ImagePrompt"}},
+			{&model.DramaSegment{}, []string{"ReferenceImagesJSON", "AudioCastIDsJSON"}},
+		} {
+			if !tx.Migrator().HasTable(change.entity) {
+				continue
+			}
+			for _, field := range change.fields {
+				if !tx.Migrator().HasColumn(change.entity, field) {
+					if err := tx.Migrator().AddColumn(change.entity, field); err != nil {
+						return err
+					}
 				}
 			}
 		}
