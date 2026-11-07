@@ -309,6 +309,13 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.PoseLibrarySource{}, &model.PoseLibraryItem{})
 	}},
 	{version: 84, name: "fg_drama_drafts_and_skill_admin", checksum: "sha256:fg-drama-drafts-and-skill-admin-v84-20261107", apply: func(tx *gorm.DB) error {
+		for _, table := range []any{&model.DramaProduction{}, &model.Skill{}} {
+			if !tx.Migrator().HasTable(table) {
+				if err := tx.Migrator().CreateTable(table); err != nil {
+					return err
+				}
+			}
+		}
 		for _, column := range []struct {
 			model any
 			field string
