@@ -1,3 +1,5 @@
+import { agentNodeEntranceDelay } from "@/lib/canvas/agent-canvas-entrance";
+import type { CSSProperties } from "react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AlertCircle, BookOpenCheck, Check, ChevronRight, Clapperboard, Copy, Download, History, Image as ImageIcon, Lock, Maximize2, Music2, Pencil, RefreshCw, RotateCcw, ScanSearch, Settings2, Star, Trash2, Type, UserRound, Video } from "lucide-react";
@@ -206,6 +208,8 @@ export const CanvasNode = React.memo(function CanvasNode({
 
     const connectionTilt = isConnectionTarget && !disableMediaEffects && !dragOffset ? canvasConnectionTilt(data, connectionApproach) : undefined;
     useCanvasConnectionTilt(nodeRef, shellRef, connectionTilt);
+    // 只在挂载时读一次：Agent 刚建的节点带着错开的延迟入场，之后的重渲染不再重放。
+    const [entranceDelay] = useState(() => agentNodeEntranceDelay(data.id));
 
     return (
         <div
@@ -213,13 +217,15 @@ export const CanvasNode = React.memo(function CanvasNode({
             data-node-id={data.id}
             data-popover-anchor-container
             data-node-lod={effectiveRenderLOD}
+            data-agent-enter={entranceDelay === null ? undefined : "true"}
             className={`node-element absolute flex select-none flex-col ${dragOffset ? "cursor-grabbing" : data.type === CanvasNodeType.Drawing ? "cursor-pointer" : "cursor-default"} ${isSelected && data.type === CanvasNodeType.Video ? "z-[var(--z-node-toolbar)]" : isSelected || isFocusRelated || isConnectionTarget ? "z-[var(--z-node-active)]" : "z-[var(--z-node)]"}`}
             style={{
                 transform: `translate(${data.position.x + (dragOffset?.x || 0)}px, ${data.position.y + (dragOffset?.y || 0)}px)`,
                 width: data.width,
                 height: data.height,
                 contain: "layout style",
-            }}
+                ...(entranceDelay === null ? {} : { "--agent-enter-delay": `${entranceDelay}ms` }),
+            } as CSSProperties}
             onMouseEnter={() => {
                 setHovered(true);
                 onHoverStart(data.id);

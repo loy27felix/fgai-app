@@ -21,11 +21,21 @@ func postStreamingAgent(ctx context.Context, config providerConfig, path string,
 			return nil, err
 		}
 	}
-	parser := newStreamingAgentParser(protocol, onDelta)
-	if len(onReasoning) > 0 {
-		parser.emitReasoning = onReasoning[0]
+	newParser := func() *streamingAgentParser {
+		parser := newStreamingAgentParser(protocol, onDelta)
+		if len(onReasoning) > 0 {
+			parser.emitReasoning = onReasoning[0]
+		}
+		return parser
 	}
+	parser := newParser()
 	data, mimeType, err := postStreamingBinary(ctx, config, path, body, parser.consume)
+	if err != nil && protocol == "chat-completion" && streamUsageOptionRejected(err) {
+		// 宿主补的 stream_options 被严格 schema 的上游拒收：去掉后重试一次，见 streamUsageOptionRejected。
+		delete(body, "stream_options")
+		parser = newParser()
+		data, mimeType, err = postStreamingBinary(ctx, config, path, body, parser.consume)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +65,7 @@ type streamingAgentParser struct {
 	toolCalls       map[int]*streamingAgentToolCall
 	toolCallByID    map[string]int
 	chatToolIndexes map[int]int
+	claudeThinking map[int]map[string]interface{}
 	completed       map[string]interface{}
 	terminal        bool
 	err             error
@@ -233,7 +244,14 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 		case "text":
 			p.appendText(stringField(block, "text"))
 		case "thinking":
-			p.appendReasoning(firstRawString(stringField(block, "thinking"), stringField(block, "text")))
+			thinking := firstRawString(stringField(block, "thinking"), stringField(block, "text"))
+			p.appendReasoning(thinking)
+			p.claudeThinkingBlock(index, "thinking")["thinking"] = thinking
+			if signature := stringField(block, "signature"); signature != "" {
+				p.claudeThinkingBlock(index, "thinking")["signature"] = signature
+			}
+		case "redacted_thinking":
+			p.claudeThinkingBlock(index, "redacted_thinking")["data"] = stringField(block, "data")
 		case "tool_use":
 			arguments := ""
 			if input := block["input"]; input != nil {
@@ -250,7 +268,14 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 			p.appendText(stringField(delta, "text"))
 		}
 		if stringField(delta, "type") == "thinking_delta" {
-			p.appendReasoning(firstRawString(stringField(delta, "thinking"), stringField(delta, "text")))
+			thinking := firstRawString(stringField(delta, "thinking"), stringField(delta, "text"))
+			p.appendReasoning(thinking)
+			block := p.claudeThinkingBlock(index, "thinking")
+			block["thinking"] = stringField(block, "thinking") + thinking
+		}
+		if stringField(delta, "type") == "signature_delta" {
+			block := p.claudeThinkingBlock(index, "thinking")
+			block["signature"] = stringField(block, "signature") + stringField(delta, "signature")
 		}
 		if stringField(delta, "type") == "input_json_delta" {
 			p.toolCall(index).arguments += stringField(delta, "partial_json")
@@ -270,6 +295,34 @@ func (p *streamingAgentParser) consumeClaudeEvent(payload map[string]interface{}
 
 func resultString(value map[string]interface{}, key string) string {
 	return stringField(value, key)
+}
+
+func (p *streamingAgentParser) claudeThinkingBlock(index int, kind string) map[string]interface{} {
+	if p.claudeThinking == nil {
+		p.claudeThinking = map[int]map[string]interface{}{}
+	}
+	block := p.claudeThinking[index]
+	if block == nil {
+		block = map[string]interface{}{"type": kind}
+		p.claudeThinking[index] = block
+	}
+	return block
+}
+
+func (p *streamingAgentParser) claudeThinkingBlocks() []interface{} {
+	if len(p.claudeThinking) == 0 {
+		return nil
+	}
+	indices := make([]int, 0, len(p.claudeThinking))
+	for index := range p.claudeThinking {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	blocks := make([]interface{}, 0, len(indices))
+	for _, index := range indices {
+		blocks = append(blocks, p.claudeThinking[index])
+	}
+	return blocks
 }
 
 func (p *streamingAgentParser) appendText(delta string) {
@@ -331,12 +384,17 @@ func (p *streamingAgentParser) result() (map[string]interface{}, error) {
 		if p.reasoning.Len() > 0 {
 			result["reasoning"] = p.reasoning.String()
 		}
+		markAgentReasoningWire(result, p.protocol)
 		return result, nil
 	}
 	result := map[string]interface{}{"mode": "text", "text": p.text.String(), "toolCalls": []interface{}{}}
 	if p.reasoning.Len() > 0 {
 		result["reasoning"] = p.reasoning.String()
 	}
+	if blocks := p.claudeThinkingBlocks(); len(blocks) > 0 {
+		result["reasoningBlocks"] = blocks
+	}
+	markAgentReasoningWire(result, p.protocol)
 	indices := make([]int, 0, len(p.toolCalls))
 	for index := range p.toolCalls {
 		indices = append(indices, index)

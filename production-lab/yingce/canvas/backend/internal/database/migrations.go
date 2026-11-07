@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 83
+const CurrentSchemaVersion int64 = 84
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -307,6 +307,23 @@ var schemaMigrations = []migration{
 	{version: 82, name: "drama_cast_voice_looks", checksum: "sha256:drama-cast-voice-looks-v78-20261101", apply: migrateDramaCastVoiceLooks},
 	{version: 83, name: "fg_pose_library", checksum: "sha256:fg-pose-library-v83-20261107", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.PoseLibrarySource{}, &model.PoseLibraryItem{})
+	}},
+	{version: 84, name: "fg_drama_drafts_and_skill_admin", checksum: "sha256:fg-drama-drafts-and-skill-admin-v84-20261107", apply: func(tx *gorm.DB) error {
+		for _, column := range []struct {
+			model any
+			field string
+		}{
+			{&model.DramaProduction{}, "DraftJSON"},
+			{&model.Skill{}, "AdminInfoEditedAt"},
+			{&model.Skill{}, "AdminContentEditedAt"},
+		} {
+			if !tx.Migrator().HasColumn(column.model, column.field) {
+				if err := tx.Migrator().AddColumn(column.model, column.field); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}},
 }
 

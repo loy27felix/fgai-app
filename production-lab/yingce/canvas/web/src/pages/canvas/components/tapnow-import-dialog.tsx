@@ -1,11 +1,12 @@
 import { App, Button, Input, Modal, Tag } from "antd";
 import { CircleAlert, ExternalLink, Import, LoaderCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { formatTapNowBatchTime, parseTapNowShareID } from "@/lib/canvas/tapnow-import";
 import { importTapNowCanvas, type TapNowImportResult } from "@/services/api/tapnow";
 import type { CanvasImportProgress } from "@/services/canvas-import-storage";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ViewportTransform } from "@/types/canvas";
+import type { CanvasImportSaveStatus } from "../canvas-import-save";
 
 type Props = {
     open: boolean;
@@ -13,7 +14,7 @@ type Props = {
     viewport: ViewportTransform;
     viewportSize: { width: number; height: number };
     onClose: () => void;
-    onApply: (nodes: CanvasNodeData[], connections: CanvasConnection[], onProgress?: (progress: CanvasImportProgress) => void) => Promise<void>;
+    onApply: (nodes: CanvasNodeData[], connections: CanvasConnection[], onProgress?: (progress: CanvasImportProgress) => void) => Promise<CanvasImportSaveStatus>;
 };
 
 function buildCanvasNodes(result: TapNowImportResult, viewport: ViewportTransform, viewportSize: { width: number; height: number }) {
@@ -56,6 +57,8 @@ export function TapNowImportDialog({ open, projectId, viewport, viewportSize, on
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<CanvasImportProgress | null>(null);
     const [result, setResult] = useState<TapNowImportResult | null>(null);
+    const [saveStarted, setSaveStarted] = useState(false);
+    const applyingRef = useRef(false);
     const shareID = useMemo(() => parseTapNowShareID(value), [value]);
 
     const reset = () => {
@@ -73,6 +76,7 @@ export function TapNowImportDialog({ open, projectId, viewport, viewportSize, on
     const changeValue = (nextValue: string) => {
         setValue(nextValue);
         setResult(null);
+        setSaveStarted(false);
     };
 
     const load = async () => {
@@ -91,16 +95,21 @@ export function TapNowImportDialog({ open, projectId, viewport, viewportSize, on
     };
 
     const apply = async () => {
-        if (!result) return;
+        if (!result || applyingRef.current) return;
+        applyingRef.current = true;
+        setSaveStarted(true);
         setLoading(true);
         try {
-            await onApply(buildCanvasNodes(result, viewport, viewportSize), result.connections, setProgress);
+            const status = await onApply(buildCanvasNodes(result, viewport, viewportSize), result.connections, setProgress);
             reset();
             onClose();
-            message.success(`已导入 ${result.importedNodeCount} 个节点和 ${result.importedConnectionCount} 条连接`);
+            const summary = `${result.importedNodeCount} 个节点和 ${result.importedConnectionCount} 条连接`;
+            if (status === "pending") message.warning(`已在本机保存 ${summary}，正在后台同步`);
+            else message.success(`已导入 ${summary}并保存到云端`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "保存导入结果失败");
         } finally {
+            applyingRef.current = false;
             setLoading(false);
             setProgress(null);
         }
@@ -122,7 +131,7 @@ export function TapNowImportDialog({ open, projectId, viewport, viewportSize, on
                             关闭
                         </Button>,
                         <Button key="apply" type="primary" icon={<Import className="size-4" />} loading={loading} onClick={() => void apply()}>
-                            确认导入
+                            {saveStarted ? "重试保存" : "确认导入"}
                         </Button>,
                     ]
                 ) : (

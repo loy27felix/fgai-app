@@ -114,7 +114,7 @@ func TestDramaStoryboardActualProviderBudget(t *testing.T) {
 					t.Fatal(err)
 				}
 				run := dramaRun{project: &model.Project{ID: "project"}}
-				input := run.textInput(&model.DramaJob{ID: "job", Kind: model.DramaJobScript}, "分镜")
+				input := run.textInput(&model.DramaJob{ID: "job", Kind: model.DramaJobScript}, "分镜", "")
 				input["mode"], input["prompt"] = "text", "完整分镜"
 				input["textOptions"] = map[string]any{"stream": stream}
 				input["config"].(map[string]any)["channelId"] = channel.ID

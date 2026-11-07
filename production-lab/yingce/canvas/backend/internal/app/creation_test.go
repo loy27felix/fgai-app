@@ -33,6 +33,7 @@ func creationTestService(t *testing.T) (*Service, *gorm.DB, string, CreationGuar
 		disablePiRuntime: true, legacyCloudAgentRootTask: true,
 	}
 	t.Cleanup(func() {
+		s.closeCloudAgentApprovalFollowUps()
 		s.closeCloudAgentPiRunners()
 		s.closeApprovedCloudAgentMediaWaiters()
 		_ = sqlDB.Close()

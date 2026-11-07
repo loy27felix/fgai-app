@@ -32,6 +32,8 @@ const ArkPrivateAssetsSettingsPage = lazy(() => import("@/pages/admin/settings/a
 const ResponseInterceptionSettingsPage = lazy(() => import("@/pages/admin/settings/response-interception-settings-page"));
 const ThirdPartySettingsPage = lazy(() => import("@/pages/admin/settings/libtv-settings-page"));
 const PoseLibraryPage = lazy(() => import("@/pages/admin/pose-library/pose-library-page"));
+const AdminSkillsPage = lazy(() => import("@/pages/admin/skills/skills-page"));
+const AdminSkillWorkbenchPage = lazy(() => import("@/pages/admin/skills/admin-skill-workbench-page"));
 const WorkbenchToolsPage = lazy(() => import("@/pages/admin/workbench-tools/workbench-tools-page"));
 const SystemUpdatePage = lazy(() => import("@/pages/admin/settings/fg-release-page"));
 const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-performance-page"));
@@ -278,6 +280,8 @@ export const router = createBrowserRouter(
                         { path: "plugins", element: <AdminPluginsPage /> },
                         { path: "workbench-tools", element: <WorkbenchToolsPage /> },
                         { path: "pose-library", element: <PoseLibraryPage /> },
+                        { path: "skills", element: <AdminSkillsPage /> },
+                        { path: "skills/:skillId/edit", element: <AdminSkillWorkbenchPage /> },
                         { path: "skill-curation", element: <SkillCurationPage /> },
                         { path: "prompt-templates", element: <StoryboardPromptsPage /> },
                         { path: "storyboard-prompts", element: <Navigate to="/admin/prompt-templates" replace /> },

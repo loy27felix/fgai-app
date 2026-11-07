@@ -3,6 +3,7 @@
 //
 // 这些组件只接收 props、不直接访问 Agent API；状态与副作用集中在 CanvasCloudAgentPanel。
 
+import { ChevronDown } from "lucide-react";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { agentAvatarClipForState, agentAvatarStateForRunStatus, agentCopy, DEFAULT_CANVAS_APPEARANCE, isAgentAvatarBundleManifest, type AgentAvatarBundleManifest } from "@/lib/canvas/agent-appearance";
@@ -28,13 +29,16 @@ import { AgentChatMessage, AgentOperationFeed, AgentReasoningFeed, AgentWorkingM
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { CanvasNodeData } from "@/types/canvas";
 import type { AgentCanvasUndoState, AgentCanvasUndoTarget } from "@/lib/canvas/agent-canvas-undo";
-import type { AgentMediaSettings, AgentPermissionMode } from "@/services/api/agent";
+import type { AgentMediaSettings, AgentPermissionMode, AgentReasoningMode } from "@/services/api/agent";
 import { buildAgentFeedSegments } from "@/lib/canvas/agent-operation-feed";
 import { AgentWelcome } from "./canvas-agent-welcome";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 import { agentPermissionLabel, agentPermissionMenuItems, agentPermissionShortLabel, agentPermissionVisual } from "./canvas-cloud-agent-settings";
 import { Kbd } from "@/components/ui/base/kbd";
 import { ModelPicker } from "@/components/model-picker";
+import { ThinkingLevelSlider } from "@/components/thinking-level-slider";
+import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { LEGACY_TEXT_THINKING_CONFIG, THINKING_LEVEL_LABELS, resolveThinkingLevel, thinkingLevelsFor } from "@/lib/text-thinking";
 import { agentImageApproval, agentVideoApproval } from "@/lib/canvas/agent-media-approval";
 import { agentApprovalPresentation } from "@/lib/canvas/agent-approval-presentation";
 import { CanvasAgentImageApprovalSettings } from "./canvas-agent-image-approval-settings";
@@ -477,7 +481,6 @@ export function AgentContextRing({ view, theme }: { view: AgentContextUsageView;
                 </span>
                 <span className="agent-context-meter-copy">
                     <strong>{meterLabel}</strong>
-                    <small>上下文</small>
                 </span>
             </button>
         </Popover>
@@ -643,6 +646,7 @@ export function AgentConversation({
     approval,
     approvalTargetGenerating,
     approvalSubmitting,
+    approvalBlockedReason,
     nodeCount,
     installedSkillCount,
     onChooseSkill,
@@ -670,6 +674,8 @@ export function AgentConversation({
     approval: ApprovalState | null;
     approvalTargetGenerating?: CanvasNodeData;
     approvalSubmitting: boolean;
+    /** 审批卡暂时不能提交的原因；见 ApprovalCard.blockedReason。 */
+    approvalBlockedReason?: string;
     nodeCount: number | null;
     /** null 表示技能库还没读到，此时不提示安装推荐，避免闪现。 */
     installedSkillCount: number | null;
@@ -823,6 +829,7 @@ export function AgentConversation({
                             approval={approval}
                             theme={theme}
                             submitting={approvalSubmitting}
+                            blockedReason={approvalBlockedReason}
                             targetGenerating={approvalTargetGenerating}
                             onFocusNode={onFocusNode}
                             onReasonChange={onApprovalReasonChange}
@@ -866,6 +873,8 @@ export function ComposerControls({
     skillsOpen,
     onSkillsOpenChange,
     selectedSkillCount,
+    reasoningMode,
+    onReasoningModeChange,
 }: {
     config: ReturnType<typeof useEffectiveConfig>;
     selectedModel: string;
@@ -876,7 +885,14 @@ export function ComposerControls({
     skillsOpen: boolean;
     onSkillsOpenChange: (open: boolean) => void;
     selectedSkillCount: number;
+    reasoningMode: AgentReasoningMode;
+    onReasoningModeChange: (value: AgentReasoningMode) => void;
 }) {
+    const [thinkingOpen, setThinkingOpen] = useState(false);
+    const thinkingAnchor = usePopoverAnchorAlign(thinkingOpen);
+    const thinking = modelCapabilityConfigFor(config, selectedModel).text?.thinking || LEGACY_TEXT_THINKING_CONFIG;
+    const levels = thinkingLevelsFor(thinking);
+    const thinkingLabel = reasoningMode === "auto" ? "默认" : reasoningMode === "deep" ? "深入" : THINKING_LEVEL_LABELS[reasoningMode];
     const permissionVisual = agentPermissionVisual(permissionMode);
     const PermissionIcon = permissionVisual.icon;
     return (
@@ -894,6 +910,26 @@ export function ComposerControls({
                 showOptionPrices
                 placeholder="选择文本模型"
             />
+            {levels.length ? (
+                <Popover
+                    ref={thinkingAnchor}
+                    open={thinkingOpen}
+                    onOpenChange={setThinkingOpen}
+                    trigger="click"
+                    placement="top"
+                    arrow={false}
+                    content={
+                        <div className="agent-thinking-popover">
+                            <ThinkingLevelSlider levels={levels} value={reasoningMode} resolvedLevel={resolveThinkingLevel(thinking, reasoningMode)} onChange={onReasoningModeChange} />
+                        </div>
+                    }
+                >
+                    <button type="button" className="agent-thinking-trigger" aria-label={`选择推理强度：${thinkingLabel}`} aria-expanded={thinkingOpen} onPointerDown={(event) => event.stopPropagation()}>
+                        <span>{thinkingLabel}</span>
+                        <ChevronDown className="size-3" aria-hidden="true" />
+                    </button>
+                </Popover>
+            ) : null}
             {/* 权限常显文字：只读 / 审批 / 自动，面板窄时只留图标。图标形状和颜色同时区分三种权限。 */}
             <Dropdown trigger={["click"]} placement="topLeft" menu={{ items: agentPermissionMenuItems(permissionMode, onPermissionChange) }}>
                 <button
@@ -930,6 +966,7 @@ export function ApprovalCard({
     approval,
     theme,
     submitting,
+    blockedReason,
     targetGenerating,
     onFocusNode,
     onReasonChange,
@@ -938,7 +975,10 @@ export function ApprovalCard({
 }: {
     approval: ApprovalState;
     theme: CanvasTheme;
+    /** 本机的审批请求正在提交。 */
     submitting: boolean;
+    /** 暂时不能提交的原因（连接未就绪、画布上有别的 Agent）。和“正在提交”分开：没有请求在路上时不显示转圈。 */
+    blockedReason?: string;
     /** 目标节点已在画布上直接生成：禁用“同意执行”，等待后端关闭本次审批。 */
     targetGenerating?: CanvasNodeData;
     onFocusNode?: (nodeId: string) => void;
@@ -1002,12 +1042,16 @@ export function ApprovalCard({
                 <p className="canvas-agent-approval-description" role="status" style={{ color: theme.node.muted }}>
                     你已在节点《{targetGenerating.title || "未命名节点"}》上直接提交了生成，Agent 不会重复提交；本次审批会自动关闭。
                 </p>
+            ) : blockedReason && !submitting ? (
+                <p className="canvas-agent-approval-description" role="status" style={{ color: theme.node.muted }}>
+                    {blockedReason}
+                </p>
             ) : null}
             <div className="canvas-agent-approval-actions">
-                <button type="button" className="canvas-agent-approval-reject" disabled={submitting} onClick={onReject}>
+                <button type="button" className="canvas-agent-approval-reject" disabled={submitting || Boolean(blockedReason)} onClick={onReject}>
                     暂不执行
                 </button>
-                <button type="button" className="canvas-agent-approval-approve" disabled={submitting || Boolean(targetGenerating)} onClick={() => onApprove(mediaSettings)}>
+                <button type="button" className="canvas-agent-approval-approve" disabled={submitting || Boolean(blockedReason) || Boolean(targetGenerating)} onClick={() => onApprove(mediaSettings)}>
                     {submitting ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="size-4" aria-hidden="true" />}
                     {submitting ? "正在提交" : targetGenerating ? "已在节点中生成" : "同意执行"}
                 </button>
@@ -1036,7 +1080,9 @@ export function ApprovalPreviewItemView({ item, theme, onFocusNode }: { item: Re
                           ? "计划"
                           : item.operation === "adopt_drama_media"
                             ? "采用到短剧"
-                            : "生成";
+                            : item.operation === "build_board"
+                              ? "搭建看板"
+                              : "生成";
     const renderNode = (title: string | undefined, id: string | undefined, typeLabel: string | undefined, role: "source" | "target" | "node") => {
         if (!title) return null;
         const content = (

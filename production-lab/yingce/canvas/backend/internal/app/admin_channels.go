@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"yingce/backend/internal/kernel"
 	"yingce/backend/internal/model"
+	"yingce/backend/internal/repository"
 )
 
 func (s *Service) PublicSystemChannels() ([]PublicModelChannel, error) {
@@ -70,7 +71,11 @@ func (s *Service) AdminSystemChannelPage(actor *model.User, query AdminListQuery
 		if itemErr != nil {
 			return nil, itemErr
 		}
-		result = append(result, publicChannel(channel, true, items))
+		public := publicChannel(channel, true, items)
+		if err := s.decorateChannelMediaTransport(&public); err != nil {
+			return nil, err
+		}
+		result = append(result, public)
 	}
 	return &AdminChannelPage{Channels: result, Total: total, Page: page, Limit: limit}, nil
 }
@@ -100,7 +105,7 @@ func (s *Service) CreateSystemChannel(actor *model.User, req ChannelRequest) (*P
 	if err := s.encryptSystemChannelSecrets(&channel); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Create(&channel); err != nil {
+	if err := s.saveChannelWithMediaTransport(&channel, actor.ID, req.MediaTransport, true); err != nil {
 		return nil, err
 	}
 	if err := s.syncInitialChannelModels(&channel, req.Models); err != nil {
@@ -112,6 +117,9 @@ func (s *Service) CreateSystemChannel(actor *model.User, req ChannelRequest) (*P
 		return nil, err
 	}
 	public := publicChannel(channel, true, items)
+	if err := s.decorateChannelMediaTransport(&public); err != nil {
+		return nil, err
+	}
 	return &public, nil
 }
 
@@ -178,7 +186,16 @@ func (s *Service) DuplicateSystemChannel(actor *model.User, id string) (*PublicM
 			priceTiers = append(priceTiers, priceTier)
 		}
 	}
-	if err := s.repo.CreateDuplicatedSystemChannel(&channel, channelModels, priceTiers); err != nil {
+	transport, err := s.channelMediaTransport(source.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.Transaction(func(repo *repository.Repository) error {
+		if err := repo.CreateDuplicatedSystemChannel(&channel, channelModels, priceTiers); err != nil {
+			return err
+		}
+		return saveChannelMediaTransport(repo, channel.ID, actor.ID, transport)
+	}); err != nil {
 		return nil, err
 	}
 	s.invalidateRouteCatalog()
@@ -187,6 +204,9 @@ func (s *Service) DuplicateSystemChannel(actor *model.User, id string) (*PublicM
 		return nil, err
 	}
 	public := publicChannel(channel, true, items)
+	if err := s.decorateChannelMediaTransport(&public); err != nil {
+		return nil, err
+	}
 	return &public, nil
 }
 
@@ -235,7 +255,7 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	if err := s.encryptSystemChannelSecrets(&next); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Save(&next); err != nil {
+	if err := s.saveChannelWithMediaTransport(&next, actor.ID, req.MediaTransport, false); err != nil {
 		return nil, err
 	}
 	if updateModels {
@@ -249,6 +269,9 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 		return nil, err
 	}
 	public := publicChannel(next, true, items)
+	if err := s.decorateChannelMediaTransport(&public); err != nil {
+		return nil, err
+	}
 	return &public, nil
 }
 

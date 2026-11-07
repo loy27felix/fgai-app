@@ -34,6 +34,8 @@ type MediaConversionNodeContentProps = {
 };
 
 const OPERATIONS = Object.keys(MEDIA_CONVERSION_OPERATION_LABELS) as MediaConversionOperation[];
+// 本机模型服务不随发行版提供，提示里不能指向不存在的启动脚本。
+const LOCAL_RUNTIME_UNAVAILABLE_NOTICE = "未检测到本机模型服务。AI 线稿、深度图和姿态骨架需要另行部署本机模型服务，当前发行版未附带；可先改用灰度图或 Canny 边缘";
 
 export function MediaConversionNodeContent({ node, theme }: MediaConversionNodeContentProps) {
     const { updateMetadata, updateNode } = useCanvasNodeActions();

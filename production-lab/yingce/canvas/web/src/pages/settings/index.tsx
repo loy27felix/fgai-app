@@ -1,12 +1,12 @@
-import { App, Button, InputNumber } from "antd";
-import { SettingsRow } from "@/components/ui/product/settings-row";
+import { PreferencesPane } from "./preferences-pane";
+import { App, Button } from "antd";
 import { ArrowLeft, Boxes, Brain, Bug, Cloud, Inbox, MessageSquareText, RadioTower, SlidersHorizontal, UserRound, Workflow, BookMarked } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { UserOSSSettingsForm } from "@/components/layout/user-oss-settings-form";
 import { refreshSystemChannels } from "@/lib/user-session";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 import { ModelDefaultGrid } from "./model-default-grid";
@@ -145,34 +145,7 @@ export default function SettingsPage() {
         ),
         preferences: (
             <SettingsPane>
-                <div className="settings-pane-header">
-                    <div className="min-w-0">
-                        <h2>生成偏好</h2>
-                        <p>设置新建生成任务时使用的初始值，节点内仍可单独覆盖。</p>
-                    </div>
-                </div>
-                <div className="settings-section">
-                    <section className="settings-preference-block">
-                        <div className="settings-preference-heading">
-                            <h3>画布生成</h3>
-                            <p>用于新建图片生成任务，节点内仍可单独覆盖。</p>
-                        </div>
-                        <SettingsRow
-                            label="默认生图张数"
-                            control={
-                                <InputNumber
-                                    min={1}
-                                    max={15}
-                                    precision={0}
-                                    className="w-full"
-                                    value={Number(config.canvasImageCount)}
-                                    onChange={(value) => updateConfig("canvasImageCount", normalizeImageCount(String(value ?? defaultConfig.canvasImageCount)))}
-                                />
-                            }
-                            controlClassName="w-[200px]"
-                        />
-                    </section>
-                </div>
+                <PreferencesPane />
             </SettingsPane>
         ),
         prompts: (
@@ -266,8 +239,4 @@ export default function SettingsPage() {
 
 function SettingsPane({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
     return <div className={fill ? "settings-pane h-full" : "settings-pane"}>{children}</div>;
-}
-
-function normalizeImageCount(value: string) {
-    return String(Math.max(1, Math.min(15, Math.floor(Math.abs(Number(value)) || Number(defaultConfig.canvasImageCount)))));
 }

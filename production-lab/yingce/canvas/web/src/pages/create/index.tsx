@@ -1,3 +1,4 @@
+import { isThinkingLevel, LEGACY_TEXT_THINKING_CONFIG, resolveThinkingLevel, thinkingLevelsFor, type ThinkingRequest } from "@/lib/text-thinking";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Spin } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
@@ -114,9 +115,9 @@ function readComposerPref(key: string, fallback: boolean): boolean {
         return fallback;
     }
 }
-function writeComposerPref(key: string, value: boolean) {
+function writeComposerPref(key: string, value: boolean | ThinkingRequest) {
     try {
-        window.localStorage.setItem(key, value ? "1" : "0");
+        window.localStorage.setItem(key, typeof value === "boolean" ? (value ? "1" : "0") : value);
     } catch {
         // 存储不可用（隐私模式/禁用）：仅当前会话生效，忽略
     }
@@ -170,7 +171,14 @@ export default function CreatePage() {
     const [videoQuality, setVideoQuality] = useState(config.vquality || "720");
     const [count, setCount] = useState(String(Math.max(1, Math.min(4, Number(config.count) || 1))));
     const [textStreaming, setTextStreaming] = useState(() => readComposerPref(TEXT_STREAMING_PREF_KEY, true));
-    const [textThinking, setTextThinking] = useState(() => readComposerPref(TEXT_THINKING_PREF_KEY, false));
+    const [textThinkingRequest, setTextThinkingLevel] = useState<ThinkingRequest>(() => {
+        try {
+            const saved = window.localStorage.getItem(TEXT_THINKING_PREF_KEY);
+            return isThinkingLevel(saved) || saved === "deep" ? saved : saved === "1" ? "medium" : "auto";
+        } catch {
+            return "auto";
+        }
+    });
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
     const [importingFiles, setImportingFiles] = useState(false);
@@ -242,6 +250,10 @@ export default function CreatePage() {
     const selectedModel = resolveCompatibleModel(config, preferredModel, modelRequirements) || preferredModel;
     const generationConfig = useMemo(() => (mode === "video" ? creationVideoConfig(config, selectedModel, { ratio, seconds, videoQuality }) : config), [config, mode, ratio, seconds, selectedModel, videoQuality]);
     const imageProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).image!, [config, selectedModel]);
+    const textThinkingConfig = modelCapabilityConfigFor(config, selectedModel).text?.thinking ??
+        (resolveModelRequestConfig(config, selectedModel).model === "gpt-6.1-sol" ? { ...LEGACY_TEXT_THINKING_CONFIG, levels: ["off", "medium", "high"] as const, default: "high" as const } : LEGACY_TEXT_THINKING_CONFIG);
+    const textThinkingLevels = thinkingLevelsFor({ ...textThinkingConfig, levels: [...(textThinkingConfig.levels || [])] });
+    const textThinkingLevel = resolveThinkingLevel({ ...textThinkingConfig, levels: textThinkingLevels }, textThinkingRequest);
     const videoProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).video!, [config, selectedModel]);
     // 同名逻辑模型可能把文生视频、图生视频和全模态参考拆到不同路由。
     // 入口需要展示整个模型组的引用能力，添加素材后再由兼容路由选择具体模型。
@@ -278,8 +290,8 @@ export default function CreatePage() {
 
     useEffect(() => {
         writeComposerPref(TEXT_STREAMING_PREF_KEY, textStreaming);
-        writeComposerPref(TEXT_THINKING_PREF_KEY, textThinking);
-    }, [textStreaming, textThinking]);
+        writeComposerPref(TEXT_THINKING_PREF_KEY, textThinkingRequest);
+    }, [textStreaming, textThinkingRequest]);
     useEffect(() => {
         if (!composerPreferencesHydrated || composerPreferencesInitialized) return;
         const saved = useCreationPreferencesStore.getState().preferences;
@@ -1016,7 +1028,7 @@ export default function CreatePage() {
                         metadata: { source: "create-page", conversationId: activeConversation.id, messageId: assistantMessage.id, ...referenceMetadata },
                         onTaskUpdate: bindTask,
                         streamText: textStreaming,
-                        enableThinking: textThinking,
+                        thinkingLevel: textThinkingRequest,
                         onTextDelta: textStreaming ? (value) => updateOriginAssistant((item) => ({ ...item, content: value })) : undefined,
                         ...retryContext,
                     }),
@@ -1435,8 +1447,10 @@ export default function CreatePage() {
         setCount: setComposerCount,
         textStreaming,
         setTextStreaming,
-        textThinking,
-        setTextThinking,
+        textThinkingLevels,
+        textThinkingLevel,
+        textThinkingRequest,
+        setTextThinkingLevel,
         promptOptimizerProvider,
         composerFocusRef,
         onPromptFocus: loadAddedSkills,
