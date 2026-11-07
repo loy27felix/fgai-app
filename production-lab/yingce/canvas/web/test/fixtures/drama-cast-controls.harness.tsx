@@ -24,13 +24,14 @@ for (const [key, value] of Object.entries({
     globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
 }
+await import("../../src/i18n");
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { App } = await import("antd");
-const { CastLooks } = await import("../../src/pages/projects/studio/cast-looks");
-const { CastVoicePreview } = await import("../../src/pages/projects/studio/cast-voice");
-const { ReferenceBoard } = await import("../../src/pages/projects/studio/segment-references");
+const { CastLooks } = await import("../../src/pages/drama-pipeline/studio/cast-looks");
+const { CastVoicePreview } = await import("../../src/pages/drama-pipeline/studio/cast-voice");
+const { ReferenceBoard } = await import("../../src/pages/drama-pipeline/studio/segment-references");
 const { CanvasDramaAdoptModal } = await import("../../src/components/canvas/canvas-drama-adopt-modal");
 const { buildDramaCastNode, defaultDramaAdoptTarget } = await import("../../src/lib/canvas/drama-canvas-projection");
 const { CanvasNodeType } = await import("../../src/types/canvas");
