@@ -51,6 +51,7 @@ import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { getIsolatedAdminAntTheme } from "../theme/admin-ant-theme";
 import { AdminTooltip } from "../ui/controls";
 import { AdminDensityProvider, useAdminDensity } from "./admin-density";
+import { AdminGlobalSearch } from "./admin-global-search";
 import "@/styles/admin-ui.css";
 import "../theme/admin-tokens.css";
 import "../theme/admin-chrome.css";
@@ -62,6 +63,7 @@ type AdminNavigationItem = {
     /** 折叠侧栏图标下方的两字名称，与用户端折叠导航保持一致。 */
     shortLabel: string;
     description: string;
+    keywords?: string;
     icon: ReactNode;
     requireFeature?: "frontendModelsEnabled";
 };
@@ -72,14 +74,14 @@ const adminNavigation: Array<{ label: string; items: AdminNavigationItem[] }> = 
         items: [
             { path: "/admin", label: "运行总览", shortLabel: "总览", description: "请求质量、队列与成本趋势", icon: <BarChart3 className="size-4" /> },
             { path: "/admin/logs", label: "请求明细", shortLabel: "请求", description: "上游调用与费用", icon: <FileClock className="size-4" /> },
-            { path: "/admin/fg-finance", label: "FG 人民币对账", shortLabel: "FG", description: "按项目、人员、小组归集实际费用", icon: <Rows3 className="size-4" /> },
-            { path: "/admin/settings/system-performance", label: "系统性能", shortLabel: "性能", description: "主机、数据库与缓存状态", icon: <Activity className="size-4" /> },
+            { path: "/admin/fg-finance", label: "FG 人民币对账", shortLabel: "FG", description: "按项目、人员、小组归集实际费用", keywords: "账单 流水 消费 finance", icon: <Rows3 className="size-4" /> },
+            { path: "/admin/settings/system-performance", label: "系统性能", shortLabel: "性能", description: "主机、数据库与缓存状态", keywords: "CPU 内存 队列", icon: <Activity className="size-4" /> },
         ],
     },
     {
         label: "模型与资源",
         items: [
-            { path: "/admin/channels", label: "系统渠道", shortLabel: "渠道", description: "模型接入、用量与成本配置", icon: <RadioTower className="size-4" /> },
+            { path: "/admin/channels", label: "系统渠道", shortLabel: "渠道", description: "模型接入、用量与成本配置", keywords: "协议 定价 API Key", icon: <RadioTower className="size-4" /> },
             { path: "/admin/models", label: "前台模型", shortLabel: "模型", description: "模型展示与线路", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
             { path: "/admin/prompt-templates", label: "提示词模板", shortLabel: "模板", description: "平台创作策略版本", icon: <MessageSquareText className="size-4" /> },
             { path: "/admin/pose-library", label: "姿势库", shortLabel: "姿势", description: "姿势参考图导入与管理", icon: <Shapes className="size-4" /> },
@@ -105,7 +107,7 @@ const adminNavigation: Array<{ label: string; items: AdminNavigationItem[] }> = 
             { path: "/admin/plugins", label: "插件管理", shortLabel: "插件", description: "平台可用性、上传与卸载", icon: <PlugZap className="size-4" /> },
             { path: "/admin/skill-curation", label: "技能分类", shortLabel: "技能", description: "平台策展与分类维护", icon: <PlugZap className="size-4" /> },
             { path: "/admin/skills", label: "技能管理", shortLabel: "技能", description: "查看并维护站点技能", icon: <PlugZap className="size-4" /> },
-            { path: "/admin/settings/appearance", label: "站点及外观", shortLabel: "外观", description: "品牌、SEO、备案与皮肤", icon: <Palette className="size-4" /> },
+            { path: "/admin/settings/appearance", label: "站点及外观", shortLabel: "外观", description: "品牌、SEO、备案与皮肤", keywords: "主题 Logo 更新公告", icon: <Palette className="size-4" /> },
             { path: "/admin/settings/features", label: "功能开放", shortLabel: "功能", description: "工作台、插件与模型能力", icon: <ToggleLeft className="size-4" /> },
             { path: "/admin/settings/drawing-engine", label: "绘图工具", shortLabel: "绘图", description: "画布绘图节点默认引擎", icon: <Paintbrush className="size-4" /> },
             { path: "/admin/settings/runtime-policy", label: "资源与策略", shortLabel: "策略", description: "配额、并发、频控与超时", icon: <Settings2 className="size-4" /> },
@@ -126,6 +128,12 @@ function isAdminNavigationPath(pathname: string, navigationPath: string) {
     return pathname === navigationPath || pathname.startsWith(`${navigationPath}/`);
 }
 
+function visibleNavigationGroups(features: ReturnType<typeof useUserStore.getState>["features"]) {
+    return adminNavigation
+        .map((group) => ({ ...group, items: group.items.filter((item) => !item.requireFeature || features[item.requireFeature]) }))
+        .filter((group) => group.items.length > 0);
+}
+
 function adminPopupContainer(node?: HTMLElement) {
     return document.getElementById("admin-root") || node?.closest("[data-admin-root]") || document.body;
 }
@@ -141,6 +149,16 @@ export function AdminShell() {
 
 function AdminShellLayout() {
     const { density } = useAdminDensity();
+    const features = useUserStore((state) => state.features);
+    const navigationGroups = visibleNavigationGroups(features);
+    const searchEntries = navigationGroups.flatMap((group) =>
+        group.items.map(({ path, label, shortLabel, description, keywords }) => ({
+            path,
+            label,
+            group: group.label,
+            keywords: [shortLabel, description, keywords].filter(Boolean).join(" "),
+        })),
+    );
     const appearance = useAppearanceStore((state) => state.appearance);
     const [collapsed, setCollapsed] = useState(readWorkspaceSidebarCollapsed);
     const dark = useThemeStore((state) => state.theme === "dark");
@@ -188,7 +206,7 @@ function AdminShellLayout() {
                                     <p>运营洞察 · 团队与平台</p>
                                 </div>
                             ) : null}
-                            <AdminNavigation collapsed={collapsed} />
+                            <AdminNavigation collapsed={collapsed} groups={navigationGroups} />
                             <div className={cn("admin-sidebar-footer shrink-0", collapsed && "is-collapsed")}>
                                 <div className="admin-sidebar-footer-row">
                                     <AdminTooltip title={collapsed ? "返回创作台" : undefined} placement="right">
@@ -211,7 +229,10 @@ function AdminShellLayout() {
                             </div>
                         </aside>
                         <section className="fg-admin-stage flex min-w-0 flex-1 flex-col overflow-hidden">
-                            <MobileAdminNavigation />
+                            <MobileAdminNavigation groups={navigationGroups} />
+                            <div className="admin-global-search-bar">
+                                <AdminGlobalSearch entries={searchEntries} />
+                            </div>
                             <Suspense
                                 fallback={
                                     <div className="p-8 text-sm" role="status">
@@ -299,13 +320,11 @@ function AdminThemeButton() {
     );
 }
 
-function MobileAdminNavigation() {
-    const features = useUserStore((state) => state.features);
+function MobileAdminNavigation({ groups }: { groups: ReturnType<typeof visibleNavigationGroups> }) {
     const location = useLocation();
-    const visibleGroups = adminNavigation.map((group) => ({ ...group, items: group.items.filter((item) => !item.requireFeature || features[item.requireFeature]) })).filter((group) => group.items.length > 0);
-    const visibleItems = visibleGroups.flatMap((group) => group.items);
+    const visibleItems = groups.flatMap((group) => group.items);
     const currentItem = visibleItems.find((item) => item.path === location.pathname) || visibleItems[0];
-    const menuItems: MenuProps["items"] = visibleGroups.map((group) => ({
+    const menuItems: MenuProps["items"] = groups.map((group) => ({
         type: "group",
         key: `group-${group.label}`,
         label: group.label,
@@ -344,27 +363,22 @@ function MobileAdminNavigation() {
     );
 }
 
-function AdminNavigation({ collapsed }: { collapsed: boolean }) {
-    const features = useUserStore((state) => state.features);
-
+function AdminNavigation({ collapsed, groups }: { collapsed: boolean; groups: ReturnType<typeof visibleNavigationGroups> }) {
     return (
         <nav className="admin-sidebar-nav thin-scrollbar flex-1 overflow-y-auto" aria-label="管理后台菜单">
-            {adminNavigation.map((group) => {
-                const visibleItems = group.items.filter((item) => !item.requireFeature || features[item.requireFeature]);
-                if (visibleItems.length === 0) return null;
-
+            {groups.map(({ label, items }) => {
                 return (
-                    <div key={group.label} className="admin-nav-group">
+                    <div key={label} className="admin-nav-group">
                         {!collapsed ? (
                             <div className="admin-nav-group-label">
-                                <span>{group.label}</span>
-                                <small>{visibleItems.length.toString().padStart(2, "0")}</small>
+                                <span>{label}</span>
+                                <small>{items.length.toString().padStart(2, "0")}</small>
                             </div>
                         ) : (
                             <div className="admin-nav-collapsed-separator" />
                         )}
                         <div className={cn("admin-nav-group-items", collapsed && "is-collapsed")}>
-                            {visibleItems.map((item) => (
+                            {items.map((item) => (
                                 <AdminTooltip key={item.path} delay={100} title={collapsed ? item.label : undefined} placement="right">
                                     <NavLink to={item.path} end={item.path === "/admin"} aria-label={collapsed ? item.label : undefined} className={({ isActive }) => cn("admin-nav-link", collapsed && "is-collapsed", isActive && "is-active")}>
                                         {item.icon}
