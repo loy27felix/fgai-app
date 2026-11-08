@@ -1,5 +1,6 @@
 import { type ThinkingLevel, type ThinkingRequest } from "@/lib/text-thinking";
 import { ThinkingLevelSlider } from "@/components/thinking-level-slider";
+import { useTranslation } from "react-i18next";
 import { ImageSizePicker } from "@/components/image-size-picker";
 import {FGPricePreview} from '@/components/fg-price-preview';
 import {FGSkillControl} from '@/components/fg-skill-control';
@@ -209,6 +210,7 @@ type ComposerProps = {
 type CreationReferenceFilter = "all" | "image" | "video" | "audio" | "file";
 
 export function CreationComposer(props: ComposerProps) {
+    const { t } = useTranslation();
     const [previewUrl, setPreviewUrl] = useState("");
     const [previewType, setPreviewType] = useState<"image" | "video">("image");
     const [promptOptimizerOpen, setPromptOptimizerOpen] = useState(false);
@@ -263,7 +265,7 @@ export function CreationComposer(props: ComposerProps) {
     const showWorkingSpinner = interactionBusy || (props.generationActive && !canSubmit);
     const showWorkingGlow = props.generationActive && !canSubmit;
     const placeholder = props.mode === "text" ? "描述你的故事、角色或想继续讨论的创意" : props.mode === "image" ? "描述画面、人物、场景、构图与风格" : "描述镜头内容、运动、光线与节奏";
-    const emptyPlaceholder = "输入你的镜头、画面或故事。也可以添加参考图开始创作";
+    const emptyPlaceholder = t("fgWorkspace.prompt");
     const imageReferencesSupported = props.imageProfile.references.maxImages > 0;
     const referencesSupported = props.mode === "image" ? imageReferencesSupported : props.mode !== "video" || props.maxReferences > 0;
     const canAddMoreReferences = referencesSupported && props.attachments.length < props.maxReferences;
@@ -515,7 +517,7 @@ export function CreationComposer(props: ComposerProps) {
             >
                 {showWorkingGlow ? <WorkingGlow active color="var(--creation-text)" radius="var(--button-radius)" /> : null}
                 {showCost ? <span className="creation-submit-cost" title={routeQuote ? modelQuoteDescription(routeQuote) : undefined}><CreditSymbol /><span>{routeQuote?.estimated ? `预估:${formattedCredits}` : formattedCredits}</span></span> : null}
-                <span className="creation-submit-action" aria-hidden>{showWorkingSpinner ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}<span>{showWorkingSpinner ? "生成中" : "开始创作"}</span></span>
+                <span className="creation-submit-action" aria-hidden>{showWorkingSpinner ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}<span>{t(showWorkingSpinner ? "fgWorkspace.generating" : "create.page.launchpadLabel")}</span></span>
             </Button>
             </div>
         </footer>
@@ -547,11 +549,12 @@ export function CreationComposer(props: ComposerProps) {
 }
 
 export function CreationModeTabs({ mode, onModeChange, agentActive = false, onAgentSelect, orientation = "horizontal" }: { mode: CreationMode; onModeChange: (mode: CreationMode) => void; agentActive?: boolean; onAgentSelect?: () => void; orientation?: "horizontal" | "vertical" }) {
+    const { t } = useTranslation();
     const reducedMotion = useReducedMotion();
     const items: { mode: CreationMode; icon: ReactNode; label: string }[] = [
-        { mode: "video", icon: <Film />, label: "视频" },
-        { mode: "image", icon: <ImageIcon />, label: "图片" },
-        { mode: "text", icon: <MessageSquareText />, label: "文本" },
+        { mode: "video", icon: <Film />, label: t("create.mode.video") },
+        { mode: "image", icon: <ImageIcon />, label: t("create.mode.image") },
+        { mode: "text", icon: <MessageSquareText />, label: t("create.mode.text") },
     ];
     const indicator = (pressed: boolean) => pressed ? (
         <motion.span
@@ -564,7 +567,7 @@ export function CreationModeTabs({ mode, onModeChange, agentActive = false, onAg
     return <LayoutGroup id={`creation-mode-tabs-${orientation}`}>
         <div className="creation-mode-tabs" role="group" aria-label="创作模式" data-active-mode={agentActive ? "agent" : mode} data-orientation={orientation} style={{ gridTemplateColumns: orientation === "vertical" ? "minmax(0, 1fr)" : `repeat(${onAgentSelect ? 4 : 3}, minmax(0, 1fr))` }}>
         {items.map((item) => (
-            <button key={item.mode} type="button" className="creation-mode-button" data-mode={item.mode} aria-pressed={!agentActive && item.mode === mode} aria-label={`${item.label}生成`} onClick={() => onModeChange(item.mode)}>
+            <button key={item.mode} type="button" className="creation-mode-button" data-mode={item.mode} aria-pressed={!agentActive && item.mode === mode} onClick={() => onModeChange(item.mode)}>
                 {indicator(!agentActive && item.mode === mode)}
                 {item.icon}
                 <span>{item.label}</span>

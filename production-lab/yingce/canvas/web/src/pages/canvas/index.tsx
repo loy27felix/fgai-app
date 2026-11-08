@@ -25,6 +25,7 @@ import { createCanvasProjectWithRemoteSync, hasRemoteUserDataSyncSession, loadCa
 import { listRemoteCanvasProjectsPage, type CanvasLibrarySummary } from "@/services/api/user-data";
 import { useUserStore } from "@/stores/use-user-store";
 import { listProjects } from "@/services/api/projects";
+import { resetGenerationTaskMetadata } from "@/lib/canvas/canvas-task-state";
 import { loadCanvasProjectPage } from "@/lib/workspace-route-modules";
 import { resourceFileUrl, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
 import { primeResourceBlobCache } from "@/services/resource-blob-cache";
@@ -193,12 +194,18 @@ export default function CanvasPage() {
             }
             hideLoading();
             const remoteSyncEnabled = hasRemoteUserDataSyncSession();
+            const accessibleProjects = remoteSyncEnabled && data.projects.some(({ project }) => project.projectId)
+                ? new Set((await listProjects()).projects.map(({ project }) => project.id))
+                : new Set<string>();
             let remoteSyncWarning: unknown;
 
             for (const item of data.projects) {
                 const totalFiles = item.files.length;
+                const sourceProjectId = item.project.projectId;
+                const domainProjectId = sourceProjectId && accessibleProjects.has(sourceProjectId) ? sourceProjectId : undefined;
                 const importedProjectId = importProject({
                     ...item.project,
+                    projectId: domainProjectId,
                     title: item.project.title || "导入画布",
                     nodes: item.project.nodes || [],
                 });
@@ -253,10 +260,14 @@ export default function CanvasPage() {
                         const nextStorageKey = mapped ? mapped.storageKey : oldKey && !isDeadBlob(oldKey) ? oldKey : undefined;
                         const content = mapped ? mapped.url : isDeadBlob(node.metadata?.content) ? "" : node.metadata?.content;
                         const previewContent = mapped ? mapped.url : isDeadBlob(node.metadata?.previewContent) ? "" : node.metadata?.previewContent;
+                        const isMedia = node.type === CanvasNodeType.Image || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio;
+                        const metadata = mapped && isMedia
+                            ? { ...resetGenerationTaskMetadata(node.metadata, "success"), assetId: undefined }
+                            : node.metadata;
                         return {
                             ...node,
                             metadata: {
-                                ...node.metadata,
+                                ...metadata,
                                 ...(nextStorageKey !== undefined ? { storageKey: nextStorageKey } : {}),
                                 ...(content !== undefined ? { content } : {}),
                                 ...(previewContent !== undefined ? { previewContent } : {}),
@@ -276,7 +287,7 @@ export default function CanvasPage() {
                                   return mapped
                                       ? {
                                             ...clip,
-                                            directMedia: { ...directMedia, storageKey: mapped.storageKey, url: mapped.url, dataUrl: directMedia.dataUrl ? mapped.url : directMedia.dataUrl, content: directMedia.content ? mapped.url : directMedia.content },
+                                            directMedia: { ...directMedia, assetId: undefined, storageKey: mapped.storageKey, url: mapped.url, dataUrl: directMedia.dataUrl ? mapped.url : directMedia.dataUrl, content: directMedia.content ? mapped.url : directMedia.content },
                                         }
                                       : clip;
                               }),
@@ -292,7 +303,7 @@ export default function CanvasPage() {
                         const storageKey = node.metadata.storageKey || "";
                         let assetId = storageKey ? assetIdByStorageKey.get(storageKey) : undefined;
                         if (!assetId) {
-                            const result = await ensureCanvasNodeAsset({ canvasId: importedProjectId, domainProjectId: item.project.projectId, node, source: "canvas-upload" });
+                            const result = await ensureCanvasNodeAsset({ canvasId: importedProjectId, domainProjectId, node, source: "canvas-upload" });
                             assetId = result.assetId;
                             if (storageKey) assetIdByStorageKey.set(storageKey, assetId);
                         }
@@ -319,7 +330,7 @@ export default function CanvasPage() {
                                     height: media.height || (type === CanvasNodeType.Audio ? 120 : 240),
                                     metadata: { content, storageKey: media.storageKey, naturalWidth: media.width, naturalHeight: media.height, durationMs: media.durationMs, bytes: media.bytes, mimeType: media.mimeType },
                                 };
-                                const result = await ensureCanvasNodeAsset({ canvasId: importedProjectId, domainProjectId: item.project.projectId, node, source: "canvas-upload" });
+                                const result = await ensureCanvasNodeAsset({ canvasId: importedProjectId, domainProjectId, node, source: "canvas-upload" });
                                 assetId = result.assetId;
                                 assetIdByStorageKey.set(media.storageKey, assetId);
                             }

@@ -1,6 +1,7 @@
 import { isThinkingLevel, LEGACY_TEXT_THINKING_CONFIG, resolveThinkingLevel, thinkingLevelsFor, type ThinkingRequest } from "@/lib/text-thinking";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Spin } from "antd";
+import { useTranslation } from "react-i18next";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { History, Maximize2, PenLine } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -124,6 +125,7 @@ function writeComposerPref(key: string, value: boolean | ThinkingRequest) {
 }
 
 export default function CreatePage() {
+    const { t } = useTranslation();
     const [agentMode, setAgentMode] = useState(false);
     const { message: toast, modal } = App.useApp();
     const navigate = useNavigate();
@@ -1474,11 +1476,11 @@ export default function CreatePage() {
                                     transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 360, damping: 32, mass: 0.8 }}
                                 >
                                     <PenLine aria-hidden="true" />
-                                    <input aria-label="快捷编辑提示词" placeholder="继续描述你的创作想法…" value={prompt} disabled={busy || referenceReplacementBusy} onChange={(event) => setPrompt(event.target.value)} />
-                                    <Tooltip title="展开完整创作区">
+                                    <input aria-label={t("create.page.quickEditLabel")} placeholder={t("create.page.quickEditPlaceholder")} value={prompt} disabled={busy || referenceReplacementBusy} onChange={(event) => setPrompt(event.target.value)} />
+                                    <Tooltip title={t("create.page.expandComposer")}>
                                         <button
                                             type="button"
-                                            aria-label="展开完整创作区"
+                                            aria-label={t("create.page.expandComposer")}
                                             onClick={() => {
                                                 threadScrollRef.current?.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
                                                 composerFocusRef.current?.focus({ preventScroll: true });
@@ -1498,14 +1500,14 @@ export default function CreatePage() {
                                     </Magnet>
                                     <span>FG / CREATIVE STUDIO</span>
                                 </div>
-                                <button type="button" aria-label="查看历史对话" aria-expanded={historyOpen} className="creation-home-history-entry" onClick={() => setHistoryOpen(true)}>
+                                <button type="button" aria-label={t("create.page.viewHistory")} aria-expanded={historyOpen} className="creation-home-history-entry" onClick={() => setHistoryOpen(true)}>
                                     <History size={16} />
-                                    <span>历史对话</span>
+                                    <span>{t("nav.sidebar.history")}</span>
                                 </button>
-                                <h1>和{brandName}聊聊创作想法</h1>
-                                <p>从一个画面、一个角色或一句话开始，继续你的创作。</p>
+                                <h1>{t("create.page.heading", { brand: brandName })}</h1>
+                                <p>{t("create.page.subheading")}</p>
                             </div>
-                            <section ref={launchpadRef} className="creation-launchpad" aria-label="开始创作">
+                            <section ref={launchpadRef} className="creation-launchpad" aria-label={t("create.page.launchpadLabel")}>
                                 <div className={cn("creation-composer-stage is-home-mode", agentMode && "is-agent-mode")}>
                                     <CreationModeTabs
                                         mode={mode}

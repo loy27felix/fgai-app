@@ -1,8 +1,8 @@
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
-import { App, Button, Drawer, Form, Input, Modal, Typography } from "antd";
+import { App, Button, Form, Input, Modal } from "antd";
 import { Switch } from "@/components/ui/base/switch";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
-import { Bug, LayoutGrid, List, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { LayoutGrid, List, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -10,20 +10,22 @@ import { MediaPreview } from "@/components/media-preview";
 import { PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { CONTENT_MODERATION_ERROR_CODE, generationErrorMessage, isContentModerationError } from "@/lib/generation-error";
-import { formatTaskKind, generationTaskStatusLabel, mediaDeliverySummary, operationOptions, statusLabel } from "@/lib/generation-task-display";
+import { formatTaskKind, operationOptions, statusLabel } from "@/lib/generation-task-display";
 import { buildVideoOperationPrompt } from "@/lib/prompts";
 import { backendProviderConfig, logicalModelIDForConfig } from "@/services/api/generation-task";
 
-import { createGenerationTask, formatTaskLog, listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, retryGenerationTask, recoverGenerationTaskMedia, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
+import { createGenerationTask, listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, retryGenerationTask, recoverGenerationTaskMedia, type CreateTaskInput, type GenerationTask, type TaskLog } from "@/services/api/task-center";
 import { syncGenerationTaskToCanvasStore } from "@/lib/canvas/canvas-generation-task-sync";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { resolveModelRequestConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { listProjects, type ProjectSummary } from "@/services/api/projects";
+import { TaskDetailModal } from "./task-detail-modal";
+import "./tasks-page.css";
 import { TaskGridCard } from "./task-grid-card";
 import { TaskGroupHeader, type TaskGroup } from "./task-group-header";
 import { TaskListRow } from "./task-list-row";
-import { formatModelName, getTaskCanvasContext, isTaskFailed, providerCancelStatusLabel, taskMediaKind } from "./task-shared";
+import { formatModelName, getTaskCanvasContext, isTaskFailed, taskMediaKind } from "./task-shared";
 import { TaskStatusFilterBar, type TaskStatusFilter } from "./task-status-filter";
 import { Select } from "@/components/ui/base/select";
 
@@ -482,42 +484,21 @@ export default function TasksPage() {
                     </Form.Item>
                 </Form>
             </Modal>
-            <Drawer className="library-drawer" title="任务详情" open={Boolean(detailTask)} onClose={() => setDetailTask(null)} size="large" destroyOnHidden>
-                {detailTask ? (
-                    <div className="space-y-5">
-                        <div className="task-detail-facts grid text-sm sm:grid-cols-2">
-                            <InfoItem label="状态" value={generationTaskStatusLabel(detailTask)} />
-                            {detailTask.mediaStage ? <InfoItem label="作品交付" value={mediaDeliverySummary(detailTask.status, detailTask.mediaStage)} /> : null}
-                            <InfoItem label="画布名称" value={getTaskCanvasContext(detailTask, canvasById, domainProjectNameById).canvasName} />
-                            <InfoItem label="任务类型" value={formatTaskKind(detailTask)} />
-                            <InfoItem label="模型" value={formatModelName(effectiveConfig, detailTask)} />
-                            <InfoItem label="尝试次数" value={`第 ${detailTask.attempts || 1} 次`} />
-                            <InfoItem label="创建时间" value={formatDate(detailTask.createdAt)} />
-                            <InfoItem label="开始时间" value={formatDate(detailTask.startedAt)} />
-                            <InfoItem label="完成时间" value={formatDate(detailTask.completedAt)} />
-                            <InfoItem label="耗时" value={formatTaskDuration(detailTask)} />
-                            {detailTask.providerCancelStatus ? <InfoItem label="上游取消" value={providerCancelStatusLabel(detailTask)} /> : null}
-                            {detailTask.providerCancelRequestedAt ? <InfoItem label="请求取消时间" value={formatDate(detailTask.providerCancelRequestedAt)} /> : null}
-                        </div>
-                        <div className="flex flex-wrap justify-end gap-2">
-                            {detailTask.canRecoverMedia ? <Button icon={<RefreshCw className="size-4" />} loading={actingId === detailTask.id} onClick={() => void runAction(detailTask.id)}>重试保存</Button> : null}
-                            {canQueryProviderTask(detailTask) ? <Button icon={<RefreshCw className="size-4" />} loading={actingId === detailTask.id} onClick={() => void queryProviderTask(detailTask)}>手动查询任务</Button> : null}
-                            {isTaskFailed(detailTask) ? <Button icon={<Bug className="size-4" />} onClick={() => navigate(`/settings?section=diagnostics&taskId=${encodeURIComponent(detailTask.id)}${detailTask.projectId ? `&projectId=${encodeURIComponent(detailTask.projectId)}` : ""}`)}>导出诊断包</Button> : null}
-                        </div>
-                        {detailTask.error ? <pre className="task-detail-error max-h-28 overflow-auto whitespace-pre-wrap px-3 py-2 text-xs">{generationErrorMessage(detailTask.error)}</pre> : null}
-                        <TaskResultMedia value={detailTask.resultJson} taskType={detailTask.type} />
-                        <DetailBlock title="提示词" value={detailLoading ? "详情加载中..." : detailTask.prompt || "无"} tall />
-                        <TaskParameters inputJson={detailLoading ? undefined : detailTask.inputJson} />
-                        <DetailBlock title="结果" value={detailLoading ? "详情加载中..." : formatTaskJson(detailTask.resultJson)} />
-                        <div>
-                            <Typography.Text strong>日志</Typography.Text>
-                            <div className="mt-2 max-h-60 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">
-                                {logsLoading ? "日志加载中..." : taskLogs.length ? taskLogs.map((log) => `[${new Date(log.createdAt).toLocaleString()}] ${log.level.toUpperCase()} ${formatTaskLog(log)}`).join("\n\n") : "暂无日志"}
-                            </div>
-                        </div>
-                    </div>
-                ) : null}
-            </Drawer>
+            <TaskDetailModal
+                task={detailTask}
+                loading={detailLoading}
+                logs={taskLogs}
+                logsLoading={logsLoading}
+                actingId={actingId}
+                canvasName={detailTask ? getTaskCanvasContext(detailTask, canvasById, domainProjectNameById).canvasName : ""}
+                modelName={detailTask ? formatModelName(effectiveConfig, detailTask) : ""}
+                creditsEnabled={creditsEnabled}
+                onClose={() => setDetailTask(null)}
+                onRetry={(task) => void runAction(task.id)}
+                onQueryProvider={(task) => void queryProviderTask(task)}
+                onExportDiagnostics={(task) => navigate("/settings?section=diagnostics&taskId=" + encodeURIComponent(task.id) + (task.projectId ? "&projectId=" + encodeURIComponent(task.projectId) : ""))}
+                onPreviewMedia={setMediaPreview}
+            />
             <Modal
                 title={<span className="block truncate pr-8">{mediaPreview?.title || "生成结果预览"}</span>}
                 open={Boolean(mediaPreview)}
@@ -560,60 +541,6 @@ function reconcileTaskSummaries(current: GenerationTask[], next: GenerationTask[
     return changed ? reconciled : current;
 }
 
-function TaskResultMedia({ value, taskType }: { value?: string; taskType: string }) {
-    const urls = resultMediaUrls(value);
-    if (!urls.length) return null;
-    return (
-        <div>
-            <Typography.Text strong>生成结果</Typography.Text>
-            <div className="mt-2 grid max-h-[360px] grid-cols-2 gap-2 overflow-auto rounded-lg bg-stone-950 p-2 md:grid-cols-3">
-                {urls.map((url, index) => {
-                    const isVideo = isVideoResult(url, taskType);
-                    return (
-                        <MediaPreview
-                            key={`${url}-${index}`}
-                            src={url}
-                            kind={isVideo ? "video" : "image"}
-                            alt={`生成结果 ${index + 1}`}
-                            controls={isVideo}
-                            className={isVideo ? "task-result-media is-video" : "task-result-media"}
-                            fallbackClassName={isVideo ? "task-result-media is-video" : "task-result-media"}
-                        />
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
-
-function resultMediaUrls(value?: string) {
-    if (!value) return [];
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(value);
-    } catch {
-        parsed = value;
-    }
-    const urls: string[] = [];
-    const visit = (item: unknown, key = "") => {
-        if (typeof item === "string") {
-            const isInlineMedia = /^(data:image\/|data:video\/)/.test(item);
-            const isMediaPath = /\.(png|jpe?g|webp|gif|avif|mp4|webm|mov)(?:$|\?)/i.test(item);
-            const isNamedMediaUrl = /^(https?:|blob:)/.test(item) && /(url|image|video|result|output|media)/i.test(key);
-            if ((isInlineMedia || isMediaPath || isNamedMediaUrl) && !urls.includes(item)) urls.push(item);
-            return;
-        }
-        if (Array.isArray(item)) return item.forEach((value) => visit(value, key));
-        if (item && typeof item === "object") Object.entries(item).forEach(([field, value]) => visit(value, field));
-    };
-    visit(parsed);
-    return urls.slice(0, 12);
-}
-
-function isVideoResult(value: string, taskType: string) {
-    return value.startsWith("data:video/") || /\.(mp4|webm|mov)(?:$|\?)/i.test(value) || taskType.includes("video");
-}
-
 function groupTasksByCanvas(tasks: GenerationTask[], canvasById: Map<string, { title: string; projectId?: string }>, projectNameById: Map<string, string>): TaskGroup[] {
     const groups: TaskGroup[] = [];
     const byKey = new Map<string, TaskGroup>();
@@ -636,135 +563,4 @@ function taskEmptyState(status: TaskStatusFilter) {
     if (status === "active") return { title: "没有运行中的任务", description: "新提交的生成会在这里显示排队状态和实时进度。" };
     if (status === "succeeded") return { title: "还没有已完成任务", description: "生成成功后，结果预览和执行记录会保留在这里。" };
     return { title: "没有失败或取消的任务", description: "失败或取消的生成会出现在这里，并提供原因和可用操作。" };
-}
-
-function formatDate(value?: string) {
-    if (!value) return "-";
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
-}
-
-function formatTaskDuration(task: GenerationTask) {
-    if (!task.createdAt) return "-";
-    const start = new Date(task.startedAt || task.createdAt).getTime();
-    const end = task.completedAt ? new Date(task.completedAt).getTime() : task.status === "queued" || task.status === "running" ? Date.now() : Number.NaN;
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "-";
-    const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return minutes ? `${minutes}分 ${seconds}秒` : `${seconds}秒`;
-}
-
-function InfoItem({ label, value, wrap = false }: { label: string; value: string; wrap?: boolean }) {
-    return (
-        <div className="task-detail-fact min-w-0 px-3 py-2">
-            <Typography.Text type="secondary" className="block text-xs">
-                {label}
-            </Typography.Text>
-            <Typography.Text className={`block text-sm ${wrap ? "whitespace-pre-wrap break-words" : "truncate"}`} title={value}>
-                {value}
-            </Typography.Text>
-        </div>
-    );
-}
-
-function DetailBlock({ title, value, tall = false }: { title: string; value: string; tall?: boolean }) {
-    return (
-        <div>
-            <Typography.Text strong>{title}</Typography.Text>
-            <pre className={`mt-2 overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100 ${tall ? "h-40 whitespace-pre-wrap break-words" : "max-h-60"}`}>{value}</pre>
-        </div>
-    );
-}
-
-function TaskParameters({ inputJson }: { inputJson?: string }) {
-    const fields = taskParameterFields(inputJson);
-    return (
-        <div>
-            <Typography.Text strong>参数</Typography.Text>
-            {fields.length ? (
-                <div className="task-detail-facts mt-2 grid text-sm sm:grid-cols-2">
-                    {fields.map((field) => <InfoItem key={field.label} label={field.label} value={field.value} wrap />)}
-                </div>
-            ) : (
-                <div className="mt-2 rounded-md bg-foreground/[.04] px-3 py-3 text-sm text-foreground/50">暂无参数记录</div>
-            )}
-        </div>
-    );
-}
-
-function taskParameterFields(inputJson?: string) {
-    const input = parseTaskInput(inputJson);
-    if (!input) return [];
-    const config = asRecord(input.config);
-    const fields: Array<{ label: string; value: string }> = [];
-    const add = (label: string, value: unknown) => {
-        const text = formatParameterValue(value);
-        if (text) fields.push({ label, value: text });
-    };
-
-    add("模式", input.mode);
-    add("尺寸 / 比例", config.size);
-    add("分辨率", config.vquality || config.quality);
-    add("时长", config.videoSeconds === undefined ? undefined : `${config.videoSeconds} 秒`);
-    add("生成数量", config.count);
-    add("生成声音", booleanParameter(config.videoGenerateAudio));
-    add("水印", booleanParameter(config.videoWatermark));
-    add("音色", config.audioVoice);
-    add("音频格式", config.audioFormat);
-    add("音频速度", config.audioSpeed);
-
-    add("参考图片", formatReferenceList(input.referenceImages, "图片"));
-    add("参考视频", formatReferenceList(input.referenceVideos, "视频"));
-    add("参考音频", formatReferenceList(input.referenceAudios, "音频"));
-    add("遮罩图片", formatReferenceList(input.mask ? [input.mask] : [], "遮罩"));
-    return fields;
-}
-
-function parseTaskInput(value?: string): Record<string, unknown> | null {
-    if (!value) return null;
-    try {
-        const parsed: unknown = JSON.parse(value);
-        return asRecord(parsed);
-    } catch {
-        return null;
-    }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function formatParameterValue(value: unknown) {
-    if (value === undefined || value === null || value === "") return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    return "";
-}
-
-function booleanParameter(value: unknown) {
-    if (value === true || value === "true") return "是";
-    if (value === false || value === "false") return "否";
-    return undefined;
-}
-
-function formatReferenceList(value: unknown, kind: string) {
-    if (!Array.isArray(value) || !value.length) return "无";
-    return value.map((item, index) => {
-        const reference = asRecord(item);
-        const name = typeof reference.name === "string" && reference.name.trim() && !/^https?:|^data:|^blob:/i.test(reference.name) ? reference.name.trim() : `${kind}${index + 1}`;
-        const dimensions = typeof reference.width === "number" && typeof reference.height === "number" ? `${reference.width}×${reference.height}` : "";
-        const duration = typeof reference.durationMs === "number" && reference.durationMs > 0 ? `${Math.round(reference.durationMs / 100) / 10}s` : "";
-        const details = [dimensions, duration].filter(Boolean).join("，");
-        return details ? `${name}（${details}）` : name;
-    }).join("、");
-}
-
-function formatTaskJson(value?: string) {
-    if (!value) return "无";
-    try {
-        return JSON.stringify(JSON.parse(value), null, 2);
-    } catch {
-        return value;
-    }
 }

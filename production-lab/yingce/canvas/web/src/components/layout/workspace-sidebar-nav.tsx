@@ -3,6 +3,8 @@ import { ArrowLeft, AudioLines, BookOpenText, Bell, ChevronDown, ChevronRight, C
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
 import { UserAvatar } from "@/components/layout/user-avatar";
@@ -42,27 +44,27 @@ function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {
     return { id: slug, title: tool?.label ?? slug, icon: tool?.icon, to };
 }
 
-function buildNav(features: FeatureAvailability, publicDemo = false): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
+function buildNav(features: FeatureAvailability, publicDemo: boolean, t: TFunction): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
-                { ...toolItem("create", "/"), id: "home", title: "超级创作" },
-                { id: "fg-stories", title: "故事与项目", icon: BookOpenText, to: "/fg-production" },
-                ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: "短剧 Agent" }] : []),
-                { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: "广告工作台" },
-                ...(features.meilinEnabled ? [{ ...toolItem("projects", "/meilin"), id: "fg-meilin", title: "美林 · 超级导演" }] : []),
-                { ...toolItem("canvas", "/canvas"), title: "超级自由画布" },
+                { ...toolItem("create", "/"), id: "home", title: t("fgWorkspace.home") },
+                { id: "fg-stories", title: t("fgWorkspace.stories"), icon: BookOpenText, to: "/fg-production" },
+                ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: t("fgWorkspace.drama") }] : []),
+                { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: t("fgWorkspace.advertising") },
+                ...(features.meilinEnabled ? [{ ...toolItem("projects", "/meilin"), id: "fg-meilin", title: t("fgWorkspace.meilin") }] : []),
+                { ...toolItem("canvas", "/canvas"), title: t("fgWorkspace.canvas") },
             ],
         },
         {
-            heading: "资源与工具",
+            heading: t("fgWorkspace.resources"),
             items: [
-                { ...toolItem("assets", "/assets"), title: "资产" },
-                { id: "fg-audio-settings", title: "音频设置区", icon: AudioLines, to: "/fg-audio-tools" },
-                ...(features.imageWorkbenchEnabled ? [{ id: "toolbox-image", title: "图片生成", icon: ImageIcon, to: "/toolbox/image" }] : []),
-                ...(features.videoWorkbenchEnabled ? [{ id: "toolbox-video", title: "视频生成", icon: Video, to: "/toolbox/video" }] : []),
-                { ...toolItem("skills", "/skills"), title: "技能" },
-                ...(features.pluginCenterEnabled ? [{ ...toolItem("plugins", "/plugins"), title: "插件" }] : []),
+                { ...toolItem("assets", "/assets"), title: t("nav.sidebar.assets") },
+                { id: "fg-audio-settings", title: t("fgWorkspace.audio"), icon: AudioLines, to: "/fg-audio-tools" },
+                ...(features.imageWorkbenchEnabled ? [{ id: "toolbox-image", title: t("nav.sidebar.toolboxImage"), icon: ImageIcon, to: "/toolbox/image" }] : []),
+                ...(features.videoWorkbenchEnabled ? [{ id: "toolbox-video", title: t("nav.sidebar.toolboxVideo"), icon: Video, to: "/toolbox/video" }] : []),
+                { ...toolItem("skills", "/skills"), title: t("nav.sidebar.skills") },
+                ...(features.pluginCenterEnabled ? [{ ...toolItem("plugins", "/plugins"), title: t("nav.sidebar.plugins") }] : []),
             ],
         },
     ];
@@ -77,17 +79,18 @@ function buildNav(features: FeatureAvailability, publicDemo = false): { groups: 
 }
 
 function WorkspaceSidebarProfile({ collapsed, user, onExpand, onCollapse }: { collapsed: boolean; user: NonNullable<ReturnType<typeof useUserStore.getState>["user"]> | null; onExpand: () => void; onCollapse: () => void }) {
+    const { t } = useTranslation();
     const [menuOpen, setMenuOpen] = useState(false);
     const userGroup = useUserStore((state) => state.userGroup);
     const profileName = user?.displayName || user?.username || "未登录";
 
     if (!user) {
         return (
-            <Link to="/login" className={cn("app-workspace-sidebar-profile", collapsed && "is-collapsed")} aria-label="登录" title="登录">
+            <Link to="/login" className={cn("app-workspace-sidebar-profile", collapsed && "is-collapsed")} aria-label={t("shell.login")} title={t("shell.login")}>
                 <span className="app-workspace-sidebar-profile-avatar">
                     <CircleUserRound aria-hidden />
                 </span>
-                {!collapsed ? <span>游客模式</span> : null}
+                {!collapsed ? <span>{t("shell.guest")}</span> : null}
             </Link>
         );
     }
@@ -108,26 +111,26 @@ function WorkspaceSidebarProfile({ collapsed, user, onExpand, onCollapse }: { co
             <WorkspaceSidebarStorageMeter collapsed={collapsed} />
             <div className={cn("app-workspace-sidebar-profile-row", collapsed && "is-collapsed")}>
                 <Popover open={menuOpen} onOpenChange={setMenuOpen} trigger="click" placement="topLeft" arrow={false} rootClassName="workspace-account-popover" content={content}>
-                    <button type="button" className={cn("app-workspace-sidebar-profile", collapsed && "is-collapsed")} aria-label="打开账户菜单" title={profileName}>
+                    <button type="button" className={cn("app-workspace-sidebar-profile", collapsed && "is-collapsed")} aria-label={t("shell.openAccountMenu")} title={profileName}>
                         <UserGroupAvatarRing>
                             <UserAvatar user={user} className="app-workspace-sidebar-profile-avatar" />
                         </UserGroupAvatarRing>
                         {!collapsed ? (
                             <span className="app-workspace-sidebar-profile-copy">
                                 <strong>{profileName}</strong>
-                                {userGroup?.badgeStyle === "vip" || userGroup?.badgeStyle === "svip" ? <UserGroupBadge className="self-start" /> : <span>公司创作空间</span>}
+                                {userGroup?.badgeStyle === "vip" || userGroup?.badgeStyle === "svip" ? <UserGroupBadge className="self-start" /> : <span>{t("fgWorkspace.company")}</span>}
                             </span>
                         ) : null}
                     </button>
                 </Popover>
                 {!collapsed ? (
-                    <button type="button" className="app-workspace-sidebar-collapse-toggle" aria-label="收起侧栏" title="收起侧栏" onClick={onCollapse}>
+                    <button type="button" className="app-workspace-sidebar-collapse-toggle" aria-label={t("shell.collapseSidebar")} title={t("shell.collapseSidebar")} onClick={onCollapse}>
                         <PanelLeftClose className="size-4" strokeWidth={1.7} />
                     </button>
                 ) : null}
             </div>
             {collapsed ? (
-                <button type="button" className="app-workspace-sidebar-collapse-toggle is-collapsed" aria-label="展开侧栏菜单" title="展开侧栏菜单" onClick={onExpand}>
+                <button type="button" className="app-workspace-sidebar-collapse-toggle is-collapsed" aria-label={t("shell.expandSidebarMenu")} title={t("shell.expandSidebarMenu")} onClick={onExpand}>
                     <PanelLeftOpen className="size-4" strokeWidth={1.7} />
                 </button>
             ) : null}
@@ -136,10 +139,12 @@ function WorkspaceSidebarProfile({ collapsed, user, onExpand, onCollapse }: { co
 }
 
 function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { collapsed: boolean; onNavigate: () => void; onExpand: () => void; onCollapse: () => void }) {
+    const { t } = useTranslation();
+    const brand = t("fgWorkspace.brand");
     if (collapsed) {
         return (
             <div className="app-workspace-sidebar-brand-row relative shrink-0 flex items-center justify-center px-3 pt-3">
-                <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={`FG超级工作台首页`}>
+                <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={t("shell.brandHome", { brand })}>
                     <BrandLogoFrame
                         className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm"
                         logoClassName="size-5 object-contain"
@@ -153,7 +158,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
 
     return (
         <div className="app-workspace-sidebar-brand-row relative shrink-0 px-3 pt-3">
-            <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label="FG超级工作台首页">
+            <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={t("shell.brandHome", { brand })}>
                 <span className="flex min-w-0 items-center gap-2">
                     <BrandLogoFrame
                         className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm"
@@ -162,8 +167,8 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
                         fallback={<InfinityIcon className="size-4" strokeWidth={2.2} />}
                     />
                     <span className="flex min-w-0 flex-col">
-                        <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-semibold">FG超级工作台</span>
-                        <span className="mt-1 truncate text-[var(--fs-label)] leading-none text-foreground/60">公司创作空间</span>
+                        <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-semibold">{brand}</span>
+                        <span className="mt-1 truncate text-[var(--fs-label)] leading-none text-foreground/60">{t("fgWorkspace.company")}</span>
                     </span>
                 </span>
             </Link>
@@ -380,13 +385,14 @@ export function workspaceNavActiveId(pathname: string, section?: string | null) 
 }
 
 export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExpand, onCollapse }: { collapsed: boolean; onNavigate: () => void; onOpenSearch: () => void; onExpand: () => void; onCollapse: () => void }) {
+    const { t } = useTranslation();
     const { pathname } = useLocation();
     const [searchParams] = useSearchParams();
     const features = useUserStore((state) => state.features);
     const user = useUserStore((state) => state.user);
     const { handleLogout } = useWorkspaceLogout();
     const publicDemo = user?.email?.toLowerCase() === "test@beva.com";
-    const { groups, footer } = useMemo(() => buildNav(features, publicDemo), [features, publicDemo]);
+    const { groups, footer } = useMemo(() => buildNav(features, publicDemo, t), [features, publicDemo, t]);
 
     const activeId = workspaceNavActiveId(pathname, searchParams.get("section"));
 
@@ -427,9 +433,9 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
             </LayoutGroup>
 
             <div className="app-workspace-sidebar-footer shrink-0 px-3 py-3">
-                <a href={fgPlatformURL(window.location.origin)} target="_top" className="mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" title="返回 FG 工作区">
+                <a href={fgPlatformURL(window.location.origin)} target="_top" className="mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" title={t("fgWorkspace.back")}>
                     <ArrowLeft className="size-4" />
-                    {!collapsed && "返回 FG 工作区"}
+                    {!collapsed && t("fgWorkspace.back")}
                 </a>
                 <WorkspaceSidebarProfile collapsed={collapsed} user={user} onExpand={onExpand} onCollapse={onCollapse} />
                 {footer.length ? (
