@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { canGenerateImageInPlace, findAvailableGenerationGroupPosition, imageGenerationChildPosition, imageGenerationGroupSize } from "@/lib/canvas/canvas-generation-layout";
 import { cancelIncompleteImageBatch, hasImageBatchResult, reconcileImageBatchRoot, retireImageBatchChildren } from "@/lib/canvas/canvas-image-batch-retry";
-import { buildGenerationNodeTitle, buildImageGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
+import { buildGenerationNodeTitle, buildImageGenerationNodeTitle, manualNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { fitImageNodeSize, imageNodeSizeFromRatio, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { canvasImageReferenceLimitError, buildImageGenerationMetadata, getGenerationCount, isGenerationCanceled, resetGenerationTaskMetadata, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { imageGenerationReferenceConnections } from "@/lib/canvas/canvas-resource-references";
@@ -104,11 +104,13 @@ export async function executeImageGeneration(
         y: parentPosition.y + parentHeight / 2 - rootHeight / 2,
     };
     const rootPosition = reuseSourceNode ? parentPosition : findAvailableGenerationGroupPosition(workingNodes, preferredPosition, imageGenerationGroupSize({ width: rootWidth, height: rootHeight }, outputNodeSize, childIds.length));
+    // 原位重新生成沿用用户起的名称，同批子图按「名称 · 序号」命名；新建的结果组仍按提示词命名。
+    const keptTitle = reuseSourceNode ? manualNodeTitle(sourceNode) : undefined;
 
     const rootNode: CanvasNodeData = {
         id: rootId,
         type: CanvasNodeType.Image,
-        title: buildImageGenerationNodeTitle(prompt, sourceNode),
+        title: keptTitle ?? buildImageGenerationNodeTitle(prompt, sourceNode),
         position: rootPosition,
         width: rootWidth,
         height: rootHeight,
@@ -145,7 +147,7 @@ export async function executeImageGeneration(
     const childNodes: CanvasNodeData[] = childIds.map((id, index) => ({
         id,
         type: CanvasNodeType.Image,
-        title: buildImageGenerationNodeTitle(prompt, sourceNode, index, count),
+        title: keptTitle ? `${keptTitle} · ${index + 1}` : buildImageGenerationNodeTitle(prompt, sourceNode, index, count),
         position: imageGenerationChildPosition(rootNode.position, rootNode.width, outputNodeSize, index),
         width: outputNodeSize.width,
         height: outputNodeSize.height,
@@ -179,7 +181,7 @@ export async function executeImageGeneration(
             return {
                 ...node,
                 type: CanvasNodeType.Text,
-                title: buildGenerationNodeTitle(prompt, "Prompt"),
+                title: manualNodeTitle(node) ?? buildGenerationNodeTitle(prompt, "Prompt"),
                 width: parentConfig.width,
                 height: parentConfig.height,
                 metadata: { ...node.metadata, content: prompt, richText: undefined, prompt, composerContent: prompt, status: NODE_STATUS_SUCCESS, fontSize: 14, errorDetails: undefined },

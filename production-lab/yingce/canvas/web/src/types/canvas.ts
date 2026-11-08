@@ -561,6 +561,7 @@ export type CanvasNodeMetadata = {
     videoEndFrameNodeId?: string;
     videoFrameSourceNodeId?: string;
     videoFrameTimeMs?: number;
+    manualTitle?: boolean;
     versionOfNodeId?: string;
     versionLabel?: string;
     versionPrimary?: boolean;

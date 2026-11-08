@@ -1,12 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import type { CanvasResourceReference } from "../../src/lib/canvas/canvas-resource-references";
+import type { MentionMenuKeyboard } from "../../src/components/canvas/canvas-mention-menu";
 
 const dom = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLTextAreaElement", "MutationObserver", "ResizeObserver"] as const) {
     Object.defineProperty(globalThis, key, { configurable: true, value: key === "window" ? dom : dom[key] });
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom) });
+await import("../../src/i18n");
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MentionMenu } = await import("../../src/components/canvas/canvas-mention-menu");
@@ -131,3 +133,40 @@ for (const inModal of [true, false]) {
         }
     });
 }
+
+test("宽版引用菜单展示画廊并按方向键选中第二张图", async () => {
+    const host = document.createElement("div");
+    const container = document.createElement("div");
+    container.className = "ant-modal ant-modal-container";
+    container.getBoundingClientRect = () => new dom.DOMRect(0, 0, 900, 700);
+    const anchor = document.createElement("textarea");
+    container.append(anchor);
+    document.body.append(host, container);
+    const root = createRoot(host);
+    const keyboardRef: { current: MentionMenuKeyboard | null } = { current: null };
+    const references: CanvasResourceReference[] = [
+        { id: "first", nodeId: "first", kind: "image", label: "图片1", active: true },
+        { id: "second", nodeId: "second", kind: "image", label: "图片2", active: true },
+    ];
+    const selected: string[] = [];
+    const press = (key: string) => act(async () => {
+        expect(keyboardRef.current?.handleKeyDown({ key, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false })).toBe(true);
+    });
+    try {
+        await act(async () => root.render(
+            <MentionMenu anchor={anchor} connectedReferences={references} assetReferences={[]} filteredReferences={references}
+                query="" cursorOffset={0} preferredWidth={640} keyboardRef={keyboardRef} onQueryChange={() => {}} onClose={() => {}}
+                onSelect={(item) => selected.push(item.id)} />,
+        ));
+        expect(container.querySelector(".canvas-resource-mention-menu.is-gallery")).not.toBeNull();
+        expect(container.querySelectorAll(".canvas-resource-mention-card")).toHaveLength(2);
+        await press("ArrowDown");
+        await press("ArrowRight");
+        await press("Enter");
+        expect(selected).toEqual(["second"]);
+    } finally {
+        await act(async () => root.unmount());
+        container.remove();
+        host.remove();
+    }
+});
