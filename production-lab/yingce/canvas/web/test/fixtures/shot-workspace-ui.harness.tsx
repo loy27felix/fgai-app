@@ -83,7 +83,7 @@ test("switching shots retains edited prompts and separates notes; polling cannot
     }
 });
 
-test("shot editors open the original asset rows and insert references even in the wide modal", async () => {
+test("shot editors keep the gallery layout and insert references in both editors", async () => {
     const shot = { id: "mention-shot", projectId: "mention-project", unitId: "u", title: "镜头01", position: 0, durationMs: 15000, currentRevisionId: "mention-revision" } as ProjectShot;
     const assets = ["艾拉男装", "伊森", "录音室"].map((title, position) => ({
         id: `asset-${position}`, title, position, category: "material", mediaType: "image",
@@ -127,11 +127,11 @@ test("shot editors open the original asset rows and insert references even in th
                 editor.dispatchEvent(new dom.InputEvent("input", { bubbles: true }));
             });
             const menu = document.querySelector<HTMLElement>("[data-canvas-resource-mention-menu]")!;
-            expect(menu.querySelector(".canvas-resource-mention-body")).toBeNull();
-            const rows = menu.querySelectorAll<HTMLButtonElement>(".canvas-resource-mention-item");
-            expect([...rows].map(row => row.querySelector("strong")?.textContent)).toEqual(assets.map(asset => asset.title));
+            expect(menu.classList.contains("is-gallery")).toBe(true);
+            const cards = menu.querySelectorAll<HTMLButtonElement>(".canvas-resource-mention-card");
+            expect([...cards].map(card => card.querySelector(".canvas-resource-mention-card-label")?.textContent)).toEqual(assets.map(asset => asset.title));
             const previousCount = editor.querySelectorAll("[data-mention-token]").length;
-            await act(async () => rows[expanded ? 1 : 0].click());
+            await act(async () => cards[expanded ? 1 : 0].click());
             expect(editor.querySelectorAll("[data-mention-token]")).toHaveLength(previousCount + 1);
             expect(document.querySelector("[data-canvas-resource-mention-menu]")).toBeNull();
         }
