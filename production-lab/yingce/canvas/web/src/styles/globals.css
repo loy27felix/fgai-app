@@ -12001,8 +12001,8 @@
     .canvas-gen-indicator {
         position: relative;
         display: grid;
-        width: 44px;
-        height: 44px;
+        width: clamp(44px, 14cqmin, 176px);
+        height: clamp(44px, 14cqmin, 176px);
         flex: 0 0 auto;
         place-items: center;
         border-radius: var(--r-full);
@@ -12010,7 +12010,7 @@
         box-shadow: inset 0 0 0 1.5px var(--canvas-gen-track);
         color: var(--canvas-gen-muted);
     }
-    .canvas-gen-indicator > svg { position: relative; width: 18px; height: 18px; }
+    .canvas-gen-indicator > svg { position: relative; width: 42%; height: 42%; }
     .canvas-gen-state.is-failure .canvas-gen-indicator,
     .canvas-gen-state[data-phase="uncertain"] .canvas-gen-indicator {
         background: color-mix(in srgb, var(--canvas-gen-tone) 10%, var(--canvas-gen-surface));
@@ -12040,7 +12040,7 @@
         max-width: 100%;
         overflow: hidden;
         color: var(--canvas-gen-ink);
-        font-size: var(--fs-ui);
+        font-size: clamp(var(--fs-ui), 5cqmin, 64px);
         font-weight: 600;
         line-height: var(--lh-heading);
         text-overflow: ellipsis;
@@ -12051,17 +12051,17 @@
     .canvas-gen-reason {
         max-width: 100%;
         color: var(--canvas-gen-muted);
-        font-size: var(--fs-label);
+        font-size: clamp(var(--fs-label), 3.5cqmin, 44px);
         line-height: 1.45;
     }
     .canvas-gen-meta { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .canvas-gen-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .canvas-gen-diagnostic {
         display: -webkit-box;
-        max-width: 220px;
+        max-width: min(100%, max(220px, 70cqmin));
         overflow: hidden;
         color: var(--status-warning);
-        font-size: var(--fs-label);
+        font-size: clamp(var(--fs-label), 3.5cqmin, 44px);
         line-height: 1.45;
         overflow-wrap: anywhere;
         -webkit-box-orient: vertical;
@@ -12069,13 +12069,13 @@
     }
     .canvas-gen-reason {
         display: -webkit-box;
-        max-width: 240px;
+        max-width: min(100%, max(240px, 76cqmin));
         overflow: hidden;
         overflow-wrap: anywhere;
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 3;
     }
-    .canvas-gen-steps { width: min(188px, 100%); }
+    .canvas-gen-steps { width: min(100%, max(188px, 60cqmin)); }
 
     .canvas-gen-actions {
         display: flex;
@@ -12100,12 +12100,12 @@
             opacity var(--motion-dur-fast-calc) var(--motion-ease-out);
     }
     .canvas-gen-action {
-        height: 30px;
-        gap: 6px;
+        height: clamp(30px, 9cqmin, 106px);
+        gap: 0.5em;
         background: color-mix(in srgb, var(--canvas-gen-ink) 7%, transparent);
         color: var(--canvas-gen-ink);
-        padding: 0 var(--space-3);
-        font-size: var(--fs-caption);
+        padding: 0 1em;
+        font-size: clamp(var(--fs-caption), 3.8cqmin, 46px);
         font-weight: 500;
     }
     .canvas-gen-action:hover { background: color-mix(in srgb, var(--canvas-gen-ink) 12%, transparent); }
@@ -12121,18 +12121,18 @@
         opacity: 0.86;
     }
     .canvas-gen-action.is-primary:active { box-shadow: var(--button-primary-active-shadow); }
-    .canvas-gen-action svg { width: 14px; height: 14px; }
+    .canvas-gen-action svg { width: 1.15em; height: 1.15em; }
     .canvas-gen-detail {
-        height: 24px;
-        gap: 4px;
+        height: clamp(24px, 7cqmin, 84px);
+        gap: 0.4em;
         margin-top: calc(-1 * var(--space-1));
         background: transparent;
         color: var(--canvas-gen-muted);
         padding: 0 var(--space-2);
-        font-size: var(--fs-label);
+        font-size: clamp(var(--fs-label), 3.5cqmin, 44px);
     }
     .canvas-gen-detail:hover { background: color-mix(in srgb, var(--canvas-gen-ink) 7%, transparent); color: var(--canvas-gen-ink); }
-    .canvas-gen-detail svg { width: 12px; height: 12px; }
+    .canvas-gen-detail svg { width: 1em; height: 1em; }
     .canvas-gen-action:focus-visible,
     .canvas-gen-detail:focus-visible {
         outline: 2px solid var(--canvas-gen-accent);
