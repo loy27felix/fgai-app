@@ -2,6 +2,14 @@
 
 set -Eeuo pipefail
 
+case "${FG_RUNTIME_TARGET-platform}" in
+  platform|native) ;;
+  *)
+    printf 'Observability: invalid FG_RUNTIME_TARGET (expected platform|native)\n' >&2
+    return 2 2>/dev/null || exit 2
+    ;;
+esac
+
 fg_obs_outbox_dir() {
   local state_root="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application Support/fg-studio-monitor}"
   printf '%s/outbox' "$state_root"
@@ -40,6 +48,16 @@ fg_obs_queue_event() {
 }
 
 fg_obs_flush_outbox() {
+  case "${FG_RUNTIME_TARGET-platform}" in
+    native)
+      # A deferred consumer must not touch queued payloads or claim delivery.
+      # 暂缓消费不得触碰排队数据，也不能将未投递报告为成功。
+      printf 'Observability: native flush deferred; queued events retained, no Next request sent\n' >&2
+      return 75
+      ;;
+    platform) ;;
+    *) printf 'Observability: invalid FG_RUNTIME_TARGET (expected platform|native)\n' >&2; return 2 ;;
+  esac
   local base_url="$1"
   local secret="$2"
   local limit="${3:-5}"

@@ -2,6 +2,18 @@
 
 set -Eeuo pipefail
 
+export FG_RUNTIME_TARGET="${FG_RUNTIME_TARGET-platform}"
+case "$FG_RUNTIME_TARGET" in
+  platform) ;;
+  native)
+    # Refuse before locks, checkout changes or legacy recovery can run.
+    # 在锁、工作区变更和旧站恢复逻辑前拒绝，不能因原生部署缺失回退旧站。
+    printf 'Auto deploy: native deployment is not implemented; no deployment or platform fallback performed\n' >&2
+    exit 78
+    ;;
+  *) printf 'Auto deploy: invalid FG_RUNTIME_TARGET (expected platform|native)\n' >&2; exit 2 ;;
+esac
+
 # launchd uses a minimal PATH, so Docker must be discoverable without a login shell.
 # launchd 使用精简 PATH，必须显式补齐 Docker CLI 路径，避免服务环境下找不到 Docker。
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"

@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { UserOSSSettingsForm } from "@/components/layout/user-oss-settings-form";
 import { refreshSystemChannels } from "@/lib/user-session";
+import { isNativeAuth } from "@/lib/fg-entry-url";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
@@ -23,7 +24,7 @@ import { FeedbackInboxPane } from "./feedback-inbox-pane";
 type ConfigSectionKey = "profile" | "personal-gpt" | "channels" | "models" | "runninghub" | "preferences" | "prompts" | "agent-memory" | "storage" | "diagnostics" | "feedbacks";
 
 const configSections: Array<{ key: ConfigSectionKey; label: string; description: string; icon: ReactNode }> = [
-    { key: "profile", label: "个人信息", description: "头像；账号由 FG 平台管理", icon: <UserRound className="size-4" /> },
+    { key: "profile", label: "个人信息", description: isNativeAuth ? "头像、登录密码与邮箱" : "头像；账号由 FG 平台管理", icon: <UserRound className="size-4" /> },
     { key: "personal-gpt", label: "GPT 接入", description: "Trings API URL 与个人 Key", icon: <Brain className="size-4" /> },
     { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
     { key: "runninghub", label: "RunningHub 工作流", description: "个人渠道的云端工作流配置", icon: <Workflow className="size-4" /> },

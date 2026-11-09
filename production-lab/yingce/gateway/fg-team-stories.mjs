@@ -28,6 +28,15 @@ const directoryPending=new WeakMap();
 export function accountSyncWarning(pool){return directoryWarnings.get(pool)||'';}
 async function refreshAccounts(pool,platform,platformCookie){
  if(Date.now()-(directoryRefreshed.get(pool)||0)<60000)return;
+ if(!platform){
+  await pool.query(`INSERT INTO fg_accounts(user_id,email,platform_role)
+   SELECT u.id,COALESCE(u.email,''),CASE WHEN u.role='admin' THEN 'superadmin'
+    WHEN a.platform_role IN ('user','member','admin') THEN a.platform_role ELSE 'user' END
+   FROM users u LEFT JOIN fg_accounts a ON a.user_id=u.id
+   ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,platform_role=excluded.platform_role
+   WHERE fg_accounts.email IS DISTINCT FROM excluded.email OR fg_accounts.platform_role IS DISTINCT FROM excluded.platform_role`);
+  directoryRefreshed.set(pool,Date.now());return;
+ }
  const response=await fetch(new URL('/api/production-lab/admin?view=accounts',platform),{headers:{cookie:platformCookie},signal:AbortSignal.timeout(15000),redirect:'error'});
  if(!response.ok)throw new Error('平台账号读取失败');
  const data=await response.json();if(!Array.isArray(data.users))throw new Error('平台账号格式无效');
@@ -44,6 +53,7 @@ async function refreshAccounts(pool,platform,platformCookie){
 
 export async function bootstrapTeam(pool,actor,platform,platformCookie){
  if(!canReview(actor))return;
+ if(!platform){await refreshAccounts(pool,null,'');directoryWarnings.delete(pool);return;}
  const initialized=(await pool.query("SELECT value FROM fg_company_settings WHERE key='teamImported'" )).rows[0];
  if(initialized){
   if(Date.now()-(directoryFailedAt.get(pool)||0)<30000)return;

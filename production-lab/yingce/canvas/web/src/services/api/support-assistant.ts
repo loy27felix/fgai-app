@@ -1,4 +1,7 @@
 import { http } from "./request";
+import { isNativeAuth } from "@/lib/fg-entry-url";
+
+export const nativeSupportUnavailable = "独立工作台的问题助手尚未接入，暂不能提交或查询排查任务；不会向旧主站发送问题。";
 
 export interface SupportFeedback {
     rating: "helpful" | "unhelpful";
@@ -45,6 +48,7 @@ export interface SupportContext {
 }
 
 async function supportRequest<T>(method: "GET" | "POST", data?: unknown, params?: { conversationId: string }, signal?: AbortSignal): Promise<T> {
+    if (isNativeAuth) throw new Error(nativeSupportUnavailable);
     // FG uses its own session and a non-Canvas envelope; keep the shared transport.
     // FG 使用独立会话与响应格式，保留公共 transport，但不进入 Canvas 信封解包。
     const response = await http.raw<T & { error?: string }>({
@@ -79,6 +83,10 @@ export function watchSupportConversation(conversationId: string, handlers: {
     onMessage: (message: SupportMessage) => void;
     onError: (message: string) => void;
 }) {
+    if (isNativeAuth) {
+        handlers.onError(nativeSupportUnavailable);
+        return () => {};
+    }
     const controller = new AbortController();
     let source: EventSource;
     let fallback: ReturnType<typeof setTimeout> | undefined;

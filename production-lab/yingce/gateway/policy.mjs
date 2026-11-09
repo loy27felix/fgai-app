@@ -37,7 +37,7 @@ export function publicCanvasShareRead(method, path) {
 }
 
 export function proxyHeaders(incoming, cookie, host) {
-  const blocked = new Set([...hopHeaders, 'cookie', 'authorization', 'host', 'forwarded']);
+  const blocked = new Set([...hopHeaders, 'cookie', 'authorization', 'host', 'forwarded', 'x-real-ip']);
   String(incoming.connection || '').split(',').forEach(h => blocked.add(h.trim().toLowerCase()));
   const headers = Object.fromEntries(Object.entries(incoming).filter(([name]) =>
     !blocked.has(name.toLowerCase()) && !/^x-(?:canvas-|yingce-|forwarded-|fg-)/i.test(name)));

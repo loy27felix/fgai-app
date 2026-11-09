@@ -42,6 +42,8 @@ RUN bun test test/fg-pcm-resampler.test.ts
 RUN bun test test/fg-entry-url.test.ts
 RUN bun test test/canvas-video-frame.test.ts
 RUN bun test test/document-storage.test.ts test/canvas-appearance.test.ts test/canvas-video-segment-args.test.ts test/tapnow-import.test.ts test/skill-runtime.test.ts
+ARG VITE_FG_AUTH_MODE=platform
+ENV VITE_FG_AUTH_MODE=${VITE_FG_AUTH_MODE}
 RUN bun run build:fg
 
 # 运行镜像：nginx 托管静态前端，并在 Compose 中把 /api 转发到后端服务。

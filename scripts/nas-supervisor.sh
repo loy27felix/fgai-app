@@ -2,6 +2,12 @@
 
 set -Eeuo pipefail
 
+export FG_RUNTIME_TARGET="${FG_RUNTIME_TARGET-platform}"
+case "$FG_RUNTIME_TARGET" in
+  platform|native) ;;
+  *) printf 'NAS supervisor: invalid FG_RUNTIME_TARGET (expected platform|native)\n' >&2; exit 2 ;;
+esac
+
 # launchd and non-login SSH sessions use a minimal PATH that does not include Docker Desktop CLI.
 # launchd 与非登录 SSH 的 PATH 不包含 Docker Desktop CLI，必须在脚本内固定补齐。
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -513,6 +519,54 @@ request_mount_for_recovery() {
   log "NAS supervisor: SMB recovery request failed; App remains running with storage guarded"
   return 1
 }
+
+supervise_native_storage() {
+  # Native bind-mount recovery is unverified: retain the guard, never recreate Next.
+  # 原生 bind mount 恢复尚未验证：保留守卫，绝不重建旧 Next 容器。
+  if ! set_storage_guard; then
+    set_state "storage-guard-failed" "NAS supervisor: native shared storage guard could not be written"
+    return 1
+  fi
+  mark_recovery_pending || return 1
+  if [[ ! -f "$ENV_FILE" ]]; then
+    set_state "config-missing" "NAS supervisor: native NAS configuration is missing; storage guard retained"
+    return 1
+  fi
+  NAS_PATH="$(read_env_value NAS_MEDIA_PATH)"
+  EXPECTED_HOST="$(read_env_value NAS_EXPECTED_HOST)"
+  EXPECTED_SHARE="$(read_env_value NAS_EXPECTED_SHARE)"
+  MARKER_NAME="$(read_env_value NAS_READY_MARKER)"
+  MARKER_NAME="${MARKER_NAME:-$DEFAULT_MARKER_NAME}"
+  MOUNT_URL="$(read_env_value NAS_MOUNT_URL)"
+  SMB_USER="${MOUNT_URL#smb://}"
+  SMB_USER="${SMB_USER%%@*}"
+  if [[ "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
+    set_state "config-invalid" "NAS supervisor: native NAS configuration is invalid; storage guard retained"
+    return 1
+  fi
+  local mount_line mount_point
+  mount_line="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')" || mount_line=""
+  mount_point="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$mount_line")"
+  if [[ -z "$mount_point" || ( "$NAS_PATH" != "$mount_point" && "$NAS_PATH" != "$mount_point/"* ) ]]; then
+    if request_mount "$MOUNT_URL" "$SMB_USER"; then
+      set_state "mount-requested" "NAS supervisor: native SMB mount requested; storage guard retained"
+    else
+      set_state "mount-failed" "NAS supervisor: native SMB mount request failed; storage guard retained"
+    fi
+    return 0
+  fi
+  if ! run_with_timeout 5 /bin/sh -c 'grep -qx "fg-studio-media:v1" "$1" && test -w "$2"' sh "$NAS_PATH/$MARKER_NAME" "$NAS_PATH"; then
+    request_mount_for_recovery || true
+    set_state "nas-readonly" "NAS supervisor: native host NAS probe failed; storage guard retained"
+    return 0
+  fi
+  set_state "native-recovery-required" "NAS supervisor: host NAS marker/permissions passed; native container recovery unverified, storage guard retained"
+}
+
+if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then
+  supervise_native_storage
+  exit $?
+fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
   if ! set_storage_guard 2>/dev/null; then

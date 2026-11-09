@@ -2,6 +2,14 @@
 
 状态：设计提案，未实施。本文不表示接口、数据库或页面已交付。
 
+## FG Web 认证接入边界
+
+FG Web 通过构建变量 `VITE_FG_AUTH_MODE=platform|native` 选择入口，未设置仍为 `platform`，保留原平台恢复登录路径。启用 `native` 时需与 Gateway 的 `FG_AUTH_MODE=native` 一致，沿用既有 `http`、auth API、用户状态和登录/注册/找回密码表单，不增加另一套认证。
+
+原生模式的登录页和分享页登录入口留在当前 origin；安全站内 `next` 保留 `/fg-six` basepath、query 与 hash，拒绝跨站地址和认证页回跳循环。退出先调用原生 `/api/auth/logout` 清除 `open_ai_canvas_session`，成功后沿用用户存储 scope 和查询缓存隔离；连接失败只提供重试，不当作登出或退回旧主站。个人设置恢复既有密码与邮箱安全表单；注册、验证码方式和 Linux.do 入口仍服从 `/api/auth/settings`，不会因启用原生模式自动开放。
+
+以上是 Web 接入边界，不表示本文短信方案全部交付或真实邮件/OAuth 联调完成。验收范围见 [待测试](../content/docs/progress/pending-test.mdx)。Support Bot 尚未迁移，等待主进程决策，不属于本轮实现。
+
 ## 1. 目标与默认决策
 
 - 支持多个短信渠道实例；同一供应商允许配置多个账号、应用或签名。

@@ -128,8 +128,9 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:?required}
-      FG_PLATFORM_URL: http://fgai-app-app-1:3000
-      FG_PLATFORM_PUBLIC_URL: ${FG_PLATFORM_PUBLIC_URL:?required}
+      FG_AUTH_MODE: ${FG_AUTH_MODE:-platform}
+      FG_PLATFORM_URL: ${FG_PLATFORM_URL:-http://fgai-app-app-1:3000}
+      FG_PLATFORM_PUBLIC_URL: ${FG_PLATFORM_PUBLIC_URL:-}
       FG_SIX_PUBLIC_URL: ${FG_SIX_PUBLIC_URL:?required}
       FG_EXTERNAL_PUBLIC_URL: ${FG_EXTERNAL_PUBLIC_URL:-}
       CANVAS_WEB_URL: http://web:3000

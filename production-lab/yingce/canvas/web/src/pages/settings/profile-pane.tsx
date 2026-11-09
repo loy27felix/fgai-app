@@ -10,6 +10,7 @@ import { AppModal } from "@/components/ui/product/app-modal";
 import { Callout } from "@/components/ui/product/callout";
 import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { DEFAULT_USER_AVATARS } from "@/lib/default-user-avatars";
+import { isNativeAuth } from "@/lib/fg-entry-url";
 import { cropProfileAvatar } from "@/services/profile-avatar";
 import { loadProfileSession } from "@/services/profile-session";
 import { applyUserSession } from "@/lib/user-session";
@@ -20,8 +21,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { profileAvatarError, profilePasswordError, profileReauthReady, profileSecondsRemaining } from "./profile-validation";
 import "./profile-pane.css";
 
-// FG deployment: accounts are owned by the FG platform session gateway.
-const FG_MANAGED_ACCOUNT = true;
+const FG_MANAGED_ACCOUNT = !isNativeAuth;
 
 type PasswordFields = { currentPassword: string; newPassword: string; confirmPassword: string };
 type EmailFields = { currentPassword: string; email: string; emailCode: string };
@@ -322,7 +322,6 @@ export function ProfilePane() {
                         </div>
                     </section>
 
-                    {/* FG: 账号、密码、邮箱与第三方绑定由 FG Studio 平台统一管理；网关拒绝这些写接口。 */}
                     {FG_MANAGED_ACCOUNT ? (
                         <Callout tone="info" title="账户安全由 FG Studio 管理" icon={ShieldCheck}>
                             登录、密码与邮箱请在 FG Studio 平台处理；这里只修改工作台头像。

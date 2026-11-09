@@ -5,9 +5,24 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## FG 双认证模式与账号迁移
+
+- Gateway 使用 `FG_AUTH_MODE=platform|native`，Web 使用构建变量 `VITE_FG_AUTH_MODE=platform|native`，两者必须一致；未设置均保留 `platform`。平台模式继续使用旧 FG 会话桥接，原生模式直接调用既有 `/api/auth/login`、`logout`、`session`、`settings` 及个人安全接口，不建立第二套认证。
+- 原生代理请求只放行格式有效且唯一的 `open_ai_canvas_session` Cookie；响应只透传该名称的 `Set-Cookie`。旧 `fg_session`、其他 Cookie、浏览器 Authorization 和伪造身份/转发 Header 不透传，不以旧 FG session 恢复身份。登录等显式公开认证路径可匿名访问，不代表开放其他业务接口。
+- CSRF：除 GET、HEAD、OPTIONS 外，浏览器写请求必须通过 Gateway 的可信 Origin 校验，包括匿名登录、注册和退出；缺失或不可信 Origin 拒绝，不能因路径公开而豁免。代理前校验调用方来源，再向 Go 传递受控来源，不信任客户端自报身份。
+- 原生会话由 Go 验证；角色和 disabled 状态以 Go `users` 为准，Gateway 只将当前有效身份映射到 `fg_accounts`，不以旧映射恢复权限或复活禁用账号。服务不可用应返回失败而非匿名成功；前端保留重试，不跳回旧主站。安全站内 next 保留当前 basepath、query 和 hash，注册是否开放仍由服务端认证设置决定。
+- 原生画布 WebSocket 使用浏览器的同一原生会话，不新造内部登录会话；注销后的撤销沿用 Go 既有心跳校验。可信后台任务代办所需的内部会话不透传给浏览器。
+- 当前候选不信任客户端自报的 `X-Forwarded-For` / `X-Real-IP`；多用户登录 IP 限流因此可能共用 Gateway 地址。生产切换前需确认 TLS 代理与每用户工具网络的可信边界、真实客户端地址及限流隔离，不能以直接信任任意转发头解决。
+- Go 仅对显式 `fg-scrypt$32hex:128hex` 标记启用 FG 密码兼容；固定 scrypt 参数与 hex 文本 salt，不猜测未标记散列，不自动将登录密码升级为 bcrypt。既有 bcrypt 保留，主动改密沿用原生流程。
+- `production-lab/yingce/gateway/migrate-platform-accounts.mjs` 默认 `--dry-run`，源和目标均只读检查；`--apply` 必须另获明确授权，使用已验证备份的离线副本并完成冲突检查。保持源 UUID/资源 owner 不变，新账号保留创建时间与邮箱验证时间的源精度，无效时间拒绝；既有账号仅补空邮箱与密码，保留已有非空原生密码、验证状态及 disabled 状态。不复制旧 session、不迁移 groups，不自动同步之后的源端改密或角色变化。2026-11-06 已按用户授权迁入两个本地旧站库共 3 个用户，不代表生产账号或历史业务数据已迁移；运行记录见仓库 `.planning/STATE.md`。
+
+数据归属边界见 [FG 工作区数据隔离](/docs/backend/fg-workspace-privacy)，运行与迁移验收见[待测试](/docs/progress/pending-test)。
+
 ## FG 网页自助排查接入
 
-工作区“反馈”旁的“自助排查”接入同源 FG 主站 `GET/POST /api/support-bot/web`，不是 Canvas Go API；使用 `fg_session` 鉴权，不能用 Canvas token 替代。客户端通过 `http.raw` 读取非 Canvas 信封，独立部署需将该路径代理到 FG 主站。截图、会话隔离、队列开关和数据库迁移以 FG 根 README 的“问题助手（网页 / 飞书）”章节为准；本模块不创建 Canvas 反馈单或外发通知。
+以下问题助手协议仅适用于默认 `platform` 模式：工作区“反馈”旁的“自助排查”接入同源 FG 主站 `GET/POST /api/support-bot/web`，不是 Canvas Go API；使用 `fg_session` 鉴权，不能用 Canvas token 替代。客户端通过 `http.raw` 读取非 Canvas 信封，此模式需将该路径代理到 FG 主站。截图、会话隔离、队列开关和数据库迁移以 FG 根 README 的“问题助手（网页 / 飞书）”章节为准；本模块不创建 Canvas 反馈单或外发通知。
+
+`native` 本地候选尚未接入网页 Support Bot：按钮仅展示“问题助手暂未接入”Alert，不挂载对话组件；前端 API 拒绝提交和读取，watch 立即调用 `onError` 后返回，不创建 SSE 或轮询。Gateway 对该网页助手路径明确返回 HTTP 503、`reason=NATIVE_SUPPORT_UNAVAILABLE`，不转发 Next 主站。这是显式功能缺口，不是机器人迁移完成；默认 `platform` 行为不变。
 
 - `POST` 请求体保留 `conversationId`、`text`、`images`，增加 `context: { source: "fg" | "canvas", pagePath: string, projectId?: string, taskId?: string, sessionId?: string }`。Canvas 固定发送 `source: "canvas"`，FG 主站固定发送 `source: "fg"`；`pagePath` 仅取 `location.pathname`。三个 ID 仅从 URL search 中显式同名参数读取并忽略空值；未指定 `projectId` 时可从现有项目路由确定，Canvas 支持 `/projects/:projectId`、`/drama-pipeline/:projectId`、`/canvas/:id` 及 `/fg-six` 前缀，FG 支持 `/projects/:id`。其他缺失字段省略，不发送完整 URL、hash、页面标题、Cookie 或 Token。
 - `GET` 的 `messages` 项增加可选 `stage?: string`，表示后端提供的中文阶段说明；`pending` / `processing` 且尚无回复时展示该说明，旧接口缺少或返回空 `stage` 时保留原有“已收到，正在查询任务、日志与相关代码…”文案。失败提示保持不变，最终回复保留多行纯文本展示。

@@ -2,6 +2,12 @@
 
 set -Eeuo pipefail
 
+export FG_RUNTIME_TARGET="${FG_RUNTIME_TARGET-platform}"
+case "$FG_RUNTIME_TARGET" in
+  platform|native) ;;
+  *) printf 'Monitor: invalid FG_RUNTIME_TARGET (expected platform|native)\n' >&2; exit 2 ;;
+esac
+
 # launchd uses a minimal PATH and cannot discover Docker Desktop by default.
 # launchd 默认 PATH 无法发现 Docker Desktop，监控脚本必须显式补齐。
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -92,7 +98,7 @@ send_monitor_event() {
   # Queue before advancing state; retries retain the observation time and event identity.
   # 状态推进前持久化采样，重试保留原始采样时间和事件标识。
   payload="{\"observedAt\":\"$observed_at\",\"host\":\"$(json_escape "$host")\",\"service\":\"$(json_escape "$service")\",\"checkName\":\"health\",\"state\":\"$(json_escape "$state")\",\"previousState\":\"$(json_escape "$previous")\",\"message\":\"$(json_escape "$message")\",\"eventKey\":\"$(json_escape "$event_key")\",\"metadata\":{\"monitorHeartbeat\":$heartbeat}}"
-  if [[ "$service" == "tunnel" || "$service" == "public-media" ]]; then
+  if [[ "$FG_RUNTIME_TARGET" == "native" || "$service" == "tunnel" || "$service" == "public-media" ]]; then
     fg_obs_queue_event monitor "$payload"
     return
   fi
@@ -231,6 +237,10 @@ structured_app_error_lines() {
 }
 
 send_alert() {
+  if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then
+    log "Monitor: external alert deferred in native mode; event retained locally"
+    return 0
+  fi
   local message="$1"
   local webhook_url
   local webhook_type
@@ -257,6 +267,7 @@ update_state() {
   local next="$2"
   local message="$3"
   local emit_repeated="${4:-true}"
+  [[ "$FG_RUNTIME_TARGET" == "native" && "$#" == 3 ]] && emit_repeated=false
   local state_file="$STATE_ROOT/$service.state"
   local previous=""
   [[ -f "$state_file" ]] && previous="$(<"$state_file")"
@@ -399,6 +410,49 @@ ensure_nas_supervisor_agent() {
   return 1
 }
 
+native_runtime_summary() {
+  /usr/bin/python3 -c '
+import json, re, sys
+try:
+    value = json.loads(sys.argv[2])
+    build = value["build"]
+    if value["service"] != sys.argv[1] or not isinstance(build, dict):
+        raise ValueError()
+    version, commit = build["version"], build["commit"]
+    environment, dirty = build["environment"], build["dirty"]
+    if (not isinstance(version, str) or version == "unknown"
+            or re.fullmatch(r"[\w.+:/ -]{1,100}", version) is None
+            or not isinstance(commit, str) or re.fullmatch(r"[a-fA-F0-9]{7,40}", commit) is None
+            or environment not in ("development", "production") or type(dirty) is not bool):
+        raise ValueError()
+    print(f"version={version}; commit={commit}; environment={environment}; dirty={str(dirty).lower()}")
+except (ValueError, KeyError, TypeError):
+    sys.exit(1)
+' "$1" "$2"
+}
+
+check_native_runtime() {
+  local gateway_url="${FG_MONITOR_NATIVE_GATEWAY_URL:-https://127.0.0.1:3016}"
+  local web_url="${FG_MONITOR_NATIVE_WEB_URL:-${gateway_url%/}/fg-six}"
+  local payload summary
+  if ! /usr/bin/curl -fsS --connect-timeout 2 --max-time 5 "${gateway_url%/}/health/live" >/dev/null 2>&1; then
+    update_state yingce-gateway unhealthy "Gateway /health/live probe failed"
+  elif ! payload="$(/usr/bin/curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 65536 "${gateway_url%/}/health/version" 2>/dev/null)"; then
+    update_state yingce-gateway unhealthy "Gateway is live but /health/version probe failed"
+  elif summary="$(native_runtime_summary yingce-gateway "$payload")"; then
+    update_state yingce-gateway healthy "Gateway /health/live passed; $summary"
+  else
+    update_state yingce-gateway unknown "Gateway is live but runtime build metadata is unverified"
+  fi
+  if ! payload="$(/usr/bin/curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 65536 "${web_url%/}/.well-known/fg-runtime.json" 2>/dev/null)"; then
+    update_state yingce-web unhealthy "Web runtime manifest probe failed"
+  elif summary="$(native_runtime_summary yingce-web "$payload")"; then
+    update_state yingce-web healthy "Web runtime manifest: $summary"
+  else
+    update_state yingce-web unknown "Web runtime build metadata is unverified"
+  fi
+}
+
 check_app() {
   local container
   local health="missing"
@@ -518,6 +572,10 @@ check_nginx_5xx() {
 }
 
 flush_observability_outbox() {
+  if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then
+    fg_obs_flush_outbox "" "" "$MAX_OBSERVABILITY_EVENTS_PER_RUN"
+    return $?
+  fi
   local base_url
   local secret
   base_url="$(read_env_value FG_OBSERVABILITY_URL)"
@@ -798,6 +856,15 @@ check_auto_deploy() {
     update_state auto-deploy unhealthy "LaunchAgent is missing and automatic reload failed"
   fi
 }
+
+if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then
+  # Never bootstrap legacy agents or enter their container recovery paths.
+  # 原生监控不拉起旧目标守护任务，也不进入其容器恢复路径。
+  check_native_runtime
+  check_disk
+  flush_observability_outbox || true
+  exit 0
+fi
 
 [[ -f "$ENV_FILE" ]] || { log "Monitor: missing environment file $ENV_FILE"; exit 1; }
 ensure_nas_supervisor_agent || true

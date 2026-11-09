@@ -5,6 +5,14 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## FG Web 认证模式
+
+- 模式、站内 next 与平台/原生入口：`web/src/lib/fg-entry-url.ts`；路由和会话守卫：`router.tsx`、`components/auth/require-auth.tsx`、`auth-session-hydrator.tsx`、`fg-session-recovery.tsx`。
+- 复用表单：`web/src/pages/auth/`；密码/邮箱安全入口：`pages/settings/profile-pane.tsx`；共享 API 与会话缓存失效：`services/api/auth.ts`。
+- 退出与账号缓存隔离沿用 `web/src/hooks/use-workspace-logout.ts`、`components/layout/workspace-sidebar-footer.tsx`、`lib/user-session.ts`、`stores/use-user-store.ts`，不另建认证 store。
+- Gateway 会话过滤与原生身份：`production-lab/yingce/gateway/fg-auth.mjs`、`server.mjs`、`policy.mjs`；显式 FG 密码兼容：`backend/internal/auth/password_fg.go`、`auth.go`；离线迁移：`production-lab/yingce/gateway/migrate-platform-accounts.mjs`。接口与迁移边界见 [HTTP API 合同](/docs/backend/http-api#fg-双认证模式与账号迁移)，本地候选未执行真实导入。
+- 网页 Support Bot：`web/src/components/feedback/support-assistant-button.tsx`、`services/api/support-assistant.ts`；native 仅显示未接入 Alert，API 拒绝读写、watch 不建立 SSE/轮询；Gateway `server.mjs` 返回明确 503，不转发 Next。该路径是功能缺口，不表示机器人迁移完成，platform 默认不变。
+
 ## FG 上游功能适配
 
 - 纯逻辑：`backend/internal/production/`（作品圣经、分集与剧本提示词 `prompts.go`，模型输出解析 `parse.go`，分镜规则与时长 `storyboard.go` / `timing.go`，按视频模型上限切剧情段 `SegmentShotsForVideo`，段提示词素材稿 `segment_prompt.go` 与撰写要求 `segment_writer.go`，参考图方案 `assets.go`，用户分镜表直接导入 `storyboard_import.go`，原文台词逐句核对 `dialogue_check.go`）。

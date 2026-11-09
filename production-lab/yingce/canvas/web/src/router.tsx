@@ -7,10 +7,14 @@ import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceterni
 import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadInspirationsPage, loadProjectDetailPage, loadProjectsPage, loadProjectCreatePage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { FGSessionRecovery } from "@/components/auth/fg-session-recovery";
-import { fgWorkspaceBasePath } from "@/lib/fg-entry-url";
+import { fgWorkspaceBasePath, isNativeAuth } from "@/lib/fg-entry-url";
 import RouteErrorPage from "@/pages/route-error";
 
 const AdminPage = lazy(() => import("@/pages/admin"));
+const AuthScene = lazy(() => import("@/pages/auth/auth-scene").then((module) => ({ default: module.AuthScene })));
+const LoginPage = lazy(() => import("@/pages/auth/login"));
+const RegisterPage = lazy(() => import("@/pages/auth/register"));
+const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password"));
 const AnalyticsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AnalyticsPage })));
 const AnnouncementsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AnnouncementsPage })));
 const BannerAnnouncementsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.BannerAnnouncementsPage })));
@@ -84,7 +88,7 @@ function fullScreenDeferred(element: ReactNode) {
 function AuthenticatedWorkspaceLayout() {
     const { pathname, search, hash } = useLocation();
     useEffect(() => {
-        if (window.parent === window) return;
+        if (isNativeAuth || window.parent === window) return;
         const route = pathname + search + hash;
         // Only the authenticated outer FG entry may record this relative route.
         let parentOrigin = window.location.origin;
@@ -128,12 +132,12 @@ function devRoutes() {
 export const router = createBrowserRouter(
     [
         {
-            element: <Outlet />,
+            element: isNativeAuth ? fullScreenDeferred(<AuthScene />) : <Outlet />,
             errorElement: <RouteErrorPage />,
             children: [
-                { path: "/login", element: <FGSessionRecovery /> },
-                { path: "/register", element: <FGSessionRecovery /> },
-                { path: "/forgot-password", element: <FGSessionRecovery /> },
+                { path: "/login", element: isNativeAuth ? fullScreenDeferred(<LoginPage />) : <FGSessionRecovery /> },
+                { path: "/register", element: isNativeAuth ? fullScreenDeferred(<RegisterPage />) : <FGSessionRecovery /> },
+                { path: "/forgot-password", element: isNativeAuth ? fullScreenDeferred(<ForgotPasswordPage />) : <FGSessionRecovery /> },
             ],
         },
         { path: "/share/canvas/:token", element: fullScreenDeferred(<SharedCanvasPage />), errorElement: <RouteErrorPage /> },

@@ -10,7 +10,7 @@ export function registerCanvasRealtime(server,{authenticate,session,origins,pars
       if(!origins.includes(req.headers.origin)){reject(403);return;}
       const actor=await authenticate(req);
       if(!actor){reject(401);return;}
-      const cookie=await session(actor);
+      const cookie=await session(actor,req);
       if(socket.destroyed)return;
       const headers={cookie,origin:publicOrigin,upgrade:'websocket',connection:'Upgrade','sec-websocket-key':req.headers['sec-websocket-key'],'sec-websocket-version':req.headers['sec-websocket-version']};
       const upstream=http.request(new URL(path.pathname,web),{headers});

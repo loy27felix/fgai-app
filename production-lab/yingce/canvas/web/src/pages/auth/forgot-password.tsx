@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, LockKeyhole, Mail, ShieldCheck, TriangleAlert } 
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { getAuthSettings, resetPassword, sendPasswordResetEmailCode } from "@/services/api/auth";
+import { fgAuthReturnPath, fgSafeAuthNext as safeNext } from "@/lib/fg-entry-url";
 
 type RecoveryStage = "request" | "reset";
 
@@ -21,7 +22,7 @@ export default function ForgotPasswordPage() {
     const [submitting, setSubmitting] = useState(false);
     const [countdown, setCountdown] = useState(0);
     const next = safeNext(params.get("next"));
-    const loginURL = `/login?next=${encodeURIComponent(next)}`;
+    const loginURL = `/login?next=${encodeURIComponent(fgAuthReturnPath(next))}`;
 
     useEffect(() => {
         let cancelled = false;
@@ -209,9 +210,4 @@ function Notice({ icon, children }: { icon: ReactNode; children: ReactNode }) {
             {children}
         </div>
     );
-}
-
-function safeNext(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-    return value;
 }

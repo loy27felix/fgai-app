@@ -26,7 +26,20 @@ FG 公司语音版本待用户验收：画布音频节点音色切换、创作�
 - 已实现：FG 登录模式下，已完成回答支持“有帮助 / 没帮助”和可选纠正，保留最新评价；保存失败明确提示，刷新会话可恢复。后续同一用户的类似问题可参考最多 3 条相关反馈，仍须按本次证据核实，不涉及模型训练。
 - 已验证：本地 PostgreSQL 与实际 API 处理器的 22 项检查、反馈进入实际诊断上下文的 4 项检查通过（登录上下文和模型调用为隔离替身，无外部模型调用）；迁移重复执行可通过，检查数据全部事务回滚。FG TypeScript 检查及相关前端既有测试 8 项通过。Canvas 全量类型检查受当前安装环境缺少 `i18next`、`react-i18next` 阻塞，未升级或重装依赖。
 - 待验收：真实页面中的点赞、点踩、修改纠正、切换评价、刷新恢复及网络失败提示；真实模型对反馈的利用效果仍待验证。
-- 边界：反馈不跨用户共享，不带入飞书群聊。数据库迁移与接口合同见 FG 根 README 的“问题助手”章节。
+- 边界：native 独立工作台的助手尚未接入，本次不绕过原有禁用保护、不重新依赖旧主站；反馈不跨用户共享，不带入飞书群聊。数据库迁移与接口合同见 FG 根 README 的“问题助手”章节。
+
+## FG Web 原生认证
+
+- 2026-11-06 已按“只处理本地数据库”要求迁入旧用户：原本地 `fg_studio` 1 人、当前本地 `fg_support_local` 2 人，工作台共 7 人（含原 4 个验收 fixture）。完整备份恢复核对 164 张表，dry-run/apply 与重复 apply 通过；原 UUID、邮箱、密码 hash、角色及邮箱验证/创建时间保留，管理接口 200 可见全部三个旧账号。旧明文密码未知，未声称这三个账号的原密码登录已实测；没有任何生产访问或旧库修改。记录见仓库 `.planning/STATE.md`。
+- 2026-11-05 按用户要求实际启动隔离 Gateway/Nginx/Go/PostgreSQL/Redis，入口 `http://127.0.0.1:43016/fg-six/`，未启动 Next。真实 Chrome/CDP 完成注册登录、改密及旧密码拒绝、旧会话撤销、深链 query/hash/basepath 回跳、换账号隔离、禁用后回登录与恢复不复活会话；15 个业务场景通过，无浏览器 JavaScript exception。配置与截图位于 Git ignored 的本地运行目录，完整边界见仓库 `.planning/STATE.md`。
+- 真实画布新增/重命名/文本编辑保存并无缓存刷新成功；PNG 实际上传并入资源及素材表、签名预览与刷新恢复成功，普通成员无法读取管理员私人资源。既有 Go 团队管理例外保持不变：superadmin 可管理 user/member 私人内容，admin/superadmin 所有者不在该范围，详见[数据隔离](/docs/backend/fg-workspace-privacy)。
+- 修复并真实复测匿名 `/logo.svg`、旧入口尾斜杠及 native 设置页账号文案。修复后运行既有 Gateway 47/47、前端 29/29，native 构建（含 TypeScript）通过；此前默认 platform 构建亦通过。未新增或修改测试文件。
+- 实际 Cookie/非法 Origin、Go role/disabled、团队目录与陈旧 superadmin 标签拒绝提权已核验；真实 CLI 对新建 synthetic PostgreSQL 执行 dry-run/apply、幂等、alias 冲突与 schema drift 拒绝，60/60 断言通过。迁入 UUID 的 200-byte UTF-8 旧 scrypt 密码通过真实 Go 登录，错误密码拒绝，既有 native hash 与 disabled 状态保留；不迁移旧 session/groups。真实历史业务副本迁移和恢复仍需单独授权，不能由 synthetic 数据推定完成。合同见 [HTTP API](/docs/backend/http-api#fg-双认证模式与账号迁移)。
+- 真实 Gateway → Nginx → Go WebSocket 已建连，改密后独立连接由心跳以 `1008 session expired` 撤销。32hex/UUID 创作与语音 owner capability 仅经临时断言，未调用真实供应商。
+- 待真实集成确认：关闭注册的运行配置、分享页登录后返回、服务不可用只重试不误登出、改邮箱后的重新登录、邮件验证码、SMS 与已启用 Linux.do 回调；本轮未配置邮件并已确认页面明确提示、未外发邮件。配置入口见[认证策略文档](../../../design/sms-channels-and-auth-policy.md#fg-web-认证接入边界)。
+- 生产门槛：当前登录 IP 限流可能共用 Gateway 地址。须先确认可信 TLS 代理与私有工具网络边界，不能直接信任客户端转发头；详细限制见 HTTP API 合同。
+- 网页 Support Bot 暂未迁移：真实浏览器已确认 native 按钮显示未接入 Alert、不挂载对话，没有 support-bot HTTP/SSE；API 拒绝提交/读取，watch 立即 `onError`，无 SSE/轮询；Gateway 明确 503、不转发 Next，默认 platform 不变。此为可见缺口，不能签认为机器人或主站整体退役完成。
+- 真实业务数据/历史媒体、完整 Compose、AI 生成、NAS/guard、生产 TLS/可信代理与共享 IP 限流、监测报表仍未验收。生产入口和守护任务未改动，P1 未放行。
 
 ## FG Backend 镜像构建依赖
 

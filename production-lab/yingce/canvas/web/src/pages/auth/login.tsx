@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { getAuthSession, getAuthSettings, linuxDOLoginURL, login } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
+import { fgAuthReturnPath, fgSafeAuthNext as safeNext } from "@/lib/fg-entry-url";
 import { LinuxDOIcon } from "./auth-scene";
 import { VerificationFields } from "@/components/auth/verification-fields";
 import { emptyVerification, loginVerification, methodLabels, verificationMethods, type VerificationMethod } from "@/services/api/verification";
@@ -21,7 +22,7 @@ export default function LoginPage() {
     const [method, setMethod] = useState<"password" | VerificationMethod>("password");
     const [verification, setVerification] = useState({ ...emptyVerification });
     const next = safeNext(params.get("next"));
-    const forgotPasswordURL = `/forgot-password?next=${encodeURIComponent(next)}`;
+    const forgotPasswordURL = `/forgot-password?next=${encodeURIComponent(fgAuthReturnPath(next))}`;
     const user = useUserStore((state) => state.user);
     const hydrated = useUserStore((state) => state.hydrated);
 
@@ -53,8 +54,10 @@ export default function LoginPage() {
                 if (!verification.ticket) throw new Error("请先获取本次登录验证码");
                 await loginVerification(verification);
             }
+            const session = await getAuthSession();
+            if (!session.user) throw new Error("登录会话未建立，请重新登录");
             const { applyUserSession } = await import("@/lib/user-session");
-            await applyUserSession(await getAuthSession());
+            await applyUserSession(session);
             message.success("登录成功");
             navigate(next, { replace: true });
         } catch (error) {
@@ -124,9 +127,4 @@ function AuthField({ label, htmlFor, action, children }: { label: string; htmlFo
             {children}
         </div>
     );
-}
-
-function safeNext(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-    return value;
 }

@@ -5,8 +5,8 @@ import { useLocation, useMatches } from "react-router";
 import { ArrowUp, Copy, ImagePlus, Search, SlidersHorizontal, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { AppModal } from "@/components/ui/product/app-modal";
-import { fgWorkspaceBasePath } from "@/lib/fg-entry-url";
-import { cancelSupportQuestions, watchSupportConversation, submitSupportQuestion, submitSupportFeedback, type SupportBrowserRequest, type SupportContext, type SupportFeedback, type SupportMessage } from "@/services/api/support-assistant";
+import { fgWorkspaceBasePath, isNativeAuth } from "@/lib/fg-entry-url";
+import { cancelSupportQuestions, nativeSupportUnavailable, watchSupportConversation, submitSupportQuestion, submitSupportFeedback, type SupportBrowserRequest, type SupportContext, type SupportFeedback, type SupportMessage } from "@/services/api/support-assistant";
 import { getClientDiagnosticEvents } from "@/services/diagnostics/client-diagnostics";
 
 function SupportAnswerFeedback({ conversationId, message, onSaved }: { conversationId: string; message: SupportMessage; onSaved: (feedback: SupportFeedback) => void }) {
@@ -180,7 +180,7 @@ export function SupportAssistantButton({ userId }: { userId: string }) {
             <Search aria-hidden="true" /><span>自助排查</span>
         </button>
         <AppModal title="自助排查助手" open={open} onCancel={() => setOpen(false)} footer={null} width={800} centered styles={{ body: { height: "min(600px, calc(100dvh - 120px))", overflow: "hidden" } }}>
-            {open ? <SupportConversation key={userId} userId={userId} /> : null}
+            {open ? isNativeAuth ? <Alert type="warning" showIcon title="问题助手暂未接入" description={nativeSupportUnavailable} /> : <SupportConversation key={userId} userId={userId} /> : null}
         </AppModal>
     </>;
 }

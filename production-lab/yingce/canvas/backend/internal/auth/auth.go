@@ -410,6 +410,9 @@ func HashPassword(password string) (string, error) {
 }
 
 func verifyPassword(password string, hash string) bool {
+	if strings.HasPrefix(hash, fgScryptPrefix) {
+		return verifyFGScryptPassword(password, strings.TrimPrefix(hash, fgScryptPrefix))
+	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 

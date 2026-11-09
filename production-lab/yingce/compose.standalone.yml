@@ -1,0 +1,33 @@
+# Explicit overlay only; never loaded by the default production Compose.
+# 仅显式叠加使用；默认生产 Compose 不加载此文件。
+services:
+  migrate:
+    image: ${CANVAS_STANDALONE_BACKEND_IMAGE:-fg-six-yingce-backend-native:local}
+  backend:
+    image: ${CANVAS_STANDALONE_BACKEND_IMAGE:-fg-six-yingce-backend-native:local}
+    build:
+      context: ./canvas
+      dockerfile: backend/Dockerfile.fg
+      args:
+        BUILD_VERSION: ${CANVAS_BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${CANVAS_BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${CANVAS_BUILD_TIME:-unknown}
+        BUILD_DIRTY: ${CANVAS_BUILD_DIRTY:-unknown}
+  gateway:
+    image: ${CANVAS_STANDALONE_GATEWAY_IMAGE:-fg-six-yingce-gateway-native:local}
+    environment:
+      FG_AUTH_MODE: native
+      FG_PLATFORM_URL: ""
+      FG_PLATFORM_PUBLIC_URL: ""
+  web:
+    image: ${CANVAS_STANDALONE_WEB_IMAGE:-fg-six-yingce-web-native:local}
+    build:
+      context: ./canvas
+      dockerfile: Dockerfile
+      args:
+        VITE_FG_AUTH_MODE: native
+        VITE_TLDRAW_LICENSE_KEY: ${VITE_TLDRAW_LICENSE_KEY:-}
+        BUILD_VERSION: ${CANVAS_BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${CANVAS_BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${CANVAS_BUILD_TIME:-unknown}
+        BUILD_DIRTY: ${CANVAS_BUILD_DIRTY:-unknown}

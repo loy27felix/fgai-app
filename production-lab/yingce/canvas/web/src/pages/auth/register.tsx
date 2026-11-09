@@ -9,6 +9,7 @@ import { ApiError } from "@/services/api/request";
 import { VerificationFields } from "@/components/auth/verification-fields";
 import { emptyVerification, methodLabels, verificationMethods, type VerificationMethod } from "@/services/api/verification";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
+import { fgSafeAuthNext as safeNext } from "@/lib/fg-entry-url";
 
 type AuthSettings = Awaited<ReturnType<typeof getAuthSettings>>;
 
@@ -84,8 +85,10 @@ export default function RegisterPage() {
             if (!settings?.firstUser && !verification.ticket) throw new Error("请先获取本次注册验证码");
             await register({ username, ...(settings?.firstUser ? { email } : verification), displayName, password, acceptedTerms: agreementAccepted, ...(referralCode ? { referralCode } : {}) });
             window.sessionStorage.removeItem(REFERRAL_CODE_STORAGE_KEY);
+            const session = await getAuthSession();
+            if (!session.user) throw new Error("注册成功，但登录会话未建立，请前往登录");
             const { applyUserSession } = await import("@/lib/user-session");
-            await applyUserSession(await getAuthSession());
+            await applyUserSession(session);
             if (!settings?.firstUser) window.sessionStorage.setItem("yingce:model-setup-guide", "1");
             message.success(settings?.firstUser ? "管理员账号已创建" : "注册成功");
             navigate(next, { replace: true });
@@ -267,11 +270,6 @@ function Notice({ icon, tone, children }: { icon: ReactNode; tone: "blue" | "amb
             {children}
         </div>
     );
-}
-
-function safeNext(value: string | null) {
-    if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-    return value;
 }
 
 // 中文条款里「一、」「二、」这类条目标题常与正文写在同一个段落内（只隔一个换行）。

@@ -31,13 +31,15 @@ import {registerCanvasRealtime} from './fg-canvas-realtime.mjs';
 import {canvasOwnersRoute} from './fg-canvas-owners.mjs';
 import {initializeMeilin,meilinInternalRoute,meilinUserRoute} from './fg-meilin.mjs';
 import {isPublicDemo,publicDemoDenied} from './fg-public-demo.mjs';
+import {workspaceAuthMode,nativeSessionCookie,nativePublicRequest,nativePageRequest,nativeResponseHeaders,nativeActor,proxyNativeRequest} from './fg-auth.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const editorPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 16 });
-const platform = new URL(process.env.FG_PLATFORM_URL || 'http://fgai-app-app-1:3000');
+const authMode = workspaceAuthMode();
+const platform = authMode === 'native' ? null : new URL(process.env.FG_PLATFORM_URL || 'http://fgai-app-app-1:3000');
 const web = new URL(process.env.CANVAS_WEB_URL || 'http://web:3000');
 const publicOrigin = new URL(process.env.FG_SIX_PUBLIC_URL).origin;
-const platformOrigin = new URL(process.env.FG_PLATFORM_PUBLIC_URL).origin;
+const platformOrigin = authMode === 'native' ? publicOrigin : new URL(process.env.FG_PLATFORM_PUBLIC_URL).origin;
 const externalOrigins = publicEntryOrigins(process.env.FG_EXTERNAL_PUBLIC_URL);
 const sessions = new Map();
 const creating = new Map();
@@ -64,9 +66,10 @@ function respond(res, status, message, reason) {
 
 async function platformActor(req) {
   if(nativeSupportToken(req))return null;
+  if(process.env.FG_SIX_ENABLED==='false')return null;
+  if(authMode==='native')return nativeActor(req,{pool,web,publicOrigin});
   const token = platformToken(req.headers.cookie);
   if (!token) return null;
-  if(process.env.FG_SIX_ENABLED==='false')return null;
   // Authenticate every request against the existing platform. Access is now
   // company-wide; native administrator rights remain superadmin-only.
   const response = await fetch(new URL('/api/auth/session', platform), {
@@ -82,6 +85,10 @@ async function platformActor(req) {
 }
 
 async function canvasSession(actor) {
+  if(authMode==='native'){
+    const owner=(await pool.query("SELECT id FROM users WHERE id=$1 AND status='active' AND role=$2",[actor.id,actor.reviewer?'admin':'user'])).rows[0];
+    if(!owner)throw Error('NATIVE_ACCOUNT_UNAVAILABLE');
+  }
   const existing = sessions.get(actor.id);
   if (existing && existing.expires > Date.now() && existing.reviewer===actor.reviewer) return existing.cookie;
   if (creating.has(actor.id)) return creating.get(actor.id);
@@ -93,12 +100,17 @@ async function canvasSession(actor) {
     const connection = await pool.connect();
     try {
       await connection.query('BEGIN');
+      if(authMode==='native'){
+        const owner=(await connection.query("SELECT id FROM users WHERE id=$1 AND status='active' AND role=$2 FOR SHARE",[actor.id,actor.reviewer?'admin':'user'])).rows[0];
+        if(!owner)throw Error('NATIVE_ACCOUNT_UNAVAILABLE');
+      }else{
       await connection.query(`INSERT INTO users (id,username,display_name,role,status,password_hash,created_at,updated_at)
         VALUES ($1,$2,$3,$4,'active','',now(),now())
         ON CONFLICT (id) DO UPDATE SET display_name=EXCLUDED.display_name,role=EXCLUDED.role,status='active',updated_at=now()`,
         [actor.id, 'fg_' + actor.id.replaceAll('-', '').slice(0,29), String(actor.name || 'FG 成员').slice(0,80),actor.reviewer?'admin':'user']);
       await connection.query('INSERT INTO fg_accounts(user_id,email,platform_role) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET email=excluded.email,platform_role=excluded.platform_role',[actor.id,actor.email,actor.platformRole]);
       if(isPublicDemo(actor))await connection.query('UPDATE users SET email=$2 WHERE id=$1',[actor.id,actor.email]);
+      }
       await connection.query(`INSERT INTO credit_accounts (user_id,available_microcredits,reserved_microcredits,version,created_at,updated_at)
         VALUES ($1,0,0,1,now(),now()) ON CONFLICT (user_id) DO NOTHING`, [actor.id]);
       await connection.query(`DELETE FROM auth_sessions WHERE user_id=$1 AND expires_at < now()`, [actor.id]);
@@ -127,6 +139,9 @@ const server = http.createServer(async (req, res) => {
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
     observation.route = safeSupportRoute(path.pathname);
+    if(authMode==='native'&&['GET','HEAD'].includes(req.method)&&/^\/(?:workspace|production-lab)\/?$/.test(path.pathname)){
+      res.writeHead(302,{'location':/^\/fg-six(?:\/|$)/.test(req.url)?'/fg-six/':'/','cache-control':'no-store'});res.end();return;
+    }
     if(await nativeSupportRoute(req,res,{pool,path}))return;
     if(nativeSupportToken(req)){nativeSupportFailure(res,403,'support_token_isolated');return;}
     if(retiredModulePath(path.pathname)){retiredModuleResponse(res);return;}
@@ -136,6 +151,11 @@ const server = http.createServer(async (req, res) => {
     if(await speechInternalRoute(req,res,{pool,path}))return;
     if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
+    if (authMode==='native' && nativePublicRequest(req.method,path)) {
+      if(process.env.FG_SIX_ENABLED==='false'){respond(res,503,'工作台暂未开放','FG_ACCESS_DISABLED');return;}
+      if(!trustedOrigin(req.method,req.headers.origin,[publicOrigin,...externalOrigins])){respond(res,403,'请求来源无效','INVALID_ORIGIN');return;}
+      proxyNativeRequest(req,res,{path,web,publicOrigin});return;
+    }
     if (publicResourceRead(req.method, path) || publicCanvasShareRead(req.method, path)) {
       // Public media and share reads are authorized by the native backend's
       // expiring capability. Static bundles need no browser or FG credentials.
@@ -154,7 +174,14 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
       res.end(JSON.stringify({code:0,data:{user:null},msg:''}));return;
     }
-    if (!actor) { respond(res,403,'请先登录 FG Studio','FG_ACCESS_DENIED'); return; }
+    if (!actor) {
+      if(authMode==='native'&&process.env.FG_SIX_ENABLED!=='false'&&nativePageRequest(req,path)){
+        // Serve only the SPA shell so the router preserves deep-link query/hash before login.
+        // 只返回 SPA 外壳，由 Router 保留登录前深链的 query/hash，API 仍需鉴权。
+        proxyNativeRequest(req,res,{path:new URL('/index.html',publicOrigin),web,publicOrigin});return;
+      }
+      respond(res,authMode==='native'?401:403,authMode==='native'?'请先登录工作台':'请先登录 FG Studio','FG_ACCESS_DENIED');return;
+    }
     if(isPublicDemo(actor)&&publicDemoDenied(path,req.method)){respond(res,403,'公用体验账号仅开放独立创作、画布和短剧测试，不开放公司内容或个人密钥设置','FG_DEMO_ISOLATED');return;}
     if(path.pathname.startsWith('/api/admin/')&&!actor.reviewer){respond(res,403,'仅超级管理员可管理平台','FG_ADMIN_REQUIRED');return;}
     if (path.pathname === '/fg/entry' && req.method === 'GET') {
@@ -164,7 +191,7 @@ const server = http.createServer(async (req, res) => {
       res.end(workspaceEntryDocument(entryURL,actor.id,workspaceOrigin));
       return;
     }
-    if (parsed.managedAuth) { respond(res,403,'账号登录由 FG Studio 管理，请返回平台处理','FG_MANAGED_AUTH'); return; }
+    if (authMode==='platform' && parsed.managedAuth) { respond(res,403,'账号登录由 FG Studio 管理，请返回平台处理','FG_MANAGED_AUTH'); return; }
     if (parsed.commercial) { respond(res,403,'FG 内部制作平台不使用积分、充值或兑换码','FG_INTERNAL_WORKSPACE'); return; }
     if (path.pathname === '/api/admin/settings/appearance' && req.method === 'DELETE') {
       respond(res,409,'请使用 FG 外观页面恢复默认设置','FG_BRAND_RESET'); return;
@@ -172,7 +199,10 @@ const server = http.createServer(async (req, res) => {
     if (!trustedOrigin(req.method, req.headers.origin, [publicOrigin, platformOrigin, ...externalOrigins])) {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
-    const cookie = await canvasSession(actor);
+    if(authMode==='native'&&/^\/api\/support-bot(?:\/|$)/.test(path.pathname)){
+      respond(res,503,'独立工作台的问题助手尚未接入，未向旧主站提交任何问题','NATIVE_SUPPORT_UNAVAILABLE');return;
+    }
+    const cookie = authMode==='native' ? nativeSessionCookie(req.headers.cookie) : await canvasSession(actor);
     if(await meilinUserRoute(req,res,{pool,actor,path,web,publicOrigin,canvasSession}))return;
     if(await musicQueueRoute(req,res,{pool,actor,path,ownerAPI:async(ownerId,p,m,payload,extra)=>{
       const owner=(await pool.query('SELECT u.id,u.display_name name,a.email,a.platform_role FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.id=$1 AND u.status=\'active\'',[ownerId])).rows[0];
@@ -196,6 +226,7 @@ const server = http.createServer(async (req, res) => {
       const r=await fetch(new URL('/api'+p,web),{method:m,headers:{cookie,origin:publicOrigin,'content-type':'application/json'},body:b===undefined?undefined:JSON.stringify(b),signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'音频资源不可用');return d.data;
     }}))return;
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
+    if(authMode==='native')headers['x-forwarded-proto']=new URL(publicOrigin).protocol.slice(0,-1);
     headers['x-request-id'] = req.headers['x-request-id'];
     if (req.headers.origin) headers.origin = publicOrigin;
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
@@ -203,7 +234,7 @@ const server = http.createServer(async (req, res) => {
     if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
     const projectAccess=nativeProjectAccess({web,cookie,publicOrigin});
     if(await projectLanguageRoute(req,res,{pool,actor,path,access:projectAccess}))return;
-    if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin,feeSync}))return;
+    if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:authMode==='native'?'':`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin,feeSync}))return;
     if(!await guardProjectLanguageTask(req,res,{pool,path,access:projectAccess}))return;
     if(req.fgReplayBody){headers['content-length']=String(req.fgReplayBody.length);delete headers['transfer-encoding'];}
     if (path.pathname.startsWith('/api/admin/system-update')) {
@@ -236,7 +267,7 @@ const server = http.createServer(async (req, res) => {
       res.end(await response.text()); return;
     }
     const upstream = http.request(new URL(path.pathname + path.search, web), { method: req.method, headers }, (remote) => {
-      res.writeHead(remote.statusCode || 502, responseHeaders(remote.headers));
+      res.writeHead(remote.statusCode || 502, authMode==='native'?nativeResponseHeaders(remote.headers):responseHeaders(remote.headers));
       pipeline(remote, res, () => {});
     });
     upstream.on('error', () => { if (!res.headersSent) respond(res,502,'画布服务暂时不可用，请稍后重试','CANVAS_UNAVAILABLE'); else res.destroy(); });
@@ -251,7 +282,7 @@ const server = http.createServer(async (req, res) => {
 });
 server.requestTimeout = 0;
 server.headersTimeout = 60000;
-registerCanvasRealtime(server,{web,publicOrigin,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:platformActor,session:canvasSession});
+registerCanvasRealtime(server,{web,publicOrigin,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:platformActor,session:(actor,req)=>authMode==='native'?nativeSessionCookie(req.headers.cookie):canvasSession(actor)});
 const speechStreams=registerSpeechStream(server,{pool,origins:[publicOrigin,platformOrigin,...externalOrigins],parsePath:url=>workspaceRequestPath(url,publicOrigin),authenticate:async req=>{const actor=await platformActor(req);if(actor)await canvasSession(actor);return actor;}});
 server.listen(Number(process.env.FG_GATEWAY_PORT || 3010), process.env.FG_GATEWAY_HOST || '0.0.0.0');
 const arcServer=http.createServer((req,res)=>{
