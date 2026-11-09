@@ -24,6 +24,13 @@ func (r *Repository) Task(id string) (*model.Task, error) {
 	return &task, nil
 }
 
+// TaskStatus reads only the status while an Agent waits for the full result.
+func (r *Repository) TaskStatus(id string) (model.TaskStatus, error) {
+	var task model.Task
+	err := r.db.Select("status").First(&task, "id = ?", id).Error
+	return task.Status, err
+}
+
 func (r *Repository) TaskForUser(userID string, id string) (*model.Task, error) {
 	var task model.Task
 	if err := r.db.First(&task, "id = ? AND user_id = ?", id, userID).Error; err != nil {

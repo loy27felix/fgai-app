@@ -1,5 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {normalizeInspiration,filterInspiration,refreshInspiration,inspirationSources,categoriesFor,readSource} from './fg-inspiration.mjs';
+
+test('daily picks share a stable order until Shanghai midnight while newest remains chronological',()=>{
+ const entries=Array.from({length:12},(_,i)=>({id:String(i),updatedAt:new Date(i*86400000).toISOString(),title:'sample',tags:[]}));
+ const order=date=>filterInspiration(entries,new URLSearchParams(),new Date(date)).map(item=>item.id);
+ assert.deepEqual(order('2026-11-07T16:00:00Z'),order('2026-11-08T15:59:59Z'));
+ assert.notDeepEqual(order('2026-11-08T15:59:59Z'),order('2026-11-08T16:00:00Z'));
+ assert.equal(filterInspiration(entries,new URLSearchParams('sort=newest'))[0].id,'11');
+});
 const source=inspirationSources[0];const item={id:'one',title:'示例',prompt:'保持原文',previewMedia:[{kind:'video',url:'https://example.org/a.mp4'}],coverUrl:'',tags:['角色']};
 test('video filtering and detail prompt preserve source attribution with stable ids',()=>{const [a]=normalizeInspiration([item],source);const [b]=normalizeInspiration([item],source);assert.equal(a.id,b.id);assert.equal(a.kind,'video');assert.equal(a.prompt,'保持原文');assert.equal(a.sourceName,source.name);assert.equal(filterInspiration([a],new URLSearchParams('kind=image')).length,0);assert.equal(filterInspiration([a],new URLSearchParams('q=保持')).length,1);assert.equal(normalizeInspiration([{...item,previewMedia:[{kind:'image',url:'javascript:alert(1)'}]}],source).length,0);});
 test('parallel server refreshes do not fetch when advisory lease is held',async()=>{let releases=0;const pool={connect:async()=>({query:async()=>({rows:[{locked:false}]}),release:()=>releases++})};assert.equal(await refreshInspiration(pool,{fetcher:()=>{throw Error('not reached');}}),false);assert.equal(releases,1);});

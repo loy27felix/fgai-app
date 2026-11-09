@@ -11,9 +11,14 @@ type AssetMediaPreviewProps = {
     alt: string;
     className?: string;
     fallback?: ReactNode;
+    /** 解析授权地址期间显示的内容，缺省与 fallback 相同。 */
+    loadingFallback?: ReactNode;
+    /** 图片或视频首帧可以显示时调用，供卡片结束加载骨架。 */
+    onLoad?: () => void;
+    onError?: () => void;
 };
 
-export function AssetMediaPreview({ asset, alt, className = "", fallback = null }: AssetMediaPreviewProps) {
+export function AssetMediaPreview({ asset, alt, className = "", fallback = null, loadingFallback = fallback, onLoad, onError }: AssetMediaPreviewProps) {
     if (!asset) return fallback;
 
     if (asset.kind === "video" && (asset.data.url || asset.data.storageKey)) {
@@ -23,7 +28,7 @@ export function AssetMediaPreview({ asset, alt, className = "", fallback = null 
     const storageKey = asset.kind === "image" ? asset.data.storageKey : undefined;
     const imageUrl = asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "");
     if (!imageUrl && !storageKey) return fallback;
-    return <CachedResourceImage storageKey={storageKey} src={imageUrl} alt={alt} loading="lazy" decoding="async" className={className} fallback={fallback} />;
+    return <CachedResourceImage storageKey={storageKey} src={imageUrl} alt={alt} loading="lazy" decoding="async" className={className} fallback={fallback} loadingFallback={loadingFallback} onLoad={onLoad} onError={onError} />;
 }
 
 const posterCache = new Map<string, Blob>();

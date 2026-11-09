@@ -1,7 +1,7 @@
 import { App, Button, Dropdown, Popconfirm, Select } from "antd";
 import type { MenuProps } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal";
-import { Check, ChevronDown, FileText, FolderOpen, HardDrive, Image as ImageIcon, LoaderCircle, Music2, Puzzle, RotateCcw, Search, Trash2, Upload, UserRound, Video } from "lucide-react";
+import { Check, ChevronDown, FileText, FolderOpen, HardDrive, Image as ImageIcon, LoaderCircle, Music2, Puzzle, RotateCcw, Search, Trash2, Upload, UserRound, Video, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useUserStore } from "@/stores/use-user-store";
@@ -203,6 +203,7 @@ export function AssetLibraryPickerModal({
         [acceptRemoteItems, allowCharacters, remoteItemDisabledReason, remoteQuery.data, items],
     );
     const uploadInputRef = useRef<HTMLInputElement>(null);
+    const gridRef = useRef<HTMLDivElement>(null);
     const pickedRemoteRef = useRef(new Map<string, AssetLibraryPickerItem>());
     const initialSelectedIdsRef = useRef(initialSelectedIds);
     const itemsRef = useRef(items);
@@ -278,6 +279,15 @@ export function AssetLibraryPickerModal({
             }),
         [allItems, selected],
     );
+    const currentItems = new Map([...pickedRemoteRef.current.values(), ...allItems, ...remoteItems].map((item) => [item.id, item]));
+    const selectedItems = selectedIds.flatMap((id) => {
+        const item = currentItems.get(id);
+        return item ? [item] : [];
+    });
+    const page = effectivePagination?.current;
+    useEffect(() => {
+        if (gridRef.current) gridRef.current.scrollTop = 0;
+    }, [page]);
     const archivedSelectedIds = useMemo(() => selectedIds.filter((id) => allItems.find((item) => item.id === id)?.archived), [allItems, selectedIds]);
 
     useEffect(() => {
@@ -474,6 +484,7 @@ export function AssetLibraryPickerModal({
     ];
     const activeUpload = isRecycleBin ? undefined : source === "plugin" ? upload?.external : upload;
     const uploading = uploadingCount > 0;
+    const changingPage = useRemoteItems && remoteQuery.isPlaceholderData;
 
     return (
         <AppModal
@@ -579,36 +590,56 @@ export function AssetLibraryPickerModal({
                             </>
                         ) : null}
                     </nav>
-                    <div className="asset-picker-grid-wrap">
-                        <div className="asset-picker-grid">
-                            {remoteEnabled && remoteQuery.isError && !localItems.length ? (
-                                <div className="asset-picker-empty" role="alert">
-                                    <FolderOpen />
-                                    <strong>素材读取失败</strong>
-                                    <span>服务端暂时不可用，重试不会影响本地已保存素材。</span>
-                                    <Button onClick={() => void remoteQuery.refetch()}>重试</Button>
-                                </div>
-                            ) : loading || (useRemoteItems && remoteQuery.isFetching) ? (
-                                <div className="asset-picker-empty">
-                                    <LoaderCircle className="animate-spin" />
-                                    <strong>正在读取素材</strong>
-                                    <span>素材会按页加载，不会一次下载整个项目库。</span>
-                                </div>
-                            ) : visibleItems.length ? (
-                                visibleItems.map((item) => <PickerCard key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item)} />)
-                            ) : (
-                                <div className="asset-picker-empty">
-                                    <FolderOpen />
-                                    <strong>{isRecycleBin ? "回收站是空的" : emptyTitle}</strong>
-                                    <span>{isRecycleBin ? "删除画布或手动归档的素材会暂存到这里，可在需要时还原。" : activeUpload ? "换个分类，或从底部上传一份新素材。" : emptyDescription}</span>
-                                </div>
-                            )}
+                    <div className="asset-picker-results">
+                        <div className="asset-picker-grid-wrap" ref={gridRef} data-canvas-wheel-scroll>
+                            <div className={cn("asset-picker-grid", changingPage && "opacity-60")} aria-busy={changingPage}>
+                                {remoteEnabled && remoteQuery.isError && !localItems.length ? (
+                                    <div className="asset-picker-empty" role="alert">
+                                        <FolderOpen />
+                                        <strong>素材读取失败</strong>
+                                        <span>服务端暂时不可用，重试不会影响本地已保存素材。</span>
+                                        <Button onClick={() => void remoteQuery.refetch()}>重试</Button>
+                                    </div>
+                                ) : loading || (useRemoteItems && remoteQuery.isFetching && !visibleItems.length) ? (
+                                    <div className="asset-picker-empty">
+                                        <LoaderCircle className="animate-spin" />
+                                        <strong>正在读取素材</strong>
+                                        <span>素材会按页加载，不会一次下载整个项目库。</span>
+                                    </div>
+                                ) : visibleItems.length ? (
+                                    visibleItems.map((item) => <PickerCard key={item.id} item={item} selected={selected.has(item.id)} changingPage={changingPage} onToggle={() => toggle(item)} />)
+                                ) : (
+                                    <div className="asset-picker-empty">
+                                        <FolderOpen />
+                                        <strong>{isRecycleBin ? "回收站是空的" : emptyTitle}</strong>
+                                        <span>{isRecycleBin ? "删除画布或手动归档的素材会暂存到这里，可在需要时还原。" : activeUpload ? "换个分类，或从底部上传一份新素材。" : emptyDescription}</span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         {effectivePagination ? (
                             <PaginationBar alwaysShow current={effectivePagination.current} pageSize={effectivePagination.pageSize} total={effectivePagination.total} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={effectivePagination.onChange} />
                         ) : null}
                     </div>
                 </div>
+                {selectedItems.length > 0 ? (
+                    <div className="asset-picker-selection-tray" role="group" aria-label="已选素材" data-canvas-wheel-scroll>
+                        {selectedItems.map((item) => (
+                            <button
+                                key={item.id}
+                                type="button"
+                                title={`移除 ${item.title || "未命名素材"}`}
+                                aria-label={`移除 ${item.title || "未命名素材"}`}
+                                disabled={working}
+                                onClick={() => setSelected((current) => new Set([...current].filter((id) => id !== item.id)))}
+                            >
+                                <SelectedAssetThumb item={item} />
+                                <span>{item.title || "未命名素材"}</span>
+                                <X aria-hidden="true" />
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
                 <footer className={cn("asset-picker-footer", !activeUpload && "is-compact")}>
                     {activeUpload ? (
                         <>
@@ -687,8 +718,8 @@ export function pickerItemMediaKind(item: AssetLibraryPickerItem): AssetPickerMe
     return kind === "image" || kind === "video" || kind === "audio" || kind === "text" ? kind : undefined;
 }
 
-function PickerCard({ item, selected, onToggle }: { item: AssetLibraryPickerItem; selected: boolean; onToggle: () => void }) {
-    const disabled = Boolean(item.disabledReason);
+function PickerCard({ item, selected, changingPage, onToggle }: { item: AssetLibraryPickerItem; selected: boolean; changingPage: boolean; onToggle: () => void }) {
+    const disabled = changingPage || Boolean(item.disabledReason);
     return (
         <AssetLibraryCard selected={selected} className={cn("asset-picker-card relative", disabled && "is-disabled")}>
             <button type="button" className="asset-picker-card-action" onClick={onToggle} disabled={disabled} aria-pressed={selected} title={item.disabledReason || item.title}>
@@ -732,6 +763,16 @@ function PickerCard({ item, selected, onToggle }: { item: AssetLibraryPickerItem
             ) : null}
         </AssetLibraryCard>
     );
+}
+
+function SelectedAssetThumb({ item }: { item: AssetLibraryPickerItem }) {
+    const asset = item.asset;
+    const src = item.imageUrl || asset?.coverUrl || (asset?.kind === "image" ? asset.data.dataUrl : undefined);
+    const storageKey = item.imageStorageKey || (asset?.kind === "image" ? asset.data.storageKey : asset?.kind === "entity" ? asset.data.coverStorageKey : undefined);
+    const fallback = <span className="asset-picker-selection-thumb" aria-hidden="true">{kindIcon(item.kindLabel)}</span>;
+    return src || storageKey ? (
+        <CachedResourceImage storageKey={storageKey} src={src} alt="" loading="lazy" decoding="async" className="asset-picker-selection-thumb" fallback={fallback} />
+    ) : fallback;
 }
 
 function renderPickerFolders(folders: AssetLibraryPickerFolder[], items: AssetLibraryPickerItem[], selectedId: string, onSelect: (folderId: string) => void, parentId = "", depth = 0, visited: ReadonlySet<string> = new Set()): ReactNode {

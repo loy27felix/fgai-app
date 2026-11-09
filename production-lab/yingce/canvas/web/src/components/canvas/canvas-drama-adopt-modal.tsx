@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { App } from "antd";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, Image as ImageIcon } from "lucide-react";
 
 import { CachedResourceImage } from "@/components/cached-resource-image";
@@ -10,7 +11,7 @@ import { Select } from "@/components/ui/base/select";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { Callout } from "@/components/ui/product/callout";
 import { defaultDramaAdoptTarget, type DramaAdoptTarget } from "@/lib/canvas/drama-canvas-projection";
-import { DRAMA_CAST_KIND_LABEL } from "@/lib/drama/drama-format";
+import { DRAMA_CAST_KIND_LABEL, dramaCastDisplayName } from "@/lib/drama/drama-format";
 import { dramaKeys } from "@/lib/drama/drama-query-keys";
 import { adoptDramaSegmentVideo, DRAMA_ERROR_REASON, getDramaCastImpact, getDramaEpisode, setDramaCastImage, type DramaCast, type DramaSegment, type DramaSummary } from "@/services/api/drama";
 import { ApiError } from "@/services/api/request";
@@ -43,6 +44,7 @@ function formatSeconds(ms: number) {
 
 export function CanvasDramaAdoptModal({ node, nodes, summary, cast, onClose, onAdopted }: CanvasDramaAdoptModalProps) {
     const { message } = App.useApp();
+    const { t } = useTranslation();
     const dramaId = summary.project.id;
     const isVideo = node.type === CanvasNodeType.Video;
     const resourceId = resourceIdFromStorageKey(node.metadata?.storageKey);
@@ -69,6 +71,8 @@ export function CanvasDramaAdoptModal({ node, nodes, summary, cast, onClose, onA
     const segment = segmentIndex === null ? undefined : segments.find((item) => item.index === segmentIndex);
     const episode = summary.episodes.find((item) => item.id === episodeId);
     const targetCast = cast?.find((item) => item.id === castId);
+    const character = targetCast?.parentId ? cast?.find((item) => item.id === targetCast.parentId) : targetCast;
+    const characterLooks = character?.kind === "character" ? (cast || []).filter((item) => item.parentId === character.id).sort((left, right) => left.position - right.position) : [];
     const laterWithVideo = segment ? segments.filter((item) => item.index > segment.index && item.videoResourceId).length : 0;
     // 并行出片的段不以上一段尾帧为首帧，换掉本段不影响后续段，不提供级联重生成。
     const parallelVideo = summary.production.settings.videoContinuity === "parallel";
@@ -78,7 +82,7 @@ export function CanvasDramaAdoptModal({ node, nodes, summary, cast, onClose, onA
             CAST_KIND_ORDER.map((kind) => ({
                 label: DRAMA_CAST_KIND_LABEL[kind],
                 options: (cast || [])
-                    .filter((item) => item.kind === kind)
+                    .filter((item) => item.kind === kind && !item.parentId)
                     .sort((left, right) => left.position - right.position)
                     .map((item) => ({ value: item.id, label: item.name })),
             })).filter((group) => group.options.length),
@@ -104,8 +108,9 @@ export function CanvasDramaAdoptModal({ node, nodes, summary, cast, onClose, onA
         try {
             if (!isVideo && targetCast) {
                 const result = await setDramaCastImage(dramaId, targetCast.id, resourceId, restyle, { source: "canvas", taskId: node.metadata?.taskId });
-                if (result.unchanged) message.info(`「${result.cast.name}」已在使用这张图`);
-                else message.success(result.affectedSegments ? `已替换「${result.cast.name}」的参考图，${result.affectedSegments} 个剧情段视频将重新生成` : `已替换「${result.cast.name}」的参考图并锁定`);
+                const name = dramaCastDisplayName(result.cast);
+                if (result.unchanged) message.info(`「${name}」已在使用这张图`);
+                else message.success(result.affectedSegments ? `已替换「${name}」的参考图，${result.affectedSegments} 个剧情段视频将重新生成` : `已替换「${name}」的参考图并锁定`);
                 onAdopted(node.id, { kind: "cast", castId: targetCast.id }, resourceId);
             } else if (isVideo && segment && episode) {
                 const result = await adoptDramaSegmentVideo(dramaId, episode.id, segment.index, { resourceId, taskId: node.metadata?.taskId, cascade: cascade && !parallelVideo, expectedRevision: segment.revision });
@@ -198,12 +203,27 @@ export function CanvasDramaAdoptModal({ node, nodes, summary, cast, onClose, onA
                             appearance="field"
                             showSearch
                             optionFilterProp="label"
-                            value={castId || undefined}
+                            value={character?.id || undefined}
                             options={castOptions}
                             onChange={(value: string) => setCastId(value)}
                             placeholder={cast ? "选择角色、场景或道具" : "正在读取设定…"}
                         />
                     </label>
+                    {character?.kind === "character" ? (
+                        <label className="grid gap-1 text-xs text-muted-foreground">
+                            {t("canvasA.dramaAdopt.look")}
+                            <Select
+                                ariaLabel={t("canvasA.dramaAdopt.chooseLook")}
+                                appearance="field"
+                                showSearch
+                                optionFilterProp="label"
+                                value={targetCast?.id}
+                                options={[{ value: character.id, label: t("canvasA.dramaAdopt.baseLook") }, ...characterLooks.map((item) => ({ value: item.id, label: item.lookName || item.name }))]}
+                                onChange={(value: string) => setCastId(value)}
+                            />
+                            <span>{characterLooks.length ? t("canvasA.dramaAdopt.lookNote") : t("canvasA.dramaAdopt.noLooks")}</span>
+                        </label>
+                    ) : null}
                     {targetCast ? (
                         <div className="flex items-center gap-3">
                             <Thumb storageKey={targetCast.imageResourceId ? `resource:${targetCast.imageResourceId}` : undefined} label="短剧当前" />

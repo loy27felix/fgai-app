@@ -90,6 +90,8 @@ func Models() []any {
 		&model.Tool{},
 		&model.ToolFavorite{},
 		&model.Resource{},
+		&model.PoseLibrarySource{},
+		&model.PoseLibraryItem{},
 		&model.ResourceDeletionJob{},
 		&model.ResourceOffloadJob{},
 		&model.AnnouncementImageDraft{},

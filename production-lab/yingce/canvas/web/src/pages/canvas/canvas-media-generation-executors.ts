@@ -7,7 +7,7 @@ import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { nextCanvasVersionLabel } from "@/lib/canvas/canvas-layout";
 import { buildAudioGenerationMetadata, buildVideoGenerationMetadata, generationReferenceUrls, resetGenerationTaskMetadata, runCanvasGenerationTaskToConsumer } from "@/lib/canvas/canvas-project-generation";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
-import { buildGenerationNodeTitle } from "@/lib/canvas/canvas-generation-title";
+import { buildGenerationNodeTitle, manualNodeTitle } from "@/lib/canvas/canvas-generation-title";
 import { mediaVersionFieldsBeforeReplace } from "@/lib/canvas/canvas-media-versions";
 import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import { isDoubaoAudioConfig } from "@/lib/audio-generation";
@@ -57,7 +57,7 @@ export async function executeVideoGeneration(
     const draftVideoNode: CanvasNodeData = {
         id: videoId,
         type: CanvasNodeType.Video,
-        title: buildGenerationNodeTitle(effectivePrompt, "Generated Video"),
+        title: (reuseEmptyTarget ? manualNodeTitle(sourceNode) : undefined) ?? buildGenerationNodeTitle(effectivePrompt, "Generated Video"),
         position: reuseEmptyTarget ? parent : findAvailableGenerationGroupPosition(canvasNodes, { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y }, spec),
         parentId: sourceNode?.parentId,
         width: spec.width,
@@ -162,15 +162,18 @@ export async function executeAudioGeneration({
     const isExistingAudioNode = sourceNode?.type === CanvasNodeType.Audio && Boolean(sourceNode.metadata?.content);
     const audioId = reuseSourceNode ? nodeId : nanoid();
     const parent = sourceNode?.position || { x: 0, y: 0 };
+    const keptAudioTitle = reuseSourceNode ? manualNodeTitle(sourceNode) : undefined;
     const audioNode: CanvasNodeData = {
         id: audioId,
         type: CanvasNodeType.Audio,
-        title: buildGenerationNodeTitle(effectivePrompt, "Generated Audio"),
+        title: keptAudioTitle ?? buildGenerationNodeTitle(effectivePrompt, "Generated Audio"),
         position: reuseSourceNode ? sourceNode!.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
         width: reuseSourceNode ? sourceNode!.width : spec.width,
         height: reuseSourceNode ? sourceNode!.height : spec.height,
         metadata: {
             ...(reuseSourceNode && isExistingAudioNode ? { ...resetGenerationTaskMetadata(sourceNode?.metadata, NODE_STATUS_LOADING), ...mediaVersionFieldsBeforeReplace(sourceNode) } : {}),
+            // 空音频节点原位生成会重建 metadata，命名标记要跟着保留，下次重新生成仍沿用名称。
+            ...(keptAudioTitle ? { manualTitle: true } : {}),
             ...canvasGenerationPromptMetadata(prompt, effectivePrompt),
             status: NODE_STATUS_LOADING,
             ...buildAudioGenerationMetadata(generationConfig),

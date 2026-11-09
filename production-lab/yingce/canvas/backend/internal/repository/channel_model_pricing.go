@@ -8,6 +8,28 @@ import (
 	"gorm.io/gorm"
 )
 
+// UpdateChannelModelProtocols validates the snapshot for every selected model in one transaction.
+func (r *Repository) UpdateChannelModelProtocols(items []model.ChannelModel) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, item := range items {
+			result := tx.Model(&model.ChannelModel{}).
+				Where("id = ? AND channel_id = ? AND updated_at = ?", item.ID, item.ChannelID, item.UpdatedAt).
+				Updates(map[string]any{
+					"protocol":               item.Protocol,
+					"capability_config_json": item.CapabilityConfigJSON,
+					"capability_version":     item.CapabilityVersion,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrChannelModelPriceConflict
+			}
+		}
+		return nil
+	})
+}
+
 var ErrChannelModelPriceConflict = errors.New("模型价格已变化，请刷新后重试")
 
 // UpdateChannelModelSalePrices commits the entire selection or nothing. Only

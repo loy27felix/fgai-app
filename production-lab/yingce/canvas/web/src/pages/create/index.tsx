@@ -1,5 +1,7 @@
+import { isThinkingLevel, LEGACY_TEXT_THINKING_CONFIG, resolveThinkingLevel, thinkingLevelsFor, type ThinkingRequest } from "@/lib/text-thinking";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Spin } from "antd";
+import { useTranslation } from "react-i18next";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { History, Maximize2, PenLine } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -114,15 +116,16 @@ function readComposerPref(key: string, fallback: boolean): boolean {
         return fallback;
     }
 }
-function writeComposerPref(key: string, value: boolean) {
+function writeComposerPref(key: string, value: boolean | ThinkingRequest) {
     try {
-        window.localStorage.setItem(key, value ? "1" : "0");
+        window.localStorage.setItem(key, typeof value === "boolean" ? (value ? "1" : "0") : value);
     } catch {
         // 存储不可用（隐私模式/禁用）：仅当前会话生效，忽略
     }
 }
 
 export default function CreatePage() {
+    const { t } = useTranslation();
     const [agentMode, setAgentMode] = useState(false);
     const { message: toast, modal } = App.useApp();
     const navigate = useNavigate();
@@ -170,7 +173,14 @@ export default function CreatePage() {
     const [videoQuality, setVideoQuality] = useState(config.vquality || "720");
     const [count, setCount] = useState(String(Math.max(1, Math.min(4, Number(config.count) || 1))));
     const [textStreaming, setTextStreaming] = useState(() => readComposerPref(TEXT_STREAMING_PREF_KEY, true));
-    const [textThinking, setTextThinking] = useState(() => readComposerPref(TEXT_THINKING_PREF_KEY, false));
+    const [textThinkingRequest, setTextThinkingLevel] = useState<ThinkingRequest>(() => {
+        try {
+            const saved = window.localStorage.getItem(TEXT_THINKING_PREF_KEY);
+            return isThinkingLevel(saved) || saved === "deep" ? saved : saved === "1" ? "medium" : "auto";
+        } catch {
+            return "auto";
+        }
+    });
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
     const [importingFiles, setImportingFiles] = useState(false);
@@ -242,6 +252,10 @@ export default function CreatePage() {
     const selectedModel = resolveCompatibleModel(config, preferredModel, modelRequirements) || preferredModel;
     const generationConfig = useMemo(() => (mode === "video" ? creationVideoConfig(config, selectedModel, { ratio, seconds, videoQuality }) : config), [config, mode, ratio, seconds, selectedModel, videoQuality]);
     const imageProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).image!, [config, selectedModel]);
+    const textThinkingConfig = modelCapabilityConfigFor(config, selectedModel).text?.thinking ??
+        (resolveModelRequestConfig(config, selectedModel).model === "gpt-6.1-sol" ? { ...LEGACY_TEXT_THINKING_CONFIG, levels: ["off", "medium", "high"] as const, default: "high" as const } : LEGACY_TEXT_THINKING_CONFIG);
+    const textThinkingLevels = thinkingLevelsFor({ ...textThinkingConfig, levels: [...(textThinkingConfig.levels || [])] });
+    const textThinkingLevel = resolveThinkingLevel({ ...textThinkingConfig, levels: textThinkingLevels }, textThinkingRequest);
     const videoProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).video!, [config, selectedModel]);
     // 同名逻辑模型可能把文生视频、图生视频和全模态参考拆到不同路由。
     // 入口需要展示整个模型组的引用能力，添加素材后再由兼容路由选择具体模型。
@@ -278,8 +292,8 @@ export default function CreatePage() {
 
     useEffect(() => {
         writeComposerPref(TEXT_STREAMING_PREF_KEY, textStreaming);
-        writeComposerPref(TEXT_THINKING_PREF_KEY, textThinking);
-    }, [textStreaming, textThinking]);
+        writeComposerPref(TEXT_THINKING_PREF_KEY, textThinkingRequest);
+    }, [textStreaming, textThinkingRequest]);
     useEffect(() => {
         if (!composerPreferencesHydrated || composerPreferencesInitialized) return;
         const saved = useCreationPreferencesStore.getState().preferences;
@@ -1016,7 +1030,7 @@ export default function CreatePage() {
                         metadata: { source: "create-page", conversationId: activeConversation.id, messageId: assistantMessage.id, ...referenceMetadata },
                         onTaskUpdate: bindTask,
                         streamText: textStreaming,
-                        enableThinking: textThinking,
+                        thinkingLevel: textThinkingRequest,
                         onTextDelta: textStreaming ? (value) => updateOriginAssistant((item) => ({ ...item, content: value })) : undefined,
                         ...retryContext,
                     }),
@@ -1435,8 +1449,10 @@ export default function CreatePage() {
         setCount: setComposerCount,
         textStreaming,
         setTextStreaming,
-        textThinking,
-        setTextThinking,
+        textThinkingLevels,
+        textThinkingLevel,
+        textThinkingRequest,
+        setTextThinkingLevel,
         promptOptimizerProvider,
         composerFocusRef,
         onPromptFocus: loadAddedSkills,
@@ -1460,11 +1476,11 @@ export default function CreatePage() {
                                     transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 360, damping: 32, mass: 0.8 }}
                                 >
                                     <PenLine aria-hidden="true" />
-                                    <input aria-label="快捷编辑提示词" placeholder="继续描述你的创作想法…" value={prompt} disabled={busy || referenceReplacementBusy} onChange={(event) => setPrompt(event.target.value)} />
-                                    <Tooltip title="展开完整创作区">
+                                    <input aria-label={t("create.page.quickEditLabel")} placeholder={t("create.page.quickEditPlaceholder")} value={prompt} disabled={busy || referenceReplacementBusy} onChange={(event) => setPrompt(event.target.value)} />
+                                    <Tooltip title={t("create.page.expandComposer")}>
                                         <button
                                             type="button"
-                                            aria-label="展开完整创作区"
+                                            aria-label={t("create.page.expandComposer")}
                                             onClick={() => {
                                                 threadScrollRef.current?.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
                                                 composerFocusRef.current?.focus({ preventScroll: true });
@@ -1484,14 +1500,14 @@ export default function CreatePage() {
                                     </Magnet>
                                     <span>FG / CREATIVE STUDIO</span>
                                 </div>
-                                <button type="button" aria-label="查看历史对话" aria-expanded={historyOpen} className="creation-home-history-entry" onClick={() => setHistoryOpen(true)}>
+                                <button type="button" aria-label={t("create.page.viewHistory")} aria-expanded={historyOpen} className="creation-home-history-entry" onClick={() => setHistoryOpen(true)}>
                                     <History size={16} />
-                                    <span>历史对话</span>
+                                    <span>{t("nav.sidebar.history")}</span>
                                 </button>
-                                <h1>和{brandName}聊聊创作想法</h1>
-                                <p>从一个画面、一个角色或一句话开始，继续你的创作。</p>
+                                <h1>{t("create.page.heading", { brand: brandName })}</h1>
+                                <p>{t("create.page.subheading")}</p>
                             </div>
-                            <section ref={launchpadRef} className="creation-launchpad" aria-label="开始创作">
+                            <section ref={launchpadRef} className="creation-launchpad" aria-label={t("create.page.launchpadLabel")}>
                                 <div className={cn("creation-composer-stage is-home-mode", agentMode && "is-agent-mode")}>
                                     <CreationModeTabs
                                         mode={mode}

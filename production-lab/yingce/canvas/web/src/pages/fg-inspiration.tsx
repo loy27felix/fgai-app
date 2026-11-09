@@ -1,4 +1,5 @@
 import {lazy,Suspense,useEffect,useRef,useState} from "react";
+import {useTranslation} from "react-i18next";
 import {Alert,Button,Input,Pagination,Popover,Select,Spin,Upload,message} from "antd";
 import {ArrowUpRight,Check,Copy,Film,Heart,Image as ImageIcon,Info,Play,Search,Sparkles,FileText,Plus,Download,Upload as UploadIcon} from "lucide-react";
 import {saveAs} from "file-saver";
@@ -22,12 +23,14 @@ function Preview({item,large=false}:{item:Entry;large?:boolean}){
   failed||!cover?<div className="fg-inspiration-unavailable"><ImageIcon size={30}/><span>预览暂不可用</span></div>:<img src={cover} alt={item.title} loading="lazy" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>;
 }
 export default function FGInspirationPage({embedded=false,onUsePrompt}:{embedded?:boolean;onUsePrompt?:(mode:"image"|"video"|"text",prompt:string)=>void}={}){
+ const {t}=useTranslation();
  const accountId=useUserStore(state=>state.user?.id);
  const [kind,setKind]=useState("image"),[source,setSource]=useState(""),[query,setQuery]=useState(""),[search,setSearch]=useState(""),[page,setPage]=useState(1),[gallery,setData]=useState<Gallery|null>(null),[dataAccount,setDataAccount]=useState<string|undefined>(),[busy,setBusy]=useState(true),[error,setError]=useState(""),[selection,setSelected]=useState<Entry|null>(null),[selectionAccount,setSelectionAccount]=useState<string|undefined>(),[detailBusy,setDetailBusy]=useState(false),[copied,setCopied]=useState(false);
  const data=dataAccount===accountId?gallery:null,selected=selectionAccount===accountId?selection:null;
  const activeAccount=useRef(accountId);activeAccount.current=accountId;
  const detailSequence=useRef(0);
  const [category,setCategory]=useState(""),[model,setModel]=useState("");
+ const [sort,setSort]=useState("recommended");
  const [view,setView]=useState("grid");
  const [sphereExitSignal,setSphereExitSignal]=useState(0);
  const [sphereItems,setSphereItems]=useState<Entry[]>([]),[sphereBusy,setSphereBusy]=useState(false);
@@ -39,20 +42,20 @@ export default function FGInspirationPage({embedded=false,onUsePrompt}:{embedded
  useEffect(()=>{const timer=setTimeout(()=>{setSearch(query);setPage(1);},250);return()=>clearTimeout(timer);},[query]);
  useEffect(()=>{
   let alive=true;const controller=new AbortController();setBusy(true);setError("");
-  const params=new URLSearchParams({kind,source,category,model,collection,q:search,page:String(page)});
+  const params=new URLSearchParams({kind,source,category,model,collection,q:search,sort,page:String(page)});
   void http.get<Gallery>("/fg/inspiration?"+params,{signal:controller.signal}).then(value=>{if(alive&&activeAccount.current===accountId){setData(value);setDataAccount(accountId);}}).catch(e=>{if(alive)setError(e.message||"灵感内容加载失败");}).finally(()=>{if(alive)setBusy(false);});
   return()=>{alive=false;controller.abort();};
- },[kind,source,category,model,collection,search,page,revision,accountId]);
+ },[kind,source,category,model,collection,search,sort,page,revision,accountId]);
  useEffect(()=>{
   setSphereItems([]);
   if(view!=="sphere"||kind==="text")return;
   const controller=new AbortController();setSphereBusy(true);
-  const params=new URLSearchParams({kind,source,category,model,collection,q:search});
+  const params=new URLSearchParams({kind,source,category,model,collection,q:search,sort});
   void Promise.all([1,2,3,4,5,6,7,8,9,10,11,12].map(page=>http.get<Gallery>(`/fg/inspiration?${params}&page=${page}`,{signal:controller.signal}))).then(pages=>{
    if(!controller.signal.aborted&&activeAccount.current===accountId)setSphereItems([...new Map(pages.flatMap(p=>p.items).map(item=>[item.id,item])).values()]);
   }).catch(error=>{if(!controller.signal.aborted)setError(error.message||"星球作品读取失败");}).finally(()=>{if(!controller.signal.aborted)setSphereBusy(false);});
   return()=>controller.abort();
- },[view,kind,source,category,model,collection,search,revision,accountId]);
+ },[view,kind,source,category,model,collection,search,sort,revision,accountId]);
  async function open(item:Entry){
   const sequence=++detailSequence.current;setSelectionAccount(accountId);setSelected(item);setCopied(false);setDetailBusy(true);setPromptLanguage("original");
   try{const value=await http.get<Entry>("/fg/inspiration/items/"+item.id);if(sequence===detailSequence.current&&activeAccount.current===accountId)setSelected(current=>current?.id===item.id?value:current);}
@@ -78,11 +81,15 @@ export default function FGInspirationPage({embedded=false,onUsePrompt}:{embedded
   {!embedded?<header className="fg-inspiration-hero">
    <div className="fg-inspiration-kicker"><Sparkles size={14}/><span>FG INSPIRATION / 灵感档案</span><span className="fg-inspiration-live"><i/> 每 30 分钟更新</span></div>
    <div className="fg-inspiration-heading"><h1>下一帧，<br/><span>从这里开始。</span></h1><div><p>浏览出色的画面，拆解它的提示词。<br/>把一个灵感，带进你的下一次创作。</p><div className="fg-inspiration-totals"><strong>{data?.counts.image.toLocaleString()||"—"}<small>图片灵感</small></strong><strong>{data?.counts.video.toLocaleString()||"—"}<small>视频灵感</small></strong><strong>{data?.sources.length.toString().padStart(2,"0")||"—"}<small>精选来源</small></strong></div></div></div>
-  </header>:<header className="creation-section-heading"><h2><Sparkles size={18}/>灵感大厅</h2><span>浏览、收藏，将喜欢的画面带入创作</span></header>}
+  </header>:<header className="creation-section-heading"><h2><Sparkles size={18}/>{t("fgWorkspace.inspirations")}</h2><span>浏览、收藏，将喜欢的画面带入创作</span></header>}
   <div className="fg-inspiration-library-bar"><div className="fg-inspiration-collections">{[["","全部灵感"],["favorites","我的收藏"],["mine","我的灵感"]].map(([id,label])=><Button key={id} type={collection===id?"primary":"text"} onClick={()=>{setCollection(id);setPage(1);}}>{label}</Button>)}</div><div className="fg-inspiration-library-actions"><Upload accept=".json,application/json" showUploadList={false} beforeUpload={importFile} disabled={importing}><Button icon={<UploadIcon size={14}/>} loading={importing}>导入</Button></Upload><Button icon={<Download size={14}/>} loading={exporting} onClick={()=>void exportFile()}>导出我的灵感</Button><Button type="primary" icon={<Plus size={15}/>} onClick={()=>setEditorOpen(true)}>新建灵感</Button></div></div>
   <section className="fg-inspiration-toolbar" aria-label="筛选灵感">
    <div className="fg-inspiration-tabs" role="tablist" aria-label="灵感类型">{[["image","图片",ImageIcon],["video","视频",Film],["text","文本",FileText]].map(([id,label,Icon])=>{const MediaIcon=Icon as typeof ImageIcon;return <button type="button" role="tab" aria-selected={kind===id} key={String(id)} className={kind===id?"is-active":""} onClick={()=>{setKind(String(id));setCategory("");setModel("");setSource("");setPage(1);}}><MediaIcon size={17}/>{String(label)}<span>{data?.counts[id as "image"|"video"|"text"]||0}</span></button>;})}</div>
-   <div className="fg-inspiration-filters"><Select aria-label="灵感来源" value={source} onChange={value=>{setSource(value);setPage(1);}} options={[{value:"",label:"全部来源"},...(data?.sources.map(s=>({value:s.id,label:s.name}))||[])]} style={{width:240}}/><Input aria-label="搜索灵感" prefix={<Search size={15}/>} placeholder="搜索风格、主题或提示词" allowClear value={query} onChange={e=>setQuery(e.target.value)}/></div>
+   <div className="fg-inspiration-filters">
+    {!collection&&!search?<Select aria-label={t("fgWorkspace.inspirations")} value={sort} onChange={value=>{setSort(value);setPage(1);}} options={[{value:"recommended",label:t("fgWorkspace.recommended")},{value:"newest",label:t("fgWorkspace.newest")}]}/>:null}
+    <Select aria-label="灵感来源" value={source} onChange={value=>{setSource(value);setPage(1);}} options={[{value:"",label:"全部来源"},...(data?.sources.map(s=>({value:s.id,label:s.name}))||[])]} style={{width:240}}/>
+    <Input aria-label="搜索灵感" prefix={<Search size={15}/>} placeholder="搜索风格、主题或提示词" allowClear value={query} onChange={e=>setQuery(e.target.value)}/>
+   </div>
   </section>
   <section className="fg-inspiration-category-row" aria-label="灵感分类">
    <div className="fg-inspiration-categories"><button type="button" aria-pressed={!category} onClick={()=>{setCategory("");setPage(1);}}>全部用途</button>{data?.categories.filter(c=>c.count>0).map(c=><button key={c.id} type="button" aria-pressed={category===c.id} onClick={()=>{setCategory(c.id);setPage(1);}}>{c.name}<span>{c.count}</span></button>)}</div>

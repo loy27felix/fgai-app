@@ -1,8 +1,11 @@
+import { audioAverageBitrateKbps, formatAudioSampleRate, imageResolutionTierLabel, isLosslessAudioMimeType, mediaAspectRatioLabel, mediaFormatLabel, RECOMMENDED_MIN_AUDIO_SAMPLE_RATE, videoResolutionTierLabel } from "@/lib/media-spec";
+import { useAudioSampleRate } from "@/hooks/use-audio-sample-rate";
 // 素材库的批量操作条、空态、筛选组、详情抽屉与图片放大。
 
 import { Button, Drawer, Tag } from "antd";
 import { Box, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, Link2, Maximize2, Mic, Plus, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import { AudioPlayButton, CharacterAssetCover } from "@/components/assets/asset-rich-cover";
+import { CachedResourceImage } from "@/components/cached-resource-image";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { assetCategoryLabel } from "@/lib/asset-category";
 import { formatBytes } from "@/lib/image-utils";
@@ -228,7 +231,9 @@ function CharacterArchive({ asset }: { asset: Extract<LibraryAsset, { kind: "ent
 }
 
 export function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAsset | null; onClose: () => void; onCopy: (asset: LibraryAsset) => void; onDownload: (asset: LibraryAsset) => void }) {
-    const facts = asset ? assetArchiveFacts(asset) : [];
+    const audio = asset?.kind === "audio" ? asset : null;
+    const sampleRate = useAudioSampleRate(audio?.data.storageKey, audio?.data.url || "");
+    const facts = asset ? assetArchiveFacts(asset, sampleRate) : [];
     const kind = asset && isKnownAssetKind(asset.kind) ? asset.kind : undefined;
     const KindIcon = asset ? (kind ? assetKindIcons[kind] : FileText) : Clapperboard;
     return (
@@ -359,7 +364,15 @@ export function AssetImageZoom({ asset }: { asset: LibraryAsset & { kind: "image
                 dragRef.current = null;
             }}
         >
-            <img src={asset.coverUrl || asset.data.dataUrl} alt={asset.title} loading="lazy" decoding="async" className="asset-archive-preview-media asset-zoom-image" style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }} />
+            <CachedResourceImage
+                storageKey={asset.data.storageKey}
+                src={asset.data.dataUrl || asset.coverUrl}
+                alt={asset.title}
+                eager
+                decoding="async"
+                className="asset-archive-preview-media asset-zoom-image"
+                style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
+            />
             <div className="asset-zoom-controls" data-canvas-no-zoom>
                 <button type="button" title="缩小" aria-label="缩小" onClick={() => setScale((value) => Math.max(0.25, value / 1.25))}>
                     <ZoomOut className="size-4" />
@@ -378,20 +391,31 @@ export function AssetImageZoom({ asset }: { asset: LibraryAsset & { kind: "image
     );
 }
 
-export function assetArchiveFacts(asset: LibraryAsset) {
+export function assetArchiveFacts(asset: LibraryAsset, audioSampleRate?: number) {
     const facts: Array<{ label: string; value: string }> = [
         { label: "类型", value: assetKindLabel(asset.kind, asset.category) },
         { label: "分类", value: assetCategoryLabel(asset.category) },
     ];
     if (asset.kind === "image" || asset.kind === "video") {
+        const tier = asset.kind === "video" ? videoResolutionTierLabel(asset.data.width, asset.data.height) : imageResolutionTierLabel(asset.data.width, asset.data.height);
+        facts.push({ label: "清晰度", value: tier || "未知" });
+        facts.push({ label: "画幅", value: mediaAspectRatioLabel(asset.data.width, asset.data.height) || "未知" });
         facts.push({ label: "尺寸", value: assetSizeLabel(asset.data.width, asset.data.height) });
     }
     if (asset.kind === "video" || asset.kind === "audio") {
         facts.push({ label: "时长", value: formatAssetClock(asset.data.durationMs) || "未知" });
     }
+    if (asset.kind === "audio") {
+        const sampleRate = formatAudioSampleRate(audioSampleRate);
+        // Apple 播客音频规范把 44.1 kHz 作为最低采样率；低于它的素材做配乐或成片时音质会受限。
+        const belowRecommended = audioSampleRate && audioSampleRate < RECOMMENDED_MIN_AUDIO_SAMPLE_RATE;
+        facts.push({ label: "采样率", value: sampleRate ? `${sampleRate}${belowRecommended ? "（低于 44.1 kHz）" : ""}` : "未知" });
+        const bitrate = audioAverageBitrateKbps(asset.data.bytes, asset.data.durationMs);
+        if (bitrate) facts.push({ label: isLosslessAudioMimeType(asset.data.mimeType) ? "码率（无损）" : "平均码率", value: `${bitrate} kbps` });
+    }
     if (asset.kind !== "text" && asset.kind !== "entity") {
         facts.push({ label: "大小", value: formatBytes(asset.data.bytes) });
-        facts.push({ label: "格式", value: asset.data.mimeType });
+        facts.push({ label: "格式", value: mediaFormatLabel(asset.data.mimeType) || "未知" });
         facts.push({ label: "存储", value: resourceStorageLabel(asset.data.storageKey) });
     }
     if (asset.kind !== "entity" || asset.source) facts.push({ label: "来源", value: asset.source || "未标注" });

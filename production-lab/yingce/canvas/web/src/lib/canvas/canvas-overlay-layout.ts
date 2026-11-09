@@ -101,3 +101,15 @@ export function placeCanvasNodePanel(node: CanvasNodeData, viewport: ViewportTra
         placement,
     };
 }
+
+export function canvasBottomRowLayout(controls: { left: number; right: number }, row: { left: number; right: number }, toolbarWidth: number, gap: number, { evenGaps = false }: { evenGaps?: boolean } = {}) {
+    // 在 [start, row.right] 居中与在整行居中，差的正好是左侧让出宽度的一半；最多右移到贴住行右缘。
+    const maxShift = Math.max(0, Math.floor((row.right - row.left - toolbarWidth) / 2));
+    const shiftFrom = (start: number) => Math.min(maxShift, Math.max(0, Math.round((start - row.left) / 2)));
+    const besideControls = controls.right + gap;
+    if (besideControls + toolbarWidth > row.right) return { shift: shiftFrom(controls.left), stacked: true };
+    if (evenGaps) return { shift: shiftFrom(besideControls), stacked: false };
+    // 控制条左缘以右的画布正中（与顶栏对齐）；居中时左缘落在 row.left + (行宽 - 工具条宽) / 2 + shift。
+    const clearControls = Math.ceil(besideControls - (row.left + row.right - toolbarWidth) / 2);
+    return { shift: Math.min(maxShift, Math.max(shiftFrom(controls.left), clearControls, 0)), stacked: false };
+}

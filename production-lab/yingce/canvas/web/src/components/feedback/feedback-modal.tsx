@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, type ClipboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { App, Button, Checkbox, Input, Radio, Tag, Image as AntImage, Segmented } from "antd";
 import { AppModal as Modal } from "@/components/ui/product/app-modal";
 import { AntTooltip as Tooltip } from "@/components/ui/base/tooltip/ant-tooltip";
@@ -14,7 +15,15 @@ interface FeedbackModalProps {
     initialTab?: "submit" | "inbox";
 }
 
+const feedbackGuideItems: Record<FeedbackType, readonly string[]> = {
+    bug: ["where", "steps", "result", "frequency"],
+    feature: ["scene", "expect", "current", "priority"],
+    improvement: ["where", "problem", "expect"],
+    other: ["content", "related"],
+};
+
 export function FeedbackModal({ open, onClose, initialTab = "submit" }: FeedbackModalProps) {
+    const { t } = useTranslation();
     const { message } = App.useApp();
     const user = useUserStore((state) => state.user);
 
@@ -27,6 +36,9 @@ export function FeedbackModal({ open, onClose, initialTab = "submit" }: Feedback
     const [type, setType] = useState<FeedbackType>("bug");
     const [title, setTitle] = useState("");
     const [content, setContent] = useState("");
+    const guideKey = `account.feedback.guide.${type}`;
+    const contentTemplate = t(`${guideKey}.template`);
+    const templatedContent = content.trim() ? `${content.trimEnd()}\n\n${contentTemplate}` : contentTemplate;
     const [contact, setContact] = useState("");
     const [includeEnv, setIncludeEnv] = useState(true);
     const [attachments, setAttachments] = useState<FeedbackAttachment[]>([]);
@@ -310,6 +322,15 @@ export function FeedbackModal({ open, onClose, initialTab = "submit" }: Feedback
                                     maxLength={10000}
                                     className="rounded-lg py-2 text-xs"
                                 />
+                                <details className="mt-2 rounded-lg border px-3 py-2 text-xs">
+                                    <summary className="cursor-pointer font-medium">{t(`${guideKey}.title`)}</summary>
+                                    <ul className="my-2 list-disc space-y-1 pl-4 text-muted-foreground">
+                                        {feedbackGuideItems[type].map((item) => <li key={item}>{t(`${guideKey}.${item}`)}</li>)}
+                                    </ul>
+                                    <Button size="small" disabled={content.includes(contentTemplate) || templatedContent.length > 10000} onClick={() => setContent(templatedContent)}>
+                                        {t("account.feedback.guide.useTemplate")}
+                                    </Button>
+                                </details>
                             </div>
 
                             {/* Attachment Uploader */}

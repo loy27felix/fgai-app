@@ -9,8 +9,10 @@ test("settings page drops the page header copy and audio preference blocks", () 
     expect(source).not.toContain("音频默认值");
     expect(source).not.toContain("音频指令");
     expect(source).not.toContain("默认音频指令");
-    expect(source).toContain("默认生图张数");
-    expect(source).toContain("settings-preference-heading");
+    const pane = readFileSync(resolve(import.meta.dir, "../src/pages/settings/preferences-pane.tsx"), "utf8");
+    expect(source).toContain("<PreferencesPane />");
+    expect(pane).toContain("canvasImageCount");
+    expect(pane).toContain("settings-preference-heading");
 });
 
 test("wallet tabs and preference blocks keep a visible gap from neighboring surfaces", () => {

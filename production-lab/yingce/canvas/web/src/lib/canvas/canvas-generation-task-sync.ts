@@ -194,8 +194,11 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
             if (extraction?.index === 0 && extraction.backgroundPatch) result.images[0] = await patchImageLayerBackground(normalized.image, extraction.backgroundPatch);
             extraction = { ...extraction!, phase: needsRemoval ? "background-removal-required" : "complete", extractionTaskId: extraction?.phase === "extract" ? task.id : extraction?.extractionTaskId, rejectedTaskId: undefined };
         }
-        const image = result.images?.[outputIndex];
-        if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
+        const listed = result.images?.[outputIndex];
+        if (!listed?.dataUrl && !listed?.storageKey) throw new Error("后端任务没有返回图片");
+        // 已持久化的图片可以只有 storageKey（素材库回传、跨设备同步时 dataUrl 为空），展示地址按资源现取。
+        const image = listed.dataUrl ? listed : { ...listed, dataUrl: await resolveImageUrl(listed.storageKey, "") };
+        if (!image.dataUrl) throw new Error("图片结果资源不可用");
         let resultDataUrl = image.dataUrl;
         const emotionEdit = node.metadata?.emotionEdit;
         if (emotionEdit) {
@@ -236,7 +239,7 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
 
     if (mode === "video") {
         if (!result.video?.storageKey && !result.video?.dataUrl) throw new Error("后端任务没有返回视频");
-        const video = result.video.storageKey ? await cacheGeneratedRemoteVideo({ ...result.video, storageKey: result.video.storageKey }) : await storeGeneratedVideo({ url: result.video.dataUrl, mimeType: result.video.mimeType || "video/mp4" });
+        const video = result.video.storageKey ? await resolveGeneratedStoredVideo({ ...result.video, storageKey: result.video.storageKey }) : await storeGeneratedVideo({ url: result.video.dataUrl, mimeType: result.video.mimeType || "video/mp4" });
         const videoSize = fitNodeSize(video.width || node.width || VIDEO_NODE_MAX_SIZE.width, video.height || node.height || VIDEO_NODE_MAX_SIZE.height, VIDEO_NODE_MAX_SIZE.width, VIDEO_NODE_MAX_SIZE.height);
         const geometry = node.metadata?.locked
             ? {}
@@ -294,7 +297,7 @@ type GeneratedVideoResult = {
  * 已落库的资源通过播放地址交付；浏览器整段 Blob 缓存不构成保存确认。
  * 旧的本机存储键仍须有实际文件，不能把失效本机副本误报为可用。
  */
-async function cacheGeneratedRemoteVideo(result: GeneratedVideoResult & { storageKey: string }): Promise<UploadedFile> {
+async function resolveGeneratedStoredVideo(result: GeneratedVideoResult & { storageKey: string }): Promise<UploadedFile> {
     const blob = resourceIdFromStorageKey(result.storageKey) ? undefined : await getCachedResourceBlob(result.storageKey);
     if (!resourceIdFromStorageKey(result.storageKey) && !blob) throw new Error("生成视频资源缓存失败，未标记为成功");
     const url = await resolveVideoMediaUrl(result.storageKey, result.dataUrl || "");

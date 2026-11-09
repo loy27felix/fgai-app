@@ -82,9 +82,16 @@ export function startInspirationSync(pool){
  const run=()=>void refreshInspiration(pool).catch(error=>console.error('[fg-inspiration]',error.code||'sync-failed'));
  run();const timer=setInterval(run,60000);timer.unref();return()=>clearInterval(timer);
 }
-export function filterInspiration(entries,params){
+const recommendationDay = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'});
+export function filterInspiration(entries,params,now=new Date()){
  const kind=params.get('kind'),source=params.get('source'),category=params.get('category'),model=params.get('model'),q=(params.get('q')||'').trim().toLowerCase().slice(0,100);
  const filtered=entries.filter(e=>(!kind||e.kind===kind)&&(!source||e.sourceId===source)&&(!model||e.model===model)&&(!category||categoriesFor(e).includes(category))&&(!q||[e.title,e.prompt,e.promptZh,e.description,...e.tags,e.sourceName].join(' ').toLowerCase().includes(q)));
+ if(params.get('sort')!=='newest'&&!params.get('collection')&&!q){
+  const day=recommendationDay.format(now);
+  return filtered.map(entry=>({entry,rank:createHash('sha256').update(day+'\0'+entry.id).digest('hex')}))
+   .sort((a,b)=>a.rank.localeCompare(b.rank)||a.entry.id.localeCompare(b.entry.id))
+   .map(({entry})=>entry);
+ }
  return filtered.sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt))||a.sourceId.localeCompare(b.sourceId));
 }
 export function distinctInspiration(entries,favorites=[]){

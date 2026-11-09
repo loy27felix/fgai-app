@@ -109,7 +109,11 @@ func allSurfaces() []Surface {
 }
 
 func metadata(id, name, vendor string, capability Capability, create, poll, contentType string) Metadata {
-	return Metadata{ID: id, Version: "1.0.0", Name: name, Vendor: vendor, Categories: []Capability{capability}, Scopes: allSurfaces(), Create: create, Poll: poll, ContentType: contentType, Enabled: true, Installable: true}
+	info := Metadata{ID: id, Version: "1.0.0", Name: name, Vendor: vendor, Categories: []Capability{capability}, Scopes: allSurfaces(), Create: create, Poll: poll, ContentType: contentType, Enabled: true, Installable: true}
+	if capability == CapabilityText {
+		info.TextWire = TextWireForOperation(create)
+	}
+	return info
 }
 
 func mediaParams() []Parameter {
@@ -307,10 +311,12 @@ func arkVideosAdapter() Adapter {
 	info.Parameters = videoParams()
 	return videoAdapter(info, func(r GenerationRequest) (RequestSpec, error) {
 		seed25 := strings.Contains(strings.ToLower(r.Model), "seedance-2-5")
-		maxImages,maxVideos,maxAudios:=9,3,3
-		if seed25 { maxImages,maxVideos,maxAudios=30,10,10 }
+		maxImages, maxVideos, maxAudios := 9, 3, 3
+		if seed25 {
+			maxImages, maxVideos, maxAudios = 30, 10, 10
+		}
 		if len(r.Images) > maxImages || len(r.Videos) > maxVideos || len(r.Audios) > maxAudios {
-			return RequestSpec{}, fmt.Errorf("火山方舟当前模型最多支持 %d 张图片、%d 个视频和 %d 个音频",maxImages,maxVideos,maxAudios)
+			return RequestSpec{}, fmt.Errorf("火山方舟当前模型最多支持 %d 张图片、%d 个视频和 %d 个音频", maxImages, maxVideos, maxAudios)
 		}
 		if !seed25 && len(r.Audios) > 0 && len(r.Images) == 0 && len(r.Videos) == 0 {
 			return RequestSpec{}, fmt.Errorf("火山方舟全模态参考不支持纯音频或文本+音频，请同时添加参考图片或参考视频")
@@ -326,7 +332,14 @@ func arkVideosAdapter() Adapter {
 			content = append(content, map[string]any{"type": "audio_url", "audio_url": map[string]any{"url": mediaValue(audio)}, "role": "reference_audio"})
 		}
 		body := map[string]any{"model": r.Model, "content": content, "ratio": defaultValue(r.AspectRatio, "16:9"), "resolution": defaultValue(r.Resolution, "720p"), "duration": defaultInt(r.Duration, 5)}
-		if seed25 { for _,image:=range r.Images { if image.Role=="first_frame"||image.Role=="last_frame" {body["ratio"]="adaptive";break} } }
+		if seed25 {
+			for _, image := range r.Images {
+				if image.Role == "first_frame" || image.Role == "last_frame" {
+					body["ratio"] = "adaptive"
+					break
+				}
+			}
+		}
 		// Explicit false must reach Seedance; omission would enable its default audio.
 		if r.GenerateAudio || strings.Contains(strings.ToLower(r.Model), "seedance-2") || strings.Contains(strings.ToLower(r.Model), "seedance-1-5") {
 			body["generate_audio"] = r.GenerateAudio
@@ -341,6 +354,8 @@ func arkVideosAdapter() Adapter {
 func jimengVideosAdapter() Adapter {
 	info := metadata("volcengine-jimeng-video", "即梦官方视频", "Volcengine Jimeng", CapabilityVideo, "POST CVSync2AsyncSubmitTask", "POST CVSync2AsyncGetResult", "application/json + AK/SK signature")
 	info.Parameters = videoParams()
+	// 与官方插件同一鉴权声明：宿主据此要求渠道同时配置 Access Key 和 Secret Key。
+	info.Auth = ManifestAuth{Type: "volcengine-v4", Field: "apiKey", SecretField: "secretKey", Service: "cv", Region: "cn-north-1"}
 	return videoAdapterWithPoll(info, func(r GenerationRequest) (RequestSpec, error) {
 		body := map[string]any{"req_key": r.Model, "prompt": r.Prompt}
 		if len(r.Images) > 0 {
@@ -667,13 +682,13 @@ func normalizeStatus(raw string) Status {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "queued", "pending", "created", "submitted", "in_queue", "task_status_queued":
 		return StatusPending
-	case "running", "processing", "in_progress", "executing", "task_status_running":
+	case "running", "processing", "in_progress", "executing", "task_status_running", "task_status_processing":
 		return StatusProcessing
 	case "succeeded", "success", "completed", "complete", "done", "task_status_succeed":
 		return StatusSucceeded
 	case "cancelled", "canceled", "aborted":
 		return StatusCancelled
-	case "failed", "failure", "error", "expired":
+	case "failed", "failure", "error", "expired", "task_status_failed":
 		return StatusFailed
 	default:
 		return ""
