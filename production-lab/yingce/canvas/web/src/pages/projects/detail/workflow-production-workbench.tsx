@@ -905,7 +905,7 @@ function ShotAssetMentionTextarea({ value = "", onChange = () => undefined, refe
             references={references}
             onChange={onChange}
             sendOnEnter={false}
-            mentionMenuWidth={320}
+            mentionMenuLayout="list"
             mentionMenuLabels={{ connected: "已绑定资产", search: "搜索已绑定资产" }}
             containerClassName={`workflow-shot-mention-container ${large ? "is-expanded" : isScene ? "is-scene" : ""}`}
             className={`thin-scrollbar workflow-shot-mention-editor ${isScene ? "is-scene" : ""}`}

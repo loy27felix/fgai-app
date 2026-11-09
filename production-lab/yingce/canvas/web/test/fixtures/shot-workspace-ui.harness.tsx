@@ -14,7 +14,6 @@ mock.module("@/components/image-size-picker", () => ({ ImageSizePicker: () => nu
 mock.module("@/components/skills/skill-runtime-picker", () => ({ SkillRuntimePicker: () => null, useSkillRuntimeCatalog: () => ({ skills: [], loading: false }) }));
 mock.module("@/pages/projects/detail/shot-video-batch-modal", () => ({ ShotVideoBatchModal: () => null }));
 mock.module("@/pages/projects/detail/shot-image-generation-modal", () => ({ ShotImageGenerationModal: () => null }));
-mock.module("@/components/canvas/canvas-resource-mention-textarea", () => ({ CanvasResourceMentionTextarea: (props: { value: string; onChange: (text: string) => void }) => <textarea aria-label="shot-prompt" value={props.value} onChange={event => props.onChange(event.target.value)} /> }));
 let resolveRewrite!: (value: { text: string }) => void;
 mock.module("@/pages/projects/detail/shot-prompt-rewrite", () => ({ rewriteShotVideoPrompt: () => new Promise(resolve => { resolveRewrite = resolve; }) }));
 const { act, useState } = await import("react");
@@ -22,6 +21,7 @@ const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { App } = await import("antd");
+await import("@/i18n");
 const { useUserStore } = await import("@/stores/use-user-store");
 useUserStore.setState({ user: { id: "workspace-test-user" } as never });
 const actualProjects = await import("@/services/api/projects");
@@ -51,7 +51,7 @@ test("switching shots retains edited prompts and separates notes; polling cannot
     const click = async (element: Element) => { await act(async () => { element.dispatchEvent(new dom.MouseEvent("click", { bubbles: true })); }); await settle(); };
     const fill = async (element: HTMLTextAreaElement, text: string) => { await act(async () => { Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype,"value")!.set!.call(element,text); element.dispatchEvent(new dom.Event("input", { bubbles: true })); }); };
     const button = (text: string) => [...document.querySelectorAll("button")].find(item => item.textContent?.includes(text))!;
-    const prompt = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="shot-prompt"]')!;
+    const prompt = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label^="视频提示词"]')!;
     const notes = () => document.querySelector<HTMLTextAreaElement>('textarea[placeholder^="例如：起步"]')!;
     try {
         await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><App><Harness /></App></MemoryRouter></QueryClientProvider>));
@@ -80,6 +80,65 @@ test("switching shots retains edited prompts and separates notes; polling cannot
         expect(document.body.textContent).not.toContain("生成建议后正文或时长又有修改");
     } finally {
         await act(async () => root.unmount()); host.remove(); client.clear();
+    }
+});
+
+test("shot editors open the original asset rows and insert references even in the wide modal", async () => {
+    const shot = { id: "mention-shot", projectId: "mention-project", unitId: "u", title: "镜头01", position: 0, durationMs: 15000, currentRevisionId: "mention-revision" } as ProjectShot;
+    const assets = ["艾拉男装", "伊森", "录音室"].map((title, position) => ({
+        id: `asset-${position}`, title, position, category: "material", mediaType: "image",
+        storageKey: `resource:image-${position}`, primaryVersionId: `version-${position}`, status: "confirmed", versionCount: 1, usages: [],
+    }));
+    const detail = {
+        project: { id: shot.projectId, name: "引用测试", aspectRatio: "9:16" },
+        units: [{ id: shot.unitId, title: "测试章节", position: 0 }],
+        shots: [shot], assets, shotArtifacts: [], tasks: [],
+        shotReferences: assets.map(asset => ({ id: asset.id, shotId: shot.id, assetVersionId: asset.primaryVersionId, role: "reference", status: "linked", asset })),
+        shotRevisions: [{ id: shot.currentRevisionId, shotId: shot.id, videoPrompt: "角色参考：", plotDescription: "", durationMs: 15000, version: 1 }],
+    } as unknown as ProjectDetail;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+        await act(async () => root.render(
+            <QueryClientProvider client={client}><MemoryRouter><App>
+                <Workbench activeStage="video" detail={detail} projectId={shot.projectId} unitId={shot.unitId}
+                    selectedShot={shot} onSelectShot={() => {}} onRefresh={async () => {}} onAddShot={() => {}} addingShot={false} />
+            </App></MemoryRouter></QueryClientProvider>,
+        ));
+        for (const expanded of [false, true]) {
+            if (expanded) {
+                await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent?.includes("展开编辑完整提示词"))!.click());
+            }
+            const scope = expanded ? document.querySelector<HTMLElement>(".ant-modal-container")! : host;
+            scope.getBoundingClientRect = () => new dom.DOMRect(0, 0, 1000, 760) as unknown as DOMRect;
+            const editor = scope.querySelector<HTMLElement>('[role="textbox"][aria-label^="视频提示词"]')!;
+            await act(async () => {
+                editor.focus();
+                const text = document.createTextNode(" @");
+                editor.append(text);
+                const range = document.createRange();
+                range.setStart(text, text.length);
+                range.collapse(true);
+                const selection = window.getSelection()!;
+                selection.removeAllRanges();
+                selection.addRange(range);
+                editor.dispatchEvent(new dom.InputEvent("input", { bubbles: true }));
+            });
+            const menu = document.querySelector<HTMLElement>("[data-canvas-resource-mention-menu]")!;
+            expect(menu.querySelector(".canvas-resource-mention-body")).toBeNull();
+            const rows = menu.querySelectorAll<HTMLButtonElement>(".canvas-resource-mention-item");
+            expect([...rows].map(row => row.querySelector("strong")?.textContent)).toEqual(assets.map(asset => asset.title));
+            const previousCount = editor.querySelectorAll("[data-mention-token]").length;
+            await act(async () => rows[expanded ? 1 : 0].click());
+            expect(editor.querySelectorAll("[data-mention-token]")).toHaveLength(previousCount + 1);
+            expect(document.querySelector("[data-canvas-resource-mention-menu]")).toBeNull();
+        }
+    } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        client.clear();
     }
 });
 

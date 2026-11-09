@@ -68,6 +68,7 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "onS
     containerClassName?: string;
     highlightLabels?: boolean;
     mentionMenuWidth?: number;
+    mentionMenuLayout?: "auto" | "list";
     sendOnEnter?: boolean | "both";
     onContentSizeChange?: (height: number) => void;
     includeAssetLibrary?: boolean;
@@ -98,7 +99,8 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
         containerClassName,
         style,
         highlightLabels = true,
-        mentionMenuWidth = 640,
+        mentionMenuLayout = "auto",
+        mentionMenuWidth = mentionMenuLayout === "list" ? 320 : 640,
         sendOnEnter = false,
         onContentSizeChange,
         includeAssetLibrary = false,
@@ -468,6 +470,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                 query={mention.query}
                 cursorOffset={mention.end}
                 preferredWidth={mentionMenuWidth}
+                layout={mentionMenuLayout}
                 keyboardRef={mentionKeyboardRef}
                 onQueryChange={(query) => setMention((current) => (current ? { ...current, query } : current))}
                 onClose={closeMention}

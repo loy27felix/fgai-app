@@ -54,6 +54,7 @@ export function MentionMenu({
     query,
     cursorOffset,
     preferredWidth,
+    layout = "auto",
     keyboardRef,
     onQueryChange,
     onClose,
@@ -69,6 +70,7 @@ export function MentionMenu({
     query: string;
     cursorOffset: number;
     preferredWidth: number;
+    layout?: "auto" | "list";
     /** 编辑器按键入口：方向键、Enter/Tab、Esc 按菜单当前显示的候选处理。 */
     keyboardRef?: { current: MentionMenuKeyboard | null };
     onQueryChange: (query: string) => void;
@@ -83,13 +85,13 @@ export function MentionMenu({
     const selectedRef = useRef(false);
     const [category, setCategory] = useState<AssetCategory | null>(null);
     const [active, setActive] = useState<MentionMenuActive | null>(null);
-    const [position, setPosition] = useState(() => mentionMenuPosition(anchor, cursorOffset, preferredWidth));
+    const [position, setPosition] = useState(() => mentionMenuPosition(anchor, cursorOffset, preferredWidth, layout));
 
     useLayoutEffect(() => {
         let frame = 0;
         const updatePosition = () => {
             cancelAnimationFrame(frame);
-            frame = requestAnimationFrame(() => setPosition(mentionMenuPosition(anchor, cursorOffset, preferredWidth)));
+            frame = requestAnimationFrame(() => setPosition(mentionMenuPosition(anchor, cursorOffset, preferredWidth, layout)));
         };
         updatePosition();
         const observer = new ResizeObserver(updatePosition);
@@ -104,7 +106,7 @@ export function MentionMenu({
             window.removeEventListener("resize", updatePosition);
             window.removeEventListener("scroll", updatePosition, true);
         };
-    }, [anchor, cursorOffset, preferredWidth]);
+    }, [anchor, cursorOffset, preferredWidth, layout]);
 
     const searching = Boolean(query.trim());
     const gallery = position.gallery;
@@ -527,14 +529,14 @@ function mentionOverlayZIndex(anchor: HTMLElement) {
     return Number.isFinite(layer) ? layer + 1 : undefined;
 }
 
-export function mentionMenuPosition(anchor: HTMLElement, cursorOffset: number, preferredWidth: number) {
+export function mentionMenuPosition(anchor: HTMLElement, cursorOffset: number, preferredWidth: number, layout: "auto" | "list" = "auto") {
     const caret = mentionCaretRect(anchor, cursorOffset);
     const boundary = anchor.closest(".ant-modal-container")?.getBoundingClientRect() || { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
     const inset = 8;
     const gap = 8;
     const availableWidth = Math.max(0, boundary.right - boundary.left - inset * 2);
     const width = Math.min(preferredWidth, availableWidth);
-    const gallery = width >= GALLERY_MIN_WIDTH;
+    const gallery = layout === "auto" && width >= GALLERY_MIN_WIDTH;
     const left = clamp(caret.left, boundary.left + inset, boundary.right - width - inset);
     const spaceAbove = Math.max(0, caret.top - boundary.top - gap - inset);
     const spaceBelow = Math.max(0, boundary.bottom - caret.bottom - gap - inset);
