@@ -82,6 +82,26 @@ function matchingAssetNames(assets: ProjectAsset[], text: string) {
     return [...names].filter(([name]) => namePattern(name).test(normalized));
 }
 
+/** Explicit shot-level direction also applies when a character has an older saved binding. */
+export function isCharacterExcludedFromShot(prompt: string, names: string[]) {
+    const lines = prompt.normalize("NFKC").split(/\r?\n/);
+    return lines.some(line => {
+        const roster = line.match(/^\s*(?:#+\s*)?(?:【本镜头不出场】\s*[:：]?|本镜头不出场[:：])\s*(.+)/u)?.[1];
+        if (roster && roster.split(/[、,，;；]/u).some(value => names.some(name => value.trim().replace(/[。.]$/u, "").toLocaleLowerCase() === name.normalize("NFKC").toLocaleLowerCase()))) return true;
+        return names.some(name => {
+            const pattern = namePattern(name.normalize("NFKC")).source;
+            return new RegExp(`^\\s*(?:[-*]\\s*)?(?:本镜头\\s*)?${pattern}\\s*[:：]?\\s*(?:本镜头|本段)?\\s*(?:不出场|不入镜|不在场|不出现)[。.!！]?\\s*$`, "iu").test(line);
+        });
+    });
+}
+
+function characterMentionText(text: string, name: string) {
+    const pattern = namePattern(name).source;
+    return text.normalize("NFKC")
+        .replace(new RegExp(`${pattern}\\s*[:：]?\\s*(?:不出场|不入镜|不在本镜|不出现|仅画外音|只以(?:手机)?消息出现|[（(]V\\.?O\\.?[)）])`, "giu"), "")
+        .replace(new RegExp(`(?:提到|提及|谈到|说起|想起|听说)(?:了|过)?\\s*${pattern}`, "giu"), "");
+}
+
 /** Full names and confirmed aliases only; an ambiguous alias never chooses an arbitrary face. */
 export function inferShotVisualAssets(assets: ProjectAsset[], text: string, explicitIds: string[] = []): ProjectAsset[] {
     const matched = new Map<string, ProjectAsset>();
@@ -91,7 +111,11 @@ export function inferShotVisualAssets(assets: ProjectAsset[], text: string, expl
         const asset = assets.find((item) => item.id === id);
         if (asset) matched.set(id, asset);
     }
-    for (const [, candidates] of matchingAssetNames(assets.filter(asset => ["character", "environment", "prop"].includes(normalizeAssetCategory(asset.category))), text)) {
+    const narrative = shotNarrativeText(text);
+    for (const [name, matches] of matchingAssetNames(assets.filter(asset => ["character", "environment", "prop"].includes(normalizeAssetCategory(asset.category))), text)) {
+        const candidates = matches.filter(asset => normalizeAssetCategory(asset.category) !== "character" ||
+            (!isCharacterExcludedFromShot(text, assetDisplayNames(asset)) && namePattern(name).test(characterMentionText(narrative, name))));
+        if (!candidates.length) continue;
         const selected=assignments.filter(assignment=>candidates.every(candidate=>assignment.canonicalAssetIds.includes(candidate.id)));
         if(selected.length===1 && !selected[0].canonicalAssetIds.some(id=>explicit.has(id))) continue;
         if (candidates.length !== 1) continue;
@@ -105,21 +129,19 @@ export function inferShotVisualAssets(assets: ProjectAsset[], text: string, expl
 export function shotNarrativeText(prompt: string) {
     const blocks = prompt.split(/(?=【[^】]+】)/u);
     const timelines = blocks.filter(block => /^【[^】]*(?:分镜.*时间轴|动作时间轴)[^】]*】/u.test(block));
-    const relevant = timelines.length ? timelines : blocks.filter(block => !/^【[^】]*(?:参考|资产|声音|声线|对白|台词|负面|约束|画风)[^】]*】/u.test(block));
-    return relevant.join("\n");
+    const relevant = timelines.length ? timelines : blocks.filter(block => !/^【[^】]*(?:参考|资产|声音|声线|对白|台词|负面|约束|画风|不出场|章节人物)[^】]*】/u.test(block));
+    return relevant.join("\n").split(/\r?\n/u)
+        .filter(line => !/^\s*[#>*\s-]*(?:衔接|前情(?:提要)?|上一镜头|前一镜头|上一集|本集(?:角色|人物)|章节(?:角色|人物)|本镜头不出场|台词|对白|旁白|声音|声线|音效)\**(?:\s*[:：]|\s*$)/u.test(line))
+        .join("\n");
 }
 
 export function assertShotCharacterCoverage(prompt: string, context: ShotAssetReferenceContext, assets: ProjectAsset[], excludedIds: string[] = []) {
-    const characters = assets.filter(asset => normalizeAssetCategory(asset.category) === "character" && !excludedIds.includes(asset.id));
-    let text = shotNarrativeText(prompt);
-    // Explicitly absent and voice-only mentions do not require a visible body.
-    for (const asset of characters) for (const name of assetNames(asset)) {
-        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        text = text.replace(new RegExp(`${escaped}\\s*[：:]?\\s*(?:不出场|不入镜|不在本镜|不出现|仅画外音|只以(?:手机)?消息出现|[（(]V\\.?O\\.?[)）])`, "gi"), "");
-    }
+    const characters = assets.filter(asset => normalizeAssetCategory(asset.category) === "character" && !excludedIds.includes(asset.id) && !isCharacterExcludedFromShot(prompt, assetDisplayNames(asset)));
+    const text = shotNarrativeText(prompt);
     const bound = new Set(context.assetReferences.filter(ref => normalizeAssetCategory(ref.category) === "character").map(ref => ref.assetId));
     const missing = new Set<string>();
     for (const [name, candidates] of matchingAssetNames(characters, text)) {
+        if (!namePattern(name).test(characterMentionText(text, name))) continue;
         const assigned=(context.characterIdentityAssignments||[]).filter(assignment=>bound.has(assignment.assetId) && assignment.names.some(value=>value.toLocaleLowerCase()===name) && candidates.every(candidate=>assignment.canonicalAssetIds.includes(candidate.id)));
         if(assigned.length) {
             if(assigned.length===1 && !assigned[0].canonicalAssetIds.some(id=>bound.has(id))) continue;
@@ -129,7 +151,7 @@ export function assertShotCharacterCoverage(prompt: string, context: ShotAssetRe
             if (candidates.filter(asset => bound.has(asset.id)).length !== 1) throw new Error(`角色别名“${name}”对应多个资产（${candidates.map(asset=>asset.title).join("、")}），当前绑定未能唯一确认。请明确引用对应角色卡；同一人物换装请使用“本镜头内换装”，未提交视频生成`);
         } else if (!bound.has(candidates[0].id)) missing.add(candidates[0].title);
     }
-    if (missing.size) throw new Error(`本镜头出现的角色未绑定参考图：${[...missing].join("、")}。请点击“重新匹配资产”并确认角色图片，未提交视频生成`);
+    if (missing.size) throw new Error(`本镜头提示词涉及未绑定参考图的角色：${[...missing].join("、")}。如确实出场，请绑定角色图；若只在前情中被提及，请在提示词另起一行写“本镜头不出场：角色名”。未提交视频生成`);
 }
 
 export function stableShotReferences(references: ShotAssetReference[]) {
