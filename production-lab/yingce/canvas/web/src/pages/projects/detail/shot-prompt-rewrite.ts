@@ -1,12 +1,11 @@
 import { runShortDramaText } from "@/services/short-drama-text";
 import { runBackendCanvasGenerationTask } from "@/lib/canvas/canvas-project-generation";
 import { shortDramaSkillContext, shortDramaSkillProvenance } from "@/lib/prompts/short-drama-skill-context";
-import { validateDirectorVideoPrompt } from "@/lib/short-drama-production";
 import { skillRuntime } from "@/services/skill-runtime";
 import type { Skill } from "@/services/api/skills";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { GenerationTask } from "@/services/api/task-center";
-import { getProjectLanguage, applyProjectLanguage, lockDialogueToOriginal, assertLockedEnglishPrompt } from "@/services/api/project-language";
+import { getProjectLanguage, applyProjectLanguage, lockDialogueToOriginal } from "@/services/api/project-language";
 import { getProjectUnitWorkspace } from "@/services/api/projects";
 
 export async function rewriteShotVideoPrompt(input: { projectId: string; unitId?: string; shotId: string; config: AiConfig; notes: string; seconds: number; facts: Record<string, unknown>; skills: Skill[]; skillIds: string[]; actionDirection?: string; onFallback: (message: string) => void; onTask: (task: GenerationTask) => void }) {
@@ -17,7 +16,7 @@ export async function rewriteShotVideoPrompt(input: { projectId: string; unitId?
     const facts = lockedDialogue === undefined ? input.facts : { ...input.facts, current: { ...current, dialogue: lockedDialogue } };
     const prepared = await skillRuntime.prepare({ profile: "shortDrama", skills: input.skills, selectedSkillIds: input.skillIds, prompt: [
         shortDramaSkillContext(Boolean(input.actionDirection?.trim())),
-        "只重写当前片段的视频提示词，直接返回完整 director-v2 文本，不要 JSON、解释或 Markdown 代码围栏。所有区块写实际内容，时间轴从0连续覆盖到指定总秒数，每段有‘人物动作：／镜头运动：／背景：’。保留原剧情、完整对白、角色身份及真实@资产标记，不编造素材ID。",
+        "只重写当前片段的视频提示词，直接返回完整 director-v2 文本，不要 JSON、解释或 Markdown 代码围栏。所有区块写实际内容，时间轴从0连续覆盖到指定总秒数，每段有‘人物动作：／镜头运动：／背景：’。保留原剧情、完整对白和角色身份。只可使用当前镜头 references 中明确绑定且实际需要的资产标记；前后镜头只用于衔接。修改意见明确要求某角色不出场时，删除其画面动作和图像引用，并另起一行写‘本镜头不出场：角色名’。",
         "默认节奏紧凑：第一秒启动有效事件；动作起步、出手与反应干脆；对白、倾听和走位重叠推进。运镜由动作或新信息触发，写启动、惯性、减速和落点；只在命中瞬间短促重拍，随后继续行动。",
         "服装沿用本镜头已选造型参考图，不重新补写款式、颜色、材质或配饰。同场景不自行换装；只有原剧情或本次用户明确要求换装时才描述变化。角色卡与声音样本不是台词来源，没有当前片段对白的角色保持无声。",
         "逐项对齐前段结尾、本段开头与下一段入口：人物站位/朝向/脚下介质、持物手、道具状态、光源、声音。空镜可以承接画外行动，不能让人物瞬移、复位、换手或丢失道具。原有小魔法与受击特效写触发→接触点/来源→方向速度→命中反馈→环境余波→消散，不新增未经确认的能力。",
@@ -29,7 +28,5 @@ export async function rewriteShotVideoPrompt(input: { projectId: string; unitId?
     const provenance = await shortDramaSkillProvenance(Boolean(input.actionDirection?.trim()));
     const result = await runShortDramaText(input.config, config => runBackendCanvasGenerationTask({ projectId: input.projectId, nodeId: `rewrite:${input.shotId}`, mode: "text", prompt: applyProjectLanguage(prepared.prompt, policy), config, metadata: { source: "short-drama-prompt-rewrite", domainProjectId: input.projectId, shotId: input.shotId, projectLanguagePolicy: policy, ...prepared.metadata, builtinDramaSkills: provenance }, onTaskCreated: input.onTask }), input.onFallback);
     const text = result.text?.trim() || "";
-    validateDirectorVideoPrompt(text, input.seconds);
-    if (lockedDialogue !== undefined) assertLockedEnglishPrompt(lockedDialogue, text);
     return { text, provenance, lockedDialogue };
 }

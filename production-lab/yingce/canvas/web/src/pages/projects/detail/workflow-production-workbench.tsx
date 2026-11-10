@@ -1,6 +1,7 @@
 import { ImageSizePicker } from "@/components/image-size-picker";
 import { FGPricePreview } from "@/components/fg-price-preview";
-import { dramaPlanFromBeats } from "@/lib/short-drama-production";
+import { dramaPlanFromBeats, validateDirectorVideoPrompt } from "@/lib/short-drama-production";
+import { assertLockedEnglishPrompt } from "@/services/api/project-language";
 import { shortDramaMediaDefault } from "@/lib/short-drama-models";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { shotArtifactPrompt, actionBoardPromptFromBeats } from "./shot-artifact-prompt";
@@ -637,9 +638,23 @@ export default function WorkflowProductionWorkbench(props: Props) {
         rememberDraft({ result: null });
         setRewriteStatus("正在提交提示词修改任务…");
         try {
-            const result = await rewriteShotVideoPrompt({ projectId, unitId: selectedShot.unitId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current: values, previous: shots[shotIndex - 1] ? currentRevision(detail, shots[shotIndex - 1]) : null, next: shots[shotIndex + 1] ? currentRevision(detail, shots[shotIndex + 1]) : null, references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
-            resolveShotAssetMentionPrompt(result.text, shotAssetReferenceContext, { dialogue: values.dialogue });
-            const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text: ensureShotAssetMentionPrompt(result.text, shotAssetReferenceContext.mentionReferences), ...(result.lockedDialogue === undefined ? {} : { originalDialogue: values.dialogue || "", lockedDialogue: result.lockedDialogue }) };
+            const neighbor = (index: number) => {
+                const revision = currentRevision(detail, shots[index]);
+                return revision ? {
+                    plotDescription: revision.plotDescription,
+                    action: revision.action,
+                    continuityNotes: revision.continuityNotes,
+                    videoPrompt: ensureShotAssetMentionPrompt(revision.videoPrompt || "", []),
+                } : null;
+            };
+            const current = { ...values, videoPrompt: ensureShotAssetMentionPrompt(original, shotAssetReferenceContext.mentionReferences) };
+            const result = await rewriteShotVideoPrompt({ projectId, unitId: selectedShot.unitId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current, previous: neighbor(shotIndex - 1), next: neighbor(shotIndex + 1), references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
+            const latestContext = activeWorkspaceKey.current === workspaceKey ? liveReferenceContext.current || shotAssetReferenceContext : shotAssetReferenceContext;
+            const sceneContext = shotSceneReferenceContext(result.text, latestContext);
+            const text = ensureShotAssetMentionPrompt(result.text, sceneContext.mentionReferences);
+            validateDirectorVideoPrompt(text, values.durationSeconds);
+            if (result.lockedDialogue !== undefined) assertLockedEnglishPrompt(result.lockedDialogue, text);
+            const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text, ...(result.lockedDialogue === undefined ? {} : { originalDialogue: values.dialogue || "", lockedDialogue: result.lockedDialogue }) };
             if (activeWorkspaceKey.current === workspaceKey) setRewriteResult(suggestion);
             rememberDraft({ result: suggestion });
             if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus("重写完成，请检查后应用；原提示词和视频仍保留");
@@ -648,7 +663,16 @@ export default function WorkflowProductionWorkbench(props: Props) {
     };
     const applyRewrite = () => {
         if (!rewriteResult || !canApplyShotRewrite(rewriteResult, selectedShot.id, form.getFieldsValue())) return message.warning("生成建议后正文或时长又有修改，请重新生成建议，避免覆盖新内容");
-        form.setFieldValue("videoPrompt", ensureShotAssetMentionPrompt(rewriteResult.text, shotAssetReferenceContext.mentionReferences));
+        const sceneContext = shotSceneReferenceContext(rewriteResult.text, shotAssetReferenceContext);
+        const text = ensureShotAssetMentionPrompt(rewriteResult.text, sceneContext.mentionReferences);
+        try {
+            validateDirectorVideoPrompt(text, rewriteResult.seconds);
+            if (rewriteResult.lockedDialogue !== undefined) assertLockedEnglishPrompt(rewriteResult.lockedDialogue, text);
+        } catch (error) {
+            setRewriteStatus(error instanceof Error ? error.message : "修改建议无法应用，请重新生成");
+            return;
+        }
+        form.setFieldValue("videoPrompt", text);
         if (rewriteResult.lockedDialogue !== undefined) form.setFieldValue("dialogue", rewriteResult.lockedDialogue);
         rememberEditor();
         setRewriteOpen(false);
