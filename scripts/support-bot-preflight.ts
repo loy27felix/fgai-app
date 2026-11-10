@@ -21,6 +21,14 @@ async function database(value: string | undefined, tables: string[], readOnly: b
         FROM unnest($1::text[]) name`, [tables]);
       const missing = result.rows.filter(row => !row.readable).map(row => row.name);
       if (!missing.length && tables.includes('support_bot_jobs')) await client.query('SELECT id, images, context, stage, progress, feedback_rating, feedback_correction, feedback_updated_at FROM support_bot_jobs LIMIT 0');
+      if (!missing.length && tables.includes('api_call_logs') && tables.includes('task_logs')) {
+        // Effect diagnostics need historical submission columns, not just readable task-status tables.
+        // 效果异常排查需要历史提交字段，不能仅因状态表可读就认定取证就绪。
+        try {
+          await client.query('SELECT id, user_id, project_id, request_id, trace_id, provider_request_id, status, type, model, created_at, updated_at, input_json, prompt FROM tasks LIMIT 0');
+          await client.query('SELECT id, user_id, task_id, request_id, trace_id, provider_request_id, request_kind, status, status_code, request_body, response_body, created_at FROM api_call_logs LIMIT 0');
+        } catch { return { ready: false, reason: 'generation_schema_or_select_grant_missing' }; }
+      }
       const writable = readOnly && result.rows.some(row => row.writable);
       return { ready: !missing.length && !writable, reason: missing.length ? 'schema_or_select_grant_missing' : writable ? 'source_role_not_read_only' : 'environment_and_schema_verified', missing };
     } finally { await client.query('ROLLBACK').catch(() => undefined); client.release(); }

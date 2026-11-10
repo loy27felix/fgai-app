@@ -63,7 +63,7 @@ export function supportOperationErrorEvidence(value: unknown): { summary: string
   if (structured || /^(?:\{|\[\s*(?:[\[{"']|$))/.test(firstLine)) return { summary: '结构化错误正文已隐藏。' };
   const bodyAt = firstLine.search(/\b(?:prompt|payload|parameters|body|(?:request|response)(?:[_\s-]?body)?|input(?:[_\s-]?json)?|result(?:[_\s-]?json)?)\b["'\\\s]*(?:[:：=]|\s+[\[{])|(?:提示词|请求体|响应体|输入|输出)\s*[:：=]|\{|\[\s*[\[{"']|<(?:!doctype|html|body|script|pre|div)\b/i);
   const prefix = bodyAt < 0 ? firstLine : `${firstLine.slice(0, bodyAt)}[content redacted]`;
-  let summary = redactSupportText(prefix)
+  const diagnostic = redactSupportText(prefix)
     .replace(/(?:file:\/\/|[A-Za-z]:\\)[^\s"'<>，。；]+/g, '[path redacted]')
     .replace(/(^|[\s(`"'=：:])(?:~|\.{1,2})?\/[^\s"'<>，。；)]+/g, '$1[path redacted]')
     .replace(/[A-Za-z0-9+/_=-]{24,}/g, (token) => {
@@ -73,13 +73,12 @@ export function supportOperationErrorEvidence(value: unknown): { summary: string
       return token.length >= 96 || /^[a-f0-9]{24,}$/i.test(token) || entropy >= 3.4 ? '[opaque value redacted]' : token;
     })
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b/g, '[address redacted]')
-    .replace(/[\x00-\x1f\x7f]/g, '[control redacted]')
-    .slice(0, 320).trim();
-  if (!summary) summary = '错误首行正文已隐藏。';
-  // Proof must be a contiguous, unchanged fragment, never a redaction placeholder.
-  // 证明片段必须是原始内容的连续且未改写子串，不能将脱敏占位文字作为证据。
-  const errorExcerpt = summary.split(/\[[^\]]*redacted[^\]]*\]/i)
-    .map((part) => part.trim().replace(/^[\s"'`:,;]+|[\s"'`:,;]+$/g, '').slice(0, 160))
+    .replace(/[\x00-\x1f\x7f]/g, '[control redacted]').trim();
+  const summary = diagnostic.slice(0, 320) || '错误首行正文已隐藏。';
+  // Keep provider constraints beyond the compact summary; proof is still an unchanged, redacted-safe fragment.
+  // 保留简短摘要之后的上游约束；证明仍须为未改写的安全连续原文，不能使用脱敏占位文字。
+  const errorExcerpt = diagnostic.split(/\[[^\]]*redacted[^\]]*\]/i)
+    .map((part) => part.trim().replace(/^[\s"'`:,;]+|[\s"'`:,;]+$/g, '').slice(0, 1200))
     .filter((part) => part.length >= 6 && /[A-Za-z\u4e00-\u9fff]/.test(part) && value.includes(part))
     .sort((a, b) => b.length - a.length)[0];
   return { summary, ...(errorExcerpt ? { errorExcerpt } : {}) };

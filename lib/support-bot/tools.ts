@@ -3,6 +3,7 @@ import { queryLogExplorer, getLogDetail } from '@/lib/observability/log-query';
 import { searchSupportCode } from './code-search';
 import { queryUserOperations, supportOperationErrorEvidence } from './operations';
 import { queryCanvasAssets } from './canvas-assets';
+import { queryCanvasGeneration } from './generation';
 import { queryCanvasSupportLogs } from './canvas-logs';
 import { traceSupportChain, type ChainSeed } from './chain';
 import type { InvestigationScope } from './investigation-scope';
@@ -90,6 +91,16 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
         line: args.line === undefined ? undefined : Number(args.line), offset: args.offset === undefined ? undefined : Number(args.offset),
       }, source.revision, source.mode);
       return boundedEvidence({ ...result, system, matches: result.matches.map(match => ({ ...match, service: serviceForCodePath(match.path) })) });
+    }
+    if (tool === 'generation') {
+      if (system !== 'canvas' || !owner) return { system, rows: [], incomplete: true, note: '生成内容核对仅允许已验证网页登录用户查询本人 Canvas 任务，不提供群聊或跨服务回退。' };
+      if (!identifier(args.taskId)) throw new Error('生成内容核对需要精确任务编号');
+      const filters = ids(args);
+      const range = dates(args, true);
+      const result = boundedEvidence(await queryCanvasGeneration({ userId: owner, taskId: filters.taskId,
+        projectId: filters.projectId || investigation?.projectId || contextProject, ...range }));
+      remember(result);
+      return result;
     }
     if (tool === 'assets') {
       if (system !== 'canvas' || !owner) return { system, rows: [], incomplete: true, note: '素材快照需要选择 canvas 服务并验证网页登录身份。' };
