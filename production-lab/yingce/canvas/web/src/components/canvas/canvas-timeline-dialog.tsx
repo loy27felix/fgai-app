@@ -550,7 +550,7 @@ export function CanvasTimelineDialog({
         subtitleNodeIds.forEach((subNodeId) => {
             onSaveSubtitles(subNodeId, buildSubtitleEntriesForNode(subNodeId, normalized));
         });
-        message.success("时间线已保存");
+        message.success("已保存到当前画布，重新点击「进入剪辑」可继续编辑");
         onClose();
     };
 
@@ -741,11 +741,12 @@ export function CanvasTimelineDialog({
     const selectionVideoCount = countTimelineSelectionVideos(nodes, selectedNodeIds);
     const referenceVideoCount = nodes.filter((item) => isReferenceVideoNode(item) && Boolean(item.metadata?.content || item.metadata?.storageKey)).length;
     const scopeOptions = [
-        { value: "current" as const, label: "当前视频", disabled: !triggerHasMedia },
+        { value: "current" as const, label: node.type === "audio" ? "当前音频" : "当前视频", disabled: !triggerHasMedia },
         ...(selectionVideoCount > 1 ? [{ value: "selection" as const, label: `选中视频（${selectionVideoCount}）` }] : []),
         { value: "canvas" as const, label: "整个画布", title: referenceVideoCount ? "默认不含预演台白膜/深度参考视频" : undefined },
     ];
-    const sourceSummary = formatTimelineSourceSummary(SOURCE_LABELS[source], summarizeTimelineSource(draft));
+    const sourceLabel = source === "current" && node.type === "audio" ? "当前音频" : SOURCE_LABELS[source];
+    const sourceSummary = formatTimelineSourceSummary(sourceLabel, summarizeTimelineSource(draft));
 
     const title = (
         <div className="flex min-w-0 items-center gap-3 pr-10">
@@ -929,7 +930,7 @@ export function CanvasTimelineDialog({
 
                 {source === "saved" ? (
                     <div className="flex items-center gap-3 border-b px-4 py-2 text-xs" style={{ borderColor: theme.toolbar.border, background: theme.accent.primarySoft }}>
-                        <span className="min-w-0 flex-1 truncate">正在编辑项目里已保存的时间线，画布上新增的视频不会自动加入。</span>
+                        <span className="min-w-0 flex-1 truncate">正在编辑当前画布已保存的时间线，新增素材需手动添加。</span>
                         {triggerHasVideo ? (
                             <Button size="small" icon={<Video className="size-3.5" />} onClick={() => void startFromCurrentVideo()}>
                                 从当前视频新建时间线
@@ -938,7 +939,7 @@ export function CanvasTimelineDialog({
                     </div>
                 ) : null}
 
-                <CanvasTimelinePreview clips={draft.clips} nodes={nodes} playheadMs={playheadMs} playing={previewPlaying} theme={theme} onTogglePlay={() => setPreviewPlaying((value) => !value)} onPlayheadChange={setPlayheadMs} />
+                <CanvasTimelinePreview clips={draft.clips} tracks={draft.tracks} nodes={nodes} playheadMs={playheadMs} playing={previewPlaying} theme={theme} onTogglePlay={() => setPreviewPlaying((value) => !value)} onPlayheadChange={setPlayheadMs} />
 
                 <div className="flex min-h-0 flex-1">
                     <div className="flex w-44 shrink-0 flex-col border-r" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
