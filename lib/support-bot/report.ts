@@ -5,13 +5,21 @@ import type { SupportCodeSource } from './runtime';
 import type { InvestigationScope } from './investigation-scope';
 import { serviceForCodePath, supportServiceId, supportServices, type SupportServiceId } from './services';
 
-export type SupportEvidence = { id: string; tool: string; result: Record<string, unknown> };
+export type SupportEvidence = { id: string; tool: string; result: Record<string, unknown>; status?: 'completed' | 'failed' };
 export type InvestigationAnswer = Record<string, unknown>;
 export type InvestigationContext = {
   intent: 'product' | 'incident'; runtimeVerified: boolean; relatedIds: Set<string>; codeSource: SupportCodeSource; target: SupportServiceId;
   scope?: InvestigationScope;
   services?: SupportServiceId[];
+  incompleteReason?: 'answer_validation' | 'model_response' | 'tool_budget';
 };
+
+export function isEvidenceFailure(entry: SupportEvidence): boolean {
+  if (entry.status) return entry.status === 'failed';
+  // A retrieved log's business error is evidence, not a failed tool call.
+  // 已取回日志中的业务错误是证据，不是工具执行失败。
+  return !!entry.result.error && !(entry.tool === 'detail' && typeof entry.result.id === 'string');
+}
 
 export function safeText(value: unknown, limit = 1200): string {
   return typeof value === 'string' ? String(scrubSupportValue(value)).replace(/[<>]/g, '').trim().slice(0, limit) : '';
@@ -29,7 +37,7 @@ export function isAnomaly(row: Record<string, unknown>): boolean {
     || ['failed', 'rejected', 'unhealthy', 'error', 'cancelled', 'expired'].includes(String(row.status ?? row.outcome));
 }
 function isImplementationRead(entry: SupportEvidence): boolean {
-  return entry.tool === 'code' && !entry.result.error && entry.result.read === true && Array.isArray(entry.result.matches)
+  return entry.tool === 'code' && !isEvidenceFailure(entry) && entry.result.read === true && Array.isArray(entry.result.matches)
     && entry.result.matches.some((match: { path?: string }) => typeof match.path === 'string' && isSupportCodePath(match.path)
       && !/\.(?:md|mdx|txt)$/i.test(match.path) && !/^(?:\.planning|docs|tests?|__tests__)\//.test(match.path)
       && !/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\.[^/]+$/.test(match.path));
@@ -43,7 +51,7 @@ function failureText(row: Record<string, unknown>) {
 
 function assessEvidence(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext) {
   const refs = strings(answer.evidenceRefs, 20);
-  const cited = evidence.filter(entry => refs.includes(entry.id) && !entry.result.error);
+  const cited = evidence.filter(entry => refs.includes(entry.id) && !isEvidenceFailure(entry));
   const recordIds = strings(answer.recordIds, 20);
   const codeRead = cited.some(isImplementationRead);
   const matchedCode = cited.filter(entry => isImplementationRead(entry)
@@ -87,7 +95,7 @@ export function validateInvestigationAnswer(answer: InvestigationAnswer, evidenc
   if (!['confirmed', 'likely', 'needs_info'].includes(String(answer.certainty))) return 'certainty 必须是 confirmed、likely 或 needs_info。';
   if (options.intent === 'incident' && answer.certainty === 'likely') return '故障不接受 likely 或猜测性解释；继续查实际时间段/任务/请求/trace链路，未定位就用 needs_info，仅列已查事实与缺失信息，不给推测原因或推测修复。';
   const refs = strings(answer.evidenceRefs, 20);
-  if (refs.some(ref => !evidence.some(entry => entry.id === ref && !entry.result.error))) return 'evidenceRefs 包含不存在或失败的证据。';
+  if (refs.some(ref => !evidence.some(entry => entry.id === ref && !isEvidenceFailure(entry)))) return 'evidenceRefs 包含不存在或失败的证据。';
   const code = evidence.filter(entry => entry.tool === 'code' && Array.isArray(entry.result.matches) && entry.result.matches.length);
   if (code.length && !code.some(entry => refs.includes(entry.id) && isImplementationRead(entry))) return '不能只凭搜索命中或文档回答；须用 code 的 path+line 读取相关业务实现并引用，needs_info 也不例外。';
   const ids = strings(answer.recordIds, 20);
@@ -121,7 +129,7 @@ function assetSnapshotDescription(row: Record<string, unknown>): string {
     + '这不是历史变更记录，不证明何时丢失或物理文件已删除。';
 }
 export function evidenceDescription(entry: SupportEvidence): string {
-  if (entry.result.error) return `${entry.id} ${entry.tool}：${safeText(entry.result.error, 160)}`;
+  if (isEvidenceFailure(entry)) return `${entry.id} ${entry.tool}：${safeText(entry.result.error, 160)}`;
   if (entry.tool === 'runtime') return `${entry.id} 运行环境：${safeText(entry.result.description, 350) || '已采集，版本是否匹配见限制说明'}`;
   if (entry.tool === 'code') {
     const matches = Array.isArray(entry.result.matches) ? entry.result.matches : [];
@@ -146,7 +154,7 @@ const evidenceGap = /扫描上限|范围尚未读完|截断|未配置|未接入|
 function buildUnresolvedIncident(evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
   const actual = evidence.filter(entry => supportServiceId(entry.result.system) && (options.services || [options.target]).includes(entry.result.system as SupportServiceId));
   const records = new Map<string, { entry: SupportEvidence; row: Record<string, unknown> }>();
-  for (const entry of actual) for (const row of evidenceRows(entry)) if (isAnomaly(row)) records.set(`${entry.result.system}:${row.source || row.recordType || entry.tool}:${row.id}`, { entry, row });
+  for (const entry of actual.filter(entry => !isEvidenceFailure(entry))) for (const row of evidenceRows(entry)) if (isAnomaly(row)) records.set(`${entry.result.system}:${row.source || row.recordType || entry.tool}:${row.id}`, { entry, row });
   const failures = [...records.values()].sort((a, b) => Number(isLinked(b.row, options.relatedIds)) - Number(isLinked(a.row, options.relatedIds))).slice(0, 4);
   const facts = failures.map(({ entry, row }) => `${entry.id} [${entry.result.system}] ${isLinked(row, options.relatedIds) || (entry.tool === 'chain' && options.relatedIds.has(String((entry.result.root as { value?: string })?.value))) ? '编号关联的异常记录' : '候选异常，尚未确认属于本次反馈'}：${rowDescription(row)}`);
   if (!facts.length) facts.push('在本次已查询的范围内，未取得可关联的异常请求记录；这不代表问题未发生。');
@@ -179,7 +187,7 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
         sourceGaps.push(`${supportServices[entry.result.system as SupportServiceId].label}：${safeText(sources.map(item => item.table).join(', '), 200)} 未覆盖；${safeText(sources[0]?.note, 240)}`);
       }
     }
-    if (entry.result.error) gaps.push(safeText(entry.result.error, 240));
+    if (isEvidenceFailure(entry)) gaps.push(safeText(entry.result.error, 240));
     const coverage = entry.result.coverage as { inboundHttp?: { available?: boolean } } | undefined;
     if (coverage?.inboundHttp?.available === false) gaps.push(`${supportServices[entry.result.system as SupportServiceId].label} 本次查询未取得可验证的原生 HTTP 日志。${safeText(entry.result.note, 350)} 这不等于该服务未接入，也不能证明本次请求经过它。`);
     if (entry.result.note && (entry.result.incomplete || (!evidenceRows(entry).length && evidenceGap.test(String(entry.result.note))))) {
@@ -212,7 +220,7 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
   }).filter(Boolean).slice(0, 8);
   const code = evidence.filter(isImplementationRead).slice(-3);
   const browser = evidence.filter(entry => entry.tool === 'browser').flatMap(evidenceRows).slice(0, 3);
-  const reply = [
+  const internalSummary = [
     '结论（未定位根因）\n尚未取得足以确认本次问题原因的完整运行证据。本次不根据界面现象或代码机制猜测原因。',
     `查询范围\n${rangeDescription(options.scope)}${queried.length ? `\n${queried.join("\n")}` : ""}`,
     browser.length ? `浏览器失败请求线索（尚未用服务端日志核实）\n${browser.map(rowDescription).join('\n\n')}` : '',
@@ -224,7 +232,47 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     `取证缺口\n${[...new Set([...gaps, ...sourceGaps].filter(Boolean))].slice(0, 8).join('\n')}`,
     `继续定位\n${next}\n排查期间不需要重新付费生成、删除素材或修改业务数据。`,
   ].filter(Boolean).join('\n\n');
-  return { userReply: reply, internalSummary: reply, needsDeveloper: true, module: 'unknown', evidence, guidanceOnly: false };
+  const observed = failures.slice(0, 2).map(({ entry, row }) => {
+    const service = supportServices[entry.result.system as SupportServiceId].label;
+    const request = [safeText(row.method, 12), safeText(row.route, 160)].filter(Boolean).join(' ');
+    const status = Number(row.httpStatus) >= 400 ? `HTTP ${Number(row.httpStatus)}` : `状态 ${safeText(row.status ?? row.taskStatus ?? row.outcome ?? row.level, 60)}`;
+    const sameBrowserRequest = typeof row.requestId === 'string' && browser.some(item => item.requestId === row.requestId);
+    const association = isLinked(row, options.relatedIds) ? '与提供的编号关联，但不等于已确认根因'
+      : sameBrowserRequest ? '已与浏览器失败请求核对编号，尚未证明与所填任务相关'
+      : '候选记录，尚未确认属于本次反馈';
+    const error = safeText(row.errorExcerpt || row.error || row.reason || row.message, 120);
+    return `${entry.id} ${service}：${request ? `${request}，` : ''}${status}${error ? `，${error}` : ''}（${association}）。`;
+  });
+  if (!observed.length) observed.push(browser.length
+    ? `浏览器报告 ${safeText(browser[0].route, 160)}${browser[0].httpStatus ? ` 返回 HTTP ${Number(browser[0].httpStatus)}` : ' 请求失败'}，但尚未取得可核实关联的服务端异常记录。`
+    : facts[0]);
+  const missing = [
+    ...runtimes.filter(entry => entry.result.status !== 'verified' && supportServiceId(entry.result.requestedSource)
+      && supportServices[entry.result.requestedSource as SupportServiceId].data !== 'unavailable'
+      && (options.services || [options.target]).includes(entry.result.requestedSource as SupportServiceId))
+      .sort((a, b) => Number(b.result.requestedSource === options.target) - Number(a.result.requestedSource === options.target)).slice(0, 1)
+      .map(entry => `${supportServices[entry.result.requestedSource as SupportServiceId].label}：运行版本与所读源码尚未完成一致性核对。`),
+    actual.some(entry => entry.tool === 'operations' && !isEvidenceFailure(entry) && !evidenceRows(entry).length
+      && (entry.result.scope as Record<string, unknown> | undefined)?.taskId)
+      ? '按所填任务编号尚未查到对应操作记录；这不代表任务不存在。' : '',
+    ...sourceGaps.map(gap => safeText(gap, 180)),
+    ...gaps.slice(2).map(gap => safeText(gap, 180)),
+    ...actual.filter(isEvidenceFailure).map(entry => safeText(entry.result.error, 180)),
+    '异常记录、完整请求链路与对应运行实现之间的因果关系尚未核实，不能把状态码直接当作本次故障原因。',
+  ].filter(Boolean);
+  const assistantIssue = options.incompleteReason === 'answer_validation' ? '助手本次答复未通过证据校验，已保留调查记录。'
+    : options.incompleteReason === 'model_response' ? '助手本次模型分析未完成，已保留调查记录。'
+    : options.incompleteReason === 'tool_budget' ? '本次调查已达到工具或步骤上限，已保留调查记录。' : '';
+  const reply = [
+    '结论：尚未定位本次问题的根因，不能据此认定是您的操作问题。',
+    `已查到\n${observed.join('\n')}`,
+    snapshotFacts.length ? `素材当前状态（不是历史变更证据）\n${snapshotFacts.slice(0, 2).join('\n')}` : '',
+    `还缺什么\n${[...new Set(missing)].slice(0, 3).join('\n')}`,
+    `接下来\n${next}\n无需为排查重新付费生成、删除素材或修改业务数据。`,
+    assistantIssue,
+  ].filter(Boolean).join('\n\n');
+  return { userReply: reply, internalSummary: `${internalSummary}${assistantIssue ? `\n\n${assistantIssue}` : ''}`,
+    needsDeveloper: true, module: options.target, evidence, guidanceOnly: false };
 }
 
 export function buildInvestigationResult(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
@@ -236,7 +284,7 @@ export function buildInvestigationResult(answer: InvestigationAnswer, evidence: 
   if (rejected) answer = {
     certainty: 'needs_info', summary: '尚未完成符合证据要求的功能核对，不能据此断言功能不支持。',
     cause: '已有查询结果保留，尚需读取并核对相关实现。', solutions: ['保留当前问题供开发继续核对，无需重复付费生成或删除素材。'],
-    limitations: ['助手答复未通过证据校验。'], evidenceRefs: evidence.filter(entry => !entry.result.error).map(entry => entry.id), needsDeveloper: true,
+    limitations: ['助手答复未通过证据校验。'], evidenceRefs: evidence.filter(entry => !isEvidenceFailure(entry)).map(entry => entry.id), needsDeveloper: true,
   };
   const { cited, codeRead, canConfirm } = assessEvidence(answer, evidence, options);
   const certainty = answer.certainty === 'confirmed' && canConfirm ? 'confirmed' : answer.certainty === 'needs_info' || !codeRead ? 'needs_info' : 'likely';

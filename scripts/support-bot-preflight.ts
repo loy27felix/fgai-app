@@ -20,7 +20,7 @@ async function database(value: string | undefined, tables: string[], readOnly: b
         CASE WHEN to_regclass(name) IS NOT NULL THEN has_table_privilege(current_user, name, 'INSERT,UPDATE,DELETE,TRUNCATE') ELSE false END AS writable
         FROM unnest($1::text[]) name`, [tables]);
       const missing = result.rows.filter(row => !row.readable).map(row => row.name);
-      if (!missing.length && tables.includes('support_bot_jobs')) await client.query('SELECT id, images, context, stage, progress FROM support_bot_jobs LIMIT 0');
+      if (!missing.length && tables.includes('support_bot_jobs')) await client.query('SELECT id, images, context, stage, progress, feedback_rating, feedback_correction, feedback_updated_at FROM support_bot_jobs LIMIT 0');
       const writable = readOnly && result.rows.some(row => row.writable);
       return { ready: !missing.length && !writable, reason: missing.length ? 'schema_or_select_grant_missing' : writable ? 'source_role_not_read_only' : 'environment_and_schema_verified', missing };
     } finally { await client.query('ROLLBACK').catch(() => undefined); client.release(); }
@@ -31,7 +31,6 @@ async function database(value: string | undefined, tables: string[], readOnly: b
 async function main() {
   const environment = supportEnvironment();
   const { supportServices, supportServiceId } = await import('../lib/support-bot/services');
-  const { readNativeRuntime } = await import('../lib/support-bot/native-runtime');
   const { isNativeProduct, probeProductNative } = await import('../lib/support-bot/product-native');
   const probeUser = process.env.SUPPORT_BOT_NATIVE_PROBE_USER_ID;
   const probeRange = { from: process.env.SUPPORT_BOT_NATIVE_PROBE_FROM || undefined, to: process.env.SUPPORT_BOT_NATIVE_PROBE_TO || undefined };
@@ -50,8 +49,14 @@ async function main() {
   const fgRuntime = await resolveSupportRuntime(snapshot, 'fg');
   const matrix: Record<string, unknown>[] = [];
   for (const service of services) {
-    const runtime = ['fg', 'production-lab'].includes(service) ? { connected: fgRuntime.verified, environment: snapshot.environment, reason: fgRuntime.evidence.reason }
-      : await readNativeRuntime(service, probeUser);
+    const fgService = ['fg', 'production-lab'].includes(service);
+    const resolution = fgService ? fgRuntime : await resolveSupportRuntime(undefined, service, probeUser);
+    const runtime = fgService ? { connected: fgRuntime.verified, environment: snapshot.environment, reason: fgRuntime.evidence.reason }
+      : resolution.evidence.nativeRuntime!;
+    const availability = resolution.evidence.sourceAvailability;
+    const source = { ...availability, ready: availability?.available === true,
+      reason: availability?.reason || resolution.evidence.reason, description: resolution.evidence.description,
+      workerCheckout: resolution.evidence.workerCheckout ?? snapshot.checkoutRevision, paths: supportServices[service].paths };
     const product = isNativeProduct(service) ? await probeProductNative(service, probeUser, probeRange) : undefined;
     const logs = product || (['fg', 'production-lab'].includes(service) ? fg : supportServices[service].data === 'browser'
       ? { ready: true, reason: 'browser_has_no_native_business_log; inspect_gateway_and_canvas' } : await probeSupportNativeLogs(service));
@@ -59,9 +64,9 @@ async function main() {
       : service === 'yingce-gateway' ? gateway : ['canvas', 'yingce-agent'].includes(service) ? canvas
       : supportServices[service].data === 'browser' ? { ready: true, reason: 'browser_has_no_business_database' }
       : { ready: false, reason: 'native_source_not_configured' });
-    const versionReady = runtime.connected && (!isNativeProduct(service) || ('identityVerified' in runtime && runtime.identityVerified === true)) && runtime.environment === (environment === 'local' ? 'development' : 'production')
-      && (environment === 'local' || ['fg', 'production-lab'].includes(service) || (await resolveSupportRuntime(undefined, service, probeUser)).verified);
-    matrix.push({ service, required: requested.includes(service), ready: !!(fg.ready && data.ready && logs.ready && versionReady), data, logs, runtime });
+    const versionReady = source.ready && runtime.connected && (!isNativeProduct(service) || ('identityVerified' in runtime && runtime.identityVerified === true)) && runtime.environment === (environment === 'local' ? 'development' : 'production')
+      && (environment === 'local' || ['fg', 'production-lab'].includes(service) || resolution.verified);
+    matrix.push({ service, required: requested.includes(service), ready: !!(fg.ready && data.ready && logs.ready && versionReady), data, logs, runtime, source });
   }
   // A browser-only check must not pass while its required backend evidence sources are disconnected.
   // 网页自身不需要业务库，但验收不能跳过其实际依赖的后端数据源。

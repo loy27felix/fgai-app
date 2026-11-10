@@ -22,6 +22,7 @@ const migrationNames = [
   "018-support-bot-images.sql",
   "019-support-investigation.sql",
   "020-support-stream-progress.sql",
+  "021-support-answer-feedback.sql",
 ];
 const advisoryLockId = 1894215638;
 const prefix = "[fg-db-migrate]";

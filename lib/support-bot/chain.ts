@@ -57,8 +57,12 @@ export async function traceSupportChain(seed: ChainSeed, read: Read, system: str
     for (const [key, row] of failures) {
       try {
         const detail = await read('detail', { id: row.id });
-        if (!detail.error) rows.set(key, { ...row, ...detail });
-      } catch { queries.push({ tool: 'detail', id: row.id, error: '关联请求详情不可用。' }); }
+        if (detail.id !== row.id) throw new Error('关联请求详情编号不匹配');
+        rows.set(key, { ...row, ...detail });
+      } catch {
+        incomplete = true;
+        queries.push({ tool: 'detail', id: row.id, error: '关联请求详情不可用。' });
+      }
     }
   }
   const ordered = [...rows.values()].sort((a, b) => String(a.occurredAt).localeCompare(String(b.occurredAt)));

@@ -3,7 +3,7 @@ import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isSupportCodePath, readSupportGit, supportCodeExclusions, supportGitRoot } from './code-search';
 import { supportServices, type SupportServiceId } from './services';
-import { nativeRuntimeVariable, readNativeRuntime } from './native-runtime';
+import { nativeRuntimeVariable, readNativeRuntime, type NativeRuntime } from './native-runtime';
 
 export type SupportRuntimeSnapshot = {
   deploymentVersion: string;
@@ -20,9 +20,20 @@ export type SupportCodeSource = {
   service?: SupportServiceId;
 };
 
-export type RuntimeResolution = { source: SupportCodeSource; evidence: Record<string, unknown>; verified: boolean };
+export type RuntimeResolution = { source: SupportCodeSource; evidence: Record<string, unknown> & { sourceAvailability?: CommitSourceAvailability; nativeRuntime?: NativeRuntime }; verified: boolean };
 const commitPattern = /^[a-f0-9]{40}$/;
 const deploymentPattern = /^deploy-\d{8}T\d{6}Z-([a-f0-9]{12})$/;
+
+type CommitSourceAvailability = { available: true; reason: string; revision: string }
+  | { available: false; reason: string; revision?: string; action?: string };
+const sourceActions: Record<string, string> = {
+  repository_unavailable: '请从 worker 的 Git 仓库根目录运行，并检查仓库读取权限。',
+  commit_not_found: '请按既有源码同步流程在 worker 仓库准备该运行提交，再重跑预检；不会自动 fetch 或复制生产源码。',
+  commit_mismatch: '请核对版本接口报告的提交与 worker 仓库中的提交，不得以当前 HEAD 替代运行版本。',
+  commit_read_failed: '请检查 worker 本地 Git 提交对象的完整性、读取权限及 Git 命令是否超时。',
+  source_missing: '请在 worker 仓库准备该运行提交的服务源码和完整 Git 对象，再重跑预检；不会自动补齐源码。',
+  source_read_failed: '请检查 worker 本地 Git tree/blob 对象的完整性、读取权限及读取上限或超时。',
+};
 
 async function checkoutRevision(root: string) {
   const revision = (await readSupportGit(['rev-parse', '--verify', 'HEAD^{commit}'], root)).trim();
@@ -97,21 +108,20 @@ export async function resolveSupportRuntime(
       mode: worker.environment === 'development' ? 'working-tree' : 'commit', verified: false, service: source };
     const runtime = await readNativeRuntime(source, userId);
     let reason = runtime.reason;
+    let sourceAvailability: CommitSourceAvailability | undefined;
     if (runtime.commit) {
-      try {
-        const resolved = await resolveCommitSource(runtime.commit, source);
-        if (resolved.available) {
-          const development = runtime.environment === 'development' && worker.environment === 'development';
-          // A dev process may predate a local commit; use the working tree only as an explicit reference.
-          // 开发进程可早于本地提交；工作树始终仅为参考，不能借此签认实际运行源码。
-          reference.revision = development ? worker.checkoutRevision || resolved.revision : resolved.revision;
-          reference.mode = development ? 'working-tree' : 'commit';
-        }
-        reference.verified = resolved.available && runtime.identityVerified === true && runtime.environment === 'production' && runtime.dirty === false
-          && !!runtime.buildVersion && !/^(dev|development|unknown)$/i.test(runtime.buildVersion);
-        reason = !resolved.available ? 'native_runtime_source_missing' : runtime.reason === 'native_runtime_component_missing_or_mismatch' ? runtime.reason : reference.verified ? 'native_runtime_commit_resolved'
-          : runtime.environment === 'development' ? 'native_runtime_development_build' : runtime.dirty !== false ? 'native_runtime_dirty_or_unattested' : 'native_runtime_build_unattested';
-      } catch { reason = 'native_runtime_source_unavailable'; }
+      const resolved = sourceAvailability = await resolveCommitSource(runtime.commit, source);
+      if (resolved.available) {
+        const development = runtime.environment === 'development' && worker.environment === 'development';
+        // A dev process may predate a local commit; use the working tree only as an explicit reference.
+        // 开发进程可早于本地提交；工作树始终仅为参考，不能借此签认实际运行源码。
+        reference.revision = development ? worker.checkoutRevision || resolved.revision : resolved.revision;
+        reference.mode = development ? 'working-tree' : 'commit';
+      }
+      reference.verified = resolved.available && runtime.identityVerified === true && runtime.environment === 'production' && runtime.dirty === false
+        && !!runtime.buildVersion && !/^(dev|development|unknown)$/i.test(runtime.buildVersion);
+      reason = !resolved.available ? `native_runtime_${resolved.reason}` : runtime.reason === 'native_runtime_component_missing_or_mismatch' ? runtime.reason : reference.verified ? 'native_runtime_commit_resolved'
+        : runtime.environment === 'development' ? 'native_runtime_development_build' : runtime.dirty !== false ? 'native_runtime_dirty_or_unattested' : 'native_runtime_build_unattested';
     }
     const descriptions: Record<string, string> = {
       native_runtime_url_not_configured: `未配置 ${nativeRuntimeVariable(source)}`,
@@ -120,18 +130,23 @@ export async function resolveSupportRuntime(
       native_runtime_commit_resolved: '已核对服务身份、生产构建、clean 状态及对应提交源码',
       native_runtime_development_build: '开发进程已接通；提交仅为基线，不能证明正在运行的未提交修改',
       native_runtime_dirty_or_unattested: '构建含修改或未证明 clean 状态，不能仅凭提交签认运行源码',
-      native_runtime_source_missing: '对应部署提交缺少该服务源码',
-      native_runtime_source_unavailable: '部署提交或源码在本地不可用',
+      native_runtime_repository_unavailable: 'worker 的本地 Git 仓库不可用或未从仓库根目录运行',
+      native_runtime_commit_not_found: '版本接口报告的运行提交在 worker 本地 Git 仓库中不存在或无法唯一解析',
+      native_runtime_commit_mismatch: '本地解析的提交与版本接口报告的运行提交不符',
+      native_runtime_commit_read_failed: 'worker 读取本地运行提交失败',
+      native_runtime_source_missing: '对应部署提交缺少该服务源码或 Git 对象不完整',
+      native_runtime_source_read_failed: 'worker 读取运行提交的源码对象失败',
       native_runtime_build_unattested: '版本接口缺少完整生产构建证明',
       native_runtime_component_missing_or_mismatch: '独立产品的 Web/API/Agent 组件未全部核对或提交不一致，不能用一个组件的版本代表整个产品',
       native_product_runtime_or_actor_unavailable: '原生版本 relay 或 active 账号/实例映射未取得，未借用其他服务版本',
     };
     return { source: reference, verified: reference.verified, evidence: { requestedSource: source,
       status: reference.verified ? 'verified' : reason === 'native_runtime_service_mismatch' ? 'mismatch' : 'unknown',
-      ...reference, nativeRuntime: runtime, referenceOnly: !reference.verified, reason,
+      ...reference, nativeRuntime: runtime, workerCheckout: worker.checkoutRevision, sourceAvailability, referenceOnly: !reference.verified, reason,
       description: `${supportServices[source].label}：${descriptions[reason] || '独立版本接口不可用或响应不符合安全合同'}；运行提交 ${runtime.commit?.slice(0, 12) || '未知'}；${reference.verified ? '已核对部署源码' : '源码仅供参考，不套用 FG 或 Canvas 的版本'}。` } };
   }
   let referenceRevision = worker.checkoutRevision || '';
+  let sourceAvailability: CommitSourceAvailability | undefined;
   const mode: SupportCodeSource['mode'] = snapshot?.environment === 'development' && worker.environment === 'development'
     ? 'working-tree' : 'commit';
   const result = (status: 'verified' | 'unknown' | 'mismatch', reason: string, revision = referenceRevision): RuntimeResolution => {
@@ -142,7 +157,7 @@ export async function resolveSupportRuntime(
       evidence: {
         status, reason,
         description: describeRuntime(snapshot, worker, status, reason, revision),
-        requestedSource: source, snapshot: snapshot ?? null, worker,
+        requestedSource: source, snapshot: snapshot ?? null, worker, sourceAvailability,
         revision, mode, verified, referenceOnly: !verified,
         ...(verified ? {} : { warning: '源码仅供参考，不能视为实际运行版本的实现。' }),
       },
@@ -156,6 +171,7 @@ export async function resolveSupportRuntime(
     }
     if (snapshot.checkoutRevision !== worker.checkoutRevision) return result('mismatch', 'checkout_revision_mismatch');
     if (snapshot.workingTreeStamp !== worker.workingTreeStamp) return result('mismatch', 'working_tree_stamp_mismatch');
+    sourceAvailability = { available: true, reason: 'working_tree_verified', revision: worker.checkoutRevision };
     return result('verified', 'development_checkout_and_working_tree_match');
   }
   if (snapshot.environment !== 'production') return result('unknown', 'runtime_environment_unknown');
@@ -164,33 +180,40 @@ export async function resolveSupportRuntime(
   // auto-deploy.sh 使用 UTC 时间戳与 12 位提交号，绝不将 HEAD 当作部署版本。
   const deployedCommit = deploymentPattern.exec(snapshot.deploymentVersion)?.[1];
   if (!deployedCommit) return result('unknown', 'deployment_version_unrecognized');
-  try {
-    const resolved = await resolveCommitSource(deployedCommit);
-    if (!resolved.revision.startsWith(deployedCommit)) return result('mismatch', 'deployment_commit_mismatch');
-    referenceRevision = resolved.revision;
-    if (!resolved.available) return result('unknown', 'deployment_source_missing');
-    return result('verified', 'deployment_version_resolved_to_commit');
-  } catch {
-    return result('unknown', 'deployment_commit_or_source_unavailable');
-  }
+  const resolved = sourceAvailability = await resolveCommitSource(deployedCommit);
+  if (resolved.revision) referenceRevision = resolved.revision;
+  if (!resolved.available) return result(resolved.reason === 'commit_mismatch' ? 'mismatch' : 'unknown', `deployment_${resolved.reason}`);
+  return result('verified', 'deployment_version_resolved_to_commit');
 }
 
-async function resolveCommitSource(commit: string, service?: SupportServiceId) {
-  const root = await supportGitRoot();
-  const revision = (await readSupportGit(['rev-parse', '--verify', `${commit}^{commit}`], root)).trim();
-  if (!commitPattern.test(revision) || !revision.startsWith(commit)) throw new Error('运行提交无法匹配');
-  const entries = await readSupportGit(['ls-tree', '-r', '-z', revision], root);
-  const hasSource = entries.split('\0').some(entry => {
-    const separator = entry.indexOf('\t');
-    const path = entry.slice(separator + 1);
-    return /^100(?:644|755) blob [a-f0-9]{40}$/.test(entry.slice(0, separator))
-      && isSupportCodePath(path) && (!service || supportServices[service].paths.some(prefix => path.startsWith(prefix)));
-  });
-  if (!hasSource) return { revision, available: false };
-  // Check object availability locally without fetching a partial clone's missing source.
-  // 只检查本地对象完整性，不为 partial clone 缺失的源码联网拉取。
-  const objects = await readSupportGit(['rev-list', '--objects', '--no-object-names', '--missing=print', `${revision}^{tree}`], root);
-  return { revision, available: !objects.split('\n').some(object => object.startsWith('?')) };
+async function resolveCommitSource(commit: string, service?: SupportServiceId): Promise<CommitSourceAvailability> {
+  const failure = (reason: string, revision?: string): CommitSourceAvailability => ({ available: false, reason, revision, action: sourceActions[reason] });
+  let root: string;
+  try { root = await supportGitRoot(); }
+  catch { return failure('repository_unavailable'); }
+  let revision: string;
+  try { revision = (await readSupportGit(['rev-parse', '--verify', '--quiet', `${commit}^{commit}`], root)).trim(); }
+  catch (error) {
+    // Only Git's quiet "not found" exit is absence; never expose stderr or credential-bearing errors.
+    // 仅 quiet 模式的未找到退出码视为提交缺失，不透传 stderr 或可能包含凭据的异常。
+    return failure((error as { code?: unknown }).code === 1 ? 'commit_not_found' : 'commit_read_failed');
+  }
+  if (!commitPattern.test(revision) || !revision.startsWith(commit)) return failure('commit_mismatch');
+  try {
+    const entries = await readSupportGit(['ls-tree', '-r', '-z', revision], root);
+    const hasSource = entries.split('\0').some(entry => {
+      const separator = entry.indexOf('\t');
+      const path = entry.slice(separator + 1);
+      return /^100(?:644|755) blob [a-f0-9]{40}$/.test(entry.slice(0, separator))
+        && isSupportCodePath(path) && (!service || supportServices[service].paths.some(prefix => path.startsWith(prefix)));
+    });
+    if (!hasSource) return failure('source_missing', revision);
+    // Check object availability locally without fetching a partial clone's missing source.
+    // 只检查本地对象完整性，不为 partial clone 缺失的源码联网拉取。
+    const objects = await readSupportGit(['rev-list', '--objects', '--no-object-names', '--missing=print', `${revision}^{tree}`], root);
+    return objects.split('\n').some(object => object.startsWith('?'))
+      ? failure('source_missing', revision) : { revision, available: true, reason: 'commit_source_available' };
+  } catch { return failure('source_read_failed', revision); }
 }
 
 function describeRuntime(
@@ -208,9 +231,12 @@ function describeRuntime(
     deployment_version_missing: '缺少入队时的部署版本',
     deployment_version_unrecognized: '部署版本格式无法解析为 Git 提交',
     deployment_commit_mismatch: '部署版本与 Git 提交不匹配',
+    deployment_repository_unavailable: 'worker 的本地 Git 仓库不可用或未从仓库根目录运行',
+    deployment_commit_not_found: '部署运行提交在 worker 本地 Git 仓库中不存在或无法唯一解析',
+    deployment_commit_read_failed: 'worker 读取本地部署提交失败',
     deployment_source_missing: '部署提交的源码缺失或不完整',
+    deployment_source_read_failed: 'worker 读取部署提交的源码对象失败',
     deployment_version_resolved_to_commit: '已按入队时的部署版本核对提交及源码',
-    deployment_commit_or_source_unavailable: '部署提交或对应源码不可用',
   };
   const running = `FG ${snapshot?.environment === 'development' ? '开发态' : '运行版本'} ${snapshot?.deploymentVersion?.slice(0, 100) || '未知'}`;
   const checkout = `当前 checkout ${worker.checkoutRevision?.slice(0, 12) || '不可用'}`;

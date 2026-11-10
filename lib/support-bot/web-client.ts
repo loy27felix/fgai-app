@@ -1,3 +1,9 @@
+export interface SupportFeedback {
+    rating: "helpful" | "unhelpful";
+    correction: string;
+    updatedAt: string;
+}
+
 export interface SupportMessage {
     id: string;
     text: string;
@@ -7,6 +13,7 @@ export interface SupportMessage {
     reply: string | null;
     ticketId: string;
     imageCount?: number;
+    feedback?: SupportFeedback | null;
 }
 
 export async function supportRequest(url: string, options?: RequestInit) {
@@ -25,6 +32,10 @@ export function readSupportConversation(conversationId: string, signal: AbortSig
 
 export function cancelSupportQuestions(conversationId: string, jobIds: string[]): Promise<{ cancelled: number; messages: SupportMessage[] }> {
     return supportRequest('/api/support-bot/web', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel', conversationId, jobIds }) });
+}
+
+export function submitSupportFeedback(conversationId: string, jobId: string, rating: SupportFeedback["rating"], correction: string): Promise<{ feedback: SupportFeedback }> {
+    return supportRequest('/api/support-bot/web', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'feedback', conversationId, jobId, rating, correction }) });
 }
 
 export function watchSupportConversation(conversationId: string, handlers: {

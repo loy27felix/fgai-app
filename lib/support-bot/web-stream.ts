@@ -7,7 +7,8 @@ import type { SupportMessage } from './web-client';
 export async function readSupportMessages(userId: string, conversationId: string) {
   await assertSupportPrimaryEnvironment();
   const result = await query<SupportMessage>(`SELECT j.id,j.text,j.status,j.stage,j.progress,jsonb_array_length(j.images) AS "imageCount",j.ticket_id AS "ticketId",
-    CASE WHEN j.status='completed' THEN j.diagnosis->>'userReply' ELSE NULL END AS reply
+    CASE WHEN j.status='completed' THEN j.diagnosis->>'userReply' ELSE NULL END AS reply,
+    CASE WHEN j.feedback_rating IS NOT NULL THEN jsonb_build_object('rating',j.feedback_rating,'correction',j.feedback_correction,'updatedAt',j.feedback_updated_at) ELSE NULL END AS feedback
     FROM support_bot_jobs j JOIN support_bot_tickets t ON t.id=j.ticket_id
     WHERE t.open_id=$1 AND t.chat_id=$2 ORDER BY j.created_at DESC,j.id DESC LIMIT 100`, [`web:${userId}`, `web:${conversationId}`]);
   return result.rows.reverse().map(row => ({ ...row, stage: supportStages[row.stage || 'queued'] || supportStages.queued }));

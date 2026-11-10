@@ -2,6 +2,8 @@ import { assertSupportPrimaryEnvironment } from './environment';
 import { randomUUID } from 'node:crypto';
 import { query, withTransaction } from '@/lib/local/db';
 import type { SupportContext } from './context';
+import type { SupportFeedback } from './web-client';
+import { redactSupportText } from './redact';
 
 export type SupportMessage = { eventId: string; messageId: string; chatId: string; openId: string; text: string; images?: string[]; context?: SupportContext; userId?: string; threadId?: string; isGroup?: boolean; botMentioned?: boolean };
 export type DiagnosisResult = { userReply: string; internalSummary: string; needsDeveloper: boolean; module: string; evidence: unknown[]; guidanceOnly?: boolean; closed?: boolean };
@@ -12,7 +14,7 @@ export class SupportConversationBusy extends Error {
 let schemaReady: Promise<void> | undefined;
 export async function ensureSupportSchema() {
   await assertSupportPrimaryEnvironment();
-  schemaReady ??= query('SELECT images, context, stage, progress FROM support_bot_jobs LIMIT 0').then(() => undefined).catch((error) => { schemaReady = undefined; throw error; });
+  schemaReady ??= query('SELECT images, context, stage, progress, feedback_rating, feedback_correction, feedback_updated_at FROM support_bot_jobs LIMIT 0').then(() => undefined).catch((error) => { schemaReady = undefined; throw error; });
   return schemaReady;
 }
 export async function enqueueSupportMessage(message: SupportMessage) {
@@ -96,8 +98,35 @@ export async function failSupportJob(job: SupportJob, error: unknown) {
   await query("UPDATE support_bot_jobs SET status=CASE WHEN attempts>=4 THEN 'failed' ELSE 'pending' END,stage='retrying',available_at=now()+interval '1 minute',lease_until=NULL,error=$3 WHERE id=$1 AND lease_token=$2 AND status='processing'",[job.id,job.leaseToken,error instanceof Error ? error.message.slice(0,500) : '任务处理失败']);
 }
 export async function getSupportHistory(ticketId: string) {
-  const result = await query("SELECT text,diagnosis,jsonb_array_length(images) AS image_count FROM support_bot_jobs WHERE ticket_id=$1 AND status='completed' ORDER BY created_at DESC,id DESC LIMIT 6",[ticketId]);
-  return result.rows.reverse().map(row => ({ question:row.text,reply:row.diagnosis?.userReply,imageCount:row.image_count, hasEvidence:Array.isArray(row.diagnosis?.evidence) && row.diagnosis.evidence.length > 0 }));
+  const result = await query("SELECT text,diagnosis,jsonb_array_length(images) AS image_count,feedback_rating,feedback_correction FROM support_bot_jobs WHERE ticket_id=$1 AND status='completed' ORDER BY created_at DESC,id DESC LIMIT 6",[ticketId]);
+  return result.rows.reverse().map(row => ({ question:row.text,reply:row.diagnosis?.userReply,imageCount:row.image_count, hasEvidence:Array.isArray(row.diagnosis?.evidence) && row.diagnosis.evidence.length > 0,
+    feedback: row.feedback_rating ? { rating: row.feedback_rating, correction: row.feedback_correction } : undefined }));
+}
+export async function saveSupportFeedback(userId: string, conversationId: string, jobId: string, rating: SupportFeedback['rating'], correction: string) {
+  await ensureSupportSchema();
+  const result = await query<{ feedback: SupportFeedback }>(`UPDATE support_bot_jobs j
+    SET feedback_rating=$4, feedback_correction=$5, feedback_updated_at=now()
+    FROM support_bot_tickets t
+    WHERE j.ticket_id=t.id AND t.open_id=$1 AND t.chat_id=$2 AND j.id=$3
+      AND j.status='completed' AND length(j.diagnosis->>'userReply')>0
+    RETURNING jsonb_build_object('rating',j.feedback_rating,'correction',j.feedback_correction,'updatedAt',j.feedback_updated_at) AS feedback`,
+  [`web:${userId}`, `web:${conversationId}`, jobId, rating, rating === 'unhelpful' ? redactSupportText(correction.trim()).slice(0, 1000) : '']);
+  return result.rows[0]?.feedback ?? null;
+}
+export async function getRelatedSupportFeedback(job: SupportJob, searchTerms: string[]) {
+  // Web feedback stays with its owner; never reuse private corrections in a group.
+  // 网页反馈仅归属当前用户，不将私人纠正带入群聊。
+  if (job.isGroup || !job.openId.startsWith('web:') || !searchTerms.length) return [];
+  const result = await query<{ question: string; reply: string; rating: SupportFeedback['rating']; correction: string }>(`SELECT
+    left(j.text,1000) AS question, left(j.diagnosis->>'userReply',1600) AS reply,
+    j.feedback_rating AS rating, j.feedback_correction AS correction
+    FROM support_bot_jobs j JOIN support_bot_tickets t ON t.id=j.ticket_id
+    WHERE t.open_id=$1 AND j.id<>$2 AND j.status='completed' AND j.feedback_rating IS NOT NULL
+      AND COALESCE(j.context->>'source','fg')=$3
+      AND EXISTS (SELECT 1 FROM unnest($4::text[]) AS term WHERE strpos(lower(j.text || ' ' || j.feedback_correction),lower(term))>0)
+    ORDER BY j.feedback_updated_at DESC,j.id DESC LIMIT 3`,
+  [job.openId, job.id, job.context?.source ?? 'fg', searchTerms]);
+  return result.rows;
 }
 export async function getLatestSupportImages(ticketId: string): Promise<string[]> {
   // Load only the latest attachment set; never serialize base64 into text history.

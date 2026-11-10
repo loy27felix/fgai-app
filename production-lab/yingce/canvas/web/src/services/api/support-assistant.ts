@@ -1,5 +1,11 @@
 import { http } from "./request";
 
+export interface SupportFeedback {
+    rating: "helpful" | "unhelpful";
+    correction: string;
+    updatedAt: string;
+}
+
 export interface SupportMessage {
     id: string;
     text: string;
@@ -9,6 +15,7 @@ export interface SupportMessage {
     reply: string | null;
     ticketId: string;
     imageCount?: number;
+    feedback?: SupportFeedback | null;
 }
 
 export interface SupportBrowserRequest {
@@ -61,6 +68,10 @@ export function submitSupportQuestion(data: { conversationId: string; text: stri
 
 export function cancelSupportQuestions(conversationId: string, jobIds: string[]) {
     return supportRequest<{ cancelled: number; messages: SupportMessage[] }>("POST", { action: "cancel", conversationId, jobIds });
+}
+
+export function submitSupportFeedback(conversationId: string, jobId: string, rating: SupportFeedback["rating"], correction: string) {
+    return supportRequest<{ feedback: SupportFeedback }>("POST", { action: "feedback", conversationId, jobId, rating, correction });
 }
 
 export function watchSupportConversation(conversationId: string, handlers: {

@@ -111,13 +111,15 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
       const input = { userId: owner, projectId: filters.projectId || investigation?.projectId || contextProject,
         taskId: filters.taskId, sessionId: filters.sessionId, requestId: filters.requestId, traceId: filters.traceId, ...range };
       const adapter = supportServices[system].data;
+      // Each query supplies its own selectors; page IDs must not leak into another service or chain hop.
+      // 每次查询显式指定定位条件，页面编号不能混入其他服务或链路分支。
       if (args.provider !== undefined && (adapter !== 'gateway' || !['suno', 'volcengine'].includes(String(args.provider)))) throw new Error('该服务不支持指定的供应商筛选');
       const raw = adapter === 'production-lab' ? await queryProductionLabOperations(input)
         : adapter === 'gateway' ? await queryGatewayOperations({ ...input, service: typeof args.provider === 'string' ? args.provider : system })
         : adapter === 'product' && isNativeProduct(system) ? await queryProductNative({ ...input, service: system }, 'operations')
         : adapter === 'native' ? await queryNativeSupportLogs({ ...input, projectId: filters.projectId, service: system })
         : adapter === 'fg' || adapter === 'canvas' ? await queryUserOperations({ ...input,
-          context: { ...job.context, source: adapter, projectId: input.projectId } })
+          context: { source: adapter } })
         : { rows: [], incomplete: true, note: `${supportServices[system].label} 尚未接入可校验账号归属的原生操作数据；未查询，不回退其他服务冒充。` };
       const result = boundedEvidence({ ...raw, system });
       if (isNativeProduct(system)) result.requestedScope = scope(args, range, chain);

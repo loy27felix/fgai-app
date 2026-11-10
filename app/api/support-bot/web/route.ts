@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
 import { query } from '@/lib/local/db';
-import { cancelSupportJobs, enqueueSupportMessage, SupportConversationBusy } from '@/lib/support-bot/store';
+import { cancelSupportJobs, enqueueSupportMessage, saveSupportFeedback, SupportConversationBusy } from '@/lib/support-bot/store';
 import { readSupportMessages, supportConversationStream } from '@/lib/support-bot/web-stream';
 
 import { parseSupportContext } from '@/lib/support-bot/context';
@@ -69,6 +69,17 @@ export async function POST(request: Request) {
   let body;
   try { body = await readBody(request); } catch (error) {
     return NextResponse.json({ error: error instanceof BodyTooLarge ? '请求过大；最多 10 张处理后的截图，每张不超过 2 MiB（网页支持选择 20 MiB 原图并自动压缩）' : '请求格式无效' }, { status: error instanceof BodyTooLarge ? 413 : 400 });
+  }
+  if (body?.action === 'feedback') {
+    if (!validId(body.conversationId) || !validId(body.jobId) || !['helpful', 'unhelpful'].includes(body.rating)
+      || (body.correction !== undefined && (typeof body.correction !== 'string' || body.correction.length > 1000))) {
+      return NextResponse.json({ error: '评价参数无效，补充纠正不超过 1000 字' }, { status: 400 });
+    }
+    try {
+      const feedback = await saveSupportFeedback(id, body.conversationId, body.jobId, body.rating, body.correction ?? '');
+      if (!feedback) return NextResponse.json({ error: '排查结果不存在或尚未完成' }, { status: 404 });
+      return NextResponse.json({ feedback }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch { return NextResponse.json({ error: '评价保存失败，请重试' }, { status: 503 }); }
   }
   if (body?.action === 'cancel') {
     if (!validId(body.conversationId) || !Array.isArray(body.jobIds) || !body.jobIds.length || body.jobIds.length > 100 || !body.jobIds.every(validId)) {

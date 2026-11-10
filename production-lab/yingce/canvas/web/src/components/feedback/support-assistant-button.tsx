@@ -2,12 +2,57 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Alert, Button, Collapse, DatePicker, Input, Image, Popover, Select, Spin, Tooltip } from "antd";
 import type { Dayjs } from "dayjs";
 import { useLocation, useMatches } from "react-router";
-import { ArrowUp, Copy, ImagePlus, Search, SlidersHorizontal, Square, X } from "lucide-react";
+import { ArrowUp, Copy, ImagePlus, Search, SlidersHorizontal, Square, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { fgWorkspaceBasePath } from "@/lib/fg-entry-url";
-import { cancelSupportQuestions, watchSupportConversation, submitSupportQuestion, type SupportBrowserRequest, type SupportContext, type SupportMessage } from "@/services/api/support-assistant";
+import { cancelSupportQuestions, watchSupportConversation, submitSupportQuestion, submitSupportFeedback, type SupportBrowserRequest, type SupportContext, type SupportFeedback, type SupportMessage } from "@/services/api/support-assistant";
 import { getClientDiagnosticEvents } from "@/services/diagnostics/client-diagnostics";
+
+function SupportAnswerFeedback({ conversationId, message, onSaved }: { conversationId: string; message: SupportMessage; onSaved: (feedback: SupportFeedback) => void }) {
+    const [editing, setEditing] = useState(false);
+    const [correction, setCorrection] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+    const savingLock = useRef(false);
+
+    async function save(rating: SupportFeedback["rating"], note: string, showCorrection = false) {
+        if (savingLock.current) return;
+        savingLock.current = true; setSaving(true); setError("");
+        try {
+            const result = await submitSupportFeedback(conversationId, message.id, rating, note);
+            onSaved(result.feedback);
+            setCorrection(result.feedback.correction); setEditing(showCorrection);
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : "评价保存失败，请重试。");
+        } finally { savingLock.current = false; setSaving(false); }
+    }
+
+    function unhelpful() {
+        if (message.feedback?.rating === "unhelpful") {
+            setCorrection(message.feedback.correction); setEditing(true); setError("");
+        } else void save("unhelpful", "", true);
+    }
+
+    return <div role="group" aria-label="评价这条回答" aria-busy={saving} className="mt-3 flex flex-col gap-2 border-t border-border pt-2">
+        <div className="flex flex-wrap items-center gap-2">
+            <Button size="small" type={message.feedback?.rating === "helpful" ? "default" : "text"} icon={<ThumbsUp size={14} aria-hidden="true" />}
+                aria-pressed={message.feedback?.rating === "helpful"} disabled={saving} onClick={() => void save("helpful", "")}>有帮助</Button>
+            <Button size="small" type={message.feedback?.rating === "unhelpful" ? "default" : "text"} icon={<ThumbsDown size={14} aria-hidden="true" />}
+                aria-pressed={message.feedback?.rating === "unhelpful"} disabled={saving} onClick={unhelpful}>没帮助</Button>
+            {message.feedback ? <span className="text-xs text-muted-foreground">已记录，仅用于你的后续排查参考</span> : null}
+        </div>
+        {editing ? <>
+            <Input.TextArea aria-label="补充纠正（可选）" value={correction} onChange={event => setCorrection(event.target.value)} disabled={saving}
+                placeholder="哪里判断错了，或哪里没讲清楚？也可以补充正确做法（可选）。" maxLength={1000} showCount autoSize={{ minRows: 2, maxRows: 4 }} />
+            <div className="flex gap-2">
+                <Button size="small" loading={saving} onClick={() => void save("unhelpful", correction)}>保存补充</Button>
+                <Button size="small" type="text" disabled={saving} onClick={() => setEditing(false)}>取消补充</Button>
+            </div>
+        </> : message.feedback?.correction ? <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">你的纠正：{message.feedback.correction}</p> : null}
+        {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+    </div>;
+}
 
 type LocatorType = "taskId" | "requestId" | "traceId";
 
@@ -303,6 +348,8 @@ function SupportConversation({ userId }: { userId: string }) {
                     </>}
                     {item.progress?.length ? <Collapse ghost size="small" items={[{ key: "progress", label: `排查过程 · ${item.progress.length} 条查询结果`, children: <ol className="space-y-2 text-xs text-muted-foreground">{item.progress.map(event => <li key={event.id} className="break-words"><time dateTime={event.at} className="mr-2">{new Date(event.at).toLocaleTimeString()}</time>{event.text}</li>)}</ol> }]} /> : null}
                     {item.ticketId ? <p className="mt-2 break-all text-xs text-muted-foreground">问题编号：{item.ticketId}</p> : null}
+                    {item.status === "completed" && item.reply ? <SupportAnswerFeedback conversationId={id} message={item}
+                        onSaved={feedback => setMessages(current => current.map(message => message.id === item.id ? { ...message, feedback } : message))} /> : null}
                 </div>
             </article>)}
         </div>
