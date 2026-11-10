@@ -1,7 +1,7 @@
 import {test,expect,mock} from 'bun:test';
 import {apiClient} from '@/services/api/request';
 let localWrites=0;
-mock.module('localforage',()=>({default:{config:()=>{},setItem:async()=>{localWrites++;},getItem:async()=>null,createInstance:()=>({setItem:async()=>{localWrites++;},getItem:async()=>null})}}));
+mock.module('localforage',()=>({default:{INDEXEDDB:'asyncStorage',config:()=>{},setDriver:async()=>{},setItem:async()=>{localWrites++;},getItem:async()=>null,createInstance:()=>({setItem:async()=>{localWrites++;},getItem:async()=>null})}}));
 mock.module('@/lib/image-utils',()=>({readImageMeta:async()=>({width:32,height:32,mimeType:'image/png'})}));
 mock.module('@/services/resource-blob-cache',()=>({primeResourceBlobCache:async()=>{},getCachedResourceBlob:async()=>null}));
 const {uploadImage}=await import('@/services/image-storage');
