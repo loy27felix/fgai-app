@@ -3631,6 +3631,7 @@ function CanvasViewportPage() {
                                     addNodeToTimelineRef={timelineAddNodeRef}
                                     addMediaToTimelineRef={timelineMediaAddRef}
                                     onCreateAssembledNode={createVideoNodeFromBlob}
+                                    onCreateAudioNode={(file) => createFileNode(file, getCanvasCenter())}
                                 />
                             ) : null}
 
