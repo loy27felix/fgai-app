@@ -1,5 +1,6 @@
 import { afterAll, expect, mock, test } from "bun:test";
 import { Window } from "happy-dom";
+import { DIRECTOR_PROMPT_SECTIONS } from "@/lib/short-drama-production";
 
 const dom = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLTextAreaElement", "SVGElement", "ShadowRoot", "MutationObserver", "ResizeObserver", "getComputedStyle"] as const) {
@@ -14,14 +15,20 @@ mock.module("@/components/image-size-picker", () => ({ ImageSizePicker: () => nu
 mock.module("@/components/skills/skill-runtime-picker", () => ({ SkillRuntimePicker: () => null, useSkillRuntimeCatalog: () => ({ skills: [], loading: false }) }));
 mock.module("@/pages/projects/detail/shot-video-batch-modal", () => ({ ShotVideoBatchModal: () => null }));
 mock.module("@/pages/projects/detail/shot-image-generation-modal", () => ({ ShotImageGenerationModal: () => null }));
-mock.module("@/components/canvas/canvas-resource-mention-textarea", () => ({ CanvasResourceMentionTextarea: (props: { value: string; onChange: (text: string) => void }) => <textarea aria-label="shot-prompt" value={props.value} onChange={event => props.onChange(event.target.value)} /> }));
 let resolveRewrite!: (value: { text: string }) => void;
-mock.module("@/pages/projects/detail/shot-prompt-rewrite", () => ({ rewriteShotVideoPrompt: () => new Promise(resolve => { resolveRewrite = resolve; }) }));
+let rewriteFacts: Record<string, unknown>;
+mock.module("@/pages/projects/detail/shot-prompt-rewrite", () => ({
+    rewriteShotVideoPrompt: ({ facts }: { facts: Record<string, unknown> }) => new Promise(resolve => {
+        rewriteFacts = facts;
+        resolveRewrite = resolve;
+    }),
+}));
 const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { App } = await import("antd");
+await import("@/i18n");
 const { useUserStore } = await import("@/stores/use-user-store");
 useUserStore.setState({ user: { id: "workspace-test-user" } as never });
 const actualProjects = await import("@/services/api/projects");
@@ -34,7 +41,7 @@ import type { ProjectDetail, ProjectShot, ShotRevision } from "@/services/api/pr
 afterAll(() => dom.happyDOM.abort());
 test("switching shots retains edited prompts and separates notes; polling cannot invalidate a rewrite of that draft", async () => {
     const shots = ["one", "two"].map((id, position) => ({ id, unitId: "u", projectId: "p", title: `镜头0${position+1}`, description: "人物坐在桌前", position, durationMs: 15000, status: "draft", currentRevisionId: `r-${id}` } as ProjectShot));
-    const revisions = shots.map(shot => ({ id: shot.currentRevisionId, shotId: shot.id, videoPrompt: `原始提示词${shot.id}`, plotDescription: shot.description, durationMs: 15000, version: 1 } as ShotRevision));
+    const revisions = shots.map(shot => ({ id: shot.currentRevisionId, shotId: shot.id, videoPrompt: `原始提示词${shot.id}${shot.id === "two" ? "\n镜头二参考：@[asset:neighbor-only]" : ""}`, plotDescription: shot.description, durationMs: 15000, version: 1 } as ShotRevision));
     let poll!: () => void;
     const detail = { project: { id: "p", name: "测试项目", aspectRatio: "9:16" }, units: [{ id: "u", title: "第三章", position: 0 }], assets: [], shots, shotReferences: [], shotArtifacts: [], shotRevisions: revisions, tasks: [] } as unknown as ProjectDetail;
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -51,7 +58,7 @@ test("switching shots retains edited prompts and separates notes; polling cannot
     const click = async (element: Element) => { await act(async () => { element.dispatchEvent(new dom.MouseEvent("click", { bubbles: true })); }); await settle(); };
     const fill = async (element: HTMLTextAreaElement, text: string) => { await act(async () => { Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype,"value")!.set!.call(element,text); element.dispatchEvent(new dom.Event("input", { bubbles: true })); }); };
     const button = (text: string) => [...document.querySelectorAll("button")].find(item => item.textContent?.includes(text))!;
-    const prompt = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="shot-prompt"]')!;
+    const prompt = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label^="视频提示词"]')!;
     const notes = () => document.querySelector<HTMLTextAreaElement>('textarea[placeholder^="例如：起步"]')!;
     try {
         await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><App><Harness /></App></MemoryRouter></QueryClientProvider>));
@@ -69,17 +76,80 @@ test("switching shots retains edited prompts and separates notes; polling cannot
         expect(prompt().value).toBe("我手动修改的咖啡厅提示词\n\n");
         await click(button("提修改意见")); expect(notes().value).toBe("镜头一独有的修改意见");
         await click(button("生成修改建议"));
+        expect(rewriteFacts.next).toMatchObject({ videoPrompt: "原始提示词two" });
         await click(document.querySelector(".ant-modal-close")!);
         await click(host.querySelectorAll(".workflow-timeline-shot")[1]);
         await click(host.querySelectorAll(".workflow-timeline-shot")[0]);
         await act(async () => poll()); await settle();
-        await act(async () => resolveRewrite({ text: "按咖啡厅要求重写后的提示词" })); await settle();
+        const rewrite = DIRECTOR_PROMPT_SECTIONS.map(section => section === "声音设计"
+            ? "【15秒分镜／动作时间轴】\n0—15秒｜室内\n人物动作：角色坐在桌前。\n镜头运动：平稳向前。\n背景：咖啡厅灯光稳定。\n【声音设计】\n室内底噪。"
+            : `【${section}】\n${section === "参考图绑定" ? "过期参考：@[asset:neighbor-only]\n保留原有空间关系。" : "按咖啡厅要求重写后的提示词"}`).join("\n\n");
+        await act(async () => resolveRewrite({ text: rewrite })); await settle();
         await click(button("提修改意见"));
         await click(button("检查后应用到编辑区"));
-        expect(prompt().value).toBe("按咖啡厅要求重写后的提示词");
+        expect(prompt().value).toBe(rewrite.replace("过期参考：@[asset:neighbor-only]\n", ""));
         expect(document.body.textContent).not.toContain("生成建议后正文或时长又有修改");
     } finally {
         await act(async () => root.unmount()); host.remove(); client.clear();
+    }
+});
+
+test("shot editors keep the gallery layout and insert references in both editors", async () => {
+    const shot = { id: "mention-shot", projectId: "mention-project", unitId: "u", title: "镜头01", position: 0, durationMs: 15000, currentRevisionId: "mention-revision" } as ProjectShot;
+    const assets = ["艾拉男装", "伊森", "录音室"].map((title, position) => ({
+        id: `asset-${position}`, title, position, category: "material", mediaType: "image",
+        storageKey: `resource:image-${position}`, primaryVersionId: `version-${position}`, status: "confirmed", versionCount: 1, usages: [],
+    }));
+    const detail = {
+        project: { id: shot.projectId, name: "引用测试", aspectRatio: "9:16" },
+        units: [{ id: shot.unitId, title: "测试章节", position: 0 }],
+        shots: [shot], assets, shotArtifacts: [], tasks: [],
+        shotReferences: assets.map(asset => ({ id: asset.id, shotId: shot.id, assetVersionId: asset.primaryVersionId, role: "reference", status: "linked", asset })),
+        shotRevisions: [{ id: shot.currentRevisionId, shotId: shot.id, videoPrompt: "角色参考：", plotDescription: "", durationMs: 15000, version: 1 }],
+    } as unknown as ProjectDetail;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+        await act(async () => root.render(
+            <QueryClientProvider client={client}><MemoryRouter><App>
+                <Workbench activeStage="video" detail={detail} projectId={shot.projectId} unitId={shot.unitId}
+                    selectedShot={shot} onSelectShot={() => {}} onRefresh={async () => {}} onAddShot={() => {}} addingShot={false} />
+            </App></MemoryRouter></QueryClientProvider>,
+        ));
+        for (const expanded of [false, true]) {
+            if (expanded) {
+                await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent?.includes("展开编辑完整提示词"))!.click());
+            }
+            const scope = expanded ? document.querySelector<HTMLElement>(".ant-modal-container")! : host;
+            scope.getBoundingClientRect = () => new dom.DOMRect(0, 0, 1000, 760) as unknown as DOMRect;
+            const editor = scope.querySelector<HTMLElement>('[role="textbox"][aria-label^="视频提示词"]')!;
+            await act(async () => {
+                editor.focus();
+                const text = document.createTextNode(" @");
+                editor.append(text);
+                const range = document.createRange();
+                range.setStart(text, text.length);
+                range.collapse(true);
+                const selection = window.getSelection()!;
+                selection.removeAllRanges();
+                selection.addRange(range);
+                editor.dispatchEvent(new dom.InputEvent("input", { bubbles: true }));
+            });
+            const menu = document.querySelector<HTMLElement>("[data-canvas-resource-mention-menu]")!;
+            expect(menu.classList.contains("is-gallery")).toBe(true);
+            const cards = menu.querySelectorAll<HTMLButtonElement>(".canvas-resource-mention-card");
+            expect([...cards].map(card => card.querySelector(".canvas-resource-mention-card-label")?.textContent)).toEqual(assets.map(asset => asset.title));
+            const previousCount = editor.querySelectorAll("[data-mention-token]").length;
+            await act(async () => cards[expanded ? 1 : 0].click());
+            expect(editor.querySelectorAll("[data-mention-token]")).toHaveLength(previousCount + 1);
+            expect(document.querySelector("[data-canvas-resource-mention-menu]")).toBeNull();
+        }
+    } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        client.clear();
     }
 });
 

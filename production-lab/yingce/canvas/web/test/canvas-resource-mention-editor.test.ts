@@ -8,6 +8,14 @@ function source(path: string) {
 }
 
 describe("canvas resource mention editor", () => {
+    test("canvas node prompt uses the classic list with the canvas asset library", () => {
+        const panel = source("../src/components/canvas/canvas-node-prompt-panel.tsx");
+        const editor = panel.match(/<CanvasResourceMentionTextarea\s[\s\S]*?\n\s*\/>/)?.[0] || "";
+        expect(editor).toContain('mentionMenuLayout="list"');
+        expect(editor).toContain("includeAssetLibrary");
+        expect(editor).toContain("onAddReference");
+    });
+
     test("refreshes async reference previews even when prompt text has not changed", () => {
         const component = moduleGroupSource("components/canvas/canvas-resource-mention-textarea.tsx");
         const unchangedTextBranch = component.match(/if \(currentValue === value && lastRenderedValueRef.current === value\) \{([^}]+)\}/)?.[1] || "";

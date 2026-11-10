@@ -63,11 +63,12 @@ export function buildTimelineForScope(nodes: CanvasNodeData[], options: Timeline
     return buildTimelineFromNodes(selectTimelineScopeNodes(nodes, options), { prefixReferenceTitles: options.scope !== "current" });
 }
 
-export type TimelineSourceSummary = { videoCount: number; durationMs: number; subtitleCount: number };
+export type TimelineSourceSummary = { videoCount: number; audioCount: number; durationMs: number; subtitleCount: number };
 
 export function summarizeTimelineSource(timeline: TimelineProject): TimelineSourceSummary {
     return {
         videoCount: timeline.clips.filter((clip) => clip.kind === "video").length,
+        audioCount: timeline.clips.filter((clip) => clip.kind === "audio").length,
         durationMs: getTimelineVisualEndMs(timeline.clips),
         subtitleCount: timeline.clips.filter((clip) => clip.kind === "subtitle").length,
     };
@@ -75,7 +76,8 @@ export function summarizeTimelineSource(timeline: TimelineProject): TimelineSour
 
 /** 「来源：当前视频 · 1 段 · 3.0s · 字幕 0 条」 */
 export function formatTimelineSourceSummary(sourceLabel: string, summary: TimelineSourceSummary): string {
-    return `来源：${sourceLabel} · ${summary.videoCount} 段 · ${(summary.durationMs / 1000).toFixed(1)}s · 字幕 ${summary.subtitleCount} 条`;
+    const clips = [summary.videoCount ? `视频 ${summary.videoCount} 段` : "", summary.audioCount ? `音频 ${summary.audioCount} 段` : ""].filter(Boolean).join(" · ");
+    return `来源：${sourceLabel} · ${clips || "0 段"} · ${(summary.durationMs / 1000).toFixed(1)}s · 字幕 ${summary.subtitleCount} 条`;
 }
 
 /**

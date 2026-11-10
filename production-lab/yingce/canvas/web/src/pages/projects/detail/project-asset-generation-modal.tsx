@@ -21,7 +21,7 @@ import { listGenerationTasks } from "@/services/api/task-center";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, getResource } from "@/services/api/resources";
 import { uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { useEffectiveConfig } from "@/stores/use-config-store";
+import { configuredModelMatchesCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { confirmProjectAssetCandidate, ignoreProjectAssetCandidate, listProjectAssetsPage, listProjectAssetCandidates, updateProjectAssetVisual, updateProjectCharacter, type ProjectAsset, type ProjectDetail } from "@/services/api/projects";
 import { characterTurnaroundConfig } from "./project-character-media";
 import { projectCharacterCover } from "./project-character-cover";
@@ -31,13 +31,36 @@ import { recommendProjectAsset, projectAssetTaskID } from "./project-asset-revie
 
 type Row = { id: string; asset: ProjectAsset; candidateId?: string; prompt: string; references: string[]; selected: boolean; operationId: string; status?: string; error?: string; taskId?: string; selectionReason?: string };
 const visualCategories = new Set(["character", "environment", "prop"]);
+const imageSettingKeys = ["size", "imageResolution", "quality", "transparentBackground", "imageParameters"] as const;
+
+function assetGenerationDefinition(row: Row, asset: ProjectAsset, config: AiConfig) {
+    const imageSettings = Object.fromEntries(imageSettingKeys.flatMap(key => typeof config[key] === "string" ? [[key, config[key]]] : []));
+    return {
+        ...(asset.character?.definition || asset.definition || {}),
+        generationPrompt: row.prompt,
+        generationReferenceIds: row.references,
+        generationImageSettings: { model: config.model, ...imageSettings },
+    };
+}
+
 export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh }: { detail: ProjectDetail; single?: ProjectAsset; onClose: () => void; onRefresh: () => void }) {
     const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
     const theme = canvasThemes[useActiveTheme()];
+    const [savedImageSettings] = useState(() => {
+        const settings = (single?.character?.definition || single?.definition)?.generationImageSettings;
+        if (!settings || typeof settings !== "object") return undefined;
+        const saved = settings as Partial<Record<"model" | typeof imageSettingKeys[number], unknown>>;
+        return typeof saved.model === "string" && configuredModelMatchesCapability(effectiveConfig, saved.model, "image") ? saved : undefined;
+    });
     const [config, setConfig] = useState(() => {
-        const model = detail.project.defaultImageModel || shortDramaMediaDefault(effectiveConfig, "image");
-        return characterTurnaroundConfig({ ...effectiveConfig, model, imageModel: model });
+        const model = typeof savedImageSettings?.model === "string" ? savedImageSettings.model : detail.project.defaultImageModel || shortDramaMediaDefault(effectiveConfig, "image");
+        const defaults = characterTurnaroundConfig({ ...effectiveConfig, model, imageModel: model });
+        for (const key of imageSettingKeys) {
+            const value = savedImageSettings?.[key];
+            if (typeof value === "string") defaults[key] = value;
+        }
+        return defaults;
     });
     const [rows, setRows] = useState<Row[]>([]);
     const [knownAssets, setKnownAssets] = useState(detail.assets);
@@ -170,7 +193,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
             selected.filter((row) => !row.candidateId),
             async (row) => {
                 const asset = row.asset;
-                const definition = { ...(asset.character?.definition || asset.definition || {}), generationPrompt: row.prompt, generationReferenceIds: row.references };
+                const definition = assetGenerationDefinition(row, asset, config);
                 const result =
                     asset.category === "character"
                         ? await updateProjectCharacter(detail.project.id, asset.id, { name: asset.title, definition })
@@ -186,7 +209,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
         );
         setBusy(false);
         refresh();
-        message[failed ? "warning" : "success"](failed ? "部分提示词保存失败，请查看对应条目" : "提示词与参考图已保存，没有提交生成");
+        message[failed ? "warning" : "success"](failed ? "部分资产设置保存失败，请查看对应条目" : "提示词、参考图与图像设置已保存");
     };
     const confirmRow = async (row: Row) => (row.candidateId ? (await confirmProjectAssetCandidate(detail.project.id, row.candidateId)).asset : row.asset);
     const execute = async (generate: boolean) => {
@@ -229,7 +252,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                     let asset = await confirmRow(row);
                     change(row.id, { asset, candidateId: undefined });
                     if (!generate) return;
-                    const definition = { ...(asset.character?.definition || asset.definition || {}), generationPrompt: row.prompt, generationReferenceIds: row.references };
+                    const definition = assetGenerationDefinition(row, asset, config);
                     asset =
                         asset.category === "character"
                             ? (await updateProjectCharacter(detail.project.id, asset.id, { name: asset.title, definition })).asset
@@ -304,10 +327,10 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                             </Button>
                         )}
                         <Button disabled={busy || !selected.some((row) => !row.candidateId)} onClick={() => void savePrompts()}>
-                            保存提示词
+                            保存设置
                         </Button>
                         <Button type="primary" loading={busy} disabled={loading || !selected.length} onClick={() => void execute(true)}>
-                            确认并生成 {selected.length} 项
+                            {single && savedImageSettings ? "按当前设置生成" : `确认并生成 ${selected.length} 项`}
                         </Button>
                     </div>
                 </div>
@@ -362,6 +385,7 @@ export function ProjectAssetGenerationModal({ detail, single, onClose, onRefresh
                         setConfig((c) => ({ ...c, [key]: value }));
                     }}
                 />
+                {single && savedImageSettings && <p className="text-xs text-foreground/65">已载入此资产上次保存的图像设置，可直接生成或先调整。</p>}
                 <div className="flex flex-wrap gap-2">
                     <Button disabled={busy} onClick={() => setRows((current) => current.map((r) => ({ ...r, selected: !r.status })))}>
                         选择全部可生成资产

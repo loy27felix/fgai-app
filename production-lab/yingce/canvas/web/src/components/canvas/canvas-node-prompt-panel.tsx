@@ -647,6 +647,7 @@ export function CanvasNodePromptPanel({
                     <CanvasResourceMentionTextarea
                         value={prompt}
                         references={textareaReferences}
+                        mentionMenuLayout="list"
                         onSelectReference={onAddReference ? (reference) => onAddReference(node.id, reference) : undefined}
                         includeAssetLibrary
                         onChange={updatePrompt}

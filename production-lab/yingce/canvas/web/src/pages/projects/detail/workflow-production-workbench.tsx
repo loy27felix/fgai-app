@@ -1,10 +1,12 @@
 import { ImageSizePicker } from "@/components/image-size-picker";
 import { FGPricePreview } from "@/components/fg-price-preview";
-import { dramaPlanFromBeats } from "@/lib/short-drama-production";
+import { dramaPlanFromBeats, validateDirectorVideoPrompt } from "@/lib/short-drama-production";
+import { assertLockedEnglishPrompt } from "@/services/api/project-language";
 import { shortDramaMediaDefault } from "@/lib/short-drama-models";
 import { resolveProjectCanvasStyle } from "@/components/canvas/canvas-style-picker-modal";
 import { shotArtifactPrompt, actionBoardPromptFromBeats } from "./shot-artifact-prompt";
 import { prepareShotVideoExecution, shotGenerationReferenceContext, shotSceneReferenceContext } from "./shot-video-execution";
+import { generationErrorMessage, isContentModerationError } from "@/lib/generation-error";
 import { rewriteShotVideoPrompt } from "./shot-prompt-rewrite";
 import { ShotVideoBatchModal } from "./shot-video-batch-modal";
 import { CharacterCostumesModal } from "./character-costumes-modal";
@@ -207,6 +209,20 @@ export default function WorkflowProductionWorkbench(props: Props) {
         return () => window.clearInterval(timer);
     }, [shotTask?.status, shotTask?.id]);
     const shotTaskElapsed = shotTask ? formatTaskElapsed(Date.parse(shotTask.startedAt || shotTask.createdAt), taskClock) : "";
+    const failedShotTask = shotTask?.status === "failed" ? shotTask : undefined;
+    // Project task summaries omit error text. Fetch the selected task's user-facing details on demand.
+    const shotFailureQuery = useQuery({
+        queryKey: ["shot-generation-failure", failedShotTask?.id, failedShotTask?.updatedAt],
+        queryFn: ({ signal }) => queryGenerationTask(failedShotTask!.id, { signal }),
+        enabled: Boolean(failedShotTask?.id),
+        staleTime: 60_000,
+        retry: false,
+    });
+    const shotTaskError = shotFailureQuery.data?.error || failedShotTask?.error;
+    const shotModerationFailed = isContentModerationError(failedShotTask?.errorCode) || isContentModerationError(shotTaskError);
+    const shotFailureMessage = failedShotTask && (shotModerationFailed
+        ? "生成渠道未通过本次内容审核。请检查当前提示词和参考素材，再提交修改后的镜头。"
+        : shotTaskError ? generationErrorMessage(shotTaskError) : shotFailureQuery.isFetching ? "正在读取失败原因…" : "暂未取得具体失败原因，可在任务中心核对。");
     const newestArtifact = artifacts.find((item) => item.selected) || artifacts[0];
     const previewArtifact = artifacts.find((item) => item.id === previewArtifactId) || newestArtifact;
     const generationCapability = activeStage === "video" ? "video" as const : "image" as const;
@@ -622,9 +638,23 @@ export default function WorkflowProductionWorkbench(props: Props) {
         rememberDraft({ result: null });
         setRewriteStatus("正在提交提示词修改任务…");
         try {
-            const result = await rewriteShotVideoPrompt({ projectId, unitId: selectedShot.unitId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current: values, previous: shots[shotIndex - 1] ? currentRevision(detail, shots[shotIndex - 1]) : null, next: shots[shotIndex + 1] ? currentRevision(detail, shots[shotIndex + 1]) : null, references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
-            resolveShotAssetMentionPrompt(result.text, shotAssetReferenceContext, { dialogue: values.dialogue });
-            const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text: ensureShotAssetMentionPrompt(result.text, shotAssetReferenceContext.mentionReferences), ...(result.lockedDialogue === undefined ? {} : { originalDialogue: values.dialogue || "", lockedDialogue: result.lockedDialogue }) };
+            const neighbor = (index: number) => {
+                const revision = currentRevision(detail, shots[index]);
+                return revision ? {
+                    plotDescription: revision.plotDescription,
+                    action: revision.action,
+                    continuityNotes: revision.continuityNotes,
+                    videoPrompt: ensureShotAssetMentionPrompt(revision.videoPrompt || "", []),
+                } : null;
+            };
+            const current = { ...values, videoPrompt: ensureShotAssetMentionPrompt(original, shotAssetReferenceContext.mentionReferences) };
+            const result = await rewriteShotVideoPrompt({ projectId, unitId: selectedShot.unitId, shotId, config: { ...effectiveConfig, model: "", textModel: "" }, notes: rewriteNotes, seconds: values.durationSeconds, facts: { projectName: detail.project.name, projectStyle: resolveProjectCanvasStyle(detail.project.stylePresetId, detail.project.styleProfileJson), current, previous: neighbor(shotIndex - 1), next: neighbor(shotIndex + 1), references: shotAssetReferenceContext.assetReferences }, skills: availableSkills, skillIds: rewriteSkillIds, actionDirection: rewriteDirection, onFallback: text => message.warning(text), onTask: task => { if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus(`${task.stage || (task.status === "queued" ? "排队中" : "正在重写提示词")} · ${task.id.slice(0, 8)}`); } });
+            const latestContext = activeWorkspaceKey.current === workspaceKey ? liveReferenceContext.current || shotAssetReferenceContext : shotAssetReferenceContext;
+            const sceneContext = shotSceneReferenceContext(result.text, latestContext);
+            const text = ensureShotAssetMentionPrompt(result.text, sceneContext.mentionReferences);
+            validateDirectorVideoPrompt(text, values.durationSeconds);
+            if (result.lockedDialogue !== undefined) assertLockedEnglishPrompt(result.lockedDialogue, text);
+            const suggestion = { shotId, original, seconds: Number(values.durationSeconds), text, ...(result.lockedDialogue === undefined ? {} : { originalDialogue: values.dialogue || "", lockedDialogue: result.lockedDialogue }) };
             if (activeWorkspaceKey.current === workspaceKey) setRewriteResult(suggestion);
             rememberDraft({ result: suggestion });
             if (activeWorkspaceKey.current === workspaceKey) setRewriteStatus("重写完成，请检查后应用；原提示词和视频仍保留");
@@ -633,7 +663,16 @@ export default function WorkflowProductionWorkbench(props: Props) {
     };
     const applyRewrite = () => {
         if (!rewriteResult || !canApplyShotRewrite(rewriteResult, selectedShot.id, form.getFieldsValue())) return message.warning("生成建议后正文或时长又有修改，请重新生成建议，避免覆盖新内容");
-        form.setFieldValue("videoPrompt", ensureShotAssetMentionPrompt(rewriteResult.text, shotAssetReferenceContext.mentionReferences));
+        const sceneContext = shotSceneReferenceContext(rewriteResult.text, shotAssetReferenceContext);
+        const text = ensureShotAssetMentionPrompt(rewriteResult.text, sceneContext.mentionReferences);
+        try {
+            validateDirectorVideoPrompt(text, rewriteResult.seconds);
+            if (rewriteResult.lockedDialogue !== undefined) assertLockedEnglishPrompt(rewriteResult.lockedDialogue, text);
+        } catch (error) {
+            setRewriteStatus(error instanceof Error ? error.message : "修改建议无法应用，请重新生成");
+            return;
+        }
+        form.setFieldValue("videoPrompt", text);
         if (rewriteResult.lockedDialogue !== undefined) form.setFieldValue("dialogue", rewriteResult.lockedDialogue);
         rememberEditor();
         setRewriteOpen(false);
@@ -801,7 +840,9 @@ export default function WorkflowProductionWorkbench(props: Props) {
                         />
                     </header>
                     <div className="workflow-preview-scroll thin-scrollbar">
-                        {generationCapability === "image" && shotTask?.status === "failed" && /\b413\b|request entity too large|payload too large/i.test(`${shotTask.errorCode || ""} ${shotTask.error || ""}`) && <Alert type="warning" title="上次参考图上传包过大（413）" description="点击重新生成，先勾选本次参考图并使用优化传输；原始资产和视频绑定保留。" action={<Button size="small" onClick={() => void generateArtifact()}>调整参考图并重试</Button>} />}
+                        {generationCapability === "image" && failedShotTask && /\b413\b|request entity too large|payload too large/i.test(`${failedShotTask.errorCode || ""} ${shotTaskError || ""}`)
+                            ? <Alert className="mb-2" type="warning" title="上次参考图上传包过大（413）" description="点击重新生成，先勾选本次参考图并使用优化传输；原始资产和视频绑定保留。" action={<Button size="small" onClick={() => void generateArtifact()}>调整参考图并重试</Button>} />
+                            : shotFailureMessage && <Alert className="mb-2 break-words" type="error" showIcon title={shotModerationFailed ? "上次生成未通过内容审核" : "上次生成失败"} description={shotFailureMessage} />}
                         {previewTab === "latest" ? <LatestPreview artifact={previewArtifact} emptyText={stageCopy.empty} onPreviewImage={setImagePreviewArtifact} /> : <ArtifactHistory artifacts={artifacts} activeId={previewArtifact?.id} onSelect={(artifact) => { setPreviewArtifactId(artifact.id); setPreviewTab("latest"); }} />}
                         <div className="workflow-preview-summary"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">当前产物</span><ArtifactStatus artifact={newestArtifact} compact /></div><div className="mt-1 text-[var(--fs-micro)] text-foreground/45">{newestArtifact ? `${formatDuration(selectedShot.durationMs)} · ${resolution}p · v${newestArtifact.version}` : "当前镜头还没有生成产物"}</div></div>
                         <div className="workflow-preview-actions"><Button icon={<RefreshCcw className="size-3.5" />} loading={selectedShotSubmitting || shotTask?.status === "queued" || shotTask?.status === "running"} onClick={() => void generateArtifact()}>重新生成</Button><Button disabled={!previewArtifact?.taskId} onClick={() => void inspectPrompt(true)}>生成时 Prompt</Button><Button icon={<Download className="size-3.5" />} disabled={!previewArtifact?.resourceId} onClick={() => previewArtifact?.resourceId && void downloadArtifact(previewArtifact, `${detail.units.find(unit => unit.id === unitId)?.title || "本集"}-${selectedShot.title}`, message.error)}>下载{activeStage === "video" ? "视频" : "图片"}</Button></div>

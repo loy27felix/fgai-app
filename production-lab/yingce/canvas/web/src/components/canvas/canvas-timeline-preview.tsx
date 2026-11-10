@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Music2, Pause, Play } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { resolveMediaUrl } from "@/services/file-storage";
-import { formatTimelineTime } from "@/lib/timeline/timeline-view";
+import { formatTimelineTime, getTimelineVisualEndMs } from "@/lib/timeline/timeline-view";
 import { createDefaultSubtitleStyle } from "@/types/timeline";
-import type { TimelineClip } from "@/types/timeline";
+import type { TimelineClip, TimelineTrack } from "@/types/timeline";
 import type { CanvasNodeData } from "@/types/canvas";
 import { CanvasSubtitleOverlay } from "./canvas-subtitle-overlay";
 
@@ -13,6 +13,7 @@ type CanvasTheme = (typeof canvasThemes)[keyof typeof canvasThemes];
 
 type CanvasTimelinePreviewProps = {
     clips: TimelineClip[];
+    tracks: TimelineTrack[];
     nodes: CanvasNodeData[];
     playheadMs: number;
     playing: boolean;
@@ -24,12 +25,58 @@ type CanvasTimelinePreviewProps = {
 const PREVIEW_WIDTH = 300;
 const PREVIEW_HEIGHT = 168;
 const AUTO_ADVANCE_GAP_MS = 500;
+const containsPlayhead = (clip: TimelineClip, ms: number) => ms >= clip.startMs && ms < clip.startMs + clip.durationMs;
+
+function TimelineAudioClipPreview({ clip, node, playheadMs, playing, onReady }: {
+    clip: TimelineClip;
+    node?: CanvasNodeData;
+    playheadMs: number;
+    playing: boolean;
+    onReady: (id: string, ready?: "ready" | "unavailable") => void;
+}) {
+    const ref = useRef<HTMLAudioElement>(null);
+    const [url, setUrl] = useState("");
+    const storageKey = clip.directMedia?.storageKey || node?.metadata?.storageKey;
+    const fallback = clip.directMedia?.url || clip.directMedia?.dataUrl || node?.metadata?.content || "";
+    useEffect(() => {
+        let active = true;
+        const audio = ref.current;
+        setUrl("");
+        void resolveMediaUrl(storageKey, fallback).then((value) => {
+            if (!active) return;
+            if (value) setUrl(value);
+            else onReady(clip.id, "unavailable");
+        }).catch(() => { if (active) onReady(clip.id, "unavailable"); });
+        return () => {
+            active = false;
+            audio?.pause();
+            onReady(clip.id);
+        };
+    }, [clip.id, fallback, onReady, storageKey]);
+
+    const sync = useCallback((audio: HTMLAudioElement, forceSeek = false) => {
+        if (!url || audio.readyState < 1) return;
+        const elapsed = Math.max(0, playheadMs - clip.startMs);
+        const target = ((clip.sourceStartMs || 0) + elapsed) / 1000;
+        if (forceSeek || Math.abs(audio.currentTime - target) > (playing ? 0.2 : 0.02)) audio.currentTime = target;
+        const fadeIn = clip.fadeInMs ? elapsed / clip.fadeInMs : 1;
+        const fadeOut = clip.fadeOutMs ? (clip.durationMs - elapsed) / clip.fadeOutMs : 1;
+        audio.volume = Math.min(1, Math.max(0, (clip.volume ?? 1) * Math.min(1, fadeIn, fadeOut)));
+        if (playing && audio.paused) {
+            void audio.play().catch((error) => {
+                if (error?.name !== "AbortError") onReady(clip.id, "unavailable");
+            });
+        } else if (!playing) audio.pause();
+    }, [clip, onReady, playheadMs, playing, url]);
+    useEffect(() => { if (ref.current) sync(ref.current); }, [sync]);
+
+    return <audio ref={ref} src={url || undefined} preload="auto" onLoadedMetadata={event => sync(event.currentTarget, true)} onCanPlay={() => onReady(clip.id, "ready")} onError={() => onReady(clip.id, "unavailable")} />;
+}
 
 /**
- * 时间线弹窗的所见即所得预览：显示播放头所在视频片段，并叠加当前字幕。
- * 播放时以视频时间为基准推进播放头；暂停时播放头（标尺跳转）驱动视频画面。
+ * 纯视频沿用媒体时钟；有音频轨时使用时间线时钟，使裁剪、重叠和空白区间对齐。
  */
-export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme, onTogglePlay, onPlayheadChange }: CanvasTimelinePreviewProps) {
+export function CanvasTimelinePreview({ clips, tracks, nodes, playheadMs, playing, theme, onTogglePlay, onPlayheadChange }: CanvasTimelinePreviewProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [videoUrl, setVideoUrl] = useState("");
     const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
@@ -37,6 +84,44 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
     const targetSeekSecRef = useRef<number | null>(null);
 
     const videoClips = useMemo(() => clips.filter((clip) => clip.kind === "video").sort((a, b) => a.startMs - b.startMs), [clips]);
+    const audioClips = useMemo(() => {
+        const inactive = new Set(tracks.filter(track => track.muted || track.visible === false).map(track => track.id));
+        return clips.filter(clip => clip.kind === "audio" && !inactive.has(clip.trackId));
+    }, [clips, tracks]);
+    const activeAudioClips = audioClips.filter(clip => containsPlayhead(clip, playheadMs));
+    const [audioStatus, setAudioStatus] = useState<Record<string, "ready" | "unavailable" | undefined>>({});
+    const onAudioReady = useCallback((id: string, status?: "ready" | "unavailable") => {
+        setAudioStatus(current => {
+            if (current[id] === status) return current;
+            const next = { ...current };
+            if (status) next[id] = status;
+            else delete next[id];
+            return next;
+        });
+    }, []);
+    const audioReady = activeAudioClips.every(clip => audioStatus[clip.id]);
+    const clockWithAudio = audioClips.length > 0;
+    const previewEndMs = getTimelineVisualEndMs([...videoClips, ...audioClips]);
+    const playheadRef = useRef(playheadMs);
+    playheadRef.current = playheadMs;
+    const toggleRef = useRef(onTogglePlay);
+    toggleRef.current = onTogglePlay;
+    useEffect(() => {
+        if (!playing || !clockWithAudio || !audioReady) return;
+        let previous = performance.now();
+        const timer = window.setInterval(() => {
+            const now = performance.now();
+            const next = Math.min(previewEndMs, playheadRef.current + now - previous);
+            previous = now;
+            playheadRef.current = next;
+            onPlayheadChange(next);
+            if (next >= previewEndMs) {
+                window.clearInterval(timer);
+                toggleRef.current();
+            }
+        }, 40);
+        return () => window.clearInterval(timer);
+    }, [audioReady, clockWithAudio, onPlayheadChange, playing, previewEndMs]);
     const activeVideoClip = useMemo(() => videoClips.find((clip) => playheadMs >= clip.startMs && playheadMs < clip.startMs + clip.durationMs) || null, [playheadMs, videoClips]);
     const activeSubtitleClip = useMemo(() => clips.find((clip) => clip.kind === "subtitle" && playheadMs >= clip.startMs && playheadMs < clip.startMs + clip.durationMs && Boolean(clip.text?.trim())) || null, [clips, playheadMs]);
     const activeNode = useMemo(() => (activeVideoClip ? nodes.find((node) => node.id === activeVideoClip.nodeId) || null : null), [activeVideoClip, nodes]);
@@ -76,15 +161,15 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
         const targetSec = sourceStartSec + Math.max(0, playheadMs - activeVideoClip.startMs) / 1000;
         const clampedTargetSec = Math.min(targetSec, sourceStartSec + Math.max(0, sourceDurationSec - 0.05));
         targetSeekSecRef.current = clampedTargetSec;
-        if (video.readyState >= 1 && Math.abs(video.currentTime - clampedTargetSec) > 0.05) {
+        if (video.readyState >= 1 && Math.abs(video.currentTime - clampedTargetSec) > (playing && clockWithAudio ? 0.2 : 0.05)) {
             video.currentTime = clampedTargetSec;
         }
-        if (playing) {
+        if (playing && (!clockWithAudio || audioReady)) {
             void video.play().catch(() => undefined);
         } else {
             video.pause();
         }
-    }, [activeVideoClip, playheadMs, playing, videoUrl]);
+    }, [activeVideoClip, audioReady, clockWithAudio, playheadMs, playing, videoUrl]);
 
     // 视频换源后元数据加载完成，应用之前记录的源内定位目标。
     const handleVideoLoadedMetadata = (video: HTMLVideoElement) => {
@@ -97,7 +182,7 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
 
     const handleTimeUpdate = () => {
         const video = videoRef.current;
-        if (!video || !activeVideoClip || !playing) return;
+        if (!video || !activeVideoClip || !playing || clockWithAudio) return;
         const sourceStartSec = (activeVideoClip.sourceStartMs || 0) / 1000;
         const timelineMs = activeVideoClip.startMs + Math.round((video.currentTime - sourceStartSec) * 1000);
         onPlayheadChange(Math.max(0, timelineMs));
@@ -126,38 +211,44 @@ export function CanvasTimelinePreview({ clips, nodes, playheadMs, playing, theme
 
     return (
         <div className="flex items-center gap-3 border-b px-4 py-2" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
+            {activeAudioClips.map(clip => <TimelineAudioClipPreview key={clip.id} clip={clip} node={nodes.find(node => node.id === clip.nodeId)} playheadMs={playheadMs} playing={playing && audioReady && audioStatus[clip.id] === "ready"} onReady={onAudioReady} />)}
             <div className="relative grid shrink-0 place-items-center overflow-hidden rounded-lg bg-black" style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT }} data-canvas-no-zoom>
                 {videoUrl && activeVideoClip ? (
-                    <>
-                        <div className="relative" style={previewDisplay ? { width: previewDisplay.width, height: previewDisplay.height } : { width: "100%", height: "100%" }}>
-                            <video ref={videoRef} className="block h-full w-full" src={videoUrl} playsInline preload="metadata" onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)} onTimeUpdate={handleTimeUpdate} />
-                            {activeSubtitleClip ? <CanvasSubtitleOverlay text={activeSubtitleClip.text || ""} highlight={activeHighlight} style={subtitleStyle} /> : null}
-                        </div>
-                        <button
-                            type="button"
-                            className="absolute inset-0 z-10 grid place-items-center"
-                            aria-label={playing ? "暂停预览" : "播放预览"}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                onTogglePlay();
-                            }}
-                        >
-                            <span className="grid size-10 place-items-center rounded-full bg-black/45 text-white backdrop-blur transition-colors duration-150 hover:bg-black/60">
-                                {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
-                            </span>
-                        </button>
-                    </>
+                    <div className="relative" style={previewDisplay ? { width: previewDisplay.width, height: previewDisplay.height } : { width: "100%", height: "100%" }}>
+                        <video ref={videoRef} className="block h-full w-full" src={videoUrl} playsInline preload="metadata" onLoadedMetadata={(event) => handleVideoLoadedMetadata(event.currentTarget)} onTimeUpdate={handleTimeUpdate} />
+                        {activeSubtitleClip ? <CanvasSubtitleOverlay text={activeSubtitleClip.text || ""} highlight={activeHighlight} style={subtitleStyle} /> : null}
+                    </div>
+                ) : clockWithAudio ? (
+                    <div className="flex flex-col items-center gap-2 text-xs text-white/80"><Music2 className="size-7" /><span>音频预览</span></div>
                 ) : (
-                    <div className="px-4 text-center text-xs opacity-55">该位置无视频片段</div>
+                    <div className="px-4 text-center text-xs text-white/60">该位置无视频片段</div>
                 )}
+                {(videoUrl && activeVideoClip) || clockWithAudio ? (
+                    <button
+                        type="button"
+                        className={videoUrl && activeVideoClip ? "absolute inset-0 z-10 grid place-items-center" : "absolute bottom-3 z-10 grid place-items-center"}
+                        aria-label={playing ? "暂停预览" : "播放预览"}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            if (!playing && clockWithAudio && playheadMs >= previewEndMs) onPlayheadChange(0);
+                            onTogglePlay();
+                        }}
+                    >
+                        <span className={`grid size-10 place-items-center rounded-full text-white transition-colors ${videoUrl ? "bg-black/45 backdrop-blur hover:bg-black/60" : "bg-white/20 hover:bg-white/30"}`}>
+                            {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
+                        </span>
+                    </button>
+                ) : null}
             </div>
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-xs">
                     <span className="truncate font-semibold" style={{ color: theme.accent.primary }}>
-                        {activeVideoClip?.title || "无视频片段"}
+                        {activeVideoClip?.title || activeAudioClips[0]?.title || (clockWithAudio ? "此处无音频片段" : "无视频片段")}
                     </span>
-                    <span className="opacity-45 tabular-nums">{activeVideoClip ? `${formatTimelineTime(activeVideoClip.startMs)} ~ ${formatTimelineTime(activeVideoClip.startMs + activeVideoClip.durationMs)}` : ""}</span>
+                    <span className="opacity-45 tabular-nums">{clockWithAudio ? `${formatTimelineTime(playheadMs)} / ${formatTimelineTime(previewEndMs)}` : activeVideoClip ? `${formatTimelineTime(activeVideoClip.startMs)} ~ ${formatTimelineTime(activeVideoClip.startMs + activeVideoClip.durationMs)}` : ""}</span>
                 </div>
+                {playing && !audioReady ? <p className="mt-2 text-xs opacity-60">正在加载音频…</p> : null}
+                {activeAudioClips.some(clip => audioStatus[clip.id] === "unavailable") ? <p className="mt-2 text-xs text-red-500" role="status">部分音频无法播放，请检查原素材。</p> : null}
                 <div className="mt-2 max-h-16 min-h-10 overflow-y-auto rounded-lg border px-2 py-2 text-xs leading-5" style={{ borderColor: theme.toolbar.border, background: theme.node.fill }}>
                     {activeSubtitleClip ? activeSubtitleClip.text : <span className="opacity-40">此处无字幕，点选字幕片段后在下方编辑</span>}
                 </div>

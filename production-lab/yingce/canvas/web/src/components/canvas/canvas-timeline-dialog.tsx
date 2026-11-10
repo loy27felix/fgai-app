@@ -32,7 +32,8 @@ import { canPlaceAt, clampClipDurationByNeighbors, findNearestAvailablePlacement
 import { computeSnap } from "@/lib/timeline/timeline-snap";
 import { DEFAULT_AUDIO_TRACK_ID, DEFAULT_VIDEO_TRACK_ID, normalizeTimelineProject } from "@/lib/timeline/timeline-tracks";
 import { formatTimelineTime, getTimelineTrackWidth, getFitTimelineZoom, zoomIn, zoomOut } from "@/lib/timeline/timeline-view";
-import { exportTimelineToMp4, type TimelineExportResult } from "@/lib/timeline/timeline-export";
+import { getAudibleTimelineClips } from "@/lib/timeline/timeline-audio-args";
+import { exportTimelineAudio, exportTimelineToMp4, type TimelineExportResult } from "@/lib/timeline/timeline-export";
 import { defaultTimelineExportPreset, resolveTimelineExportSize, summarizeTimelineFitModes, timelineExportPresetOptions, timelineFitModeLabel, type TimelineExportPreset } from "@/lib/timeline/timeline-export-spec";
 import { buildSubtitleSrt, getOrderedSubtitleClips, getOrderedVideoClips, type TimelineRenderSource } from "@/lib/timeline/timeline-to-ffmpeg";
 import type { CanvasNodeData } from "@/types/canvas";
@@ -72,6 +73,7 @@ type CanvasTimelineDialogProps = {
     addMediaToTimelineRef?: MutableRefObject<((media: TimelineDirectMedia) => void) | null>;
     /** 把合成结果保存为新视频节点放回画布（页面层接线） */
     onCreateAssembledNode?: (blob: Blob, title: string) => Promise<CanvasNodeData | null>;
+    onCreateAudioNode: (file: File) => Promise<string | null>;
 };
 
 type ClipDragMode = "move" | "trim-start" | "trim-end";
@@ -99,6 +101,7 @@ export function CanvasTimelineDialog({
     addNodeToTimelineRef,
     addMediaToTimelineRef,
     onCreateAssembledNode,
+    onCreateAudioNode,
 }: CanvasTimelineDialogProps) {
     const { message, modal } = App.useApp();
     const theme = canvasThemes[useActiveTheme()];
@@ -114,6 +117,7 @@ export function CanvasTimelineDialog({
     const [snapEnabled, setSnapEnabled] = useState(true);
     const [previewPlaying, setPreviewPlaying] = useState(false);
     const [exporting, setExporting] = useState(false);
+    const audioSaveInFlight = useRef(false);
     const [exportPercent, setExportPercent] = useState(0);
     const [exportDetail, setExportDetail] = useState("");
     const dragRef = useRef<DragState>(null);
@@ -159,6 +163,7 @@ export function CanvasTimelineDialog({
     };
 
     const rebuildFromScope = async (scope: TimelineBuildScope, includeReferences: boolean) => {
+        if (audioSaveInFlight.current) return;
         if (draftDirtyRef.current) {
             const confirmed = await modal.confirm({
                 title: "放弃当前时间线的修改？",
@@ -530,7 +535,13 @@ export function CanvasTimelineDialog({
         for (const media of medias) addDirectMediaToTimeline(media);
     };
 
-    const handleSave = () => {
+    const handleSave = (successText = "时间线已保存，重新点击「进入剪辑」可继续编辑") => {
+        if (audioOnly) {
+            onSave(normalizeTimelineProject({ ...draft, updatedAt: new Date().toISOString() }));
+            message.success(successText);
+            onClose();
+            return;
+        }
         // 互通修复：时间线草稿只在打开时初始化，期间节点字幕可能在字幕弹窗中被清空（或节点数据被外部更新）。
         // 保存前以节点当前字幕为准做定向校准：节点字幕已为空时，剔除草稿残留的旧字幕片段并回写空数组，
         // 避免「清空后重开视频节点旧字幕复活」；节点仍有字幕时保留草稿内用户的时间线编辑（拖动/删减/文本）。
@@ -550,8 +561,42 @@ export function CanvasTimelineDialog({
         subtitleNodeIds.forEach((subNodeId) => {
             onSaveSubtitles(subNodeId, buildSubtitleEntriesForNode(subNodeId, normalized));
         });
-        message.success("时间线已保存");
+        message.success(successText);
         onClose();
+    };
+
+    const handleSaveAudio = async () => {
+        if (audioSaveInFlight.current) return;
+        audioSaveInFlight.current = true;
+        setPreviewPlaying(false);
+        setExporting(true);
+        try {
+            const sources = new Map(getAudibleTimelineClips(draft).map((clip) => {
+                const media = clip.directMedia;
+                const metadata = nodes.find((item) => item.id === clip.nodeId)?.metadata;
+                return [clip.nodeId, {
+                    nodeId: clip.nodeId,
+                    storageKey: media?.storageKey || metadata?.storageKey,
+                    url: media?.url || media?.dataUrl || metadata?.content || undefined,
+                }] as const;
+            }));
+            const blob = await exportTimelineAudio(draft, sources, (percent, detail) => {
+                setExportPercent(percent);
+                setExportDetail(detail);
+            });
+            setExportPercent(85);
+            setExportDetail("正在添加音频节点");
+            const title = (node.title || "音频").replace(/\.(mp3|wav|aac|m4a|ogg|opus|flac|webm)$/i, "");
+            const id = await onCreateAudioNode(new File([blob], title + " - 剪辑.mp3", { type: blob.type }));
+            if (id) handleSave("已保存时间线，剪辑音频已添加到当前画布");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "剪辑音频保存失败");
+        } finally {
+            audioSaveInFlight.current = false;
+            setExporting(false);
+            setExportPercent(0);
+            setExportDetail("");
+        }
     };
 
     // 片段源画面尺寸：画布节点记录的 naturalWidth/Height，直连媒体用上传时读取的宽高；未知时导出按补黑边处理。
@@ -668,6 +713,8 @@ export function CanvasTimelineDialog({
     const selectedMediaMaxDurationMs = selectedMediaSourceDurationMs !== undefined ? Math.max(MIN_CLIP_DURATION_MS, selectedMediaSourceDurationMs) : 3_600_000;
     const selectedMediaMaxSourceStartMs = selectedMediaSourceDurationMs !== undefined ? Math.max(0, selectedMediaSourceDurationMs - (selectedMediaClip?.durationMs || 0)) : 3_600_000;
     const hasVideoClips = draft.clips.some((clip) => clip.kind === "video");
+    const audioOnly = !hasVideoClips && draft.clips.some((clip) => clip.kind === "audio");
+    const savingAudio = audioOnly && exporting;
 
     // 时间线全局时间 → 视频节点本地时间：以该节点视频片段起点为 0 基准重建 SrtEntry。
     // source 传保存时校准后的时间线（normalized）：节点字幕已清空时直接回写空数组，
@@ -741,11 +788,12 @@ export function CanvasTimelineDialog({
     const selectionVideoCount = countTimelineSelectionVideos(nodes, selectedNodeIds);
     const referenceVideoCount = nodes.filter((item) => isReferenceVideoNode(item) && Boolean(item.metadata?.content || item.metadata?.storageKey)).length;
     const scopeOptions = [
-        { value: "current" as const, label: "当前视频", disabled: !triggerHasMedia },
+        { value: "current" as const, label: node.type === "audio" ? "当前音频" : "当前视频", disabled: !triggerHasMedia },
         ...(selectionVideoCount > 1 ? [{ value: "selection" as const, label: `选中视频（${selectionVideoCount}）` }] : []),
         { value: "canvas" as const, label: "整个画布", title: referenceVideoCount ? "默认不含预演台白膜/深度参考视频" : undefined },
     ];
-    const sourceSummary = formatTimelineSourceSummary(SOURCE_LABELS[source], summarizeTimelineSource(draft));
+    const sourceLabel = source === "current" && node.type === "audio" ? "当前音频" : SOURCE_LABELS[source];
+    const sourceSummary = formatTimelineSourceSummary(sourceLabel, summarizeTimelineSource(draft));
 
     const title = (
         <div className="flex min-w-0 items-center gap-3 pr-10">
@@ -786,13 +834,23 @@ export function CanvasTimelineDialog({
             footer={null}
             width={1160}
             destroyOnHidden
-            onCancel={onClose}
+            onCancel={() => { if (!audioSaveInFlight.current) onClose(); }}
             afterOpenChange={(visible) => {
                 if (visible) ensureToolbarObserved();
             }}
             flush
         >
-            <div className="flex h-[min(76vh,760px)] min-h-[420px] flex-col text-sm" style={{ color: theme.node.text }}>
+            <div
+                className="relative flex h-[min(76vh,760px)] min-h-[420px] flex-col text-sm"
+                style={{ color: theme.node.text }}
+                aria-busy={savingAudio}
+                onKeyDownCapture={(event) => {
+                    if (savingAudio && event.key !== "Tab") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }
+                }}
+            >
                 <div ref={toolbarRef} className="flex flex-nowrap items-center gap-2 overflow-hidden border-b px-4 py-3" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
                     <span className="min-w-24 rounded-md border px-2 py-1 text-xs font-semibold tabular-nums" style={{ borderColor: theme.toolbar.border, background: theme.node.fill, color: theme.accent.primary }}>
                         {formatTimelineTime(playheadMs)}
@@ -909,27 +967,38 @@ export function CanvasTimelineDialog({
                         分割
                     </Button>
                     <div className="ml-auto flex items-center gap-2">
-                        <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} loading={exporting} disabled={!hasVideoClips} onClick={() => void handleExport()}>
-                            导出成片
-                        </Button>
-                        <Button size="small" icon={<Film className="size-3.5" />} loading={exporting} disabled={!hasVideoClips} onClick={() => void handleCreateAssembledNode()}>
-                            生成新片段
-                        </Button>
+                        {!audioOnly ? (
+                            <>
+                                <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} loading={exporting} disabled={!hasVideoClips} onClick={() => void handleExport()}>
+                                    导出成片
+                                </Button>
+                                <Button size="small" icon={<Film className="size-3.5" />} loading={exporting} disabled={!hasVideoClips} onClick={() => void handleCreateAssembledNode()}>
+                                    生成新片段
+                                </Button>
+                            </>
+                        ) : null}
                         <Button size="small" danger icon={<Trash2 className="size-3.5" />} disabled={!selectedClipId} onClick={deleteSelectedClip}>
                             删除片段
                         </Button>
-                        <Button size="small" disabled={!draft.clips.length} onClick={onClose}>
+                        <Button size="small" disabled={!draft.clips.length || savingAudio} onClick={onClose}>
                             取消
                         </Button>
-                        <Button size="small" type="primary" disabled={!draft.clips.length} onClick={handleSave}>
-                            保存
-                        </Button>
+                        {audioOnly ? (
+                            <>
+                                <Button size="small" disabled={savingAudio} onClick={() => handleSave()}>仅保存时间线</Button>
+                                <Button size="small" type="primary" icon={<Music2 className="size-3.5" />} loading={savingAudio} disabled={!getAudibleTimelineClips(draft).length} onClick={() => void handleSaveAudio()}>
+                                    保存并添加到画布
+                                </Button>
+                            </>
+                        ) : (
+                            <Button size="small" type="primary" disabled={!draft.clips.length} onClick={() => handleSave()}>保存</Button>
+                        )}
                     </div>
                 </div>
 
                 {source === "saved" ? (
                     <div className="flex items-center gap-3 border-b px-4 py-2 text-xs" style={{ borderColor: theme.toolbar.border, background: theme.accent.primarySoft }}>
-                        <span className="min-w-0 flex-1 truncate">正在编辑项目里已保存的时间线，画布上新增的视频不会自动加入。</span>
+                        <span className="min-w-0 flex-1 truncate">正在编辑当前画布已保存的时间线，新增素材需手动添加。</span>
                         {triggerHasVideo ? (
                             <Button size="small" icon={<Video className="size-3.5" />} onClick={() => void startFromCurrentVideo()}>
                                 从当前视频新建时间线
@@ -938,7 +1007,7 @@ export function CanvasTimelineDialog({
                     </div>
                 ) : null}
 
-                <CanvasTimelinePreview clips={draft.clips} nodes={nodes} playheadMs={playheadMs} playing={previewPlaying} theme={theme} onTogglePlay={() => setPreviewPlaying((value) => !value)} onPlayheadChange={setPlayheadMs} />
+                <CanvasTimelinePreview clips={draft.clips} tracks={draft.tracks} nodes={nodes} playheadMs={playheadMs} playing={previewPlaying} theme={theme} onTogglePlay={() => setPreviewPlaying((value) => !value)} onPlayheadChange={setPlayheadMs} />
 
                 <div className="flex min-h-0 flex-1">
                     <div className="flex w-44 shrink-0 flex-col border-r" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
@@ -978,6 +1047,7 @@ export function CanvasTimelineDialog({
                     </div>
                 </div>
 
+                {savingAudio ? <div className="absolute inset-0 z-10 cursor-wait" aria-hidden="true" /> : null}
                 {exporting ? (
                     <div className="border-t px-4 py-2" style={{ borderColor: theme.toolbar.border, background: theme.toolbar.panel }}>
                         <Progress percent={exportPercent} size="small" format={() => exportDetail} />
@@ -1071,21 +1141,27 @@ export function CanvasTimelineDialog({
                     <span className="shrink-0 text-xs opacity-60">
                         总时长 {formatTimelineTime(durationMs)} · {draft.clips.length} 个片段 · {draft.tracks.length} 条轨道
                     </span>
-                    <span className="shrink-0 text-xs opacity-60">导出规格</span>
-                    <Select
-                        size="sm"
-                        className="w-60 shrink-0"
-                        ariaLabel="导出规格"
-                        value={exportPreset}
-                        disabled={exporting}
-                        options={exportPresetOptions.map((option) => ({ value: option.value, label: option.label }))}
-                        onChange={(value: TimelineExportPreset) => setExportPreset(value)}
-                    />
-                    {exportFitLabel ? (
-                        <Tooltip title="画面比例与导出规格相差不超过 3% 时裁切填满，否则等比缩放并补黑边">
-                            <span className="shrink-0 text-xs opacity-60">{exportFitLabel}</span>
-                        </Tooltip>
-                    ) : null}
+                    {audioOnly ? (
+                        <span className="shrink-0 text-xs opacity-60">音频格式 MP3</span>
+                    ) : (
+                        <>
+                            <span className="shrink-0 text-xs opacity-60">导出规格</span>
+                            <Select
+                                size="sm"
+                                className="w-60 shrink-0"
+                                ariaLabel="导出规格"
+                                value={exportPreset}
+                                disabled={exporting}
+                                options={exportPresetOptions.map((option) => ({ value: option.value, label: option.label }))}
+                                onChange={(value: TimelineExportPreset) => setExportPreset(value)}
+                            />
+                            {exportFitLabel ? (
+                                <Tooltip title="画面比例与导出规格相差不超过 3% 时裁切填满，否则等比缩放并补黑边">
+                                    <span className="shrink-0 text-xs opacity-60">{exportFitLabel}</span>
+                                </Tooltip>
+                            ) : null}
+                        </>
+                    )}
                     <span className="ml-auto min-w-0 truncate text-xs opacity-45">拖拽片段移动，左右边缘裁剪，字幕片段来自视频节点的字幕数据</span>
                 </div>
             </div>

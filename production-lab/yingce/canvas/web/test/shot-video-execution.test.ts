@@ -32,6 +32,12 @@ describe("reviewed shot video execution", () => {
         expect(result.prompt).toContain("- Mia：仅手机屏幕内人物外观参考：图片1");
         expect(result.prompt).toContain("不得让其坐在现场对面");
     });
+    test("a shot-level absence declaration drops an old character reference", () => {
+        const result = prepareShotVideoExecution("【视频整体概念】\n本镜头不出场：Evan\nMia 看向门口。\n【角色参考】\nEvan：@[asset:Evan]", cast);
+        expect(result.context.assetReferences.map(reference => reference.title)).not.toContain("Evan");
+        expect(result.context.referenceImages.map(image => image.id)).not.toContain("Evan");
+    });
+
     test("an explicitly limited cast excludes an unmentioned bound character and reindexes images and voices", () => {
         const result = prepareShotVideoExecution("【背景人物活动】\n空间中只有 Evan 与 Shadow。\n【声音设计】\n对白：\nEvan: Stay here.\nShadow: I will.\n【角色参考】\nMia：@[asset:Mia]\nEvan：@[asset:Evan]\nShadow：@[asset:Shadow]", cast, { useVoiceSamples: true });
         expect(result.context.referenceImages.map(image => image.id)).toEqual(["Evan", "Shadow"]);

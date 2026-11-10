@@ -1,4 +1,4 @@
-import { assertShotCharacterCoverage, ensureShotAssetMentionPrompt, resolveShotAssetMentionPrompt, resolveExplicitShotCharacterIdentities, type ShotAssetReferenceContext } from "./workflow-shot-references";
+import { assertShotCharacterCoverage, ensureShotAssetMentionPrompt, isCharacterExcludedFromShot, resolveShotAssetMentionPrompt, resolveExplicitShotCharacterIdentities, type ShotAssetReferenceContext } from "./workflow-shot-references";
 import type { ProjectAsset } from "@/services/api/projects";
 import { hasAuthoredCharacterSpeech, VIDEO_SPEECH_BOUNDARY } from "@/lib/character-voice-reference-policy";
 
@@ -50,6 +50,7 @@ export function shotSceneReferenceContext(prompt: string, context: ShotAssetRefe
         && context.assetReferences.some(reference => reference.category === "character" && containsName(story, reference));
     const kept = context.assetReferences.flatMap(reference => {
         if (reference.category !== "character") return [reference];
+        if (isCharacterExcludedFromShot(story, [reference.title, ...(reference.aliases || [])])) return [];
         const clauses = story.split(/[。\n]/).filter(line => containsName(line, reference));
         const textOnly = clauses.some(line => /(?<!不)(?:只|仅).{0,12}(?:手机消息|文字消息|短信)/.test(line));
         const excludedByRoster = (rosterRecognized || noExtraCast) && !containsName(story, reference);

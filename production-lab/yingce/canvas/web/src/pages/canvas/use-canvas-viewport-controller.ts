@@ -191,11 +191,21 @@ export function useCanvasViewportController({
 
     const focusNodesInView = useCallback((targetNodes: CanvasNodeData[], maxScale = 1) => {
         const bounds = getCanvasNodesBounds(targetNodes);
-        if (!bounds) return false;
-        transitionViewportTo(viewportForBounds(bounds, size, { padding: 88, maxScale }));
+        const container = containerRef.current;
+        if (!bounds || !container) return false;
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const panel = container.closest("[data-canvas-editor]")?.querySelector(".canvas-agent-panel")?.getBoundingClientRect();
+        const area = unobscuredCanvasArea(rect, panel ? {
+            left: panel.left - rect.left, top: panel.top - rect.top, right: panel.right - rect.left, bottom: panel.bottom - rect.top,
+        } : undefined);
+        const available = { width: area.right - area.left, height: area.bottom - area.top };
+        const padding = Math.min(88, available.width / 5, available.height / 5);
+        const target = viewportForBounds(bounds, available, { padding, maxScale });
+        transitionViewportTo({ ...target, x: target.x + area.left, y: target.y + area.top });
         setContextMenu(null);
         return true;
-    }, [setContextMenu, size, transitionViewportTo]);
+    }, [containerRef, setContextMenu, transitionViewportTo]);
 
     const fitCanvasContent = useCallback(() => {
         const nodes = nodesRef.current;
@@ -228,21 +238,19 @@ export function useCanvasViewportController({
     const focusCanvasImageNode = useCallback((nodeId: string) => {
         const node = nodesRef.current.find((item) => item.id === nodeId && item.type === CanvasNodeType.Image);
         if (!node) return;
-        const scale = Math.min(1.25, Math.max(viewportRef.current.k, 0.78));
-        transitionViewportTo({ x: size.width / 2 - (node.position.x + node.width / 2) * scale, y: size.height / 2 - (node.position.y + node.height / 2) * scale, k: scale });
+        if (!focusNodesInView([node], Math.min(1.25, Math.max(viewportRef.current.k, 0.78)))) return;
         selectFocusedNode(node.id);
         setDialogNodeId(null);
         setToolbarNodeId(node.id);
-    }, [nodesRef, selectFocusedNode, setDialogNodeId, setToolbarNodeId, size.height, size.width, transitionViewportTo, viewportRef]);
+    }, [focusNodesInView, nodesRef, selectFocusedNode, setDialogNodeId, setToolbarNodeId, viewportRef]);
 
     const focusCanvasNode = useCallback((nodeId: string) => {
         const node = nodesRef.current.find((item) => item.id === nodeId);
         if (!node) return;
-        const scale = Math.min(1.18, Math.max(viewportRef.current.k, 0.72));
-        transitionViewportTo({ x: size.width / 2 - (node.position.x + node.width / 2) * scale, y: size.height / 2 - (node.position.y + node.height / 2) * scale, k: scale });
+        if (!focusNodesInView([node], Math.min(1.18, Math.max(viewportRef.current.k, 0.72)))) return;
         selectFocusedNode(node.id);
         setDialogNodeId(node.type === CanvasNodeType.Drawing || node.type === CanvasNodeType.Script ? null : node.id);
-    }, [nodesRef, selectFocusedNode, setDialogNodeId, size.height, size.width, transitionViewportTo, viewportRef]);
+    }, [focusNodesInView, nodesRef, selectFocusedNode, setDialogNodeId, viewportRef]);
 
     const setZoomScale = useCallback((scale: number) => {
         cancelViewportTransition();

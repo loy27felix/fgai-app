@@ -146,6 +146,19 @@ describe("workflow shot asset references", () => {
         expect(() => assertShotCharacterCoverage(prompt, bound, source.assets)).not.toThrow();
         expect(() => assertShotCharacterCoverage("【资产参考】\n卡尔文·贝内特：图片1\n【声音设计】\nCal：Only voice.", missing, source.assets)).not.toThrow();
     });
+    test("chapter cast and spoken mentions alone do not force a character image", () => {
+        const source = detail();
+        const character = source.assets.find(asset => asset.character)!;
+        character.title = "Evan";
+        const bound = buildShotAssetReferenceContext(source, "shot-1");
+        const missing = { ...bound, assetReferences: bound.assetReferences.filter(ref => ref.assetId !== character.id) };
+        const context = "本集角色：Evan、Mia\n衔接：上一镜头 Evan 离开了办公室。";
+        const timeline = "【15秒分镜／动作时间轴】\n人物动作：Mia 提到 Evan。\n镜头运动：缓推至 Mia。\n背景：办公室灯光稳定。";
+        expect(inferShotVisualAssets(source.assets, `${context}\n${timeline}`).map(asset => asset.id)).not.toContain(character.id);
+        expect(() => assertShotCharacterCoverage(`${context}\n${timeline}`, missing, source.assets)).not.toThrow();
+        expect(() => assertShotCharacterCoverage(`${timeline}\n人物动作：Evan 推门进入。`, missing, source.assets)).toThrow("Evan");
+        expect(() => assertShotCharacterCoverage("【视频整体概念】\n衔接：Evan 已离开。\nMia 留在办公室。", missing, source.assets)).not.toThrow();
+    });
     test("polling order changes do not change image indices or reference labels", () => {
         const source = detail();
         const before = buildShotAssetReferenceContext(source, "shot-1");
