@@ -141,7 +141,7 @@ function inputFacts(task: GenerationTask, input: Row | undefined, calls: Generat
       : !call.inputComplete ? '请求审计读取已截断' : !object(call.input) ? '没有可解析的 JSON 请求审计，可能为其他报文格式' : undefined,
     ...(call.event === 'create' ? requestFacts(call) : {}), ...supportOperationErrorEvidence(call.error),
   }));
-  const root = 'production-lab/yingce/canvas/backend/internal/app/';
+  const root = 'production-lab/meilin/canvas/backend/internal/app/';
   const implementationChecks = [
     { path: `${root}provider.go`, term: 'func (s *Service) processCanvasGenerationTask', aspect: 'instructions_and_dispatch' },
     { path: `${root}provider_protocol_request.go`, term: 'func protocolRequestFromInput', aspect: 'request_mapping' },

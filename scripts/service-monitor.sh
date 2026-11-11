@@ -804,7 +804,7 @@ ensure_nas_supervisor_agent || true
 check_nas
 # Capacity reporting only reads the host mount and atomically writes FG's local snapshot.
 # 容量采集只读取宿主机挂载并原子更新本地快照，不依赖 Docker 可用。
-/usr/bin/python3 "$PROJECT_ROOT/production-lab/yingce/collect-host-metrics.py" || true
+/usr/bin/python3 "$PROJECT_ROOT/production-lab/meilin/collect-host-metrics.py" || true
 if ! monitor_docker info >/dev/null 2>&1; then
   update_state docker unhealthy "Docker Desktop is unavailable; requesting application start"
   /usr/bin/open -gja Docker >/dev/null 2>&1 || true

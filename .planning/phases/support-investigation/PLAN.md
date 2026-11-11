@@ -49,7 +49,7 @@
 不操作生产，不commit/push，不新增自动测试文件；使用已有测试、typecheck及临时断言与本地端到端请求。Canvas数据源与FG主库不同，未接通必须显示真实缺口；不得从FG登录身份猜测Canvas身份。迁移仅增加列，不删除数据；回退代码保留新增列即可。
 
 ## 已执行验证（本地，2026-11-02）
-- 类型检查：主站 `pnpm exec tsc --noEmit --incremental false` 与 Canvas `cd production-lab/yingce/canvas/web && ./node_modules/.bin/tsc --noEmit` 均通过。
+- 类型检查：主站 `pnpm exec tsc --noEmit --incremental false` 与 Canvas `cd production-lab/meilin/canvas/web && ./node_modules/.bin/tsc --noEmit` 均通过。
 - 既有相关测试：`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts`，12项通过；未新增仓库测试代码。
 - Schema：`pnpm support-bot:worker --check`；018/019迁移已应用本地数据库。
 - 临时断言22项：上下文不能伪造身份/版本、精确编号、引用有效性、无实现读取（含needs_info）、文档/测试非运行实现、版本不匹配、异源异常、无关联候选、确定性正文拦截与兜底。

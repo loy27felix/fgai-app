@@ -8,16 +8,16 @@ type ServiceDefinition = {
 export const supportServices = {
   fg: { label: 'FG 主站与共享模型/观测接口', paths: ['app/', 'lib/', 'components/'], dependencies: [], data: 'fg', runtime: 'fg' },
   'production-lab': { label: 'Production Lab 制作工作台与独立业务库', paths: ['app/api/production-lab/', 'app/production-lab/', 'components/production-lab/', 'lib/production-lab/', 'production-lab/migrations/', 'production-lab/prototype/'], dependencies: ['fg'], data: 'production-lab', runtime: 'fg' },
-  'yingce-web': { label: 'Yingce 网页与制作界面', paths: ['production-lab/yingce/canvas/web/', 'production-lab/yingce/canvas/director-desk/'], dependencies: ['yingce-gateway', 'canvas'], data: 'browser', runtime: 'independent' },
-  'yingce-gateway': { label: 'Yingce 接入网关、鉴权与音乐/语音任务', paths: ['production-lab/yingce/gateway/'], dependencies: ['canvas', 'fg'], data: 'gateway', runtime: 'independent' },
-  canvas: { label: 'Yingce Canvas Go 后端与任务执行', paths: ['production-lab/yingce/canvas/backend/'], dependencies: ['yingce-agent'], data: 'canvas', runtime: 'canvas' },
-  'yingce-agent': { label: 'Yingce 独立 Agent 服务', paths: ['production-lab/yingce/canvas/yingce-agent/'], dependencies: ['canvas'], data: 'native', runtime: 'independent' },
+  'yingce-web': { label: '美林网页与制作界面', paths: ['production-lab/meilin/canvas/web/', 'production-lab/meilin/canvas/director-desk/'], dependencies: ['yingce-gateway', 'canvas'], data: 'browser', runtime: 'independent' },
+  'yingce-gateway': { label: '美林接入网关、鉴权与音乐/语音任务', paths: ['production-lab/meilin/gateway/'], dependencies: ['canvas', 'fg'], data: 'gateway', runtime: 'independent' },
+  canvas: { label: '美林画布 Go 后端与任务执行', paths: ['production-lab/meilin/canvas/backend/'], dependencies: ['yingce-agent'], data: 'canvas', runtime: 'canvas' },
+  'yingce-agent': { label: '美林独立 Agent 服务', paths: ['production-lab/meilin/canvas/yingce-agent/'], dependencies: ['canvas'], data: 'native', runtime: 'independent' },
   arcreel: { label: 'ArcReel 小说转视频', paths: ['production-lab/arcreel/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
   opencreator: { label: 'OpenCreator 创作服务', paths: ['production-lab/opencreator/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
   adcraft: { label: 'AdCraft 广告工作台', paths: ['production-lab/adcraft/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
-  meilin: { label: 'Meilin 服务', paths: ['production-lab/meilin/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
+  meilin: { label: '旧版美林服务', paths: ['production-lab/meilin/upstream/', 'production-lab/meilin/deploy/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
   suno: { label: 'Suno 音乐服务', paths: ['production-lab/suno/'], dependencies: ['yingce-gateway'], data: 'product', runtime: 'independent' },
-  infrastructure: { label: '反向代理、部署、数据库与存储基础设施', paths: ['docker/', 'scripts/', 'production-lab/yingce/canvas/docker/', 'production-lab/yingce/canvas/scripts/'], dependencies: [], data: 'unavailable', runtime: 'independent' },
+  infrastructure: { label: '反向代理、部署、数据库与存储基础设施', paths: ['docker/', 'scripts/', 'production-lab/meilin/canvas/docker/', 'production-lab/meilin/canvas/scripts/'], dependencies: [], data: 'unavailable', runtime: 'independent' },
   repository: { label: '其他仓库代码（待确定运行服务）', paths: [], dependencies: [], data: 'unavailable', runtime: 'independent' },
 } as const satisfies Record<string, ServiceDefinition>;
 

@@ -3,7 +3,7 @@
 在 Claude Code 中打开本仓库目录后，粘贴下面的提示词。网页版本 Claude 若没有仓库连接，应先提供本文、验收记录与批准的截图；仅给一个本地路径无法让网页 Claude 读取文件。不要提供服务器凭据或私人配置。
 
 ```text
-你现在负责 FG 超级工作台 1.3.0 的产品发布宣传片。先读取仓库根 AGENTS.md、README.md、CHANGELOG.md、docs/releases/1.3.0-acceptance.md，再读取 production-lab/yingce/canvas/FG-CHANGELOG.md、production-lab/opencreator/deploy/README.md、production-lab/arcreel/README.md。结合真实路由、页面和 API 确认功能，再制定脚本。不要只看名字猜功能，不要读取 .env、密钥、服务器备份或成员私有作品。
+你现在负责 FG 超级工作台 1.3.0 的产品发布宣传片。先读取仓库根 AGENTS.md、README.md、CHANGELOG.md、docs/releases/1.3.0-acceptance.md，再读取 production-lab/meilin/canvas/FG-CHANGELOG.md、production-lab/opencreator/deploy/README.md、production-lab/arcreel/README.md。结合真实路由、页面和 API 确认功能，再制定脚本。不要只看名字猜功能，不要读取 .env、密钥、服务器备份或成员私有作品。
 
 目标：做一支约 3 分 22 秒、16:9、1920×1080、24 fps 的产品片。视觉参考高端科技产品发布会：克制、准确、有呼吸感；明亮的玻璃面板、清晰层次、蓝色点缀、细腻柔和阴影。深色段落用于强调，不堆炫光、快速闪切和重复转场。只能使用我们的品牌与已批准界面，不复制 Apple 的商标、产品画面、字体资产或原片音乐。
 

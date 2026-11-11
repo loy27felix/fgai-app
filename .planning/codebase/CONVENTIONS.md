@@ -36,13 +36,13 @@
 - `tsconfig.json`：`target: ES2020`、`strict: true`、`noEmit: true`、`isolatedModules: true`、`moduleResolution: bundler`、`jsx: preserve`。
 - 同时开启 `allowJs`、`skipLibCheck`、`resolveJsonModule`、`incremental`；包含 `.next/types/**/*.ts`，排除 `node_modules`、`production-lab`，见 `tsconfig.json`。
 - `strict` 不等于没有显式 `any`；`lib/chatStore.ts` 存在 legacy `any`，不要把观察结果写成全仓严格无 `any`。
-- 工具边界：`production-lab/yingce/canvas/web/.prettierrc.json` 是该独立 Web 的 4 空格、双引号、分号、`printWidth: 255`，不适用于主站。
+- 工具边界：`production-lab/meilin/canvas/web/.prettierrc.json` 是该独立 Web 的 4 空格、双引号、分号、`printWidth: 255`，不适用于主站。
 
 **Linting:**
 - 根 `package.json` 定义 `lint: next lint`，但未发现根 ESLint 配置，且 manifest 未声明 `eslint` / `eslint-config-next`；命令存在不代表可非交互成功，本轮未执行。
 - 不存在已确认的主站统一 import-sort、Hooks lint 或格式规则；`tsconfig.json` 的类型检查与 ESLint 是不同入口。
 - `worker/pyproject.toml` 未声明 lint/typecheck/test optional dependency group；不能继承 ArcReel 的 Ruff、basedpyright 配置。
-- ArcReel frontend 使用独立 ESLint/Vitest，Yingce Web 使用 Bun/ESLint/Prettier，OpenCreator 为 pnpm workspace；分别以 `production-lab/arcreel/upstream/frontend/package.json`、`production-lab/yingce/canvas/web/package.json`、`production-lab/opencreator/upstream/package.json` 为准。
+- ArcReel frontend 使用独立 ESLint/Vitest，Yingce Web 使用 Bun/ESLint/Prettier，OpenCreator 为 pnpm workspace；分别以 `production-lab/arcreel/upstream/frontend/package.json`、`production-lab/meilin/canvas/web/package.json`、`production-lab/opencreator/upstream/package.json` 为准。
 
 ## Import Organization
 

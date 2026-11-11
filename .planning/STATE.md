@@ -1,12 +1,12 @@
 # 当前状态
 
 - 日期：2026-11-11（Asia/Shanghai）。
-- 当前目标：保留多服务自助排查，确认覆盖 production-lab/yingce 而非只允许 Yingce；问题分流、编号关联取证后独立深入分析，不排查已废弃主站，不改生成业务。
+- 当前目标：保留多服务自助排查，确认覆盖 production-lab/meilin 而非只允许 Yingce；问题分流、编号关联取证后独立深入分析，不排查已废弃主站，不改生成业务。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
 - 当前状态：分流与调查流程已本地重构，完成类型检查、既有测试及隔离调用检查；尚未发布或验收真实模型效果。
 
 ## 本轮分流与深度分析重构（2026-11-11）
-- 范围纠正：用户是在确认是否包含 Yingce，不是要求排他性收窄。撤销仅四项/仅 production-lab/yingce 目录的限制，恢复其他产品、基础设施和源码定位；分类与默认值不将其他问题强制归为 Yingce。仍遵守不查询废弃主站及旧 Production Lab 主站模块，保留身份/工单存储。
+- 范围纠正：用户是在确认是否包含 Yingce，不是要求排他性收窄。撤销仅四项/仅 production-lab/meilin 目录的限制，恢复其他产品、基础设施和源码定位；分类与默认值不将其他问题强制归为 Yingce。仍遵守不查询废弃主站及旧 Production Lab 主站模块，保留身份/工单存储。
 - 纠正验证：`pnpm exec tsc --noEmit --incremental false --pretty false`（输出 `/tmp/fg-support-multi-service-types.log`）与 `git diff --check` 通过；终端隔离检查确认 Yingce/AdCraft/Suno 在 commit 和 working-tree 均可检索/读取，其他产品分类与工具入口保留、废弃主站仍拒绝。预检隔离检查覆盖默认九项业务服务、五产品探针、显式其他产品选择及缺口失败；未连接真实数据源、未调用真实模型或部署。
 - `question.ts` 区分 usage/help/generation/incident、续问与换题；当轮明确编号覆盖旧对话/页面线索，多个编号独立根查询，用户明确排除的旧编号不再采用。使用/帮助由程序限制为源码及运行边界查询。
 - 取证模型不再直接发布结论；先做授权链路、生成输入与具体实现核对，再进入单独的 high-or-higher 综合分析，16,000 tokens 输出预算；私有思维过程不展示。同参数取证去重，缺失/截断/未关联编号写入覆盖缺口，阻止完整根因确认。

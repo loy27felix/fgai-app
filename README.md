@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="production-lab/yingce/canvas/web/public/fg-visual/fg-logo-master.png" width="88" alt="FG Studio" />
+  <img src="production-lab/meilin/canvas/web/public/fg-visual/fg-logo-master.png" width="88" alt="FG Studio" />
 </p>
 
 <h1 align="center">FG Studio · FG 超级工作台</h1>
 
 <p align="center">从一句创意，到可管理、可修改、可接续的超级视频制作项目。</p>
-<p align="center"><strong>中文</strong> · <a href="README.en.md">English</a> · <a href="docs/releases/2026-10-07--15-user-update.md">本期更新</a> · <a href="production-lab/yingce/canvas/FG-CHANGELOG.md">版本记录</a></p>
+<p align="center"><strong>中文</strong> · <a href="README.en.md">English</a> · <a href="docs/releases/2026-10-07--15-user-update.md">本期更新</a> · <a href="production-lab/meilin/canvas/FG-CHANGELOG.md">版本记录</a></p>
 
 [![观看 FG 超级工作台宣传片](docs/media/promo-poster.jpg)](docs/media/fg-studio-tour-1080p60.mp4)
 
@@ -197,7 +197,7 @@ FG 主站保留六个工作区入口，**第六板块「FG 创作工作台」是
 
 - [10 月 7 日—15 日正式更新说明](docs/releases/2026-10-07--15-user-update.md)
 - [main 提交核对索引](docs/releases/2026-10-07--15-commit-index.md)
-- [逐版本更新日志](production-lab/yingce/canvas/FG-CHANGELOG.md)
+- [逐版本更新日志](production-lab/meilin/canvas/FG-CHANGELOG.md)
 
 建议用同一段 30—60 秒剧本对比两个短剧入口，重点检查画风、身份、节奏、动作、运镜、段间衔接、引用与任务恢复。反馈包含入口、项目、模型规格、步骤、预期／实际及任务编号。**视频深度参考和 MCP 连接 Blender 仍是征求需求的方向，未承诺开发或效果。** 本地 GPU 后处理默认关闭，详见 [Worker 说明](docs/local-media-worker.md)。
 
@@ -241,7 +241,7 @@ pnpm dev
 | 目录 | 内容 |
 | --- | --- |
 | `app/`、`components/`、`lib/` | 主站页面、API、认证、数据与账本。 |
-| `production-lab/yingce/` | 超级工作台、原生画布／短剧及 FG 网关。 |
+| `production-lab/meilin/` | 超级工作台、原生画布／短剧及 FG 网关。 |
 | `production-lab/meilin/` | 美林 FG 适配与原型来源说明。 |
 | `production-lab/adcraft/` | 广告工作台。 |
 | `production-lab/opencreator/` | 综合创作工作台。 |
@@ -274,9 +274,9 @@ pnpm dev
 
 调查流程分为“理解问题 → 核对运行版本 → 查询操作数据/日志 → 读取相关实现 → 关联证据与解决步骤”，网页展示真实持久化阶段。服务端采集入队运行快照与登录身份；浏览器提供 Router 实际页面路径、项目和任务/请求/链路定位提示；可选择发生时间段（浏览器本地时区，提交ISO时间，最长7天），不能指定身份或伪造运行版本。Canvas 同时附带当前用户浏览器已有的失败请求元数据（最多20条，选定时间段或最近15分钟），不上传正文、headers或stack；这些仅为客户端定位线索，必须再查询同编号服务端记录，不能视为已核实运行证据。用户补充模块名称时继续解决原问题，不只复述名称。
 
-助手先区分功能用法（`usage`）、使用帮助（`help`）、具体生成任务问题（`generation`）与其他异常（`incident`）。使用/帮助由程序限定为功能源码与运行边界核对，不因页面带旧任务号而转成故障排查；具体故障强制查询当前用户的操作记录与日志，没有编号时可查询本人最近24小时的失败候选，但不冒认是本次故障。当轮文字编号优先于旧对话和页面定位，换题不沿用旧问题、旧截图和旧任务；补充信息继续原问题。源码检索覆盖仓库内各服务文本（排除已废弃主站），包含但不限于 `production-lab/yingce`，支持按目录/词语缩小、分页和读取附近50行，每轮最多32次顶层工具调用（单条链内部另有编号、分页和记录上限）；敏感文件、日志、依赖和构建产物不会进入模型。各独立服务单独核对原生版本与对应 Git 提交；开发工作树含未提交修改时仅作实现参考，不以主站版本或 HEAD 冒充其线上代码。无Git、版本不一致或未知时明确标记参考源码，不能确认线上根因。
+助手先区分功能用法（`usage`）、使用帮助（`help`）、具体生成任务问题（`generation`）与其他异常（`incident`）。使用/帮助由程序限定为功能源码与运行边界核对，不因页面带旧任务号而转成故障排查；具体故障强制查询当前用户的操作记录与日志，没有编号时可查询本人最近24小时的失败候选，但不冒认是本次故障。当轮文字编号优先于旧对话和页面定位，换题不沿用旧问题、旧截图和旧任务；补充信息继续原问题。源码检索覆盖仓库内各服务文本（排除已废弃主站），包含但不限于 `production-lab/meilin`，支持按目录/词语缩小、分页和读取附近50行，每轮最多32次顶层工具调用（单条链内部另有编号、分页和记录上限）；敏感文件、日志、依赖和构建产物不会进入模型。各独立服务单独核对原生版本与对应 Git 提交；开发工作树含未提交修改时仅作实现参考，不以主站版本或 HEAD 冒充其线上代码。无Git、版本不一致或未知时明确标记参考源码，不能确认线上根因。
 
-服务目录原本就包含 `production-lab/yingce` 的 `yingce-web`、`yingce-gateway`、`canvas`、`yingce-agent`；它们不是唯一取证对象。AdCraft、Meilin、Suno、ArcReel、OpenCreator 等原有服务适配，以及基础设施/其他源码定位能力继续保留；根据当前问题选择实际服务，不默认全部归为 Yingce。源码检索不限制为单一目录，读取实现后按所属服务单独核对版本。已废弃 FG 主站与旧 `app/production-lab` / `lib/production-lab` 主站模块不参与取证，查不到证据也不回退；旧主站页面的任务/项目定位不自动继承。跨服务关联仍须双方授权记录支持，不能按时间相近或项目相同拼接链路。助手现有身份校验与工单存储保留，不等于继续排查主站业务。
+服务目录原本就包含 `production-lab/meilin` 的 `yingce-web`、`yingce-gateway`、`canvas`、`yingce-agent`；它们不是唯一取证对象。AdCraft、Meilin、Suno、ArcReel、OpenCreator 等原有服务适配，以及基础设施/其他源码定位能力继续保留；根据当前问题选择实际服务，不默认全部归为 Yingce。源码检索不限制为单一目录，读取实现后按所属服务单独核对版本。已废弃 FG 主站与旧 `app/production-lab` / `lib/production-lab` 主站模块不参与取证，查不到证据也不回退；旧主站页面的任务/项目定位不自动继承。跨服务关联仍须双方授权记录支持，不能按时间相近或项目相同拼接链路。助手现有身份校验与工单存储保留，不等于继续排查主站业务。
 
 当前可用的操作适配包括 Canvas 任务/流水线，以及 Yingce gateway 的音乐、语音任务/用量、Creator、AdCraft、Meilin 和预算回执七类来源。每个来源保留查询范围、归属校验、缺表/缺字段及截断信息；操作回执不是原生请求日志。五个独立产品的原生接口、可信归属及运行版本适配同样保留，具体配置见下方清单；实现存在不代表当前环境已部署。旧 FG/Production Lab 主站适配不再用于取证。未配置或不可验证时明确展示缺口，不回退其他服务数据冒充。
 
@@ -315,7 +315,7 @@ pnpm dev
 9. `SUPPORT_BOT_NATIVE_LOG_SOURCES` 是仅服务端配置的 JSON，例如 `{"canvas":{"file":"/var/log/fg/canvas.jsonl"},"yingce-gateway":{"container":"gateway"},"yingce-agent":{"file":"/var/log/fg/agent.jsonl"}}`。每服务只能选择一个绝对路径 JSONL 文件或可信容器名。优先由部署侧将日志目录只读提供给 worker；容器模式要求 worker 已具备 Docker CLI/context，不自动挂载 Docker socket、不接受模型指定命令/路径/容器。原生事件含 service、鉴权用户、request/trace、状态及当时 build commit/dirty，正文和凭据不进入调查结果。**日志必须带 `build_environment`，且与所选环境匹配：local → development，production → production；缺失或不匹配的记录不作为证据，不能因日志文件可读就判 ready。** Canvas/Agent 需 active 原生账号映射，gateway 使用 FG 已鉴权用户；匿名和仅伪造用户Header的事件不纳入本人记录。Canvas 设置 `CANVAS_LOG_FORMAT=json`；默认 info 不记录成功 GET 等低级别事件，需要完整请求跟踪时由运行环境显式配置 `CANVAS_LOG_LEVEL=debug`。
 10. 容器原生日志按指定时间窗口读取，不用当前最新5000行过滤历史窗口；单次最多扫描16MiB、保留2MiB/5000行并返回100条，达到扫描上限明确标为不完整，需按任务时间缩小窗口。文件源最多读取末尾2MiB/5000行。按本人及指定编号/时间交集筛选；不虚构项目归属，不支持显式项目条件时会拒绝而非静默忽略。轮转、日志级别、截断及改版前未采集的请求都可能造成历史缺口。报告核对事件中的 build commit/dirty 与对应源码，不以今天的运行版本冒充旧请求版本。浏览器静态站可核对自身构建，但没有独立服务器业务库；其他独立产品是否运行须分别核实，不能因仓库有目录就宣称正在运行或已接入。
 
-**运行清单与退役边界：** 当前 Gateway 源码 `production-lab/yingce/gateway/fg-retired-modules.mjs` 已将 ArcReel、OpenCreator 的用户入口设为 `410 FG_MODULE_RETIRED`，两产品 provisioner 保留禁止重建的保护。原生适配用于已有实例/存量记录的受控取证，不代表恢复用户入口。2026-11-03 的生产只读核验中，两入口也实际返回410；发布前仍须复核当前状态。本次不解除保护、不重建退役产品。已废弃主站与旧 Production Lab 主站库不参与当前取证；其他服务仍可按授权读取存量证据，不以服务可检索为由恢复已退役入口。“目录存在”“适配已实现”“本地样例通过”“生产正在运行”是不同状态，不可互相替代。
+**运行清单与退役边界：** 当前 Gateway 源码 `production-lab/meilin/gateway/fg-retired-modules.mjs` 已将 ArcReel、OpenCreator 的用户入口设为 `410 FG_MODULE_RETIRED`，两产品 provisioner 保留禁止重建的保护。原生适配用于已有实例/存量记录的受控取证，不代表恢复用户入口。2026-11-03 的生产只读核验中，两入口也实际返回410；发布前仍须复核当前状态。本次不解除保护、不重建退役产品。已废弃主站与旧 Production Lab 主站库不参与当前取证；其他服务仍可按授权读取存量证据，不以服务可检索为由恢复已退役入口。“目录存在”“适配已实现”“本地样例通过”“生产正在运行”是不同状态，不可互相替代。
 
 **五个独立产品的原生只读接入（实现与部署验收分开）：** worker 使用 `SUPPORT_BOT_NATIVE_GATEWAY_URL`（仅 origin）和至少32字符的独立随机 `SUPPORT_BOT_NATIVE_READ_TOKEN`，调用 Gateway 的 `/internal/support/<service>/evidence|version`。先经 Canvas SELECT-only 连接核验当前 FG 用户的 active 账号映射，Gateway 再核验并解析受信实例/workspace；不接受用户提供 URL、容器、SQL、账号或文件路径。只读 token 不能用于普通业务接口，也不下发浏览器。服务或映射缺失时明确返回缺口，不回退 gateway 回执冒充原生记录。
 
@@ -347,7 +347,7 @@ pnpm dev
 **获准发布时的执行与回退边界（以下尚未自动执行）：**
 
 - 发布前记录当前 Web、worker、Gateway、Canvas、Agent 及实际运行产品所有组件的 commit/image ID/环境；未部署/已退役项单列并保留缺口，不能借其他服务版本代替；核对私密 env 权限为0600、目录0700。只读 token 与模型密钥只给需要的进程；主站网页入队无需持有模型密钥。准备好016–020迁移及目标数据库备份，环境标记由各库 owner 在确认真实目标后设置。
-- 本次准备使用**宿主机独立 worker**，复用已安装的 Node/Git/Docker CLI，不在核查阶段构建新 worker 镜像，也不挂 Docker socket 给新容器。`production-lab/yingce/compose.support-host.yml` 是需显式批准后叠加的可选 overlay：只向127.0.0.1发布 Canvas PG/Gateway/Backend/Agent/Web 的诊断访问端口，并向必要原生服务注入只读 token；默认 Compose 不加载。发布前先核对端口占用、真实容器端口及各实际 env，再决定是否应用；不能把准备好的 overlay 称为生产已配置。Suno 使用自身 Compose；ArcReel/OpenCreator 已退役，不运行其 provisioner 或恢复入口。若需诊断存量实例，另行审核现存实例的只读 token 注入和版本，不绕过退役保护。
+- 本次准备使用**宿主机独立 worker**，复用已安装的 Node/Git/Docker CLI，不在核查阶段构建新 worker 镜像，也不挂 Docker socket 给新容器。`production-lab/meilin/compose.support-host.yml` 是需显式批准后叠加的可选 overlay：只向127.0.0.1发布 Canvas PG/Gateway/Backend/Agent/Web 的诊断访问端口，并向必要原生服务注入只读 token；默认 Compose 不加载。发布前先核对端口占用、真实容器端口及各实际 env，再决定是否应用；不能把准备好的 overlay 称为生产已配置。Suno 使用自身 Compose；ArcReel/OpenCreator 已退役，不运行其 provisioner 或恢复入口。若需诊断存量实例，另行审核现存实例的只读 token 注入和版本，不绕过退役保护。
 - 在独立准备目录安装锁定依赖，worker 从完整源码仓库根启动（需 Git 对象及所有产品源码）。不要用主站 standalone 镜像冒充完整源码 checkout；主站 `.dockerignore` 排除了多个独立产品。先执行 `node --env-file=/绝对路径/worker.env node_modules/tsx/dist/cli.mjs scripts/support-bot-worker.ts --check`，再在同环境运行 `scripts/support-bot-preflight.ts`。命令示例中的路径由发布清单确定，不从本地 env 复制生产凭据。
 - 镜像构建必须在**获得构建授权后**执行，注入实际 commit/version/time/environment/dirty；不能通过手填 clean、改 tag 或借用当前 checkout 的 SHA 伪造旧镜像版本。先核对产物，再另行确认部署窗口，不在配置核查阶段构建生产镜像。
 - 预检保留 Yingce 与其他产品的多服务覆盖，默认检查所有非主站业务服务；发布窗口可按经审核的实际运行清单指定 `--require`，不能为了消除失败而移除在用项。主站业务及旧 Production Lab 主站库不参与验收；已退役产品的存量取证不授予恢复入口的权限。2026-11-03 的历史验收不能代替当前真实数据源与运行版本核验。
@@ -379,7 +379,7 @@ FG 自有主站代码的许可见 [根目录 LICENSE](LICENSE)。**完整仓库�
 
 | 组件 | 原始许可／来源 |
 | --- | --- |
-| Open AI Canvas 及 FG 画布适配 | [MIT 与署名](production-lab/yingce/canvas/LICENSE) |
+| Open AI Canvas 及 FG 画布适配 | [MIT 与署名](production-lab/meilin/canvas/LICENSE) |
 | 综合创作 OpenCreator | [Apache-2.0](production-lab/opencreator/upstream/LICENSE) |
 | 小说转视频 ArcReel | [AGPL-3.0](production-lab/arcreel/upstream/LICENSE) · [来源记录](production-lab/arcreel/SOURCE.md) |
 | 广告 AdCraft | [个人及非商业许可](production-lab/adcraft/upstream/LICENSE)，商业使用需按原许可取得相应授权。 |

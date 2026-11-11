@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN" class="font-sans">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="description" content="AI 影视与短剧创作工作台" />
+        <!-- 不写内置品牌资源：首屏必须品牌中性，favicon 由 use-appearance-store 解析出外观后写入。
+             空 data URL 只是为了不让浏览器去请求 /favicon.ico（那会是一条 404）。 -->
+        <link rel="icon" href="data:," />
+        <title>正在加载</title>
+        <style>
+            /* Fix layer order before production chunks can register utilities ahead of base. */
+            @layer theme, base, components, utilities;
+
+            html,
+            body {
+                margin: 0;
+                background: #ffffff;
+            }
+            #root:empty {
+                min-height: 100vh;
+            }
+            #root:empty::before {
+                content: "";
+                position: fixed;
+                left: 50%;
+                top: 50%;
+                width: 12px;
+                height: 12px;
+                margin: -6px 0 0 -6px;
+                background: rgba(255, 255, 255, 0.84);
+                border-radius: 999px;
+                box-shadow: 0 0 0 7px rgba(255, 255, 255, 0.08);
+                animation: appearance-bootstrap-pulse 1.8s ease-in-out infinite;
+            }
+            #root:empty::after {
+                content: "";
+                position: fixed;
+                left: 50%;
+                top: 50%;
+                width: 82px;
+                height: 82px;
+                margin: -42px 0 0 -42px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-right-color: transparent;
+                border-radius: 999px;
+                animation: appearance-bootstrap-orbit 2.8s linear infinite;
+            }
+            @keyframes appearance-bootstrap-pulse { 0%, 100% { opacity: .62; transform: scale(.82); } 50% { opacity: 1; transform: scale(1.08); } }
+            @keyframes appearance-bootstrap-orbit { to { transform: rotate(360deg); } }
+            @media (prefers-reduced-motion: reduce) {
+                #root:empty::before,
+                #root:empty::after {
+                    animation: none;
+                }
+            }
+        </style>
+        <script>
+            try {
+                var s = JSON.parse(localStorage.getItem("yingce:theme_store") || "{}");
+                var t = s.state && s.state.theme === "dark" ? "dark" : "light";
+                document.documentElement.classList.toggle("dark", t === "dark");
+                document.documentElement.style.colorScheme = t;
+            } catch (e) {}
+        </script>
+    </head>
+    <body class="bg-background text-foreground antialiased" style="background:#ffffff">
+        <div id="root"></div>
+        <style>
+            #boot-recovery { color: #171717; }
+            html.dark #boot-recovery { color: #f5f5f5; background: #0f0f11; }
+        </style>
+        <script>
+            var bootRoot = document.getElementById("root");
+            var bootTimer = setTimeout(function () {
+                if (bootRoot.childNodes.length) return;
+                var notice = document.createElement("section");
+                notice.id = "boot-recovery";
+                notice.setAttribute("role", "alert");
+                notice.style.cssText = "position:fixed;inset:0;display:grid;align-content:center;justify-items:center;gap:16px;padding:24px;font:16px/1.6 sans-serif;text-align:center";
+                var title = document.createElement("strong");
+                title.textContent = "页面资源加载时间过长";
+                var detail = document.createElement("p");
+                detail.textContent = "部分启动资源未能加载，请重试。此操作不会清除浏览器中的画布缓存。";
+                var retry = document.createElement("button");
+                retry.type = "button";
+                retry.textContent = "重新加载";
+                retry.style.cssText = "padding:10px 24px;border:1px solid currentColor;border-radius:8px;background:transparent;color:inherit;font:inherit;cursor:pointer";
+                retry.onclick = function () {
+                    var url = new URL(location.href);
+                    url.searchParams.set("__chunk_recovery", String(Date.now()));
+                    location.replace(url.toString());
+                };
+                notice.append(title, detail, retry);
+                document.body.appendChild(notice);
+            }, 20000);
+            var bootObserver = new MutationObserver(function () {
+                if (!bootRoot.childNodes.length) return;
+                clearTimeout(bootTimer);
+                bootObserver.disconnect();
+                var notice = document.getElementById("boot-recovery");
+                if (notice) notice.remove();
+            });
+            bootObserver.observe(bootRoot, { childList: true });
+        </script>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
+</html>
