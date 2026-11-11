@@ -45,7 +45,7 @@ export async function financeActions(req,res,{pool,actor,path}){
     const before=(await client.query('SELECT * FROM fg_request_decisions WHERE call_id=$1',[call.id])).rows[0]||null;
     if(input.classification==='reset')await client.query('DELETE FROM fg_request_decisions WHERE call_id=$1',[call.id]);
     else{
-     if((await client.query('SELECT 1 FROM fg_fee_matches WHERE call_id=$1',[call.id])).rowCount)throw Error('请求已有实际账单，请核对账单归属，不能改成未收费');
+     if((await client.query('WITH matched AS MATERIALIZED (SELECT call_id FROM fg_fee_matches) SELECT 1 FROM matched WHERE call_id=$1',[call.id])).rowCount)throw Error('请求已有实际账单，请核对账单归属，不能改成未收费');
      await client.query("INSERT INTO fg_request_decisions(call_id,note,actor_id) VALUES($1,$2,$3) ON CONFLICT(call_id) DO UPDATE SET note=$2,actor_id=$3,source='manual',evidence=NULL,updated_at=now()",[call.id,note,actor.id]);
     }
     await client.query('INSERT INTO fg_finance_audit(id,actor_id,action,target,before_value,after_value) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),actor.id,'request_'+input.classification,call.id,before,{classification:input.classification,note}]);

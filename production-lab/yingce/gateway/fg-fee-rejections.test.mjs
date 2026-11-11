@@ -16,3 +16,16 @@ test('explicit request rejection has no charge evidence but ambiguous errors do 
  assert.equal(rejectionEvidence(call).statusCode,403);assert.equal(rejectionEvidence({...call,status_code:413}).statusCode,413);
  for(const patch of [{status_code:500},{status_code:0},{status:'succeeded'},{provider_request_id:'accepted-task'},{output_tokens:1},{media_count:1},{response_body:'{"task":{"id":"accepted"}}'},{status_code:403,error_code:'',error:'unknown failure'}])assert.equal(rejectionEvidence({...call,...patch}),null);
 });
+
+test('local circuit rejection and TLS handshake timeout prove the generation request was not admitted',()=>{
+ const base={status:'failed',status_code:'0',provider_request_id:'',fg_fee_reference_id:'',input_tokens:0,output_tokens:0,media_count:0,fg_fee_references_json:'[]',response_body:''};
+ assert.equal(rejectionEvidence({...base,error:'当前渠道连续失败，已暂时熔断，请稍后重试',duration_ms:0}).source,'local_channel_circuit_open');
+ assert.equal(rejectionEvidence({...base,error:'网络异常。 Post "[URL]": net/http: TLS handshake timeout'}).source,'tls_handshake_failed');
+ for(const patch of [
+  {error:'unexpected EOF'}, {error:'等待上游响应超时'}, {error:'任务取消，中断上游请求'},
+  {error:'net/http: TLS handshake timeout',response_body:'{}'},
+  {error:'net/http: TLS handshake timeout',fg_fee_reference_id:'accepted-reference'},
+  {error:'net/http: TLS handshake timeout',fg_fee_references_json:'["receipt"]'},
+  {error:'当前渠道连续失败，已暂时熔断，请稍后重试',duration_ms:1},
+ ]) assert.equal(rejectionEvidence({...base,...patch}),null);
+});

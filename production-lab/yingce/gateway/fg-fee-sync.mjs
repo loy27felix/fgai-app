@@ -56,7 +56,7 @@ export function startFeeSync(pool,{file=process.env.WETOKEN_FEE_SESSION_FILE,act
    const session=await loadAuthorization();
    await save({...prior,automatic:true,status:'running',lastAttempt:new Date().toISOString(),reason:'正在自动补拉消费账单并核销，请稍候。'});
    const end=Math.floor(Date.now()/1000),last=Date.parse(prior.lastSuccess||'');
-   const oldest=(await pool.query("SELECT min(c.created_at) oldest FROM api_call_logs c JOIN model_channels m ON m.id=c.channel_id WHERE c.billable AND m.name LIKE 'WeToken%' AND NOT EXISTS(SELECT 1 FROM fg_fee_matches f WHERE f.call_id=c.id) AND NOT EXISTS(SELECT 1 FROM fg_request_decisions d WHERE d.call_id=c.id)")).rows[0]?.oldest;
+   const oldest=(await pool.query("WITH matched AS MATERIALIZED (SELECT call_id FROM fg_fee_matches) SELECT min(c.created_at) oldest FROM api_call_logs c JOIN model_channels m ON m.id=c.channel_id LEFT JOIN matched f ON f.call_id=c.id LEFT JOIN fg_request_decisions d ON d.call_id=c.id WHERE c.billable AND m.name LIKE 'WeToken%' AND f.call_id IS NULL AND d.call_id IS NULL")).rows[0]?.oldest;
    const pending=oldest?Date.parse(oldest):NaN;
    const start=Math.max(0,Math.min(Number.isFinite(last)?Math.floor(last/1000):end-31*86400,Number.isFinite(pending)?Math.floor(pending/1000):end)-2*86400);
    const entries=await readFees(session,{start,end}),csv=feeLogCsv(entries);

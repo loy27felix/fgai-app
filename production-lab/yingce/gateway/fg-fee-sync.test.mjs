@@ -34,7 +34,7 @@ test('account access tokens use a header, and encrypted storage never contains t
 });
 test('expired authorization recovers on the next run, backfills from the last success, and excludes simultaneous runs',async()=>{
  let value={lastSuccess:'2026-10-14T01:46:04.781Z'},expired=true,reads=0,window;
- const pool={query:async(sql,args)=>{if(sql.startsWith('SELECT'))return {rows:[{value}]};value=JSON.parse(args[0]);return {rows:[]};}};
+ const pool={query:async(sql,args)=>{if(sql.includes('min(c.created_at)'))return {rows:[{oldest:null}]};if(sql.startsWith('SELECT'))return {rows:[{value}]};value=JSON.parse(args[0]);return {rows:[]};}};
  const sync=startFeeSync(pool,{actorId:'admin',autoStart:false,loadAuthorization:async()=>session,
   readFees:async(_,range)=>{reads++;window=range;if(expired)throw Error('SESSION_EXPIRED');return [];},readUsage:async()=>[],matchRejected:async()=>[],intervalMs:60000});
  try{
