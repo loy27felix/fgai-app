@@ -10,7 +10,7 @@ export class IncompleteSupportModelResponse extends Error {
   constructor() { super('机器人模型响应不完整'); this.name = 'IncompleteSupportModelResponse'; }
 }
 
-export async function chatWithSupportModel(options: TextChatOptions): Promise<{ result: ChatResult }> {
+export async function chatWithSupportModel(options: TextChatOptions & { responsesTimeoutMs?: number }): Promise<{ result: ChatResult }> {
   options.signal?.throwIfAborted();
   const protocol = process.env.SUPPORT_BOT_API_PROTOCOL || 'chat_completions';
   const configuredEffort = options.reasoningEffort ?? (process.env.SUPPORT_BOT_REASONING_EFFORT?.trim() || 'high');
@@ -27,7 +27,7 @@ export async function chatWithSupportModel(options: TextChatOptions): Promise<{ 
     apiKey: options.apiKey,
     baseURL: options.apiBaseUrl.replace(/\/$/, ''),
     maxRetries: 0,
-    timeout: 110_000,
+    timeout: options.responsesTimeoutMs ?? 110_000,
     fetch: (url, init) => fetch(url, { ...init, dispatcher: wetokenProviderDispatcher } as RequestInit),
   });
   const input = options.messages.filter(message => message.role !== 'system');
