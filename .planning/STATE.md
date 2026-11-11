@@ -3,7 +3,7 @@
 - 日期：2026-11-11（Asia/Shanghai）。
 - 当前目标：根据问题联合全仓安全源码、本人日志及实际请求/响应参数定位原因与解决办法；包含而不限于 production-lab/yingce，不恢复废弃主站业务取证，不改生成执行。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
-- 当前状态：通俗回答与历史问题异步参考已完成本地验证；本轮已获 commit/push 和部署授权，准备独立分支及 worker 发布，不触发主业务自动发布。线上仍是 2026-11-11 17:41 的上一快照，尚不含本轮展示/历史检索改动；服务切换仍须遵守针对助手守护任务的明确停止/重启授权约束。
+- 当前状态：通俗回答与历史问题异步参考已完成并提交/push（代码 `46b22f8a`，独立分支 `codex/support-plain-language-history-20261111`）；生产候选包已准备并完成只读检查，尚未激活。线上仍是 2026-11-11 17:41 的上一快照；本轮一般部署授权不包含停止守护进程，正在等待用户明确允许本次停止并重新启动 `com.fgstudio.support-bot-worker`。未推送 main 或触发主业务自动发布。
 
 ## 通俗回答与历史问题参考（2026-11-11）
 - 用户答复改为“是什么/影响什么/怎么做”，必要风险与未确认说明仍保留；原始证据、代码/版本、请求/响应对照和完整覆盖缺口保留在内部报告，不减少查询或深度分析，不以硬截三步丢弃必要操作。
@@ -11,6 +11,13 @@
 - 验证：`pnpm exec tsc --noEmit --incremental false --pretty false`；`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts`（12/12）；`git diff --check`。既有日志测试有异步持久化连接告警，不能当作数据库落库验收。
 - 终端内联断言（无新增测试文件）：真实文档的过期/声音相似项、无关泛词、状态/条件保留、人员/密钥脱敏、缺失/超限/取消/符号链接拒读；15个报告分支覆盖 confirmed/observed/likely/needs_info、模型非法答案回退、素材与声音、四步保留、参数对照校验、内部技术详情和历史不冒充证据；三种文档状态的隔离编排验证取证先于历史读取完成、模型调用仍3次、换题不带旧问题。
 - 未调用真实模型、生成业务或生产队列；真实用户问题的完整模型效果仍需线上验收。无数据库迁移、依赖或业务功能变更；回退仅需回到上一助手 release，不回滚主业务。
+
+## 本轮独立发布准备（2026-11-11 18:19，Asia/Shanghai）
+- 代码提交 `46b22f8aaaca6a8f67b09ac12356bb09c4c98869` 已推送 `origin/codex/support-plain-language-history-20261111`；remote main 仍为 `fc7b954f`，不通过主站自动部署发布助手。用户创建的历史文档和截图保持原内容，并包含于此次候选提交。
+- 候选 release `support-20261111T101603Z-46b22f8a` 位于生产独立助手目录的 `releases` 下；从已提交代码构建 clean checkout，36项助手/配置/历史文档摘要通过，没有安装新依赖。生产旧 worker、现有 plist 和生产主仓未替换；新 env/plist 仅写候选目录，保留旧配置用于获准切换或回退。
+- 已实际执行候选 `scripts/support-bot-worker.ts --check`（仅 schema）、worker 模块加载（不领任务）、历史文档匹配（001/002及未确认状态），均通过。`scripts/support-bot-preflight.ts --require=yingce-web,yingce-gateway,canvas,yingce-agent,adcraft,meilin,suno` 保留原7项 required：Web/Gateway/Canvas ready，Agent 缺业务日志、AdCraft/Meilin/Suno 原生数据/样本覆盖不足，整体仍 `ready=false`，未放宽验收清单。
+- 准备前后22个容器的 ID/image/启动时间/重启次数不变，旧助手 PID 54035 和已加载 plist 不变。release 的 `deployment-result.json` 为 `prepared_pending_worker_restart_authorization`、`activated=false`；**这是准备完成，不是新版已上线**。
+- 已向用户说明：需等当前工单完成，在空队列保护下仅停止并重新启动助手，期间新问题短暂等待；其他服务不动。尚无本次明确停止/重启答复，不能沿用前轮一次性授权，不执行激活、排队任务或重启命令。恢复后应重新核对授权、旧 PID/plist、队列、数据源与候选摘要，验证真实运行版本及主业务未变再宣称部署成功。
 
 ## 本轮独立 worker 部署（2026-11-11）
 - 按用户“先部署”的要求只更新既有助手；release `support-20261111T092940Z-2cee6080-worktree-4a11e9729b69`，基线 `2cee6080d0dc1587247a60b6cae76e1d6646a72c`，`dirty=true`，快照 SHA-256 `4a11e9729b69575e192dda3958d2f84d2547e6bf94e542bcfe50753e3b6575ba`。不是新的 clean commit，也未包含其他任务的两个 untracked 文档。
