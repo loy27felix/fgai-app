@@ -68,7 +68,7 @@ export default function DramaListPage() {
             onOk: () => remove.mutateAsync(item.project.id),
         });
     };
-    // 整页都能拖入小说：列表页不再单独放一块上传区占位置。
+    // 整页都能拖入文本文件。
     const dragProps = {
         onDragOver: (event: DragEvent) => {
             if (event.dataTransfer.types.includes("Files")) {
@@ -87,26 +87,11 @@ export default function DramaListPage() {
         },
     };
 
-    if (query.isLoading)
-        return (
-            <WorkspacePage className="studio-collection-page">
-                <WorkspaceLoadingState label="正在读取作品" />
-            </WorkspacePage>
-        );
-    if (query.isError && !data)
-        return (
-            <WorkspacePage className="studio-collection-page">
-                <WorkspaceErrorState description="作品列表暂时无法读取。" onRetry={() => void query.refetch()} />
-            </WorkspacePage>
-        );
-
     const actions = (
         <div className="collection-header-actions">
-            <Button icon={<ClipboardPaste />} onClick={() => navigate("/drama-pipeline/new?paste=1")}>
-                粘贴正文
-            </Button>
-            <Button type="primary" icon={<Plus />} onClick={() => fileRef.current?.click()}>
-                上传小说
+            <Link to="/projects/legacy" className="shrink-0 text-sm text-foreground/60 hover:underline">旧版项目</Link>
+            <Button type="primary" icon={<Plus />} onClick={() => navigate("/drama-pipeline/new")}>
+                新建短剧
             </Button>
         </div>
     );
@@ -115,7 +100,12 @@ export default function DramaListPage() {
         <WorkspacePage className="studio-collection-page drama-library">
             <div className="drama-root" {...dragProps}>
                 <div className="studio-band">
-                    <PageHeader title="短剧" description="上传一本小说，流水线自动改编、拆集、建角色、出分镜并合成成片。" meta={<span className="app-projects-header-meta">{total} 部</span>} actions={total ? actions : undefined} />
+                    <PageHeader
+                        title="短剧制作"
+                        description="从小说、剧本或分镜开始。确认每集的剧本和分镜后，继续制作素材、视频与成片。"
+                        meta={data && <span className="app-projects-header-meta">{total} 部</span>}
+                        actions={actions}
+                    />
                     {total ? (
                         <CollectionToolbar
                             label="短剧浏览工具"
@@ -143,7 +133,11 @@ export default function DramaListPage() {
                     ) : null}
                 </div>
 
-                {!total ? (
+                {query.isLoading ? (
+                    <WorkspaceLoadingState label="正在读取作品" />
+                ) : query.isError && !data ? (
+                    <WorkspaceErrorState description="作品列表暂时无法读取。" onRetry={() => void query.refetch()} />
+                ) : !total ? (
                     <UploadHero onPick={() => fileRef.current?.click()} onPaste={() => navigate("/drama-pipeline/new?paste=1")} />
                 ) : data?.items.length ? (
                     <>
@@ -208,11 +202,11 @@ function UploadHero({ onPick, onPaste }: { onPick: () => void; onPaste: () => vo
             <span className="drama-drop-icon">
                 <BookOpenText className="size-7" />
             </span>
-            <h2>拖入一本小说，开始做短剧</h2>
-            <p>支持 TXT / Markdown，最多 600 万字。确认风格、参考图方案和审阅方式后，系统自动改编、拆集、建角色、出分镜并合成成片。</p>
+            <h2>从手上的素材开始</h2>
+            <p>上传 TXT 或 Markdown，或粘贴小说、剧本、分镜。可逐步确认，也可按集推进到成片。</p>
             <div className="flex flex-wrap justify-center gap-2">
                 <Button type="primary" size="large" icon={<FileUp className="size-4" />} onClick={onPick}>
-                    选择小说文件
+                    上传文件
                 </Button>
                 <Button size="large" icon={<ClipboardPaste className="size-4" />} onClick={onPaste}>
                     粘贴正文

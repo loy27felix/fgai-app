@@ -22,7 +22,9 @@ type FeatureKey =
     | "pluginCenterEnabled"
     | "systemPluginsVisibleToUsers"
     | "imageWorkbenchEnabled"
-    | "videoWorkbenchEnabled";
+    | "videoWorkbenchEnabled"
+    | "ecommerceEnabled"
+    | "ecommerceVideoEnabled";
 type FeatureRow = {
     key: FeatureKey;
     title: string;
@@ -33,20 +35,22 @@ type FeatureRow = {
 
 // FG: creditsEnabled is forced off by the FG gateway and stays hidden here.
 const editableFeatureKeys: FeatureKey[] = [
-    "meilinEnabled",
     "shortDramaEnabled",
     "taskCenterEnabled",
     "customChannelsEnabled",
     "inspirationSourcesVisible",
     "imageWorkbenchEnabled",
     "videoWorkbenchEnabled",
+    "ecommerceEnabled",
+    "ecommerceVideoEnabled",
     "frontendModelsEnabled",
     "pluginCenterEnabled",
     "systemPluginsVisibleToUsers",
 ];
 
 const workspaceFeatureRows: FeatureRow[] = [
-    { key: "meilinEnabled", title: "美林 · 超级导演", description: "开放独立导演板块；文本、图片与视频计入 FG 月度额度和人民币账单。", icon: <Clapperboard className="size-4" aria-hidden="true" /> },
+    { key: "ecommerceEnabled", title: "电商 Agent", description: "开放商品策划与图片制作入口。请先在电商 Agent 配置中核对阶段模型。", icon: <Boxes className="size-4" /> },
+    { key: "ecommerceVideoEnabled", title: "电商商品视频", description: "允许从商品作品进入视频生成工作台。", icon: <Clapperboard className="size-4" />, dependsOn: "ecommerceEnabled" },
     {
         key: "shortDramaEnabled",
         title: "短剧创作",
@@ -416,6 +420,8 @@ function toEditablePayload(features: FeatureAvailability) {
         inspirationSourcesVisible: features.inspirationSourcesVisible,
         imageWorkbenchEnabled: features.imageWorkbenchEnabled,
         videoWorkbenchEnabled: features.videoWorkbenchEnabled,
+        ecommerceEnabled: features.ecommerceEnabled,
+        ecommerceVideoEnabled: features.ecommerceVideoEnabled,
         frontendModelsEnabled: features.frontendModelsEnabled,
         pluginCenterEnabled: features.pluginCenterEnabled,
         systemPluginsVisibleToUsers: features.systemPluginsVisibleToUsers,
@@ -442,6 +448,8 @@ function parseFeatureAvailability(value: unknown): FeatureAvailability {
         inspirationSourcesVisible: record.inspirationSourcesVisible as boolean,
         imageWorkbenchEnabled: record.imageWorkbenchEnabled as boolean,
         videoWorkbenchEnabled: record.videoWorkbenchEnabled as boolean,
+        ecommerceEnabled: record.ecommerceEnabled as boolean,
+        ecommerceVideoEnabled: record.ecommerceVideoEnabled as boolean,
         frontendModelsEnabled: record.frontendModelsEnabled as boolean,
         pluginCenterEnabled: record.pluginCenterEnabled as boolean,
         systemPluginsVisibleToUsers: record.systemPluginsVisibleToUsers as boolean,

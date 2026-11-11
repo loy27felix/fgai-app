@@ -53,6 +53,9 @@ func bindDramaJSON(c *gin.Context, target any) error {
 }
 
 func registerDramaRoutes(r *gin.RouterGroup, svc *service.Service) {
+	r.POST("/projects/:id/import-drama", dramaRoute(svc, 1024, func(c *gin.Context, userID string) (any, error) {
+		return svc.ImportLegacyDrama(userID, c.Param("id"))
+	}))
 	r.GET("/dramas", dramaRoute(svc, 0, func(c *gin.Context, userID string) (any, error) {
 		page, err := parsePositiveQueryInt(c.Query("page"), 1)
 		if err != nil {

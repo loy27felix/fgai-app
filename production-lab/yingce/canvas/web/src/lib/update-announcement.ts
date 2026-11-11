@@ -16,7 +16,8 @@ export function normalizeUpdateAnnouncement(value?: UpdateAnnouncement | null): 
 }
 
 export function updateAnnouncementVersion(value: UpdateAnnouncement | undefined, builtInVersion: string) {
-    return value?.enabled ? value.currentVersion : `v${builtInVersion.replace(/^v/, "")}`;
+    const version = builtInVersion.replace(/^v/, "").trim();
+    return /^\d+\.\d+\.\d+/.test(version) ? `v${version}` : value?.enabled ? value.currentVersion : `v${version}`;
 }
 
 export function moveUpdateItem<T>(items: T[], index: number, direction: -1 | 1): T[] {

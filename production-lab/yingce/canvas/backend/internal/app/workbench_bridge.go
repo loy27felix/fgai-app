@@ -106,6 +106,10 @@ func (s *Service) SetWorkbenchPresetEnabled(actor *model.User, id string, enable
 }
 
 func (s *Service) CreateWorkbenchTask(userID string, req WorkbenchTaskInput, traceID, requestID string) (*model.Task, error) {
+	projectID := strings.TrimSpace(req.EcommerceProjectID)
+	if err := s.requireTaskGenerationFeatures(userID, "", "canvas_"+req.Kind, "", req.Kind, map[string]any{"metadata": map[string]any{"ecommerceProjectId": projectID}}); err != nil {
+		return nil, err
+	}
 	if req.Kind == WorkbenchKindImage {
 		if err := s.RequireFeature(FeatureImageWorkbench); err != nil {
 			return nil, err
@@ -121,6 +125,9 @@ func (s *Service) CreateWorkbenchTask(userID string, req WorkbenchTaskInput, tra
 	if err != nil {
 		return nil, err
 	}
+	if projectID != "" {
+		resolved.Input["metadata"].(map[string]any)["ecommerceProjectId"] = projectID
+	}
 	providerConfig, err := s.resolveWorkbenchProviderConfig(userID, req.Kind, resolved.Operation, resolved.Model, resolved.LogicalModelID, resolved.ChannelID, resolved.Parameters, resolved.Input)
 	if err != nil {
 		return nil, err
@@ -135,15 +142,7 @@ func (s *Service) CreateWorkbenchTask(userID string, req WorkbenchTaskInput, tra
 }
 
 func (s *Service) WorkbenchTasks(userID, kind string, activeOnly bool, limit int) ([]TaskSummary, error) {
-	if kind == WorkbenchKindImage {
-		if err := s.RequireFeature(FeatureImageWorkbench); err != nil {
-			return nil, err
-		}
-	} else if kind == WorkbenchKindVideo {
-		if err := s.RequireFeature(FeatureVideoWorkbench); err != nil {
-			return nil, err
-		}
-	} else {
+	if kind != WorkbenchKindImage && kind != WorkbenchKindVideo {
 		return nil, BadAuthRequest("工作台类型无效")
 	}
 	return s.TasksWithOptions(userID, TaskListOptions{Limit: limit, ActiveOnly: activeOnly, WorkbenchKind: kind})

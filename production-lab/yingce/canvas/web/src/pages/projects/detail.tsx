@@ -1,6 +1,7 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, App } from "antd";
+import { Alert, App, Button } from "antd";
+import { importLegacyDrama } from "@/services/api/drama";
 import { ArrowLeft, Plus } from "lucide-react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
@@ -37,6 +38,17 @@ export default function ProjectDetailPage() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const { message } = App.useApp();
+    const [migrating, setMigrating] = useState(false);
+    const migrateProject = async () => {
+        setMigrating(true);
+        try {
+            await importLegacyDrama(projectId);
+            await queryClient.invalidateQueries({ queryKey: ["dramas"] });
+            navigate(`/drama-pipeline/${projectId}`);
+            message.success("整项目已接续，原章节和媒体保留；核对设置后再继续制作");
+        } catch (error) { message.error(error instanceof Error ? error.message : "项目接续失败，原项目保持不变"); }
+        finally { setMigrating(false); }
+    };
     const activeView: DetailView = unitId || view === "workflow" ? "workflow" : chapterId ? "chapters" : views.some((item) => item.key === view) ? view as DetailView : "overview";
     const coreQuery = useQuery({
         queryKey: ["project", projectId, "core"],
@@ -115,7 +127,7 @@ export default function ProjectDetailPage() {
     const chapterHref = detail ? projectChapterHref(detail.units, projectId, chapterId) : `/projects/${projectId}/chapters`;
     const workflowHref = detail ? projectWorkflowHref(detail.units, projectId, unitId, stage) : `/projects/${projectId}/workflow`;
     if (coreQuery.isLoading || unitsQuery.isLoading) return <WorkspacePage><WorkspaceLoadingState label="正在打开项目工作台" detail="读取项目与章节索引" /></WorkspacePage>;
-    if (coreQuery.isError || unitsQuery.isError || !detail) return <WorkspacePage><WorkspaceErrorState title="项目不可用" description="项目不存在、已被删除，或当前账号没有访问权限。" actionLabel="返回项目中心" onRetry={() => navigate("/projects")} /></WorkspacePage>;
+    if (coreQuery.isError || unitsQuery.isError || !detail) return <WorkspacePage><WorkspaceErrorState title="项目不可用" description="项目不存在、已被删除，或当前账号没有访问权限。" actionLabel="返回旧版项目" onRetry={() => navigate("/projects/legacy")} /></WorkspacePage>;
     if (!chapterId && !unitId && (!view || !views.some((item) => item.key === view))) return <Navigate to={`/projects/${projectId}/overview`} replace />;
     if (chapterId && !units.some((unit) => unit.id === chapterId)) return <Navigate to={firstUnitId ? `/projects/${projectId}/chapters/${firstUnitId}` : `/projects/${projectId}/chapters`} replace />;
     if (unitId && !units.some((unit) => unit.id === unitId)) return <Navigate to={firstUnitId ? `/projects/${projectId}/workflow/${firstUnitId}/${stage || "video"}` : `/projects/${projectId}/workflow`} replace />;
@@ -134,6 +146,7 @@ export default function ProjectDetailPage() {
                     onCreateCanvas={createCanvas}
                 />
                 {detail.project.status === "archived" ? <Alert type="warning" showIcon banner message="项目已归档，恢复后才能创建画布和生成任务" className="!border-x-0 !border-t-0" /> : null}
+                {detail.project.status !== "archived" ? <Alert type="info" showIcon banner message="新版短剧流水线支持整项目接续" description="保留章节、分镜提示词、角色参考与已生成视频历史；接续后暂停等待核对，不自动生成。" action={<Button loading={migrating} onClick={() => void migrateProject()}>整项目接续到新版</Button>} /> : null}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                     {(activeView === "chapters" || activeView === "workflow") && workspace && activeUnitId ? <Suspense fallback={null}><StoryboardRecoveryPanel key={`${projectId}:${activeUnitId}`} detail={detail} unitId={activeUnitId} /></Suspense> : null}
                     <div className={activeView === "chapters" || activeView === "workflow" || activeView === "editor" ? "min-h-0 flex-1" : "thin-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-5 lg:px-8 lg:py-7"}>
@@ -161,7 +174,7 @@ function ProjectWorkspaceHeader({ detail, projectId, activeView, unitId, stage, 
     return (
         <header className="project-workspace-header">
             <div className="project-workspace-identity">
-                <Link to="/projects" className="project-workspace-back" aria-label="返回项目列表">
+                <Link to="/projects/legacy" className="project-workspace-back" aria-label="返回旧版项目列表">
                     <ArrowLeft />
                     <span className="sr-only">返回</span>
                 </Link>

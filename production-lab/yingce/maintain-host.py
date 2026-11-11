@@ -143,7 +143,9 @@ with (ROOT / '.maintenance.lock').open('a') as lock:
         if recover_oom_backend(ready):
             running = True
         stale = []
-        for service, marker in [('backend','/data/.fg-studio-nas-ready'),('adcraft-api','/nas/.fg-studio-nas-ready')]:
+        # Withdrawn advertising services are archived and must not be resurrected
+        # by a NAS recovery pass. The shared backend remains protected as before.
+        for service, marker in [('backend','/data/.fg-studio-nas-ready')]:
             try:
                 if not container_ready(service, marker): stale.append(service)
             except subprocess.TimeoutExpired:

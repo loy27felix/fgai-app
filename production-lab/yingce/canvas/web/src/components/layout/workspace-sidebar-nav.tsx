@@ -1,5 +1,5 @@
 import { Popover } from "antd";
-import { ArrowLeft, AudioLines, BookOpenText, Bell, ChevronDown, ChevronRight, CircleUserRound, History as HistoryIcon, Image as ImageIcon, Infinity as InfinityIcon, PanelLeftClose, PanelLeftOpen, Plus, Video } from "lucide-react";
+import { ArrowLeft, AudioLines, BookOpenText, Bell, ChevronDown, ChevronRight, CircleUserRound, History as HistoryIcon, Image as ImageIcon, Infinity as InfinityIcon, PanelLeftClose, PanelLeftOpen, Plus, ShoppingBag, Video } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -50,9 +50,8 @@ function buildNav(features: FeatureAvailability, publicDemo: boolean, t: TFuncti
             items: [
                 { ...toolItem("create", "/"), id: "home", title: t("fgWorkspace.home") },
                 { id: "fg-stories", title: t("fgWorkspace.stories"), icon: BookOpenText, to: "/fg-production" },
-                ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/projects"), title: t("fgWorkspace.drama") }] : []),
-                { ...toolItem("projects", "/advertising"), id: "fg-advertising", title: t("fgWorkspace.advertising") },
-                ...(features.meilinEnabled ? [{ ...toolItem("projects", "/meilin"), id: "fg-meilin", title: t("fgWorkspace.meilin") }] : []),
+                ...(features.shortDramaEnabled ? [{ ...toolItem("projects", "/drama-pipeline"), title: t("fgWorkspace.drama") }] : []),
+                ...(features.ecommerceEnabled ? [{ id: "ecommerce", title: t("nav.sidebar.ecommerce"), icon: ShoppingBag, to: "/ecommerce" }] : []),
                 { ...toolItem("canvas", "/canvas"), title: t("fgWorkspace.canvas") },
             ],
         },
@@ -380,7 +379,7 @@ export function workspaceNavActiveId(pathname: string, section?: string | null) 
     if (segments[0] === "toolbox" && segments[1]) return `toolbox-${segments[1]}`;
     const slug = segments[0] || "home";
     // FG: sixth-module routes map to their sidebar ids.
-    const fgRouteNavIds: Record<string, string> = { "fg-production": "fg-stories", advertising: "fg-advertising", meilin: "fg-meilin", "creator-app": "fg-creator", arcreel: "fg-arcreel", "fg-audio-tools": "fg-audio-settings" };
+    const fgRouteNavIds: Record<string, string> = { "drama-pipeline": "projects", "fg-production": "fg-stories", advertising: "fg-advertising", meilin: "fg-meilin", "creator-app": "fg-creator", arcreel: "fg-arcreel", "fg-audio-tools": "fg-audio-settings" };
     return slug === "settings" && section ? `settings:${section}` : fgRouteNavIds[slug] || slug;
 }
 

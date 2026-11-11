@@ -166,6 +166,7 @@ services:
       gateway:
         condition: service_healthy
   adcraft-agent:
+    profiles: [retired]
     image: ${ADCRAFT_AGENT_IMAGE:?required}
     restart: unless-stopped
     environment:
@@ -180,6 +181,7 @@ services:
       timeout: 5s
       retries: 15
   adcraft-api:
+    profiles: [retired]
     image: ${ADCRAFT_API_IMAGE:?required}
     user: "0:0"
     restart: "no"
@@ -211,6 +213,7 @@ services:
       retries: 15
     stop_grace_period: 10m
   adcraft-web:
+    profiles: [retired]
     image: ${ADCRAFT_WEB_IMAGE:?required}
     restart: unless-stopped
     healthcheck:
@@ -227,7 +230,7 @@ services:
       timeout: 3s
       retries: 15
   meilin:
-    profiles: [meilin]
+    profiles: [retired]
     image: ${MEILIN_IMAGE:-fg-six-meilin:development}
     restart: unless-stopped
     environment:

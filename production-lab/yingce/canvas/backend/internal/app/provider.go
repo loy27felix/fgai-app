@@ -40,8 +40,8 @@ type canvasGenerationInput struct {
 }
 
 type canvasTextOptions struct {
-	Stream *bool `json:"stream"`
-	Thinking bool `json:"thinking,omitempty"`
+	Stream   *bool `json:"stream"`
+	Thinking bool  `json:"thinking,omitempty"`
 	// ThinkingLevel 是请求的思考档位（off/minimal/low/medium/high/max）或意图（auto/deep）；
 	// 空值等同 auto。实际档位按模型能力归一，见 resolveThinkingLevel。
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
@@ -289,7 +289,16 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			}
 			return runAgentToolTask(ctx, input)
 		}
-		result, taskErr := runTextTask(ctx, input)
+		var result map[string]interface{}
+		var taskErr error
+		if draft, ok := ecommercePlanningBatchable(input); ok {
+			result, taskErr = runEcommercePlanningBatches(ctx, input, draft)
+		} else {
+			result, taskErr = runTextTask(ctx, input)
+		}
+		if taskErr == nil {
+			taskErr = s.validateEcommerceWorkbenchResult(userID, input, result)
+		}
 		if taskErr == nil && promptTemplateOperation != "" {
 			taskErr = validatePromptTemplateResult(promptTemplateOperation, result)
 		}

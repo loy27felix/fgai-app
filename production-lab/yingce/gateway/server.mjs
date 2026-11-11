@@ -18,8 +18,6 @@ import {musicStatus} from './fg-music-provider.mjs';
 import {initializeSpeechJobs,speechJobRoute} from './fg-speech-jobs.mjs';
 import {initializeMusicQueue,musicQueueRoute} from './fg-music-queue.mjs';
 import {publishExistingStoryMedia} from './fg-share-existing.mjs';
-import {initializeAdcraft, adcraftInternalRoute, adcraftUserRoute,advertisingAccess} from './fg-adcraft.mjs';
-import {startAdvertisingRetention} from './fg-adcraft-retention.mjs';
 import {initializeCreator,creatorCapability,creatorInternalRoute} from './fg-creator.mjs';
 import {retiredModulePath,retiredModuleResponse} from './fg-retired-modules.mjs';
 import {initializeEditorLeases,editorLeaseRoute,guardEditorWrite} from './fg-editor-leases.mjs';
@@ -30,7 +28,6 @@ import {registerSpeechStream} from './fg-speech-stream.mjs';
 import {registerCanvasRealtime} from './fg-canvas-realtime.mjs';
 import {canvasOwnersRoute} from './fg-canvas-owners.mjs';
 import {canvasPromptShortcutsRoute,initializeCanvasPromptShortcuts} from './fg-canvas-prompt-shortcuts.mjs';
-import {initializeMeilin,meilinInternalRoute,meilinUserRoute} from './fg-meilin.mjs';
 import {isPublicDemo,publicDemoDenied} from './fg-public-demo.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -47,15 +44,12 @@ await initializeFG(pool);
 await initializeSpeech(pool);
 await initializeSpeechJobs(pool);
 await initializeMusicQueue(pool);
-await initializeAdcraft(pool);
 await initializeCreator(pool);
-await initializeMeilin(pool);
 await initializeEditorLeases(pool);
 await initializeInspiration(pool);
 await initializeCanvasPromptShortcuts(pool);
 await publishExistingStoryMedia(pool);
 const feeSync=startFeeSync(pool);
-startAdvertisingRetention(pool);
 startInspirationSync(pool);
 
 function respond(res, status, message, reason) {
@@ -134,9 +128,7 @@ const server = http.createServer(async (req, res) => {
     if(retiredModulePath(path.pathname)){retiredModuleResponse(res);return;}
     if(['/api/fg-project-files','/api/fg-story-archive'].includes(path.pathname)){respond(res,403,'工程归档仅供受信任服务调用','FG_INTERNAL_ONLY');return;}
     if(await budgetInternalRoute(req,res,{pool,path}))return;
-    if(await meilinInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if(await speechInternalRoute(req,res,{pool,path}))return;
-    if(await adcraftInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
     if (publicResourceRead(req.method, path) || publicCanvasShareRead(req.method, path)) {
       // Public media and share reads are authorized by the native backend's
@@ -176,7 +168,6 @@ const server = http.createServer(async (req, res) => {
     }
     if(await canvasPromptShortcutsRoute(req,res,{pool,actor,path}))return;
     const cookie = await canvasSession(actor);
-    if(await meilinUserRoute(req,res,{pool,actor,path,web,publicOrigin,canvasSession}))return;
     if(await musicQueueRoute(req,res,{pool,actor,path,ownerAPI:async(ownerId,p,m,payload,extra)=>{
       const owner=(await pool.query('SELECT u.id,u.display_name name,a.email,a.platform_role FROM users u JOIN fg_accounts a ON a.user_id=u.id WHERE u.id=$1 AND u.status=\'active\'',[ownerId])).rows[0];
       if(!owner)throw Error('作品所属成员账号不可用');
@@ -201,9 +192,8 @@ const server = http.createServer(async (req, res) => {
     const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
     headers['x-request-id'] = req.headers['x-request-id'];
     if (req.headers.origin) headers.origin = publicOrigin;
-    if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess}))return;
+    if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess:async()=>false}))return;
     if(!await guardEditorWrite(req,res,{pool:editorPool,actor,path}))return;
-    if(await adcraftUserRoute(req,res,{pool,actor,cookie,web,publicOrigin,path}))return;
     const projectAccess=nativeProjectAccess({web,cookie,publicOrigin});
     if(await projectLanguageRoute(req,res,{pool,actor,path,access:projectAccess}))return;
     if(await fgAPI(req,res,{actor,cookie,path,pool,web,platform,platformCookie:`fg_session=${platformToken(req.headers.cookie)}`,publicOrigin,feeSync}))return;

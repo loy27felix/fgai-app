@@ -4,6 +4,7 @@ const workspaceRouteLoaders = {
     create: () => import("@/pages/create"),
     inspirations: () => import("@/pages/inspirations"),
     projects: () => import("@/pages/projects"),
+    "drama-pipeline": () => import("@/pages/drama-pipeline"),
     projectDetail: () => import("@/pages/projects/detail"),
     projectCreate: () => import("@/pages/drama-pipeline/create"),
     skillWorkbench: () => import("@/pages/skills/workbench"),
@@ -16,6 +17,7 @@ export const loadCreatePage = workspaceRouteLoaders.create;
 export const loadInspirationsPage = workspaceRouteLoaders.inspirations;
 export const loadProjectDetailPage = workspaceRouteLoaders.projectDetail;
 export const loadProjectsPage = workspaceRouteLoaders.projects;
+export const loadDramaPipelinePage = workspaceRouteLoaders["drama-pipeline"];
 export const loadProjectCreatePage = workspaceRouteLoaders.projectCreate;
 export const loadSkillWorkbenchPage = workspaceRouteLoaders.skillWorkbench;
 
@@ -26,7 +28,11 @@ export function preloadWorkspaceRoute(pathnameOrSlug: string) {
     // 具体画布项目由 /canvas/:id 自己加载；不要在认证恢复阶段额外预加载画布列表。
     if (slug === "canvas" && segments.length > 1) return;
     if (slug === "projects" && segments.length > 1) {
-        void (segments[1] === "new" ? workspaceRouteLoaders.projectCreate() : workspaceRouteLoaders.projectDetail());
+        void (segments[1] === "legacy" ? workspaceRouteLoaders.projects() : workspaceRouteLoaders.projectDetail());
+        return;
+    }
+    if (slug === "drama-pipeline" && segments[1] === "new") {
+        void workspaceRouteLoaders.projectCreate();
         return;
     }
     if (slug === "skills" && segments[2] === "edit") {

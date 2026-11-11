@@ -30,7 +30,7 @@ export function PersonalGPTPane() {
         finally { setBusy(false); }
     };
     return <>
-        <div className="settings-pane-header"><div><h2>GPT 接入</h2><p>短剧 Agent、美林和画布等文本创作使用你自己的 Trings 账户。</p></div></div>
+        <div className="settings-pane-header"><div><h2>GPT 接入</h2><p>短剧 Agent 和画布等文本创作使用你自己的 Trings 账户。</p></div></div>
         <div className="settings-section space-y-5">
             <Alert type={status?.configured ? "success" : "info"} showIcon message={status?.configured ? "已配置个人 Key · GPT6.1 Sol · 默认 high 思考" : "请先填写自己的 API Key，再使用 GPT 文本功能"} />
             {error ? <Alert role="alert" type="error" showIcon message={error} /> : null}

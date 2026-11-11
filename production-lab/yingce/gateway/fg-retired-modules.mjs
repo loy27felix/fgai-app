@@ -1,5 +1,6 @@
 export function retiredModulePath(path) {
- return /^\/(?:creator-app|creator-static|creator-presets|arcreel|fg-director)(?:\/|$)/.test(path)
+ return /^\/(?:creator-app|creator-static|creator-presets|arcreel|fg-director|director-desk|meilin|meilin-app|advertising|adcraft-app)(?:\/|$)/.test(path)
+  || /^\/api\/fg\/(?:meilin|adcraft)(?:\/|$)/.test(path)
   || /^\/api\/(?:creator|referral|admin\/referral|admin\/settings\/referral)(?:\/|$)/.test(path)
   || /^\/(?:referral|admin\/referral)(?:\/|$)/.test(path)
   || /^\/(?:wallet|admin\/(?:payments|credit-operations|redemption-codes))(?:\/|$)/.test(path)

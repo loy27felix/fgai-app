@@ -2,7 +2,7 @@ import { useState } from "react";
 import "./image-size-picker.css";
 import { Input, Button } from "antd";
 import type { ImageCapabilityConfig } from "@/lib/model-capabilities";
-import { imageResolutionTiers, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageTierAvailable } from "@/lib/image-size-presets";
+import { imageDeclaredSizePresets, imageResolutionTiers, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageTierAvailable } from "@/lib/image-size-presets";
 import { buildImageResolutionOptions, type ImageResolutionOption, type ImageResolutionTier } from "@/lib/image-resolution-tiers";
 
 import { resolveImageRequestSize, validateImageSize } from "@/services/api/image-validation";
@@ -12,6 +12,7 @@ export function ImageSizePicker({
     size,
     quality,
     imageResolution,
+    declaredSizeOptions,
     canSelectResolution,
     ratioHint,
     onChange,
@@ -20,6 +21,7 @@ export function ImageSizePicker({
     size: string;
     quality?: string;
     imageResolution?: string;
+    declaredSizeOptions?: boolean;
     canSelectResolution?: (resolution: string) => boolean;
     /** 可选：在比例按钮下补一行用途说明（如电商“主图”），不改变可选值。 */
     ratioHint?: (ratio: string) => { label: string; title?: string } | undefined;
@@ -27,8 +29,10 @@ export function ImageSizePicker({
 }) {
     // Pixel sizes already encode the resolution. A separate provider resolution field is unnecessary.
     const ungrouped = Boolean(profile.parameters && !profile.resolution.supported && profile.size.parameter !== "size");
-    const IMAGE_RESOLUTIONS = ungrouped ? [...new Set(imageSizePresets(profile).map((p) => p.tier))] : imageResolutionTiers(profile);
-    const presets = imageSizePresets(profile).filter((preset) => imageTierAvailable(profile, preset.tier));
+    const declaredPresets = declaredSizeOptions ? imageDeclaredSizePresets(profile) : [];
+    const tierValues = ungrouped ? [...new Set(imageSizePresets(profile).map((preset) => preset.tier))] : imageResolutionTiers(profile);
+    const IMAGE_RESOLUTIONS = declaredPresets.length ? tierValues.map((value) => value.trim().toLowerCase() as ImageResolutionTier) : tierValues;
+    const presets = (declaredPresets.length ? declaredPresets : imageSizePresets(profile)).filter((preset) => imageTierAvailable(profile, preset.tier));
     const visibleTiers = IMAGE_RESOLUTIONS.filter((value) => presets.some((preset) => preset.tier === value));
     const [chosenTier, setChosenTier] = useState<ImageResolutionTier>("1k");
     const [customPreset, setCustomPreset] = useState<ImageResolutionOption>();

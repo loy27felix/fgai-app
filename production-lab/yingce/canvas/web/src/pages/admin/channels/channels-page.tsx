@@ -18,7 +18,6 @@ import { formatRate, healthTone, useChannelModelHealth } from "../components/cha
 import { AllChannelModelsPanel } from "./all-channel-models-panel";
 import { ChannelOrderDialog } from "../components/channel-order-dialog";
 import { selectChannelWorkspace } from "./channel-workspace-state";
-import { ProviderCatalogWizard } from "./provider-catalog-wizard";
 import "./channels-page.css";
 import { Select } from "@/components/ui/base/select";
 
@@ -72,7 +71,6 @@ export default function ChannelsPage() {
     const [editingChannel, setEditingChannel] = useState<ModelChannel | null>(null);
     const [saving, setSaving] = useState(false);
     const [duplicatingChannelId, setDuplicatingChannelId] = useState<string | null>(null);
-    const [wizardOpen, setWizardOpen] = useState(false);
     const [transferring, setTransferring] = useState(false);
     const importInputRef = useRef<HTMLInputElement>(null);
     const requestSequence = useRef(0);
@@ -369,7 +367,7 @@ export default function ChannelsPage() {
                                 <h2 className="font-semibold">渠道</h2>
                                 <span className="admin-channel-count">{hasFilters ? `${visibleChannels.length} / ${channels.length}` : channels.length}</span>
                             </div>
-                            <Button block type="primary" icon={<Plus className="size-4" />} onClick={() => setWizardOpen(true)}>
+                            <Button block type="primary" icon={<Plus className="size-4" />} onClick={() => openDrawer()}>
                                 新增渠道
                             </Button>
                             <div className="grid grid-cols-2 gap-2">
@@ -568,20 +566,6 @@ export default function ChannelsPage() {
                     </Form.Item>
                 </Form>
             </AdminModal>
-            <ProviderCatalogWizard
-                open={wizardOpen}
-                onClose={() => setWizardOpen(false)}
-                onCustom={() => {
-                    setWizardOpen(false);
-                    openDrawer();
-                }}
-                onInstalled={async (channel) => {
-                    setWizardOpen(false);
-                    updateUrl({ channel: channel.id, filter: "", status: "all" }, true);
-                    await syncChannels();
-                    await reload();
-                }}
-            />
         </AdminPageFrame>
     );
 }

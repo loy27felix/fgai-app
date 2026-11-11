@@ -142,6 +142,15 @@ func Models() []any {
 		&model.DramaTake{},
 		&model.DramaSegment{},
 		&model.DramaJob{},
+		&model.EcommerceProject{},
+		&model.EcommerceRound{},
+		&model.EcommerceKnowledgeSource{},
+		&model.EcommerceKnowledgeEntry{},
+		&model.EcommerceCreativeRecommendation{},
+		&model.EcommerceAgentAnalysis{},
+		&model.EcommerceAgentRun{},
+		&model.EcommerceAgentPage{},
+		&model.EcommerceAgentCanvasVersion{},
 	}
 }
 

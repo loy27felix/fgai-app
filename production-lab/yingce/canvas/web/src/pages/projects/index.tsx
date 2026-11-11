@@ -194,9 +194,9 @@ export default function ProjectsPage() {
     const hasInitialError = query.isError && !query.data;
     return (
         <WorkspacePage className="library-page project-library-page" grid>
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.025] px-4 py-3">
-                <div><strong>小说流水线</strong><p className="text-xs text-foreground/55">导入小说，按集规划、审核提示词，再确认生成素材与视频。</p></div>
-                <Link to="/drama-pipeline"><Button icon={<ArrowRight className="size-4" />}>打开流水线</Button></Link>
+            <div className="mb-3 flex items-center justify-between gap-3 px-1 py-2">
+                <h1 className="text-base font-semibold">旧版短剧项目</h1>
+                <Link to="/drama-pipeline" className="text-sm hover:underline">返回新版短剧制作</Link>
             </div>
             <details className="story-launcher-panel" aria-label="开始一部新短剧">
                 <summary className="story-launcher-head">

@@ -199,7 +199,6 @@ export function CanvasToolbar({
     };
 
     const items = resolveToolbarEntries("main", ctx, prefs ?? defaultToolbarPrefs("main"));
-    if (onOpenDirectorDesk) items.push({id: "fg-director-desk", label: "3D 导演台", displayLabel: "3D 导演台", icon: <Box className="size-4" />, onClick: onOpenDirectorDesk});
 
     // 中央空白起点与主工具栏共用同一份命令解析，避免素材类型和插件节点逐渐分叉。
     const createCommands = useCanvasCreateCommands(ctx, runAddAction);

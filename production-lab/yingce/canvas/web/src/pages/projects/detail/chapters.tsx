@@ -344,6 +344,14 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
     }, [editor, selectedUnit?.id]);
 
     const wordCount = useMemo(() => editor?.storage.characterCount?.characters?.() || stripHtml(draftHtml).length || 0, [draftHtml, editor]);
+    const openChapterInPipeline = () => {
+        if (!selectedUnit || dirty) return;
+        const text = editor?.getText({ blockSeparator: "\n" }).trim();
+        if (!text) return;
+        navigate("/drama-pipeline/new", {
+            state: { prefill: { name: `${detail.project.name} · ${selectedUnit.title}`, sourceFormat: "script", text } },
+        });
+    };
     const chapterCanvasCount = (unitId: string) => canvasCountByUnitId.get(unitId) || 0;
     const chapterAnalysisInput = (textModel: string) => {
         const unit = selectedUnit;
@@ -699,6 +707,9 @@ export default function ProjectChaptersView({ detail, refreshProject }: ProjectD
                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[var(--fs-tiny)] text-foreground/38"><span>{dirty ? "有未保存修改" : `保存于 ${formatTime(selectedUnit.updatedAt)}`}</span><span>·</span><span>{formatCount(wordCount)} 字</span><span>·</span><span>{chapterCanvasCount(selectedUnit.id)} 个画布</span></div>
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                <Tooltip title={dirty ? "请先保存当前章节" : "将本章正文带入新版新建页"}>
+                                    <Button size="small" disabled={dirty || !wordCount || !editor} onClick={openChapterInPipeline}>在新版使用本章</Button>
+                                </Tooltip>
                                 <Button size="small" icon={<UsersRound className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(characterOperation) || personalGPT.isPending} loading={Boolean(characterOperation)} onClick={() => { setSelectedTextModel(defaultTextModel); setCharacterExtractOpen(true); }} aria-label={characterOperation ? `提取角色、场景与道具，已运行 ${formatOperationElapsed(characterOperation.startedAt, operationNow)}` : "提取角色、场景与道具"}>{characterOperation ? `提取资产（已运行${formatOperationElapsed(characterOperation.startedAt, operationNow)}）` : charactersGenerated ? "提取资产（已生成）" : "提取角色、场景与道具"}</Button>
                                 <Button size="small" type="primary" icon={<Clapperboard className="size-3.5" />} disabled={!selectedUnit || dirty || Boolean(storyboardOperation) || personalGPT.isPending} loading={Boolean(storyboardOperation)} onClick={() => { setSelectedTextModel(defaultTextModel); setSelectedSkillIds([]); setIncludeAction(/打斗|打戏|搏斗|交锋|挥拳|拳击|决斗|斗法|剑气|fight(?:ing)?|combat|duel/i.test(editor?.getText() || stripHtml(selectedUnit?.sourceText || ""))); setActionDirection(""); setStoryboardOpen(true); }} aria-label={storyboardOperation ? `生成到分镜制作，已运行 ${formatOperationElapsed(storyboardOperation.startedAt, operationNow)}` : "生成到分镜制作"}>{storyboardOperation ? `生成到分镜制作（已运行${formatOperationElapsed(storyboardOperation.startedAt, operationNow)}）` : storyboardGenerated ? "生成到分镜制作（已生成）" : "生成到分镜制作"}</Button>
                                 <Button size="small" type={dirty ? "primary" : "default"} icon={dirty ? <Save className="size-3.5" /> : <Check className="size-3.5" />} disabled={!selectedUnit || !dirty || !draftTitle.trim() || saveMutation.isPending} loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>{dirty ? "保存" : "已保存"}</Button>

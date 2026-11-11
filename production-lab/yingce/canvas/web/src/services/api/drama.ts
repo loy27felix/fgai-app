@@ -2,6 +2,10 @@ import { compactApiParams, http } from "@/services/api/request";
 import type { Project } from "@/services/api/projects";
 import type { ThinkingRequest } from "@/lib/text-thinking";
 
+export function importLegacyDrama(projectId: string) {
+    return http.post<{ imported: boolean; summary: DramaSummary }>(`/projects/${encodeURIComponent(projectId)}/import-drama`, {}, { timeout: 120_000 });
+}
+
 // 短剧自动制作：章节只承载小说原文，集是剧本、分镜与成片的基石。编排全部在服务端完成。
 
 export type DramaModelChoice = {

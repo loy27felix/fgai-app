@@ -11,6 +11,17 @@ const (
 )
 
 type (
+	SaveEcommerceProjectRequest            = app.SaveEcommerceProjectRequest
+	EcommerceCreativeDirectionsRequest     = app.EcommerceCreativeDirectionsRequest
+	EcommerceStyleChoice                   = app.EcommerceStyleChoice
+	EcommerceAgentSetting                  = app.EcommerceAgentSetting
+	EcommerceOrchestrationSetting          = app.EcommerceOrchestrationSetting
+	EcommerceCreativeDirection             = app.EcommerceCreativeDirection
+	EcommerceCreativeDirectionsResponse    = app.EcommerceCreativeDirectionsResponse
+	EcommerceCreativeDirectionSelection    = app.EcommerceCreativeDirectionSelection
+	EcommerceKnowledgeEvidence             = app.EcommerceKnowledgeEvidence
+	DeleteEcommerceProjectsRequest         = app.DeleteEcommerceProjectsRequest
+	EcommerceRoundImageUpdateRequest       = app.EcommerceRoundImageUpdateRequest
 	PaymentOrderQuery                      = app.PaymentOrderQuery
 	PaymentReconciliationQuery             = app.PaymentReconciliationQuery
 	CloudAgentRequest                      = app.CloudAgentRequest

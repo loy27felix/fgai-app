@@ -94,6 +94,7 @@ export type ModelChannel = {
     catalogProviderId?: string;
     modelCosts?: Array<{
         model: string;
+        channelModelId?: string;
         displayName?: string;
         channelLabel?: string;
         tags?: ModelTag[];

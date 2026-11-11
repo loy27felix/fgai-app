@@ -97,10 +97,10 @@ type Service struct {
 	legacyCloudAgentRootTask bool
 	// cloudAgentModelRetryBase 是模型步骤重试的指数退避基数；零值为 1 秒，只有测试会调小。
 	cloudAgentModelRetryBase time.Duration
-	approvalFollowUpMu     sync.Mutex
-	approvalFollowUpWg     sync.WaitGroup
-	approvalFollowUps      map[string]struct{}
-	approvalFollowUpClosed bool
+	approvalFollowUpMu       sync.Mutex
+	approvalFollowUpWg       sync.WaitGroup
+	approvalFollowUps        map[string]struct{}
+	approvalFollowUpClosed   bool
 	approvedMediaMu          sync.Mutex
 	approvedMediaWg          sync.WaitGroup
 	approvedMediaWaiters     map[string]context.CancelFunc
@@ -206,6 +206,7 @@ func (s *Service) StartWorker() {
 	s.startResourceDeletionWorker(ctx)
 	s.startResourceOffloadWorker()
 	s.startSkillSyncWorker(ctx)
+	s.startEcommerceSkillSyncWorker(ctx)
 	s.startPaymentWorker(ctx)
 	s.startBillingAutoRefundWorker()
 	s.startDramaScheduler()

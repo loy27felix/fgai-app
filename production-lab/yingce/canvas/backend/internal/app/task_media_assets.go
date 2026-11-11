@@ -27,6 +27,11 @@ func (s *Service) mediaTaskProject(task *model.Task) (string, error) {
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", err
 	}
+	if _, ecommerceErr := s.repo.EcommerceProject(task.UserID, id); ecommerceErr == nil {
+		return "", nil
+	} else if !errors.Is(ecommerceErr, gorm.ErrRecordNotFound) {
+		return "", ecommerceErr
+	}
 	project, err := s.repo.ProjectForUser(task.UserID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", NotFound("任务所属画布或项目已不存在")

@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 85
+const CurrentSchemaVersion int64 = 87
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -352,6 +352,10 @@ var schemaMigrations = []migration{
 			}
 		}
 		return nil
+	}},
+	{version: 86, name: "ecommerce_agent_and_knowledge", checksum: "sha256:fg-ecommerce-agent-and-knowledge-v86", apply: migrateEcommerceFeature},
+	{version: 87, name: "ecommerce_round_history", checksum: "sha256:fg-ecommerce-round-history-v87", apply: func(tx *gorm.DB) error {
+		return tx.AutoMigrate(&model.EcommerceProject{}, &model.EcommerceRound{})
 	}},
 }
 

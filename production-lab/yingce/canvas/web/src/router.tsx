@@ -4,7 +4,7 @@ import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router
 
 import { RequireAuth } from "@/components/auth/require-auth";
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
-import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadInspirationsPage, loadProjectDetailPage, loadProjectsPage, loadProjectCreatePage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
+import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadDramaPipelinePage, loadInspirationsPage, loadProjectDetailPage, loadProjectsPage, loadProjectCreatePage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import { FGSessionRecovery } from "@/components/auth/fg-session-recovery";
 import { fgWorkspaceBasePath } from "@/lib/fg-entry-url";
@@ -31,6 +31,9 @@ const StorageSettingsPage = lazy(() => import("@/pages/admin/settings/storage-se
 const ArkPrivateAssetsSettingsPage = lazy(() => import("@/pages/admin/settings/ark-private-assets-settings-page"));
 const ResponseInterceptionSettingsPage = lazy(() => import("@/pages/admin/settings/response-interception-settings-page"));
 const ThirdPartySettingsPage = lazy(() => import("@/pages/admin/settings/libtv-settings-page"));
+const EcommercePage = lazy(() => import("@/pages/ecommerce"));
+const EcommerceManagementPage = lazy(() => import("@/pages/admin/ecommerce-management-page"));
+const EcommerceAgentConfigPage = lazy(() => import("@/pages/admin/ecommerce-agent-config-page"));
 const PoseLibraryPage = lazy(() => import("@/pages/admin/pose-library/pose-library-page"));
 const AdminSkillsPage = lazy(() => import("@/pages/admin/skills/skills-page"));
 const AdminSkillWorkbenchPage = lazy(() => import("@/pages/admin/skills/admin-skill-workbench-page"));
@@ -38,8 +41,6 @@ const WorkbenchToolsPage = lazy(() => import("@/pages/admin/workbench-tools/work
 const SystemUpdatePage = lazy(() => import("@/pages/admin/settings/fg-release-page"));
 const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-performance-page"));
 const FGProductionPage = lazy(() => import("@/pages/fg-production"));
-const AdvertisingPage = lazy(() => import("@/pages/advertising"));
-const MeilinPage = lazy(() => import("@/pages/meilin"));
 const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
 const FGInspirationPage = lazy(() => import("@/pages/fg-inspiration"));
 const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
@@ -64,10 +65,9 @@ const EagleLibraryPage = lazy(() => import("@/pages/plugins/eagle"));
 const TasksPage = lazy(() => import("@/pages/tasks"));
 const ProjectsPage = lazy(loadProjectsPage);
 const ProjectDetailPage = lazy(loadProjectDetailPage);
-const ProjectCreatePage = lazy(loadProjectCreatePage);
-const DramaPipelinePage = lazy(() => import("@/pages/drama-pipeline"));
+const DramaPipelinePage = lazy(loadDramaPipelinePage);
 const DramaPipelineDetailPage = lazy(() => import("@/pages/drama-pipeline/detail"));
-const DramaPipelineCreatePage = lazy(() => import("@/pages/drama-pipeline/create"));
+const DramaPipelineCreatePage = lazy(loadProjectCreatePage);
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
@@ -145,8 +145,9 @@ export const router = createBrowserRouter(
                 { path: "/", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
                 { path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
                 { path: "/fg-production", element: <RequireAuth>{deferred(<FGProductionPage />)}</RequireAuth> },
-                { path: "/advertising", element: <RequireAuth>{deferred(<AdvertisingPage />)}</RequireAuth> },
-                { path: "/meilin", element: <RequireAuth>{deferred(<MeilinPage />)}</RequireAuth> },
+                { path: "/advertising", element: <RequireAuth><Navigate to="/ecommerce" replace /></RequireAuth> },
+                { path: "/ecommerce", element: <RequireAuth><RequireFeature feature="ecommerceEnabled">{deferred(<EcommercePage />)}</RequireFeature></RequireAuth> },
+                { path: "/meilin", element: <RequireAuth><Navigate to="/drama-pipeline" replace /></RequireAuth> },
                 { path: "/fg-audio-tools", element: <RequireAuth>{deferred(<FGAudioToolsPage />)}</RequireAuth> },
                 { path: "/fg-inspiration", element: <RequireAuth>{deferred(<FGInspirationPage />)}</RequireAuth> },
                 { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
@@ -212,6 +213,14 @@ export const router = createBrowserRouter(
                 { path: "/test-voice-recording", element: <RequireAuth>{deferred(<TestVoiceRecording />)}</RequireAuth> },
                 {
                     path: "/projects",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled"><Navigate to="/drama-pipeline" replace /></RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/projects/legacy",
                     element: (
                         <RequireAuth>
                             <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectsPage />)}</RequireFeature>
@@ -280,6 +289,10 @@ export const router = createBrowserRouter(
                         { path: "plugins", element: <AdminPluginsPage /> },
                         { path: "workbench-tools", element: <WorkbenchToolsPage /> },
                         { path: "pose-library", element: <PoseLibraryPage /> },
+                        { path: "ecommerce/agent", element: <EcommerceAgentConfigPage /> },
+                        { path: "ecommerce/library", element: <EcommerceManagementPage /> },
+                        { path: "ecommerce/library/skills", element: <EcommerceManagementPage /> },
+                        { path: "ecommerce/library/categories", element: <EcommerceManagementPage /> },
                         { path: "skills", element: <AdminSkillsPage /> },
                         { path: "skills/:skillId/edit", element: <AdminSkillWorkbenchPage /> },
                         { path: "skill-curation", element: <SkillCurationPage /> },

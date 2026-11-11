@@ -177,10 +177,7 @@ import { useCanvasGenerationRetry } from "./use-canvas-generation-retry";
 import { useCanvasHistory } from "./use-canvas-history";
 import { useCanvasKeyboard } from "./use-canvas-keyboard";
 import { useCanvasMediaTools } from "./use-canvas-media-tools";
-import { useDirectorDesk } from "./use-director-desk";
 import { CanvasCollaborationLayer } from "@/components/canvas/canvas-collaboration-layer";
-import { CanvasDirectorDeskModal } from "@/components/canvas/director/canvas-director-desk-modal";
-import { CanvasDirectorLibrary } from "@/components/canvas/director/canvas-director-library";
 import { useCanvasNodeEditor } from "./use-canvas-node-editor";
 import { useCanvasNodeOperations } from "./use-canvas-node-operations";
 import { useCanvasProjectLifecycle } from "./use-canvas-project-lifecycle";
@@ -998,16 +995,6 @@ function CanvasViewportPage() {
         applyGenerationTaskResult,
     });
 
-    const directorDesk = useDirectorDesk({ nodesRef, connectionsRef, setNodes, setConnections, getCanvasCenter, saveCanvasProject });
-    const directorOpenedFromURL = useRef(false);
-    useEffect(() => {
-        const id = new URLSearchParams(location.search).get("director");
-        const node = id ? nodes.find((n) => n.id === id && n.metadata?.directorDesk) : undefined;
-        if (node && !directorOpenedFromURL.current) {
-            directorOpenedFromURL.current = true;
-            directorDesk.openDesk(node);
-        }
-    }, [nodes, directorDesk.openDesk]);
     useCanvasImageLayerGroups({ projectId, enabled: projectLoaded, nodes, nodesRef, setNodes, runningNodeId, activeLayerGroupIds });
     const extractLayerMaterials = useCanvasImageLayerMaterials({ projectId, domainProjectId: currentProject?.projectId, enabled: projectLoaded, nodes, nodesRef, setNodes, setConnections });
 
@@ -3230,7 +3217,6 @@ function CanvasViewportPage() {
                                             onAddExtensionNode={(type) => createNode(type)}
                                             onAddWorkflow={() => createNode(CanvasNodeType.Config)}
                                             onOpenPrevis={() => setPrevisTemplateRequest({})}
-                                            onOpenDirectorDesk={() => directorDesk.openDesk(nodesRef.current.find((node) => selectedNodeIds.has(node.id) && node.metadata?.directorDesk))}
                                             onUndo={undoCanvas}
                                             onRedo={redoCanvas}
                                             onUpload={() => handleUploadRequest()}
@@ -3431,7 +3417,6 @@ function CanvasViewportPage() {
                                 onViewImage={(node) => setPreviewNodeId(node.id)}
                                 onExtractVideoFrames={openVideoFrameExtractor}
                                 onCaptureVideoFrame={captureQuickVideoFrame}
-                                onOpenDirectorDesk={directorDesk.openDesk}
                                 onExtractAudioFromVideo={(node) => void extractAudioFromVideo(node)}
                                 onTrimVideoSegments={openVideoSegmentExtractor}
                                 onEnhanceVideo={hasVideoEnhanceModels ? openVideoEnhance : undefined}
@@ -3569,22 +3554,6 @@ function CanvasViewportPage() {
                             ) : null}
 
                             {frameNode ? <CanvasVideoFrameDialog node={frameNode} open={Boolean(frameNode)} onClose={closeFrameDialog} onConfirm={(params) => void extractVideoFrames(frameNode, params)} /> : null}
-                            <CanvasDirectorLibrary open={directorDesk.libraryOpen} nodes={nodes} onClose={directorDesk.closeLibrary} onOpen={directorDesk.openDesk} onNew={directorDesk.newDesk} onDelete={directorDesk.deleteDesk} />
-                            <CanvasDirectorDeskModal
-                                open={directorDesk.open}
-                                node={directorDesk.node}
-                                canvasId={projectId}
-                                projectId={linkedProjectId}
-                                onClose={directorDesk.closeDesk}
-                                onSave={directorDesk.saveDocument}
-                                onOutput={directorDesk.saveOutput}
-                                onAgentContext={async (summary) => {
-                                    await directorDesk.saveOutput(new File([summary], "3D 调度说明.txt", { type: "text/plain" }));
-                                    setAgentPrefillRequest((current) => ({ id: (current?.id ?? 0) + 1, text: summary }));
-                                    openAgent();
-                                    directorDesk.closeDesk();
-                                }}
-                            />
 
                             {segmentNode && segmentDialogMode ? (
                                 <CanvasVideoSegmentDialog

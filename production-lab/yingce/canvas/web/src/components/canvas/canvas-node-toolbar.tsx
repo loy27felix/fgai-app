@@ -434,11 +434,6 @@ export function CanvasNodeToolbar({
             }}
         >
             <div role="toolbar" aria-label="节点快捷工具" className="canvas-node-toolbar-dock flex h-11 max-w-full items-center gap-0.5 overflow-visible rounded-[var(--dock-radius-tight)] px-2 backdrop-blur-2xl" style={{ ...dockStyle, border: 0 }}>
-                {node.metadata?.directorDesk && onOpenDirectorDesk ? (
-                    <Button size="small" type="text" onClick={() => onOpenDirectorDesk(node)}>
-                        打开 3D 导演台
-                    </Button>
-                ) : null}
                 {isVideo && onCaptureVideoFrame
                     ? (["first", "current", "last"] as const).map((mode, index) => (
                           <NodeDockToolButton

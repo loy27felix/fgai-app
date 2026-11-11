@@ -527,3 +527,9 @@ Schema 32 为 `channel_models` 新增 `tags`（TEXT、NOT NULL、默认 `'[]'`�
 第六板块网关初始化 `fg_meilin_projects`，以剧 UUID 和提交成员共同映射原生项目；每位提交者按自己的 FG 身份和月度额度入账。`fg_meilin_calls` 以操作 UUID 唯一保存请求摘要、剧目、提交成员、原生任务 ID 和集/段/资产归属。未知受理结果先按任务 metadata 恢复，不自动重复提交。
 
 剧、集、段、资产及版本使用稳定标识；显示编号变化不改写历史归属。报价快照与确认状态随剧文档保存，文件在 NAS；所有文件访问和导出检查登录与对象权限。回滚保留这些表、原始调用和已核销账单。详见仓库 `production-lab/meilin/FG-USAGE.md`。
+# FG 电商扩展与旧短剧接续
+
+FG 保留既有 1–85 迁移记录，追加 86 `ecommerce_feature` 与 87 `ecommerce_rounds`；上游迁移编号不能直接覆盖 FG 编号。电商项目、知识、策划运行、页面与轮次使用独立表，并继续使用现有任务和资源表。
+
+旧短剧整项目接续在同一事务中添加 `drama_productions`、`drama_episodes`、`drama_casts`、`drama_shots`、`drama_segments` 和 `drama_takes`，保留项目 ID、旧章节、旧镜头、媒体与画布，不提交生成任务。控制面存在即视为已接续，重复请求不再写入副本。新增接口为 `POST /api/projects/:id/import-drama`，仅允许已获项目访问权限的用户操作。
+
