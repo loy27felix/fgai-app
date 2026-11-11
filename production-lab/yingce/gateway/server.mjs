@@ -29,6 +29,7 @@ import {initializeInspiration,startInspirationSync,inspirationRoute} from './fg-
 import {registerSpeechStream} from './fg-speech-stream.mjs';
 import {registerCanvasRealtime} from './fg-canvas-realtime.mjs';
 import {canvasOwnersRoute} from './fg-canvas-owners.mjs';
+import {canvasPromptShortcutsRoute,initializeCanvasPromptShortcuts} from './fg-canvas-prompt-shortcuts.mjs';
 import {initializeMeilin,meilinInternalRoute,meilinUserRoute} from './fg-meilin.mjs';
 import {isPublicDemo,publicDemoDenied} from './fg-public-demo.mjs';
 
@@ -51,6 +52,7 @@ await initializeCreator(pool);
 await initializeMeilin(pool);
 await initializeEditorLeases(pool);
 await initializeInspiration(pool);
+await initializeCanvasPromptShortcuts(pool);
 await publishExistingStoryMedia(pool);
 const feeSync=startFeeSync(pool);
 startAdvertisingRetention(pool);
@@ -172,6 +174,7 @@ const server = http.createServer(async (req, res) => {
     if (!trustedOrigin(req.method, req.headers.origin, [publicOrigin, platformOrigin, ...externalOrigins])) {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
+    if(await canvasPromptShortcutsRoute(req,res,{pool,actor,path}))return;
     const cookie = await canvasSession(actor);
     if(await meilinUserRoute(req,res,{pool,actor,path,web,publicOrigin,canvasSession}))return;
     if(await musicQueueRoute(req,res,{pool,actor,path,ownerAPI:async(ownerId,p,m,payload,extra)=>{

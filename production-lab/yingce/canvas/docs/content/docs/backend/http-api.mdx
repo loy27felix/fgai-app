@@ -5,6 +5,10 @@ description: 信封、错误码与 OpenAPI
 
 # HTTP API 合同
 
+## FG 画布快捷句
+
+FG 网关提供 `GET /api/fg/canvas/prompt-shortcuts` 读取当前账号的快捷句，`POST` 新增，`PATCH /api/fg/canvas/prompt-shortcuts/:id` 编辑，`DELETE /api/fg/canvas/prompt-shortcuts/:id` 删除。新增和编辑接受 `{ name, prompt }`，名称最多 60 字，内容最多 2000 字，每个账号最多 100 条。响应的 `data.shortcuts` 包含该账号的快捷句。账号由现有 FG 登录鉴权确定。
+
 ## FG 网页自助排查接入
 
 工作区“反馈”旁的“自助排查”接入同源 FG 主站 `GET/POST /api/support-bot/web`，不是 Canvas Go API；使用 `fg_session` 鉴权，不能用 Canvas token 替代。客户端通过 `http.raw` 读取非 Canvas 信封，独立部署需将该路径代理到 FG 主站。截图、会话隔离、队列开关和数据库迁移以 FG 根 README 的“问题助手（网页 / 飞书）”章节为准；本模块不创建 Canvas 反馈单或外发通知。

@@ -144,6 +144,12 @@
 }
 
 /* 九宫格菜单按 section 分两列，缩短纵向长度 */
+.canvas-node-toolbar-menu-nine-grid .canvas-node-toolbar-menu-stack {
+    max-height: min(27rem, 65dvh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
 .canvas-node-toolbar-menu-nine-grid .ant-dropdown-menu {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
