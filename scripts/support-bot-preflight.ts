@@ -25,7 +25,7 @@ async function database(value: string | undefined, tables: string[], readOnly: b
         // Effect diagnostics need historical submission columns, not just readable task-status tables.
         // 效果异常排查需要历史提交字段，不能仅因状态表可读就认定取证就绪。
         try {
-          await client.query('SELECT id, user_id, project_id, request_id, trace_id, provider_request_id, status, type, model, created_at, updated_at, input_json, prompt FROM tasks LIMIT 0');
+          await client.query('SELECT id, user_id, project_id, request_id, trace_id, provider_request_id, status, type, model, created_at, updated_at, input_json, result_json, prompt FROM tasks LIMIT 0');
           await client.query('SELECT id, user_id, task_id, request_id, trace_id, provider_request_id, request_kind, status, status_code, request_body, response_body, created_at FROM api_call_logs LIMIT 0');
         } catch { return { ready: false, reason: 'generation_schema_or_select_grant_missing' }; }
       }

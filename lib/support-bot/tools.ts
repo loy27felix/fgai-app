@@ -5,6 +5,7 @@ import { queryUserOperations, supportOperationErrorEvidence } from './operations
 import { queryCanvasAssets } from './canvas-assets';
 import { queryCanvasGeneration } from './generation';
 import { queryCanvasSupportLogs } from './canvas-logs';
+import { queryCanvasSupportDetail, type CanvasDetailSelection } from './canvas-detail';
 import { traceSupportChain, type ChainSeed } from './chain';
 import type { InvestigationScope } from './investigation-scope';
 import { scrubSupportValue } from './redact';
@@ -225,7 +226,15 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, _
       const id = typeof args.id === 'string' ? args.id : '';
       const known = accessibleLogs.get(id);
       if (!known) throw new Error('仅可读取本轮已授权查询返回的详情');
-      if (system !== 'fg' && system !== 'production-lab') return { ...known, system };
+      if (system === 'canvas') {
+        if (args.section !== undefined && !['input', 'request', 'response'].includes(String(args.section))) throw new Error('参数方向无效');
+        if (args.pointer !== undefined && typeof args.pointer !== 'string' || args.offset !== undefined && (!Number.isInteger(args.offset) || Number(args.offset) < 0 || Number(args.offset) > 4000)) throw new Error('参数路径或分页无效');
+        return boundedEvidence(await queryCanvasSupportDetail(owner, known, {
+          section: args.section as CanvasDetailSelection['section'], pointer: args.pointer as string | undefined, offset: args.offset as number | undefined,
+        }, investigation?.projectId || contextProject));
+      }
+      if (system !== 'fg' && system !== 'production-lab') return { ...known, system, incomplete: true,
+        parameterCoverage: 'not_available', note: '当前服务的取证适配器只提供已授权的状态、标识和错误等元数据，尚未提供请求/响应参数；不能据此宣称完整报文已查到。' };
       await assertSupportPrimaryEnvironment();
       const detail = await getLogDetail(id);
       if (!detail || detail.userId !== owner) throw new Error('日志详情不可用或不属于当前用户');

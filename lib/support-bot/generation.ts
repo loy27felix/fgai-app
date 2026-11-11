@@ -137,6 +137,7 @@ function inputFacts(task: GenerationTask, input: Row | undefined, calls: Generat
     occurredAt: call.occurredAt ? new Date(call.occurredAt).toISOString() : undefined,
     status: call.status, httpStatus: call.httpStatus, model: text(call.model, 120), format: text(call.format, 60), operation: text(call.operation, 80),
     requestRecorded: call.inputComplete && !!object(call.input),
+    responseRecorded: call.outputComplete && !!object(call.output), detailAvailable: true,
     recordingIssue: /报文过大|已省略/.test(call.input) ? text(call.input, 160)
       : !call.inputComplete ? '请求审计读取已截断' : !object(call.input) ? '没有可解析的 JSON 请求审计，可能为其他报文格式' : undefined,
     ...(call.event === 'create' ? requestFacts(call) : {}), ...supportOperationErrorEvidence(call.error),
@@ -176,7 +177,7 @@ function speechCue(instructions: string, name: string): string {
 
 // Compare stored submission facts, not media quality or the current canvas snapshot.
 // 只对照该任务实际提交的记录，不把当前画布状态或媒体效果当成历史事实。
-export function summarizeCanvasGeneration(task: GenerationTask, calls: GenerationCall[], callsComplete = true, resources: GenerationResource[] = []): Row {
+export function summarizeCanvasGeneration(task: GenerationTask, calls: GenerationCall[], callsComplete = true, resources: GenerationResource[] = [], submissionCallsComplete = callsComplete): Row {
   const input = task.inputComplete ? object(task.input) : undefined;
   const facts = inputFacts(task, input, calls, resources);
   const metadata = input?.metadata && typeof input.metadata === 'object' ? input.metadata as Row : {};
@@ -209,7 +210,7 @@ export function summarizeCanvasGeneration(task: GenerationTask, calls: Generatio
     return [{ kind, role: text(item.role, 60), resourceId, resolved: !!resourceId }];
   });
   const submittedText = (content || []).filter(item => item.type === 'text' && typeof item.text === 'string').map(item => item.text).join('\n');
-  const ready = callsComplete && aliasesComplete && !!input && task.instructionsComplete && !!create && create.inputComplete && !!content
+  const ready = submissionCallsComplete && aliasesComplete && !!input && task.instructionsComplete && !!create && create.inputComplete && !!content
     && references.every(reference => reference.resolved);
   const base = { taskId: task.id, projectId: task.projectId, requestId: task.requestId, traceId: task.traceId,
     occurredAt: new Date(task.occurredAt).toISOString(), source: 'canvas_generation_submission' };
@@ -245,7 +246,7 @@ export function summarizeCanvasGeneration(task: GenerationTask, calls: Generatio
     });
   }
   rows.push(...facts.references, ...facts.audit);
-  return { system: 'canvas', rows, incomplete: !ready, auditCoverage: { events: ['create', 'upload'], complete: callsComplete, otherEventsTool: 'chain' }, implementationChecks: facts.implementationChecks,
+  return { system: 'canvas', rows, incomplete: !ready || !callsComplete, submissionCoverage: { complete: ready }, auditCoverage: { events: [...new Set(calls.map(call => call.event))], complete: callsComplete, allRecordedEventsQueried: true, selection: 'create/upload优先，其余阶段取最新记录，返回后按发生时间排序；超过上限不代表完整审计', parameterTool: 'detail', limit: CALL_LIMIT }, implementationChecks: facts.implementationChecks,
     sourceTerms: rows.some(row => row.recordType === 'generation_finding') ? [OMITTED_VOICE_NOTICE, 'resolvedCharacterVoices'] : [],
     note: ready ? '已对照本人任务绑定与最终供应商创建请求；任务成功不代表音色、口型或画面质量合格。仅确认输入/引用事实，不自动判定成片原因，不读取原始媒体。'
       : '最终供应商请求未完整核对，但已取得的任务输入、提示词摘录、参考素材清单与调用审计仍分别可用。任务输入不等于最终请求；资源登记大小不等于已读取物理文件或最终发送字节。请逐项核对，不能只复述接口报错，也不能把部分缺失说成全部查不到。',
@@ -274,8 +275,9 @@ async function readGeneration(client: PoolClient, scope: NonNullable<ReturnType<
            left(a.request_body, ${BODY_LIMIT}) AS input, left(a.response_body, ${BODY_LIMIT}) AS output,
            length(a.request_body) <= ${BODY_LIMIT} AS "inputComplete", length(a.response_body) <= ${BODY_LIMIT} AS "outputComplete"
       FROM api_call_logs a JOIN owned_tasks owned ON owned.id = a.task_id
-     WHERE a.user_id = $1 AND a.task_id = $2 AND a.request_kind IN ('create', 'upload')
-     ORDER BY a.created_at, a.id LIMIT ${CALL_LIMIT + 1}`, [owner, task.id]);
+     WHERE a.user_id = $1 AND a.task_id = $2
+     ORDER BY CASE WHEN a.request_kind IN ('create', 'upload') THEN 0 ELSE 1 END,
+       CASE WHEN a.request_kind IN ('create', 'upload') THEN a.created_at END, a.created_at DESC, a.id LIMIT ${CALL_LIMIT + 1}`, [owner, task.id]);
   const input = task.inputComplete ? object(task.input) : undefined;
   const resourceIds = [...new Set(taskReferences(input).map(reference => referenceResource(reference.value)).filter(Boolean))];
   let resources: GenerationResource[] = [];
@@ -291,7 +293,10 @@ async function readGeneration(client: PoolClient, scope: NonNullable<ReturnType<
     }
     await client.query('RELEASE SAVEPOINT generation_resources');
   }
-  const summary = summarizeCanvasGeneration(task, calls.rows.slice(0, CALL_LIMIT), calls.rows.length <= CALL_LIMIT, resources);
+  const complete = calls.rows.length <= CALL_LIMIT;
+  const submissionComplete = complete || !['create', 'upload'].includes(calls.rows[CALL_LIMIT].event);
+  const audit = calls.rows.slice(0, CALL_LIMIT).sort((a, b) => new Date(a.occurredAt!).getTime() - new Date(b.occurredAt!).getTime());
+  const summary = summarizeCanvasGeneration(task, audit, complete, resources, submissionComplete);
   return { ...summary, ...(resourceMetadataIssue ? { resourceMetadataIssue } : {}) };
 }
 

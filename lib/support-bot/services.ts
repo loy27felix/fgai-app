@@ -6,7 +6,7 @@ type ServiceDefinition = {
 // This is a source/service map, not proof that a service is deployed or that a request crossed it.
 // 目录只说明源码及服务边界，不证明服务已部署，也不证明本次请求经过该服务。
 export const supportServices = {
-  fg: { label: 'FG 主站与共享模型/观测接口', paths: ['app/', 'lib/', 'components/'], dependencies: [], data: 'fg', runtime: 'fg' },
+  fg: { label: '共享源码与历史主站实现（不作为业务取证服务）', paths: ['app/', 'lib/', 'components/'], dependencies: [], data: 'fg', runtime: 'fg' },
   'production-lab': { label: 'Production Lab 制作工作台与独立业务库', paths: ['app/api/production-lab/', 'app/production-lab/', 'components/production-lab/', 'lib/production-lab/', 'production-lab/migrations/', 'production-lab/prototype/'], dependencies: ['fg'], data: 'production-lab', runtime: 'fg' },
   'yingce-web': { label: 'Yingce 网页与制作界面', paths: ['production-lab/yingce/canvas/web/', 'production-lab/yingce/canvas/director-desk/'], dependencies: ['yingce-gateway', 'canvas'], data: 'browser', runtime: 'independent' },
   'yingce-gateway': { label: 'Yingce 接入网关、鉴权与音乐/语音任务', paths: ['production-lab/yingce/gateway/'], dependencies: ['canvas', 'fg'], data: 'gateway', runtime: 'independent' },
@@ -29,10 +29,6 @@ export const supportInvestigationServices = (Object.keys(supportServices) as Sup
   .filter(service => supportServices[service].runtime !== 'fg');
 export function supportInvestigationServiceId(value: unknown): SupportServiceId | undefined {
   return supportInvestigationServices.find(service => service === value);
-}
-export function isSupportInvestigationPath(path: string) {
-  return !!supportInvestigationServiceId(serviceForCodePath(path))
-    && !!supportInvestigationServiceId(serviceForCodePath(`${path}/`));
 }
 export function supportServiceId(value: unknown): SupportServiceId | undefined {
   return typeof value === 'string' && Object.hasOwn(supportServices, value) ? value as SupportServiceId : undefined;

@@ -2,7 +2,6 @@ import { execFile, spawn } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { scrubSupportValue } from './redact';
-import { isSupportInvestigationPath, supportServices, supportInvestigationServiceId } from './services';
 
 // Apply identical protection to committed and working-tree files without limiting investigation to Yingce.
 // 已提交源码与工作树文件使用相同保护，不把多服务调查限制为 Yingce。
@@ -12,11 +11,6 @@ export const supportCodeExclusions = [
   ...excludedDirectories.map(name => `:(exclude,glob)**/${name}/**`),
   ...excludedFiles.flatMap(name => [`:(exclude,glob,icase)**/${name}`, `:(exclude,glob,icase)**/${name}/**`]),
 ];
-const retiredServiceExclusions = [
-  ...Object.entries(supportServices).filter(([id]) => !supportInvestigationServiceId(id))
-    .flatMap(([, service]) => service.paths.map(path => path.replace(/\/$/, ''))),
-  'middleware.ts', 'instrumentation.ts', 'next.config.mjs',
-].map(path => `:(exclude,literal)${path}`);
 const sensitiveFile = /^(?:\.env.*|\.npmrc|\.netrc|id_(?:rsa|ed25519).*|.*\.(?:pem|key|p12|pfx|keystore|log|sqlite\w*|db|dump)|.*(?:credentials|secrets).*\.json|.*\.sql\.gz)$/i;
 
 export function isSupportCodePath(path: string) {
@@ -30,7 +24,7 @@ type CodeMatch = { path: string; line: number; excerpt: string };
 export async function searchSupportCode(args: { term?: string; path?: string; line?: number; offset?: number }, revision: string, mode: 'commit' | 'working-tree' = 'commit') {
   if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('部署不包含 git 源码，无法检索');
   if (mode !== 'commit' && mode !== 'working-tree') throw new Error('源码检索模式无效');
-  if (args.path !== undefined && (!isSupportCodePath(args.path) || !isSupportInvestigationPath(args.path))) throw new Error('源码路径无效、属于废弃主站或受保护文件');
+  if (args.path !== undefined && !isSupportCodePath(args.path)) throw new Error('源码路径无效或属于受保护文件');
   const root = await supportGitRoot();
   if (mode === 'working-tree' && (await readSupportGit(['rev-parse', '--verify', 'HEAD^{commit}'], root)).trim() !== revision) {
     throw new Error('工作树 checkout 与指定 revision 不匹配，请重新采集运行快照');
@@ -51,12 +45,12 @@ export async function searchSupportCode(args: { term?: string; path?: string; li
     ...(mode === 'working-tree' ? ['--untracked', '--exclude-standard'] : []),
     '-n', '-z', '-I', '-F', '-i', '-e', reading ? '' : args.term!,
     ...(mode === 'commit' ? [revision] : []), '--',
-    ...(args.path ? [`:(literal)${args.path}`] : []), ...supportCodeExclusions, ...retiredServiceExclusions,
+    ...(args.path ? [`:(literal)${args.path}`] : []), ...supportCodeExclusions,
   ], record => {
     const [file, number, ...content] = record.split('\0');
     const path = mode === 'commit' ? file.slice(revision.length + 1) : file;
     const line = Number(number);
-    if ((mode === 'commit' && !file.startsWith(`${revision}:`)) || !isSupportCodePath(path) || !isSupportInvestigationPath(path) || !Number.isInteger(line) || line < 1) return false;
+    if ((mode === 'commit' && !file.startsWith(`${revision}:`)) || !isSupportCodePath(path) || !Number.isInteger(line) || line < 1) return false;
     // Scrub before truncating so a credential assignment is never cut before its value.
     // 先脱敏再截断，避免截断位置把凭据值与赋值键分开。
     const safe = String(scrubSupportValue(content.join('\0')));
@@ -80,8 +74,8 @@ export async function searchSupportCode(args: { term?: string; path?: string; li
     ...(!reading && more ? { nextOffset: offset + matches.length } : {}),
     ...(reading && more ? { nextLine: start + readLines } : {}),
     scope: args.path || (mode === 'working-tree'
-      ? '仓库内多服务的当前工作树文本，含未提交及未跟踪文件（废弃主站、忽略文件、凭据、日志及生成产物除外）'
-      : '仓库内多服务的已提交文本（废弃主站、凭据、日志及生成产物除外）'),
+      ? '全仓当前工作树文本，含共享/历史源码与未提交文件（忽略文件、凭据、日志及生成产物除外）'
+      : '全仓已提交文本，含共享/历史源码（凭据、日志及生成产物除外）'),
   };
 }
 
