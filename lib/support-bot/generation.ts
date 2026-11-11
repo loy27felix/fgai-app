@@ -16,7 +16,7 @@ export type GenerationTask = {
 export type GenerationCall = {
   id: string; taskId: string; requestId?: string; traceId?: string; providerRequestId?: string;
   event: string; status: string; httpStatus?: number; input: string; output: string; inputComplete: boolean; outputComplete: boolean;
-  model?: string; format?: string; operation?: string; error?: string;
+  model?: string; format?: string; operation?: string; error?: string; occurredAt?: string | Date;
 };
 
 function object(value: unknown): Row | undefined {
@@ -131,13 +131,15 @@ function inputFacts(task: GenerationTask, input: Row | undefined, calls: Generat
         updatedAt: new Date(resource.updatedAt).toISOString() } : undefined,
       physicalFileChecked: false, finalTransmissionVerified: false };
   });
-  const audit = calls.filter(call => call.taskId === task.id && call.event === 'create').map(call => ({
+  const audit = calls.filter(call => call.taskId === task.id).map(call => ({
     id: `api_call_logs:${call.id}`, taskId: task.id, recordType: 'generation_call', source: 'canvas_generation_audit',
+    requestId: id(call.requestId), traceId: id(call.traceId), providerRequestId: id(call.providerRequestId), event: text(call.event, 60),
+    occurredAt: call.occurredAt ? new Date(call.occurredAt).toISOString() : undefined,
     status: call.status, httpStatus: call.httpStatus, model: text(call.model, 120), format: text(call.format, 60), operation: text(call.operation, 80),
     requestRecorded: call.inputComplete && !!object(call.input),
     recordingIssue: /报文过大|已省略/.test(call.input) ? text(call.input, 160)
       : !call.inputComplete ? '请求审计读取已截断' : !object(call.input) ? '没有可解析的 JSON 请求审计，可能为其他报文格式' : undefined,
-    ...requestFacts(call), ...supportOperationErrorEvidence(call.error),
+    ...(call.event === 'create' ? requestFacts(call) : {}), ...supportOperationErrorEvidence(call.error),
   }));
   const root = 'production-lab/yingce/canvas/backend/internal/app/';
   const implementationChecks = [
@@ -243,7 +245,7 @@ export function summarizeCanvasGeneration(task: GenerationTask, calls: Generatio
     });
   }
   rows.push(...facts.references, ...facts.audit);
-  return { system: 'canvas', rows, incomplete: !ready, implementationChecks: facts.implementationChecks,
+  return { system: 'canvas', rows, incomplete: !ready, auditCoverage: { events: ['create', 'upload'], complete: callsComplete, otherEventsTool: 'chain' }, implementationChecks: facts.implementationChecks,
     sourceTerms: rows.some(row => row.recordType === 'generation_finding') ? [OMITTED_VOICE_NOTICE, 'resolvedCharacterVoices'] : [],
     note: ready ? '已对照本人任务绑定与最终供应商创建请求；任务成功不代表音色、口型或画面质量合格。仅确认输入/引用事实，不自动判定成片原因，不读取原始媒体。'
       : '最终供应商请求未完整核对，但已取得的任务输入、提示词摘录、参考素材清单与调用审计仍分别可用。任务输入不等于最终请求；资源登记大小不等于已读取物理文件或最终发送字节。请逐项核对，不能只复述接口报错，也不能把部分缺失说成全部查不到。',
@@ -268,7 +270,7 @@ async function readGeneration(client: PoolClient, scope: NonNullable<ReturnType<
   const calls = await client.query<GenerationCall>(`${SUPPORT_CANVAS_OWNED_SCOPE}
     SELECT a.id, a.task_id AS "taskId", a.request_id AS "requestId", a.trace_id AS "traceId",
            a.provider_request_id AS "providerRequestId", a.request_kind AS event, a.status, a.status_code AS "httpStatus",
-           a.model, a.api_format AS format, a.operation, left(a.error, 2000) AS error,
+           a.model, a.api_format AS format, a.operation, a.created_at AS "occurredAt", left(a.error, 2000) AS error,
            left(a.request_body, ${BODY_LIMIT}) AS input, left(a.response_body, ${BODY_LIMIT}) AS output,
            length(a.request_body) <= ${BODY_LIMIT} AS "inputComplete", length(a.response_body) <= ${BODY_LIMIT} AS "outputComplete"
       FROM api_call_logs a JOIN owned_tasks owned ON owned.id = a.task_id

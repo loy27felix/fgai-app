@@ -13,6 +13,8 @@ export type InvestigationContext = {
   scope?: InvestigationScope;
   services?: SupportServiceId[];
   generationTaskIds?: string[];
+  questionType?: 'usage' | 'help' | 'generation' | 'incident';
+  collectionGaps?: string[];
   incompleteReason?: 'answer_validation' | 'model_response' | 'tool_budget';
 };
 
@@ -38,7 +40,7 @@ export function isAnomaly(row: Record<string, unknown>): boolean {
     || ['failed', 'error', 'expired'].includes(String(row.taskStatus))
     || ['failed', 'rejected', 'unhealthy', 'error', 'cancelled', 'expired'].includes(String(row.status ?? row.outcome));
 }
-function isImplementationRead(entry: SupportEvidence): boolean {
+export function isImplementationRead(entry: SupportEvidence): boolean {
   return entry.tool === 'code' && !isEvidenceFailure(entry) && entry.result.read === true && Array.isArray(entry.result.matches)
     && entry.result.matches.some((match: { path?: string }) => typeof match.path === 'string' && isSupportCodePath(match.path)
       && !/\.(?:md|mdx|txt)$/i.test(match.path) && !/^(?:\.planning|docs|tests?|__tests__)\//.test(match.path)
@@ -94,7 +96,7 @@ function validateGenerationReview(answer: InvestigationAnswer, evidence: Support
   const inputs = generationInputs(evidence, options);
   const required = new Set([...(options.generationTaskIds || []), ...inputs.map(({ row }) => String(row.taskId))]);
   const reviews = Array.isArray(answer.generationReview) ? answer.generationReview : [];
-  const refs = strings(answer.evidenceRefs, 20);
+  const refs = strings(answer.evidenceRefs, 48);
   for (const taskId of required) {
     const input = inputs.find(({ row }) => row.taskId === taskId);
     if ((!input || input.row.inputFactsAvailable !== true) && partial) continue;
@@ -162,7 +164,7 @@ function generationFacts(evidence: SupportEvidence[], options: InvestigationCont
 }
 
 function groundedSolutionSteps(answer: InvestigationAnswer, evidence: SupportEvidence[], relatedIds: Set<string>): string[] {
-  const refs = strings(answer.evidenceRefs, 20);
+  const refs = strings(answer.evidenceRefs, 48);
   const solutions = strings(answer.solutions);
   const proofs = Array.isArray(answer.solutionProofs) ? answer.solutionProofs.slice(0, 6) : [];
   return solutions.filter((step, index) => proofs.some(proof => {
@@ -181,9 +183,9 @@ function groundedSolutionSteps(answer: InvestigationAnswer, evidence: SupportEvi
 }
 
 function assessEvidence(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext) {
-  const refs = strings(answer.evidenceRefs, 20);
+  const refs = strings(answer.evidenceRefs, 48);
   const cited = evidence.filter(entry => refs.includes(entry.id) && !isEvidenceFailure(entry));
-  const recordIds = strings(answer.recordIds, 20);
+  const recordIds = strings(answer.recordIds, 48);
   const codeRead = cited.some(isImplementationRead);
   const matchedCode = cited.filter(entry => isImplementationRead(entry)
     && entry.result.revision === options.codeSource.revision && entry.result.mode === options.codeSource.mode
@@ -232,10 +234,11 @@ function assertsConfirmedCause(answer: InvestigationAnswer): boolean {
 export function validateInvestigationAnswer(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): string | undefined {
   if (!safeText(answer.summary) || !safeText(answer.cause) || !strings(answer.solutions).length) return '必须返回 summary、cause 和非空 solutions。';
   if (!['confirmed', 'observed', 'likely', 'needs_info'].includes(String(answer.certainty))) return 'certainty 必须是 confirmed、observed、likely 或 needs_info。';
-  const refs = strings(answer.evidenceRefs, 20);
+  const refs = strings(answer.evidenceRefs, 48);
   if (refs.some(ref => !evidence.some(entry => entry.id === ref && !isEvidenceFailure(entry)))) return 'evidenceRefs 包含不存在或失败的证据。';
-  const ids = strings(answer.recordIds, 20);
+  const ids = strings(answer.recordIds, 48);
   if (ids.some(id => !evidence.some(entry => refs.includes(entry.id) && evidenceRows(entry).some(row => row.id === id)))) return 'recordIds 必须来自引用证据中实际返回的记录。';
+  if (answer.certainty === 'confirmed' && options.collectionGaps?.length) return '必需取证仍有缺口，不能确认完整根因：' + options.collectionGaps.join('；');
   const assessment = assessEvidence(answer, evidence, options);
   const generationIssue = validateGenerationReview(answer, evidence, options);
   if (generationIssue) return generationIssue;
@@ -529,7 +532,7 @@ function buildObservedIncident(failures: UpstreamFailure[], evidence: SupportEvi
     internalSummary: `已确认上游拒绝记录；不等于已定位内部代码根因。\n${facts.join('\n\n')}\n${answer ? safeText(answer.internalSummary, 4000) : ''}\n\n${unresolved.internalSummary}` };
 }
 
-export function buildInvestigationResult(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
+function buildEvidenceResult(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
   const rejected = validateInvestigationAnswer(answer, evidence, options);
   const assessment = assessEvidence(answer, evidence, options);
   // An upstream rejection is independently observable even when implementation attribution is unavailable.
@@ -573,4 +576,12 @@ export function buildInvestigationResult(answer: InvestigationAnswer, evidence: 
   ].filter(Boolean).join('\n\n');
   return { userReply: reply, internalSummary: safeText(answer.internalSummary, 4000) || `${summary}\n${cause}`,
     needsDeveloper: answer.needsDeveloper === true || options.intent === 'incident' && certainty !== 'confirmed', module: safeText(answer.module, 80) || 'unknown', evidence, guidanceOnly: options.intent === 'product' };
+}
+
+export function buildInvestigationResult(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
+  const result = buildEvidenceResult(answer, evidence, options);
+  const gaps = [...new Set(options.collectionGaps || [])].map(gap => safeText(gap, 350));
+  if (gaps.length) result.userReply += `\n\n取证覆盖缺口（不等于业务原因）\n${gaps.map(gap => `- ${gap}`).join('\n')}`;
+  if (options.questionType) result.internalSummary = `问题分类：${options.questionType}\n${gaps.length ? `取证缺口：${gaps.join('；')}\n` : ''}${result.internalSummary}`;
+  return result;
 }

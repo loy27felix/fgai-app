@@ -10,7 +10,7 @@ import type { InvestigationScope } from './investigation-scope';
 import { scrubSupportValue } from './redact';
 import type { SupportJob } from './store';
 import type { SupportCodeSource } from './runtime';
-import { serviceForCodePath, supportServices } from './services';
+import { serviceForCodePath, supportInvestigationServiceId, supportServices } from './services';
 import { queryProductionLabOperations } from './production-operations';
 import { queryGatewayOperations } from './gateway-operations';
 import { queryNativeSupportLogs } from './native-logs';
@@ -29,26 +29,52 @@ export function supportUserId(job: SupportJob): string | undefined {
   if (job.userId && job.userId !== id) throw new Error('问题归属不一致');
   return /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id) ? id : undefined;
 }
-export function boundedEvidence(value: unknown): Record<string, unknown> {
+export function boundedEvidence(value: unknown, internalRead = false): Record<string, unknown> {
+  const original = value as Record<string, unknown>;
   const safe = scrubSupportValue(value) as Record<string, unknown>;
-  if (Array.isArray(safe.rows) && Array.isArray((value as Record<string, unknown>).rows)
-    && safe.rows.length < ((value as Record<string, unknown>).rows as unknown[]).length) safe.truncated = true;
-  if (JSON.stringify(safe).length <= 26000) return safe;
-  // Keep typed rows usable for evidence checks; do not turn the entire result into an opaque preview.
-  // 保留可校验的结构化记录，不能把整份结果截断成无法核验的字符串。
+  // Preserve the bounded top-level record list; redact each row before applying the size budget.
+  // 保留有界顶层记录列表，逐行脱敏后再检查大小，避免50项数组限制提前丢失链路。
+  if (Array.isArray(original.rows)) safe.rows = original.rows.slice(0, 200).map(row => scrubSupportValue(row));
+  const outputTruncations: { path: string; originalCount: number; returnedCount: number }[] = [];
+  function detectArrays(before: unknown, after: unknown, path: string) {
+    if (outputTruncations.length >= 20) return;
+    if (Array.isArray(before) && Array.isArray(after)) {
+      if (after.length < before.length) outputTruncations.push({ path, originalCount: before.length, returnedCount: after.length });
+      after.forEach((item, index) => detectArrays(before[index], item, `${path}[${index}]`));
+    } else if (before && after && typeof before === 'object' && typeof after === 'object') {
+      for (const [key, item] of Object.entries(after)) detectArrays((before as Record<string, unknown>)[key], item, path ? `${path}.${key}` : key);
+    }
+  }
+  detectArrays(value, safe, '');
+  const reasons = new Set(Array.isArray(safe.truncationReasons) ? safe.truncationReasons.filter((reason): reason is string => typeof reason === 'string') : []);
+  if (outputTruncations.length) {
+    safe.truncated = true;
+    safe.incomplete = true;
+    reasons.add('redaction_array_limit');
+    safe.outputTruncations = [...(Array.isArray(safe.outputTruncations) ? safe.outputTruncations : []), ...outputTruncations].slice(0, 20);
+  }
+  if (reasons.size) safe.truncationReasons = [...reasons];
+  if (internalRead || JSON.stringify(safe).length <= 26000) return safe;
+  // Keep correlation identifiers and concrete failure evidence even when display rows are reduced.
+  // 展示裁剪仍保留关联编号和具体失败证据，并明确说明此裁剪无法靠缓存详情补齐。
   const rows = Array.isArray(safe.rows) ? [...safe.rows].sort((a, b) => Number(Number(b.httpStatus) >= 400 || ['error', 'failed'].includes(b.level || b.status)) - Number(Number(a.httpStatus) >= 400 || ['error', 'failed'].includes(a.level || a.status))).slice(0, 5).map(row => {
     const { details, contextPreview, ...fields } = row as Record<string, unknown>;
-    return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, typeof value === 'string' ? value.slice(0, 1200) : value]));
+    return Object.fromEntries(Object.entries(fields).map(([key, item]) => [key, typeof item === 'string' ? item.slice(0, 1200) : item]));
   }) : [];
   const { details, ...summary } = safe;
-  return { ...summary, rows, truncated: true, note: '返回数据已截断，请按具体任务或日志编号读取详情。', ...(safe.matches ? { matches: (safe.matches as unknown[]).slice(0, 4) } : {}) };
+  reasons.add('output_size_limit');
+  return { ...summary, rows, truncated: true, incomplete: true, truncationReasons: [...reasons],
+    outputTruncations: [...(Array.isArray(safe.outputTruncations) ? safe.outputTruncations : []),
+      { path: 'rows', originalCount: Array.isArray(original.rows) ? original.rows.length : 0, returnedCount: rows.length }].slice(0, 20),
+    note: `${safe.note || ''} 返回展示已裁剪，不能据此宣称链路完整；缓存详情不保证恢复省略记录。`,
+    ...(safe.matches ? { matches: (safe.matches as unknown[]).slice(0, 4) } : {}) };
 }
-export function createSupportTools(job: SupportJob, source: SupportCodeSource, questions: string, investigation?: InvestigationScope) {
+export function createSupportTools(job: SupportJob, source: SupportCodeSource, _questions: string, investigation?: InvestigationScope) {
   const owner = supportUserId(job);
-  const system = source.service || job.context?.source || 'fg';
+  const system = source.service ?? (job.context?.source === 'canvas' ? 'canvas' : 'repository');
+  if (!supportInvestigationServiceId(system)) throw new Error('排查不包含已废弃主站模块');
   const contextProject = job.context?.source === system ? job.context.projectId : undefined;
   const accessibleLogs = new Map<string, Record<string, unknown>>();
-  const accessibleIds = new Set<string>();
   const fixedNow = new Date(job.context?.runtime?.capturedAt || Date.now());
   const explicitTime = ['reported', 'interpreted'].includes(investigation?.timeBasis || '');
   function dates(args: Record<string, unknown>, exact = false, chain = false) {
@@ -68,7 +94,7 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
     for (const key of ['taskId', 'requestId', 'traceId', 'sessionId', 'projectId']) {
       if (args[key] === undefined) continue;
       const id = identifier(args[key]);
-      if (!id || (!owner && !hasIdentifier(questions, id) && !accessibleIds.has(id))) throw new Error('定位编号无效或不在当前授权范围');
+      if (!id) throw new Error('定位编号无效');
       result[key] = id;
     }
     return result;
@@ -77,12 +103,15 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
     if (!Array.isArray(result.rows)) return;
     for (const row of result.rows as Record<string, unknown>[]) {
       if (typeof row.id === 'string') accessibleLogs.set(row.id, row);
-      for (const key of ['taskId', 'requestId', 'traceId']) if (identifier(row[key])) accessibleIds.add(String(row[key]));
     }
   }
   function scope(args: Record<string, unknown>, range: Record<string, unknown>, chain = false) {
     return { ...range, ...ids(args), projectId: identifier(args.projectId) || investigation?.projectId || contextProject,
       timeBasis: chain && !range.from && !range.to ? 'identifier' : (args.from && args.from !== investigation?.from) || (args.to && args.to !== investigation?.to) ? 'interpreted' : investigation?.timeBasis || 'recent' };
+  }
+  function identityRequired() {
+    return { system, rows: [], incomplete: true, truncated: false, reason: 'authenticated_owner_required',
+      note: '私有操作、日志、详情与链路取证需要受信网页登录账号；仅持有编号不授予读取权限。飞书未绑定时仍可提供源码帮助，请在网页使用本人账号取证。' };
   }
   async function read(tool: string, args: Record<string, unknown>, chain = false): Promise<Record<string, unknown>> {
     if (tool === 'code') {
@@ -112,11 +141,12 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
         versionOffset: args.versionOffset as number | undefined }));
     }
     if (supportServices[system].data === 'browser' && ['operations', 'logs'].includes(tool)) {
-      return { system, rows: [], applicable: false, requiredServices: supportServices[system].dependencies,
+      if (!owner) return identityRequired();
+      return { system, rows: [], incomplete: true, applicable: false, requiredServices: supportServices[system].dependencies,
         note: '浏览器界面没有独立业务库或服务端原生日志。应分别查询 canvas / yingce-gateway 的业务数据及请求；它们不是浏览器日志。前端闪屏等渲染问题仍需浏览器异常或复现证据。' };
     }
     if (tool === 'operations') {
-      if (!owner) return { system, rows: [], note: '当前入口未绑定FG登录身份，无法查询账号操作数据；仍可按用户提供的编号查询授权日志。' };
+      if (!owner) return identityRequired();
       const filters = ids(args);
       const range = !isNativeProduct(system) && (filters.taskId || filters.requestId || filters.traceId) && args.from === undefined && args.to === undefined && ((chain && !explicitTime) || (!investigation?.from && !investigation?.to)) ? {} : dates(args, !!(filters.taskId || filters.requestId || filters.traceId), chain);
       const input = { userId: owner, projectId: filters.projectId || investigation?.projectId || contextProject,
@@ -132,7 +162,7 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
         : adapter === 'fg' || adapter === 'canvas' ? await queryUserOperations({ ...input,
           context: { source: adapter } })
         : { rows: [], incomplete: true, note: `${supportServices[system].label} 尚未接入可校验账号归属的原生操作数据；未查询，不回退其他服务冒充。` };
-      const result = boundedEvidence({ ...raw, system });
+      const result = boundedEvidence({ ...raw, system }, chain);
       if (isNativeProduct(system)) result.requestedScope = scope(args, range, chain);
       else result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain) };
       if (adapter === 'native') result.scope = { ...(result.scope as object), projectId: filters.projectId };
@@ -140,12 +170,12 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
       return result;
     }
     if (tool === 'logs') {
+      if (!owner) return identityRequired();
+      if (args.cursor !== undefined && (typeof args.cursor !== 'string' || !['fg', 'production-lab'].includes(system))) throw new Error('该服务不支持此日志分页参数');
       const filters = ids(args);
       const exact = !!(filters.taskId || filters.requestId || filters.traceId);
-      if (!owner && !exact) return { system, rows: [], note: '飞书入口未绑定账号，需要用户提供完整任务、请求或链路编号才能查询日志。' };
       const range = dates(args, exact, chain);
       if (system === 'canvas') {
-        if (!owner) return { system, rows: [], note: 'Canvas 原生日志需有受信账号映射；飞书未绑定，未查询或回退FG库。' };
         const input = { userId: owner,
           projectId: filters.projectId || investigation?.projectId || contextProject,
           taskId: filters.taskId, requestId: filters.requestId, traceId: filters.traceId, ...range };
@@ -157,26 +187,27 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
           incomplete: stored.incomplete === true || native.incomplete === true,
           truncated: stored.truncated === true || native.truncated === true,
           coverage: { ...(stored.coverage as object), inboundHttp: nativeCoverage.inboundHttp },
-          nativeScope: native.scope, limitations: connected ? [] : [native.note], note: `${stored.note || ''} ${native.note || ''} 原生HTTP日志按本人及编号/时间筛选，不把页面项目当成日志已有的项目归属。` });
-        result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain), projectId: filters.projectId };
+          nativeScope: native.scope, limitations: connected ? [] : [native.note], note: `${stored.note || ''} ${native.note || ''} 原生HTTP日志按本人及编号/时间筛选，不把页面项目当成日志已有的项目归属。` }, chain);
+        result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain), projectId: input.projectId };
         remember(result);
         return result;
       }
       if (system !== 'fg' && system !== 'production-lab') {
-        if (!owner) return { system, rows: [], incomplete: true, note: '独立服务原生日志需要已验证网页登录身份，未查询。' };
         const result = boundedEvidence(isNativeProduct(system)
           ? await queryProductNative({ service: system, userId: owner, ...filters, ...range }, 'logs')
-          : await queryNativeSupportLogs({ service: system, userId: owner, ...filters, ...range }));
+          : await queryNativeSupportLogs({ service: system, userId: owner, ...filters, ...range }), chain);
         if (isNativeProduct(system)) result.requestedScope = scope(args, range, chain);
         else result.scope = { ...(result.scope as object || {}), ...scope(args, range, chain), projectId: filters.projectId };
         remember(result);
         return result;
       }
-      // FG log storage has no trustworthy project join; never imply that a project filter was applied.
-      // FG日志没有可靠项目归属关联，不得把未执行的项目筛选冒充已执行条件。
+      // An explicit project boundary cannot be dropped just because FG logs cannot verify it.
+      // FG日志无法核验项目归属时，不能静默丢弃明确要求的项目边界。
+      if (filters.projectId) return { system, rows: [], incomplete: true, truncated: false, reason: 'unsupported_project_filter',
+        scope: scope(args, range, chain), note: 'FG/Production Lab HTTP 日志没有可靠项目归属关联，未执行查询或忽略显式项目筛选。' };
       await assertSupportPrimaryEnvironment();
       const result = await queryLogExplorer({ ...range, taskId: filters.taskId, requestId: filters.requestId, traceId: filters.traceId,
-        ...(owner ? { userId: owner } : {}), routePrefix: system === 'production-lab' ? '/api/production-lab' : undefined,
+        userId: owner, cursor: typeof args.cursor === 'string' ? args.cursor : undefined, routePrefix: system === 'production-lab' ? '/api/production-lab' : undefined,
         route: typeof args.route === 'string' ? args.route.slice(0, 200) : undefined,
         fullText: typeof args.term === 'string' ? args.term.slice(0, 120) : undefined, limit: 50 });
       const rows = result.rows.filter(row => system !== 'production-lab' || row.route === '/api/production-lab' || row.route?.startsWith('/api/production-lab/')).map(({ details, contextPreview, actorEmail, userId, ...row }) => {
@@ -184,18 +215,20 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
         return { ...row, message: message.summary, errorExcerpt: message.errorExcerpt };
       });
       const evidence = boundedEvidence({ system, rows, summary: result.summary, scope: { ...scope(args, range, chain), projectId: undefined, route: result.applied.filters.route, routePrefix: system === 'production-lab' ? '/api/production-lab' : undefined },
-        truncated: result.page.hasMore, note: `${system === 'production-lab' ? 'Production Lab与FG同进程；仅查询真实 /api/production-lab 路由日志，不把其他FG接口当作本服务日志。' : 'FG日志限定当前授权账号；'}未按项目筛选。精确编号无指定时间时最多查询最近84天；没有用户归属的系统日志不会自动扩权读取。` });
+        page: result.page, nextCursor: result.page.nextCursor, truncated: result.page.hasMore,
+        truncationReasons: result.page.hasMore ? ['page_has_more'] : [], note: `${system === 'production-lab' ? 'Production Lab与FG同进程；仅查询真实 /api/production-lab 路由日志，不把其他FG接口当作本服务日志。' : 'FG日志限定当前授权账号；'}未按项目筛选。精确编号无指定时间时最多查询最近84天；没有用户归属的系统日志不会自动扩权读取。` }, chain);
       remember(evidence);
       return evidence;
     }
     if (tool === 'detail') {
+      if (!owner) return identityRequired();
       const id = typeof args.id === 'string' ? args.id : '';
       const known = accessibleLogs.get(id);
       if (!known) throw new Error('仅可读取本轮已授权查询返回的详情');
       if (system !== 'fg' && system !== 'production-lab') return { ...known, system };
       await assertSupportPrimaryEnvironment();
       const detail = await getLogDetail(id);
-      if (!detail || (owner && detail.userId !== owner)) throw new Error('日志详情不可用或不属于当前用户');
+      if (!detail || detail.userId !== owner) throw new Error('日志详情不可用或不属于当前用户');
       const { details, contextPreview, actorEmail, userId, ...row } = detail;
       const error = typeof details.error === 'object' && details.error !== null ? details.error as Record<string, unknown> : {};
       const diagnostic = supportOperationErrorEvidence(typeof details.error === 'string' ? details.error : error.message || details.reason || row.message);
@@ -205,11 +238,21 @@ export function createSupportTools(job: SupportJob, source: SupportCodeSource, q
     throw new Error('不支持此调查工具');
   }
   return async (tool: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    if (args.service !== undefined && !supportInvestigationServiceId(args.service)) throw new Error('请求服务未知或属于已废弃主站模块');
     if (tool !== 'chain') return read(tool, args);
-    const seed = (['taskId', 'requestId', 'traceId'] as const).flatMap(key => identifier(args[key]) ? [{ key, value: String(args[key]) }] : [])[0] as ChainSeed | undefined;
-    if (!seed || (!owner && !hasIdentifier(questions, seed.value) && !accessibleIds.has(seed.value))) throw new Error('链路查询需要有效且授权的任务、请求或链路编号');
+    if (!owner) return identityRequired();
+    const filters = ids(args);
+    const seeds = (['taskId', 'requestId', 'traceId'] as const).flatMap(key => filters[key] ? [{ key, value: filters[key] }] : []);
+    if (seeds.length !== 1) throw new Error('链路查询每次仅接受一个任务、请求或链路编号；多个编号请分别独立查询');
+    if (filters.sessionId) throw new Error('链路查询不支持 sessionId 筛选');
+    const seed: ChainSeed = seeds[0];
     const range = dates(args, true, true);
-    const result = await traceSupportChain(seed, (name, input) => read(name, { ...range, ...input }, true), system);
-    return boundedEvidence({ ...result, scope: { ...scope(args, range, true), root: seed } });
+    // Forward only explicit constraints; each reader normalizes its own default range once.
+    // 只透传显式约束，各来源仅规范化一次默认范围，避免默认84天再次被当作显式7天窗口校验。
+    const constraints = { ...(filters.projectId ? { projectId: filters.projectId } : {}),
+      ...(args.from !== undefined ? { from: args.from } : {}), ...(args.to !== undefined ? { to: args.to } : {}) };
+    const result = await traceSupportChain(seed, (name, input) => read(name, { ...constraints, ...input }, true), system);
+    const scopedRange = explicitTime || isNativeProduct(system) || args.from !== undefined || args.to !== undefined ? range : {};
+    return boundedEvidence({ ...result, scope: { ...scope(args, scopedRange, true), root: seed } });
   };
 }

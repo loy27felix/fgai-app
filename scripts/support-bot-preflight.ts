@@ -38,43 +38,37 @@ async function database(value: string | undefined, tables: string[], readOnly: b
 
 async function main() {
   const environment = supportEnvironment();
-  const { supportServices, supportServiceId } = await import('../lib/support-bot/services');
+  const { supportServices, supportInvestigationServices, supportInvestigationServiceId } = await import('../lib/support-bot/services');
   const { isNativeProduct, probeProductNative } = await import('../lib/support-bot/product-native');
   const probeUser = process.env.SUPPORT_BOT_NATIVE_PROBE_USER_ID;
   const probeRange = { from: process.env.SUPPORT_BOT_NATIVE_PROBE_FROM || undefined, to: process.env.SUPPORT_BOT_NATIVE_PROBE_TO || undefined };
   const { probeSupportNativeLogs } = await import('../lib/support-bot/native-logs');
   const { captureSupportRuntime, resolveSupportRuntime } = await import('../lib/support-bot/runtime');
-  const services = Object.keys(supportServices).filter(id => !['infrastructure', 'repository'].includes(id)) as Array<keyof typeof supportServices>;
+  const services = supportInvestigationServices.filter(id => !['infrastructure', 'repository'].includes(id));
   const requested = process.argv.find(arg => arg.startsWith('--require='))?.slice('--require='.length).split(',') ?? services;
-  if (!requested.length || requested.some(id => !supportServiceId(id) || !services.includes(id as keyof typeof supportServices))) throw new Error('Invalid required services');
-  const fg = await database(process.env.DATABASE_URL, ['support_bot_jobs', 'support_bot_tickets', 'observability_log_events', 'observability_error_events', 'observability_service_events', 'audit_events'], false);
+  if (!requested.length || requested.some(id => !supportInvestigationServiceId(id) || !services.includes(id as keyof typeof supportServices))) throw new Error('Invalid required services');
+  const storage = await database(process.env.DATABASE_URL, ['support_bot_jobs', 'support_bot_tickets'], false);
   const { SUPPORT_CANVAS_ASSET_TABLES } = await import('../lib/support-bot/canvas-assets');
   const canvas = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'task_logs', 'api_call_logs', 'drama_jobs', 'drama_productions', ...SUPPORT_CANVAS_ASSET_TABLES], true);
   const gateway = await database(process.env.SUPPORT_BOT_CANVAS_DATABASE_URL, ['fg_accounts', 'users', 'projects', 'canvas_projects', 'tasks', 'fg_music_jobs', 'fg_speech_jobs', 'fg_speech_usage', 'fg_creator_jobs', 'fg_adcraft_jobs', 'fg_adcraft_workspaces', 'fg_meilin_calls', 'fg_meilin_projects', 'fg_budget_reservations'], true);
-  const production = await database(process.env.SUPPORT_BOT_PRODUCTION_LAB_DATABASE_URL || process.env.PRODUCTION_LAB_DATABASE_URL,
-    ['production_lab_state', 'production_lab_media_jobs', 'production_lab_media_job_events', 'production_lab_script_runs'], true);
   const snapshot = await captureSupportRuntime();
-  const fgRuntime = await resolveSupportRuntime(snapshot, 'fg');
   const matrix: Record<string, unknown>[] = [];
   for (const service of services) {
-    const fgService = ['fg', 'production-lab'].includes(service);
-    const resolution = fgService ? fgRuntime : await resolveSupportRuntime(undefined, service, probeUser);
-    const runtime = fgService ? { connected: fgRuntime.verified, environment: snapshot.environment, reason: fgRuntime.evidence.reason }
-      : resolution.evidence.nativeRuntime!;
+    const resolution = await resolveSupportRuntime(undefined, service, probeUser);
+    const runtime = resolution.evidence.nativeRuntime!;
     const availability = resolution.evidence.sourceAvailability;
     const source = { ...availability, ready: availability?.available === true,
       reason: availability?.reason || resolution.evidence.reason, description: resolution.evidence.description,
       workerCheckout: resolution.evidence.workerCheckout ?? snapshot.checkoutRevision, paths: supportServices[service].paths };
     const product = isNativeProduct(service) ? await probeProductNative(service, probeUser, probeRange) : undefined;
-    const logs = product || (['fg', 'production-lab'].includes(service) ? fg : supportServices[service].data === 'browser'
+    const logs = product || (supportServices[service].data === 'browser'
       ? { ready: true, reason: 'browser_has_no_native_business_log; inspect_gateway_and_canvas' } : await probeSupportNativeLogs(service));
-    const data = product || (service === 'fg' ? fg : service === 'production-lab' ? production
-      : service === 'yingce-gateway' ? gateway : ['canvas', 'yingce-agent'].includes(service) ? canvas
+    const data = product || (service === 'yingce-gateway' ? gateway : ['canvas', 'yingce-agent'].includes(service) ? canvas
       : supportServices[service].data === 'browser' ? { ready: true, reason: 'browser_has_no_business_database' }
       : { ready: false, reason: 'native_source_not_configured' });
-    const versionReady = source.ready && runtime.connected && (!isNativeProduct(service) || ('identityVerified' in runtime && runtime.identityVerified === true)) && runtime.environment === (environment === 'local' ? 'development' : 'production')
-      && (environment === 'local' || ['fg', 'production-lab'].includes(service) || resolution.verified);
-    matrix.push({ service, required: requested.includes(service), ready: !!(fg.ready && data.ready && logs.ready && versionReady), data, logs, runtime, source });
+    const versionReady = source.ready && runtime.connected && (!isNativeProduct(service) || runtime.identityVerified === true) && runtime.environment === (environment === 'local' ? 'development' : 'production')
+      && (environment === 'local' || resolution.verified);
+    matrix.push({ service, required: requested.includes(service), ready: !!(storage.ready && data.ready && logs.ready && versionReady), data, logs, runtime, source });
   }
   // A browser-only check must not pass while its required backend evidence sources are disconnected.
   // 网页自身不需要业务库，但验收不能跳过其实际依赖的后端数据源。
@@ -84,7 +78,7 @@ async function main() {
     row.dataDependencies = dependencies.map(item => ({ service: item?.service, ready: item?.ready === true }));
   }
   const ready = matrix.every(row => !row.required || row.ready);
-  console.log(JSON.stringify({ environment, ready, matrix, note: 'Configuration/source readiness only; product instances are checked for the configured probe actor, not all users. Empty data is not E2E proof; development builds are reference-only. No model requests, job claiming, or external notifications.' }, null, 2));
+  console.log(JSON.stringify({ environment, ready, storage, matrix, note: 'Multi-service readiness includes Yingce and other product adapters; retired FG/Production Lab main-site modules are not probed. Assistant storage readiness is separate from business evidence. Empty data is not E2E proof; development builds are reference-only. No model requests, job claiming, or external notifications.' }, null, 2));
   if (!ready) process.exitCode = 1;
 }
 main().catch(() => { console.error('support-bot preflight failed: check environment configuration and --require service names'); process.exitCode = 1; });

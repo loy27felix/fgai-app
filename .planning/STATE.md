@@ -1,9 +1,21 @@
 # 当前状态
 
-- 日期：2026-11-10（Asia/Shanghai）。
-- 当前目标：紧急修复自助排查助手不能具体定位及解惑的问题，暂不改生成任务本身。
+- 日期：2026-11-11（Asia/Shanghai）。
+- 当前目标：保留多服务自助排查，确认覆盖 production-lab/yingce 而非只允许 Yingce；问题分流、编号关联取证后独立深入分析，不排查已废弃主站，不改生成业务。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
-- 当前状态：助手优化已在本地实现并离线回放；尚未发布、补齐生产 worker 源码或验收真实模型效果。
+- 当前状态：分流与调查流程已本地重构，完成类型检查、既有测试及隔离调用检查；尚未发布或验收真实模型效果。
+
+## 本轮分流与深度分析重构（2026-11-11）
+- 范围纠正：用户是在确认是否包含 Yingce，不是要求排他性收窄。撤销仅四项/仅 production-lab/yingce 目录的限制，恢复其他产品、基础设施和源码定位；分类与默认值不将其他问题强制归为 Yingce。仍遵守不查询废弃主站及旧 Production Lab 主站模块，保留身份/工单存储。
+- 纠正验证：`pnpm exec tsc --noEmit --incremental false --pretty false`（输出 `/tmp/fg-support-multi-service-types.log`）与 `git diff --check` 通过；终端隔离检查确认 Yingce/AdCraft/Suno 在 commit 和 working-tree 均可检索/读取，其他产品分类与工具入口保留、废弃主站仍拒绝。预检隔离检查覆盖默认九项业务服务、五产品探针、显式其他产品选择及缺口失败；未连接真实数据源、未调用真实模型或部署。
+- `question.ts` 区分 usage/help/generation/incident、续问与换题；当轮明确编号覆盖旧对话/页面线索，多个编号独立根查询，用户明确排除的旧编号不再采用。使用/帮助由程序限制为源码及运行边界查询。
+- 取证模型不再直接发布结论；先做授权链路、生成输入与具体实现核对，再进入单独的 high-or-higher 综合分析，16,000 tokens 输出预算；私有思维过程不展示。同参数取证去重，缺失/截断/未关联编号写入覆盖缺口，阻止完整根因确认。
+- 修复 FG/Production Lab 默认84天窗口被二次当作7天显式窗口拒绝的问题；接通 FG 日志 cursor，同归属范围有界续页；保留各来源覆盖、输出裁剪和预算耗尽原因。顶层记录不再静默被50项数组上限裁掉，内部图关联与对外展示分别限制。
+- 已授权链路返回的生成 taskId 会补查历史输入、创建/上传审计和相关实现；审计保留 request/trace/provider 编号与时间。providerRequestId 不当作 requestId 别名。其他调用阶段由 chain 查询，缺失历史不补造。
+- 安全收口：未绑定受信 FG 身份的飞书等入口不能仅凭编号读取私有操作/日志/详情/链路，仍可获得源码帮助；已登录网页按本人身份取证。跨服务任务关联按服务保存，不用全局同名 taskId 作为根因关联。
+- 验证：`pnpm exec tsc --noEmit --incremental false --pretty false`、`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts`（12/12）、`git diff --check`。既有日志测试仍出现异步持久化连接告警，不能作为落库成功证据。
+- 隔离调用检查（终端内执行、不新增测试文件、不联网/查库）：三类编号分别作为查询根；换题清除旧编号；help 不执行日志查询；最终单独 high/16,000 综合分析；明确排除旧编号/多个任务编号/无空格编号；生成审计标识与时间保留；取证缺口拒绝 confirmed；FG 84天范围与两页 cursor 均保留本人过滤，60条记录完整进入展示，未绑定身份拒绝私有取证。
+- 边界：没有新增依赖、迁移或仓库测试；未调用真实模型、写生产、操作守护任务、commit/push/部署。来源未接入、历史留存不足或有界预算耗尽仍会明确显示缺口，不能宣称任意任务全链路都可完整恢复。原生产源码/发布 checkpoint 保留，真实模型效果需另行验收。
 
 ## 本轮助手紧急修复（2026-11-10）
 - 已实现：新增本人 Canvas 任务 `generation` 只读核对，成功任务也检查角色样音绑定与最终请求/上传映射；识别具名对白与删样音标记冲突，按实际标记读取引用过滤及请求组装实现。

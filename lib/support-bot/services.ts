@@ -22,6 +22,18 @@ export const supportServices = {
 } as const satisfies Record<string, ServiceDefinition>;
 
 export type SupportServiceId = keyof typeof supportServices;
+
+// Preserve multi-service investigation; only retired main-site modules are excluded.
+// 保留多服务排查范围，只排除已废弃的主站模块，不把 Yingce 当作唯一来源。
+export const supportInvestigationServices = (Object.keys(supportServices) as SupportServiceId[])
+  .filter(service => supportServices[service].runtime !== 'fg');
+export function supportInvestigationServiceId(value: unknown): SupportServiceId | undefined {
+  return supportInvestigationServices.find(service => service === value);
+}
+export function isSupportInvestigationPath(path: string) {
+  return !!supportInvestigationServiceId(serviceForCodePath(path))
+    && !!supportInvestigationServiceId(serviceForCodePath(`${path}/`));
+}
 export function supportServiceId(value: unknown): SupportServiceId | undefined {
   return typeof value === 'string' && Object.hasOwn(supportServices, value) ? value as SupportServiceId : undefined;
 }
@@ -36,8 +48,9 @@ export function serviceForCodePath(path: string): SupportServiceId {
   return selected;
 }
 export function supportServiceDirectory() {
-  return Object.entries(supportServices).map(([id, service]) => ({ id, ...service,
-    runtimeCoverage: service.runtime === 'independent' ? '按服务配置独立版本接口，每次实测身份/commit/dirty；未配置、不可达或开发构建不得冒充已核对运行源码' : '每次核对对应运行快照/版本接口，失败则仅参考源码',
-    dataCoverage: service.data === 'browser' ? '浏览器没有独立业务库或服务端原生日志；核对本服务版本与浏览器线索，业务状态和请求另查canvas及yingce-gateway，各自标记来源，不冒充浏览器日志' : service.data === 'unavailable' ? '尚无原生业务库适配；仅在配置且验证本服务结构化日志源后读取，绝不回退其他服务' : '已实现只读适配，是否配置、可达及覆盖范围以本次查询结果为准',
+  return supportInvestigationServices.map(id => ({ id, ...supportServices[id],
+    dependencies: supportServices[id].dependencies.filter(dependency => !!supportInvestigationServiceId(dependency)),
+    runtimeCoverage: supportServices[id].runtime === 'independent' ? '按服务配置独立版本接口，每次实测身份/commit/dirty；未配置、不可达或开发构建不得冒充已核对运行源码' : '每次核对对应运行快照/版本接口，失败则仅参考源码',
+    dataCoverage: supportServices[id].data === 'browser' ? '浏览器没有独立业务库或服务端原生日志；核对本服务版本与浏览器线索，业务状态和请求另查canvas及yingce-gateway，各自标记来源，不冒充浏览器日志' : supportServices[id].data === 'unavailable' ? '尚无原生业务库适配；仅在配置且验证本服务结构化日志源后读取，绝不回退其他服务' : '已实现只读适配，是否配置、可达及覆盖范围以本次查询结果为准',
   }));
 }
