@@ -27,6 +27,7 @@ import { CanvasResourceMentionTextarea, type CanvasResourceMentionTextareaAction
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
+import { appendComposerPrompt } from "./canvas-composer-references";
 import { FGSkillControl } from "@/components/fg-skill-control";
 import { FGCanvasMusic } from "./fg-canvas-music";
 import { CanvasNineGridPicker } from "./canvas-nine-grid-picker";
@@ -327,10 +328,10 @@ export function CanvasNodePromptPanel({
         updatePrompt(updater(promptRef.current));
     };
 
-    const applyPreset = (preset: CanvasPromptPreset) => {
-        const withoutSlash = prompt.replace(/(^|\s)\/[\p{L}\p{N}_-]*$/u, "$1").trimEnd();
-        updatePrompt(withoutSlash ? `${withoutSlash}\n${preset.prompt}` : preset.prompt);
-    };
+    const appendPrompt = (text: string) => updatePromptFromCurrent((current) => appendComposerPrompt(current, text));
+    const applyPreset = (preset: CanvasPromptPreset) => updatePromptFromCurrent((current) =>
+        appendComposerPrompt(current.replace(/(^|\s)\/[\p{L}\p{N}_-]*$/u, "$1").trimEnd(), preset.prompt)
+    );
 
     const insertPromptReference = (reference: CanvasResourceReference) => {
         const token = canvasResourceMentionToken(reference);
@@ -416,6 +417,7 @@ export function CanvasNodePromptPanel({
                                     onOpenChange={expanded ? setExpandedNineGridOpen : setNineGridOpen}
                                     icon={activeNineGridIcon}
                                     onSelect={(id, label, icon) => updatePromptFromCurrent((currentPrompt) => applyToolMention(currentPrompt, { id, label, type: "nine_grid" }, icon))}
+                                    onShortcutSelect={appendPrompt}
                                 />
                             </>
                         ) : (
@@ -441,7 +443,7 @@ export function CanvasNodePromptPanel({
                     </div>
                 ) : null}
                 {showPromptTemplates ? (
-                    <CanvasPresetPicker mode={mode} skillReferences={skillReferences} open={expanded ? expandedPresetOpen : presetOpen} onOpenChange={expanded ? setExpandedPresetOpen : setPresetOpen} onSelect={applyPreset} dense appearance="quiet" />
+                    <CanvasPresetPicker mode={mode} skillReferences={skillReferences} open={expanded ? expandedPresetOpen : presetOpen} onOpenChange={expanded ? setExpandedPresetOpen : setPresetOpen} onSelect={applyPreset} onShortcutSelect={appendPrompt} dense appearance="quiet" />
                 ) : null}
                 <FGSkillControl references={resolvedMentionReferences} prompt={prompt} onChange={updatePrompt} disabled={isRunning} capability={mode} />
                 {canOptimizePrompt ? (

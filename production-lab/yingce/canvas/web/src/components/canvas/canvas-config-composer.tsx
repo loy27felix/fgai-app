@@ -13,7 +13,7 @@ import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-pic
 import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { getEditableSelection, setEditableSelection } from "./canvas-mention-editable";
-import { composerReferences, insertComposerPreset } from "./canvas-composer-references";
+import { appendComposerPrompt, composerReferences, insertComposerPreset } from "./canvas-composer-references";
 
 type ComposerProps = {
     value: string;
@@ -46,9 +46,7 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
         const editor = container.current?.querySelector<HTMLElement>("[contenteditable='true'],textarea");
         caret.current = editor instanceof HTMLTextAreaElement ? { start: editor.selectionStart, end: editor.selectionEnd } : getEditableSelection(editor || null);
     };
-    const insertPreset = (preset: CanvasPromptPreset) => {
-        const position = caret.current || { start: prompt.length, end: prompt.length };
-        const next = insertComposerPreset(prompt, position.start, position.end, preset.prompt);
+    const applyInsertion = (next: { text: string; caret: number }) => {
         onChange(next.text);
         setPresetsOpen(false);
         requestAnimationFrame(() => {
@@ -57,6 +55,14 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
             if (editor instanceof HTMLTextAreaElement) editor.setSelectionRange(next.caret, next.caret);
             else if (editor) setEditableSelection(editor, next.caret);
         });
+    };
+    const insertPreset = (preset: CanvasPromptPreset) => {
+        const position = caret.current || { start: prompt.length, end: prompt.length };
+        applyInsertion(insertComposerPreset(prompt, position.start, position.end, preset.prompt));
+    };
+    const insertShortcut = (shortcut: string) => {
+        const text = appendComposerPrompt(prompt, shortcut);
+        applyInsertion({ text, caret: text.length });
     };
     const frameOptions = references.filter((ref) => ref.kind === "image" && ref.previewUrl).map((ref) => ({ nodeId: ref.nodeId, label: ref.label, title: ref.title, previewUrl: ref.previewUrl }));
     return (
@@ -75,7 +81,7 @@ export function CanvasConfigComposer({ value, inputs, skillReferences = [], gene
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                     <CanvasPromptFontSizeControl />
-                    {!simple ? <CanvasPresetPicker mode={generationMode} skillReferences={skillReferences} open={presetsOpen} onOpenChange={setPresetsOpen} onSelect={insertPreset} /> : null}
+                    {!simple ? <CanvasPresetPicker mode={generationMode} skillReferences={skillReferences} open={presetsOpen} onOpenChange={setPresetsOpen} onSelect={insertPreset} onShortcutSelect={insertShortcut} /> : null}
                     <Button size="small" type="text" aria-label="关闭提示词编辑器" icon={<X className="size-4" />} onClick={onClose} />
                 </div>
             </header>

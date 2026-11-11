@@ -8,6 +8,7 @@ import { CANVAS_BUILTIN_PRESETS, type CanvasPromptPreset } from "@/lib/prompts";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { CanvasGenerationMode } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { CanvasPromptShortcuts } from "./canvas-prompt-shortcuts";
 
 export type { CanvasPromptPreset };
 
@@ -17,6 +18,7 @@ export function CanvasPresetPicker({
     open,
     onOpenChange,
     onSelect,
+    onShortcutSelect,
     compact = false,
     dense = false,
     appearance = "default",
@@ -26,6 +28,7 @@ export function CanvasPresetPicker({
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     onSelect: (preset: CanvasPromptPreset) => void;
+    onShortcutSelect: (prompt: string) => void;
     compact?: boolean;
     dense?: boolean;
     appearance?: "default" | "quiet";
@@ -59,7 +62,7 @@ export function CanvasPresetPicker({
     }, [mode, query, skillReferences]);
 
     const content = (
-        <div data-canvas-no-zoom className="canvas-preset-picker-menu w-[var(--panel-width-compact)] max-w-[calc(100vw-24px)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
+        <div data-canvas-no-zoom data-canvas-wheel-scroll className="canvas-preset-picker-menu w-[var(--panel-width-compact)] max-w-[calc(100vw-24px)]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
             <Input
                 className="canvas-preset-picker-search"
                 variant="borderless"
@@ -67,11 +70,12 @@ export function CanvasPresetPicker({
                 allowClear
                 size="small"
                 prefix={<Search className="size-3.5" />}
-                placeholder="搜索预设或已加入技能"
+                placeholder="搜索快捷句、预设或技能"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
             />
-            <div className="thin-scrollbar mt-1 max-h-72 space-y-0.5 overflow-y-auto">
+            <div className="thin-scrollbar mt-1 max-h-[min(288px,50vh)] space-y-0.5 overflow-y-auto">
+                {actualOpen ? <CanvasPromptShortcuts query={query} onSelect={(prompt) => { onShortcutSelect(prompt); setOpen(false); }} /> : null}
                 {presets.length ? (
                     presets.map((preset) => (
                         <button

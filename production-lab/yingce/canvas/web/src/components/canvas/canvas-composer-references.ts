@@ -26,3 +26,8 @@ export function insertComposerPreset(value: string, start: number, end: number, 
     const insertion = `${prompt} `;
     return { text: prefix + insertion + value.slice(to), caret: prefix.length + insertion.length };
 }
+
+export function appendComposerPrompt(value: string, prompt: string): string {
+    if (!value.trim()) return prompt;
+    return value.endsWith("\n") ? value + prompt : `${value}\n${prompt}`;
+}

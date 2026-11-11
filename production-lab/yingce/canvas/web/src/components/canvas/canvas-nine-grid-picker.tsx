@@ -5,6 +5,7 @@ import { Grid3x3 } from "lucide-react";
 
 import { TOOL_ICON_MAP } from "./canvas-resource-mention-textarea";
 import { getNineGridMenuItems } from "./canvas-image-toolbar-tools";
+import { CanvasPromptShortcuts } from "./canvas-prompt-shortcuts";
 
 function NineGridToolIcon({ iconName, className = "size-3.5 shrink-0" }: { iconName: string; className?: string }) {
     const Icon = TOOL_ICON_MAP[iconName] ?? Grid3x3;
@@ -46,12 +47,14 @@ export function CanvasNineGridPicker({
     onOpenChange,
     icon = "Grid3x3",
     onSelect,
+    onShortcutSelect,
 }: {
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     /** 当前已选九宫格工具的 lucide 图标名，无选择时回退 Grid3x3。 */
     icon?: string;
     onSelect: (toolId: number, label: string, icon: string) => void;
+    onShortcutSelect?: (prompt: string) => void;
 }) {
     const [internalOpen, setInternalOpen] = useState(false);
     const actualOpen = open ?? internalOpen;
@@ -77,10 +80,16 @@ export function CanvasNineGridPicker({
                     data-canvas-wheel-scroll
                     onPointerDown={(event) => event.stopPropagation()}
                     onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
                     onWheel={(event) => event.stopPropagation()}
                     onKeyDown={(event) => event.stopPropagation()}
                 >
-                    <div className="canvas-node-toolbar-menu-stack">{menu}</div>
+                    <div className="canvas-node-toolbar-menu-stack">
+                        {actualOpen && onShortcutSelect ? (
+                            <CanvasPromptShortcuts onSelect={(prompt) => { onShortcutSelect(prompt); setOpen(false); }} />
+                        ) : null}
+                        {menu}
+                    </div>
                 </div>
             )}
         >

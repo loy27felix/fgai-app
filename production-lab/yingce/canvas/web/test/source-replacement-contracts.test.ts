@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { composerReferences, insertComposerPreset } from "../src/components/canvas/canvas-composer-references";
+import { appendComposerPrompt, composerReferences, insertComposerPreset } from "../src/components/canvas/canvas-composer-references";
 import { splitMentionText } from "../src/components/canvas/canvas-mention-editable";
 import { dataUrlToFile, getDataUrlByteSize, readFileAsDataUrl } from "../src/lib/image-utils";
 import { packageSegment, referencedStorageKeys, MediaPackage } from "../src/lib/media-package";
@@ -19,6 +19,13 @@ describe("替换模块的互操作合同", () => {
     test("预设替换活动斜线和当前选区，保留两侧正文", () => {
         expect(insertComposerPreset("前文 /镜头 后文", 6, 6, "推进")).toEqual({ text: "前文 推进  后文", caret: 6 });
         expect(insertComposerPreset("abcXYZdef", 3, 6, "镜头")).toEqual({ text: "abc镜头 def", caret: 6 });
+    });
+    test("个人快捷句依次追加到提示词末尾，保留原有正文", () => {
+        const existing = "中景，参考 @图片1 /BGM";
+        const first = appendComposerPrompt(existing, "不要 BGM 和字幕，只要音效");
+        expect(appendComposerPrompt(first, "3D 可爱风")).toBe(`${existing}\n不要 BGM 和字幕，只要音效\n3D 可爱风`);
+        expect(appendComposerPrompt("原文\n", "3D 可爱风")).toBe("原文\n3D 可爱风");
+        expect(appendComposerPrompt("", "3D 可爱风")).toBe("3D 可爱风");
     });
     test("文件数据地址往返保留所有字节和 MIME", async () => {
         const file = new File([new Uint8Array([0, 255, 128, 31, 42])], "test.png", { type: "image/png" });
