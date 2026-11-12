@@ -1,4 +1,5 @@
 import { PreferencesPane } from "./preferences-pane";
+import { PersonalAppearancePane } from "./personal-appearance-pane";
 import { App, Button } from "antd";
 import { ArrowLeft, Boxes, Brain, Bug, Cloud, Inbox, MessageSquareText, RadioTower, SlidersHorizontal, UserRound, Workflow, BookMarked } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -20,9 +21,10 @@ import { ProfilePane } from "./profile-pane";
 import { PersonalGPTPane } from "./personal-gpt-pane";
 import { FeedbackInboxPane } from "./feedback-inbox-pane";
 
-type ConfigSectionKey = "profile" | "personal-gpt" | "channels" | "models" | "runninghub" | "preferences" | "prompts" | "agent-memory" | "storage" | "diagnostics" | "feedbacks";
+type ConfigSectionKey = "appearance" | "profile" | "personal-gpt" | "channels" | "models" | "runninghub" | "preferences" | "prompts" | "agent-memory" | "storage" | "diagnostics" | "feedbacks";
 
 const configSections: Array<{ key: ConfigSectionKey; label: string; description: string; icon: ReactNode }> = [
+    { key: "appearance", label: "个人外观", description: "主题、字体与明暗模式，跟随本人账号", icon: <SlidersHorizontal className="size-4" /> },
     { key: "profile", label: "个人信息", description: "头像；账号由 FG 平台管理", icon: <UserRound className="size-4" /> },
     { key: "personal-gpt", label: "GPT 接入", description: "Trings API URL 与个人 Key", icon: <Brain className="size-4" /> },
     { key: "channels", label: "个人渠道", description: "模型服务与个人工作流", icon: <RadioTower className="size-4" /> },
@@ -110,6 +112,7 @@ export default function SettingsPage() {
     };
 
     const panes: Record<ConfigSectionKey, ReactNode> = {
+        appearance: <SettingsPane><PersonalAppearancePane key={userId} /></SettingsPane>,
         profile: (
             <SettingsPane>
                 <ProfilePane key={userId} />

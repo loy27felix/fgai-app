@@ -197,9 +197,19 @@ func (r *Repository) ImportLegacyDrama(projectID, settings string) (bool, error)
 				if duration <= 0 {
 					duration = old.DurationMs
 				}
+				// Keep long legacy directions in the script when they exceed the short fields.
+				action := revision.Action
+				shotSize := legacyDramaShortDirection(revision.ShotSize, 40)
+				camera := legacyDramaShortDirection(revision.CameraMovement, 80)
+				if shotSize != revision.ShotSize {
+					action = strings.TrimSpace(action + "\n完整景别：" + revision.ShotSize)
+				}
+				if camera != revision.CameraMovement {
+					action = strings.TrimSpace(action + "\n完整运镜：" + revision.CameraMovement)
+				}
 				shot := model.DramaShot{ID: kernel.NewID(), ProjectID: projectID, EpisodeID: episode.ID, Position: n, SegmentIndex: n, SegmentTitle: old.Title,
 					SceneCastID: sceneID, CastIDsJSON: encode(castIDs), LookCastIDsJSON: encode(lookIDs), PropIDsJSON: encode(propIDs),
-					Dialogue: revision.Dialogue, Action: revision.Action, ShotSize: revision.ShotSize, Camera: revision.CameraMovement,
+					Dialogue: revision.Dialogue, Action: action, ShotSize: shotSize, Camera: camera,
 					DurationMs: duration, ImagePrompt: replacer.Replace(revision.ImagePrompt), VideoPrompt: replacer.Replace(revision.VideoPrompt), SourceQuote: revision.PlotDescription, CreatedAt: now, UpdatedAt: now}
 				if err := tx.Create(&shot).Error; err != nil {
 					return err
@@ -240,4 +250,12 @@ func (r *Repository) ImportLegacyDrama(projectID, settings string) (bool, error)
 		return nil
 	})
 	return imported, err
+}
+
+func legacyDramaShortDirection(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit-1]) + "…"
 }

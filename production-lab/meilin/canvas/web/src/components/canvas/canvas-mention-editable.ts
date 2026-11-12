@@ -6,6 +6,10 @@ import { canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/
 import type { EditableSelection, MentionTextPart } from "./canvas-resource-mention-textarea";
 import { createInlineMentionChip } from "./canvas-mention-chips";
 
+// DOM-only caret anchors around contentEditable=false chips.
+const CARET_ANCHOR = "\u200B";
+const editableText = (text: string) => text.split(CARET_ANCHOR).join("");
+
 const NAME_MENTION_BOUNDARY = /\s|[,.!?;:，。！？；：、)\]}】）]/u;
 
 /**
@@ -57,7 +61,7 @@ export function splitMentionText(value: string, references: CanvasResourceRefere
 }
 
 export function renderEditableParts(editor: HTMLElement, parts: MentionTextPart[]) {
-    const nodes = parts.map((part) => (part.type === "mention" ? createInlineMentionChip(part.reference, part.token) : document.createTextNode(part.text)));
+    const nodes = parts.flatMap((part) => part.type === "mention" ? [document.createTextNode(CARET_ANCHOR), createInlineMentionChip(part.reference, part.token), document.createTextNode(CARET_ANCHOR)] : [document.createTextNode(part.text)]);
     editor.replaceChildren(...nodes);
     // Chromium needs a final line box to keep the caret after a trailing newline.
     // This placeholder is not part of the prompt or its serialized offsets.
@@ -96,7 +100,7 @@ function editableLeaves(root: Node) {
             return;
         }
         if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.textContent || "";
+            const text = editableText(node.textContent || "");
             leaves.push({ node, text, offset });
             offset += text.length;
             return;
@@ -177,7 +181,7 @@ export function editableMentionTokenEndingAt(root: HTMLElement, offset: number) 
 }
 
 export function serializeEditableValue(root: HTMLElement) {
-    return serializeNodeList(root.childNodes).replace(/\u00a0/g, " ");
+    return editableText(serializeNodeList(root.childNodes)).replace(/\u00a0/g, " ");
 }
 
 export function serializeNodeList(nodes: NodeListOf<ChildNode> | ChildNode[]) {
@@ -189,7 +193,7 @@ export function serializeNodeList(nodes: NodeListOf<ChildNode> | ChildNode[]) {
 }
 
 export function serializeNode(node: ChildNode): string {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType === Node.TEXT_NODE) return editableText(node.textContent || "");
     if (!(node instanceof HTMLElement)) return "";
     if (node.dataset.mentionTrailingLine) return "";
     const token = node.dataset.mentionToken;
@@ -229,7 +233,7 @@ export function getEditableSelection(root: HTMLElement | null): EditableSelectio
 
 export function offsetForPoint(root: Node, target: Node, targetOffset: number): number {
     if (root === target) {
-        if (root.nodeType === Node.TEXT_NODE) return targetOffset;
+        if (root.nodeType === Node.TEXT_NODE) return editableText((root.textContent || "").slice(0, targetOffset)).length;
         return Array.from(root.childNodes)
             .slice(0, targetOffset)
             .reduce((offset, node) => offset + plainTextLength(node), 0);
@@ -258,7 +262,15 @@ export function setEditableSelection(root: HTMLElement, offset: number, endOffse
 }
 
 export function pointForOffset(root: Node, offset: number): { node: Node; offset: number } {
-    if (root.nodeType === Node.TEXT_NODE) return { node: root, offset: Math.min(offset, root.textContent?.length || 0) };
+    if (root.nodeType === Node.TEXT_NODE) {
+        const text = root.textContent || "";
+        let rawOffset = 0, remaining = offset;
+        while (rawOffset < text.length && (remaining > 0 || text[rawOffset] === CARET_ANCHOR)) {
+            if (text[rawOffset] !== CARET_ANCHOR) remaining--;
+            rawOffset++;
+        }
+        return { node: root, offset: rawOffset };
+    }
     let remaining = offset;
     const children = Array.from(root.childNodes);
     for (let index = 0; index < children.length; index += 1) {
@@ -275,7 +287,7 @@ export function pointForOffset(root: Node, offset: number): { node: Node; offset
 }
 
 export function plainTextLength(node: Node): number {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length || 0;
+    if (node.nodeType === Node.TEXT_NODE) return editableText(node.textContent || "").length;
     if (node instanceof HTMLElement) {
         if (node.dataset.mentionTrailingLine) return 0;
         const token = node.dataset.mentionToken;

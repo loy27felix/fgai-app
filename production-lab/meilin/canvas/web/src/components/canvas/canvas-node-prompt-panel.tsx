@@ -1,3 +1,4 @@
+import { clampGenerationCount, useGenerationBatchLimit } from "@/lib/generation-batch-limit";
 import { Button, InputNumber } from "antd";
 import { AppModal } from "@/components/ui/product/app-modal/app-modal";
 import { Tooltip } from "@/components/ui/base/tooltip";
@@ -29,7 +30,6 @@ import { CanvasVideoPromptTools } from "./canvas-video-prompt-tools";
 import { CanvasPresetPicker, type CanvasPromptPreset } from "./canvas-preset-picker";
 import { appendComposerPrompt } from "./canvas-composer-references";
 import { FGSkillControl } from "@/components/fg-skill-control";
-import { FGCanvasMusic } from "./fg-canvas-music";
 import { CanvasNineGridPicker } from "./canvas-nine-grid-picker";
 import { getNineGridMenuItems } from "./canvas-image-toolbar-tools";
 import { CanvasChooseImageStylePicker } from "./canvas-choose-image-style-picker";
@@ -218,7 +218,8 @@ export function CanvasNodePromptPanel({
         if (!promptOptimizerEnabled || !promptOptimizerInstallation || !promptOptimizerPlugin.createPromptOptimizer) return null;
         return promptOptimizerPlugin.createPromptOptimizer(createPluginHostContext(promptOptimizerPlugin, promptOptimizerInstallation, globalConfig));
     }, [globalConfig, promptOptimizerEnabled, promptOptimizerInstallation]);
-    const generationCount = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
+    const batchLimit = useGenerationBatchLimit();
+    const generationCount = clampGenerationCount(config.count, batchLimit);
     const priceChannel = resolveModelChannel(config, config.model);
     const configuredCredits = requestCreditCost({
         channelMode: priceChannel.scope === "system" ? "remote" : "local",
@@ -233,7 +234,7 @@ export function CanvasNodePromptPanel({
     const quoteRequest = modelQuoteRequest(config, config.model, mode, resolvedRequirements);
     const quoteRequestKey = JSON.stringify(quoteRequest || null);
     const [routeQuote, setRouteQuote] = useState<LogicalModelQuote | null>(null);
-    const credits = routeQuote ? routeQuote.amountMicrocredits / 1_000_000 : configuredCredits;
+    const credits = routeQuote ? (routeQuote.amountMicrocredits / 1_000_000) * (mode === "image" ? generationCount : 1) : configuredCredits;
     const activeReferenceCount = activeReferences.length;
     const videoFrameOptions = resolvedMentionReferences.filter((item) => item.active && item.kind === "image").map((item) => ({ nodeId: item.nodeId, label: item.label, title: item.title, previewUrl: item.previewUrl }));
     const hasVideoPromptTools = mode === "video" && !simpleMode && videoFrameOptions.length > 0;
@@ -602,7 +603,7 @@ export function CanvasNodePromptPanel({
                         // 图片模式下，显示相机配置与镜头配置
                         <>
                             <CanvasCameraControlPopover cameraControl={node.metadata?.cameraControl} onCameraControlChange={(options) => onConfigChange(node.id, { cameraControl: options })} theme={theme} compact={!expanded} />
-                            <CanvasImageSettingsPopover
+                            <CanvasImageSettingsPopover countLimit={batchLimit}
                                 config={config}
                                 placement={expanded ? "topRight" : "topLeft"}
                                 buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3"
@@ -621,7 +622,6 @@ export function CanvasNodePromptPanel({
                         />
                     ) : mode === "audio" ? (
                         <>
-                            <FGCanvasMusic prompt={prompt} jobId={node.metadata?.fgMusicJobId} onChange={(patch) => onConfigChange(node.id, patch)} />
                             <CanvasAudioSettingsPopover config={config} buttonClassName="canvas-node-composer-settings-trigger [&>span]:min-w-0 [&_.lucide]:!size-3" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
                         </>
                     ) : null}
@@ -722,7 +722,7 @@ export function CanvasNodePromptPanel({
                 ) : null}
 
                 {renderComposerControls(false)}
-                <FGPricePreview config={config} model={config.model} mode={mode} requirements={resolvedRequirements} />
+                <FGPricePreview config={config} model={config.model} mode={mode} requirements={resolvedRequirements} taskCount={generationCount} />
 
                 <AppModal stablePromptEditor
                     className="canvas-prompt-editor-modal"
@@ -763,7 +763,7 @@ export function CanvasNodePromptPanel({
                                 </div>
                             ) : null}
                             <div className="shrink-0">{renderComposerControls(true)}</div>
-                            <FGPricePreview config={config} model={config.model} mode={mode} requirements={resolvedRequirements} />
+                            <FGPricePreview config={config} model={config.model} mode={mode} requirements={resolvedRequirements} taskCount={generationCount} />
                         </div>
                         <PromptModalResizeHandle size={expandedModalSize} measure={measureExpandedModalSize} onResize={setExpandedModalSize} accent={theme.node.muted} />
                     </div>

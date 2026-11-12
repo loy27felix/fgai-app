@@ -384,6 +384,39 @@ func TestDramaTailFailureRetriesPaidOutputWithoutNewGeneration(t *testing.T) {
 	}
 }
 
+func TestDramaReprocessAdoptedVideoWithoutNewGeneration(t *testing.T) {
+	svc, fake := newDramaTestService(t)
+	project := createTestDrama(t, svc, DramaReviewAuto).Project.ID
+	runDramaTicks(t, svc, project, 24)
+	summary, err := svc.DramaSummary("usr-drama", project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	episodeID := summary.Episodes[0].ID
+	segs, err := svc.repo.DramaSegments(episodeID)
+	if err != nil || len(segs) == 0 || segs[0].VideoResourceID == "" {
+		t.Fatalf("expected original video: %v", err)
+	}
+	segment := segs[0]
+	if _, err := svc.repo.UpdateDramaSegmentRevision(segment.ID, segment.Revision, map[string]any{
+		"video_status": model.DramaMediaFailed, "tail_frame_resource_id": "", "video_error": "采用的视频处理失败：抽取尾帧失败",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := len(fake.requests)
+	result, err := svc.ReprocessDramaSegmentVideo("usr-drama", project, episodeID, segment.SegmentIndex)
+	if err != nil || result["reprocessing"] != false {
+		t.Fatalf("reprocess=%v %v", result, err)
+	}
+	saved, err := svc.repo.DramaSegment(project, segment.ID)
+	if err != nil || saved.VideoStatus != model.DramaMediaReady || saved.VideoResourceID != segment.VideoResourceID || saved.TailFrameResourceID == "" {
+		t.Fatalf("saved=%+v %v", saved, err)
+	}
+	if len(fake.requests) != before {
+		t.Fatal("reprocessing submitted generation")
+	}
+}
+
 func TestDramaBudgetPausesDispatch(t *testing.T) {
 	svc, fake := newDramaTestService(t)
 	project := createTestDrama(t, svc, DramaReviewAuto).Project.ID

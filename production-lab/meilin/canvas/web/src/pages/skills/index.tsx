@@ -5,7 +5,7 @@ import { Tooltip } from "@/components/ui/base/tooltip";
 
 import { Boxes, Check, ChevronDown, ChevronRight, Clapperboard, FolderInput, FolderPlus, Globe2, Heart, Library, LoaderCircle, Lock, Megaphone, MoreHorizontal, Palette, Pencil, Plus, Puzzle, Search, ShoppingBag, Sparkles, Trash2, UserRound, Users, Info, LayoutGrid, Store } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
@@ -13,14 +13,14 @@ import { WorkspaceErrorState, WorkspaceState } from "@/components/layout/workspa
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { fallbackSkillCategories, formatSkillCount, skillAccent, skillCategoryLabel, skillGlyph } from "@/pages/skills/skill-catalog";
-import { SkillDetailModal } from "@/pages/skills/skill-detail-drawer";
-import { SkillEditorDrawer } from "@/pages/skills/skill-editor-drawer";
-import { SkillInstallModal } from "@/pages/skills/skill-install-modal";
 import { addSkill, createSkillLibraryCategory, deleteSkill, deleteSkillLibraryCategory, getSkill, likeSkill, listSkillLibraryCategories, listSkills, removeSkill, setSkillLibraryCategory, syncSkill, unlikeSkill, type Skill, type SkillCategory, type SkillLibraryCategory, type SkillLibraryCategoryList, type SkillScope, type SkillSort } from "@/services/api/skills";
 import { useUserStore } from "@/stores/use-user-store";
 import { Select } from "@/components/ui/base/select";
 import { useSkillCuration, curationQuery, curationIcon, effectiveCurationRoot } from "@/components/skills/skill-curation-browser";
-import { SkillRecommendationsModal } from "@/components/skills/skill-recommendations-modal";
+const SkillDetailModal = lazy(() => import("@/pages/skills/skill-detail-drawer").then((module) => ({ default: module.SkillDetailModal })));
+const SkillEditorDrawer = lazy(() => import("@/pages/skills/skill-editor-drawer").then((module) => ({ default: module.SkillEditorDrawer })));
+const SkillInstallModal = lazy(() => import("@/pages/skills/skill-install-modal").then((module) => ({ default: module.SkillInstallModal })));
+const SkillRecommendationsModal = lazy(() => import("@/components/skills/skill-recommendations-modal").then((module) => ({ default: module.SkillRecommendationsModal })));
 
 const scopeOptions: { label: string; value: SkillScope; icon: LucideIcon }[] = [
     { label: "技能广场", value: "public", icon: Store },
@@ -551,10 +551,12 @@ export default function SkillsPage() {
                     </div>
                 </div>
             </AppModal>
-            <SkillDetailModal skill={activeSkill} loading={detailLoading} mutating={Boolean(activeSkill && mutatingID === activeSkill.skillId)} categories={categories} onClose={() => setActiveSkill(null)} onAdd={(skill) => void toggleAdded(skill)} onLike={(skill) => void toggleLiked(skill)} onEdit={(skill) => void openEditor(skill)} onOpenWorkbench={openWorkbench} onSync={(skill) => void synchronizeSkill(skill)} />
-            <SkillInstallModal open={installOpen} onClose={() => setInstallOpen(false)} onInstalled={(skill) => { setInstallOpen(false); setActiveSkill(skill); reload(); }} onManualCreate={() => { setInstallOpen(false); void openEditor(); }} />
-            <SkillRecommendationsModal open={recommendationsOpen} onClose={() => setRecommendationsOpen(false)} onInstalled={(installed) => { if (installed.length) { reload(); refreshCounts(); } }} />
-            <SkillEditorDrawer open={editorOpen} skill={editingSkill} onClose={() => setEditorOpen(false)} onSaved={(skill) => { setEditorOpen(false); setEditingSkill(null); setActiveSkill(skill); reload(); }} />
+            <Suspense fallback={null}>
+                {(activeSkill || detailLoading) && <SkillDetailModal skill={activeSkill} loading={detailLoading} mutating={Boolean(activeSkill && mutatingID === activeSkill.skillId)} categories={categories} onClose={() => setActiveSkill(null)} onAdd={(skill) => void toggleAdded(skill)} onLike={(skill) => void toggleLiked(skill)} onEdit={(skill) => void openEditor(skill)} onOpenWorkbench={openWorkbench} onSync={(skill) => void synchronizeSkill(skill)} />}
+                {installOpen && <SkillInstallModal open onClose={() => setInstallOpen(false)} onInstalled={(skill) => { setInstallOpen(false); setActiveSkill(skill); reload(); }} onManualCreate={() => { setInstallOpen(false); void openEditor(); }} />}
+                {recommendationsOpen && <SkillRecommendationsModal open onClose={() => setRecommendationsOpen(false)} onInstalled={(installed) => { if (installed.length) { reload(); refreshCounts(); } }} />}
+                {editorOpen && <SkillEditorDrawer open skill={editingSkill} onClose={() => setEditorOpen(false)} onSaved={(skill) => { setEditorOpen(false); setEditingSkill(null); setActiveSkill(skill); reload(); }} />}
+            </Suspense>
         </>
     );
 }

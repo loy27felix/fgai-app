@@ -7,6 +7,8 @@ import { composeDocumentTitle } from "@/lib/document-title";
 import { applySkinTheme, DEFAULT_CLASSIC_SKIN, normalizeSkinDefinition } from "@/lib/skin-themes";
 import { applyThemeBrandVariables, applyThemePackCanvas } from "@/themes/apply";
 import { useDocumentTitleStore } from "@/stores/use-document-title-store";
+import { usePersonalAppearanceStore } from "@/stores/use-personal-appearance-store";
+import { themePackFor } from "@/themes/registry";
 
 export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
     updates: DEFAULT_UPDATE_ANNOUNCEMENT,
@@ -41,15 +43,31 @@ export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
 
 type AppearanceStore = {
     appearance: PublicAppearance;
+    siteAppearance: PublicAppearance;
     resolved: boolean;
     setAppearance: (appearance: PublicAppearance) => void;
 };
 
 export const useAppearanceStore = create<AppearanceStore>((set) => ({
     appearance: DEFAULT_PUBLIC_APPEARANCE,
+    siteAppearance: DEFAULT_PUBLIC_APPEARANCE,
     resolved: false,
-    setAppearance: (appearance) => set({ appearance, resolved: true }),
+    setAppearance: (appearance) => set({ siteAppearance: appearance, appearance: personalAppearanceFor(appearance), resolved: true }),
 }));
+
+function personalAppearanceFor(site: PublicAppearance): PublicAppearance {
+    const skinId = usePersonalAppearanceStore.getState().value?.skinId;
+    if (!skinId || skinId === "site") return site;
+    const activeSkin = skinId === "classic" ? DEFAULT_CLASSIC_SKIN : themePackFor(skinId)?.skin;
+    return activeSkin ? { ...site, skinId, activeSkin } : site;
+}
+
+usePersonalAppearanceStore.subscribe(() => {
+    const state = useAppearanceStore.getState();
+    const appearance = personalAppearanceFor(state.siteAppearance);
+    applyThemePackCanvas(appearance.skinId);
+    useAppearanceStore.setState({ appearance });
+});
 
 /** 标签页标题 =（后台提醒）+ 页面名称 + 品牌；没有页面名称时用 SEO 标题。 */
 function documentTitleFor(appearance: PublicAppearance) {
@@ -120,10 +138,11 @@ function normalizeAppearanceCopy(value: unknown, fallback: string, allowEmpty = 
 
 export function commitPublicAppearance(value?: Partial<PublicAppearance> | null) {
     const appearance = normalizePublicAppearance(value);
-    applyThemePackCanvas(appearance.activeSkin.id);
+    const effective = personalAppearanceFor(appearance);
+    applyThemePackCanvas(effective.activeSkin.id);
     applyThemeBrandVariables(appearance.brandName);
     useAppearanceStore.getState().setAppearance(appearance);
-    applySkinTheme(appearance.activeSkin, typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light");
+    applySkinTheme(effective.activeSkin, typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light");
     applyAppearanceMetadata(appearance);
     return appearance;
 }

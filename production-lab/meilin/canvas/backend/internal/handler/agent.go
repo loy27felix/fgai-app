@@ -18,6 +18,38 @@ import (
 
 // Agent orchestration is durable; the browser stream never drives execution.
 func RegisterAgentRoutes(r *gin.RouterGroup, svc *service.Service) {
+	r.GET("/me/appearance", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		value, err := svc.PersonalAppearance(user.ID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, value)
+	})
+	r.PUT("/me/appearance", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2048)
+		var value service.PersonalAppearance
+		if err := c.ShouldBindJSON(&value); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		value, err = svc.UpdatePersonalAppearance(user.ID, value)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, value)
+	})
 	r.GET("/agent/companion", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

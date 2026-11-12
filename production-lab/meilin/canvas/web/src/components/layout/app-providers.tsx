@@ -22,6 +22,8 @@ import { applyAppearanceMetadata, useAppearanceStore } from "@/stores/use-appear
 import { useUserStore } from "@/stores/use-user-store";
 import { useLocaleStore } from "@/stores/use-locale-store";
 import { refreshPublicAppearance } from "@/services/appearance-bootstrap";
+import { PersonalAppearanceSync } from "./personal-appearance-sync";
+import "@/styles/personal-appearance.css";
 
 const ClientRootInit = lazy(() => import("@/components/layout/client-root-init").then((module) => ({ default: module.ClientRootInit })));
 const antLocales = { "zh-CN": zhCN, "en-US": enUS, "fr-FR": frFR, "de-DE": deDE, "ja-JP": jaJP, "ko-KR": koKR };
@@ -76,6 +78,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         // 两个汉字的按钮（取消、确定）不再被 antd 拉开字距，与其他按钮的文字节奏一致。
         <ConfigProvider locale={antLocales[locale]} theme={getAntThemeConfig(dark, appearance.activeSkin)} wave={{ disabled: true }} button={{ autoInsertSpace: false }}>
             <AppFeedbackProvider>
+                <PersonalAppearanceSync />
                 <QueryClientProvider client={appQueryClient}>
                     {isolateDevRepro ? (
                         children

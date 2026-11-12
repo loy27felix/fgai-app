@@ -21,7 +21,6 @@ import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store"
 import { WorkspaceAccountCard } from "./workspace-account-card";
 import { WorkspaceSidebarCheckin } from "./workspace-sidebar-checkin";
 import { WorkspaceSidebarStorageMeter } from "./workspace-sidebar-storage-meter";
-import { WorkspaceSidebarHistory } from "./workspace-sidebar-history";
 import { openWorkspaceWallet } from "@/lib/workspace-wallet";
 
 export type WorkspaceNavItem = {
@@ -429,7 +428,6 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
                     {groups.map((group, index) => (
                         <NavGroup key={index} group={group} activeId={activeId} onNavigate={onNavigate} onOpenSearch={onOpenSearch} onLogout={() => void handleLogout()} collapsed={collapsed} />
                     ))}
-                    {!collapsed && user && !publicDemo ? <WorkspaceSidebarHistory key={user.id} userId={user.id} onNavigate={onNavigate} /> : null}
                 </div>
             </LayoutGroup>
 

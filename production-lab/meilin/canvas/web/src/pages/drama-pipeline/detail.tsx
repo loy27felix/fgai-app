@@ -208,9 +208,9 @@ export default function DramaStudioPage() {
     });
     const reprocessSegment = useMutation({
         mutationFn: (segmentIndex: number) => reprocessDramaSegmentVideo(projectId, episodeId, segmentIndex),
-        onSuccess: (_, segmentIndex) => {
+        onSuccess: (result, segmentIndex) => {
             invalidate(episodeId);
-            message.success(`正在重新处理第 ${segmentIndex + 1} 段视频`);
+            message.success(result.reprocessing ? `正在重新处理第 ${segmentIndex + 1} 段视频` : `第 ${segmentIndex + 1} 段视频已重新处理`);
         },
         onError: (error) => {
             invalidate(episodeId);

@@ -292,7 +292,7 @@ export default function FeatureAvailabilityPanel() {
                     {[
                         ["超级创作 / 超级自由画布", "模型选择来自系统渠道或前台模型目录"],
                         ["超级灵感库", "来源同步与公司登录"],
-                        ["音频设置区", "公司音频服务配置；Suno 另需完成生成验证"],
+                        ["音频设置区", "公司音频服务配置"],
                     ].map(([name, scope]) => (
                         <article key={name}>
                             <strong>{name}</strong>

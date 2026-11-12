@@ -1,3 +1,4 @@
+import { clampGenerationCount } from "@/lib/generation-batch-limit";
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import {fgModelName} from './fg-model-names';
@@ -367,7 +368,7 @@ export function resolveModelGenerationDefaults(
             },
             cost?.protocol,
         );
-        return normalized;
+        return { ...normalized, count: String(clampGenerationCount(source("count") ?? normalized.count)) };
     }
 
     if (capability === "video" && profile.video) {

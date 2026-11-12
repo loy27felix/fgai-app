@@ -838,6 +838,7 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 	}
 	for i := range detail.Segments {
 		view := &detail.Segments[i]
+		view.VideoReprocessable = adoptedDramaVideoNeedsReprocessing(view.VideoStatus, view.VideoResourceID, view.VideoError)
 		for _, job := range jobs {
 			if job.ShotID != view.ID {
 				continue
@@ -848,7 +849,7 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 			}
 			if job.Kind == model.DramaJobSegmentVideo && view.VideoJob == nil {
 				view.VideoJob = &j
-				view.VideoReprocessable = view.VideoStatus == model.DramaMediaFailed && view.VideoResourceID != "" && dramaVideoJobReplayable(job)
+				view.VideoReprocessable = view.VideoReprocessable || (view.VideoStatus == model.DramaMediaFailed && view.VideoResourceID != "" && dramaVideoJobReplayable(job))
 			}
 		}
 	}

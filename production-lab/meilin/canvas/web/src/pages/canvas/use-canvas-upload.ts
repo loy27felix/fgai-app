@@ -20,7 +20,7 @@ import { uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { prepareCanvasImage } from "@/services/canvas-image-loader";
 import { registerUploadPreview, releaseUploadPreview } from "@/services/canvas-upload-preview";
-import { peekCachedResourceObjectUrl } from "@/services/resource-blob-cache";
+import { acquireCachedResourceObjectUrl } from "@/services/resource-blob-cache";
 import { getProjectUnit } from "@/services/api/projects";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
 import { useAssetStore, type ImageAsset } from "@/stores/use-asset-store";
@@ -78,8 +78,9 @@ function isBatchTableDragEvent(event: DragEvent<HTMLElement>) {
 
 // 切换为正式图片节点前先解码本地原图，节点首帧即可上屏；超时或失败只放弃预热，不影响上传结果。
 async function warmUploadedImage(storageKey?: string) {
-    const url = storageKey ? peekCachedResourceObjectUrl(storageKey) : "";
-    if (!url) return;
+    const lease = storageKey ? acquireCachedResourceObjectUrl(storageKey) : null;
+    if (!lease) return;
+    const url = lease.url;
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), UPLOAD_WARM_TIMEOUT_MS);
     try {
@@ -88,6 +89,7 @@ async function warmUploadedImage(storageKey?: string) {
         // 预热只是体验优化；节点仍会按正常资源加载路径显示。
     } finally {
         window.clearTimeout(timer);
+        lease.release();
     }
 }
 

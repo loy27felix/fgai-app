@@ -1,0 +1,20 @@
+html[data-personal-font="system"] {
+    --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --personal-font: var(--font-sans);
+}
+html[data-personal-font="sans"] {
+    --font-sans: "Inter Variable", "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --personal-font: var(--font-sans);
+}
+html[data-personal-font="serif"] {
+    --font-sans: "Longying Serif", "Songti SC", "STSong", "SimSun", Georgia, serif;
+    --personal-font: var(--font-sans);
+}
+html[data-personal-font]:not([data-personal-font="theme"]) {
+    --font-heading: var(--personal-font);
+    --ink-heading-font: var(--personal-font);
+    --yx-display-font: var(--personal-font);
+}
+html[data-personal-font]:not([data-personal-font="theme"]) :is(body, button, input, textarea, select, .ant-select, .ant-typography, h1, h2, h3, h4, h5, h6) {
+    font-family: var(--personal-font);
+}

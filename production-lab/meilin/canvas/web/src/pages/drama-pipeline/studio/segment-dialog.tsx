@@ -294,7 +294,7 @@ function SegmentToolbar({
             </div>
             <div className="drama-sdx-toolbar-row">
                 <Button size="small" icon={<PenLine className="size-3.5" />} loading={writing} disabled={busy || writingNow} onClick={onWritePrompt}>
-                    {segment.promptStatus === "none" ? "撰写提示词" : "重新撰写提示词"}
+                    {segment.promptStatus === "none" ? "AI 撰写提示词" : "AI 重新撰写"}
                 </Button>
                 <Button
                     size="small"
@@ -570,7 +570,7 @@ function SegmentPrompt({ segment, castById, writing, onSave, onWrite }: { segmen
             <div className="drama-sdx-section-head">
                 <strong>完整视频提示词</strong>
                 {segment.custom ? <span className="drama-sdx-chip is-accent">已手动改写</span> : null}
-                <small>正文里的“参考图N”对应本段参考图；输入 @ 插入参考图，双击引用放大查看</small>
+                <small>点击下方正文可直接手动修改。输入 @ 插入本段参考图，双击引用查看大图。</small>
                 {segment.custom ? (
                     <Button size="small" type="text" icon={<RotateCcw className="size-3.5" />} onClick={() => onSave("")}>
                         恢复模型版本
@@ -683,7 +683,11 @@ function SegmentPrompt({ segment, castById, writing, onSave, onWrite }: { segmen
                 </p>
             ) : null}
             <div className="drama-sd-pane-foot">
-                {dirty ? <span className="is-dirty">未保存 · 失焦或 ⌘↵ 保存，Esc 放弃</span> : <span>直接修改正文，失焦自动保存</span>}
+                {dirty ? (
+                    <Button size="small" onMouseDown={(event) => event.preventDefault()} onClick={commit} disabled={!draft.trim()}>
+                        保存提示词
+                    </Button>
+                ) : <span>修改提示词会自动保存，生成视频需另行提交</span>}
                 <span className={overLimit ? "is-over" : undefined} title="与视频模型校验口径一致：开头的参考图说明 + 正文">
                     发送全文 {sentChars}
                     {request.promptMaxChars ? ` / ${request.promptMaxChars}` : ""} 字

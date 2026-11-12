@@ -3,6 +3,7 @@ import './fg-controls.css';
 import {http} from '@/services/api/request';
 import {modelOptionName,resolveModelChannel,type AiConfig,type ModelCapability} from '@/stores/use-config-store';
 import {modelRequestOptions,resolveVideoOperationForModel,type ModelRequirements} from '@/lib/model-selection';
+import {batchQuoteTotal} from '@/lib/generation-batch-limit';
 export type Quote={model:string;estimatedCny:number|null;estimateKind?:'estimate'|'partial'|'lower_bound';discount:number|null;fx:number;lines:string[];notes:string[];collectedAt:string};
 export function fgQuotePriceLabel(quote: Pick<Quote,'estimatedCny'|'estimateKind'|'lines'>, mode?:ModelCapability){
  const amount=quote.estimatedCny;
@@ -18,8 +19,13 @@ export function fgModelQuoteRequest(config:AiConfig,model:string,mode?:ModelCapa
   inputs:{image:(input?.imageCount||0)+(input?.characterCount||0),video:input?.videoCount||0,audio:input?.audioCount||0},
   options:{...modelRequestOptions(config,mode!),...requirements?.options,...(requirements?.imageSize?{size:requirements.imageSize}:{}),...(requirements?.videoSeconds?{videoSeconds:Number(requirements.videoSeconds)}:{})}}}:null;
 }
-export function FGPricePreview({config,model,mode,requirements,onQuote}:{config:AiConfig;model:string;mode?:ModelCapability;requirements?:ModelRequirements;onQuote?:(quote?:Quote)=>void}){
- const payload=fgModelQuoteRequest(config,model,mode,requirements),enabled=Boolean(payload);
+export function FGPricePreview({config,model,mode,requirements,onQuote,taskCount}:{config:AiConfig;model:string;mode?:ModelCapability;requirements?:ModelRequirements;onQuote?:(quote?:Quote)=>void;taskCount?:number}){
+ const batchCount=mode==='image'?taskCount:undefined;
+ const request=fgModelQuoteRequest(config,model,mode,requirements);
+ const payload=request&&batchCount!==undefined
+     ? {...request,intent:{...request.intent,options:{...request.intent.options,count:1}}}
+     : request;
+ const enabled=Boolean(payload);
  const key=JSON.stringify(payload),[state,setState]=useState<{key:string;quote?:Quote;error?:string}>({key:''});
  useEffect(()=>{
   if(key==='null')return;
@@ -30,6 +36,10 @@ export function FGPricePreview({config,model,mode,requirements,onQuote}:{config:
  },[key]);
  if(!enabled)return null;
  const quote=state.key===key?state.quote:undefined;
- const label=quote?fgQuotePriceLabel(quote,mode):state.key===key&&state.error?'价格待确认':'…';
- return <span role="status" aria-label={`人民币价格 ${label}`} title={quote?[...quote.lines,...quote.notes].join('\n'):undefined} className="fg-price-chip nodrag nopan">{label}</span>;
+ const total=batchCount!==undefined&&quote?.estimatedCny!=null
+     ? {...quote,estimatedCny:batchQuoteTotal(quote.estimatedCny,batchCount)}
+     : quote;
+ const label=total?fgQuotePriceLabel(total,mode):state.key===key&&state.error?'价格待确认':'…';
+ const details=quote?[...(batchCount&&batchCount>1?[`共 ${batchCount} 张，按单张报价合计`]:[]),...quote.lines,...quote.notes]:[];
+ return <span role="status" aria-label={`人民币价格 ${label}`} title={details.length?details.join('\n'):undefined} className="fg-price-chip nodrag nopan">{label}</span>;
 }

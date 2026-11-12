@@ -22,7 +22,7 @@ import { type CanvasTheme } from "@/lib/canvas-theme";
 import { ensureMediaNodeMinimumSize, fitImageMaterialNodeSize, fitImageNodeSize, fitVideoNodeToSource } from "@/lib/canvas/canvas-node-size";
 import { getActiveUserScope } from "@/lib/user-scope";
 import { isCanvasImageActive, prepareCanvasImage, subscribeCanvasImageActivity } from "@/services/canvas-image-loader";
-import { peekCachedResourceObjectUrl } from "@/services/resource-blob-cache";
+import { useCachedResourceUrl } from "@/hooks/use-cached-resource-url";
 import { getResourceAccess, refreshResource, resourceIdFromStorageKey, resolveResourceAccessURL } from "@/services/api/resources";
 import type { CanvasNodeContentProps } from "./canvas-node-content";
 import { ErrorContent, LoadingContent } from "./canvas-node-status-content";
@@ -803,7 +803,7 @@ export function useNodeResourceUrl(node: CanvasNodeData, eager: boolean, variant
     const isHttpUrl = Boolean(fallback && !fallback.startsWith("data:"));
     // 本会话刚上传的图片已在内存里有 Blob URL（primeResourceBlobCache），直接上屏，
     // 不必再请求访问地址并把原图从服务器完整下载一遍。只用于图片：音视频播放仍走播放副本合同。
-    const sessionBlobUrl = eager && isRemoteResource && isLazyVisual ? peekCachedResourceObjectUrl(storageKey) : "";
+    const sessionBlobUrl = useCachedResourceUrl(isRemoteResource && isLazyVisual ? storageKey : undefined, eager);
     const initialUrl = sessionBlobUrl || (eager && !isRemoteResource && isLazyVisual && isHttpUrl ? fallback : isRemoteResource || isLazyVisual ? "" : fallback);
     const scope = getActiveUserScope();
     const identity = `${scope}:${node.id}:${storageKey || fallback}`;
@@ -819,7 +819,7 @@ export function useNodeResourceUrl(node: CanvasNodeData, eager: boolean, variant
             setResolved({ identity, url: "", loading: false });
             return;
         }
-        const localUrl = isLazyVisual ? peekCachedResourceObjectUrl(storageKey) : "";
+        const localUrl = sessionBlobUrl;
         if (localUrl) {
             setResolved({ identity, url: localUrl, loading: false });
             return;
@@ -837,7 +837,7 @@ export function useNodeResourceUrl(node: CanvasNodeData, eager: boolean, variant
         return () => {
             cancelled = true;
         };
-    }, [eager, fallback, identity, isLazyVisual, isRemoteResource, storageKey, variant]);
+    }, [eager, fallback, identity, isLazyVisual, isRemoteResource, storageKey, variant, sessionBlobUrl]);
 
     const isThumbnail = variant === "thumbnail";
     return { url: current.url, loading: current.loading, failed: Boolean(current.failed), originalWidth: isThumbnail ? current.originalWidth : undefined, originalHeight: isThumbnail ? current.originalHeight : undefined };

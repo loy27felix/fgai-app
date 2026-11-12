@@ -1193,6 +1193,14 @@ func (r *Repository) SetDramaSegmentTail(id string, revision int64, videoResourc
 	return result.RowsAffected > 0, result.Error
 }
 
+func (r *Repository) UpdateDramaSegmentTailFacts(segment model.DramaSegment, fields map[string]any) (bool, error) {
+	fields["updated_at"] = time.Now()
+	result := r.db.Model(&model.DramaSegment{}).
+		Where("id = ? AND revision = ? AND video_resource_id = ? AND tail_frame_resource_id = '' AND video_status = ?", segment.ID, segment.Revision, segment.VideoResourceID, segment.VideoStatus).
+		Updates(fields)
+	return result.RowsAffected > 0, result.Error
+}
+
 // markLaterSegmentsStale returns whether later segments depend on the edited
 // segment. Independent videos keep their revisions and in-flight result slots.
 func markLaterSegmentsStale(tx *gorm.DB, episodeID string, index int) (bool, error) {

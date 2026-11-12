@@ -1,3 +1,4 @@
+import { clampGenerationCount } from "@/lib/generation-batch-limit";
 import { isThinkingLevel, LEGACY_TEXT_THINKING_CONFIG, resolveThinkingLevel, thinkingLevelsFor, type ThinkingRequest } from "@/lib/text-thinking";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Spin } from "antd";
@@ -20,7 +21,12 @@ import { inferVideoOperation, modelGroupReferenceLimits, resolveCompatibleModel,
 import type { BackendGenerationResult } from "@/services/api/generation-task";
 import type { Skill } from "@/services/api/skills";
 import type { GenerationTask } from "@/services/api/task-center";
-import { loadCreationConversations, pendingCreationTaskIds, removeCreationConversationSnapshot, saveCreationConversations, updateCreationConversationSnapshot } from "@/services/creation-conversation-store";
+import { loadCreationConversations, pendingCreationTaskIds, removeCreationConversationSnapshot, updateCreationConversationSnapshot } from "@/services/creation-conversation-store";
+import { localForageStorageForScope } from "@/lib/localforage-storage";
+import { creationHistoryAPI } from "@/services/api/creation-history";
+import { creationHistoryMedia, restoreHistoryMedia } from "@/services/creation-history-media";
+import { CreationHistorySync, CREATION_HISTORY_SYNC_KEY, type HistorySyncStatus } from "@/services/creation-history-sync";
+import { CreationHistoryConflicts } from "./creation-history-conflicts";
 import { resolveModelChannel, resolveModelRequestConfig, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
@@ -154,6 +160,12 @@ export default function CreatePage() {
     const [activeId, setActiveId] = useState("");
     const activeIdRef = useRef("");
     const [hydrated, setHydrated] = useState(false);
+    const [conversationStorageError, setConversationStorageError] = useState("");
+    const [conversationLoadAttempt, setConversationLoadAttempt] = useState(0);
+    const [historySync, setHistorySync] = useState<HistorySyncStatus>({ phase: "local" });
+    const historySessionRef = useRef<CreationHistorySync | null>(null);
+    const historyTimerRef = useRef<number | null>(null);
+    const remoteHistorySnapshots = useRef(new WeakSet<CreationConversation[]>());
     const userId = useUserStore((state) => state.user?.id || null);
     const userSessionHydrated = useUserStore((state) => state.hydrated);
     const inspirationSourcesVisible = useUserStore((state) => state.features.inspirationSourcesVisible);
@@ -174,7 +186,7 @@ export default function CreatePage() {
     const [imageResolution, setImageResolution] = useState("auto");
     const [imageParameters, setImageParameters] = useState("{}");
     const [videoQuality, setVideoQuality] = useState(config.vquality || "720");
-    const [count, setCount] = useState(String(Math.max(1, Math.min(4, Number(config.count) || 1))));
+    const [count, setCount] = useState(String(clampGenerationCount(config.count)));
     const [textStreaming, setTextStreaming] = useState(() => readComposerPref(TEXT_STREAMING_PREF_KEY, true));
     const [textThinkingRequest, setTextThinkingLevel] = useState<ThinkingRequest>(() => {
         try {
@@ -239,11 +251,11 @@ export default function CreatePage() {
             imageSize: mode === "image" ? ratio : undefined,
             options:
                 mode === "image"
-                    ? (imageParameterRequest(modelCapabilityConfigFor(config, preferredModel).image!, { ...config, size: ratio, imageResolution, quality, count, imageParameters }) ?? {
+                    ? (imageParameterRequest(modelCapabilityConfigFor(config, preferredModel).image!, { ...config, size: ratio, imageResolution, quality, count: "1", imageParameters }) ?? {
                           size: ratio,
                           imageResolution,
                           quality,
-                          count: Number(count),
+                          count: 1,
                           transparentBackground: config.transparentBackground === "true",
                       })
                     : mode === "video"
@@ -330,7 +342,7 @@ export default function CreatePage() {
         setQuality(normalized.quality);
         setImageResolution(normalized.imageResolution || imageProfile.resolution.default);
         setImageParameters(JSON.stringify(normalizeImageParameters(imageProfile.parameters, saved?.model === selectedModel ? saved.imageParameters : undefined)));
-        setCount(normalized.count);
+        setCount(String(clampGenerationCount(saved?.count || count)));
     }, [composerPreferencesHydrated, composerPreferencesInitialized, mode, selectedModel, imageProfile]);
 
     useEffect(() => {
@@ -356,24 +368,83 @@ export default function CreatePage() {
 
     useEffect(() => {
         if (!userSessionHydrated) return;
-        let cancelled = false;
         const scope = getActiveUserScope();
-        setHydrated(false);
+        const controller = new AbortController();
+        const active = () => !controller.signal.aborted && getActiveUserScope() === scope && (useUserStore.getState().user?.id || null) === userId;
+        const storage = localForageStorageForScope(scope);
+        let loaded = false;
         setConversationScope(null);
-        void loadCreationConversations<CreationConversation>().then((stored) => {
-            if (cancelled || getActiveUserScope() !== scope || (useUserStore.getState().user?.id || null) !== userId) return;
-            const next = stored?.length ? stored : [newConversation()];
+        setHistorySync({ phase: "local" });
+        setConversationStorageError("");
+        setHydrated(false);
+        const display = (items: CreationConversation[]) => {
+            if (!active()) return;
+            const next = items.length ? items.map((item) => ({ ...item, messages: item.messages.map(restoreHistoryMedia) })) : [newConversation()];
+            remoteHistorySnapshots.current.add(next);
             conversationsRef.current = next;
             setConversations(next);
-            setActiveId(next[0].id);
+            setActiveId((current) => (next.some((item) => item.id === current) ? current : next[0].id));
             setConversationScope(scope);
-            setHydrated(true);
-        });
-        return () => {
-            cancelled = true;
-            // 页面卸载只停止当前页面的状态更新，后台任务由任务中心继续执行，返回页面后再恢复状态。
         };
-    }, [userId, userSessionHydrated]);
+        const session = new CreationHistorySync({
+            read: async () => await storage.getItem(CREATION_HISTORY_SYNC_KEY),
+            readLegacy: () => loadCreationConversations<CreationConversation>(scope),
+            write: async (value) => {
+                await storage.setItem(CREATION_HISTORY_SYNC_KEY, value);
+            },
+            api: creationHistoryAPI(scope, controller.signal),
+            prepare: creationHistoryMedia(scope, controller.signal, active),
+            cloud: Boolean(userId),
+            active,
+            onChange: display,
+            onStatus: (status) => {
+                if (active()) setHistorySync(status);
+            },
+        });
+        historySessionRef.current = session;
+        void session
+            .load()
+            .then((items) => {
+                if (!active()) return;
+                display(items);
+                loaded = true;
+                setHydrated(true);
+                void session.sync();
+            })
+            .catch((error: unknown) => {
+                if (active()) setConversationStorageError(error instanceof Error ? error.message : "读取本地创作记录失败");
+            });
+        const refresh = () => {
+            if (loaded && active() && document.visibilityState !== "hidden") void session.sync();
+        };
+        window.addEventListener("online", refresh);
+        window.addEventListener("focus", refresh);
+        document.addEventListener("visibilitychange", refresh);
+        const poll = window.setInterval(refresh, 15000);
+        return () => {
+            controller.abort();
+            session.dispose();
+            if (historySessionRef.current === session) historySessionRef.current = null;
+            if (historyTimerRef.current) window.clearTimeout(historyTimerRef.current);
+            historyTimerRef.current = null;
+            window.clearInterval(poll);
+            window.removeEventListener("online", refresh);
+            window.removeEventListener("focus", refresh);
+            document.removeEventListener("visibilitychange", refresh);
+        };
+    }, [userId, userSessionHydrated, conversationLoadAttempt]);
+
+    const saveConversationHistory = useCallback(async (items: CreationConversation[]) => {
+        const session = historySessionRef.current;
+        if (!session) throw new Error("创作历史尚未就绪");
+        await session.save(items);
+        if (session !== historySessionRef.current) return;
+        if (!historyTimerRef.current)
+            historyTimerRef.current = window.setTimeout(() => {
+                historyTimerRef.current = null;
+                if (session === historySessionRef.current) void session.sync();
+            }, 700);
+    }, []);
 
     useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -383,8 +454,12 @@ export default function CreatePage() {
 
     useEffect(() => {
         conversationsRef.current = conversations;
-        if (hydrated && userSessionHydrated && conversationScope === getActiveUserScope()) void saveCreationConversations(conversations);
-    }, [conversations, conversationScope, hydrated, userSessionHydrated]);
+        if (!userSessionHydrated || !hydrated || conversationScope !== getActiveUserScope()) return;
+        if (remoteHistorySnapshots.current.has(conversations)) return;
+        void saveConversationHistory(conversations).catch((error) => {
+            setHistorySync({ phase: "error", message: error instanceof Error ? error.message : "本地缓存写入失败" });
+        });
+    }, [conversations, conversationScope, hydrated, userSessionHydrated, saveConversationHistory]);
 
     useEffect(
         () => () => {
@@ -429,8 +504,8 @@ export default function CreatePage() {
         }));
         conversationsRef.current = next;
         setConversations(next);
-        await saveCreationConversations(next);
-    }, []);
+        await saveConversationHistory(next);
+    }, [saveConversationHistory]);
 
     /**
      * 把后端任务快照接回创作消息：成功的任务先资源化再挂到对应消息上。
@@ -438,9 +513,13 @@ export default function CreatePage() {
      */
     const applyCreationTaskSnapshots = useCallback(
         async (runtime: CreationRuntime, tasks: GenerationTask[], signal: AbortSignal): Promise<PersistedCreationTask[]> => {
+            const session = historySessionRef.current;
+            const scope = getActiveUserScope();
+            const active = () => !signal.aborted && session !== null && session === historySessionRef.current && scope === getActiveUserScope();
+            if (!active()) return [];
             const contextual = attachCreationTaskContexts(tasks, conversationsRef.current);
             const persistedTasks = await materializeCreationTaskResults(runtime, contextual, signal);
-            if (signal.aborted) return persistedTasks;
+            if (!active()) return persistedTasks;
             const attachable = persistedTasks.filter(
                 (task) => task.status === "succeeded" && Boolean(task.clientContext?.conversationId && task.clientContext.messageId) && Boolean(task.creationResultUrls?.length || task.creationResultStorageKeys?.length),
             );
@@ -452,7 +531,7 @@ export default function CreatePage() {
                         task,
                         messageId,
                         async ({ effectKey, resultUrls, resultStorageKeys }) => {
-                            if (signal.aborted) return;
+                            if (!active()) return;
                             await updateConversationMessage(
                                 conversationId,
                                 messageId,
@@ -1041,7 +1120,7 @@ export default function CreatePage() {
                 if (!result.text?.trim()) throw new Error("后端任务没有返回文本");
                 updateOriginAssistant((item) => ({ ...item, content: result.text || "", reasoning: result.reasoning }));
             } else if (mode === "image") {
-                const taskCount = Math.max(1, Math.min(imageProfile.maxOutputs, Math.floor(Number(count) || 1)));
+                const taskCount = clampGenerationCount(count);
                 const settled = await runtime.runGenerationOperationOnce(retryContext?.clientOperationId, () =>
                     runtime.runBackendGenerationTaskBatch({
                         mode: "image",
@@ -1235,7 +1314,7 @@ export default function CreatePage() {
             const next = updateCreationConversationSnapshot(conversationsRef.current, source.id, (item) => ({ ...item, canvasId: result.id }));
             conversationsRef.current = next;
             setConversations(next);
-            await saveCreationConversations(next);
+            await saveConversationHistory(next);
             if (scope !== getActiveUserScope()) return;
             if (result.syncError) toast.warning("会话已保存在本机，云端同步尚未完成。");
             const params = new URLSearchParams({ conversation: result.sessionId });
@@ -1283,6 +1362,8 @@ export default function CreatePage() {
     };
 
     const confirmDeleteConversation = (conversation: CreationConversation) => {
+        const session = historySessionRef.current;
+        if (!session || !conversationStorageReady) return;
         const title = conversation.title.trim() || "新创作";
         const label = title.length > 32 ? `${title.slice(0, 32)}...` : title;
         modal.confirm({
@@ -1294,11 +1375,14 @@ export default function CreatePage() {
             cancelText: "保留",
             onOk: async () => {
                 try {
+                    if (historySessionRef.current !== session) throw new Error("账号已切换，请重新打开历史记录");
                     const remaining = removeCreationConversationSnapshot(conversationsRef.current, conversation.id);
                     const sortedRemaining = [...remaining].sort((left, right) => conversationTimestamp(right.updatedAt) - conversationTimestamp(left.updatedAt));
                     const fallback = sortedRemaining.find((item) => item.messages.length > 0) || sortedRemaining[0] || newConversation();
                     const next = remaining.length ? remaining : [fallback];
-                    await saveCreationConversations(next);
+                    await session.remove(conversation.id, next);
+                    if (historySessionRef.current !== session) return;
+                    void session.sync();
                     conversationsRef.current = next;
                     setConversations(next);
                     if (activeIdRef.current === conversation.id) {
@@ -1325,7 +1409,7 @@ export default function CreatePage() {
         const next = updateCreationConversationSnapshot(conversationsRef.current, conversation.id, (item) => ({ ...item, title: nextTitle }));
         conversationsRef.current = next;
         setConversations(next);
-        void saveCreationConversations(next).catch((error) => toast.error(error instanceof Error ? error.message : "对话重命名保存失败"));
+        void saveConversationHistory(next).catch((error) => toast.error(error instanceof Error ? error.message : "对话重命名保存失败"));
     };
 
     const restoreMessageDraft = (item: CreationMessage) => {
@@ -1350,7 +1434,11 @@ export default function CreatePage() {
         const previous = item.role === "assistant" ? activeConversation?.messages[index - 1] : item;
         if (!previous?.content || busy) return;
         const retryOf = item.taskIds?.[0];
-        const restoreForRetry = () => {
+        const session = historySessionRef.current;
+        const restoreForRetry = async () => {
+            if (!session || historySessionRef.current !== session || !activeConversation || activeIdRef.current !== activeConversation.id) throw new Error("当前对话已切换");
+            await session.removeMessages(activeConversation.id, [item.id, previous.id]);
+            if (historySessionRef.current !== session || activeIdRef.current !== activeConversation.id) throw new Error("当前对话已切换");
             followLatestMessageRef.current = true;
             restoreMessageDraft(previous);
             const removedIds = new Set([item.id, previous.id]);
@@ -1361,7 +1449,7 @@ export default function CreatePage() {
             });
         };
         if (!retryOf) {
-            restoreForRetry();
+            await restoreForRetry().catch((error: unknown) => toast.error(generationErrorMessage(error)));
             return;
         }
         if (retryPreparingRef.current.has(retryOf)) return;
@@ -1373,7 +1461,7 @@ export default function CreatePage() {
                 ...(await runtime.createGenerationRetryContext(retryOf, attemptGroupId)),
                 ...(item.taskIds && item.taskIds.length > 1 ? { retryContextsByBatchIndex: await runtime.createGenerationBatchRetryContexts(item.taskIds, attemptGroupId) } : {}),
             };
-            restoreForRetry();
+            await restoreForRetry();
             pendingRetryRef.current = { context, lockKey: retryOf };
             setRetrySequence((current) => current + 1);
         } catch (error) {
@@ -1490,6 +1578,18 @@ export default function CreatePage() {
     return (
         <>
             <div className="creation-home relative flex h-full min-h-0 flex-col overflow-hidden">
+                {conversationStorageError ? (
+                    <p role="status" className="mx-auto px-4 py-1 text-xs text-foreground/60">
+                        {conversationStorageError}
+                        <button type="button" className="ml-2 underline" onClick={() => setConversationLoadAttempt((attempt) => attempt + 1)}>{t("create.historySync.retry")}</button>
+                    </p>
+                ) : (historySync.phase === "error" || Boolean(historySync.backupCount)) ? (
+                    <div role="status" className="mx-auto px-4 py-1 text-xs text-foreground/60">
+                        {historySync.message || t(`create.historySync.${historySync.phase}`)}
+                        {historySync.phase === "error" && <button type="button" className="ml-2 underline" onClick={() => void historySessionRef.current?.sync()}>{t("create.historySync.retry")}</button>}
+                        <CreationHistoryConflicts key={activeConversationScope} session={historySessionRef.current} status={historySync} busy={busy} />
+                    </div>
+                ) : null}
                 {isEmpty ? (
                     <>
                         <AnimatePresence>

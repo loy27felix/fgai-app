@@ -493,10 +493,13 @@ func (s *Service) backfillDramaSegmentTail(userID string, segment model.DramaSeg
 		if seconds <= 0 {
 			fields = map[string]any{"video_status": model.DramaMediaFailed, "video_error": "无法读取采用视频的时长，请重新采用或重新生成本段"}
 		} else {
-			fields = map[string]any{"tail_frame_resource_id": facts.TailResourceID, "video_seconds": seconds, "video_error": ""}
+			fields = map[string]any{"tail_frame_resource_id": facts.TailResourceID, "video_seconds": seconds, "video_status": model.DramaMediaReady, "video_error": ""}
 		}
 	}
-	_, err = s.repo.UpdateDramaSegmentRevision(segment.ID, segment.Revision, fields)
+	saved, err := s.repo.UpdateDramaSegmentTailFacts(segment, fields)
+	if err == nil && !saved {
+		return dramaSegmentChangedError()
+	}
 	return err
 }
 

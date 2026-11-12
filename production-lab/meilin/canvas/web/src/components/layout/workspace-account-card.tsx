@@ -52,6 +52,9 @@ export function WorkspaceAccountCard({ onWallet, onNavigate }: { onWallet: () =>
                 </div>
             ) : null}
             <nav className="workspace-account-card-actions" aria-label="账户操作">
+                <Link to="/settings?section=appearance" onClick={onNavigate}>
+                    <Settings /><span>个人外观</span><ArrowUpRight />
+                </Link>
                 <Link to="/my-expenses" onClick={onNavigate}>
                     <Receipt />
                     <span>我的费用</span>

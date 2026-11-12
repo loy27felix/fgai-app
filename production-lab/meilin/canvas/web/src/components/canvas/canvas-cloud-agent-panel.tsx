@@ -351,6 +351,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
     const planTerminal = useMemo(() => latestAgentPlanTerminal(messages), [messages]);
     const planVisible = agentPlanVisible(planItems);
     const mediaBatch = useMemo(() => latestAgentMediaBatch(messages), [messages]);
+    const [dismissedBatch, setDismissedBatch] = useState("");
     const pendingQuestion = useMemo(() => pendingAgentQuestion(messages), [messages]);
     const [scenePresets, setScenePresets] = useState<SkillPreset[]>([]);
     const [presetApplyingId, setPresetApplyingId] = useState("");
@@ -2725,7 +2726,9 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                             onToggle={() => setPlanMinimized((value) => !value)}
                                         />
                                     ) : null}
-                                    {mediaBatch && mediaBatch.phase !== "approval" ? <AgentMediaBatchBar batch={mediaBatch} theme={theme} onFocusNode={onFocusNode} /> : null}
+                                    {mediaBatch && mediaBatch.phase !== "approval" && mediaBatch.batchId !== dismissedBatch ? (
+                                        <AgentMediaBatchBar key={mediaBatch.batchId} batch={mediaBatch} theme={theme} onFocusNode={onFocusNode} onDismiss={mediaBatch.phase === "done" ? () => setDismissedBatch(mediaBatch.batchId) : undefined} />
+                                    ) : null}
                                     {historyHydrated && !messages.some((message) => message.role === "user" || message.role === "assistant") && !run ? (
                                         <AgentSceneCapsules
                                             buckets={sceneBuckets}

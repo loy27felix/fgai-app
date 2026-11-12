@@ -14,6 +14,7 @@ import { applyUserSession } from "@/lib/user-session";
 import { cn } from "@/lib/utils";
 import { logout } from "@/services/api/auth";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { usePersonalThemeToggle } from "@/hooks/use-personal-theme-toggle";
 import { useUserStore, type LocalUser } from "@/stores/use-user-store";
 
 type WorkspaceSidebarFooterProps = {
@@ -25,7 +26,7 @@ type WorkspaceSidebarFooterProps = {
 
 export function WorkspaceSidebarFooter({ expandedClassName, collapsedClassName, accountClassName, showAnnouncement = true }: WorkspaceSidebarFooterProps) {
     const theme = useThemeStore((state) => state.theme);
-    const setTheme = useThemeStore((state) => state.setTheme);
+    const setTheme = usePersonalThemeToggle();
     const user = useUserStore((state) => state.user);
     const hydrated = useUserStore((state) => state.hydrated);
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);

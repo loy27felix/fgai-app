@@ -122,6 +122,7 @@ export function ImageParameterFields({
     showSize = true,
     showQuality = true,
     showTransparent = true,
+    countLimit,
 }: {
     profile: ImageCapabilityConfig;
     config: AiConfig;
@@ -130,6 +131,7 @@ export function ImageParameterFields({
     showSize?: boolean;
     showQuality?: boolean;
     showTransparent?: boolean;
+    countLimit?: number;
 }) {
     const values = imageParameterRequest(profile, config) || {};
     const sizeField = profile.parameters?.find((p) => p.name === "size");
@@ -139,7 +141,7 @@ export function ImageParameterFields({
         (p) =>
             p.enabled !== false &&
             (!groupedSize || (p.name !== "size" && p.name !== "imageResolution")) &&
-            (p.name !== "count" || (showCount && (p.max ?? 1) > 1)) &&
+            (p.name !== "count" || (showCount && (countLimit ?? p.max ?? 1) > 1)) &&
             (p.name !== "size" || showSize) &&
             (p.name !== "quality" || showQuality) &&
             (p.name !== "transparentBackground" || showTransparent),
@@ -160,8 +162,8 @@ export function ImageParameterFields({
             ) : null}
             {fields.map((field) => {
                 if (field.name === "count") {
-                    const max = Number(field.max ?? profile.maxOutputs ?? 15);
-                    const countVal = Number(values.count ?? config.count ?? 1);
+                    const max = Math.min(15, countLimit ?? Number(field.max ?? profile.maxOutputs ?? 15));
+                    const countVal = Math.max(1, Math.min(max, Number(countLimit === undefined ? values.count ?? config.count ?? 1 : config.count) || 1));
                     return (
                         <div className="space-y-2" key="count">
                             <div className="text-xs font-medium">生成张数</div>
@@ -189,7 +191,7 @@ export function ImageParameterFields({
                                     />
                                 ) : null}
                             </div>
-                            {field.description ? <p className="text-xs leading-relaxed text-foreground/55">{field.description}</p> : null}
+                            {field.description && countLimit === undefined ? <p className="text-xs leading-relaxed text-foreground/55">{field.description}</p> : null}
                         </div>
                     );
                 }
@@ -212,7 +214,7 @@ export function ImageParameterFields({
                                 onChange("imageParameters", JSON.stringify(parameters));
                             }}
                         />
-                        {field.description ? <p className="text-xs leading-relaxed text-foreground/55">{field.description}</p> : null}
+                        {field.description && countLimit === undefined ? <p className="text-xs leading-relaxed text-foreground/55">{field.description}</p> : null}
                     </div>
                 );
             })}

@@ -11,6 +11,7 @@ import { WorkspaceTopBarExtensionSlot } from "@/components/layout/workspace-top-
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { LanguageMenu } from "@/components/layout/language-menu";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { usePersonalThemeToggle } from "@/hooks/use-personal-theme-toggle";
 import { useUserStore } from "@/stores/use-user-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useWalletBalance } from "@/hooks/use-wallet-balance";
@@ -42,7 +43,7 @@ export function WorkspaceTopBar({ sidebarOpen, onToggleSidebar }: { sidebarOpen:
     const { t, i18n } = useTranslation();
     const brandName = useAppearanceStore((state) => state.appearance.brandName);
     const theme = useThemeStore((state) => state.theme);
-    const setTheme = useThemeStore((state) => state.setTheme);
+    const setTheme = usePersonalThemeToggle();
     const user = useUserStore((state) => state.user);
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const { availableMicrocredits } = useWalletBalance(user?.id, creditsEnabled);

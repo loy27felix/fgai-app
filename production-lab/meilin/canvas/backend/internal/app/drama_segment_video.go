@@ -558,7 +558,11 @@ func dramaVideoJobReplayable(job model.DramaJob) bool {
 	return false
 }
 
-// ReprocessDramaSegmentVideo 重新处理一段已生成、但后处理失败的视频：只重放原任务结果，不重新生成、不重复扣费。
+func adoptedDramaVideoNeedsReprocessing(status, resourceID, videoError string) bool {
+	return status == model.DramaMediaFailed && resourceID != "" && strings.HasPrefix(videoError, "采用的视频处理失败：")
+}
+
+// ReprocessDramaSegmentVideo 重新处理已入库的视频，或重放原任务结果，不重新生成。
 func (s *Service) ReprocessDramaSegmentVideo(userID, projectID, episodeID string, index int) (map[string]any, error) {
 	project, p, err := s.dramaForUser(userID, projectID)
 	if err != nil {
@@ -584,6 +588,20 @@ func (s *Service) ReprocessDramaSegmentVideo(userID, projectID, episodeID string
 	}
 	if segment.VideoStatus != model.DramaMediaFailed || segment.VideoResourceID == "" {
 		return nil, BadAuthRequest("本段没有需要重新处理的视频")
+	}
+	if adoptedDramaVideoNeedsReprocessing(segment.VideoStatus, segment.VideoResourceID, segment.VideoError) {
+		if err := s.backfillDramaSegmentTail(userID, *segment); err != nil {
+			return nil, err
+		}
+		refreshed, err := s.repo.DramaSegment(project.ID, segment.ID)
+		if err != nil {
+			return nil, err
+		}
+		if refreshed.VideoStatus == model.DramaMediaFailed {
+			return nil, BadAuthRequest(refreshed.VideoError)
+		}
+		s.wakeDramaScheduler()
+		return map[string]any{"reprocessing": false}, nil
 	}
 	jobs, err := s.repo.RecentDramaSegmentJobs(project.ID, episode.ID)
 	if err != nil {

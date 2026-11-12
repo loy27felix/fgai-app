@@ -18,6 +18,7 @@ import { useGlobalAgentStore } from "@/stores/use-global-agent-store";
 import { initializeRemoteUserDataSession, installRemoteUserDataAutoSync, resetRemoteUserDataSync, withRemoteUserDataSyncExclusive } from "@/services/user-data-sync";
 import { clearResourceAccessCache } from "@/services/api/resources";
 import { clearResourceBlobCache } from "@/services/resource-blob-cache";
+import { clearLocalMediaObjectUrls } from "@/services/local-media-object-urls";
 import { withGenerationConsumersPaused } from "@/services/generation-consumer-lifecycle";
 import { recordDiagnosticEvent } from "@/services/diagnostics/client-diagnostics";
 
@@ -28,6 +29,7 @@ export async function switchUserStorageScope(userId?: string | null) {
             resetRemoteUserDataSync();
             clearResourceAccessCache();
             clearResourceBlobCache();
+            clearLocalMediaObjectUrls();
             setActiveUserScope(userId);
         });
     });

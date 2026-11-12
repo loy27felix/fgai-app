@@ -1,12 +1,17 @@
 package app
 
 import (
-	"meilin/backend/internal/model"
+	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"meilin/backend/internal/model"
 )
 
 func TestLegacyDramaImportKeepsSourceMediaAndIsIdempotent(t *testing.T) {
 	svc, db, _, _ := creationTestService(t)
+	camera := strings.Repeat("跟随人物向前移动，最后落在窗前。", 8)
+	shotSize := strings.Repeat("近景至全景，逐步揭示背景。", 5)
 	for _, row := range []any{
 		&model.Project{ID: "legacy", UserID: "user", Name: "Original", Status: model.ProjectStatusActive, AspectRatio: "9:16"},
 		&model.ProjectUnit{ID: "chapter", ProjectID: "legacy", Kind: "chapter", Title: "Episode 7", SourceText: "Keep this original dialogue."},
@@ -17,7 +22,7 @@ func TestLegacyDramaImportKeepsSourceMediaAndIsIdempotent(t *testing.T) {
 		&model.AssetRepresentation{ID: "image", AssetVersionID: "v2", ResourceID: "portrait", MediaType: "image", Role: "turnaround"},
 		&model.AssetRepresentation{ID: "costume", AssetVersionID: "v2", ResourceID: "night-coat", MediaType: "image", Role: "costume:night", MetadataJSON: `{"name":"夜间外套","clothing":"蓝色外套"}`},
 		&model.Shot{ID: "shot", ProjectID: "legacy", UnitID: "chapter", Title: "shot01", CurrentRevisionID: "revision", DurationMs: 15000},
-		&model.ShotRevision{ID: "revision", ShotID: "shot", Version: 1, Dialogue: "Keep this original dialogue.", VideoPrompt: "Actor @[asset:hero] enters.", DurationMs: 15000},
+		&model.ShotRevision{ID: "revision", ShotID: "shot", Version: 1, Dialogue: "Keep this original dialogue.", VideoPrompt: "Actor @[asset:hero] enters.", DurationMs: 15000, CameraMovement: camera, ShotSize: shotSize},
 		&model.ShotAssetReference{ID: "ref", ShotID: "shot", AssetVersionID: "v2", Role: "character"},
 		&model.ShotArtifact{ID: "video1", ProjectID: "legacy", UnitID: "chapter", ShotID: "shot", Type: "video", Version: 1, ResourceID: "original-video", Selected: true},
 		&model.ShotArtifact{ID: "video2", ProjectID: "legacy", UnitID: "chapter", ShotID: "shot", Type: "video", Version: 2, ResourceID: "other-video"},
@@ -44,6 +49,10 @@ func TestLegacyDramaImportKeepsSourceMediaAndIsIdempotent(t *testing.T) {
 	var shots []model.DramaShot
 	if err := db.Where("project_id = ?", "legacy").Find(&shots).Error; err != nil || len(shots) != 1 || shots[0].Dialogue != "Keep this original dialogue." {
 		t.Fatalf("shots=%+v %v", shots, err)
+	}
+	if utf8.RuneCountInString(shots[0].Camera) > 80 || utf8.RuneCountInString(shots[0].ShotSize) > 40 ||
+		!strings.Contains(shots[0].Action, camera) || !strings.Contains(shots[0].Action, shotSize) {
+		t.Fatal("legacy directions were lost or exceeded the studio field limits")
 	}
 	var segment model.DramaSegment
 	if err := db.First(&segment, "project_id = ?", "legacy").Error; err != nil || segment.VideoResourceID != "original-video" {

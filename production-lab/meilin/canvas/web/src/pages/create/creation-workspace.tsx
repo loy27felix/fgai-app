@@ -1,3 +1,4 @@
+import { clampGenerationCount, useGenerationBatchLimit } from "@/lib/generation-batch-limit";
 import { type ThinkingLevel, type ThinkingRequest } from "@/lib/text-thinking";
 import { ThinkingLevelSlider } from "@/components/thinking-level-slider";
 import { useTranslation } from "react-i18next";
@@ -254,7 +255,7 @@ export function CreationComposer(props: ComposerProps) {
             });
         return () => controller.abort();
     }, [creditsEnabled, quoteRequest]);
-    const generationCredits = routeQuote ? routeQuote.amountMicrocredits / 1_000_000 : credits;
+    const generationCredits = routeQuote ? (routeQuote.amountMicrocredits / 1_000_000) * (props.mode === "image" ? clampGenerationCount(props.count) : 1) : credits;
     const showCost = creditsEnabled && generationCredits !== null && generationCredits !== undefined;
     const formattedCredits = generationCredits?.toLocaleString("zh-CN", { maximumFractionDigits: 6 });
     const actionLabel = props.referenceReplacementBusy ? "正在替换参考图" : interactionBusy || (props.generationActive && !canSubmit) ? "生成中" : showCost ? `${routeQuote?.estimated ? "预估" : "消耗"} ${formattedCredits} 积分，发送` : "发送";
@@ -283,7 +284,8 @@ export function CreationComposer(props: ComposerProps) {
         [props.attachments],
     );
     const visibleAttachments = useMemo(() => (referenceFilter === "all" ? props.attachments : props.attachments.filter((attachment) => creationAttachmentKind(attachment) === referenceFilter)), [props.attachments, referenceFilter]);
-    const imageSettingsSupported = props.imageProfile.size.parameter !== "none" || props.imageProfile.quality.supported || props.imageProfile.maxOutputs > 1;
+    const activeBatchLimit = useGenerationBatchLimit();
+    const imageSettingsSupported = props.imageProfile.size.parameter !== "none" || props.imageProfile.quality.supported || activeBatchLimit > 1;
     const updateTrackScrollState = useCallback(() => {
         const track = attachmentTrackRef.current;
         if (!track) return;
@@ -503,7 +505,7 @@ export function CreationComposer(props: ComposerProps) {
                 </> : null}
                 {props.prompt.trim() || props.attachments.length || props.references.some((reference) => reference.active) ? <Tooltip title="清空提示词和参考内容"><button type="button" className="creation-chat-control is-clear" onClick={props.onClearComposer} disabled={interactionBusy} aria-label="清空提示词和参考内容"><Trash2 /><span>清空</span></button></Tooltip> : null}
             </div>
-            <div className="fg-creation-submit-group"><FGPricePreview config={props.config} model={props.model} mode={props.mode} requirements={props.modelRequirements}/><Button
+            <div className="fg-creation-submit-group"><FGPricePreview config={props.config} model={props.model} mode={props.mode} requirements={props.modelRequirements} taskCount={clampGenerationCount(props.count, activeBatchLimit)}/><Button
                 type="text"
                 className={`creation-submit ${showCost ? "has-cost" : ""}`}
                 disabled={interactionBusy || !canSubmit}
@@ -601,10 +603,11 @@ function GenerationSettingsMenu(props: ComposerProps) {
         props.setRatio(referenceImageSizeValue);
     };
     const videoResolutionSupported = props.mode === "video" && resolutions.length > 0;
+    const batchLimit = useGenerationBatchLimit();
     const imageSummary = [
         ...(mergedProfile.size.parameter !== "none" ? [referenceImageSizeSelected ? referenceImageSizeLabel : usesImageResolutionPicker ? formatImageResolutionSize(props.ratio, imageResolutionOptions) : props.ratio] : []),
         ...(props.imageProfile.quality.supported ? [qualityLabel] : []),
-        ...(props.imageProfile.maxOutputs > 1 ? [props.count] : []),
+        ...(batchLimit > 1 ? [props.count] : []),
     ].join(" · ");
     const videoRatioSupported = props.mode === "video" && ratios.length > 0;
     const summary = props.mode === "video" ? [...(videoRatioSupported ? [props.ratio] : []), ...(videoResolutionSupported ? [videoResolutionLabel(props.videoQuality)] : [])].join(" · ") : imageSummary;
@@ -612,7 +615,7 @@ function GenerationSettingsMenu(props: ComposerProps) {
         props.mode === "image" && props.imageProfile.parameters ? (
             <div className="creation-parameter-menu max-h-[65vh] overflow-y-auto">
                 <ImageParameterFields
-                    profile={props.imageProfile}
+                    profile={props.imageProfile} countLimit={batchLimit}
                     config={{ ...props.config, model: props.model, size: props.ratio, quality: props.quality, imageResolution: props.imageResolution, imageParameters: props.imageParameters, count: props.count }}
                     onChange={(key, value) => {
                         const setters = {
@@ -686,12 +689,12 @@ function GenerationSettingsMenu(props: ComposerProps) {
                                 </div>
                             </SettingSection>
                         ) : null}
-                        {props.imageProfile.maxOutputs > 1 ? (
+                        {batchLimit > 1 ? (
                             <SettingSection title="生成张数" value={`${props.count} 张`}>
                                 <div className="creation-parameter-content">
                                     <div className="creation-choice-grid is-count">
                                         {countOptions
-                                            .filter((option) => Number(option) <= props.imageProfile.maxOutputs)
+                                            .filter((option) => Number(option) <= batchLimit)
                                             .map((option) => (
                                                 <button key={option} type="button" aria-pressed={option === props.count} className={option === props.count ? "is-selected" : ""} onClick={() => props.setCount(option)}>
                                                     {option}
@@ -704,8 +707,8 @@ function GenerationSettingsMenu(props: ComposerProps) {
                                             inputMode="numeric"
                                             pattern="[0-9]*"
                                             value={props.count}
-                                            onChange={(event) => props.setCount(String(Math.max(1, Math.min(props.imageProfile.maxOutputs, Number(event.target.value) || 1))))}
-                                            aria-label={`生成张数，范围 1 到 ${props.imageProfile.maxOutputs}`}
+                                            onChange={(event) => props.setCount(String(clampGenerationCount(event.target.value, batchLimit)))}
+                                            aria-label={`生成张数，范围 1 到 ${batchLimit}`}
                                         />
                                         <em>张</em>
                                     </label>
