@@ -25,6 +25,7 @@ export type CanvasPointerIntent = "ignore" | "pan" | "select";
  */
 export function resolveCanvasPointerIntent(input: CanvasPointerIntentInput): CanvasPointerIntent {
     if (input.pointerType === "touch") return input.background ? "pan" : "ignore";
+    if (input.button === 2) return input.background ? "pan" : "ignore";
     if (input.button === 1) return "pan";
     if (input.button !== 0) return "ignore";
     if (input.spacePressed) return "pan";

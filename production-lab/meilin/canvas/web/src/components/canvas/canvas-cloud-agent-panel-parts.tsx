@@ -20,6 +20,7 @@ import { AgentAvatarVideo } from "@/components/canvas/agent-avatar-video";
 import { FluidOrb } from "@/components/ui/fluid-orb";
 import { GlassAgent } from "@/components/ui/fg-glass-effects";
 import { useMeilinCompanion } from "@/hooks/use-meilin-companion";
+import { useThemePack } from "@/themes/use-theme-pack";
 import { ArrowDown, ArrowLeft, Blocks, Check, CircleDot, Clock3, Download, Ellipsis, History, LoaderCircle, Maximize2, MessageSquarePlus, Minus, PanelRight, PictureInPicture2, RefreshCw, RotateCcw, Scaling, Settings2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 import { agentModifierShortcut } from "@/lib/canvas/agent-outbox";
 import { Button, Input, Popover } from "antd";
@@ -72,6 +73,7 @@ export const AgentLauncher = memo(function AgentLauncher({
     const appearanceResolved = useAppearanceStore((state) => state.resolved);
     const appearanceRevision = useAppearanceStore((state) => state.appearance.revision);
     const companion = useMeilinCompanion();
+    const ThemeOrb = useThemePack()?.agentOrb;
     const customImage = companion.imageUrl;
     const companionName = companion.data?.name || "美林";
     const live = !customImage && appearance.avatarType === "live2d" && Boolean(appearance.live2dResourceId && appearance.live2dEntry);
@@ -187,6 +189,8 @@ export const AgentLauncher = memo(function AgentLauncher({
                         <LoaderCircle className={reducedMotion ? "size-6" : "size-6 motion-safe:animate-spin"} aria-hidden="true" />
                         <span className="sr-only">正在加载助手形象</span>
                     </span>
+                ) : ThemeOrb ? (
+                    <ThemeOrb size={60} state={status === "completed" ? "done" : ["running", "queued"].includes(status) ? "work" : "idle"} />
                 ) : (
                     <GlassAgent size={60} />
                 )}

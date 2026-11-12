@@ -16,6 +16,11 @@ import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { moduleGroupSource } from "./helpers/module-group-source";
 
 describe("canvas selection semantics", () => {
+    test("right-button pan applies only to the background, leaving node menus intact", () => {
+        const input = { button: 2, pointerType: "mouse", spacePressed: false, boxSelectEnabled: true, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false };
+        expect(resolveCanvasPointerIntent({ ...input, background: true })).toBe("pan");
+        expect(resolveCanvasPointerIntent({ ...input, background: false })).toBe("ignore");
+    });
     test("maps modifiers to replace, add, toggle, and subtract strategies", () => {
         expect(resolveCanvasSelectionStrategy({ altKey: false, ctrlKey: false, metaKey: false, shiftKey: false })).toBe("replace");
         expect(resolveCanvasSelectionStrategy({ altKey: false, ctrlKey: false, metaKey: false, shiftKey: true })).toBe("add");

@@ -99,6 +99,7 @@ export function CanvasViewport({
         inertiaFrame.current = null;
     };
     const panState = useRef({
+        button: -1,
         isPanning: false,
         pointerId: -1,
         startX: 0,
@@ -107,6 +108,7 @@ export function CanvasViewport({
         initialY: 0,
         hasMoved: false,
     });
+    const suppressContextMenuUntil = useRef(0);
     const viewportRef = useRef(viewport);
     const scaleRef = useRef(viewport.k);
     const containerRectRef = useRef<DOMRect | null>(null);
@@ -376,6 +378,7 @@ export function CanvasViewport({
             interactingRef.current = true;
             panState.current = {
                 isPanning: true,
+                button: event.button,
                 pointerId: event.pointerId,
                 startX: event.clientX,
                 startY: event.clientY,
@@ -395,6 +398,7 @@ export function CanvasViewport({
             interactingRef.current = true;
             panState.current = {
                 isPanning: true,
+                button: event.button,
                 pointerId: event.pointerId,
                 startX: event.clientX,
                 startY: event.clientY,
@@ -469,7 +473,10 @@ export function CanvasViewport({
             if (event.pointerType === "touch") touchPointsRef.current.delete(event.pointerId);
             if (!panState.current.isPanning || panState.current.pointerId !== event.pointerId) return;
 
-            if (event.type === "pointerup" && !panState.current.hasMoved) {
+            if (event.type === "pointerup" && panState.current.button === 2 && panState.current.hasMoved) {
+                suppressContextMenuUntil.current = performance.now() + 500;
+            }
+            if (event.type === "pointerup" && panState.current.button !== 2 && !panState.current.hasMoved) {
                 onCanvasDeselect?.();
             }
             panState.current.isPanning = false;
@@ -572,7 +579,13 @@ export function CanvasViewport({
                 const target = event.target instanceof Element ? event.target : null;
                 if (!target?.closest("[data-node-id],[data-connection-id],[data-canvas-no-zoom]")) onCanvasDoubleClick?.(event);
             }}
-            onContextMenu={onContextMenu}
+            onContextMenu={(event) => {
+                if (performance.now() < suppressContextMenuUntil.current || (panState.current.isPanning && panState.current.button === 2 && panState.current.hasMoved)) {
+                    event.preventDefault();
+                    return;
+                }
+                onContextMenu?.(event);
+            }}
             onDragEnterCapture={(event) => {
                 if (!transferHasFiles(event.dataTransfer)) return;
                 onFileDragEnter?.(event);

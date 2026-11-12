@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
+import { useThemePack } from "@/themes/use-theme-pack";
 
 const RippleDistortion = lazy(() => import("./react-bits/RippleDistortion.jsx"));
 const MicroSlats = lazy(() => import("./react-bits/MicroSlats.jsx"));
@@ -7,13 +8,15 @@ const MicroSlats = lazy(() => import("./react-bits/MicroSlats.jsx"));
 export function WorkspaceAtmosphere() {
     const ref = useRef<HTMLDivElement>(null);
     const reduced = useReducedMotion();
+    const themePack = useThemePack();
     const [interactive, setInteractive] = useState(false);
     useEffect(() => {
         const media = window.matchMedia("(hover: hover) and (pointer: fine)");
-        const update = () => setInteractive(media.matches && !reduced);
+        const update = () => setInteractive(media.matches && !reduced && !themePack && !document.hidden);
         update(); media.addEventListener("change", update);
-        return () => media.removeEventListener("change", update);
-    }, [reduced]);
+        document.addEventListener("visibilitychange", update);
+        return () => { media.removeEventListener("change", update); document.removeEventListener("visibilitychange", update); };
+    }, [reduced, themePack]);
     useEffect(() => {
         if (!interactive) return;
         let frame = 0;
@@ -27,6 +30,7 @@ export function WorkspaceAtmosphere() {
         window.addEventListener("pointermove", move, { passive: true });
         return () => { cancelAnimationFrame(frame); window.removeEventListener("pointermove", move); };
     }, [interactive]);
+    if (themePack) return null;
     return <div ref={ref} className="fg-workspace-atmosphere" aria-hidden="true">
         {interactive && <Suspense fallback={null}><RippleDistortion
             src={`${import.meta.env.BASE_URL}fg-visual/atelier-atmosphere.png`}

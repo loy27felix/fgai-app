@@ -7,6 +7,7 @@ import "./styles/auth-input-fix.css";
 import "./styles/shared/model-picker.css";
 import "./styles/shared/overlays.css";
 import "./styles/shared/scrollbars.css";
+import "@/themes/load";
 import { RouterProvider } from "react-router";
 
 import { AppProviders } from "@/components/layout/app-providers";

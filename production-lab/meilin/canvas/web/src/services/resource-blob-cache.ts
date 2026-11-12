@@ -30,8 +30,8 @@ const MIN_CACHE_BYTES = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 500;
 const TOUCH_INTERVAL_MS = 10 * 60 * 1000;
 const BUDGET_REFRESH_MS = 5 * 60 * 1000;
-// 现代浏览器对同源 HTTP/2 连接多路复用；上限给到 16 让大画布冷启动在 1~2 轮内完成并发拉取。
-const MAX_CONCURRENT_DOWNLOADS = 16;
+// Keep room for foreground saves and API requests on the same NAS connection.
+const MAX_CONCURRENT_DOWNLOADS = 6;
 
 /** Release session-only byte resources during account/logout transitions. */
 export function clearResourceBlobCache() {

@@ -67,6 +67,9 @@ export default function CanvasPage() {
         queryFn: ({ pageParam, signal }) => listRemoteCanvasProjectsPage({ page: pageParam, pageSize: 40, projectId: projectFilter, sort, query: debouncedKeyword, signal }),
         initialPageParam: 1,
         getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined,
+        staleTime: 60_000,
+        gcTime: 10 * 60 * 1000,
+        refetchOnWindowFocus: false,
         enabled: Boolean(userId) && sessionHydrated,
     });
     const projects = useMemo<CanvasLibrarySummary[]>(() => userId
