@@ -6,6 +6,7 @@ import { Activity, Clipboard, HardDriveUpload, Link2, RefreshCw, Save, Video } f
 import { formatCredits } from "@/constant/credits";
 import { useUserStore } from "@/stores/use-user-store";
 import { getAdminApiLog, queryAdminApiLogTask, recoverAdminApiLogTaskMedia, recoverAdminApiLogVideoByURL, type ApiCallLog } from "@/services/api/auth";
+import { ApiLogGenerationContent } from "./api-log-generation-content";
 import { videoRecoveryAvailable } from "../logs/log-view";
 
 export function ApiLogDetailDrawer({ logId, onClose, onLogUpdated }: { logId: string | null; onClose: () => void; onLogUpdated?: (log: ApiCallLog) => void }) {
@@ -279,6 +280,8 @@ function LogDetail({ log, providerRequestId, videoURL, resultText, querying, onP
                     </div>
                 </section>
             ) : null}
+
+            {log.capability === "video" ? <ApiLogGenerationContent logId={log.id} content={log.generationContent} /> : null}
 
             <section className="api-log-detail-section api-log-payload-section">
                 <div className="api-log-detail-section-heading">

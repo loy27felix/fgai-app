@@ -44,3 +44,18 @@ func TestLibTVResponseEnforcesReadAndCopyPermission(t *testing.T) {
 		t.Fatalf("oversized response accepted: %v", err)
 	}
 }
+
+func TestLibTVOAuthFailureKeepsFGSessionAndRedactsProviderBody(t *testing.T) {
+	err := libTVProviderFailure("invalid_token private-token-do-not-echo")
+	var classified *kernel.AppError
+	if !errors.As(err, &classified) || classified.Status != http.StatusBadGateway || !isLibTVUnauthorized(err) {
+		t.Fatalf("upstream auth failure leaked into FG authentication: %v", err)
+	}
+	if strings.Contains(classified.Message, "private-token") {
+		t.Fatal("provider credential echoed")
+	}
+	err = libTVProviderFailure("upstream diagnostic private-token-do-not-echo")
+	if strings.Contains(err.Error(), "private-token") || isLibTVUnauthorized(err) {
+		t.Fatal("unexpected provider details", err)
+	}
+}

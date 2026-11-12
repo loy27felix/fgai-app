@@ -127,7 +127,7 @@ func TestDramaStoryboardActualProviderBudget(t *testing.T) {
 					t.Fatal("quote budget not updated")
 				}
 				raw, _ := json.Marshal(input)
-				if err := db.AutoMigrate(&model.Task{}, &model.TaskLog{}, &model.TaskTextDelta{}); err != nil {
+				if err := db.AutoMigrate(&model.Task{}, &model.TaskLog{}, &model.TaskTextDelta{}, &model.SystemSetting{}); err != nil {
 					t.Fatal(err)
 				}
 				if err := db.Create(&model.Task{ID: "provider-task", UserID: "user", Type: "canvas_text", Status: model.TaskStatusRunning}).Error; err != nil {

@@ -41,6 +41,8 @@ type (
 	AgentMemoryCompactView                 = app.AgentMemoryCompactView
 	AgentMemoryCompactSummary              = app.AgentMemoryCompactSummary
 	APICallLogPage                         = app.APICallLogPage
+	APICallGenerationContent               = app.APICallGenerationContent
+	APICallGenerationReference             = app.APICallGenerationReference
 	APICallLogQuery                        = app.APICallLogQuery
 	AccountFileStorageUsage                = app.AccountFileStorageUsage
 	AdminAppearanceSetting                 = app.AdminAppearanceSetting
@@ -203,6 +205,9 @@ type (
 	LibTVImportMetadata                    = app.LibTVImportMetadata
 	LibTVImportWarning                     = app.LibTVImportWarning
 	LibTVSettingRequest                    = app.LibTVSettingRequest
+	LibTVConnectStartRequest               = app.LibTVConnectStartRequest
+	LibTVConnectStartResult                = app.LibTVConnectStartResult
+	LibTVConnectCompleteRequest            = app.LibTVConnectCompleteRequest
 	LinkCanvasUnitRequest                  = app.LinkCanvasUnitRequest
 	LinkProjectAssetRequest                = app.LinkProjectAssetRequest
 	LinkShotAssetRequest                   = app.LinkShotAssetRequest

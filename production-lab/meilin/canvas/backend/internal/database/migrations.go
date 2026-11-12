@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 90
+const CurrentSchemaVersion int64 = 91
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -362,6 +362,14 @@ var schemaMigrations = []migration{
 	{version: 90, name: "creation_history", checksum: "sha256:fg-creation-history-v90", apply: func(tx *gorm.DB) error {
 		return tx.AutoMigrate(&model.CreationConversation{}, &model.CreationConversationMessage{}, &model.CreationConversationResource{})
 	}},
+	{version: 91, name: "api_log_generation_content", checksum: "sha256:fg-api-log-generation-content-v91", apply: migrateAPILogGenerationContent},
+}
+
+func migrateAPILogGenerationContent(tx *gorm.DB) error {
+	if !tx.Migrator().HasTable(&model.ApiCallLog{}) || tx.Migrator().HasColumn(&model.ApiCallLog{}, "GenerationContentJSON") {
+		return nil
+	}
+	return tx.Migrator().AddColumn(&model.ApiCallLog{}, "GenerationContentJSON")
 }
 
 // migrateDramaCastVoiceLooks 为短剧设定补角色声音（声音库条目与样本音频）和造型（所属角色、造型名、默认适用章节）。

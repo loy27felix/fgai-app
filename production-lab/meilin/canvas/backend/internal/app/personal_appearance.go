@@ -11,7 +11,7 @@ import (
 )
 
 // Private display preferences never enter an agent's instructions or site settings.
-const personalAppearanceScope = "personal_appearance"
+const personalAppearanceScope = "appearance"
 
 type PersonalAppearance struct {
 	UserID   string `json:"userId"`

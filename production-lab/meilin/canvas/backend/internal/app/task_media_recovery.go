@@ -287,7 +287,7 @@ func retryableMediaRecovery(err error) bool {
 	if errors.Is(err, errMediaStagingFull) {
 		return true
 	}
-	if retryableProtocolMediaDownload(err) || errors.Is(err, context.DeadlineExceeded) {
+	if retryableProtocolMediaDownload(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
 	// 对象存储的 503 / 限流 / 超时由各家 SDK 的错误类型表达，不是 providerHTTPError。

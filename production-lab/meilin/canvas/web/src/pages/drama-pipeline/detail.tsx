@@ -9,6 +9,7 @@ import { SegmentedControl } from "@/components/ui/base/segmented-control";
 import { WorkspaceErrorState, WorkspaceLoadingState } from "@/components/layout/workspace-state";
 import {
     approveDramaEpisode,
+    composeDramaEpisode,
     deleteDramaShot,
     generateDramaSegments,
     insertDramaShot,
@@ -216,6 +217,14 @@ export default function DramaStudioPage() {
             invalidate(episodeId);
             errorMessage(error, "重新处理失败");
         },
+    });
+    const composeEpisode = useMutation({
+        mutationFn: () => composeDramaEpisode(projectId, episodeId),
+        onSuccess: () => {
+            invalidate(episodeId);
+            message.success("已开始合成成片");
+        },
+        onError: (error) => errorMessage(error, "合成失败"),
     });
     const rescript = useMutation({
         mutationFn: () => rescriptDramaEpisode(projectId, episodeId),
@@ -697,6 +706,8 @@ export default function DramaStudioPage() {
                                         title={summary.project.name}
                                         detail={detail}
                                         aspectRatio={aspectRatio}
+                                        onCompose={() => composeEpisode.mutate()}
+                                        composing={composeEpisode.isPending}
                                         onOpenSegment={(index) => setParams({ tab: null, segment: String(index), shot: null })}
                                         onOpenCut={() => void canvas.open({ kind: "cut", episodeId: detail.episode.id })}
                                         cutOpening={canvas.opening === `cut:${detail.episode.id}`}

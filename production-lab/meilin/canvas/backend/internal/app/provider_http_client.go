@@ -459,6 +459,9 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		ErrorCode: errorCode, Error: errorText, ConcurrencyLimit: metadata.ConcurrencyLimit, UpstreamURL: req.URL.Scheme + "://" + req.URL.Host + req.URL.Path,
 		ProviderRequestID: metadata.ProviderRequestID, RequestContentType: req.Header.Get("Content-Type"), RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(responseBody, ""),
 	}
+	if requestKind == "create" {
+		callLog.GenerationContentJSON = metadata.GenerationContentJSON
+	}
 	if req.Response != nil {
 		// Preserve the billable WeToken header separately from asynchronous task
 		// IDs. A fee reference must never replace the identifier used for polling.
