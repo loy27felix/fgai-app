@@ -38,8 +38,8 @@ func normalizeUpdateAnnouncement(value UpdateAnnouncement) (UpdateAnnouncement, 
 	if err := validateAppearanceCopy(value.CurrentVersion, "公告当前版本", 40, value.Enabled); err != nil {
 		return value, err
 	}
-	if len(value.Releases) > 30 {
-		return value, BadAuthRequest("更新公告最多 30 个版本")
+	if len(value.Releases) > 60 {
+		return value, BadAuthRequest("更新公告最多 60 个版本")
 	}
 	if value.Enabled && len(value.Releases) == 0 {
 		return value, BadAuthRequest("开启自定义更新公告前请添加版本和内容")

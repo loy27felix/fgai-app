@@ -204,7 +204,7 @@ export function UpdateAnnouncementEditor({ value, onChange, disabled, onUploadin
                         </section>
                     ))}
                     <Button
-                        disabled={locked || value.releases.length >= 30}
+                        disabled={locked || value.releases.length >= 60}
                         icon={<Plus className="size-4" />}
                         onClick={() => change({ releases: [...value.releases, { id: createClientUUID(), version: "", title: "", date: "", blocks: [{ id: createClientUUID(), type: "text", text: "", resourceId: "", caption: "", layout: "full" }] }] })}
                     >

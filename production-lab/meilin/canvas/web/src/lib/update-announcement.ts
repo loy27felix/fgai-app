@@ -31,7 +31,7 @@ export function moveUpdateItem<T>(items: T[], index: number, direction: -1 | 1):
 export function validateUpdateAnnouncement(value: UpdateAnnouncement): string | undefined {
     if (value.enabled && (!value.currentVersion.trim() || !value.releases.length)) return "开启自定义公告前请填写当前版本并添加公告内容";
     if (value.enabled && !value.releases.some((release) => release.version.trim() === value.currentVersion.trim())) return "当前版本须对应已添加的公告版本";
-    if (value.releases.length > 30) return "最多添加 30 个公告版本";
+    if (value.releases.length > 60) return "最多添加 60 个公告版本";
     const versions = new Set<string>();
     let totalBytes = 0;
     for (const release of value.releases) {

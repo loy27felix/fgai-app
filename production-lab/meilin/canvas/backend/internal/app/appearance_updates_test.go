@@ -2,11 +2,26 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"meilin/backend/internal/model"
 )
+
+func TestUpdateAnnouncementRetainsSixtyVersions(t *testing.T) {
+	value := UpdateAnnouncement{Enabled: true, CurrentVersion: "v0"}
+	for i := 0; i < 60; i++ {
+		value.Releases = append(value.Releases, UpdateRelease{ID: fmt.Sprintf("r%d", i), Version: fmt.Sprintf("v%d", i), Blocks: []UpdateBlock{{ID: fmt.Sprintf("b%d", i), Type: "text", Text: "历史内容保留", Layout: "full"}}})
+	}
+	if _, err := normalizeUpdateAnnouncement(value); err != nil {
+		t.Fatal(err)
+	}
+	value.Releases = append(value.Releases, UpdateRelease{ID: "too-many", Version: "v60"})
+	if _, err := normalizeUpdateAnnouncement(value); err == nil {
+		t.Fatal("unbounded announcement list accepted")
+	}
+}
 
 func updateTestValue() UpdateAnnouncement {
 	return UpdateAnnouncement{Enabled: true, CurrentVersion: "v2.0", Releases: []UpdateRelease{{ID: "release-1", Version: "v2.0", Title: "更新公告", Blocks: []UpdateBlock{{ID: "text-1", Type: "text", Text: "新增功能", Layout: "full"}}}}}
