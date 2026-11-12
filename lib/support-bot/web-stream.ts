@@ -1,6 +1,7 @@
 import { assertSupportPrimaryEnvironment } from './environment';
 import { setTimeout as delay } from 'node:timers/promises';
 import { query } from '@/lib/local/db';
+import { logServerEvent, logServerFailure } from '@/lib/observability/server-log';
 import { supportStages } from './store';
 import type { SupportMessage } from './web-client';
 
@@ -14,7 +15,9 @@ export async function readSupportMessages(userId: string, conversationId: string
   return result.rows.reverse().map(row => ({ ...row, stage: supportStages[row.stage || 'queued'] || supportStages.queued }));
 }
 
-export function supportConversationStream(request: Request, userId: string, conversationId: string, initial: Awaited<ReturnType<typeof readSupportMessages>>) {
+export function supportConversationStream(request: Request, userId: string, conversationId: string, initial: Awaited<ReturnType<typeof readSupportMessages>>, traceId: string) {
+  const started = Date.now();
+  const fields = { service: 'support-bot', route: '/api/support-bot/web', traceId, conversationId, ticketId: initial.at(-1)?.ticketId, jobId: initial.at(-1)?.id };
   const abort = new AbortController();
   const stop = () => abort.abort();
   request.signal.addEventListener('abort', stop, { once: true });
@@ -27,6 +30,8 @@ export function supportConversationStream(request: Request, userId: string, conv
       const until = Date.now() + 55_000;
       let heartbeat = Date.now();
       let active = initial.some(message => ['pending', 'processing'].includes(message.status));
+      let reason = 'renewal';
+      let stage = 'snapshot';
       try {
         if (abort.signal.aborted) return;
         controller.enqueue(encoder.encode('retry: 1500\n\n'));
@@ -35,10 +40,12 @@ export function supportConversationStream(request: Request, userId: string, conv
         // worker 独立运行；数据库快照保证断线、刷新与进程重启后可恢复，不重复提交问题。
         while (!abort.signal.aborted && Date.now() < until) {
           await delay(active ? 750 : 2500, undefined, { signal: abort.signal });
+          stage = 'read_messages';
           const messages = await readSupportMessages(userId, conversationId);
           if (abort.signal.aborted) break;
           active = messages.some(message => ['pending', 'processing'].includes(message.status));
           if ((controller.desiredSize ?? 0) <= 0) continue;
+          stage = 'send_updates';
           for (const message of messages) {
             const serialized = JSON.stringify(message);
             if (previous.get(message.id) === serialized) continue;
@@ -50,10 +57,19 @@ export function supportConversationStream(request: Request, userId: string, conv
             heartbeat = Date.now();
           }
         }
-      } catch {
-        if (!abort.signal.aborted) send('unavailable', { error: '实时连接暂时中断，正在重连；排查任务仍会继续。' });
+        // A planned renewal is not a transport failure; clients reconnect without an alert.
+        // 定时续连不是传输故障，客户端收到后静默重建连接。
+        stage = 'renewal';
+        if (!abort.signal.aborted) send('reconnect', { reason: 'renewal', traceId });
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          reason = 'error';
+          logServerFailure('support_bot_web_stream_failed', error, { ...fields, stage, durationMs: Date.now() - started });
+          send('unavailable', { error: '实时连接暂时中断，正在重连；排查任务仍会继续。', traceId });
+        }
       } finally {
         request.signal.removeEventListener('abort', stop);
+        logServerEvent('support_bot_web_stream_closed', { ...fields, reason: abort.signal.aborted ? 'client_disconnect' : reason, durationMs: Date.now() - started });
         if (!abort.signal.aborted) controller.close();
       }
     },
@@ -64,5 +80,6 @@ export function supportConversationStream(request: Request, userId: string, conv
     'Cache-Control': 'private, no-store, no-transform',
     'X-Accel-Buffering': 'no',
     'X-Content-Type-Options': 'nosniff',
+    'X-FG-Trace-Id': traceId,
   } });
 }

@@ -143,3 +143,21 @@ export function supportPayloadPagesComplete(pages: PayloadEvidence[]): boolean {
   }
   return false;
 }
+
+// Follow the latest root snapshot only; missing captured data cannot be recovered by paging.
+// 只续读最新的根快照；采集时缺失的数据不能靠翻页恢复。
+export function nextSupportPayloadOffset(pages: PayloadEvidence[]): number | undefined {
+  const root = pages.filter(page => page.pointer === '' && page.offset === 0).at(-1);
+  if (!root) return 0;
+  if (!root.snapshotId) return undefined;
+  let offset = 0;
+  const seen = new Set<number>();
+  while (!seen.has(offset)) {
+    seen.add(offset);
+    const page = pages.findLast(item => item.snapshotId === root.snapshotId && item.pointer === '' && item.offset === offset);
+    if (!page) return offset;
+    if (page.state !== 'available' || !page.recordedComplete || page.nextOffset === undefined) return undefined;
+    offset = page.nextOffset;
+  }
+  return undefined;
+}

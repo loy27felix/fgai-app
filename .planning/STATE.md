@@ -3,7 +3,15 @@
 - 日期：2026-11-12（Asia/Shanghai）。
 - 当前目标：根据问题联合全仓安全源码、本人日志及实际请求/响应参数定位原因与解决办法；包含而不限于 production-lab/meilin（原 production-lab/yingce），不恢复废弃主站业务取证，不改生成执行。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
-- 当前状态：通俗回答、历史问题异步参考及线上美林目录迁移适配已纳入 main，来源为独立分支 `codex/support-plain-language-history-20261111`（`a534293a`）。助手已于 2026-11-12 09:41（Asia/Shanghai）在单独授权后上线，运行代码仍为 `b983581f`、release `support-20261112T013950Z-b983581f`、PID 43094。本轮只合并代码，不重新部署或重启生产服务；既有数据覆盖缺口和真实模型效果验收仍未关闭。
+- 当前状态：通俗回答、历史问题异步参考及美林目录迁移适配已纳入 main；排查补查与最终报告优化于 2026-11-12 13:11（Asia/Shanghai）在单独授权后上线。当前助手为基于 `30a93b80` 的未提交快照 `support-20261112T050834Z-30a93b80-worktree-a3d15cc69093`，PID 24310；仅更新独立 worker，Web API/Canvas 前端未发布。既有数据覆盖缺口和真实模型效果验收仍未关闭。
+
+## 排查补查与最终报告优化上线（2026-11-12 13:12，Asia/Shanghai）
+- 用户明确回复“允许”本次仅重启 `com.fgstudio.support-bot-worker`。在助手队列表 `SHARE` 锁内确认 pending/processing 均为0后，等待旧任务真正卸载再启动新版；PID 43094 → 24310，子进程 24312，单一进程树、实际源码目录及启动事件匹配，保持 production/web-only，未开启飞书外发。
+- release `support-20261112T050834Z-30a93b80-worktree-a3d15cc69093`；基线 commit `30a93b802f441cf0ac05ccc6c255c2eef98a4bde`，`dirty=true`，快照 SHA-256 `a3d15cc690937876c801f5d28f1620f98479bf5bb7b54cd5897b9df5ecbb26fd`。仅叠加 `lib/support-bot/diagnose.ts`、`payload.ts`、`report.ts` 三个运行文件，37项文件摘要通过；没有 commit/push、安装依赖或修改数据库结构。Web API、客户端 SSE 及 Canvas 前端等其他工作区修改保留但未发布。
+- 新版允许分析阶段继续补查，增加工具额度并补齐可用请求/响应分页；未完成的取证或分析失败交由既有队列重试，不把“尚未查清”等中间状态保存为已完成结论。证据缺失仍需明确说明，不承诺所有问题都能确认根因。
+- 生产实际执行 `scripts/support-bot-worker.ts --check`、完整 worker 模块加载、既有历史问题匹配校验，均通过。旧版与候选均按原7项清单执行 `scripts/support-bot-preflight.ts --require=yingce-web,yingce-gateway,canvas,yingce-agent,adcraft,meilin,suno`：Web/Gateway/Canvas ready；Agent 缺匹配环境日志、旧独立 AdCraft/Meilin 不可用、Suno 原生数据/日志覆盖不足，整体仍 `ready=false`，与旧版相比没有新增覆盖回归。
+- 仅向候选助手 Git 仓库补齐实际业务运行提交对象；发布后 Web/Canvas 运行提交核对为 `511bab53566e57ce76b7b64c4db21b4b40ddd905`，Gateway 为 `a9075b714bc6fbea5465239cb748638e09e4ad74`。18个业务容器的 ID/image/启动时间/重启次数不变，其他守护任务加载与禁用状态不变，生产主仓 `738b11edb2a1316c756b8dec2bf678a42fc8d34c` 及工作区不变；业务版本接口可用，主 App `/api/version` HTTP 200。新版启动一次，核验时 stderr 为空；没有恢复已禁用任务或测试网关。
+- 优化阶段已通过 `pnpm exec tsc --noEmit --incremental false --pretty false`、`pnpm exec tsx --test tests/observability/server-log.test.ts`（2/2）；部署阶段执行文件摘要、模块/存储/版本及健康检查，并运行 `git diff --check`。未新增测试或调用真实模型/生成业务，真实工单端到端效果尚未验证。旧 release/source/plist 完整保留，发布证据及回退配置位于生产对应 release，最终状态为 `deployed_with_coverage_gaps`。
 
 ## 合并至 main（2026-11-12，Asia/Shanghai）
 - 按用户要求，将助手分支 `a534293a` 合并到以远端 `15ce2ac9` 为基线的 main；保留 main 的美林目录迁移及其他主业务更新。冲突仅涉及状态文档、README 和助手实现，合并后的 `lib/support-bot` 与预检脚本和已上线分支一致。

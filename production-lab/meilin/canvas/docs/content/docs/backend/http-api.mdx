@@ -11,6 +11,10 @@ FG 网关提供 `GET /api/fg/canvas/prompt-shortcuts` 读取当前账号的快�
 
 ## FG 网页自助排查接入
 
+- `GET /api/support-bot/web?conversationId=...&stream=1` 先发送 `snapshot`，再发送 `message` 更新。约 55 秒到期时发送 `reconnect`（`reason: "renewal"`），客户端关闭旧连接并在 1.5 秒后静默续连；不重新提交排查任务。
+- 实时连接异常或数据无法解析时，3 秒后启动备用读取；单次读取最多等待 10 秒，持续不可用时在读取结束 5 秒后重试。只有备用读取也失败才提示用户；成功读取或收到有效 SSE 数据会清除警告。仅收到连接打开通知不算数据恢复；关闭弹窗时取消订阅、备用读取和待执行的续连，不取消后台排查。
+- 服务端异常通过 `unavailable` 通知重连，不暴露错误堆栈；`x-fg-trace-id` 用于关联后台日志。事件字段和日志存储边界以根仓库 `docs/observability.md` 的“自助排查连接日志”为准。
+
 工作区“反馈”旁的“自助排查”接入同源 FG 主站 `GET/POST /api/support-bot/web`，不是 Canvas Go API；使用 `fg_session` 鉴权，不能用 Canvas token 替代。客户端通过 `http.raw` 读取非 Canvas 信封，独立部署需将该路径代理到 FG 主站。截图、会话隔离、队列开关和数据库迁移以 FG 根 README 的“问题助手（网页 / 飞书）”章节为准；本模块不创建 Canvas 反馈单或外发通知。
 
 - `POST` 请求体保留 `conversationId`、`text`、`images`，增加 `context: { source: "fg" | "canvas", pagePath: string, projectId?: string, taskId?: string, sessionId?: string }`。Canvas 固定发送 `source: "canvas"`，FG 主站固定发送 `source: "fg"`；`pagePath` 仅取 `location.pathname`。三个 ID 仅从 URL search 中显式同名参数读取并忽略空值；未指定 `projectId` 时可从现有项目路由确定，Canvas 支持 `/projects/:projectId`、`/drama-pipeline/:projectId`、`/canvas/:id` 及 `/fg-six` 前缀，FG 支持 `/projects/:id`。其他缺失字段省略，不发送完整 URL、hash、页面标题、Cookie 或 Token。

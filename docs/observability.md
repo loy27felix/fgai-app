@@ -55,7 +55,19 @@ HTTPS Nginx gateway 将 5xx 请求以 JSON 写入容器 stdout，字段包含不
 
 `logServerEvent` 先输出 JSON Lines，再把同一份已安全序列化的 payload 放入异步数据库队列；正常数据库可用时，普通服务日志会进入 `observability_log_events`，`recordAuditEvent` 的重复 raw 行会按 `eventId` 与 `audit_events` 合并显示。API、管理员页面和所有非 GET 请求的 Edge middleware 元数据会通过内部 Node collector 异步进入同一日志表，collector 不等待业务响应，且不记录请求 body。数据库短暂不可用时，失败批次会在有界队列中等待冷却后重试，同时保留 Docker stdout 旁路；长时间故障超过队列容量、浏览器离线或 telemetry 入口触发保护性限流时，仍只能以旁路日志为恢复依据，不能把旁路数据误认为已进入工作台。事件详情使用完整脱敏序列化预算，列表 preview 使用普通限额；详情仅对管理员开放。
 
+## 自助排查连接日志
+
+网页助手使用既有结构化日志记录进度连接，不记录问题正文、截图、Cookie 或请求凭据：
+
+- `support_bot_web_read_failed`：建连前或备用刷新读取失败，保留 `stage`（环境校验、鉴权、附件或会话快照）和脱敏异常。
+- `support_bot_web_stream_failed`：连接建立后的读取或推送异常，保留错误类型、错误码、脱敏消息和堆栈，以及发生阶段和连接持续时间。
+- `support_bot_web_stream_closed`：记录 `renewal`（定时续连）、`client_disconnect`（客户端一侧连接结束）或 `error`。客户端结束可能来自关闭页面或网络断开，不能单凭此事件判断用户网络故障；正常续连不记为错误。
+
+上述日志包含 `conversationId` 和 `traceId`；流式日志还关联初始快照中最新一条问题的 `ticketId`、`jobId`（存在时）。SSE、会话快照及读取异常响应通过 `x-fg-trace-id` 返回关联编号，异常详情只进入服务端日志，不发送给用户。日志先写 stdout，再由既有异步队列持久化；数据库不可用时仍可查 stdout，但不能视为已落库。客户端续连和备用刷新合同见 Canvas 的 HTTP API“FG 网页自助排查接入”章节。
+
 ## 排查方式
+
+助手调查闭环可按 `jobId` 关联 `support_bot_investigation_finished`（复核完成、调用数量、结论级别、剩余缺口数量）和 `support_bot_investigation_incomplete`（预算、无进展或答复校验阻塞）。后者不代表业务故障原因，也不会将草稿保存为已完成诊断。`support_bot_understanding_failed`、`support_bot_collection_failed`、`support_bot_analysis_failed`、`support_bot_evidence_failed` 记录对应阶段的脱敏异常；查询失败额外标记工具和目标服务，不记录查询参数或问题正文。失败任务按既有队列最多尝试四次，不无限重查。完整流程与证据边界见 README 的自助排查助手章节。
 
 ```bash
 pnpm logs:app | grep '"traceId":"<x-fg-trace-id>"'

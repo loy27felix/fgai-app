@@ -41,12 +41,11 @@ function userFacingAnswer(answer: InvestigationAnswer, options: InvestigationCon
   const steps = strings(answer.solutions);
   const missing = strings(answer.missingInfo, 12);
   const notes = strings(answer.limitations, 12);
-  if (options.intent === 'incident' && certainty === 'likely') notes.push('这只是目前的判断，具体原因还没确认。');
-  if (options.intent === 'incident' && certainty === 'needs_info' && !/没查清|还没确认|暂时不能确定原因/.test(`${summary} ${cause}`)) {
-    notes.push('这次的具体原因还没查清。');
+  if (options.intent === 'incident' && certainty === 'likely') notes.push('上述原因属于推测，不能当作已确认的事实。');
+  if (options.intent === 'incident' && certainty === 'needs_info' && !notes.length) {
+    notes.push('现有记录不足以证实具体原因，不能据此认定是你的操作有误。');
   }
-  if (options.collectionGaps?.length) notes.push('还有一些相关记录暂时没查到，以上只说明目前能确认的情况。');
-  else if (options.intent === 'product' && !options.runtimeVerified) notes.push('这些用法是否完全适用于你当前的页面，还需要确认。');
+  if (options.intent === 'product' && !options.runtimeVerified) notes.push('以下用法依据项目实现，页面表现可能因版本不同而有差别。');
   return [
     summary,
     cause && cause !== summary ? `${certainty === 'likely' && options.intent === 'incident' ? '可能的原因（还没确认）' : '具体来说'}：${cause}` : '',
@@ -121,7 +120,7 @@ function validateGenerationReview(answer: InvestigationAnswer, evidence: Support
   const inputs = generationInputs(evidence, options);
   const required = new Set([...(options.generationTaskIds || []), ...inputs.map(({ row }) => String(row.taskId))]);
   const reviews = Array.isArray(answer.generationReview) ? answer.generationReview : [];
-  const refs = strings(answer.evidenceRefs, 48);
+  const refs = strings(answer.evidenceRefs, 128);
   for (const taskId of required) {
     const input = inputs.find(({ row }) => row.taskId === taskId);
     if ((!input || input.row.inputFactsAvailable !== true) && partial) continue;
@@ -196,7 +195,7 @@ function validateParameterReview(answer: InvestigationAnswer, evidence: SupportE
   if (options.intent !== 'incident') return;
   const details = parameterDetails(evidence, options);
   const reviews = Array.isArray(answer.parameterReview) ? answer.parameterReview : [];
-  const refs = strings(answer.evidenceRefs, 48);
+  const refs = strings(answer.evidenceRefs, 128);
   for (const recordId of new Set(details.map(entry => entry.result.id))) {
     const review = reviews.find(item => item && item.recordId === recordId);
     const detailRefs = strings(review?.evidenceRefs, 12);
@@ -229,7 +228,7 @@ function parameterFacts(evidence: SupportEvidence[], options: InvestigationConte
 }
 
 function groundedSolutionSteps(answer: InvestigationAnswer, evidence: SupportEvidence[], relatedIds: Set<string>): string[] {
-  const refs = strings(answer.evidenceRefs, 48);
+  const refs = strings(answer.evidenceRefs, 128);
   const solutions = strings(answer.solutions);
   const proofs = Array.isArray(answer.solutionProofs) ? answer.solutionProofs.slice(0, 6) : [];
   return solutions.filter((step, index) => proofs.some(proof => {
@@ -248,9 +247,9 @@ function groundedSolutionSteps(answer: InvestigationAnswer, evidence: SupportEvi
 }
 
 function assessEvidence(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext) {
-  const refs = strings(answer.evidenceRefs, 48);
+  const refs = strings(answer.evidenceRefs, 128);
   const cited = evidence.filter(entry => refs.includes(entry.id) && !isEvidenceFailure(entry));
-  const recordIds = strings(answer.recordIds, 48);
+  const recordIds = strings(answer.recordIds, 128);
   const codeRead = cited.some(isImplementationRead);
   const matchedCode = cited.filter(entry => isImplementationRead(entry)
     && entry.result.revision === options.codeSource.revision && entry.result.mode === options.codeSource.mode
@@ -298,10 +297,14 @@ function assertsConfirmedCause(answer: InvestigationAnswer): boolean {
 
 export function validateInvestigationAnswer(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): string | undefined {
   if (!safeText(answer.summary) || !safeText(answer.cause) || !strings(answer.solutions).length) return '必须返回 summary、cause 和非空 solutions。';
+  if (/还没查清|尚未查清|目前仍在排查|调查尚未完成/.test([answer.summary, answer.cause].join('\n'))) {
+    return '不能把调查中间态当最终答复。仍有可用查询路径时继续调用工具；确实无法追溯时，说明具体哪类历史记录未保存或哪个来源不可读取、已核实的情况及可执行处置，不编造确定原因。';
+  }
+  if (options.collectionGaps?.length && !strings(answer.limitations).length) return '必须在 limitations 中说明影响本次结论或处置的具体证据边界；未读分页应继续查询，历史未记录或来源不可读取不能隐瞒，也不能笼统说还没查清。';
   if (!['confirmed', 'observed', 'likely', 'needs_info'].includes(String(answer.certainty))) return 'certainty 必须是 confirmed、observed、likely 或 needs_info。';
-  const refs = strings(answer.evidenceRefs, 48);
+  const refs = strings(answer.evidenceRefs, 128);
   if (refs.some(ref => !evidence.some(entry => entry.id === ref && !isEvidenceFailure(entry)))) return 'evidenceRefs 包含不存在或失败的证据。';
-  const ids = strings(answer.recordIds, 48);
+  const ids = strings(answer.recordIds, 128);
   if (ids.some(id => !evidence.some(entry => refs.includes(entry.id) && evidenceRows(entry).some(row => row.id === id)))) return 'recordIds 必须来自引用证据中实际返回的记录。';
   if (answer.certainty === 'confirmed' && options.collectionGaps?.length) return '必需取证仍有缺口，不能确认完整根因：' + options.collectionGaps.join('；');
   const assessment = assessEvidence(answer, evidence, options);
@@ -502,11 +505,11 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     : options.incompleteReason === 'tool_budget' ? '本次调查已达到工具或步骤上限，已保留调查记录。' : '';
   const linked = records.filter(({ row }) => isLinked(row, options.relatedIds));
   const summary = linked.some(({ row }) => isAnomaly(row))
-    ? '查到了这次操作的异常记录，但还没查清具体原因。现在还不能判断是你的操作出了问题。'
+    ? '这次操作确实出现了异常。可读取的记录不足以证实具体原因，不能据此认定是你的操作有误。'
     : linked.length || generationInputs(evidence, options).length
-    ? '已找到这次任务的记录，但还没查清问题出在哪一步。'
-    : snapshots.length ? '已查到素材现在的情况，但还没查清它为什么会变成这样。'
-    : '目前还没查到能对应这次问题的记录，暂时不能确定原因。这不代表你遇到的问题不存在。';
+    ? '已找到这次任务，但可读取的记录不足以确定问题发生在哪一步。'
+    : snapshots.length ? '已查到素材现在的情况，但当前记录不能还原它之前发生了什么变化。'
+    : '可读取的记录中没有找到与这次问题对应的操作，无法据此判断原因。这不代表问题没有发生。';
   const currentAssets = snapshots.filter(({ row }) => row.isPrimary).slice(0, 2).map(({ row }) => {
     const title = safeText(row.assetTitle, 100) || '这个素材';
     const count = Number(row.representationCount) || 0;
@@ -519,7 +522,7 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     ? ['请补充出问题的任务编号；如果没有，说明是哪个项目或素材。']
     : ['请补充大致发生时间，或在“定位信息”里填一个任务编号。'];
   const reply = userFacingAnswer({ summary, cause: currentAssets.join(' '),
-    solutions: [needsAdmin ? '需要管理员或技术人员继续查看，已经提供的信息不用重复发送。' : '先保留当前任务和素材，补充下面的信息后再继续查。',
+    solutions: [needsAdmin ? '请管理员核对相关记录是否保留以及读取权限，已经提供的信息不用重复发送。' : '先保留当前任务和素材，补充下面的定位信息才能对应到具体操作。',
       '不用为了排查重新付费生成，也先不要删除或重置素材。'], missingInfo,
   }, options, 'needs_info');
   return { userReply: reply, internalSummary: `${internalSummary}${assistantIssue ? `\n\n${assistantIssue}` : ''}`,
@@ -585,7 +588,7 @@ function buildObservedIncident(failures: UpstreamFailure[], evidence: SupportEvi
     '确认范围：接口报错、历史输入、当前资源登记和源码机制属于不同层次的证据；没有完整发送记录时，不能把接口计量、登记大小或源码机制直接当成最终传输与内部根因的证明。',
   ].filter(Boolean).join('\n\n');
   const reply = userFacingAnswer(answer || {
-    summary: '处理这次操作的服务没有接受请求。已查到它返回的提示，但还没确认该在哪里调整。',
+    summary: '处理这次操作的服务没有接受请求，因此这次操作失败。服务返回的具体提示如下。',
     cause: `服务提示：${shown.slice(0, 2).map(({ error }) => safeText(error, 500)).join('；')}`,
     solutions: ['如果页面没有提示中提到的设置，请让管理员或技术人员协助处理。', '先保留当前任务，不要反复重试付费生成。'],
     limitations: ['这能说明生成服务为什么拒绝请求，还不能确定问题是在哪一步造成的。'],
@@ -613,8 +616,8 @@ function buildEvidenceResult(answer: InvestigationAnswer, evidence: SupportEvide
     }
   }
   if (rejected) answer = {
-    certainty: 'needs_info', summary: '这个功能的用法还没查清，暂时不能确定该怎么操作，也不能据此判断它不支持。',
-    cause: '已有查询记录已保留，需要技术人员继续查看。', solutions: ['先保留当前内容，不用为排查重新付费生成或删除素材。'],
+    certainty: 'needs_info', summary: '现有资料不足以提供可靠的操作步骤，不能据此判断这个功能不支持。',
+    cause: '缺少可以核对的功能实现依据，无法保证操作说明准确。', solutions: ['先保留当前内容，不用为排查重新付费生成或删除素材。'],
     limitations: [], evidenceRefs: evidence.filter(entry => !isEvidenceFailure(entry)).map(entry => entry.id), needsDeveloper: true,
   };
   const { cited, codeRead, canConfirm } = assessEvidence(answer, evidence, options);
@@ -644,6 +647,8 @@ export function buildInvestigationResult(answer: InvestigationAnswer, evidence: 
   const result = buildEvidenceResult(answer, evidence, options);
   const gaps = [...new Set(options.collectionGaps || [])].map(gap => safeText(gap, 350));
   const parameters = parameterFacts(evidence, options, validateInvestigationAnswer(answer, evidence, options) ? undefined : answer);
+  const completion = evidence.findLast(entry => entry.tool === 'coverage' && typeof entry.result.stopReason === 'string');
+  if (completion) result.internalSummary += `\n\n调查结束依据\n${safeText(completion.result.stopReason, 1200)}\n工具调用：${Number(completion.result.toolCalls)}；补查复核：${completion.result.reviewed ? '已执行' : '结论已直接通过证据校验'}。`;
   if (options.relatedUserIssues) {
     const history = options.relatedUserIssues;
     const matches = history.matches.map(issue => `- ${issue.id} ${safeText(issue.title, 160)}（${history.source}:${issue.line}）${issue.status ? `；状态：${safeText(issue.status, 300)}` : ''}`);
