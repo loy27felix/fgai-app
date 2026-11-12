@@ -1,3 +1,4 @@
+import type { RelatedUserIssues } from './known-issues';
 import { isSupportCodePath } from './code-search';
 import { OMITTED_VOICE_NOTICE } from './generation';
 import { scrubSupportValue } from './redact';
@@ -15,6 +16,7 @@ export type InvestigationContext = {
   generationTaskIds?: string[];
   questionType?: 'usage' | 'help' | 'generation' | 'incident';
   collectionGaps?: string[];
+  relatedUserIssues?: RelatedUserIssues;
   incompleteReason?: 'answer_validation' | 'model_response' | 'tool_budget';
 };
 
@@ -31,6 +33,29 @@ export function safeText(value: unknown, limit = 1200): string {
 function strings(value: unknown, limit = 6): string[] {
   return Array.isArray(value) ? value.slice(0, limit).map(item => safeText(item, 600)).filter(Boolean) : [];
 }
+// Keep evidence checks and technical details separate from the customer's explanation.
+// 技术取证与用户说明分开：简化展示，不降低核验要求，也不丢弃内部记录。
+function userFacingAnswer(answer: InvestigationAnswer, options: InvestigationContext, certainty: string): string {
+  const summary = safeText(answer.summary, 1800);
+  const cause = safeText(answer.cause);
+  const steps = strings(answer.solutions);
+  const missing = strings(answer.missingInfo, 12);
+  const notes = strings(answer.limitations, 12);
+  if (options.intent === 'incident' && certainty === 'likely') notes.push('这只是目前的判断，具体原因还没确认。');
+  if (options.intent === 'incident' && certainty === 'needs_info' && !/没查清|还没确认|暂时不能确定原因/.test(`${summary} ${cause}`)) {
+    notes.push('这次的具体原因还没查清。');
+  }
+  if (options.collectionGaps?.length) notes.push('还有一些相关记录暂时没查到，以上只说明目前能确认的情况。');
+  else if (options.intent === 'product' && !options.runtimeVerified) notes.push('这些用法是否完全适用于你当前的页面，还需要确认。');
+  return [
+    summary,
+    cause && cause !== summary ? `${certainty === 'likely' && options.intent === 'incident' ? '可能的原因（还没确认）' : '具体来说'}：${cause}` : '',
+    steps.length ? `你可以这样做：\n${steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}` : '',
+    notes.length ? `注意：${[...new Set(notes)].join('；')}` : '',
+    missing.length ? `还需要你补充：\n${missing.map(item => `- ${item}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
 export function evidenceRows(entry: SupportEvidence): Record<string, unknown>[] {
   if (entry.tool === 'detail') return [entry.result];
   return Array.isArray(entry.result.rows) ? entry.result.rows.filter(row => row && typeof row === 'object') : [];
@@ -163,6 +188,46 @@ function generationFacts(evidence: SupportEvidence[], options: InvestigationCont
   return sections.length ? `生成任务输入与逐项核对\n${sections.join('\n\n')}` : '';
 }
 
+function parameterDetails(evidence: SupportEvidence[], options: InvestigationContext) {
+  return evidence.filter(entry => entry.tool === 'detail' && !isEvidenceFailure(entry) && entry.result.parameterCoverage === 'queried'
+    && (isLinked(entry.result, options.relatedIds) || options.generationTaskIds?.includes(String(entry.result.taskId))));
+}
+function validateParameterReview(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): string | undefined {
+  if (options.intent !== 'incident') return;
+  const details = parameterDetails(evidence, options);
+  const reviews = Array.isArray(answer.parameterReview) ? answer.parameterReview : [];
+  const refs = strings(answer.evidenceRefs, 48);
+  for (const recordId of new Set(details.map(entry => entry.result.id))) {
+    const review = reviews.find(item => item && item.recordId === recordId);
+    const detailRefs = strings(review?.evidenceRefs, 12);
+    if (!review || !['request', 'response', 'finding'].every(key => safeText(review[key], 800).length >= 8)
+      || !detailRefs.length || detailRefs.some(ref => !refs.includes(ref) || !details.some(entry => entry.id === ref && entry.result.id === recordId))) {
+      return `记录 ${recordId} 已取得参数详情，必须在 parameterReview 中引用本记录 detail，分别说明输入/请求、响应/结果、差异和缺失；不能只复述状态或上游错误。`;
+    }
+    const codeRefs = strings(review.codeRefs, 12);
+    if (codeRefs.some(ref => !refs.includes(ref) || !evidence.some(entry => entry.id === ref && isImplementationRead(entry)))
+      || answer.certainty !== 'needs_info' && !codeRefs.length) return `记录 ${recordId} 的参数分析须引用实际读取的实现；源码不可用时使用 needs_info 保留已有事实。`;
+  }
+}
+function parameterFacts(evidence: SupportEvidence[], options: InvestigationContext, answer?: InvestigationAnswer): string {
+  const details = parameterDetails(evidence, options);
+  const reviews = Array.isArray(answer?.parameterReview) ? answer.parameterReview : [];
+  const facts = [...new Set(details.map(entry => entry.result.id))].map(recordId => {
+    const entries = details.filter(entry => entry.result.id === recordId);
+    const review = reviews.find(item => item && item.recordId === recordId);
+    const prefix = `${entries.map(entry => entry.id).join('/')} 记录 ${safeText(recordId, 160)}`;
+    if (review) return `${prefix}\n输入/请求：${safeText(review.request, 800)}\n响应/结果：${safeText(review.response, 800)}\n对照结果：${safeText(review.finding, 800)}`;
+    const exchange = entries[0].result.exchange as Record<string, { state?: string; truncated?: boolean; fields?: Record<string, unknown>[] }>;
+    const coverage = Object.entries(exchange || {}).map(([side, part]) => {
+      const fields = (part.fields || []).filter(field => Object.hasOwn(field, 'value')).slice(0, 6)
+        .map(field => `${safeText(field.path, 160)}=${safeText(JSON.stringify(field.value), 180)}`).join('；');
+      return `${side}：${part.state === 'available' ? `已读取脱敏参数${fields ? `（${fields}）` : ''}` : '未取得可解析参数'}${part.truncated ? '（该页有裁剪）' : ''}`;
+    }).join('；');
+    return `${prefix}：${coverage}。参数与代码的对照分析尚未通过校验，不据此确认原因。`;
+  });
+  return facts.length ? `实际参数与实现对照\n${facts.join('\n\n')}` : '';
+}
+
 function groundedSolutionSteps(answer: InvestigationAnswer, evidence: SupportEvidence[], relatedIds: Set<string>): string[] {
   const refs = strings(answer.evidenceRefs, 48);
   const solutions = strings(answer.solutions);
@@ -242,6 +307,8 @@ export function validateInvestigationAnswer(answer: InvestigationAnswer, evidenc
   const assessment = assessEvidence(answer, evidence, options);
   const generationIssue = validateGenerationReview(answer, evidence, options);
   if (generationIssue) return generationIssue;
+  const parameterIssue = validateParameterReview(answer, evidence, options);
+  if (parameterIssue) return parameterIssue;
   if (options.intent === 'incident' && answer.certainty === 'likely' && !assessment.linkedRecord) return 'likely 必须引用同一业务服务、本次编号关联的实际记录，并在 recordIds 中列出；没有相关证据时仍应充分说明已查事实，用 needs_info，不凭截图或无关候选猜测。';
   if (options.intent === 'incident' && ['likely', 'needs_info'].includes(String(answer.certainty)) && assertsConfirmedCause(answer)) return '未核实的分析不能宣称已确认内部根因；请区分已知事实、待验证分析与具体缺口。';
   if (options.intent === 'incident' && ['confirmed', 'observed'].includes(String(answer.certainty))
@@ -336,6 +403,7 @@ export function evidenceDescription(entry: SupportEvidence): string {
     return finding ? `${entry.id} 生成提交核对：${safeText(finding.message, 500)}`
       : `${entry.id} 生成提交核对：${rows.length ? `任务状态 ${safeText(rows[0].status, 40)}；实际参考音频 ${rows[0].audioCount ?? '未知'} 个；状态成功不代表成片质量达标。` : safeText(entry.result.note, 300)}`;
   }
+  if (entry.tool === 'detail' && entry.result.parameterCoverage) return `${entry.id} 参数详情：${safeText(entry.result.id, 160)}；${entry.result.parameterCoverage === 'queried' ? `已读取授权记录的脱敏输入/请求及结果/响应${entry.result.incomplete ? '，仍有缺失或分页，不能称完整报文' : ''}` : '仅有元数据，当前来源未提供请求/响应参数'}`;
   if (entry.tool === 'assets') return `${entry.id} 素材当前快照：${rows.length ? assetSnapshotDescription(rows[0]) : safeText(entry.result.note, 350)}`;
   const row = rows.find(isAnomaly) || rows[0];
   return row ? `${entry.id} ${entry.tool === 'operations' ? '操作记录' : entry.tool === 'chain' ? '请求链路' : '日志'}：${rowDescription(row)}`
@@ -352,7 +420,6 @@ const evidenceGap = /扫描上限|范围尚未读完|截断|未配置|未接入|
 function buildUnresolvedIncident(evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
   const actual = evidence.filter(entry => supportServiceId(entry.result.system) && (options.services || [options.target]).includes(entry.result.system as SupportServiceId));
   const records = investigationRecords(evidence, options);
-  const failures = records.slice(0, 12);
   const facts = recordFacts(records, options.relatedIds);
   if (!facts.length) facts.push('在本次已查询的范围内，未取得可关联的异常请求记录；这不代表问题未发生。');
   const assetEvidence = actual.filter(entry => entry.tool === 'assets');
@@ -408,8 +475,6 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
       : '请在“发生时间段”选择异常发生的起止时间，或提供任务ID / requestId / traceId 任一项；助手将按该范围查真实请求，不把最近24小时的任意错误当成本次故障。'
     : '已按提供的编号展开可访问链路；缺失的数据源或版本证据需开发补齐后继续核对，无需重复提供相同编号。';
   const runtimes = [...new Map(evidence.filter(entry => entry.tool === 'runtime').map(entry => [entry.result.requestedSource, entry])).values()];
-  const visibleRuntimes = runtimes.filter(entry => supportServiceId(entry.result.requestedSource)
-    && supportServices[entry.result.requestedSource as SupportServiceId].data !== 'unavailable');
   const boundaries = [...new Set(actual.filter(entry => entry.result.applicable === false).map(entry => safeText(entry.result.note, 400)))];
   const queried = actual.filter(entry => ['operations', 'logs'].includes(entry.tool)).map(entry => {
     const scope = entry.result.scope as Record<string, unknown> | undefined;
@@ -432,46 +497,31 @@ function buildUnresolvedIncident(evidence: SupportEvidence[], options: Investiga
     `取证缺口\n${[...new Set([...gaps, ...sourceGaps].filter(Boolean))].slice(0, 8).join('\n')}`,
     `继续定位\n${next}\n排查期间不需要重新付费生成、删除素材或修改业务数据。`,
   ].filter(Boolean).join('\n\n');
-  const observed = failures.map(({ entry, row }) => {
-    const service = supportServices[entry.result.system as SupportServiceId].label;
-    const request = [safeText(row.method, 12), safeText(row.route, 160)].filter(Boolean).join(' ');
-    const status = Number(row.httpStatus) >= 400 ? `HTTP ${Number(row.httpStatus)}` : `状态 ${safeText(row.status ?? row.taskStatus ?? row.outcome ?? row.level, 60)}`;
-    const sameBrowserRequest = typeof row.requestId === 'string' && browser.some(item => item.requestId === row.requestId);
-    const association = isLinked(row, options.relatedIds) ? '与提供的编号关联，但不等于已确认根因'
-      : sameBrowserRequest ? '已与浏览器失败请求核对编号，尚未证明与所填任务相关'
-      : '候选记录，尚未确认属于本次反馈';
-    return `${entry.id} ${service}：${request ? `${request}，` : ''}${status}（${association}）。\n${rowDescription(row)}`;
-  });
-  if (!observed.length) observed.push(browser.length
-    ? `浏览器报告 ${safeText(browser[0].route, 160)}${browser[0].httpStatus ? ` 返回 HTTP ${Number(browser[0].httpStatus)}` : ' 请求失败'}，但尚未取得可核实关联的服务端异常记录。`
-    : facts[0]);
-  const missing = [
-    ...visibleRuntimes.filter(entry => entry.result.status !== 'verified'
-      && (options.services || [options.target]).includes(entry.result.requestedSource as SupportServiceId))
-      .sort((a, b) => Number(b.result.requestedSource === options.target) - Number(a.result.requestedSource === options.target)).slice(0, 1)
-      .map(entry => `${supportServices[entry.result.requestedSource as SupportServiceId].label}：运行版本与所读源码尚未完成一致性核对。`),
-    actual.some(entry => entry.tool === 'operations' && !isEvidenceFailure(entry) && !evidenceRows(entry).length
-      && (entry.result.scope as Record<string, unknown> | undefined)?.taskId)
-      ? '按所填任务编号尚未查到对应操作记录；这不代表任务不存在。' : '',
-    ...sourceGaps.map(gap => safeText(gap, 180)),
-    ...gaps.slice(2).map(gap => safeText(gap, 180)),
-    ...actual.filter(isEvidenceFailure).map(entry => safeText(entry.result.error, 180)),
-    '异常记录、完整请求链路与对应运行实现之间的因果关系尚未核实，不能把状态码直接当作本次故障原因。',
-  ].filter(Boolean);
   const assistantIssue = options.incompleteReason === 'answer_validation' ? '助手本次答复未通过证据校验，已保留调查记录。'
     : options.incompleteReason === 'model_response' ? '助手本次模型分析未完成，已保留调查记录。'
     : options.incompleteReason === 'tool_budget' ? '本次调查已达到工具或步骤上限，已保留调查记录。' : '';
-  const reply = [
-    '结论：以下是本次已查到的事实；内部根因尚待核实，不能据此认定是您的操作问题。',
-    `已查到\n${observed.join('\n\n')}${records.length > failures.length ? `\n另有 ${records.length - failures.length} 条记录未逐条展开；以上优先列编号关联记录及异常。` : ''}`,
-    generationFacts(evidence, options),
-    snapshotFacts.length ? `素材当前状态（不是历史变更证据）\n${snapshotFacts.slice(0, 2).join('\n')}` : '',
-    code.length ? `已读取的实现依据（不等于运行根因）\n${code.map(evidenceDescription).join('\n')}` : '',
-    visibleRuntimes.length ? `运行版本核对\n${visibleRuntimes.map(evidenceDescription).join('\n')}` : '',
-    `还缺什么\n${[...new Set(missing)].join('\n')}`,
-    `接下来\n${next}\n无需为排查重新付费生成、删除素材或修改业务数据。`,
-    assistantIssue,
-  ].filter(Boolean).join('\n\n');
+  const linked = records.filter(({ row }) => isLinked(row, options.relatedIds));
+  const summary = linked.some(({ row }) => isAnomaly(row))
+    ? '查到了这次操作的异常记录，但还没查清具体原因。现在还不能判断是你的操作出了问题。'
+    : linked.length || generationInputs(evidence, options).length
+    ? '已找到这次任务的记录，但还没查清问题出在哪一步。'
+    : snapshots.length ? '已查到素材现在的情况，但还没查清它为什么会变成这样。'
+    : '目前还没查到能对应这次问题的记录，暂时不能确定原因。这不代表你遇到的问题不存在。';
+  const currentAssets = snapshots.filter(({ row }) => row.isPrimary).slice(0, 2).map(({ row }) => {
+    const title = safeText(row.assetTitle, 100) || '这个素材';
+    const count = Number(row.representationCount) || 0;
+    return count ? `“${title}”当前版本有 ${count} 个图片或视频记录，还没确认这些文件是否能打开。`
+      : `“${title}”当前版本没有关联的图片或视频记录，但这不代表文件已被删除。`;
+  });
+  const needsAdmin = missingAssetAccess || sourceGaps.length > 0 || options.relatedIds.size > 0 || targetedAssets.size > 0;
+  const missingInfo = needsAdmin ? [] : snapshots.length ? ['请告诉我具体是哪个角色或素材遇到了问题。']
+    : options.scope?.timeBasis === 'reported' || options.scope?.timeBasis === 'interpreted'
+    ? ['请补充出问题的任务编号；如果没有，说明是哪个项目或素材。']
+    : ['请补充大致发生时间，或在“定位信息”里填一个任务编号。'];
+  const reply = userFacingAnswer({ summary, cause: currentAssets.join(' '),
+    solutions: [needsAdmin ? '需要管理员或技术人员继续查看，已经提供的信息不用重复发送。' : '先保留当前任务和素材，补充下面的信息后再继续查。',
+      '不用为了排查重新付费生成，也先不要删除或重置素材。'], missingInfo,
+  }, options, 'needs_info');
   return { userReply: reply, internalSummary: `${internalSummary}${assistantIssue ? `\n\n${assistantIssue}` : ''}`,
     needsDeveloper: true, module: options.target, evidence, guidanceOnly: false };
 }
@@ -493,7 +543,7 @@ function buildObservedGeneration(findings: GenerationFinding[], evidence: Suppor
       })).slice(0, 2);
   const steps = answer ? groundedSolutionSteps(answer, evidence, options.relatedIds) : [];
   const unresolved = buildUnresolvedIncident(evidence, options);
-  const reply = [
+  const report = [
     '结论（已定位生成输入异常）\n任务绑定了角色样音、也写有该角色的具名对白，但最终供应商请求没有包含该样音，并出现“未指定对白”的相反标记；任务“成功”不能排除这个输入冲突。',
     `实际查到\n${facts.join('\n\n')}`,
     generationFacts(evidence, options, answer),
@@ -504,8 +554,14 @@ function buildObservedGeneration(findings: GenerationFinding[], evidence: Suppor
       '保留原任务和以上样本、创建调用编号用于修复验收，不自动重新付费生成；已生成的视频不会随配置修改而改变。'].map((step, index) => `${index + 1}. ${step}`).join('\n')}`,
     '确认范围：以上确认的是参考样音未发送及提交内容冲突，不证明最终旁白音色、口型或其他成片问题的全部原因；媒体效果仍需另行核对。',
   ].join('\n\n');
+  const reply = userFacingAnswer({
+    summary: '查到一个具体问题：这个任务选用了角色参考声音，但实际生成时没有带上。页面显示“成功”，也不代表声音一定符合预期。',
+    cause: '生成时还出现了“未指定对白”的相反记录。这不等于你没写对白，也还不能解释成片里的所有问题。',
+    solutions: steps.length ? steps : ['这个问题需要技术人员处理，先保留原任务。'],
+    limitations: ['不用为了排查重新付费生成或删除素材；修正设置不会自动改变已经生成的视频，成片效果还需要另外检查。'],
+  }, options, 'observed');
   return { ...unresolved, userReply: reply, needsDeveloper: true, module: sources.length ? 'yingce-web' : 'canvas',
-    internalSummary: `${reply}\n\n${unresolved.internalSummary}` };
+    internalSummary: `${report}\n\n${unresolved.internalSummary}` };
 }
 
 function buildObservedIncident(failures: UpstreamFailure[], evidence: SupportEvidence[], options: InvestigationContext, answer?: InvestigationAnswer): DiagnosisResult {
@@ -519,7 +575,7 @@ function buildObservedIncident(failures: UpstreamFailure[], evidence: SupportEvi
   const solutions = [...new Set([...constraints, ...(answer ? strings(answer.solutions) : []),
     ...(answer?.certainty === 'observed' ? [] : ['按本次错误核对预期任务类型与提交参数；要求与目标不一致或页面无法调整时，由开发检查模型路由与请求组装，不盲目改模式或重复付费生成。'])])];
   const unresolved = buildUnresolvedIncident(evidence, options);
-  const reply = [
+  const report = [
     `结论（${generationInputs(evidence, options).some(({ row }) => row.inputFactsAvailable === true) ? '已取得生成任务输入与接口回执' : '已核实上游拒绝原因'}）\n${answer?.certainty === 'observed' ? safeText(answer.summary, 1800) : '已查到与本次编号关联的上游拒绝记录，接口返回的具体原因如下。'}`,
     answer?.certainty === 'observed' ? `原因\n${safeText(answer.cause)}` : '',
     generationFacts(evidence, options, answer),
@@ -528,8 +584,14 @@ function buildObservedIncident(failures: UpstreamFailure[], evidence: SupportEvi
     `${answer && ['likely', 'needs_info'].includes(String(answer.certainty)) ? '核对建议（待验证，不代表修复承诺）' : '如何处理'}\n${solutions.map((step, index) => `${index + 1}. ${step}`).join('\n')}`,
     '确认范围：接口报错、历史输入、当前资源登记和源码机制属于不同层次的证据；没有完整发送记录时，不能把接口计量、登记大小或源码机制直接当成最终传输与内部根因的证明。',
   ].filter(Boolean).join('\n\n');
+  const reply = userFacingAnswer(answer || {
+    summary: '处理这次操作的服务没有接受请求。已查到它返回的提示，但还没确认该在哪里调整。',
+    cause: `服务提示：${shown.slice(0, 2).map(({ error }) => safeText(error, 500)).join('；')}`,
+    solutions: ['如果页面没有提示中提到的设置，请让管理员或技术人员协助处理。', '先保留当前任务，不要反复重试付费生成。'],
+    limitations: ['这能说明生成服务为什么拒绝请求，还不能确定问题是在哪一步造成的。'],
+  }, options, answer ? String(answer.certainty) : 'observed');
   return { ...unresolved, userReply: reply, needsDeveloper: answer ? answer.needsDeveloper === true : true,
-    internalSummary: `已确认上游拒绝记录；不等于已定位内部代码根因。\n${facts.join('\n\n')}\n${answer ? safeText(answer.internalSummary, 4000) : ''}\n\n${unresolved.internalSummary}` };
+    internalSummary: `${report}\n\n${answer ? safeText(answer.internalSummary, 4000) : ''}\n\n${unresolved.internalSummary}` };
 }
 
 function buildEvidenceResult(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
@@ -551,9 +613,9 @@ function buildEvidenceResult(answer: InvestigationAnswer, evidence: SupportEvide
     }
   }
   if (rejected) answer = {
-    certainty: 'needs_info', summary: '尚未完成符合证据要求的功能核对，不能据此断言功能不支持。',
-    cause: '已有查询结果保留，尚需读取并核对相关实现。', solutions: ['保留当前问题供开发继续核对，无需重复付费生成或删除素材。'],
-    limitations: ['助手答复未通过证据校验。'], evidenceRefs: evidence.filter(entry => !isEvidenceFailure(entry)).map(entry => entry.id), needsDeveloper: true,
+    certainty: 'needs_info', summary: '这个功能的用法还没查清，暂时不能确定该怎么操作，也不能据此判断它不支持。',
+    cause: '已有查询记录已保留，需要技术人员继续查看。', solutions: ['先保留当前内容，不用为排查重新付费生成或删除素材。'],
+    limitations: [], evidenceRefs: evidence.filter(entry => !isEvidenceFailure(entry)).map(entry => entry.id), needsDeveloper: true,
   };
   const { cited, codeRead, canConfirm } = assessEvidence(answer, evidence, options);
   const certainty = answer.certainty === 'confirmed' && canConfirm ? 'confirmed'
@@ -565,7 +627,7 @@ function buildEvidenceResult(answer: InvestigationAnswer, evidence: SupportEvide
     ? options.intent === 'incident' ? '基于本次证据的初步分析，尚未确认根因' : '源码功能依据，运行行为待核实' : '已知情况与待核实项';
   const shown = [...evidence.filter(entry => entry.tool === 'runtime'), ...cited.filter(entry => entry.tool !== 'runtime')].slice(0, 20);
   const facts = options.intent === 'incident' ? recordFacts(investigationRecords(evidence, options), options.relatedIds) : [];
-  const reply = [`结论（${status}）\n${summary}`, facts.length ? `已核实的查询事实（不等于根因）\n${facts.join('\n\n')}` : '',
+  const report = [`结论（${status}）\n${summary}`, facts.length ? `已核实的查询事实（不等于根因）\n${facts.join('\n\n')}` : '',
     `${options.intent === 'incident' && certainty !== 'confirmed' ? certainty === 'likely' ? '待验证分析（不是已确认原因）' : '已知依据与调查边界' : '原因 / 功能依据'}\n${cause}`,
     `${options.intent === 'incident' && certainty !== 'confirmed' ? '处理 / 核对建议（尚未验证的步骤不代表修复承诺）' : '如何解决'}\n${strings(answer.solutions).map((step, i) => `${i + 1}. ${step}`).join('\n')}`,
     options.intent === 'incident' ? `查询范围\n${rangeDescription(options.scope)}` : '',
@@ -574,14 +636,21 @@ function buildEvidenceResult(answer: InvestigationAnswer, evidence: SupportEvide
     limitations.length ? `未核实 / 数据范围\n${[...new Set(limitations)].join('\n')}` : '',
     strings(answer.missingInfo, 12).length ? `还需补充\n${strings(answer.missingInfo, 12).join('\n')}` : '',
   ].filter(Boolean).join('\n\n');
-  return { userReply: reply, internalSummary: safeText(answer.internalSummary, 4000) || `${summary}\n${cause}`,
+  return { userReply: userFacingAnswer(answer, options, certainty), internalSummary: [safeText(answer.internalSummary, 4000), report].filter(Boolean).join('\n\n'),
     needsDeveloper: answer.needsDeveloper === true || options.intent === 'incident' && certainty !== 'confirmed', module: safeText(answer.module, 80) || 'unknown', evidence, guidanceOnly: options.intent === 'product' };
 }
 
 export function buildInvestigationResult(answer: InvestigationAnswer, evidence: SupportEvidence[], options: InvestigationContext): DiagnosisResult {
   const result = buildEvidenceResult(answer, evidence, options);
   const gaps = [...new Set(options.collectionGaps || [])].map(gap => safeText(gap, 350));
-  if (gaps.length) result.userReply += `\n\n取证覆盖缺口（不等于业务原因）\n${gaps.map(gap => `- ${gap}`).join('\n')}`;
+  const parameters = parameterFacts(evidence, options, validateInvestigationAnswer(answer, evidence, options) ? undefined : answer);
+  if (options.relatedUserIssues) {
+    const history = options.relatedUserIssues;
+    const matches = history.matches.map(issue => `- ${issue.id} ${safeText(issue.title, 160)}（${history.source}:${issue.line}）${issue.status ? `；状态：${safeText(issue.status, 300)}` : ''}`);
+    result.internalSummary += `\n\n历史相似问题（仅供调查参考，不是本次证据）\n${history.source}：${history.status}\n${safeText(history.note, 400)}${matches.length ? `\n${matches.join('\n')}` : ''}`;
+  }
+  if (parameters) result.internalSummary += `\n\n${parameters}`;
+  if (gaps.length) result.internalSummary += `\n\n取证覆盖缺口（不等于业务原因）\n${gaps.map(gap => `- ${gap}`).join('\n')}`;
   if (options.questionType) result.internalSummary = `问题分类：${options.questionType}\n${gaps.length ? `取证缺口：${gaps.join('；')}\n` : ''}${result.internalSummary}`;
   return result;
 }

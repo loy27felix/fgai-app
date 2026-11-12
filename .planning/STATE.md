@@ -1,9 +1,54 @@
 # 当前状态
 
-- 日期：2026-11-11（Asia/Shanghai）。
-- 当前目标：保留多服务自助排查，确认覆盖 production-lab/meilin 而非只允许 Yingce；问题分流、编号关联取证后独立深入分析，不排查已废弃主站，不改生成业务。
+- 日期：2026-11-12（Asia/Shanghai）。
+- 当前目标：根据问题联合全仓安全源码、本人日志及实际请求/响应参数定位原因与解决办法；包含而不限于 production-lab/meilin（原 production-lab/yingce），不恢复废弃主站业务取证，不改生成执行。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
-- 当前状态：分流与调查流程已本地重构，完成类型检查、既有测试及隔离调用检查；尚未发布或验收真实模型效果。
+- 当前状态：通俗回答、历史问题异步参考及线上美林目录迁移适配已纳入 main，来源为独立分支 `codex/support-plain-language-history-20261111`（`a534293a`）。助手已于 2026-11-12 09:41（Asia/Shanghai）在单独授权后上线，运行代码仍为 `b983581f`、release `support-20261112T013950Z-b983581f`、PID 43094。本轮只合并代码，不重新部署或重启生产服务；既有数据覆盖缺口和真实模型效果验收仍未关闭。
+
+## 合并至 main（2026-11-12，Asia/Shanghai）
+- 按用户要求，将助手分支 `a534293a` 合并到以远端 `15ce2ac9` 为基线的 main；保留 main 的美林目录迁移及其他主业务更新。冲突仅涉及状态文档、README 和助手实现，合并后的 `lib/support-bot` 与预检脚本和已上线分支一致。
+- 本轮验证：`pnpm exec tsc --noEmit --incremental false --pretty false` 通过；`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts` 通过（12/12）；`git diff --cached --check` 通过。既有日志测试仍出现异步持久化连接告警，不作为数据库落库验收。
+- 生产自动部署任务只读核验为显式禁用，未启用或重启；本轮不执行部署，线上版本不因本次合并而改写。旧 `production-lab/yingce` 下的本地未跟踪缓存保留，不纳入提交。
+
+## 授权后上线与当前业务源码适配（2026-11-12 09:42，Asia/Shanghai）
+- 用户明确允许本次仅停止并重新启动 `com.fgstudio.support-bot-worker`；在助手队列表 `SHARE` 锁内确认 pending/processing 均为0后切换，旧 PID 54035 → 新 PID 43094。没有中断在途工单，没有执行其他服务的停止、重启、启用或禁用操作；本次授权不能延用于后续重启。
+- 生产运行代码已迁移至 `production-lab/meilin`，前端身份改为 `meilin-web`，Gateway/Agent 仍沿用既有服务标识。提交 `b983581f68961d7735fc555a68282872574859fe` 补齐新源码路径和明确的网页身份别名；保留仍在线旧 Agent 的 Yingce 源码路径，旧独立 Meilin 与当前画布分开。环境、commit、dirty、跨服务身份及证据归属校验没有放宽。
+- 前一候选源码目录在本轮激活前已缺失（原因未调查），先用原 Git bundle 校验恢复；随后因线上目录迁移被新 release 取代，旧候选标记 `superseded_before_activation`，从未激活。新 release 从 clean commit 构建，36项文件摘要通过，仅向助手自身 Git 仓库补入当前业务运行提交对象，没有更改生产主仓 checkout 或安装依赖。
+- 本轮本地验证：`pnpm exec tsc --noEmit --incremental false --pretty false`、`git diff --check` 通过；终端 `pnpm exec tsx -e` 内联20项断言验证新旧源码归属、网页新旧身份、异服务/错误环境/缺失commit拒绝，mock fetch 不联网，不新增测试文件。前轮12项既有测试及历史/报告/编排检查结果保留，不冒称本轮重复执行。
+- 新发布目录执行 `scripts/support-bot-worker.ts --check`、模块加载与历史问题001/002匹配均通过；原7项 required 预检未缩小。网页 `15ce2ac9`、Gateway/Canvas `a9075b71` 的运行身份、生产构建与对应源码均已核对，通过了上线前旧 worker 与候选的覆盖差异检查；未以单纯进程存在代替版本核验。
+- 切换后 `postcheck.py` 验证真实 source、启动 commit/release、单一 worker 进程树、稳定 PID、无 stderr；另实查当前网页/Gateway/Canvas 版本接口均 HTTP 200。以本轮切换前18个运行容器为基线，ID/image/启动时间/重启次数未变，生产主仓 commit `15ce2ac9` 和工作区未变；12个已有守护任务的加载状态未变。auto-deploy/report-scheduler 在切换前已未加载，本轮未操作它们，不将“状态未变”表述为所有守护任务正常。
+- release 的 `deployment-result.json` 已为 `deployed_with_coverage_gaps`、`activated=true`。Agent 没有匹配环境的业务日志；旧 AdCraft/独立 Meilin 接入不可用；Suno 原生数据/日志覆盖不全，整体预检仍 `ready=false`，没有恢复退役功能或把上述缺口隐瞒。未新增真实工单或调用真实模型，完整用户问题效果仍待验收。
+- 上一在线 release `support-20261111T092940Z-2cee6080-worktree-4a11e9729b69`、其源码与 `worker.previous.plist` 均保留。若另获回退授权，只切换助手并复核实际旧 PID/源码/启动事件，不回滚主业务或数据库；私密 env/日志留在生产 release 目录，不进入 Git。
+
+## 通俗回答与历史问题参考（2026-11-11）
+- 用户答复改为“是什么/影响什么/怎么做”，必要风险与未确认说明仍保留；原始证据、代码/版本、请求/响应对照和完整覆盖缺口保留在内部报告，不减少查询或深度分析，不以硬截三步丢弃必要操作。
+- 当前问题理解后并行检索发布目录的 `docs/user-issues.md`，最多3条现象相似案例；去除人员、署名、截图和链接，保留待处理状态、适用条件与付费风险。历史仅作线索，不进入本次事实证据；缺失、取消、超限等失败不影响正常调查，不新增模型调用。未改写用户创建的历史文档和截图。
+- 验证：`pnpm exec tsc --noEmit --incremental false --pretty false`；`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts`（12/12）；`git diff --check`。既有日志测试有异步持久化连接告警，不能当作数据库落库验收。
+- 终端内联断言（无新增测试文件）：真实文档的过期/声音相似项、无关泛词、状态/条件保留、人员/密钥脱敏、缺失/超限/取消/符号链接拒读；15个报告分支覆盖 confirmed/observed/likely/needs_info、模型非法答案回退、素材与声音、四步保留、参数对照校验、内部技术详情和历史不冒充证据；三种文档状态的隔离编排验证取证先于历史读取完成、模型调用仍3次、换题不带旧问题。
+- 未调用真实模型、生成业务或生产队列；真实用户问题的完整模型效果仍需线上验收。无数据库迁移、依赖或业务功能变更；回退仅需回到上一助手 release，不回滚主业务。
+
+## 上一轮独立发布准备（2026-11-11 18:19，Asia/Shanghai）
+- 代码提交 `46b22f8aaaca6a8f67b09ac12356bb09c4c98869` 已推送 `origin/codex/support-plain-language-history-20261111`；当时 remote main 为 `fc7b954f`，不通过主站自动部署发布助手。用户创建的历史文档和截图保持原内容，并包含于此次候选提交。
+- 候选 release `support-20261111T101603Z-46b22f8a` 位于生产独立助手目录的 `releases` 下；从已提交代码构建 clean checkout，36项助手/配置/历史文档摘要通过，没有安装新依赖。生产旧 worker、现有 plist 和生产主仓未替换；新 env/plist 仅写候选目录，保留旧配置用于获准切换或回退。
+- 已实际执行候选 `scripts/support-bot-worker.ts --check`（仅 schema）、worker 模块加载（不领任务）、历史文档匹配（001/002及未确认状态），均通过。`scripts/support-bot-preflight.ts --require=yingce-web,yingce-gateway,canvas,yingce-agent,adcraft,meilin,suno` 保留原7项 required：Web/Gateway/Canvas ready，Agent 缺业务日志、AdCraft/Meilin/Suno 原生数据/样本覆盖不足，整体仍 `ready=false`，未放宽验收清单。
+- 准备前后22个容器的 ID/image/启动时间/重启次数不变，旧助手 PID 54035 和已加载 plist 不变。当时 release 的 `deployment-result.json` 为 `prepared_pending_worker_restart_authorization`、`activated=false`；**这是准备完成，不是新版已上线**。
+- 已向用户说明：需等当前工单完成，在空队列保护下仅停止并重新启动助手，期间新问题短暂等待；其他服务不动。当时尚无本次明确停止/重启答复，因此未执行激活；2026-11-12 获得明确授权后的重新核验与实际结果见上方上线记录。
+
+## 本轮独立 worker 部署（2026-11-11）
+- 按用户“先部署”的要求只更新既有助手；release `support-20261111T092940Z-2cee6080-worktree-4a11e9729b69`，基线 `2cee6080d0dc1587247a60b6cae76e1d6646a72c`，`dirty=true`，快照 SHA-256 `4a11e9729b69575e192dda3958d2f84d2547e6bf94e542bcfe50753e3b6575ba`。不是新的 clean commit，也未包含其他任务的两个 untracked 文档。
+- 等已有工单结束并在空队列锁保护下切换 `com.fgstudio.support-bot-worker`；新 PID 54035、子进程 54079，实际路径及启动事件匹配 release，仍为 production/web-only，未开启飞书外发。首轮遇到 launchd 异步卸载导致的即时状态误判，补充 bootstrap 恢复旧 worker 后修正等待逻辑再切换；无在途工单被终止，原 plist/source 保留。
+- 生产 `scripts/support-bot-worker.ts --check`、完整 worker 模块加载通过；按原七项运行清单执行 `scripts/support-bot-preflight.ts --require=yingce-web,yingce-gateway,canvas,yingce-agent,adcraft,meilin,suno`，未缩小 required：七项运行版本/源码均核对，Web/Gateway/Canvas ready；Agent 无匹配业务日志，AdCraft/Meilin/Suno 原生数据或样本覆盖不足，整体仍 `ready=false`。本次是有限能力更新，不是全服务验收通过。
+- 本地再次运行本节下方所列 tsc、12项既有测试及 diff 检查，全部通过；生产复核 22 个容器的 ID/image/启动时间/重启次数不变、其他守护任务加载状态不变、主站 `/api/version` HTTP 200。新 worker 启动一次且 stderr 为空；未用伪造工单或付费生成补验收，真实模型端到端仍未验证。
+- 生产 release 目录保留清单、文件校验、预检、首轮恢复记录与 `deployment-result.json`；最终状态 `deployed_with_coverage_gaps`。具体能力范围与上线边界见 README 的生产配置部分。
+
+## 本轮全仓源码与参数对照（2026-11-11）
+- 源码与日志范围解耦：全仓安全文本可检索/读取，包含共享及历史 `app/lib/components`；业务数据与运行版本仍拒绝废弃主站。共享文件读取使用本次调查服务的源码 revision，不用历史目录命中证明服务实际调用。
+- Canvas `detail` 真正读取已授权记录的任务输入/结果、调用请求/响应，重新校验 active 映射、任务和项目归属及关联编号变化；复用只读事务与超时，不恢复原始正文到模型。不再只返回元数据缓存。
+- 参数投影保留安全 prompt、自定义参数、数值和响应字段；嵌套/序列化 JSON、认证键值对、签名 URL、凭据和媒体继续保护。128 Ki 字符读取上限、24字段片段/6,000字符分页，长文本先脱敏再分段；窄字段读取不能冒充整份完整，同一脱敏快照的续页可合并核验。
+- 生成调用审计不再限定 create/upload：查询全部已记录阶段，最多64条，创建/上传优先，其余阶段取最新记录；创建核对与完整审计分别标记。主动读取历史输入、失败/创建/最新回执参数，再结合源码独立分析，新增 parameterReview 引用和对照校验；缺页、未采集、其他服务只有元数据均阻止冒认完整根因。
+- 本地验证：`pnpm exec tsc --noEmit --incremental false --pretty false`；`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts`（12/12）；`git diff --check`。测试输出仍有异步日志持久化连接告警，不代表真实落库通过。
+- 无文件终端隔离检查通过：commit/working-tree 的 app/lib/Yingce 源码读取和路径保护；参数保留、嵌套脱敏、JSON Pointer 防绕过、长文本分页/完整性；只读事务约束、归属重验、关联变化拒绝、缓存门禁、匿名/主站拒绝，以及参数审阅校验和答复输出。数据库适配器检查用内存替身，未连接数据库，不能代替实际 SQL/权限与线上验收。
+- 边界：仅修改助手及其预检/文档，没有新增依赖、schema、测试文件或业务采集。其他服务没有请求/响应正文时明确 not_available，未采集/已删除的历史正文无法恢复；全服务参数能力尚未完成。实现阶段未重新核验生产或调用真实模型；后续独立 worker 部署与预检结果见上节。
 
 ## 本轮分流与深度分析重构（2026-11-11）
 - 范围纠正：用户是在确认是否包含 Yingce，不是要求排他性收窄。撤销仅四项/仅 production-lab/meilin 目录的限制，恢复其他产品、基础设施和源码定位；分类与默认值不将其他问题强制归为 Yingce。仍遵守不查询废弃主站及旧 Production Lab 主站模块，保留身份/工单存储。
