@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/local/server';
 import { query } from '@/lib/local/db';
+import { attachTraceId, logServerFailure, requestTraceId } from '@/lib/observability/server-log';
 import { cancelSupportJobs, enqueueSupportMessage, saveSupportFeedback, SupportConversationBusy } from '@/lib/support-bot/store';
 import { readSupportMessages, supportConversationStream } from '@/lib/support-bot/web-stream';
 
@@ -21,16 +22,21 @@ async function userId() {
 }
 
 export async function GET(request: Request) {
-  try { await assertSupportPrimaryEnvironment(); } catch {
-    return NextResponse.json({ error: '排查环境未配置或数据源环境不匹配，请联系管理员' }, { status: 503 });
-  }
-  const id = await userId();
-  if (!id) return NextResponse.json({ error: '请先登录' }, { status: 401 });
+  const traceId = requestTraceId(request);
   const params = new URL(request.url).searchParams;
   const conversationId = params.get('conversationId');
-  if (!validId(conversationId)) return NextResponse.json({ error: '会话编号无效' }, { status: 400 });
+  const fields = { service: 'support-bot', route: '/api/support-bot/web', traceId, conversationId: validId(conversationId) ? conversationId : undefined, transport: params.get('stream') === '1' ? 'sse' : 'snapshot' };
+  try { await assertSupportPrimaryEnvironment(); } catch (error) {
+    if (!request.signal.aborted) logServerFailure('support_bot_web_read_failed', error, { ...fields, stage: 'environment' });
+    return attachTraceId(NextResponse.json({ error: '排查环境未配置或数据源环境不匹配，请联系管理员' }, { status: 503 }), traceId);
+  }
+  let stage = 'authentication';
   try {
+    const id = await userId();
+    if (!id) return NextResponse.json({ error: '请先登录' }, { status: 401 });
+    if (!validId(conversationId)) return NextResponse.json({ error: '会话编号无效' }, { status: 400 });
     if (params.has('messageId') || params.has('image')) {
+      stage = 'attachment';
       const messageId = params.get('messageId');
       const image = params.get('image');
       if (!validId(messageId) || image === null || !/^[0-9]$/.test(image)) {
@@ -52,11 +58,13 @@ export async function GET(request: Request) {
     }
     // Scope every read to the authenticated owner, never a caller-supplied user ID.
     // 所有读取限定登录用户，避免通过会话编号读取他人的问题。
+    stage = 'snapshot';
     const messages = await readSupportMessages(id, conversationId);
-    if (params.get('stream') === '1') return supportConversationStream(request, id, conversationId, messages);
-    return NextResponse.json({ conversationId, messages }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
-    return NextResponse.json({ error: '暂时无法读取排查记录，请稍后重试' }, { status: 503 });
+    if (params.get('stream') === '1') return supportConversationStream(request, id, conversationId, messages, traceId);
+    return attachTraceId(NextResponse.json({ conversationId, messages }, { headers: { 'Cache-Control': 'no-store' } }), traceId);
+  } catch (error) {
+    if (!request.signal.aborted) logServerFailure('support_bot_web_read_failed', error, { ...fields, stage });
+    return attachTraceId(NextResponse.json({ error: '暂时无法读取排查记录，请稍后重试' }, { status: 503 }), traceId);
   }
 }
 

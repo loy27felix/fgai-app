@@ -46,55 +46,80 @@ export function watchSupportConversation(conversationId: string, handlers: {
     const controller = new AbortController();
     let source: EventSource;
     let fallback: ReturnType<typeof setTimeout> | undefined;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
     let refreshing = false;
+    let streaming = false;
     let revision = 0;
     async function refreshFallback() {
         fallback = undefined;
         if (refreshing || controller.signal.aborted) return;
         refreshing = true;
         const before = revision;
+        const readController = new AbortController();
+        const cancelRead = () => readController.abort();
+        controller.signal.addEventListener("abort", cancelRead, { once: true });
+        const timeout = setTimeout(cancelRead, 10_000);
         try {
-            const body = await readSupportConversation(conversationId, controller.signal);
+            const body = await readSupportConversation(conversationId, readController.signal);
             if (controller.signal.aborted) return;
-            if (before === revision) handlers.onSnapshot(body.messages);
-            if (source.readyState === EventSource.CLOSED) connect();
+            if (!Array.isArray(body.messages)) throw new Error("暂时无法读取排查记录，请稍后重试。");
+            if (before === revision) { handlers.onSnapshot(body.messages); handlers.onError(""); }
+            if (source.readyState === EventSource.CLOSED && !reconnect) connect();
         } catch (cause) {
-            if (!controller.signal.aborted) handlers.onError(cause instanceof Error ? cause.message : "读取会话失败");
+            if (!controller.signal.aborted && before === revision) handlers.onError(readController.signal.aborted ? "暂时无法更新排查进度，正在自动重试。" : cause instanceof Error ? cause.message : "读取会话失败");
         } finally {
+            clearTimeout(timeout);
+            controller.signal.removeEventListener("abort", cancelRead);
             refreshing = false;
-            if (!controller.signal.aborted && source.readyState !== EventSource.OPEN && !fallback) fallback = setTimeout(() => void refreshFallback(), 5000);
+            if (!controller.signal.aborted && !streaming && !fallback) fallback = setTimeout(() => void refreshFallback(), 5000);
         }
+    }
+    function received() {
+        streaming = true;
+        clearTimeout(fallback); fallback = undefined;
+        handlers.onError("");
     }
     function interrupted() {
         if (controller.signal.aborted) return;
-        handlers.onError("实时连接中断，正在重连；期间自动刷新，排查不会停止。");
+        streaming = false;
+        if (source.readyState === EventSource.OPEN) source.close();
+        // Reconnect silently; only a failed fallback read needs a user-facing warning.
+        // 静默重连，只有备用读取也失败时才提示；备用读取成功即清除旧警告。
         // Repeated SSE errors must not continually postpone the fallback read.
         // 连续 SSE 错误不能反复推迟降级读取，否则断线期间会一直没有更新。
         if (!fallback && !refreshing) fallback = setTimeout(() => void refreshFallback(), 3000);
     }
     function connect() {
+        clearTimeout(reconnect); reconnect = undefined;
+        if (controller.signal.aborted) return;
+        streaming = false;
         source?.close();
         source = new EventSource(`/api/support-bot/web?conversationId=${encodeURIComponent(conversationId)}&stream=1`);
-        source.onopen = () => { clearTimeout(fallback); fallback = undefined; handlers.onError(""); };
         source.addEventListener("snapshot", event => {
             try {
                 const body = JSON.parse(event.data);
                 if (!Array.isArray(body.messages)) throw new Error("Invalid snapshot");
-                revision++; handlers.onSnapshot(body.messages); handlers.onError("");
+                revision++; handlers.onSnapshot(body.messages); received();
             } catch { interrupted(); }
         });
         source.onmessage = event => {
             try {
                 const body = JSON.parse(event.data);
                 if (typeof body.message?.id !== "string") throw new Error("Invalid message");
-                revision++; handlers.onMessage(body.message); handlers.onError("");
+                revision++; handlers.onMessage(body.message); received();
             } catch { interrupted(); }
         };
+        source.addEventListener("reconnect", () => {
+            if (controller.signal.aborted) return;
+            source.close();
+            reconnect = setTimeout(connect, 1500);
+            interrupted();
+        });
         source.addEventListener("unavailable", interrupted);
         source.onerror = interrupted;
     }
     connect();
     // Close only this subscription; the queued investigation keeps running.
     // 关闭弹窗只取消当前订阅，已提交的排查任务继续执行。
-    return () => { source.close(); controller.abort(); clearTimeout(fallback); };
+    return () => { source.close(); controller.abort(); clearTimeout(fallback); clearTimeout(reconnect); };
 }
