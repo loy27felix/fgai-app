@@ -48,12 +48,12 @@ func (s *Service) UpdatePersonalAppearance(userID string, value PersonalAppearan
 		return value, BadAuthRequest("账号已切换，请重新读取个人外观")
 	}
 	switch value.SkinID {
-	case "site", "classic", "longying-ink", "yunhe-xianguan":
+	case "site", "classic", "longying-ink", "yunhe-xianguan", "sea-salt", "forest", "warm-paper", "rose", "graphite":
 	default:
 		return value, BadAuthRequest("请选择可用主题")
 	}
 	switch value.Font {
-	case "theme", "system", "sans", "serif":
+	case "theme", "system", "sans", "serif", "wenkai", "mono", "rounded":
 	default:
 		return value, BadAuthRequest("请选择可用字体")
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"meilin/backend/internal/model"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -34,7 +35,7 @@ func TestMeilinCompanionOwnershipRevisionAndContext(t *testing.T) {
 		t.Fatal("accepted stale revision")
 	}
 	read, err := s.MeilinCompanion("user")
-	if err != nil || read != saved {
+	if err != nil || !reflect.DeepEqual(read, saved) {
 		t.Fatalf("readback: %#v %v", read, err)
 	}
 	other, err := s.MeilinCompanion("other")

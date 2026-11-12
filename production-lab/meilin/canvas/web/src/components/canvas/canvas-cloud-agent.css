@@ -824,6 +824,7 @@
 }
 
 .agent-media-batch-bar {
+    position: relative;
     border: 0;
     background: var(--agent-surface-soft, color-mix(in srgb, var(--foreground) 4%, transparent));
 }
@@ -2115,8 +2116,8 @@ summary.agent-tool-step:hover {
 
 .agent-composer-selection > .w-full {
     min-width: 0;
-    max-width: 13rem;
-    flex: 1 1 13rem;
+    max-width: 18rem;
+    flex: 1 1 18rem;
 }
 
 .agent-composer-selection .agent-composer-model-trigger,
@@ -2503,6 +2504,20 @@ summary.agent-tool-step:hover {
     padding: 0;
     border-radius: var(--radius-lg);
     box-shadow: none;
+}
+
+/* Personal images retain their own silhouette, without the default orb's disc. */
+.canvas-agent-launcher.canvas-agent-launcher-custom {
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+}
+.canvas-agent-launcher-custom::before { display: none; }
+.canvas-agent-launcher-custom > img {
+    display: block;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
 }
 
 .canvas-agent-launcher-live2d::before {

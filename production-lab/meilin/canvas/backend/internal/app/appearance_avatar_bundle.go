@@ -170,6 +170,10 @@ func (s *Service) UploadAgentAvatarBundle(actor *model.User, header *multipart.F
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
+	return s.uploadAgentAvatarBundle(actor, header)
+}
+
+func (s *Service) uploadAgentAvatarBundle(actor *model.User, header *multipart.FileHeader) (*AgentAvatarBundleImport, error) {
 	if header == nil || header.Size <= 0 || header.Size > AgentAvatarBundleMaxBytes {
 		return nil, BadAuthRequest("请选择不超过 128 MiB 的 Agent 动画 ZIP")
 	}
@@ -227,6 +231,10 @@ func (s *Service) validateAgentAvatarBundleResource(actor *model.User, id, curre
 }
 
 func (s *Service) AgentAvatarBundleAsset(actor *model.User, id, name string) ([]byte, string, error) {
+	return s.agentAvatarBundleAsset(actor, id, name, false)
+}
+
+func (s *Service) agentAvatarBundleAsset(actor *model.User, id, name string, personal bool) ([]byte, string, error) {
 	if !validAgentAvatarBundlePath(name) || name != "avatar.json" && (path.Base(name) != name || strings.ToLower(path.Ext(name)) != ".mp4") {
 		return nil, "", BadAuthRequest("Agent 动画文件路径无效")
 	}
@@ -239,7 +247,10 @@ func (s *Service) AgentAvatarBundleAsset(actor *model.User, id, name string) ([]
 	if err != nil || resource.Kind != agentAvatarBundleResourceKind || resource.Provider != "local" || resource.Status != model.ResourceStatusReady {
 		return nil, "", NotFound("Agent 动画包不存在")
 	}
-	if !active {
+	if personal && (actor == nil || resource.UserID != actor.ID) {
+		return nil, "", NotFound("个人动画包不存在")
+	}
+	if !active && !personal {
 		if actor == nil {
 			return nil, "", NotFound("Agent 动画包未启用")
 		}

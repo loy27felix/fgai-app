@@ -20,6 +20,8 @@ const FeatureAvailabilityPage = lazy(() => import("@/pages/admin/admin-route-pag
 const AgentLessonsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AgentLessonsPage })));
 const ChannelsPage = lazy(() => import("@/pages/admin/channels/channels-page"));
 const LogicalModelsPage = lazy(() => import("@/pages/admin/logical-models/logical-models-page"));
+const AdminMCPPage = lazy(() => import("@/pages/admin/mcp/mcp-page"));
+const FeishuFeedbackPage = lazy(() => import("@/pages/admin/settings/feishu-feedback-page"));
 const AdminPluginsPage = lazy(() => import("@/pages/admin/plugins/plugins-page"));
 const SkillCurationPage = lazy(() => import("@/pages/admin/skill-curation-page"));
 const LogsPage = lazy(() => import("@/pages/admin/logs/logs-page"));
@@ -287,6 +289,8 @@ export const router = createBrowserRouter(
                             ),
                         },
                         { path: "plugins", element: <AdminPluginsPage /> },
+                    { path: "mcp", element: <AdminMCPPage /> },
+                    { path: "settings/feishu-feedback", element: <FeishuFeedbackPage /> },
                         { path: "workbench-tools", element: <WorkbenchToolsPage /> },
                         { path: "pose-library", element: <PoseLibraryPage /> },
                         { path: "ecommerce/agent", element: <EcommerceAgentConfigPage /> },

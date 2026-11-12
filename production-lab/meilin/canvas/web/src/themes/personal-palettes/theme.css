@@ -1,0 +1,7 @@
+:root:is([data-skin="sea-salt"], [data-skin="forest"], [data-skin="warm-paper"], [data-skin="rose"], [data-skin="graphite"]) .app-user-workspace.fg-glass-workspace {
+    background: var(--background);
+    background-image: none;
+}
+:root:is([data-skin="sea-salt"], [data-skin="forest"], [data-skin="warm-paper"], [data-skin="rose"], [data-skin="graphite"]) .creation-home::before {
+    background-image: none;
+}

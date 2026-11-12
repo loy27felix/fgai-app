@@ -201,6 +201,10 @@ func (s *Service) UploadLive2D(actor *model.User, header *multipart.FileHeader) 
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
+	return s.uploadLive2D(actor, header)
+}
+
+func (s *Service) uploadLive2D(actor *model.User, header *multipart.FileHeader) (*Live2DImport, error) {
 	if header == nil {
 		return nil, BadAuthRequest("请选择 Live2D ZIP")
 	}
@@ -212,6 +216,9 @@ func (s *Service) UploadLive2D(actor *model.User, header *multipart.FileHeader) 
 	entry, err := validateLive2DArchive(f, header.Size)
 	if err != nil {
 		return nil, err
+	}
+	if header.Header == nil {
+		header.Header = make(map[string][]string)
 	}
 	header.Header.Set("Content-Type", "application/zip")
 	resource, err := s.uploadLocalResource(actor.ID, header, "live2d", 0, 0, 0)
@@ -242,6 +249,10 @@ func (s *Service) validateLive2DResource(actor *model.User, id, currentID string
 }
 
 func (s *Service) Live2DAsset(actor *model.User, id, name string) ([]byte, string, error) {
+	return s.live2DAsset(actor, id, name, false)
+}
+
+func (s *Service) live2DAsset(actor *model.User, id, name string, personal bool) ([]byte, string, error) {
 	if !live2DFileName(name) {
 		return nil, "", BadAuthRequest("模型资源路径无效")
 	}
@@ -253,7 +264,10 @@ func (s *Service) Live2DAsset(actor *model.User, id, name string) ([]byte, strin
 	if err != nil || resource.Kind != "live2d" || resource.Provider != "local" || resource.Status != model.ResourceStatusReady {
 		return nil, "", BadAuthRequest("模型资源不可用")
 	}
-	if appearance.Canvas.AvatarType != "live2d" || appearance.Canvas.Live2DResourceID != id {
+	if personal && (actor == nil || resource.UserID != actor.ID) {
+		return nil, "", NotFound("个人模型不存在")
+	}
+	if !personal && (appearance.Canvas.AvatarType != "live2d" || appearance.Canvas.Live2DResourceID != id) {
 		if err := s.RequireAdmin(actor); err != nil {
 			return nil, "", err
 		}

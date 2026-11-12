@@ -18,6 +18,7 @@ import (
 
 // Agent orchestration is durable; the browser stream never drives execution.
 func RegisterAgentRoutes(r *gin.RouterGroup, svc *service.Service) {
+	registerPersonalCompanionRoutes(r, svc)
 	r.GET("/me/appearance", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

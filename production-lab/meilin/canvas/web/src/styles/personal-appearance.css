@@ -10,6 +10,9 @@ html[data-personal-font="serif"] {
     --font-sans: "Longying Serif", "Songti SC", "STSong", "SimSun", Georgia, serif;
     --personal-font: var(--font-sans);
 }
+html[data-personal-font="wenkai"] { --personal-font: "Yunhe Display", "KaiTi", serif; --font-sans: var(--personal-font); }
+html[data-personal-font="mono"] { --personal-font: "JetBrains Mono Variable", "Microsoft YaHei", monospace; --font-sans: var(--personal-font); }
+html[data-personal-font="rounded"] { --personal-font: ui-rounded, "YouYuan", "Yuanti SC", "Microsoft YaHei", sans-serif; --font-sans: var(--personal-font); }
 html[data-personal-font]:not([data-personal-font="theme"]) {
     --font-heading: var(--personal-font);
     --ink-heading-font: var(--personal-font);

@@ -321,6 +321,7 @@ export type CanvasNodeMetadata = {
               sourceType?: string;
           };
     content?: string;
+    textFormat?: "plain" | "markdown";
     previewContent?: string;
     /** Original file and immutable pixel-corrected variants; references share the current content/storageKey. */
     imageRotation?: {

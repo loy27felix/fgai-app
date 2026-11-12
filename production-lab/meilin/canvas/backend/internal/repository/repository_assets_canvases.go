@@ -7,6 +7,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	canvasdoc "meilin/backend/internal/canvas/document"
 	"time"
 
 	"gorm.io/gorm"
@@ -131,6 +132,13 @@ func (r *Repository) UpsertCanvasProject(project *model.CanvasProject) error {
 }
 
 func (r *Repository) upsertCanvasProject(project *model.CanvasProject) error {
+	canonical, changed, err := canvasdoc.Canonicalize([]byte(project.PayloadJSON))
+	if err != nil {
+		return err
+	}
+	if changed {
+		project.PayloadJSON = string(canonical)
+	}
 	expected := project.Revision
 	if expected < 0 {
 		return ErrCanvasRevisionConflict

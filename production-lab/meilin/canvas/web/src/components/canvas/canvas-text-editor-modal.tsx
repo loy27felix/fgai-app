@@ -49,7 +49,7 @@ export function CanvasTextEditorModal({ node, open, onClose, onChange }: CanvasT
     const [title, setTitle] = useState("");
     const [markdownContent, setMarkdownContent] = useState("");
     const markdownEditorRef = useRef<TextAreaRef | null>(null);
-    const isMarkdown = node?.type === CanvasNodeType.Markdown;
+    const isMarkdown = node?.type === CanvasNodeType.Markdown || node?.metadata?.textFormat === "markdown";
     const textLease = useCanvasTextLease(node?.id || "");
     const compositionRef = useRef<{ nodeId: string; content: string; richText: Record<string, unknown> } | null>(null);
     const draftRef = useRef({ node, title, markdownContent, onChange, textLease });

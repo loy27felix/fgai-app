@@ -20,6 +20,8 @@ import { AgentAvatarVideo } from "@/components/canvas/agent-avatar-video";
 import { FluidOrb } from "@/components/ui/fluid-orb";
 import { GlassAgent } from "@/components/ui/fg-glass-effects";
 import { useMeilinCompanion } from "@/hooks/use-meilin-companion";
+import { companionAssetURL } from "@/services/api/meilin-companion";
+import { fgStaticAssetURL } from "@/lib/fg-entry-url";
 import { useThemePack } from "@/themes/use-theme-pack";
 import { ArrowDown, ArrowLeft, Blocks, Check, CircleDot, Clock3, Download, Ellipsis, History, LoaderCircle, Maximize2, MessageSquarePlus, Minus, PanelRight, PictureInPicture2, RefreshCw, RotateCcw, Scaling, Settings2, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 import { agentModifierShortcut } from "@/lib/canvas/agent-outbox";
@@ -69,19 +71,26 @@ export const AgentLauncher = memo(function AgentLauncher({
     hidden?: boolean;
     onOpen: () => void;
 }) {
-    const appearance = useAppearanceStore((state) => state.appearance.canvas) || DEFAULT_CANVAS_APPEARANCE;
+    const siteAppearance = useAppearanceStore((state) => state.appearance.canvas) || DEFAULT_CANVAS_APPEARANCE;
     const appearanceResolved = useAppearanceStore((state) => state.resolved);
     const appearanceRevision = useAppearanceStore((state) => state.appearance.revision);
     const companion = useMeilinCompanion();
+    const personalType = companion.data?.avatarType;
+    const appearance = personalType && personalType !== "site" ? { ...siteAppearance,
+        avatarType: personalType === "image" ? "orb" as const : personalType,
+        live2dResourceId: companion.data?.live2dResourceId || "", live2dEntry: companion.data?.live2dEntry || "",
+        avatarBundleResourceId: companion.data?.avatarBundleResourceId || "", avatarClipStates: companion.data?.avatarClipStates,
+    } : siteAppearance;
     const ThemeOrb = useThemePack()?.agentOrb;
-    const customImage = companion.imageUrl;
+    const customImage = !personalType || personalType === "image" ? companion.imageUrl : "";
+    const [customSize, setCustomSize] = useState<{ url: string; ratio: number } | null>(null);
     const companionName = companion.data?.name || "美林";
     const live = !customImage && appearance.avatarType === "live2d" && Boolean(appearance.live2dResourceId && appearance.live2dEntry);
     const avatarState = agentAvatarStateForRunStatus(status);
-    const bundleManifestURL = appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, "avatar.json", false, appearanceRevision) : "/doll/avatar.json";
+    const bundleManifestURL = personalType === "bundle" ? companionAssetURL("bundle", appearance.avatarBundleResourceId, "avatar.json") : appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, "avatar.json", false, appearanceRevision) : fgStaticAssetURL("/doll/avatar.json", import.meta.env.BASE_URL);
     const [bundleManifestState, setBundleManifestState] = useState<{ url: string; manifest: AgentAvatarBundleManifest | null } | null>(null);
     useEffect(() => {
-        if (appearance.avatarType !== "bundle" || companion.data?.resourceId) {
+        if (appearance.avatarType !== "bundle" || customImage) {
             setBundleManifestState(null);
             return;
         }
@@ -98,13 +107,13 @@ export const AgentLauncher = memo(function AgentLauncher({
             }
         })();
         return () => controller.abort();
-    }, [appearance.avatarType, bundleManifestURL, companion.data?.resourceId]);
+    }, [appearance.avatarType, bundleManifestURL, customImage]);
     const currentBundleManifestState = bundleManifestState?.url === bundleManifestURL ? bundleManifestState : null;
     const bundleManifest = currentBundleManifestState?.manifest ?? null;
-    const bundleManifestLoading = !companion.data?.resourceId && appearance.avatarType === "bundle" && currentBundleManifestState === null;
+    const bundleManifestLoading = !customImage && appearance.avatarType === "bundle" && currentBundleManifestState === null;
     const clip = bundleManifest ? agentAvatarClipForState(appearance, avatarState, bundleManifest) : "";
     const clipFile = bundleManifest?.clips[clip] || "";
-    const mediaURL = appearance.avatarType === "bundle" && clipFile ? (appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, clipFile, false, appearanceRevision) : `/doll/${encodeURIComponent(clipFile)}`) : "";
+    const mediaURL = appearance.avatarType === "bundle" && clipFile ? (personalType === "bundle" ? companionAssetURL("bundle", appearance.avatarBundleResourceId, clipFile) : appearance.avatarBundleResourceId ? agentAvatarBundleFileURL(appearance.avatarBundleResourceId, clipFile, false, appearanceRevision) : fgStaticAssetURL(`/doll/${encodeURIComponent(clipFile)}`, import.meta.env.BASE_URL)) : "";
     const [mediaError, setMediaError] = useState(false);
     useEffect(() => setMediaError(false), [mediaURL]);
     const [live2DError, setLive2DError] = useState("");
@@ -126,12 +135,12 @@ export const AgentLauncher = memo(function AgentLauncher({
         }
     };
     const media = Boolean(mediaURL && !mediaError);
-    const aspectRatio = customImage ? 1 : live ? 0.75 : bundleManifest ? bundleManifest.width / bundleManifest.height : appearance.avatarType === "bundle" ? 480 / 432 : 1;
+    const aspectRatio = customImage ? (customSize?.url === customImage ? customSize.ratio : 1) : live ? 0.75 : bundleManifest ? bundleManifest.width / bundleManifest.height : appearance.avatarType === "bundle" ? 480 / 432 : 1;
     const largeAvatar = !!customImage || live || media || bundleManifestLoading;
     const inCanvasEditor = Boolean(useMatch("/canvas/:id"));
     // 收起后只留小圆球入口：不加载 Live2D / 动画，也不挡画布。位置以右下角为锚点，收起展开不跳位。
     const keepsAvatarSize = largeAvatar && !collapsed;
-    const height = collapsed ? AGENT_LAUNCHER_COLLAPSED_SIZE : keepsAvatarSize ? resolveAgentLauncherAvatarHeight(customImage ? companion.data!.height : appearance.avatarHeight, aspectRatio, viewport, inCanvasEditor) : 76;
+    const height = collapsed ? AGENT_LAUNCHER_COLLAPSED_SIZE : keepsAvatarSize ? resolveAgentLauncherAvatarHeight(customImage || personalType && personalType !== "site" ? companion.data!.height : appearance.avatarHeight, aspectRatio, viewport, inCanvasEditor) : 76;
     const width = collapsed ? AGENT_LAUNCHER_COLLAPSED_SIZE : keepsAvatarSize ? Math.round(height * aspectRatio) : 76;
     const { position, dragging, handlers } = useAgentLauncherPosition(onOpen, width, height);
     const { onClick, onKeyDown, onDoubleClick, ...pointerHandlers } = handlers;
@@ -153,6 +162,7 @@ export const AgentLauncher = memo(function AgentLauncher({
                     bodyHitOnly && "is-body-hit",
                     keepsAvatarSize && live && "canvas-agent-launcher-live2d",
                     keepsAvatarSize && media && "canvas-agent-launcher-media",
+                    keepsAvatarSize && customImage && "canvas-agent-launcher-custom",
                 )}
                 style={{ ...position, width, height, color: theme.node.text, "--canvas-agent-launcher-shadow": theme.spatial.shadow, ...(hidden ? { display: "none" } : null) } as CSSProperties}
                 aria-hidden={hidden || undefined}
@@ -171,10 +181,13 @@ export const AgentLauncher = memo(function AgentLauncher({
                 {collapsed ? (
                     <FluidOrb size={30} color="#7164f6" />
                 ) : customImage ? (
-                    <img src={customImage} alt={companionName} draggable={false} className="h-full w-full object-contain" />
+                    <img src={customImage} alt={companionName} draggable={false} className="h-full w-full object-contain" onLoad={(event) => {
+                        const image = event.currentTarget;
+                        if (image.naturalWidth > 0 && image.naturalHeight > 0) setCustomSize({ url: customImage, ratio: image.naturalWidth / image.naturalHeight });
+                    }} />
                 ) : live ? (
                     <Live2DAvatar
-                        url={live2DModelURL(appearance.live2dResourceId, appearance.live2dEntry)}
+                        url={personalType === "live2d" ? companionAssetURL("live2d", appearance.live2dResourceId, appearance.live2dEntry) : live2DModelURL(appearance.live2dResourceId, appearance.live2dEntry)}
                         width={width}
                         height={height}
                         reducedMotion={reducedMotion}
@@ -189,6 +202,8 @@ export const AgentLauncher = memo(function AgentLauncher({
                         <LoaderCircle className={reducedMotion ? "size-6" : "size-6 motion-safe:animate-spin"} aria-hidden="true" />
                         <span className="sr-only">正在加载助手形象</span>
                     </span>
+                ) : personalType === "orb" ? (
+                    <FluidOrb size={60} color={companion.data?.orbColor || "#7164f6"} />
                 ) : ThemeOrb ? (
                     <ThemeOrb size={60} state={status === "completed" ? "done" : ["running", "queued"].includes(status) ? "work" : "idle"} />
                 ) : (

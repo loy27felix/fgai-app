@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 91
+const CurrentSchemaVersion int64 = 93
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -363,6 +363,8 @@ var schemaMigrations = []migration{
 		return tx.AutoMigrate(&model.CreationConversation{}, &model.CreationConversationMessage{}, &model.CreationConversationResource{})
 	}},
 	{version: 91, name: "api_log_generation_content", checksum: "sha256:fg-api-log-generation-content-v91", apply: migrateAPILogGenerationContent},
+	{version: 92, name: "agent_mcp_connections", checksum: "sha256:fg-agent-mcp-connections-v92", apply: migrateAgentMCP},
+	{version: 93, name: "formatted_text_and_undo", checksum: canvasNodeModelChecksum, apply: migrateCanvasNodeModel},
 }
 
 func migrateAPILogGenerationContent(tx *gorm.DB) error {

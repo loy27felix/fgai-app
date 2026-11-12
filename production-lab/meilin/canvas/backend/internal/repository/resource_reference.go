@@ -176,10 +176,16 @@ func (r *Repository) ResourceReferenceSnapshotExcludingAssets(userID string, exc
 	}
 	for _, companion := range companions {
 		var appearance struct {
-			ResourceID string `json:"resourceId"`
+			ResourceID             string `json:"resourceId"`
+			Live2DResourceID       string `json:"live2dResourceId"`
+			AvatarBundleResourceID string `json:"avatarBundleResourceId"`
 		}
-		if json.Unmarshal([]byte(companion.Content), &appearance) == nil && slices.Contains(resourceIDs, appearance.ResourceID) {
-			snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "助手形象", ID: companion.ID, Title: "美林", ResourceID: appearance.ResourceID})
+		if json.Unmarshal([]byte(companion.Content), &appearance) == nil {
+			for _, id := range []string{appearance.ResourceID, appearance.Live2DResourceID, appearance.AvatarBundleResourceID} {
+				if id != "" && slices.Contains(resourceIDs, id) {
+					snapshot.Direct = append(snapshot.Direct, ResourceDirectReference{Kind: "助手形象", ID: companion.ID, Title: "美林", ResourceID: id})
+				}
+			}
 		}
 	}
 	if r.db.Migrator().HasTable(&model.UserFeedback{}) {

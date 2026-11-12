@@ -1,10 +1,20 @@
 import { expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
-import { clampAgentLauncherPosition, moveAgentLauncher, restoreAgentLauncherPosition } from "../src/lib/canvas/agent-launcher-position";
+import { clampAgentLauncherPosition, moveAgentLauncher, restoreAgentLauncherPosition, resolveAgentLauncherAvatarHeight } from "../src/lib/canvas/agent-launcher-position";
 
 const viewport = { width: 1280, height: 800 };
 const start = { right: 20, bottom: 20 };
+
+test("uploaded wide and tall avatars retain their ratio within the viewport", () => {
+    const viewport = { width: 320, height: 400 };
+    for (const ratio of [0.1, 0.75, 1.5, 25]) {
+        const height = resolveAgentLauncherAvatarHeight(220, ratio, viewport, true);
+        expect(height * ratio).toBeLessThanOrEqual(280);
+        expect(height).toBeLessThanOrEqual(340);
+        expect(height).toBeGreaterThan(0);
+    }
+});
 
 test("Live2D bounds use actual rectangular dimensions when restoring and dragging", () => {
     const size = { width: 180, height: 240 };

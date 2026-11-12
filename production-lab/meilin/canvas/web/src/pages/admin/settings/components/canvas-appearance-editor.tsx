@@ -17,6 +17,7 @@ import {
 } from "@/lib/canvas/agent-appearance";
 import { agentAvatarBundleFileURL, live2DModelURL, uploadAgentAvatarBundle, uploadLive2D } from "@/services/api/appearance";
 import { AgentAvatarVideo } from "@/components/canvas/agent-avatar-video";
+import { fgStaticAssetURL } from "@/lib/fg-entry-url";
 
 export function CanvasAppearanceEditor({ value, onChange, disabled, onUploading }: { value: CanvasAppearance; onChange: (value: CanvasAppearance) => void; disabled: boolean; onUploading: (value: boolean) => void }) {
     const { message } = App.useApp();
@@ -33,10 +34,10 @@ export function CanvasAppearanceEditor({ value, onChange, disabled, onUploading 
     const [selectedAvatarState, setSelectedAvatarState] = useState<AgentAvatarState>("idle");
     const url = value.live2dResourceId ? live2DModelURL(value.live2dResourceId, value.live2dEntry, true) : "";
     const bundleID = value.avatarBundleResourceId;
-    const bundleManifestURL = bundleID ? agentAvatarBundleFileURL(bundleID, "avatar.json", true) : "/doll/avatar.json";
+    const bundleManifestURL = bundleID ? agentAvatarBundleFileURL(bundleID, "avatar.json", true) : fgStaticAssetURL("/doll/avatar.json", import.meta.env.BASE_URL);
     const previewClip = bundleManifest ? agentAvatarClipForState(value, selectedAvatarState, bundleManifest) : "";
     const previewFile = bundleManifest?.clips[previewClip] || "";
-    const previewBundleURL = previewFile ? (bundleID ? agentAvatarBundleFileURL(bundleID, previewFile, true) : `/doll/${encodeURIComponent(previewFile)}`) : "";
+    const previewBundleURL = previewFile ? (bundleID ? agentAvatarBundleFileURL(bundleID, previewFile, true) : fgStaticAssetURL(`/doll/${encodeURIComponent(previewFile)}`, import.meta.env.BASE_URL)) : "";
     const change = (patch: Partial<CanvasAppearance>) => onChange({ ...value, ...patch });
     useEffect(() => {
         if (value.avatarType !== "bundle") return;

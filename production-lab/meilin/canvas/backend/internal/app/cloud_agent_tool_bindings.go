@@ -7,6 +7,9 @@ import (
 
 func cloudAgentToolHandlers() map[string]cloudAgentToolHandler {
 	return map[string]cloudAgentToolHandler{
+		agenttool.MemorySearch:           {Read: cloudAgentHandleMemorySearch},
+		agenttool.MCPListTools:           {Read: cloudAgentHandleMCPListTools},
+		agenttool.MCPCallTool:            {Read: cloudAgentHandleMCPCall, Write: cloudAgentMCPWriteAdapter, Preview: cloudAgentPreviewMCPCall},
 		agenttool.AgentProfileRead:       {Read: cloudAgentHandleAgentProfileRead},
 		agenttool.WorkspaceOverview:      {Read: cloudAgentHandleWorkspaceOverview},
 		agenttool.PlanUpdate:             {Read: cloudAgentHandlePlanUpdate},
@@ -45,6 +48,10 @@ func cloudAgentToolHandlers() map[string]cloudAgentToolHandler {
 		agenttool.DramaGetContext:        {Read: cloudAgentHandleDramaGetContext},
 		agenttool.DramaAdoptCanvasMedia:  {Write: applyCloudAgentDramaAdopt, Preview: cloudAgentPreviewDramaAdopt},
 	}
+}
+
+func cloudAgentMCPWriteAdapter(_ *repository.Repository, _ string, _ string, _ cloudAgentCall, _ RuntimePolicySetting, _ ...cloudAgentMutationRecorder) (any, error) {
+	return nil, BadAuthRequest("MCP 外部调用必须在检查点事务外执行")
 }
 
 func cloudAgentPreviewCanvas(repo *repository.Repository, userID, canvasID string, call cloudAgentCall) (cloudAgentApprovalPreview, error) {

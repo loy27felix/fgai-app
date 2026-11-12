@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"meilin/backend/internal/assets"
+	canvasdoc "meilin/backend/internal/canvas/document"
 	"meilin/backend/internal/model"
 
 	"gorm.io/gorm"
@@ -53,6 +54,16 @@ func (r *Repository) CanvasSnapshot(userID, canvasID, id string) (*model.CanvasS
 // The successful CAS takes the canvas row lock before inspecting the history.
 // Snapshot creation, reference protection and retention commit with the content.
 func (r *Repository) SaveCanvasWithSnapshot(project *model.CanvasProject, snapshot *model.CanvasSnapshot, resourceIDs, currentResourceIDs []string, cutoff time.Time, limit int, force bool) error {
+	if snapshot != nil {
+		canonical, changed, err := canvasdoc.Canonicalize([]byte(snapshot.PayloadJSON))
+		if err != nil {
+			return err
+		}
+		if changed {
+			snapshot.PayloadJSON = string(canonical)
+			snapshot.PayloadBytes = len(canonical)
+		}
+	}
 	next := *project
 	err := r.Transaction(func(repo *Repository) error {
 		tx := repo.db

@@ -12,7 +12,8 @@ export const AGENT_LAUNCHER_COMPACT_VIEWPORT_WIDTH = 768;
 /** 大形象（Live2D / 动画包）的入口高度：受外观设置、视口和宽高比约束，离开画布编辑器或窄屏时再封顶。 */
 export function resolveAgentLauncherAvatarHeight(preferred: number, aspectRatio: number, viewport: AgentLauncherViewport, inCanvasEditor: boolean) {
     const compact = !inCanvasEditor || viewport.width < AGENT_LAUNCHER_COMPACT_VIEWPORT_WIDTH;
-    return Math.max(40, Math.min(preferred, viewport.height - 60, (viewport.width - 40) / aspectRatio, compact ? AGENT_LAUNCHER_COMPACT_AVATAR_HEIGHT : Infinity));
+    const ratio = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
+    return Math.max(1, Math.min(Math.max(40, preferred), viewport.height - 60, (viewport.width - 40) / ratio, compact ? AGENT_LAUNCHER_COMPACT_AVATAR_HEIGHT : Infinity));
 }
 
 export function clampAgentLauncherPosition(position: AgentLauncherPosition, viewport: AgentLauncherViewport, size = { width: AGENT_LAUNCHER_SIZE, height: AGENT_LAUNCHER_SIZE }): AgentLauncherPosition {

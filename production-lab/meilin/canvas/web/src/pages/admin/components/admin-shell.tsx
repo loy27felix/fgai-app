@@ -108,6 +108,8 @@ const adminNavigation: Array<{ label: string; items: AdminNavigationItem[] }> = 
         label: "平台配置",
         items: [
             { path: "/admin/plugins", label: "插件管理", shortLabel: "插件", description: "平台可用性、上传与卸载", icon: <PlugZap className="size-4" /> },
+            { path: "/admin/mcp", label: "MCP 外部工具", shortLabel: "MCP", description: "外部工具模板、接入范围与执行记录", icon: <PlugZap className="size-4" /> },
+            { path: "/admin/settings/feishu-feedback", label: "飞书反馈与日报", shortLabel: "飞书", description: "配置接收群、反馈接入和日报预览", keywords: "飞书 日报 机器人 Feishu", icon: <MessageSquareText className="size-4" /> },
             { path: "/admin/skill-curation", label: "技能分类", shortLabel: "技能", description: "平台策展与分类维护", icon: <PlugZap className="size-4" /> },
             { path: "/admin/skills", label: "技能管理", shortLabel: "技能", description: "查看并维护站点技能", icon: <PlugZap className="size-4" /> },
             { path: "/admin/settings/appearance", label: "站点及外观", shortLabel: "外观", description: "品牌、SEO、备案与皮肤", keywords: "主题 Logo 更新公告", icon: <Palette className="size-4" /> },

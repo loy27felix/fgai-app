@@ -125,6 +125,7 @@ import { AgentContextChip } from "./canvas-cloud-agent-composer";
 import { CanvasAgentSkillLibraryModal } from "./canvas-agent-skill-library-modal";
 import { useSkillCuration, curationQuery } from "@/components/skills/skill-curation-browser";
 import { CanvasCloudAgentSettings, agentPermissionLabel, type AgentContextKey } from "./canvas-cloud-agent-settings";
+import { AgentConnectorsBar, type AgentMCPDestination } from "./canvas-cloud-agent-connectors";
 import { AgentOutboxTray, type AgentOutboxPrimaryAction } from "./canvas-cloud-agent-outbox";
 import { useAgentPanelLayout } from "./use-agent-panel-layout";
 import { useAgentPanelDock } from "./use-agent-panel-dock";
@@ -255,6 +256,8 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const reducedMotion = useReducedMotion();
     const [view, setView] = useState<AgentPanelView>("chat");
+    const [settingsSection, setSettingsSection] = useState<"mcp" | undefined>();
+    const [settingsMcpTab, setSettingsMcpTab] = useState<AgentMCPDestination>("connections");
     const [run, setRun] = useState<AgentRun | null>(null);
     const [contextUsage, setContextUsage] = useState<AgentContextUsage>(() => emptyAgentContextUsage(""));
     const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
@@ -2543,6 +2546,8 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                             {view === "settings" ? (
                                 <motion.div key="settings" className="flex min-h-0 flex-1" initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}>
                                     <CanvasCloudAgentSettings
+                                        initialSection={settingsSection}
+                                        initialMcpTab={settingsMcpTab}
                                         theme={theme}
                                         config={config}
                                         selectedModel={selectedModel}
@@ -2633,7 +2638,10 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                                 .catch((cause) => setMessages((current) => appendAgentError(current, `export-${Date.now()}`, cause, "导出失败")))
                                                 .finally(() => setExporting(false));
                                         }}
-                                        onSettings={() => setView("settings")}
+                                        onSettings={() => {
+                                            setSettingsSection(undefined);
+                                            setView("settings");
+                                        }}
                                         onResetLayout={panelLayout.reset}
                                         docked={dock.active}
                                         onToggleDock={dock.available ? () => setDocked(!dock.active) : undefined}
@@ -2775,6 +2783,7 @@ export const CanvasCloudAgentPanel = memo(function CanvasCloudAgentPanel() {
                                         onSubmit={handleComposerSubmit}
                                         onEscape={handleComposerEscape}
                                         tray={outboxTray}
+                                        footer={<AgentConnectorsBar onOpenMCP={(destination) => { setSettingsSection("mcp"); setSettingsMcpTab(destination); setView("settings"); }} />}
                                         attachments={[...documents,...composerAttachments]}
                                         onAddFiles={files => { const all = Array.from(files || []); const media = all.filter(file => /^(?:image|video|audio)\//.test(file.type)); const docs = all.filter(file => !media.includes(file)); if (media.length) addComposerFiles(media); if (docs.length) void addDocuments(docs); }}
                                         onRemoveAttachment={id => { if (documents.some(doc => doc.id === id)) setDocuments(current => current.filter(doc => doc.id !== id)); else removeDraftAttachment(id); }}
