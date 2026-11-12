@@ -78,7 +78,10 @@ function parseNativeRuntime(service: SupportServiceId, payload: unknown): Native
   // 旧 Canvas 仅返回 Go buildinfo；允许读取真实版本，但缺少身份/dirty 字段时绝不签认。
   const legacyCanvas = service === 'canvas' && value?.code === 0 && !data?.service
     && typeof build?.goVersion === 'string' && /^go\d+\./.test(build.goVersion);
-  if (data?.service !== service && !legacyCanvas) return failure('native_runtime_service_mismatch', true);
+  // The renamed frontend keeps the existing investigation key; other service identities remain distinct.
+  // 前端更名后沿用原调查标识，其他服务身份仍须严格区分。
+  const renamedWeb = service === 'yingce-web' && data?.service === 'meilin-web';
+  if (data?.service !== service && !legacyCanvas && !renamedWeb) return failure('native_runtime_service_mismatch', true);
   if (!build || typeof build.commit !== 'string' || !/^[a-f0-9]{7,40}$/i.test(build.commit.trim())) {
     return failure('native_runtime_commit_missing', true);
   }
