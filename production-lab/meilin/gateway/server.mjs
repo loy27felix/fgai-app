@@ -1,4 +1,5 @@
 import {workspaceEntryDocument} from './fg-workspace-entry.mjs';
+import {feishuEventRoute} from './feishu-event-proxy.mjs';
 import {observeSupportRequest,safeSupportRoute,supportCorrelationHeaders} from './support-observability.mjs';
 import {nativeSupportRoute,nativeSupportToken,nativeSupportFailure} from './fg-support-native.mjs';
 import {sendGatewayRuntimeVersion} from './runtime-version.mjs';
@@ -132,6 +133,7 @@ const server = http.createServer(async (req, res) => {
     if(await budgetInternalRoute(req,res,{pool,path}))return;
     if(await speechInternalRoute(req,res,{pool,path}))return;
     if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
+    if(await feishuEventRoute(req,res,{path,web}))return;
     if (publicResourceRead(req.method, path) || publicCanvasShareRead(req.method, path)) {
       // Public media and share reads are authorized by the native backend's
       // expiring capability. Static bundles need no browser or FG credentials.

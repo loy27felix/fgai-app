@@ -23,8 +23,9 @@ const custom = (): UpdateAnnouncement => ({
     ],
 });
 
-test("switch selects the custom display version and restores the real version", () => {
-    expect(updateAnnouncementVersion(custom(), "1.6.0")).toBe("影绘 2.0");
+test("real build version remains visible while custom announcements retain their own title", () => {
+    expect(updateAnnouncementVersion(custom(), "1.6.0")).toBe("v1.6.0");
+    expect(updateAnnouncementVersion(custom(), "dev")).toBe("影绘 2.0");
     expect(updateAnnouncementVersion({ ...custom(), enabled: false }, "v1.6.0")).toBe("v1.6.0");
     expect(updateAnnouncementVersion(undefined, "1.6.0")).toBe("v1.6.0");
 });
