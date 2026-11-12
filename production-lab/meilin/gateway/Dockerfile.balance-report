@@ -1,0 +1,7 @@
+ARG GATEWAY_RUNTIME_IMAGE
+FROM ${GATEWAY_RUNTIME_IMAGE}
+WORKDIR /app
+COPY --chown=node:node fg-provider-balance-report-server.mjs fg-provider-balance-report.mjs fg-provider-balance.mjs fg-fee-auth.mjs ./
+USER node
+EXPOSE 3011
+CMD ["node", "fg-provider-balance-report-server.mjs"]

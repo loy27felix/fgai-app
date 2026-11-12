@@ -12,6 +12,7 @@ import {applyHostDiskMetrics} from './host-metrics.mjs';
 import {initializeFG,fgAPI} from './fg-integration.mjs';
 import {projectLanguageRoute,guardProjectLanguageTask,nativeProjectAccess} from './fg-project-language.mjs';
 import {startFeeSync} from './fg-fee-sync.mjs';
+import {balanceReportRoute} from './fg-provider-balance-report.mjs';
 import {budgetInternalRoute} from './fg-budgets.mjs';
 import {initializeSpeech,speechInternalRoute} from './fg-speech.mjs';
 import {musicStatus} from './fg-music-provider.mjs';
@@ -127,6 +128,7 @@ const server = http.createServer(async (req, res) => {
     if(nativeSupportToken(req)){nativeSupportFailure(res,403,'support_token_isolated');return;}
     if(retiredModulePath(path.pathname)){retiredModuleResponse(res);return;}
     if(['/api/fg-project-files','/api/fg-story-archive'].includes(path.pathname)){respond(res,403,'工程归档仅供受信任服务调用','FG_INTERNAL_ONLY');return;}
+    if(await balanceReportRoute(req,res,{pool,path}))return;
     if(await budgetInternalRoute(req,res,{pool,path}))return;
     if(await speechInternalRoute(req,res,{pool,path}))return;
     if(await creatorInternalRoute(req,res,{pool,web,publicOrigin,canvasSession,path}))return;
