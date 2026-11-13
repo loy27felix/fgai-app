@@ -7,7 +7,7 @@ function parameterRejection(response,call){
  for(let depth=0;depth<3;depth++){
   if(!response||typeof response!=='object'||Array.isArray(response))return null;
   if(response.id||response.task?.id||response.output?.task_id||response.data?.id||response.data?.task_id)return null;
-  const error=response.error;
+  const error=response.error??response;
   if(error?.code==='InvalidParameter'&&error.param==='content'&&error.type==='BadRequest'&&
    /first\/last frame content cannot be mixed with reference media content\./.test(String(error.message||'')))
    return {providerErrorCode:error.code,parameter:error.param};

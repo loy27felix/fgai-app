@@ -7,7 +7,7 @@ import {parseFeeCsv} from './fg-finance.mjs';
 test('Seedance frame/reference parameter rejection is unwrapped and automatically reconciled',()=>{
  const error={code:'InvalidParameter',param:'content',type:'BadRequest',message:'The parameter `content` specified in the request is not valid: first/last frame content cannot be mixed with reference media content. Request id: provider-request'};
  const base={capability:'video',method:'POST',path:'/api/v3/contents/generations/tasks',status:'failed',status_code:'400',error_code:'upstream_error',provider_request_id:'',input_tokens:'0',output_tokens:'0',media_count:'0',fg_fee_reference_id:'receipt',fg_fee_references_json:'["receipt"]'};
- for(const body of [{error},{error:{code:'upstream_error',message:JSON.stringify({error})}}]){
+ for(const body of [{error},{error:{code:'upstream_error',message:JSON.stringify({error})}},{code:'upstream_error',data:null,message:JSON.stringify({error})}]){
   const evidence=rejectionEvidence({...base,response_body:JSON.stringify(body)});
   assert.equal(evidence?.statusCode,400);
   assert.equal(evidence?.providerErrorCode,'InvalidParameter');
@@ -19,6 +19,7 @@ test('Seedance frame/reference parameter rejection is unwrapped and automaticall
   {response_body:'{invalid-json'},
   {response_body:JSON.stringify({id:'accepted',error})},
   {response_body:JSON.stringify({error:{code:'upstream_error',message:JSON.stringify({task:{id:'accepted'},error})}})},
+  {response_body:JSON.stringify({code:'upstream_error',data:{task_id:'accepted'},message:JSON.stringify({error})})},
   {response_body:JSON.stringify({error:{...error,code:'OutputVideoSensitiveContentDetected'}})},
   {response_body:JSON.stringify({error:{...error,message:'unknown parameter failure'}})},
   {response_body:JSON.stringify({error:{...error,param:'output'}})},
