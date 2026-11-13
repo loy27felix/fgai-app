@@ -16,8 +16,10 @@ import { serviceForCodePath, supportServiceDirectory, supportInvestigationServic
 const INITIAL_TOOL_CALLS = 32;
 const MAX_TOOL_CALLS = 64;
 const MAX_NO_PROGRESS = 3;
+const MAX_TOOL_BATCH = 4;
 type Intent = 'product' | 'incident';
 type Plan = SupportPlan;
+type ToolRequest = { tool: string; args: Record<string, unknown> };
 type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 const instructions = `你是多服务只读调查助手，覆盖 production-lab/meilin（原 production-lab/yingce） 及其他服务，不限于 Yingce；FG 主站和旧 Production Lab 主站模块已废弃，不查询其业务数据、日志或运行版本；全仓共享/历史源码仍可检索用于核对当前业务依赖，不将历史实现冒认成当前服务。目标是根据用户文字、截图和上下文，核对实际运行版本、对应代码和相关操作数据，得出原因和具体解决步骤，不是凭经验给通用排障清单。
 对本人、本次任务的相关信息应充分核对：已取得的任务状态、供应商错误及参数约束、素材与提交核对结果、问题环节、代码依据和调查缺口，都保留在内部调查记录；面向用户时讲清相关影响和做法，不把整份技术记录原样铺开，不因缺少最终根因或运行源码而整体拒答。分别说明已核实事实、基于证据但尚未确认的分析、仍不知道的部分和可执行的核对步骤；不确定就明确标注，不装作确定，也不以笼统“证据不足”代替已有答案。信息披露仍限当前账号授权范围；其他账号信息、密码、Token、Cookie、签名、连接串、密钥等系统秘密绝不披露，未知归属的信息不返回。知无不言不代表输出原始正文或绕过脱敏、归属校验。
@@ -34,7 +36,7 @@ relatedUserIssues 来自 docs/user-issues.md 的历史问题，仅作相似现�
 源码工具覆盖仓库内各服务的业务文本，包括 production-lab/meilin（原 production-lab/yingce），不限于该目录；包含 app/lib/components 等共享及历史源码，只排除凭据、日志、依赖和生成产物；全仓可检索不等于一次读取所有文件。先搜截图独特标题/提示和功能关键词；用户说导入可能叫上传，人设图可能叫角色形象图。找到模块目录后必须用path+line读取实际实现，不能只引用搜索命中或产品文档；沿功能动作检索并读取实现，不能反复只找导航。truncated不是全部结果，缩小path或分页。
 服务目录包含 Yingce Web/Gateway/Canvas/Agent，以及 AdCraft、Meilin、Suno、ArcReel、OpenCreator 和基础设施等既有来源，不因问题来自 Yingce 就排除其他相关服务。已退役产品只允许读取可授权的存量证据，不恢复入口或冒认仍在用。services工具列出可调查服务及范围内依赖；operations/logs/chain/detail/generation用args.service选择实际服务，runtime也接受service。code不传path时搜索多服务源码，读取实现按所属服务核对独立版本；共享/历史文件用当前调查服务的源码 revision 读取，其内容本身不证明当前业务调用。FG 主站及旧模块不作为业务数据/日志目标，缺少证据也不回退主站；必须沿 import、路由、函数调用核实共享实现是否实际被当前服务使用。目录依赖不证明请求实际经过；跨服务关联必须核对双方授权记录的相同request/trace或真实映射的task编号，不按时间相近、项目相同或错误相似拼接。未接入或不可用必须显示缺口，不能借用其他服务的版本或数据。最终JSON增加service字段，指出证据支持的实际目标服务。
 故障证据分层：observed 可确认 generation 核实的本次输入冲突（causeProof 使用 observationExcerpt），或同一业务服务、与本次定位编号关联的 api_call_logs 中明确记载的上游拒绝原因及错误明示的处理要求；不要求错误原文出现在本地源码，不要求其他链路分支全部可用，也不受源码版本未知阻断。必须用 causeProof 的 evidenceRef、recordId、errorExcerpt 引用真实失败调用，不接受只有HTTP状态码、用户转述或无关近期候选。错误给出参数必须值、任务类型约束时，翻译成具体操作，并说明该操作适用的前提；任务类型与用户意图不符时先核对提示词与提交参数，不让用户盲目改模式或重新付费。confirmed 才表示内部实现根因已核实，仍须runtime版本一致、本次完整请求链路和错误与对应实现吻合。observed 不能把具体代码bug、默认参数值、用户操作过失或未提供的供应商行为当作已核实事实；如有本次编号关联记录支撑但尚未验证的解释，可用likely单独标注分析依据与验证缺口，不能冒充根因。用户追问平台为何传错参数时继续查代码。完全没有相关证据时用needs_info，不编造原因。日志没有记录≠没有发生故障；未接通数据源≠用户操作错误。
-工具格式：{"tool":"services|runtime|code|assets|generation|operations|logs|detail|chain","args":{...}}。services：无需参数，返回服务目录与接入边界。runtime：service，核对指定服务运行版本。code：term/path/offset，或者path+line读取邻近实现。assets：仅canvas，projectId必填（可使用页面项目），可按assetId/versionId/category缩小范围或offset分页（查看assetIndex/nextOffset），指定assetId后可versionOffset分页查看旧版本（nextVersionOffset）；读取本人项目素材、服装图片绑定、版本和分镜引用当前快照，不代表过去状态；素材消失、没有服装、引用无图等问题必须先查assets，不能仅查生成失败任务。generation：仅canvas，必须精确taskId，可projectId/from/to缩小本人范围；对照任务绑定、最终创建请求、上传映射，发现提交异常不等于媒体效果已验收。operations：service/taskId/requestId/traceId/sessionId/projectId/from/to，不传定位参数则当前账号近期失败；yingce-gateway 可用 provider=suno 或 volcengine 过滤真实渠道回执，不代表供应商原生运行日志。logs：taskId/requestId/traceId/from/to/projectId，Canvas查原生任务/调用日志，不查询废弃主站接入层。无编号仅查给定时间窗口或默认24h候选，不能称已对齐故障。chain：taskId/requestId/traceId任一项，程序自动展开实际返回的关联编号和失败请求详情，不能以搜索列表代替。detail：已返回的记录id，必须指定该记录的service；Canvas读取本人任务保存的输入/结果或调用审计的实际请求/响应参数，字段会脱敏。可用section=input|request|response、pointer=JSON Pointer、offset=nextOffset分段读取；不要重复传相同分页。其他服务没有正文接口时明确not_available，不能把缓存状态当请求参数。不允许传userId、任意URL或SQL。
+工具格式：{"tool":"services|runtime|code|assets|generation|operations|logs|detail|chain","args":{...}}。同一轮已知参数且互不依赖的查询优先合并为 {"tools":[{"tool":"code","args":{...}}]}，最多4项；依赖前一结果的编号、路径或分页须等结果后再规划，不猜测参数。services：无需参数，返回服务目录与接入边界。runtime：service，核对指定服务运行版本。code：term/path/offset，或者path+line读取邻近实现。assets：仅canvas，projectId必填（可使用页面项目），可按assetId/versionId/category缩小范围或offset分页（查看assetIndex/nextOffset），指定assetId后可versionOffset分页查看旧版本（nextVersionOffset）；读取本人项目素材、服装图片绑定、版本和分镜引用当前快照，不代表过去状态；素材消失、没有服装、引用无图等问题必须先查assets，不能仅查生成失败任务。generation：仅canvas，必须精确taskId，可projectId/from/to缩小本人范围；对照任务绑定、最终创建请求、上传映射，发现提交异常不等于媒体效果已验收。operations：service/taskId/requestId/traceId/sessionId/projectId/from/to，不传定位参数则当前账号近期失败；yingce-gateway 可用 provider=suno 或 volcengine 过滤真实渠道回执，不代表供应商原生运行日志。logs：taskId/requestId/traceId/from/to/projectId，Canvas查原生任务/调用日志，不查询废弃主站接入层。无编号仅查给定时间窗口或默认24h候选，不能称已对齐故障。chain：taskId/requestId/traceId任一项，程序自动展开实际返回的关联编号和失败请求详情，不能以搜索列表代替。detail：已返回的记录id，必须指定该记录的service；Canvas读取本人任务保存的输入/结果或调用审计的实际请求/响应参数，字段会脱敏。可用section=input|request|response、pointer=JSON Pointer、offset=nextOffset分段读取；不要重复传相同分页。其他服务没有正文接口时明确not_available，不能把缓存状态当请求参数。不允许传userId、任意URL或SQL。
 对故障必须沿“用户输入→参数转换/默认值→实际请求→响应→状态更新”读取代码与同编号事实，既核对失败也核对成功但内容错误的调用。detail.exchange中的input是任务保存输入，request/response是实际审计记录，不可互相替代。优先查询失败调用、创建请求和最新回执；分页、字段省略、缺正文均保留缺口，未采集的正文不可事后恢复。所有已取得的参数详情须在最终JSON的parameterReview逐项分析：[{'recordId':'真实记录id','evidenceRefs':['本记录detail证据id'],'codeRefs':['实际读取实现的证据id'],'request':'输入/请求关键值及与实现的对照；缺失则指出','response':'实际响应/保存结果及处理逻辑；缺失则指出','finding':'具体差异、所处环节和确认边界'}]（实际输出使用合法JSON双引号）。不得只复述HTTP状态码，也不得把不完整投影称完整报文。源码不可用时可用needs_info保留事实；参数本身不能证明未取得的执行分支。
 最终仅一个JSON：{"intent":"product或incident","service":"服务目录中的目标服务id","certainty":"confirmed|observed|likely|needs_info","summary":"直接解答完整问题","cause":"observed解释已核实观察；confirmed给已核实内部根因；likely说明基于本次证据的待验证分析；needs_info说明已知事实和具体缺口","solutions":["具体入口、操作和预期结果"],"evidenceRefs":["E1"],"recordIds":["引用的操作或日志记录id"],"missingInfo":["仍无法通过工具取得的最少必要信息"],"limitations":["未核实部分"],"solutionProofs":[{"index":0,"kind":"read_only或workaround或developer","evidenceRef":"关联事实证据id","recordId":"关联事实记录id","codeRef":"已读取并核对运行版本的实现证据id","codeExcerpt":"支持该步骤的连续实现原文至少16字"}],"module":"责任模块","needsDeveloper":false,"internalSummary":"供开发接手的事实与缺口","causeProof":{"evidenceRef":"observed填写generation或上游失败调用所在logs/detail/chain证据id","chainRef":"confirmed填写完整链路证据id","recordId":"真实失败调用或generation异常记录id，也须在recordIds中","observationExcerpt":"generation使用该异常message或instructionExcerpt中的连续原文至少8字","errorExcerpt":"该条日志errorExcerpt中的连续原文至少8字","codeRef":"仅confirmed需填写匹配运行实现的证据id","codeExcerpt":"仅confirmed需填写含错误原文的实际实现片段"}}。
 回答对象是使用产品的人，不是开发人员。调查仍须深入，用户正文不要写成技术报告，也不要沿用历史答复的专业措辞和长篇格式。summary 先用1到3句大白话回答“是什么情况、会有什么影响”；cause 只补充与当前问题有关的原因，不重复 summary，不能把功能规则说成本次原因。仍有可查询的疑点时继续调用工具，不发布“目前还没查清”的中间状态；可用来源核对完后，确实无法追溯的部分应说明具体缺少什么记录及其影响，不伪造确定结论。solutions 通常只给1到3个用户能照着做的步骤，说清页面入口和操作；需要技术人员处理就说明具体事项，不能把查日志、核对代码或改接口参数推给用户。不要声称已通知或正在安排技术人员，除非确实执行了相应操作。missingInfo 最多问2项真正缺少且工具无法取得的信息，不重复索要已提供内容。limitations 只写影响使用或处理办法的真实限制，不堆叠调查免责声明。
@@ -55,6 +57,15 @@ function parseObject(content: string): Record<string, unknown> {
     else if (c === '}' && --depth === 0) return JSON.parse(text.slice(0, i + 1));
   }
   throw new Error('模型返回JSON不完整');
+}
+function requestedTools(decision: Record<string, unknown>): ToolRequest[] {
+  const requests = decision.tool ? [decision] : decision.tools;
+  if (!Array.isArray(requests) || !requests.length || requests.length > MAX_TOOL_BATCH) return [];
+  if (requests.some(request => !request || typeof request !== 'object' || typeof request.tool !== 'string' || !request.tool)) return [];
+  return requests.map(request => ({
+    tool: request.tool,
+    args: request.args && typeof request.args === 'object' && !Array.isArray(request.args) ? request.args : {},
+  }));
 }
 async function ask(job: SupportJob, messages: Message[], images: string[], maxTokens = 6000, signal?: AbortSignal, responsesTimeoutMs?: number, synthesis = false) {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -520,6 +531,20 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
     await collectGenerationInputs(service);
     await collectParameterDetails(service);
   };
+  const collectRequests = async (requests: ToolRequest[]) => {
+    let progressed = false;
+    // Batch model planning, not evidence writes: keep ownership checks and budgets ordered.
+    // 合并模型规划轮次而非并发写证据，保持归属校验、关联状态与额度按序更新。
+    for (const request of requests) {
+      if (callsRemaining() <= 0) break;
+      const before = evidence.length;
+      const entry = await collect(request.tool, request.args);
+      if (evidence.length === before || isEvidenceFailure(entry)) continue;
+      progressed = true;
+      await followEvidence(entry);
+    }
+    return progressed;
+  };
   const targetRelatedIds = () => new Set((supportServices[target].data === 'browser'
     ? supportServices[target].dependencies.flatMap(service => linkedSeeds.get(service as SupportServiceId) || [])
     : linkedSeeds.get(target) || []).map(seed => seed.value));
@@ -542,7 +567,7 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
       let decision: Record<string, unknown>;
       try {
         decision = await ask(job, [
-          ...messages.map(message => message.role === 'system' ? { ...message, content: `${instructions}\n当前仅执行取证，最终答复JSON协议留待综合分析阶段。只返回一个工具调用，或 {"readyForAnalysis":true,"stopReason":"哪些相关来源已经核对，剩余信息为什么不能再由工具取得"}。不输出最终原因或解决步骤。重复查询必须换路径；权限拒绝、未配置来源、未采集历史正文不能靠原样重查解决，瞬时读取异常最多重试一次。` } : message),
+          ...messages.map(message => message.role === 'system' ? { ...message, content: `${instructions}\n当前仅执行取证，最终答复JSON协议留待综合分析阶段。返回一个工具调用、最多4项互不依赖的 tools 查询批次，或 {"readyForAnalysis":true,"stopReason":"哪些相关来源已经核对，剩余信息为什么不能再由工具取得"}。不输出最终原因或解决步骤。重复查询必须换路径；权限拒绝、未配置来源、未采集历史正文不能靠原样重查解决，瞬时读取异常最多重试一次。` } : message),
           { role: 'user', content: JSON.stringify({ remainingToolCalls: callsRemaining(), collectionGaps: collectionGaps(), review: !!review,
             instruction: '逐项补足本次编号、实际链路、历史输入、参数分页、接口回执及相关实现。不能只看503或“服务不可用”就结束；追溯错误产生与转换位置，用可信关联查看网关等服务。使用/帮助只查功能实现。结束必须给出具体 stopReason，不得以预算不够、还没查完或需要技术支持继续查代替已穷尽查询。' }) },
         ], [], 6000, options.signal);
@@ -551,8 +576,9 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
         logServerFailure('support_bot_collection_failed', error, { service: 'support-bot', jobId: job.id, toolCalls: calls });
         throw new Error('助手取证规划未完成，等待自动重试；未发布诊断结论。');
       }
-      if (!decision.tool) {
-        if (decision.readyForAnalysis === true && safeText(decision.stopReason)) {
+      const requests = requestedTools(decision);
+      if (!requests.length) {
+        if (!decision.tool && !decision.tools && decision.readyForAnalysis === true && safeText(decision.stopReason)) {
           const before = calls;
           await completeRequiredEvidence();
           if (calls > before) {
@@ -568,46 +594,49 @@ export async function diagnoseSupportJob(job: SupportJob, options: { onProgress?
         continue;
       }
       if (callsRemaining() <= 0) return { ready: false, reason: 'tool_budget' };
-      const before = evidence.length;
       messages.push({ role: 'assistant', content: JSON.stringify(scrub(decision)) });
-      const entry = await collect(String(decision.tool), decision.args && typeof decision.args === 'object' ? decision.args as Record<string, unknown> : {});
-      if (evidence.length === before || isEvidenceFailure(entry)) {
+      if (!await collectRequests(requests)) {
         noProgress++;
         messages.push({ role: 'user', content: `该路径没有新增可用证据；不要结束调查，请改用其他关键词、实现位置、分页或已授权的关联来源。连续无进展 ${noProgress}/${MAX_NO_PROGRESS}。` });
         continue;
       }
       noProgress = 0;
-      await followEvidence(entry);
     }
     return { ready: false, reason: callsRemaining() <= 0 ? 'tool_budget' : 'no_progress' };
   };
-  await collectEvidence();
+  const initialReview = await collectEvidence();
   callLimit = MAX_TOOL_CALLS;
-  let review: { ready: boolean; reason: string } | undefined;
+  // Reuse a completed review until new evidence or a different target requires another one.
+  // 未新增证据或切换目标时复用已完成复核，避免同一批证据重复分析和补查。
+  let review: { ready: boolean; reason: string } | undefined = initialReview.ready ? initialReview : undefined;
   let repairs = 0;
   let noProgress = 0;
-  const synthesisInstruction = '现在深入综合分析。发现仍可核对的疑点、矛盾、缺失分页或关联来源时，允许返回一个工具调用，取得结果后重新分析；不能为了交卷提前输出答案。先在内部检查：编号关联、提交到回执的时间顺序、历史输入、参数转换、实际请求/响应、状态更新实现与运行版本；完成 parameterReview 和生成任务的 generationReview，逐项对照关键值与代码；比较可能解释和反证。503等泛化报错须追溯错误产生和包装位置，不能猜测供应商内部原因。历史案例仅作线索，不能代替本次证据。所有可查询路径已经核对后才按最终JSON协议回答：用通俗短句说明已核实的情况、对使用的影响、具体处置和责任方；确因历史记录未采集或来源不可访问而无法确定的部分，说明具体边界而不是“目前还没查清”或让用户等后续。不能谎称原因已确认、故障已修复或已通知开发。技术依据和逐项对照保留内部字段，不输出思维过程。';
+  const synthesisInstruction = '现在深入综合分析。发现仍可核对的疑点、矛盾、缺失分页或关联来源时，允许返回一个工具调用或最多4项互不依赖的 tools 查询批次，取得结果后重新分析；不能为了交卷提前输出答案。先在内部检查：编号关联、提交到回执的时间顺序、历史输入、参数转换、实际请求/响应、状态更新实现与运行版本；完成 parameterReview 和生成任务的 generationReview，逐项对照关键值与代码；比较可能解释和反证。503等泛化报错须追溯错误产生和包装位置，不能猜测供应商内部原因。历史案例仅作线索，不能代替本次证据。所有可查询路径已经核对后才按最终JSON协议回答：用通俗短句说明已核实的情况、对使用的影响、具体处置和责任方；确因历史记录未采集或来源不可访问而无法确定的部分，说明具体边界而不是“目前还没查清”或让用户等后续。不能谎称原因已确认、故障已修复或已通知开发。技术依据和逐项对照保留内部字段，不输出思维过程。';
   for (let attempt = 0; attempt < 8; attempt++) {
     await progress('analysis');
     let answer: Record<string, unknown>;
+    const gaps = collectionGaps();
     try {
       answer = await ask(job, [...messages, { role: 'user', content: JSON.stringify({
         phase: 'synthesis', questionType: plan.questionType, resolvedQuestion: plan.resolvedQuestion,
-        collectionGaps: collectionGaps(), remainingToolCalls: callsRemaining(), review, instruction: synthesisInstruction,
+        collectionGaps: gaps, remainingToolCalls: callsRemaining(), review,
+        answerRequirements: {
+          limitationsRequired: gaps.length > 0,
+          confirmedAllowed: runtimeVerified && gaps.length === 0,
+          instruction: 'limitationsRequired=true 时必须在 limitations 逐项说明影响本次答复的具体边界；confirmedAllowed=false 时禁止 confirmed。observed 仅适用于有 causeProof 连续原文支撑的本次关联错误或生成提交异常，普通状态观察不算 observed；不满足时用有依据的 likely 或 needs_info，仍须通过完整证据校验。',
+        }, instruction: synthesisInstruction,
       }) }], [], 16000, options.signal, 240_000, true);
     } catch (error) {
       options.signal?.throwIfAborted();
       logServerFailure('support_bot_analysis_failed', error, { service: 'support-bot', jobId: job.id, toolCalls: calls });
       throw new Error('助手分析未完成，等待自动重试；未发布诊断结论。');
     }
-    if (answer.tool) {
+    if (answer.tool || answer.tools) {
       if (callsRemaining() <= 0) break;
-      const before = evidence.length;
       messages.push({ role: 'assistant', content: JSON.stringify(scrub(answer)) });
-      const entry = await collect(String(answer.tool), answer.args && typeof answer.args === 'object' ? answer.args as Record<string, unknown> : {});
-      noProgress = evidence.length === before || isEvidenceFailure(entry) ? noProgress + 1 : 0;
+      const requests = requestedTools(answer);
+      noProgress = await collectRequests(requests) ? 0 : noProgress + 1;
       if (noProgress >= MAX_NO_PROGRESS) break;
-      await followEvidence(entry);
       review = await collectEvidence('深入分析提出了新的查询，继续核对新增事实并尝试其他可用路径。');
       continue;
     }
