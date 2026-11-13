@@ -1,9 +1,17 @@
 # 当前状态
 
-- 日期：2026-11-12（Asia/Shanghai）。
+- 日期：2026-11-13（Asia/Shanghai）。
 - 当前目标：根据问题联合全仓安全源码、本人日志及实际请求/响应参数定位原因与解决办法；包含而不限于 production-lab/meilin（原 production-lab/yingce），不恢复废弃主站业务取证，不改生成执行。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
-- 当前状态：通俗回答、历史问题异步参考及美林目录迁移适配已纳入 main；排查补查与最终报告优化于 2026-11-12 13:11（Asia/Shanghai）在单独授权后上线。当前助手为基于 `30a93b80` 的未提交快照 `support-20261112T050834Z-30a93b80-worktree-a3d15cc69093`，PID 24310；仅更新独立 worker，Web API/Canvas 前端未发布。既有数据覆盖缺口和真实模型效果验收仍未关闭。
+- 当前状态：排查性能优化已提交并推送 `8bc86308`，于 2026-11-13 11:37（Asia/Shanghai）在单独重启授权后上线。当前独立助手 release 为 clean commit `support-20261113T032712Z-8bc86308`，PID 87916；仅更新 worker，Web API/Canvas 前端未发布。旧独立 AdCraft/Meilin 与 Suno 的既有覆盖缺口仍在，真实工单提速尚未量化验收。
+
+## 排查性能优化上线（2026-11-13 11:38，Asia/Shanghai）
+- 用户明确允许本次仅停止并重新启动 `com.fgstudio.support-bot-worker`，失败时恢复旧版。已在助手队列表 `SHARE` 锁内确认 pending/processing 均为0后切换，PID 24310 → 87916（子进程87919）；等待旧任务真正卸载，再验证新版单一进程树、实际源码目录、启动 commit/release 及稳定 PID，production/web-only 保持不变。
+- 发布 `support-20261113T032712Z-8bc86308`，commit `8bc863086531be34f3e8196721a6402deed141c6`，`dirty=false`；37项文件摘要通过，快照摘要 `668a2fa8349a3f362d43a8318e5a867fb313ba7af550c4ecb95609a9731cba90`。复用有效复核、批量规划最多4项独立只读查询、提前传递答案证据限制；没有降低思考等级、放宽证据校验或修改整轮失败重试策略。
+- 沿用既有依赖及生产助手专用配置，未安装依赖、迁移数据库或部署主业务。只向候选助手仓库补齐生产 Git 对象；线上 Web/Canvas 为 `7ac1bb4e`，Gateway 为 `f1d1528e`，逐服务匹配源码与运行身份，不以助手 commit 冒充业务版本。
+- 实际执行候选 release 的 `prepare.py`、`check.py`（含 `scripts/support-bot-worker.ts --check`、worker 模块加载、既有历史问题匹配及新旧 worker 的7项 required 预检）、`capture-baseline.py`、`deploy-guard.cjs`、`postcheck.py`。Web/Gateway/Canvas/Agent ready；旧独立 AdCraft/Meilin 不可用、Suno 原生数据/日志覆盖不足，整体 `ready=false`，新旧预检没有新增覆盖回归。首次启动 guard 的包装参数不匹配 `/usr/bin/env`，在执行 guard 前即失败、未操作服务；按 plist 原有环境前缀修正后完成唯一一次切换。
+- 切换后19个业务容器的 ID/image/启动时间/重启次数不变，其他守护任务加载状态及 disabled 清单不变；生产主仓 commit `f1d1528e689a561164fb022d2ffb1ceef80a8f9e` 和工作区未变。新版启动事件一次、stderr 为空；业务原生版本核验通过，主 App `/api/version` HTTP 200。未恢复显式禁用任务。
+- 上一 release `support-20261112T050834Z-30a93b80-worktree-a3d15cc69093`、源码及 `worker.previous.plist` 均保留。部署证据与回退产物位于生产 `/Users/server/work/fg-support-production/releases/support-20261113T032712Z-8bc86308`，`deployment-result.json` 状态为 `deployed_with_coverage_gaps`。未创建真实工单或调用真实模型，因此未宣称实际耗时降幅；Web API/Canvas 前端不在本次发布范围。
 
 ## 排查补查与最终报告优化上线（2026-11-12 13:12，Asia/Shanghai）
 - 用户明确回复“允许”本次仅重启 `com.fgstudio.support-bot-worker`。在助手队列表 `SHARE` 锁内确认 pending/processing 均为0后，等待旧任务真正卸载再启动新版；PID 43094 → 24310，子进程 24312，单一进程树、实际源码目录及启动事件匹配，保持 production/web-only，未开启飞书外发。
