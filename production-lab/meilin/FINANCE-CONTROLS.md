@@ -55,15 +55,33 @@ ssh server '/usr/bin/python3 /Users/server/work/fg-wetoken-balance-report/notifi
 ssh server '/usr/bin/python3 /Users/server/work/fg-wetoken-balance-report/notifier/notify-balance.py --send-now'
 ```
 
-任务 plist 位于生产机 `~/Library/LaunchAgents/com.fgstudio.wetoken-balance-notifier.plist`，`StartCalendarInterval` 为 `Hour=10, Minute=0`，时区为 `Asia/Shanghai`。运行要求生产机在线、`server` 用户 LaunchAgent 会话及 Docker 可用。`RunAtLoad` 会检查当日状态：10:00 前不发送，当天已受理则跳过，避免注册任务时重复发送。安装器只 bootstrap 缺失且未显式禁用的任务；已加载任务原样保留，不停止或强制重启任何生产任务。
+任务 plist 位于生产机 `~/Library/LaunchAgents/com.fgstudio.wetoken-balance-notifier.plist`，`StartCalendarInterval` 为 `Hour=10, Minute=0`，时区为 `Asia/Shanghai`。运行要求生产机在线、`server` 用户 LaunchAgent 会话及 Docker 可用。`RunAtLoad` 会检查当日日报状态：日报在 10:00 前不发送，当天已受理则跳过，避免注册任务时重复发送；下述新增阈值告警不受日报时间及日期去重限制。安装器只 bootstrap 缺失且未显式禁用的任务；已加载任务原样保留，不停止或强制重启任何生产任务。
 
-运行日志为同目录 `notify.log`、`notify-error.log`；`last-accepted.json` 记录按北京时间日期的已受理状态，配合文件锁避免并发和当天重复通知。只有 HTTP 2xx 且返回 `code: 0` 才记录受理，受理不等于群消息送达；遇到结果不明确的网络超时不自动重试，需先检查飞书 Activity Log 与群消息，避免重复。
+运行日志为同目录 `notify.log`、`notify-error.log`；`last-accepted.json` 的顶层 `day` 记录按北京时间日期的日报已受理状态，配合文件锁避免并发和当天重复日报；新增 `thresholdAlerts` 独立记录低余额告警，不随日期变化重置。只有 HTTP 2xx 且返回 `code: 0` 才记录受理，受理不等于群消息送达；遇到结果不明确的网络超时不自动重试，需先检查飞书 Activity Log 与群消息，避免重复。
 
 2026-11-12 **18:09:07（北京时间）** 单次真实联调：余额 `$177.083549 USD`，余额更新时间与报告时间均为 18:09:07，`stale=false`；飞书 Activity Log 显示本次执行 Success，已在当时的「余额告警余额告警」群核对正文及机器人发送者。随后已注册每日任务，核验触发器为 09:30、首次运行退出码 0 且日志为 `not_due`，未重复发送。部署时首个每日计划触发为 2026-11-13 09:30，该次部署验收未等待自然触发。生产同目录 `deployment-result.json` 记录源码基线、dirty 状态与脚本摘要；不能将未提交快照视为 clean commit。
 
 2026-11-13 **09:51:18（北京时间）**，经用户明确授权，仅卸载并重新加载余额通知任务，将每日时间调整为 **10:00**；核验已加载的 calendar descriptor 为 `Hour=10, Minute=0`，任务首次执行退出码 0、日志为 `not_due`。当天 09:30:01 的 Webhook 已受理状态保留，因此当天 10:00 不重复发送，下一次计划通知为 **2026-11-14 10:00**。`--dry-run` 成功读取实时余额（`stale=false`），没有外发消息；其他 LaunchAgent 保持加载，主应用、Gateway 与余额服务容器 ID/启动时间未变。本次未等待 10:00 自然触发，也未额外实测新群送达。通过用户已打开的 Chrome 标签页将飞书规则名称同步为（10:00），保存后返回 Active 3/3 列表；接收群、机器人和动态正文未改动。备份与本次未提交脚本的 SHA-256、源码基线及验证结果保存在生产通知目录的 `backups/` 和 `deployment-result.json`。
 
 2026-11-13 **10:00:01（北京时间）**，现场只读监控确认新时间自然触发，退出码 0、错误日志为空；因当天已受理过通知，记录 `not_due`，未重复发送。随后用户明确要求今天也发送，**10:01:11** 执行 `--send-now` 单次补发，真实余额为 `$167.068206 USD`，余额更新时间同为 10:01:11，`stale=false`。已在飞书「weToken扫码支付与商务」群核对「WeToken 余额告警」入群记录、机器人身份及包含该金额的余额消息，用户随后确认收到。此为新群实际送达验收；每日 10:00 调度保持不变。
+
+### 低余额阈值告警（已上线）
+
+保留每日北京时间 **10:00** 日报；新版 `notify-balance.py --install` 在同一个 LaunchAgent 中增加 `StartInterval=300`，在线时约每 **5 分钟**读取一次余额，全天检查，不以当天是否已发日报为前提。查询仍复用独立只读余额服务及其最多 60 秒缓存，不增加公网入口或飞书规则。
+
+- 实时余额严格低于 **100 USD**、**50 USD** 时，各档分别告警一次；持续处于该档位不重复发送，过 10 分钟或跨天也不重置。
+- 100 USD 档文案为「请尽快充值，确保服务正常使用。」；50 USD 档文案为「余额严重不足，请立即充值，避免余额耗尽影响服务。」；两档均保留实际余额、报告时间和余额更新时间，普通日报不追加充值提醒。
+- 只有实时余额恢复到对应阈值或以上，才重新允许该档告警；例如 40 → 75 只重新允许 50 档，40 → 100 则重新允许两档。仅观察到的实时恢复有效，巡检间隔内未观察到的充值及回落无法识别。
+- 首次巡检即低于 50 USD 时，只发一条「低于 $50」消息，同时记录两个档位，避免同一余额连发两条；日报与首次阈值告警同时到期时，也合并成一条消息，并分别记录状态。
+- 无余额、旧缓存或获取失败不能触发或重置阈值告警。取数异常写错误日志；日报到期仍按原逻辑明确提示“剩余余额未知”，不会误报余额为 0。
+
+`last-accepted.json` 的 `thresholdAlerts` 逐档保存受理时间和金额；仅发送阈值告警不更新日报的 `day`，因此不会吞掉当天 10:00 日报。发送前原子记录阈值 `status=pending` 及必要的 `pendingDaily`，成功受理后才转为已受理；明确拒绝的请求恢复发送前状态，允许下次巡检重试。网络超时、进程中断、5xx 或无法确认的响应保留在途状态，不自动重发；应先核对飞书执行记录与群消息，确认后可用已有 `--send-now` 显式人工重发。该参数绕过日报和当前低余额档位的去重；`--dry-run` 不发送、不改动通知状态。
+
+**2026-11-13 11:20:02（北京时间）已部署并启用。** 经用户明确授权，仅卸载并重新加载 `com.fgstudio.wetoken-balance-notifier`；等待任务真正卸载后再安装，核验运行中的 calendar descriptor 为 `Hour=10, Minute=0`，`run interval = 300 seconds`，首次执行退出码 0、无新增错误日志。主应用、Gateway 与余额服务的容器 ID/启动时间、其他受保护 LaunchAgent 的加载状态均未改变，私密 `.env` 与当日日报受理状态保留。
+
+首次 `RunAtLoad` 读取实时余额 **$97.323407 USD**（`stale=false`），自然触发 100 USD 档告警，飞书 Webhook 于 **11:20:02** 受理；状态仅新增 `thresholdAlerts["100"]`，当天日报仍保留 10:01:11 的受理记录。**11:21:03** 再次执行生产脚本返回 `not_due`，实时余额仍为 $97.323407，未重复发送且去重状态不变；`--dry-run` 同样取到实时余额且未改变状态。本次未使用 `--send-now`，未人工制造 50 USD 告警，未核验新增告警的群内送达，也未等待下一次 5 分钟自然触发或次日 10:00 日报。
+
+部署为未提交快照，源码基线 `926c3cd67a849e7930d9f96ca4177b4fa35e01da`、`sourceDirty=true`，通知脚本 SHA-256 为 `f7db21d7716b75aaa66a21855079b0976bfe456aecba9bf3bc33740ee2092068`。原脚本、plist、部署记录与受理状态备份位于生产通知目录 `backups/thresholds-20261113T111957+0800`；实际部署与验证结果写入同目录 `deployment-result.json`，凭证值未记录。以后修改已加载任务的 plist 仍须单独取得该次卸载与重载授权；安装器遇到已加载但配置不一致的任务会拒绝，不主动停止任何服务。
 
 ### 不重启现有服务的独立部署
 

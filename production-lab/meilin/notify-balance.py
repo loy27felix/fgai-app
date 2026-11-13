@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Read the internal balance service and push a daily Feishu automation webhook."""
+"""Push daily WeToken balances and one-shot threshold alerts to Feishu."""
 import argparse
+import copy
 import datetime as dt
 import fcntl
 import json
@@ -16,6 +17,8 @@ import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent
 LABEL = 'com.fgstudio.wetoken-balance-notifier'
+CHECK_INTERVAL_SECONDS = 300
+BALANCE_THRESHOLDS = (100, 50)
 BEIJING = dt.timezone(dt.timedelta(hours=8))
 BALANCE_READER = r"""
 try {
@@ -111,8 +114,13 @@ def post_report(url, token, report):
     body, status = result.stdout.rsplit('\n', 1)
     if not 200 <= int(status) < 300:
         raise NotifyError('WEBHOOK_HTTP_' + str(int(status)))
-    response = json.loads(body)
-    if type(response.get('code')) is not int or response['code'] != 0:
+    try:
+        response = json.loads(body)
+    except ValueError:
+        raise NotifyError('WEBHOOK_RESPONSE_INVALID_DELIVERY_UNCONFIRMED')
+    if not isinstance(response, dict) or type(response.get('code')) is not int:
+        raise NotifyError('WEBHOOK_RESPONSE_INVALID_DELIVERY_UNCONFIRMED')
+    if response['code'] != 0:
         raise NotifyError('WEBHOOK_REJECTED')
 
 
@@ -122,6 +130,23 @@ def atomic_write(path, content):
         stream.write(content)
     temporary.chmod(0o600)
     temporary.replace(path)
+
+
+def save_state(path, state):
+    atomic_write(path, (json.dumps(state) + '\n').encode())
+
+
+def check_thresholds(report, state):
+    if not report['available'] or report['stale']:
+        return []
+    alerts = state.setdefault('thresholdAlerts', {})
+    # Only fresh recovery rearms each threshold; midnight does not reset alerts.
+    # 仅实时余额恢复后重新布防，各档独立且不按天重置。
+    for threshold in BALANCE_THRESHOLDS:
+        if report['balance'] >= threshold:
+            alerts.pop(str(threshold), None)
+    return [threshold for threshold in BALANCE_THRESHOLDS
+            if report['balance'] < threshold and str(threshold) not in alerts]
 
 
 def install():
@@ -135,6 +160,7 @@ def install():
         'ProgramArguments': [sys.executable, str(ROOT / 'notify-balance.py')],
         'WorkingDirectory': str(ROOT), 'RunAtLoad': True,
         'StartCalendarInterval': {'Hour': 10, 'Minute': 0},
+        'StartInterval': CHECK_INTERVAL_SECONDS,
         'StandardOutPath': str(ROOT / 'notify.log'),
         'StandardErrorPath': str(ROOT / 'notify-error.log'),
         'EnvironmentVariables': {'TZ': 'Asia/Shanghai'},
@@ -144,7 +170,8 @@ def install():
     if loaded.returncode == 0:
         if not target.is_file() or plistlib.loads(target.read_bytes()) != document:
             raise NotifyError('LOADED_NOTIFIER_DIFFERS_LEAVE_UNCHANGED')
-        print(json.dumps({'event': 'already_loaded', 'schedule': '10:00 Asia/Shanghai'}))
+        print(json.dumps({'event': 'already_loaded', 'schedule': '10:00 Asia/Shanghai',
+                          'checkIntervalSeconds': CHECK_INTERVAL_SECONDS}))
         return
     if 'Could not find service' not in loaded.stderr:
         raise NotifyError('CANNOT_DETERMINE_NOTIFIER_STATE')
@@ -158,7 +185,77 @@ def install():
     subprocess.run(['/usr/bin/plutil', '-lint', str(temporary)], capture_output=True, check=True)
     temporary.replace(target)
     subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], capture_output=True, check=True)
-    print(json.dumps({'event': 'installed', 'schedule': '10:00 Asia/Shanghai'}))
+    print(json.dumps({'event': 'installed', 'schedule': '10:00 Asia/Shanghai',
+                      'checkIntervalSeconds': CHECK_INTERVAL_SECONDS}))
+
+
+def notify(args, url, token):
+    read_failed = False
+    try:
+        report = read_balance()
+    except Exception:
+        if args.dry_run:
+            raise NotifyError('INTERNAL_BALANCE_READ_FAILED')
+        read_failed = True
+        report = None
+    now = dt.datetime.now(BEIJING)
+    day = now.date().isoformat()
+    if read_failed:
+        report = unavailable_report(now)
+    result = {key: report[key] for key in ['available', 'balance', 'stale', 'updatedAt']}
+    if args.dry_run:
+        print(json.dumps({'event': 'dry_run', **result}))
+        return
+    state_path = ROOT / 'last-accepted.json'
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    daily_due = args.send_now or (
+        (now.hour, now.minute) >= (10, 0) and state.get('day') != day
+        and state.get('pendingDaily', {}).get('day') != day)
+    if read_failed and not daily_due:
+        raise NotifyError('INTERNAL_BALANCE_READ_FAILED')
+    previous_state = copy.deepcopy(state)
+    thresholds = check_thresholds(report, state)
+    if args.send_now and report['available'] and not report['stale']:
+        thresholds = [threshold for threshold in BALANCE_THRESHOLDS if report['balance'] < threshold]
+    if not daily_due and not thresholds:
+        if state != previous_state:
+            save_state(state_path, state)
+        print(json.dumps({'event': 'not_due', 'day': day, **result}))
+        return
+    if thresholds:
+        threshold = min(thresholds)
+        reminder = ('余额严重不足，请立即充值，避免余额耗尽影响服务。' if threshold == 50
+                    else '请尽快充值，确保服务正常使用。')
+        report = {**report, 'message': 'WeToken 余额告警：低于 $' + str(threshold)
+                  + ' USD\n' + reminder + '\n\n' + report['message']}
+    pending = copy.deepcopy(state)
+    if daily_due:
+        pending['pendingDaily'] = {'day': day, 'attemptedAt': now.isoformat()}
+    for threshold in thresholds:
+        pending['thresholdAlerts'][str(threshold)] = {
+            'status': 'pending', 'attemptedAt': now.isoformat(), 'balance': report['balance']}
+    # Journal before sending so interrupted or ambiguous requests are not automatically repeated.
+    # 先记录在途状态，避免请求中断或结果不明时被后续巡检重复发送。
+    save_state(state_path, pending)
+    try:
+        post_report(url, token, report)
+    except NotifyError as error:
+        if str(error) in ('WEBHOOK_REJECTED', 'WEBHOOK_HTTP_400', 'WEBHOOK_HTTP_401',
+                          'WEBHOOK_HTTP_403', 'WEBHOOK_HTTP_404', 'WEBHOOK_HTTP_405',
+                          'WEBHOOK_HTTP_413', 'WEBHOOK_HTTP_415', 'WEBHOOK_HTTP_422',
+                          'WEBHOOK_HTTP_429'):
+            save_state(state_path, state)
+        raise
+    accepted = {'day': day, 'acceptedAt': dt.datetime.now(BEIJING).isoformat(), **result}
+    if daily_due:
+        state.update(accepted)
+        state.pop('pendingDaily', None)
+    for threshold in thresholds:
+        state['thresholdAlerts'][str(threshold)] = {
+            'status': 'accepted', 'acceptedAt': accepted['acceptedAt'], 'balance': report['balance']}
+    save_state(state_path, state)
+    print(json.dumps({'event': 'webhook_accepted', **accepted,
+                      'daily': daily_due, 'thresholds': thresholds}))
 
 
 def main():
@@ -166,8 +263,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--dry-run', action='store_true', help='read balance without sending or changing state')
-    modes.add_argument('--send-now', action='store_true', help='explicitly send a fresh report, even if sent today')
-    modes.add_argument('--install', action='store_true', help='register a missing 10:00 job without stopping any job')
+    modes.add_argument('--send-now', action='store_true', help='explicitly send a fresh report, bypassing deduplication')
+    modes.add_argument('--install', action='store_true', help='register missing daily and 5-minute checks without stopping any job')
     args = parser.parse_args()
     if args.install:
         install()
@@ -179,30 +276,7 @@ def main():
         except BlockingIOError:
             print(json.dumps({'event': 'already_running'}))
             return
-        now = dt.datetime.now(BEIJING)
-        day = now.date().isoformat()
-        state_path = ROOT / 'last-accepted.json'
-        if not args.dry_run and not args.send_now:
-            state = json.loads(state_path.read_text()) if state_path.exists() else {}
-            if (now.hour, now.minute) < (10, 0) or state.get('day') == day:
-                print(json.dumps({'event': 'not_due', 'day': day}))
-                return
-        try:
-            report = read_balance()
-        except Exception:
-            if args.dry_run:
-                raise NotifyError('INTERNAL_BALANCE_READ_FAILED')
-            report = unavailable_report(now)
-        result = {key: report[key] for key in ['available', 'balance', 'stale', 'updatedAt']}
-        if args.dry_run:
-            print(json.dumps({'event': 'dry_run', **result}))
-            return
-        # Acceptance is not proof of group delivery; do not blindly retry ambiguous timeouts.
-        # 接口受理不等于群消息送达；超时结果不明确时不盲目重试。
-        post_report(url, token, report)
-        accepted = {'day': day, 'acceptedAt': dt.datetime.now(BEIJING).isoformat(), **result}
-        atomic_write(state_path, (json.dumps(accepted) + '\n').encode())
-        print(json.dumps({'event': 'webhook_accepted', **accepted}))
+        notify(args, url, token)
 
 
 if __name__ == '__main__':
