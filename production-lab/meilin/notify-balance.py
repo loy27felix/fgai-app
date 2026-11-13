@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Push daily WeToken balances and one-shot threshold alerts to Feishu."""
+"""Push one-shot WeToken balance threshold alerts to Feishu."""
 import argparse
 import copy
 import datetime as dt
@@ -12,7 +12,6 @@ import plistlib
 import re
 import subprocess
 import sys
-import time
 import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -87,14 +86,6 @@ def read_balance():
     return report
 
 
-def unavailable_report(now):
-    return {
-        'available': False, 'balance': None, 'updatedAt': None, 'stale': False,
-        'message': 'WeToken 每日账户余额\n报告时间：' + now.strftime('%Y/%m/%d %H:%M:%S')
-        + '（北京时间）\n本次余额获取失败，剩余余额未知；请检查项目中的 WeToken 账单授权及余额服务。',
-    }
-
-
 def post_report(url, token, report):
     payload = json.dumps({'message': report['message']}, ensure_ascii=False)
     # Keep webhook credentials out of process arguments and logs.
@@ -151,15 +142,12 @@ def check_thresholds(report, state):
 
 def install():
     load_settings()
-    if time.timezone != -28800 or time.daylight:
-        raise NotifyError('HOST_TIMEZONE_MUST_BE_UTC_PLUS_8_WITHOUT_DST')
     domain = 'gui/' + str(os.getuid())
     target = pathlib.Path.home() / 'Library' / 'LaunchAgents' / (LABEL + '.plist')
     document = {
         'Label': LABEL,
         'ProgramArguments': [sys.executable, str(ROOT / 'notify-balance.py')],
         'WorkingDirectory': str(ROOT), 'RunAtLoad': True,
-        'StartCalendarInterval': {'Hour': 10, 'Minute': 0},
         'StartInterval': CHECK_INTERVAL_SECONDS,
         'StandardOutPath': str(ROOT / 'notify.log'),
         'StandardErrorPath': str(ROOT / 'notify-error.log'),
@@ -170,7 +158,7 @@ def install():
     if loaded.returncode == 0:
         if not target.is_file() or plistlib.loads(target.read_bytes()) != document:
             raise NotifyError('LOADED_NOTIFIER_DIFFERS_LEAVE_UNCHANGED')
-        print(json.dumps({'event': 'already_loaded', 'schedule': '10:00 Asia/Shanghai',
+        print(json.dumps({'event': 'already_loaded', 'thresholds': BALANCE_THRESHOLDS,
                           'checkIntervalSeconds': CHECK_INTERVAL_SECONDS}))
         return
     if 'Could not find service' not in loaded.stderr:
@@ -185,55 +173,41 @@ def install():
     subprocess.run(['/usr/bin/plutil', '-lint', str(temporary)], capture_output=True, check=True)
     temporary.replace(target)
     subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], capture_output=True, check=True)
-    print(json.dumps({'event': 'installed', 'schedule': '10:00 Asia/Shanghai',
+    print(json.dumps({'event': 'installed', 'thresholds': BALANCE_THRESHOLDS,
                       'checkIntervalSeconds': CHECK_INTERVAL_SECONDS}))
 
 
 def notify(args, url, token):
-    read_failed = False
     try:
         report = read_balance()
     except Exception:
-        if args.dry_run:
-            raise NotifyError('INTERNAL_BALANCE_READ_FAILED')
-        read_failed = True
-        report = None
-    now = dt.datetime.now(BEIJING)
-    day = now.date().isoformat()
-    if read_failed:
-        report = unavailable_report(now)
+        raise NotifyError('INTERNAL_BALANCE_READ_FAILED')
     result = {key: report[key] for key in ['available', 'balance', 'stale', 'updatedAt']}
     if args.dry_run:
         print(json.dumps({'event': 'dry_run', **result}))
         return
     state_path = ROOT / 'last-accepted.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    daily_due = args.send_now or (
-        (now.hour, now.minute) >= (10, 0) and state.get('day') != day
-        and state.get('pendingDaily', {}).get('day') != day)
-    if read_failed and not daily_due:
-        raise NotifyError('INTERNAL_BALANCE_READ_FAILED')
     previous_state = copy.deepcopy(state)
     thresholds = check_thresholds(report, state)
     if args.send_now and report['available'] and not report['stale']:
         thresholds = [threshold for threshold in BALANCE_THRESHOLDS if report['balance'] < threshold]
-    if not daily_due and not thresholds:
+    if not thresholds:
         if state != previous_state:
             save_state(state_path, state)
-        print(json.dumps({'event': 'not_due', 'day': day, **result}))
+        print(json.dumps({'event': 'not_due', **result}))
         return
-    if thresholds:
-        threshold = min(thresholds)
-        reminder = ('余额严重不足，请立即充值，避免余额耗尽影响服务。' if threshold == 50
-                    else '请尽快充值，确保服务正常使用。')
-        report = {**report, 'message': 'WeToken 余额告警：低于 $' + str(threshold)
-                  + ' USD\n' + reminder + '\n\n' + report['message']}
+    threshold = min(thresholds)
+    reminder = ('余额严重不足，请立即充值，避免余额耗尽影响服务。' if threshold == 50
+                else '请尽快充值，确保服务正常使用。')
+    report = {**report, 'message': 'WeToken 余额告警：低于 $' + str(threshold)
+              + ' USD\n' + reminder + '\n\n'
+              + report['message'].removeprefix('WeToken 每日账户余额\n')}
     pending = copy.deepcopy(state)
-    if daily_due:
-        pending['pendingDaily'] = {'day': day, 'attemptedAt': now.isoformat()}
+    attempted_at = dt.datetime.now(BEIJING).isoformat()
     for threshold in thresholds:
         pending['thresholdAlerts'][str(threshold)] = {
-            'status': 'pending', 'attemptedAt': now.isoformat(), 'balance': report['balance']}
+            'status': 'pending', 'attemptedAt': attempted_at, 'balance': report['balance']}
     # Journal before sending so interrupted or ambiguous requests are not automatically repeated.
     # 先记录在途状态，避免请求中断或结果不明时被后续巡检重复发送。
     save_state(state_path, pending)
@@ -246,16 +220,12 @@ def notify(args, url, token):
                           'WEBHOOK_HTTP_429'):
             save_state(state_path, state)
         raise
-    accepted = {'day': day, 'acceptedAt': dt.datetime.now(BEIJING).isoformat(), **result}
-    if daily_due:
-        state.update(accepted)
-        state.pop('pendingDaily', None)
+    accepted = {'acceptedAt': dt.datetime.now(BEIJING).isoformat(), **result}
     for threshold in thresholds:
         state['thresholdAlerts'][str(threshold)] = {
             'status': 'accepted', 'acceptedAt': accepted['acceptedAt'], 'balance': report['balance']}
     save_state(state_path, state)
-    print(json.dumps({'event': 'webhook_accepted', **accepted,
-                      'daily': daily_due, 'thresholds': thresholds}))
+    print(json.dumps({'event': 'webhook_accepted', **accepted, 'thresholds': thresholds}))
 
 
 def main():
@@ -263,8 +233,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--dry-run', action='store_true', help='read balance without sending or changing state')
-    modes.add_argument('--send-now', action='store_true', help='explicitly send a fresh report, bypassing deduplication')
-    modes.add_argument('--install', action='store_true', help='register missing daily and 5-minute checks without stopping any job')
+    modes.add_argument('--send-now', action='store_true', help='explicitly resend a current low-balance alert, bypassing deduplication')
+    modes.add_argument('--install', action='store_true', help='register missing 5-minute threshold checks without stopping any job')
     args = parser.parse_args()
     if args.install:
         install()
