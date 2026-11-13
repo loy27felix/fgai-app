@@ -1,8 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {rejectionEvidence} from './fg-fee-rejections.mjs';
+import {rejectionEvidence,reconcileRejectedRequests} from './fg-fee-rejections.mjs';
 import {feeLogCsv} from './fg-fee-sync.mjs';
 import {parseFeeCsv} from './fg-finance.mjs';
+
+test('Seedance frame/reference parameter rejection is unwrapped and automatically reconciled',()=>{
+ const error={code:'InvalidParameter',param:'content',type:'BadRequest',message:'The parameter `content` specified in the request is not valid: first/last frame content cannot be mixed with reference media content. Request id: provider-request'};
+ const base={capability:'video',method:'POST',path:'/api/v3/contents/generations/tasks',status:'failed',status_code:'400',error_code:'upstream_error',provider_request_id:'',input_tokens:'0',output_tokens:'0',media_count:'0',fg_fee_reference_id:'receipt',fg_fee_references_json:'["receipt"]'};
+ for(const body of [{error},{error:{code:'upstream_error',message:JSON.stringify({error})}}]){
+  const evidence=rejectionEvidence({...base,response_body:JSON.stringify(body)});
+  assert.equal(evidence?.statusCode,400);
+  assert.equal(evidence?.providerErrorCode,'InvalidParameter');
+  assert.equal(evidence?.parameter,'content');
+ }
+ for(const patch of [
+  {capability:'image'},{method:'GET'},{path:'/api/v3/contents/generations/tasks/task-id'},
+  {provider_request_id:'accepted-task'},{output_tokens:'1'},
+  {response_body:'{invalid-json'},
+  {response_body:JSON.stringify({id:'accepted',error})},
+  {response_body:JSON.stringify({error:{code:'upstream_error',message:JSON.stringify({task:{id:'accepted'},error})}})},
+  {response_body:JSON.stringify({error:{...error,code:'OutputVideoSensitiveContentDetected'}})},
+  {response_body:JSON.stringify({error:{...error,message:'unknown parameter failure'}})},
+  {response_body:JSON.stringify({error:{...error,param:'output'}})},
+ ])assert.equal(rejectionEvidence({...base,response_body:JSON.stringify({error:{code:'upstream_error',message:JSON.stringify({error})}}),...patch}),null);
+});
+
+test('automatic sync includes HTTP 400 admission rejection and records an idempotent audit',async()=>{
+ const call={id:'parameter-rejected-call',capability:'video',method:'POST',path:'/api/v3/contents/generations/tasks',status:'failed',status_code:'400',error_code:'upstream_error',provider_request_id:'',input_tokens:'0',output_tokens:'0',media_count:'0',fg_fee_references_json:'[]',response_body:JSON.stringify({error:{code:'upstream_error',message:JSON.stringify({error:{code:'InvalidParameter',type:'BadRequest',param:'content',message:'first/last frame content cannot be mixed with reference media content.'}})}})};
+ const decisions=new Set(),audits=[];let releases=0;
+ const client={release:()=>releases++,query:async(sql,args)=>{
+  if(sql.startsWith('SELECT id FROM users'))return {rows:[{id:'admin'}]};
+  if(sql.startsWith('WITH matched')){assert.match(sql,/IN\(0,400,401,403,413\)/);return {rows:decisions.has(call.id)?[]:[call]};}
+  if(sql.startsWith('INSERT INTO fg_request_decisions')){assert.equal(args[0],call.id);assert.equal(JSON.parse(args[3]).providerErrorCode,'InvalidParameter');decisions.add(call.id);return {rows:[{call_id:call.id}]};}
+  if(sql.startsWith('INSERT INTO fg_finance_audit'))audits.push(args);
+  return {rows:[]};
+ }};
+ const pool={connect:async()=>client};
+ assert.deepEqual(await reconcileRejectedRequests(pool,'admin'),[call.id]);
+ assert.deepEqual(await reconcileRejectedRequests(pool,'admin'),[]);
+ assert.equal(audits.length,1);assert.equal(releases,2);
+});
 test('final provider failure with an explicit zero charge retains its original status and reference',()=>{
  const row={type:'consume',status:'failed',actual_amount:0,time:1792143902,reference_id:'actual-provider-task-id',model_name:'MiniMax-H3'};
  const fees=parseFeeCsv(feeLogCsv([row]));assert.equal(fees.length,1);assert.equal(fees[0].usd,0);assert.equal(fees[0].providerStatus,'failed');assert.equal(fees[0].referenceId,row.reference_id);
