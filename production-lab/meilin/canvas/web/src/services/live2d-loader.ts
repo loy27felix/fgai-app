@@ -11,7 +11,7 @@ export function installLive2DLoader(loader: typeof Loader) {
     loader.middlewares.unshift(async (context) => {
         const base = new URL(`${apiBaseURL.replace(/\/$/, "")}/`, window.location.href);
         const url = new URL(context.settings ? context.settings.resolveURL(context.url) : context.url, window.location.href);
-        const allowed = ["public", "admin/settings"].some((prefix) => url.pathname.startsWith(`${base.pathname}${prefix}/appearance/live2d/`));
+        const allowed = ["public/appearance/live2d/", "admin/settings/appearance/live2d/", "agent/companion/assets/live2d/"].some((prefix) => url.pathname.startsWith(`${base.pathname}${prefix}`));
         if (url.origin !== base.origin || !allowed) throw new Error("Live2D 资源必须来自本站模型接口");
         const controller = new AbortController();
         const abort = () => controller.abort();

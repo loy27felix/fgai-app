@@ -25,13 +25,17 @@ test("Live2D loader restricts credentialed URLs, propagates failures and aborts 
         expect(options.credentials).toBe("include");
         return new Response('{"Version":3}', { status: 200 });
     }) as typeof fetch;
+    const personalURL = "/api/agent/companion/assets/live2d/owned-id/runtime/model.model3.json";
+    const personal = { url: personalURL, type: "json" } as Live2DLoaderContext;
+    await run(personal);
+    expect(personal.result).toEqual({ Version: 3 });
     const context = { url, type: "json" } as Live2DLoaderContext;
     await run(context);
     expect(context.result).toEqual({ Version: 3 });
-    for (const unsafe of ["https://evil.example" + url, "/api/admin/users", "//evil.example/model.json"]) {
+    for (const unsafe of ["https://evil.example" + url, "/api/admin/users", "//evil.example/model.json", "/api/agent/companion/assets/bundle/id/avatar.json", "/api/agent/companion/assets/live2d-evil/id/model.json"]) {
         await expect(run({ url: unsafe, type: "json" })).rejects.toThrow("本站模型接口");
     }
-    expect(requests).toBe(1);
+    expect(requests).toBe(2);
     globalThis.fetch = (async () => new Response("denied", { status: 403 })) as typeof fetch;
     await expect(run({ url, type: "json" })).rejects.toThrow("403");
 
