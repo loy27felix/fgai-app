@@ -40,11 +40,11 @@ curl --fail-with-body \
 
 该入口当前使用私有 CA，上述示例显式信任了该 CA；飞书云端不能使用本机证书文件，因此每日通知不再通过飞书 HTTP 步骤拉取此入口，也不依赖新增公网可信 HTTPS。接口鉴权与证书校验继续保留。
 
-### 每日 09:30 服务器主动推送
+### 每日 10:00 服务器主动推送
 
-每天北京时间 **09:30**，生产机 LaunchAgent `com.fgstudio.wetoken-balance-notifier` 执行 `notify-balance.py`，通过 `docker exec` 在独立余额服务容器内读取 `http://127.0.0.1:3011/api/fg/finance/balance-report`，随后向飞书多维表格自动化 Webhook 发送 `{"message":"真实余额日报正文"}`。飞书规则「WeToken 每日账户余额推送（09:30）」仅包含 Webhook 触发与发送飞书消息两个步骤；正文引用 `The return value of request sent in step 1 → message`，不是整个对象或静态示例。
+每天北京时间 **10:00**，生产机 LaunchAgent `com.fgstudio.wetoken-balance-notifier` 执行 `notify-balance.py`，通过 `docker exec` 在独立余额服务容器内读取 `http://127.0.0.1:3011/api/fg/finance/balance-report`，随后向飞书多维表格自动化 Webhook 发送 `{"message":"真实余额日报正文"}`。飞书规则「WeToken 每日账户余额推送（10:00）」仅包含 Webhook 触发与发送飞书消息两个步骤；正文引用 `The return value of request sent in step 1 → message`，不是整个对象或静态示例。
 
-发送者为内置应用机器人「WeToken 余额告警」，目标固定为「余额告警余额告警」群，标题为「WeToken 账户余额提醒」，不使用个人身份，不 @ 负责人。每天均发送，不以 150 USD 为发送门槛。正常报告包含实际余额与余额更新时间；取数失败明确发送“剩余余额未知”，旧余额必须标注非实时，不冒充 0 或当前余额。
+发送者为内置应用机器人「WeToken 余额告警」，目标固定为「weToken扫码支付与商务」群，标题为「WeToken 账户余额提醒」，不使用个人身份，不 @ 负责人。2026-11-13 已将接收群从「余额告警余额告警」替换为该群，保存启用后重新打开规则核对：仅新群被选中，动态余额正文映射保持不变；改群时未额外测试，后于当日 10:01 完成真实补发并确认送达（见下文）。每天均发送，不以 150 USD 为发送门槛。正常报告包含实际余额与余额更新时间；取数失败明确发送“剩余余额未知”，旧余额必须标注非实时，不冒充 0 或当前余额。
 
 生产脚本位于 `/Users/server/work/fg-wetoken-balance-report/notifier/notify-balance.py`，私密配置是同目录 `.env` 中的 `FG_BALANCE_NOTIFY_WEBHOOK_URL` 与 `FG_BALANCE_NOTIFY_WEBHOOK_TOKEN`，分别为专用飞书 Webhook 地址和已启用的 Bearer Token；目录权限 `0700`，文件权限 `0600`。余额只读令牌仍由容器自身环境读取；两类凭证不写入命令参数、文档或群消息。
 
@@ -55,11 +55,15 @@ ssh server '/usr/bin/python3 /Users/server/work/fg-wetoken-balance-report/notifi
 ssh server '/usr/bin/python3 /Users/server/work/fg-wetoken-balance-report/notifier/notify-balance.py --send-now'
 ```
 
-任务 plist 位于生产机 `~/Library/LaunchAgents/com.fgstudio.wetoken-balance-notifier.plist`，`StartCalendarInterval` 为 `Hour=9, Minute=30`，时区为 `Asia/Shanghai`。运行要求生产机在线、`server` 用户 LaunchAgent 会话及 Docker 可用。`RunAtLoad` 会检查当日状态：09:30 前不发送，当天已受理则跳过，避免注册任务时重复发送。安装器只 bootstrap 缺失且未显式禁用的任务；已加载任务原样保留，不停止或强制重启任何生产任务。
+任务 plist 位于生产机 `~/Library/LaunchAgents/com.fgstudio.wetoken-balance-notifier.plist`，`StartCalendarInterval` 为 `Hour=10, Minute=0`，时区为 `Asia/Shanghai`。运行要求生产机在线、`server` 用户 LaunchAgent 会话及 Docker 可用。`RunAtLoad` 会检查当日状态：10:00 前不发送，当天已受理则跳过，避免注册任务时重复发送。安装器只 bootstrap 缺失且未显式禁用的任务；已加载任务原样保留，不停止或强制重启任何生产任务。
 
 运行日志为同目录 `notify.log`、`notify-error.log`；`last-accepted.json` 记录按北京时间日期的已受理状态，配合文件锁避免并发和当天重复通知。只有 HTTP 2xx 且返回 `code: 0` 才记录受理，受理不等于群消息送达；遇到结果不明确的网络超时不自动重试，需先检查飞书 Activity Log 与群消息，避免重复。
 
-2026-11-12 **18:09:07（北京时间）** 单次真实联调：余额 `$177.083549 USD`，余额更新时间与报告时间均为 18:09:07，`stale=false`；飞书 Activity Log 显示本次执行 Success，已在目标群核对正文及机器人发送者。随后已注册每日任务，核验触发器为 09:30、首次运行退出码 0 且日志为 `not_due`，未重复发送。下一次计划触发为 2026-11-13 09:30；自然定时触发尚待该时刻实际发生。生产同目录 `deployment-result.json` 记录源码基线、dirty 状态与脚本摘要；不能将未提交快照视为 clean commit。
+2026-11-12 **18:09:07（北京时间）** 单次真实联调：余额 `$177.083549 USD`，余额更新时间与报告时间均为 18:09:07，`stale=false`；飞书 Activity Log 显示本次执行 Success，已在当时的「余额告警余额告警」群核对正文及机器人发送者。随后已注册每日任务，核验触发器为 09:30、首次运行退出码 0 且日志为 `not_due`，未重复发送。部署时首个每日计划触发为 2026-11-13 09:30，该次部署验收未等待自然触发。生产同目录 `deployment-result.json` 记录源码基线、dirty 状态与脚本摘要；不能将未提交快照视为 clean commit。
+
+2026-11-13 **09:51:18（北京时间）**，经用户明确授权，仅卸载并重新加载余额通知任务，将每日时间调整为 **10:00**；核验已加载的 calendar descriptor 为 `Hour=10, Minute=0`，任务首次执行退出码 0、日志为 `not_due`。当天 09:30:01 的 Webhook 已受理状态保留，因此当天 10:00 不重复发送，下一次计划通知为 **2026-11-14 10:00**。`--dry-run` 成功读取实时余额（`stale=false`），没有外发消息；其他 LaunchAgent 保持加载，主应用、Gateway 与余额服务容器 ID/启动时间未变。本次未等待 10:00 自然触发，也未额外实测新群送达。通过用户已打开的 Chrome 标签页将飞书规则名称同步为（10:00），保存后返回 Active 3/3 列表；接收群、机器人和动态正文未改动。备份与本次未提交脚本的 SHA-256、源码基线及验证结果保存在生产通知目录的 `backups/` 和 `deployment-result.json`。
+
+2026-11-13 **10:00:01（北京时间）**，现场只读监控确认新时间自然触发，退出码 0、错误日志为空；因当天已受理过通知，记录 `not_due`，未重复发送。随后用户明确要求今天也发送，**10:01:11** 执行 `--send-now` 单次补发，真实余额为 `$167.068206 USD`，余额更新时间同为 10:01:11，`stale=false`。已在飞书「weToken扫码支付与商务」群核对「WeToken 余额告警」入群记录、机器人身份及包含该金额的余额消息，用户随后确认收到。此为新群实际送达验收；每日 10:00 调度保持不变。
 
 ### 不重启现有服务的独立部署
 

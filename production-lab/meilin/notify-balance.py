@@ -134,7 +134,7 @@ def install():
         'Label': LABEL,
         'ProgramArguments': [sys.executable, str(ROOT / 'notify-balance.py')],
         'WorkingDirectory': str(ROOT), 'RunAtLoad': True,
-        'StartCalendarInterval': {'Hour': 9, 'Minute': 30},
+        'StartCalendarInterval': {'Hour': 10, 'Minute': 0},
         'StandardOutPath': str(ROOT / 'notify.log'),
         'StandardErrorPath': str(ROOT / 'notify-error.log'),
         'EnvironmentVariables': {'TZ': 'Asia/Shanghai'},
@@ -144,7 +144,7 @@ def install():
     if loaded.returncode == 0:
         if not target.is_file() or plistlib.loads(target.read_bytes()) != document:
             raise NotifyError('LOADED_NOTIFIER_DIFFERS_LEAVE_UNCHANGED')
-        print(json.dumps({'event': 'already_loaded', 'schedule': '09:30 Asia/Shanghai'}))
+        print(json.dumps({'event': 'already_loaded', 'schedule': '10:00 Asia/Shanghai'}))
         return
     if 'Could not find service' not in loaded.stderr:
         raise NotifyError('CANNOT_DETERMINE_NOTIFIER_STATE')
@@ -158,7 +158,7 @@ def install():
     subprocess.run(['/usr/bin/plutil', '-lint', str(temporary)], capture_output=True, check=True)
     temporary.replace(target)
     subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(target)], capture_output=True, check=True)
-    print(json.dumps({'event': 'installed', 'schedule': '09:30 Asia/Shanghai'}))
+    print(json.dumps({'event': 'installed', 'schedule': '10:00 Asia/Shanghai'}))
 
 
 def main():
@@ -167,7 +167,7 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--dry-run', action='store_true', help='read balance without sending or changing state')
     modes.add_argument('--send-now', action='store_true', help='explicitly send a fresh report, even if sent today')
-    modes.add_argument('--install', action='store_true', help='register a missing 09:30 job without stopping any job')
+    modes.add_argument('--install', action='store_true', help='register a missing 10:00 job without stopping any job')
     args = parser.parse_args()
     if args.install:
         install()
@@ -184,7 +184,7 @@ def main():
         state_path = ROOT / 'last-accepted.json'
         if not args.dry_run and not args.send_now:
             state = json.loads(state_path.read_text()) if state_path.exists() else {}
-            if (now.hour, now.minute) < (9, 30) or state.get('day') == day:
+            if (now.hour, now.minute) < (10, 0) or state.get('day') == day:
                 print(json.dumps({'event': 'not_due', 'day': day}))
                 return
         try:
