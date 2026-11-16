@@ -135,8 +135,8 @@ function evidenceNote(scope: Scope) {
 }
 
 async function creatorOperations(scope: Scope): Promise<Record<string, unknown>> {
-  if (scope.requestId || scope.traceId) return { rows: [], note: 'FG creator 暂无已核实的 requestId/traceId 查询关联，未忽略筛选或扩大范围。' };
-  if (scope.projectId) return { rows: [], note: '当前仅支持 creator 任务和会话；FG projectId 无可靠业务关联，未扩大到账号范围查询。' };
+  if (scope.requestId || scope.traceId) return { rows: [], incomplete: true, note: 'FG creator 暂无已核实的 requestId/traceId 查询关联，未忽略筛选或扩大范围。' };
+  if (scope.projectId) return { rows: [], incomplete: true, note: '当前仅支持 creator 任务和会话；FG projectId 无可靠业务关联，未扩大到账号范围查询。' };
   if ((scope.taskId && !UUID.test(scope.taskId)) || (scope.sessionId && !UUID.test(scope.sessionId))) {
     return { rows: [], error: '任务或会话标识格式无效，未执行操作数据查询。' };
   }
@@ -172,6 +172,7 @@ async function creatorOperations(scope: Scope): Promise<Record<string, unknown>>
        ORDER BY e.created_at DESC, e.id DESC LIMIT 20`, [scope.userId, ids, scope.from, scope.to]) : { rows: [] };
     return {
       rows: summaryRows(result.rows, events.rows), truncated: result.rows.length >= 10 || events.rows.length >= 20,
+      truncationReasons: [result.rows.length >= 10 ? 'operations_limit' : '', events.rows.length >= 20 ? 'events_limit' : ''].filter(Boolean),
       note: `${evidenceNote(scope)} FG 当前查询 creator；Production Lab 独立业务库须选择 production-lab 服务另查，不能用主库结果代替。`,
     };
   });
@@ -229,7 +230,7 @@ async function canvasOperations(client: PoolClient, scope: Scope): Promise<Recor
     return { rows: [], incomplete: true, note: 'Canvas 身份映射或任务数据表不可用，未查询操作记录，也未回退到 FG 主库。' };
   }
   const userId = await supportCanvasUser(client, scope.userId);
-  if (!userId) return { rows: [], note: 'Canvas 未找到当前 FG 用户的 active 受信账号映射，未按相同 UUID 推断身份。' };
+  if (!userId) return { rows: [], incomplete: true, note: 'Canvas 未找到当前 FG 用户的 active 受信账号映射，未按相同 UUID 推断身份。' };
   const hasDrama = schema.jobs && schema.productions;
   const values = [userId, scope.taskId ?? null, scope.projectId ?? null, scope.from, scope.to, scope.requestId ?? null, scope.traceId ?? null];
   // Team visibility is deliberately narrower here: both task and project must be owned.
@@ -294,7 +295,9 @@ async function canvasOperations(client: PoolClient, scope: Scope): Promise<Recor
        AND ($4::timestamptz IS NULL OR d.updated_at < $4)
      ORDER BY d.updated_at DESC, d.project_id DESC LIMIT 10`, [userId, projectIds, scope.from, scope.to]) : { rows: [] };
   return {
-    rows: summaryRows(result.rows, events.rows), truncated: result.rows.length >= 10 || events.rows.length >= 20,
+    rows: summaryRows(result.rows, events.rows), incomplete: !schema.logs || !hasDrama,
+    truncated: result.rows.length >= 10 || events.rows.length >= 20 || pipelines.rows.length >= 10,
+    truncationReasons: [result.rows.length >= 10 ? 'operations_limit' : '', events.rows.length >= 20 ? 'events_limit' : '', pipelines.rows.length >= 10 ? 'pipelines_limit' : ''].filter(Boolean),
     pipelines: pipelines.rows.map((row) => ({ ...row, pauseReason: summarizeSupportOperationError(row.pauseReason) })),
     note: `${evidenceNote(scope)} 多种 ID 条件按 AND 交集查询；最多 10 条操作、20 条事件和 10 条流水线快照，可能截断。 短剧流水线状态（含暂停）仅为快照，不代表故障。${hasDrama ? '' : ' 短剧任务表缺失，未查询该来源。'}${schema.logs ? '' : ' 任务日志表缺失，未查询事件。'}`,
   };

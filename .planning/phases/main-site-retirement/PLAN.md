@@ -6,38 +6,38 @@ wave: 1
 depends_on: []
 autonomous: false
 files_modified:
-  - production-lab/yingce/README.md
-  - production-lab/yingce/canvas/Dockerfile
-  - production-lab/yingce/canvas/backend/internal/auth/auth.go
-  - production-lab/yingce/canvas/backend/internal/auth/password_fg.go
-  - production-lab/yingce/canvas/docs/content/docs/backend/code-map.mdx
-  - production-lab/yingce/canvas/docs/content/docs/backend/fg-workspace-privacy.mdx
-  - production-lab/yingce/canvas/docs/content/docs/backend/http-api.mdx
-  - production-lab/yingce/canvas/docs/content/docs/overview/features.mdx
-  - production-lab/yingce/canvas/docs/content/docs/progress/pending-test.mdx
-  - production-lab/yingce/canvas/docs/design/sms-channels-and-auth-policy.md
-  - production-lab/yingce/canvas/web/src/components/auth/fg-session-recovery.tsx
-  - production-lab/yingce/canvas/web/src/components/auth/require-auth.tsx
-  - production-lab/yingce/canvas/web/src/components/feedback/support-assistant-button.tsx
-  - production-lab/yingce/canvas/web/src/lib/fg-entry-url.ts
-  - production-lab/yingce/canvas/web/src/pages/auth/forgot-password.tsx
-  - production-lab/yingce/canvas/web/src/pages/auth/login.tsx
-  - production-lab/yingce/canvas/web/src/pages/auth/register.tsx
-  - production-lab/yingce/canvas/web/src/pages/settings/index.tsx
-  - production-lab/yingce/canvas/web/src/pages/settings/profile-pane.tsx
-  - production-lab/yingce/canvas/web/src/router.tsx
-  - production-lab/yingce/canvas/web/src/services/api/auth.ts
-  - production-lab/yingce/canvas/web/src/services/api/support-assistant.ts
-  - production-lab/yingce/canvas/web/src/vite-env.d.ts
-  - production-lab/yingce/compose.standalone.yml
-  - production-lab/yingce/compose.yml
-  - production-lab/yingce/gateway/fg-auth.mjs
-  - production-lab/yingce/gateway/fg-canvas-realtime.mjs
-  - production-lab/yingce/gateway/fg-creator.mjs
-  - production-lab/yingce/gateway/fg-team-stories.mjs
-  - production-lab/yingce/gateway/migrate-platform-accounts.mjs
-  - production-lab/yingce/gateway/policy.mjs
-  - production-lab/yingce/gateway/server.mjs
+  - production-lab/meilin/README.md
+  - production-lab/meilin/canvas/Dockerfile
+  - production-lab/meilin/canvas/backend/internal/auth/auth.go
+  - production-lab/meilin/canvas/backend/internal/auth/password_fg.go
+  - production-lab/meilin/canvas/docs/content/docs/backend/code-map.mdx
+  - production-lab/meilin/canvas/docs/content/docs/backend/fg-workspace-privacy.mdx
+  - production-lab/meilin/canvas/docs/content/docs/backend/http-api.mdx
+  - production-lab/meilin/canvas/docs/content/docs/overview/features.mdx
+  - production-lab/meilin/canvas/docs/content/docs/progress/pending-test.mdx
+  - production-lab/meilin/canvas/docs/design/sms-channels-and-auth-policy.md
+  - production-lab/meilin/canvas/web/src/components/auth/fg-session-recovery.tsx
+  - production-lab/meilin/canvas/web/src/components/auth/require-auth.tsx
+  - production-lab/meilin/canvas/web/src/components/feedback/support-assistant-button.tsx
+  - production-lab/meilin/canvas/web/src/lib/fg-entry-url.ts
+  - production-lab/meilin/canvas/web/src/pages/auth/forgot-password.tsx
+  - production-lab/meilin/canvas/web/src/pages/auth/login.tsx
+  - production-lab/meilin/canvas/web/src/pages/auth/register.tsx
+  - production-lab/meilin/canvas/web/src/pages/settings/index.tsx
+  - production-lab/meilin/canvas/web/src/pages/settings/profile-pane.tsx
+  - production-lab/meilin/canvas/web/src/router.tsx
+  - production-lab/meilin/canvas/web/src/services/api/auth.ts
+  - production-lab/meilin/canvas/web/src/services/api/support-assistant.ts
+  - production-lab/meilin/canvas/web/src/vite-env.d.ts
+  - production-lab/meilin/compose.standalone.yml
+  - production-lab/meilin/compose.yml
+  - production-lab/meilin/gateway/fg-auth.mjs
+  - production-lab/meilin/gateway/fg-canvas-realtime.mjs
+  - production-lab/meilin/gateway/fg-creator.mjs
+  - production-lab/meilin/gateway/fg-team-stories.mjs
+  - production-lab/meilin/gateway/migrate-platform-accounts.mjs
+  - production-lab/meilin/gateway/policy.mjs
+  - production-lab/meilin/gateway/server.mjs
   - scripts/auto-deploy.sh
   - scripts/nas-supervisor.sh
   - scripts/observability-outbox.sh
@@ -51,11 +51,11 @@ must_haves:
     - 未迁移的 Support Bot、历史媒体和旧 groups 明示边界，不冒充全量迁移完成。
     - 本地代码交付与生产流量切换、旧进程退役分别验收；后两者未授权。
   artifacts:
-    - path: production-lab/yingce/compose.standalone.yml
+    - path: production-lab/meilin/compose.standalone.yml
       provides: 显式 native 模式、复用 Yingce 服务的本地候选编排，不包含 Next app。
-    - path: production-lab/yingce/gateway/fg-team-stories.mjs
+    - path: production-lab/meilin/gateway/fg-team-stories.mjs
       provides: native 模式只从本地 native users 同步目录，保留既有小组和成员关系。
-    - path: production-lab/yingce/README.md
+    - path: production-lab/meilin/README.md
       provides: 本地候选运行边界、保留数据、已知缺口和生产 checkpoint。
   key_links:
     - standalone gateway -> existing Go auth/session -> original UUID
@@ -80,7 +80,7 @@ must_haves:
 @.planning/codebase/CONCERNS.md
 @.planning/codebase/STRUCTURE.md
 @.planning/codebase/TESTING.md
-@production-lab/yingce/canvas/AGENTS.md
+@production-lab/meilin/canvas/AGENTS.md
 </context>
 
 ## 授权与执行硬边界
@@ -135,25 +135,25 @@ must_haves:
 <task type="auto" wave="1" id="T1" owner="main-and-existing-backendworker">
   <name>交接 native auth、原账号与团队关系边界</name>
   <files>
-production-lab/yingce/gateway/server.mjs
-production-lab/yingce/gateway/fg-team-stories.mjs
-production-lab/yingce/canvas/backend/internal/auth/auth.go
-production-lab/yingce/canvas/backend/internal/auth/password_fg.go
-production-lab/yingce/gateway/fg-auth.mjs
-production-lab/yingce/gateway/migrate-platform-accounts.mjs
-production-lab/yingce/canvas/Dockerfile
-production-lab/yingce/compose.yml
-production-lab/yingce/canvas/web/src/components/auth/fg-session-recovery.tsx
-production-lab/yingce/canvas/web/src/components/auth/require-auth.tsx
-production-lab/yingce/canvas/web/src/lib/fg-entry-url.ts
-production-lab/yingce/canvas/web/src/pages/auth/forgot-password.tsx
-production-lab/yingce/canvas/web/src/pages/auth/login.tsx
-production-lab/yingce/canvas/web/src/pages/auth/register.tsx
-production-lab/yingce/canvas/web/src/pages/settings/index.tsx
-production-lab/yingce/canvas/web/src/pages/settings/profile-pane.tsx
-production-lab/yingce/canvas/web/src/router.tsx
-production-lab/yingce/canvas/web/src/services/api/auth.ts
-production-lab/yingce/canvas/web/src/vite-env.d.ts
+production-lab/meilin/gateway/server.mjs
+production-lab/meilin/gateway/fg-team-stories.mjs
+production-lab/meilin/canvas/backend/internal/auth/auth.go
+production-lab/meilin/canvas/backend/internal/auth/password_fg.go
+production-lab/meilin/gateway/fg-auth.mjs
+production-lab/meilin/gateway/migrate-platform-accounts.mjs
+production-lab/meilin/canvas/Dockerfile
+production-lab/meilin/compose.yml
+production-lab/meilin/canvas/web/src/components/auth/fg-session-recovery.tsx
+production-lab/meilin/canvas/web/src/components/auth/require-auth.tsx
+production-lab/meilin/canvas/web/src/lib/fg-entry-url.ts
+production-lab/meilin/canvas/web/src/pages/auth/forgot-password.tsx
+production-lab/meilin/canvas/web/src/pages/auth/login.tsx
+production-lab/meilin/canvas/web/src/pages/auth/register.tsx
+production-lab/meilin/canvas/web/src/pages/settings/index.tsx
+production-lab/meilin/canvas/web/src/pages/settings/profile-pane.tsx
+production-lab/meilin/canvas/web/src/router.tsx
+production-lab/meilin/canvas/web/src/services/api/auth.ts
+production-lab/meilin/canvas/web/src/vite-env.d.ts
   </files>
   <action>
 1. 接收主进程显式认证模式实现（当前候选为 gateway/fg-auth.mjs 的 FG_AUTH_MODE=platform|native），不重复深入实现 auth。legacy/platform 默认继续访问 FG；standalone 明确选择 native。native 不解析旧 FG session 当作原生会话，不回退 Next；复用 Go 现有登录/登出/session。确认 Set-Cookie、origin 校验、禁用用户与超级管理员边界均沿用已有安全模型。
@@ -164,10 +164,10 @@ production-lab/yingce/canvas/web/src/vite-env.d.ts
   </action>
   <verify>
 仅当执行者确认已有测试不会连真实服务时：
-- node --check production-lab/yingce/gateway/server.mjs
-- node --check production-lab/yingce/gateway/fg-team-stories.mjs
-- node --test production-lab/yingce/gateway/policy.test.mjs production-lab/yingce/gateway/fg-team-stories.test.mjs
-- cd production-lab/yingce/canvas/backend &amp;&amp; GOPROXY=off GOTOOLCHAIN=local go test ./internal/auth ./internal/handler -run 'TestPasswordLoginPreservesConcurrentDisable|TestProfileRoutesRejectAnonymousBeforeMutation'
+- node --check production-lab/meilin/gateway/server.mjs
+- node --check production-lab/meilin/gateway/fg-team-stories.mjs
+- node --test production-lab/meilin/gateway/policy.test.mjs production-lab/meilin/gateway/fg-team-stories.test.mjs
+- cd production-lab/meilin/canvas/backend &amp;&amp; GOPROXY=off GOTOOLCHAIN=local go test ./internal/auth ./internal/handler -run 'TestPasswordLoginPreservesConcurrentDisable|TestProfileRoutesRejectAnonymousBeforeMutation'
 不改测试文件；上述已有测试不足以证明新增 native 分支或 scrypt 兼容。复核实际 diff 的 native 调用链无 platform fetch，并在用户追加授权的新建本地测试库完成真实 CLI、Go 登录与浏览器验收；禁止读写生产库或将 synthetic 数据结果当作真实业务迁移证据。
   </verify>
   <done>
@@ -178,10 +178,10 @@ production-lab/yingce/canvas/web/src/vite-env.d.ts
 <task type="auto" wave="2" id="T2" depends_on="T1" owner="main-after-auth-integration">
   <name>收口 Support Bot，并限定观测、费用和媒体的改动范围</name>
   <files>
-production-lab/yingce/gateway/server.mjs
-production-lab/yingce/canvas/web/src/services/api/support-assistant.ts
-production-lab/yingce/canvas/web/src/components/feedback/support-assistant-button.tsx
-production-lab/yingce/README.md
+production-lab/meilin/gateway/server.mjs
+production-lab/meilin/canvas/web/src/services/api/support-assistant.ts
+production-lab/meilin/canvas/web/src/components/feedback/support-assistant-button.tsx
+production-lab/meilin/README.md
   </files>
   <action>
 1. 最小本地交付不迁整套机器人：仅在 native standalone 模式对旧 /api/support-bot/* 路径给明确不可用响应（503 与稳定 reason），不得代理回 Next 或误落 Go 通用 API；不影响已有独立 nativeSupportRoute 的内部只读 token 隔离。旧模式不改变行为。web 客户端识别不可用并停止无意义的轮询/SSE 重连，现有按钮/会话区域明确提示“独立模式尚未接入自助排查”，不显示已成功提交或可持续诊断。不要用 native cookie 调用旧 Next handler。
@@ -190,9 +190,9 @@ production-lab/yingce/README.md
 4. 媒体只核对明确调用和路由，不新增通用 URL 代理或替换数据库字段。保留原生 public capability、私有访问隔离、Range/流式传输以及现有项目/资源 ID。README 列出旧 /api/local/storage/content 与 /api/production-lab/assets/:id/content 为待确认历史引用；获得后续只读数据审计授权后，按实际 URL 类型确认所需的受限 reader/映射，不读取任意 URL、不绕过签名/归属。只要实际资产仍需要旧 handler，P1 不得宣称 Next 可以停。
   </action>
   <verify>
-- node --check production-lab/yingce/gateway/server.mjs
-- cd production-lab/yingce/canvas/web &amp;&amp; VITE_FG_AUTH_MODE=native FG_CANVAS_BASE_PATH=/fg-six/ bun run build（包含 TypeScript；仅使用已安装依赖）
-- node --test production-lab/yingce/gateway/fg-fee-sync.test.mjs production-lab/yingce/gateway/fg-fee-usage.test.mjs production-lab/yingce/gateway/fg-fee-auth-route.test.mjs production-lab/yingce/gateway/fg-fee-rejections.test.mjs
+- node --check production-lab/meilin/gateway/server.mjs
+- cd production-lab/meilin/canvas/web &amp;&amp; VITE_FG_AUTH_MODE=native FG_CANVAS_BASE_PATH=/fg-six/ bun run build（包含 TypeScript；仅使用已安装依赖）
+- node --test production-lab/meilin/gateway/fg-fee-sync.test.mjs production-lab/meilin/gateway/fg-fee-usage.test.mjs production-lab/meilin/gateway/fg-fee-auth-route.test.mjs production-lab/meilin/gateway/fg-fee-rejections.test.mjs
 - 静态核对 server.mjs 的 native Support 路由、客户端不可用分支和 SSE 退出路径；确认没有新增 fetch(platform)、没有编辑费用/媒体数据写入逻辑。
 不把费用 mock 测试说成真实对账成功；不把媒体 URL grep 无匹配说成数据库无历史引用；未获隔离运行授权时不做真实 HTTP/截图验收。
   </verify>
@@ -204,17 +204,17 @@ production-lab/yingce/README.md
 <task type="auto" wave="3" id="T3" depends_on="T1,T2" owner="main">
   <name>交付 opt-in standalone 入口及不会复活旧 app 的运维候选分支</name>
   <files>
-production-lab/yingce/compose.standalone.yml
-production-lab/yingce/tls.conf
-production-lab/yingce/gateway/server.mjs
+production-lab/meilin/compose.standalone.yml
+production-lab/meilin/tls.conf
+production-lab/meilin/gateway/server.mjs
 scripts/auto-deploy.sh
 scripts/service-monitor.sh
 scripts/nas-supervisor.sh
 scripts/observability-outbox.sh
-production-lab/yingce/README.md
+production-lab/meilin/README.md
   </files>
   <action>
-1. 验收 compose.standalone.yml 作为 production-lab/yingce/compose.yml 的显式 overlay，复用已有 web/backend/gateway/agent/TLS，不纳入旧 Next app。采用 T1 的 FG_AUTH_MODE=native、web 的 VITE_FG_AUTH_MODE=native；消除 native 启动时对 FG_PLATFORM_URL 的必填/访问要求。保留已有服务、profile、NAS guard、资源与凭据卷；共享 fg-studio 网络还承载签名媒体等跨栈访问，保留网络不算 Next 依赖，不擅改卷/网络名或造空数据库。根 docker-compose.yml/default.conf 默认入口保持不变；需要包含 Go 密码兼容代码的 backend/migrate 和 native web 镜像，不能只切 gateway。
+1. 验收 compose.standalone.yml 作为 production-lab/meilin/compose.yml 的显式 overlay，复用已有 web/backend/gateway/agent/TLS，不纳入旧 Next app。采用 T1 的 FG_AUTH_MODE=native、web 的 VITE_FG_AUTH_MODE=native；消除 native 启动时对 FG_PLATFORM_URL 的必填/访问要求。保留已有服务、profile、NAS guard、资源与凭据卷；共享 fg-studio 网络还承载签名媒体等跨栈访问，保留网络不算 Next 依赖，不擅改卷/网络名或造空数据库。根 docker-compose.yml/default.conf 默认入口保持不变；需要包含 Go 密码兼容代码的 backend/migrate 和 native web 镜像，不能只切 gateway。
 2. standalone 的 TLS 全路径进入 Gateway；调整 Gateway 的 /、登录/登出、静态资源、深链/刷新与旧入口 /workspace、/production-lab 的最小跳转，目标均为同一 native 工作台，不回旧 Next 登录页、不制造 /fg-six 重定向环。继续允许必要的匿名原生登录/静态资源，以及已有公开分享 capability；未登录业务 API 不能放开。tls.conf 只在确有必要时修改且不得改变 legacy 默认配置。外部 origin/Cookie secure/path、WebSocket、SSE、Range 保持原边界。
 3. 运维脚本增加明确 opt-in runtime target（默认 legacy/Next 保持原语义）；native 分支的 monitor 读取 Gateway /health/live、/health/version 与 web 的 /.well-known/fg-runtime.json（按 /fg-six 前缀检查实际可达路径） 的真实字段。逐个核对实际路由，未找到的路径不能假设可用。auto-deploy 旧模式保留拉取后重执行最新脚本、APP_DEPLOYMENT_VERSION build arg、实际运行版本校验；native 版本不硬套旧 deploymentVersion。native 自动部署/恢复若未实现就明确拒绝该动作，绝不回退构建/重建 app、伪称部署成功或启动空库。
 4. nas-supervisor 的 native 目标继续只承担既有 NAS 探测/保护，不因缺少旧 app 启动/重建旧容器；缺少已验证的 native 恢复实现则保留 NAS guard 并告警，不绕过保护。不删除或停用任务，也不在本轮改生产读取的配置来激活新分支。report-scheduler 实际入口未定位，不能假设同改这几份脚本就完成全部运维迁移。
@@ -223,9 +223,9 @@ production-lab/yingce/README.md
   </action>
   <verify>
 - bash -n scripts/auto-deploy.sh scripts/service-monitor.sh scripts/nas-supervisor.sh scripts/observability-outbox.sh（仅解析，禁止执行或 source）
-- node --check production-lab/yingce/gateway/server.mjs
-- node --test production-lab/yingce/gateway/fg-public-entry.test.mjs production-lab/yingce/gateway/fg-workspace-entry.test.mjs production-lab/yingce/gateway/policy.test.mjs
-- 若本机已有 Compose 且可用纯占位 env 满足插值：docker compose --project-directory production-lab/yingce -f production-lab/yingce/compose.yml -f production-lab/yingce/compose.standalone.yml config --quiet。先检查 env_file/include 路径，不加载生产 env、不执行 package.json 的 docker:config（该脚本会 mkdir）；不 up/build/pull。
+- node --check production-lab/meilin/gateway/server.mjs
+- node --test production-lab/meilin/gateway/fg-public-entry.test.mjs production-lab/meilin/gateway/fg-workspace-entry.test.mjs production-lab/meilin/gateway/policy.test.mjs
+- 若本机已有 Compose 且可用纯占位 env 满足插值：docker compose --project-directory production-lab/yingce -f production-lab/meilin/compose.yml -f production-lab/meilin/compose.standalone.yml config --quiet。先检查 env_file/include 路径，不加载生产 env、不执行 package.json 的 docker:config（该脚本会 mkdir）；不 up/build/pull。
 - 对解析结果静态确认未引入 app 服务、明确 native、卷和端口未改变旧默认；逐分支审查脚本 native 模式没有落回 legacy 启动/构建/重建，也没有 stop/kill/disable/卸载操作。不能只用 grep 的“没有 FG_PLATFORM_URL”代替调用链检查。
 - git diff --check；只检查本次改动，不回滚主进程/其他 worker 的变更。缺少工具/依赖时记录具体原因，不联网安装来补验。
 动态候选验收须另获允许启动隔离本地栈及隔离数据写入的授权；当前静态任务不启动任何服务。获准后才能以无 Next 容器的环境验证登录/登出/session、disabled/role、projects/team、静态资源/刷新、分享/私有隔离、WS/SSE/Range，以及旧域名不可达时核心访问成功。未做时不写“端到端通过”。
@@ -271,11 +271,11 @@ production-lab/yingce/README.md
 已运行的主要检查（仓库根目录；花括号是同一 argv 的简写）：
 
 ```bash
-node --test production-lab/yingce/gateway/{policy,fg-team-stories,fg-public-entry,fg-workspace-entry,fg-canvas-realtime,fg-speech-stream,fg-fee-sync,fg-fee-usage,fg-fee-auth-route,fg-fee-rejections,fg-canvas-owners,fg-editor-leases,fg-creator-media}.test.mjs
+node --test production-lab/meilin/gateway/{policy,fg-team-stories,fg-public-entry,fg-workspace-entry,fg-canvas-realtime,fg-speech-stream,fg-fee-sync,fg-fee-usage,fg-fee-auth-route,fg-fee-rejections,fg-canvas-owners,fg-editor-leases,fg-creator-media}.test.mjs
 bash -n scripts/auto-deploy.sh scripts/service-monitor.sh scripts/nas-supervisor.sh scripts/observability-outbox.sh
-(cd production-lab/yingce/canvas/backend && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./internal/auth)
-(cd production-lab/yingce/canvas/web && env -u VITE_FG_AUTH_MODE bun test test/{fg-entry-url,password-reset,auth-registration-agreement,auth-theme,profile-settings,profile-session,http-ownership}.test.ts test/fg-session-recovery.test.tsx)
-(cd production-lab/yingce/canvas/web && VITE_FG_AUTH_MODE=native FG_CANVAS_BASE_PATH=/fg-six/ bun run build)
+(cd production-lab/meilin/canvas/backend && GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./internal/auth)
+(cd production-lab/meilin/canvas/web && env -u VITE_FG_AUTH_MODE bun test test/{fg-entry-url,password-reset,auth-registration-agreement,auth-theme,profile-settings,profile-session,http-ownership}.test.ts test/fg-session-recovery.test.tsx)
+(cd production-lab/meilin/canvas/web && VITE_FG_AUTH_MODE=native FG_CANVAS_BASE_PATH=/fg-six/ bun run build)
 git diff --check
 ```
 

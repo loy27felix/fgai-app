@@ -1,11 +1,11 @@
 # FG 画布上游差异与适配清单
 
-核对日期：2026-10-25。以下为实施前的差异快照；随后已按用户要求完成 FG 1.4.19 适配，实施说明见 [1.4.19 功能适配](../../production-lab/yingce/canvas/docs/releases/1.4.19-upstream-parity.md)。历史对比数字保留，不代表实施后的功能缺口。
+核对日期：2026-10-25。以下为实施前的差异快照；随后已按用户要求完成 FG 1.4.19 适配，实施说明见 [1.4.19 功能适配](../../production-lab/meilin/canvas/docs/releases/1.4.19-upstream-parity.md)。历史对比数字保留，不代表实施后的功能缺口。
 
 ## 对比范围与结论
 
 - 上游：`ddcat-ai/open-ai-canvas`，本次重新拉取的 main 为 `cd694236f82e2851393cadc0150ebbde375cdc81`，提交日期 2026-10-23，版本 `v1.6.9.2`。
-- FG：`c9628c481cb940f58cb44e5556ff15e8270eb2cd`，产品版本 `1.4.18`；被审阅目录为 `production-lab/yingce/canvas`。
+- FG：`c9628c481cb940f58cb44e5556ff15e8270eb2cd`，产品版本 `1.4.18`；被审阅目录为 `production-lab/meilin/canvas`。
 - 近期范围：上游 `f368e6309`（v1.6.8.3）之后至 `cd694236f`，覆盖 10 月 15—23 日，主线共 116 条提交。另追溯 FG 1.3.25、1.3.26、1.4.7、1.4.13、1.4.14 的选择性同步记录。
 - 对此范围内发生变化、且在上游末端仍存在的 `web/src`、`backend/internal`、`backend/agent-runtime` 等源文件逐项比较：597 个路径中，320 个与上游一致，220 个有 FG 差异，57 个不存在于 FG。该数字包含测试；**57 个文件不等于 57 项功能缺失，220 个差异也不等于未同步**。
 - 对近期变更的协议 manifest 另做结构化比较，确认 Responses 和可美 Seedream 存在实际未接入项。
@@ -35,7 +35,7 @@ Git 拉取结果是本次版本判断依据；网页抓取的 commits 页面返�
 
 ## 代码依据
 
-下列路径以 `production-lab/yingce/canvas/` 为 FG 相对根；“缺少”表示查验过路径及调用入口，不仅按提交标题判断。
+下列路径以 `production-lab/meilin/canvas/` 为 FG 相对根；“缺少”表示查验过路径及调用入口，不仅按提交标题判断。
 
 | 项目 | 上游来源 | FG 对照位置 |
 | --- | --- | --- |
@@ -109,4 +109,4 @@ Git 拉取结果是本次版本判断依据；网页抓取的 commits 页面返�
 
 本次完成 Git 对象、源文件、调用入口、协议 manifest 及历史同步记录核对，未运行应用测试、未进行双设备浏览器验收、未读取用户项目或生产会话、未改变线上版本。上述“需补齐”是后续实施清单，不是已上线公告。
 
-历史依据：[FG 1.3.25 同步记录](1.3.25-upstream-sync.md)、[FG 1.3.26 同步记录](1.3.26-upstream-sync.md)、[FG 1.4.7 同步记录](../../production-lab/yingce/canvas/docs/releases/1.4.7-upstream-sync.md)、[FG 1.4.13 同步记录](../../production-lab/yingce/canvas/docs/releases/1.4.13-upstream-sync.md)、[FG 1.4.14 同步记录](../../production-lab/yingce/canvas/docs/releases/1.4.14-upstream-sync.md)、[FG 1.4.18 待验收说明](../../production-lab/yingce/canvas/docs/content/docs/progress/pending-test.mdx)。
+历史依据：[FG 1.3.25 同步记录](1.3.25-upstream-sync.md)、[FG 1.3.26 同步记录](1.3.26-upstream-sync.md)、[FG 1.4.7 同步记录](../../production-lab/meilin/canvas/docs/releases/1.4.7-upstream-sync.md)、[FG 1.4.13 同步记录](../../production-lab/meilin/canvas/docs/releases/1.4.13-upstream-sync.md)、[FG 1.4.14 同步记录](../../production-lab/meilin/canvas/docs/releases/1.4.14-upstream-sync.md)、[FG 1.4.18 待验收说明](../../production-lab/meilin/canvas/docs/content/docs/progress/pending-test.mdx)。

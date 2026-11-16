@@ -113,7 +113,7 @@
 
 本轮未确认具体依赖漏洞、失效或必须迁移的包；没有联网查询 advisory，也不依据版本号推断漏洞。
 `package.json`、`pnpm-lock.yaml` 与 `Dockerfile` 已提供主站依赖和 frozen-lockfile 构建入口；
-`production-lab/yingce/gateway/package.json` 是自有集成的独立依赖入口，不代表已审计整个服务集。
+`production-lab/meilin/gateway/package.json` 是自有集成的独立依赖入口，不代表已审计整个服务集。
 因此不提出通用升级、框架迁移或 vendor 重构建议；未开展的软件供应链审计不等于已确认安全。
 
 ## Missing Critical Features
@@ -146,7 +146,7 @@
   `lib/local/middleware.ts`、`app/api/local/storage/content/route.ts`、`lib/usage/budget.ts`。
 - Risk: route 内部鉴权正确也可能在到达 route 前失败；合法 Range 或并发请求的行为不能由 helper/源码 contract 推断。
   自有 gateway 存在独立 `policy.test.mjs` 及 integration 脚本，不能据主站测试缺口声称整个 `production-lab/` 没有测试。
-  参见 `production-lab/yingce/gateway/policy.test.mjs`、`production-lab/yingce/gateway/fg-workspace-policy.integration.mjs`；本轮均未执行。
+  参见 `production-lab/meilin/gateway/policy.test.mjs`、`production-lab/meilin/gateway/fg-workspace-policy.integration.mjs`；本轮均未执行。
 - Priority: High（Worker 入口、费用并发）；Medium（suffix Range）。“未见覆盖”限于本次静态阅读与检索，不是全仓不存在任何外部验收的断言。
 
 ---

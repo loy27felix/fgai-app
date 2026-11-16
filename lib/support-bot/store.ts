@@ -152,7 +152,8 @@ export const supportStages: Record<string, string> = {
   queued: '已收到，等待排查', understanding: '正在结合文字、截图和追问理解问题',
   runtime: '正在核对运行版本与源码来源', data: '正在核对当前账号的相关操作记录',
   trace: '正在沿任务、requestId 与 traceId 展开实际请求链路',
-  code: '正在检索相关源码与实现', analysis: '正在核对实际请求链路、错误与运行实现',
+  code: '正在检索相关源码与实现', collecting: '正在补齐本次问题的证据与链路缺口',
+  analysis: '正在综合证据与具体实现深入分析原因、矛盾和处理方法',
   retrying: '本轮暂未完成，等待自动重试', completed: '排查完成', cancelled: '已终止排查，可修改描述后重新发送',
 };
 export async function updateSupportStage(job: SupportJob, stage: string) {

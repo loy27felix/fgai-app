@@ -145,7 +145,7 @@ PNG.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
 **E2E Tests:**
 - 未发现主站配置 Playwright/Cypress 的 package script 或 dependency；`tests/creator/media-worker-e2e-checklist.test.ts` 实际只检查文档关键词，不能视为真实端到端测试。
 - 独立 upstream 工具不能冒充主站标准：OpenCreator 使用 Vitest/Playwright，ArcReel frontend 使用 Vitest/jsdom、backend 使用 pytest；见各自 `package.json`、`production-lab/arcreel/upstream/pyproject.toml`。
-- Yingce Web 使用 `bun test`，backend 按自身规则使用 Go tests；见 `production-lab/yingce/canvas/web/package.json`、`production-lab/yingce/canvas/AGENTS.md`。FG gateway 另用 Node test，见 `production-lab/yingce/gateway/package.json`。
+- Yingce Web 使用 `bun test`，backend 按自身规则使用 Go tests；见 `production-lab/meilin/canvas/web/package.json`、`production-lab/meilin/canvas/AGENTS.md`。FG gateway 另用 Node test，见 `production-lab/meilin/gateway/package.json`。
 - 本轮未做浏览器、真实 provider、NAS、GPU、lease recovery 跨进程验收；生产操作受 `AGENTS.md` 守护进程保护约束，不能为验证主动停止或重启服务。
 
 ## Common Patterns

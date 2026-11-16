@@ -1,9 +1,9 @@
-<p align="center"><img src="production-lab/yingce/canvas/web/public/fg-visual/fg-logo-master.png" width="88" alt="FG Studio" /></p>
+<p align="center"><img src="production-lab/meilin/canvas/web/public/fg-visual/fg-logo-master.png" width="88" alt="FG Studio" /></p>
 
 <h1 align="center">FG Studio</h1>
 
 <p align="center">Turn an idea into a super video production project you can edit, organize, and continue.</p>
-<p align="center"><a href="README.md">中文</a> · <strong>English</strong> · <a href="docs/releases/2026-10-07--15-user-update.md">Release notes</a> · <a href="production-lab/yingce/canvas/FG-CHANGELOG.md">Version history</a></p>
+<p align="center"><a href="README.md">中文</a> · <strong>English</strong> · <a href="docs/releases/2026-10-07--15-user-update.md">Release notes</a> · <a href="production-lab/meilin/canvas/FG-CHANGELOG.md">Version history</a></p>
 
 [![Watch the FG Studio tour](docs/media/promo-poster.jpg)](docs/media/fg-studio-tour-1080p60.mp4)
 
@@ -206,7 +206,7 @@ This cycle moved the Creative Workbench from **v1.2.18 / the October 7 v1.3.0 re
 
 - [October 7–15: Added, Improved, Fixed, timeline, and test guide](docs/releases/2026-10-07--15-user-update.md)
 - [Reviewed main-commit index](docs/releases/2026-10-07--15-commit-index.md)
-- [Version-by-version history](production-lab/yingce/canvas/FG-CHANGELOG.md)
+- [Version-by-version history](production-lab/meilin/canvas/FG-CHANGELOG.md)
 
 Compare Short Drama Agent and Meilin using the same 30–60 second script. Test identity/style consistency, pacing, motion, camera work, segment continuity, references, and task recovery. Include the entry point, project, model/specifications, reproduction steps, expected/actual behavior, screenshots, and task ID in feedback.
 
@@ -252,7 +252,7 @@ Use the repository's pinned package manager and dependency requirements. Configu
 | Directory | Contents |
 | --- | --- |
 | `app/`, `components/`, `lib/` | Main pages, APIs, identity, data, and accounting. |
-| `production-lab/yingce/` | Native canvas/drama workbench and FG gateway. |
+| `production-lab/meilin/` | Native canvas/drama workbench and FG gateway. |
 | `production-lab/meilin/` | Meilin adaptation and provenance. |
 | `production-lab/adcraft/` | Advertising workbench. |
 | `production-lab/opencreator/` | General creation workbench. |
@@ -269,7 +269,7 @@ The root [LICENSE](LICENSE) covers FG-owned main-site code. **This is a multi-li
 
 | Component | License / provenance |
 | --- | --- |
-| Open AI Canvas and its FG adaptation | [MIT and attribution](production-lab/yingce/canvas/LICENSE) |
+| Open AI Canvas and its FG adaptation | [MIT and attribution](production-lab/meilin/canvas/LICENSE) |
 | OpenCreator | [Apache-2.0](production-lab/opencreator/upstream/LICENSE) |
 | ArcReel | [AGPL-3.0](production-lab/arcreel/upstream/LICENSE), [source record](production-lab/arcreel/SOURCE.md) |
 | AdCraft | [Personal and non-commercial license](production-lab/adcraft/upstream/LICENSE); commercial use requires the relevant authorization. |

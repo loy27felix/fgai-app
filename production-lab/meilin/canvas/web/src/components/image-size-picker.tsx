@@ -1,0 +1,254 @@
+import { useState } from "react";
+import "./image-size-picker.css";
+import { Input, Button } from "antd";
+import type { ImageCapabilityConfig } from "@/lib/model-capabilities";
+import { imageDeclaredSizePresets, imageResolutionTiers, imagePresetForRatio, imagePresetValue, imageQualityForSelection, imageQualityForTier, imageResolutionUsesQuality, imageSizePresets, imageTierAvailable } from "@/lib/image-size-presets";
+import { buildImageResolutionOptions, type ImageResolutionOption, type ImageResolutionTier } from "@/lib/image-resolution-tiers";
+
+import { resolveImageRequestSize, validateImageSize } from "@/services/api/image-validation";
+
+export function ImageSizePicker({
+    profile,
+    size,
+    quality,
+    imageResolution,
+    declaredSizeOptions,
+    canSelectResolution,
+    ratioHint,
+    onChange,
+}: {
+    profile: ImageCapabilityConfig;
+    size: string;
+    quality?: string;
+    imageResolution?: string;
+    declaredSizeOptions?: boolean;
+    canSelectResolution?: (resolution: string) => boolean;
+    /** 可选：在比例按钮下补一行用途说明（如电商“主图”），不改变可选值。 */
+    ratioHint?: (ratio: string) => { label: string; title?: string } | undefined;
+    onChange: (size: string, quality?: string, resolution?: string) => void;
+}) {
+    // Pixel sizes already encode the resolution. A separate provider resolution field is unnecessary.
+    const ungrouped = Boolean(profile.parameters && !profile.resolution.supported && profile.size.parameter !== "size");
+    const declaredPresets = declaredSizeOptions ? imageDeclaredSizePresets(profile) : [];
+    const tierValues = ungrouped ? [...new Set(imageSizePresets(profile).map((preset) => preset.tier))] : imageResolutionTiers(profile);
+    const IMAGE_RESOLUTIONS = declaredPresets.length ? tierValues.map((value) => value.trim().toLowerCase() as ImageResolutionTier) : tierValues;
+    const presets = (declaredPresets.length ? declaredPresets : imageSizePresets(profile)).filter((preset) => imageTierAvailable(profile, preset.tier));
+    const visibleTiers = IMAGE_RESOLUTIONS.filter((value) => presets.some((preset) => preset.tier === value));
+    const [chosenTier, setChosenTier] = useState<ImageResolutionTier>("1k");
+    const [customPreset, setCustomPreset] = useState<ImageResolutionOption>();
+    const [custom, setCustom] = useState("");
+    const [error, setError] = useState("");
+    const qualityTier = IMAGE_RESOLUTIONS.find((value) => value === (quality || "").toLowerCase());
+    const resolutionTier = IMAGE_RESOLUTIONS.find((value) => value === (imageResolution || "").toLowerCase());
+    const selectedTier = profile.resolution.supported ? resolutionTier : qualityTier;
+    const matches = (preset: ImageResolutionOption) => {
+        if (imagePresetValue(profile, preset) !== size) return false;
+        if (profile.size.parameter !== "aspect_ratio") return true;
+        if (profile.resolution.supported) return !resolutionTier || resolutionTier === preset.tier;
+        if (imageResolutionUsesQuality(profile)) return imageQualityForTier(profile, preset.tier) === (quality || profile.quality.default);
+        return !qualityTier || qualityTier === preset.tier;
+    };
+    let resolvedLegacySize: string | undefined;
+    if (profile.size.parameter === "size" && size.includes(":")) {
+        try {
+            resolvedLegacySize = resolveImageRequestSize(profile, quality, size)?.value;
+        } catch {
+            /* 保留旧值，交由请求校验报告错误。 */
+        }
+    }
+    let restoredCustom: ImageResolutionOption | undefined;
+    if (profile.size.allowCustom && size !== "auto") {
+        try {
+            if (profile.size.parameter === "size") restoredCustom = buildImageResolutionOptions([resolvedLegacySize || size])[0];
+            else if (profile.size.parameter === "aspect_ratio") {
+                const restoredTier = imageResolutionUsesQuality(profile)
+                    ? IMAGE_RESOLUTIONS.find((value) => imageQualityForTier(profile, value) === (quality || profile.quality.default)) || "1k"
+                    : (qualityTier && visibleTiers.includes(qualityTier) ? qualityTier : visibleTiers[0]) || "1k";
+                restoredCustom = imagePresetForRatio(restoredTier, size);
+            }
+        } catch {
+            /* 无效配置不伪装成已选中的有效预设，交由请求校验处理。 */
+        }
+    }
+    const active =
+        (profile.size.allowCustom && customPreset && imageTierAvailable(profile, customPreset.tier) && matches(customPreset) ? customPreset : undefined) ||
+        presets.find(matches) ||
+        presets.find((preset) => preset.size === resolvedLegacySize) ||
+        (restoredCustom && imageTierAvailable(profile, restoredCustom.tier) ? restoredCustom : undefined);
+    const available = (value: ImageResolutionTier) => imageTierAvailable(profile, value) && (profile.size.allowCustom || presets.some((preset) => preset.tier === value));
+    const tier = ungrouped
+        ? (IMAGE_RESOLUTIONS[0] ?? "")
+        : (active && visibleTiers.includes(active.tier) ? active.tier : undefined) ||
+          (profile.size.parameter === "aspect_ratio" && imageResolutionUsesQuality(profile) ? visibleTiers.find((value) => imageQualityForTier(profile, value) === (quality || profile.quality.default)) : undefined) ||
+          (selectedTier && visibleTiers.includes(selectedTier) ? selectedTier : undefined) ||
+          (visibleTiers.includes(chosenTier) ? chosenTier : visibleTiers[0]) ||
+          "1k";
+    const choices = presets.filter((preset) => preset.tier === tier);
+    const select = (preset: ImageResolutionOption) => {
+        if (!available(preset.tier)) return;
+        if (profile.resolution.supported && canSelectResolution && !canSelectResolution(preset.tier)) return;
+        const resolution = profile.resolution.values.find((value) => value.toLowerCase() === preset.tier);
+        setChosenTier(preset.tier);
+        setCustomPreset(preset);
+        setError("");
+        onChange(
+            imagePresetValue(profile, preset),
+            profile.resolution.supported ? undefined : profile.size.parameter === "aspect_ratio" ? imageQualityForSelection(profile, preset.tier) : undefined,
+            profile.resolution.supported ? resolution || preset.tier : undefined,
+        );
+    };
+    const makeCustom = (next: ImageResolutionTier, ratio: string) => {
+        const preset = imagePresetForRatio(next, ratio);
+        // 精确支持值保持原值；支持值之外的像素仍遵守请求端的 16px 步长。
+        if (profile.size.parameter === "size" && !profile.size.values.includes(preset.size)) {
+            preset.width = Math.round(preset.width / 16) * 16;
+            preset.height = Math.round(preset.height / 16) * 16;
+            preset.size = `${preset.width}x${preset.height}`;
+            resolveImageRequestSize(profile, quality, preset.size);
+        }
+        return preset;
+    };
+    const changeTier = (next: ImageResolutionTier) => {
+        const ratio = active?.ratio || (size.includes(":") ? size : "1:1");
+        const candidate = presets.find((preset) => preset.tier === next && preset.ratio === ratio);
+        try {
+            if (candidate) select(candidate);
+            else if (profile.size.allowCustom) select(makeCustom(next, ratio));
+            else {
+                const first = presets.find((preset) => preset.tier === next);
+                if (first) select(first);
+            }
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "尺寸格式无效");
+        }
+    };
+    const applyCustom = () => {
+        try {
+            if (custom.includes(":") || custom.includes("：")) {
+                select(makeCustom(tier, custom));
+                return;
+            }
+            const match = custom.trim().match(/^(\d+)\s*[x×]\s*(\d+)$/i);
+            if (!match) throw new Error("输入比例 16:9，或像素 1824x1024");
+            const width = Number(match[1]),
+                height = Number(match[2]);
+            if (profile.size.parameter === "aspect_ratio") {
+                select(makeCustom(tier, `${width}:${height}`));
+                return;
+            }
+            const value = `${width}x${height}`;
+            resolveImageRequestSize(profile, quality, value);
+            const preset = presets.find((item) => item.size === value) || {
+                ...imagePresetForRatio(width * height <= 2_000_000 ? "1k" : width * height <= 4_300_000 ? "2k" : "4k", `${width}:${height}`),
+                width,
+                height,
+                size: value,
+            };
+            select(preset);
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "尺寸格式无效");
+        }
+    };
+    if (profile.size.parameter === "none")
+        return profile.resolution.supported ? (
+            <div className="image-size-picker">
+                <div className="image-size-label">分辨率</div>
+                <div className="image-size-tiers">
+                    {profile.resolution.values.map((value) => (
+                        <button type="button" key={value} aria-pressed={value === imageResolution} disabled={Boolean(canSelectResolution && !canSelectResolution(value))} onClick={() => onChange(size, undefined, value)}>
+                            {value.toUpperCase()}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        ) : null;
+    return (
+        <div className="image-size-picker">
+            {profile.resolution.supported ? (
+                <>
+                    <div className="image-size-label">分辨率</div>
+                    <div className="image-size-tiers">
+                        {profile.resolution.values.map((value) => (
+                            <button
+                                type="button"
+                                key={value}
+                                aria-pressed={value === imageResolution || (imageResolution === undefined && size !== "auto" && active?.tier === value)}
+                                disabled={Boolean(canSelectResolution && !canSelectResolution(value))}
+                                onClick={() => {
+                                    const next = value.toLowerCase() as ImageResolutionTier;
+                                    if (size !== "auto" && visibleTiers.includes(next)) changeTier(next);
+                                    else onChange(size, undefined, value);
+                                }}
+                            >
+                                {value.toUpperCase()}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            ) : (!ungrouped || imageResolutionUsesQuality(profile)) && visibleTiers.length && (profile.size.parameter === "size" || !profile.quality.supported || imageResolutionUsesQuality(profile)) ? (
+                <>
+                    <div className="image-size-label">分辨率</div>
+                    <div className="image-size-tiers">
+                        {visibleTiers.map((value) => (
+                            <button type="button" key={value} aria-pressed={size !== "auto" && active?.tier === value} onClick={() => changeTier(value)}>
+                                {value.toUpperCase()}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            ) : null}
+            {choices.length || profile.size.values.includes("auto") ? <div className="image-size-label">宽高比</div> : null}
+            <div className="image-size-ratios" role="group" aria-label="图片宽高比">
+            {profile.size.values.includes("auto") ? (
+                <button
+                    type="button"
+                    aria-pressed={size === "auto"}
+                    onClick={() => {
+                        setError("");
+                        onChange("auto");
+                    }}
+                >
+                    <span aria-hidden="true" className="image-size-ratio-icon" style={{ width: 20, height: 20, borderStyle: "dashed" }} />
+                    <span>自适应</span>
+                </button>
+            ) : null}
+                {choices.map((preset) => {
+                    const hint = ratioHint?.(preset.ratio);
+                    return (
+                        <button
+                            type="button"
+                            key={`${preset.ratio}:${preset.size}`}
+                            title={`${preset.ratio} · ${preset.width} × ${preset.height}${hint?.title ? `\n${hint.title}` : ""}`}
+                            aria-pressed={size !== "auto" && active?.size === preset.size && active?.tier === tier}
+                            onClick={() => select(preset)}
+                        >
+                            <span className="image-size-ratio-icon" style={{ width: 24 * Math.min(1, preset.width / preset.height), height: 24 * Math.min(1, preset.height / preset.width) }} />
+                            <span>{preset.ratio}</span>
+                            {hint ? <small className="image-size-ratio-hint">{hint.label}</small> : null}
+                        </button>
+                    );
+                })}
+            </div>
+            {!choices.length ? <p className="image-size-hint">未配置预设尺寸{profile.size.allowCustom ? "，可输入自定义比例或尺寸" : ""}</p> : null}
+            <output aria-live="polite" className="image-size-output">
+                {size === "auto" ? "自适应 · 比例与实际像素由模型决定" : active ? `${active.ratio} · ${active.width} × ${active.height} px` : size.replace("x", " × ")}
+            </output>
+            {size === "auto" ? <p className="image-size-hint">有参考图时按模型规则参考其比例；无参考图时由模型判断。{profile.resolution.supported || imageResolutionUsesQuality(profile) ? "所选分辨率档位继续传入。" : ""}实际尺寸以生成结果为准。</p> : null}
+            {profile.size.parameter === "aspect_ratio" ? <p className="image-size-hint">尺寸为换算参考，实际像素由模型决定{!imageResolutionUsesQuality(profile) && visibleTiers.length <= 1 ? "；当前协议未配置独立分辨率" : ""}。</p> : null}
+            {profile.size.allowCustom ? (
+                <details className="image-size-custom">
+                    <summary>自定义比例或尺寸</summary>
+                    <div className="image-size-custom-input">
+                        <Input aria-label="自定义比例或尺寸" placeholder="16:9 或 1824x1024" value={custom} onChange={(event) => setCustom(event.target.value)} onPressEnter={applyCustom} />
+                        <Button onClick={applyCustom}>应用</Button>
+                    </div>
+                </details>
+            ) : null}
+            {error ? (
+                <p role="alert" className="image-size-error">
+                    {error}
+                </p>
+            ) : null}
+        </div>
+    );
+}

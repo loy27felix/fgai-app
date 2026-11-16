@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 const CANDIDATES = [
   process.env.FG_CANVAS_PUBLIC,
-  'D:/FG.AI/fg-studio/production-lab/yingce/canvas/web/public',
-  'D:/FG.AI/.local/fg-main-read/production-lab/yingce/canvas/web/public',
+  'D:/FG.AI/fg-studio/production-lab/meilin/canvas/web/public',
+  'D:/FG.AI/.local/fg-main-read/production-lab/meilin/canvas/web/public',
 ].filter(Boolean);
 
 export const CANVAS_PUBLIC = CANDIDATES.find((p) => existsSync(join(p, 'inspirations', 'manifest.json'))) || null;

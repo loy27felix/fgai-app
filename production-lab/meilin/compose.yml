@@ -1,0 +1,275 @@
+name: fg-six-yingce
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fg_yingce
+      POSTGRES_USER: fg_yingce
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fg_yingce -d fg_yingce"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  migrate:
+    image: ${CANVAS_BACKEND_IMAGE:?required}
+    entrypoint: [migrate-schema]
+    command: [up]
+    environment:
+      CANVAS_DATABASE_DRIVER: postgres
+      CANVAS_BACKEND_DATA_DIR: /data
+      DATABASE_URL: ${DATABASE_URL:?required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  yingce-agent:
+    # Forward termination signals to Node instead of leaving it as PID 1.
+    init: true
+    image: ${CANVAS_AGENT_IMAGE:?required}
+    restart: unless-stopped
+    environment:
+      YINGCE_AGENT_TOKEN: ${YINGCE_AGENT_TOKEN:?required}
+      MAX_CONCURRENT_SESSIONS: "100"
+      YINGCE_DISABLE_PROVIDER_RETRIES: "true"
+      NODE_MAX_OLD_SPACE_SIZE: "512"
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+  backend:
+    image: ${CANVAS_BACKEND_IMAGE:?required}
+    # Docker's host DNS can retain NXDOMAIN for provider media domains.
+    # Keep Docker service discovery; explicitly resolve public upstreams.
+    dns: ["${FG_SIX_DNS_PRIMARY:-1.1.1.1}", "${FG_SIX_DNS_SECONDARY:-223.5.5.5}"]
+    # NAS SMB ownership is managed by the host mount, as in FG Studio.
+    user: "0:0"
+    restart: "no"
+    environment:
+      CANVAS_BACKEND_ADDR: ":8080"
+      CANVAS_BACKEND_DATA_DIR: /data/yingce
+      CANVAS_LOG_FORMAT: ${CANVAS_LOG_FORMAT:-json}
+      CANVAS_LOG_LEVEL: ${CANVAS_LOG_LEVEL:-info}
+      CANVAS_AUTO_MIGRATE: "false"
+      CANVAS_DATABASE_DRIVER: postgres
+      DATABASE_URL: ${DATABASE_URL:?required}
+      REDIS_URL: redis://redis:6379/0
+      CANVAS_FG_TEAM_WORKSPACE: "true"
+      CANVAS_FG_NAS_ROOT: /fg-nas-root
+      CANVAS_FG_BUDGET_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      CANVAS_REGISTRATION_ENABLED: "false"
+      CANVAS_WORKER_CONCURRENCY: "100"
+      CANVAS_CHANNEL_CONCURRENCY: "100"
+      CANVAS_CORS_ORIGINS: ${FG_SIX_PUBLIC_URL:?required}
+      CANVAS_PUBLIC_BASE_URL: ${CANVAS_PUBLIC_BASE_URL:-}
+      CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS: ${CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS:-gateway}
+      YINGCE_AGENT_URL: http://yingce-agent:8081
+      YINGCE_AGENT_TOKEN: ${YINGCE_AGENT_TOKEN:?required}
+      YINGCE_AGENT_BRIDGE_HOST: backend
+      GIN_MODE: release
+    command: [sh, -c, "test -f /data/.fg-studio-nas-ready && exec infinite-canvas-backend"]
+    volumes:
+      - type: bind
+        source: ${NAS_MEDIA_PATH:?required}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NAS_STUDIO_ROOT:-/Volumes/FgStudio}
+        target: /fg-nas-root
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      yingce-agent:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "test -f /data/.fg-studio-nas-ready && wget -qO- http://127.0.0.1:8080/api/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    stop_grace_period: 10m
+  web:
+    image: ${CANVAS_WEB_IMAGE:?required}
+    restart: unless-stopped
+    volumes:
+      - web-data:/usr/share/nginx/html
+    depends_on:
+      backend:
+        condition: service_healthy
+  gateway:
+    image: ${CANVAS_GATEWAY_IMAGE:-fg-six-yingce-gateway}
+    build:
+      context: ./gateway
+      args:
+        BUILD_VERSION: ${CANVAS_BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${CANVAS_BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${CANVAS_BUILD_TIME:-unknown}
+        BUILD_DIRTY: ${CANVAS_BUILD_DIRTY:-unknown}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?required}
+      FG_AUTH_MODE: ${FG_AUTH_MODE:-platform}
+      FG_PLATFORM_URL: ${FG_PLATFORM_URL:-http://fgai-app-app-1:3000}
+      FG_PLATFORM_PUBLIC_URL: ${FG_PLATFORM_PUBLIC_URL:-}
+      FG_SIX_PUBLIC_URL: ${FG_SIX_PUBLIC_URL:?required}
+      FG_EXTERNAL_PUBLIC_URL: ${FG_EXTERNAL_PUBLIC_URL:-}
+      CANVAS_WEB_URL: http://web:3000
+      CANVAS_PUBLIC_BASE_URL: ${CANVAS_PUBLIC_BASE_URL:-}
+      WETOKEN_FEE_SESSION_FILE: ${WETOKEN_FEE_SESSION_FILE:-}
+      FG_FEE_SYNC_ACTOR_ID: ${FG_FEE_SYNC_ACTOR_ID:-}
+      FG_BALANCE_REPORT_TOKEN: ${FG_BALANCE_REPORT_TOKEN:-}
+      FG_TOPICS_FILE: ${FG_TOPICS_FILE:-/run/fg-data/topics.json}
+      FG_GROUP3_ACCOUNT_EMAIL: ${FG_GROUP3_ACCOUNT_EMAIL:-}
+      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      MEILIN_INTERNAL_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      MEILIN_URL: http://meilin:5310
+    networks: [default, fg-platform]
+    volumes:
+      - ./host-metrics:/host-metrics:ro
+      - fee-sync-secrets:/run/fg-secrets:ro
+      - ./private-data:/run/fg-data:ro
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3010/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  tls:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports: ["${FG_SIX_PORT:-3016}:3000", "${FG_ARCREEL_PORT:-3017}:3001"]
+    volumes:
+      - ./tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${FG_TLS_CERT:?required}:/etc/nginx/tls/server.crt:ro
+      - ${FG_TLS_KEY:?required}:/etc/nginx/tls/server.key:ro
+    depends_on:
+      gateway:
+        condition: service_healthy
+  adcraft-agent:
+    profiles: [retired]
+    image: ${ADCRAFT_AGENT_IMAGE:?required}
+    restart: unless-stopped
+    environment:
+      AGENT_RUNTIME_HOST: 0.0.0.0
+      AGENT_RUNTIME_INTERNAL_TOKEN: ${FG_ADCRAFT_SECRET:?required}
+      AGENT_RUNTIME_MODE: real
+      AGENT_RUNTIME_PYTHON_BASE_URL: http://adcraft-api:8000
+      FG_ADCRAFT_MODE: "true"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8765/internal/v1/health',{headers:{authorization:'Bearer '+process.env.AGENT_RUNTIME_INTERNAL_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  adcraft-api:
+    profiles: [retired]
+    image: ${ADCRAFT_API_IMAGE:?required}
+    user: "0:0"
+    restart: "no"
+    environment:
+      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      FG_ADCRAFT_SQLITE_ROOT: /database
+      AGENT_RUNTIME_MODE: real
+      MEDIA_MODE: real
+      SKIP_AUDIO_AGENTS: "true"
+    volumes:
+      - type: bind
+        source: ${NAS_MEDIA_PATH:?required}
+        target: /nas
+        bind:
+          create_host_path: false
+      - adcraft-database:/database
+      - type: bind
+        source: ${NAS_STUDIO_ROOT:-/Volumes/FgStudio}
+        target: /fg-nas-root
+        bind:
+          create_host_path: false
+    depends_on:
+      adcraft-agent:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import pathlib,urllib.request;assert pathlib.Path('/nas/.fg-studio-nas-ready').is_file();urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    stop_grace_period: 10m
+  adcraft-web:
+    profiles: [retired]
+    image: ${ADCRAFT_WEB_IMAGE:?required}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+  creator-web:
+    image: ${CREATOR_WEB_IMAGE:-fg-six-creator-web:v128}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 15
+  meilin:
+    profiles: [retired]
+    image: ${MEILIN_IMAGE:-fg-six-meilin:development}
+    restart: unless-stopped
+    environment:
+      MEILIN_MODE: fg
+      MEILIN_BIND: 0.0.0.0
+      DATABASE_URL: ${DATABASE_URL:?required}
+      MEILIN_INTERNAL_SECRET: ${FG_ADCRAFT_SECRET:?required}
+      MEILIN_GATEWAY_URL: http://gateway:3010
+      MEILIN_FILES_DIR: /nas/meilin/uploads
+      MEILIN_SKILLS_DIR: /fg-skills
+    volumes:
+      - type: bind
+        source: ${NAS_MEDIA_PATH:?required}
+        target: /nas
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MEILIN_SKILLS_PATH:-./private-skills}
+        target: /fg-skills
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5310/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+networks:
+  fg-platform:
+    name: fg-studio
+    external: true
+volumes:
+  postgres-data:
+  redis-data:
+  web-data:
+  fee-sync-secrets:
+  adcraft-database:

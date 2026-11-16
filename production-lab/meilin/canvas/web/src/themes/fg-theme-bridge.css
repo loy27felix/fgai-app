@@ -1,0 +1,21 @@
+/* FG keeps its layout and personal companion; a selected theme supplies its
+   palette and scroll-attached artwork instead of the default glass backdrop. */
+:root[data-skin="longying-ink"] .app-user-workspace.fg-glass-workspace {
+    background: var(--user-page-bg, #f3eee4);
+}
+:root[data-skin="yunhe-xianguan"] .app-user-workspace.fg-glass-workspace {
+    background: var(--user-page-bg, #edf1ef);
+}
+:root:is([data-skin="longying-ink"], [data-skin="yunhe-xianguan"]) .creation-home::before {
+    position: absolute;
+    background-attachment: scroll;
+    pointer-events: none;
+}
+/* Scroll with the creation content instead of a fixed GPU animation. */
+:root:is([data-skin="longying-ink"], [data-skin="yunhe-xianguan"]) .creation-empty-workspace {
+    background-image: radial-gradient(ellipse at 28% 8%, color-mix(in srgb, var(--user-ink) 5%, transparent), transparent 64%);
+    background-size: min(1440px, 140%) 620px;
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-attachment: local;
+}

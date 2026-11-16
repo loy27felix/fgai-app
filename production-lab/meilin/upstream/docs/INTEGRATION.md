@@ -25,7 +25,7 @@ FG 已有两个"外部应用并入第六板块"的先例，美林照着做，不
 - 媒体任务与报价：`app/api/production-lab/media/{models,estimate,jobs}/route.ts`，`lib/production-lab/media-runner.ts`（`submitLabMediaJob`、`refreshLabVideoJob`）、`media-accounting.ts`。
 - 文本记账：`app/api/production-lab/agent/route.ts`、`lib/production-lab/agent-accounting.ts`、`lib/production-lab/text-models.ts`。
 - 价格、预算、账本：`lib/usage/pricing.ts`（`estimateImagePrice`、`estimateVideoPrice`、`estimateTextPrice`）、`lib/usage/budget.ts`（`assertMonthlyBudgetAvailable`）、`lib/usage/ledger.ts`（`recordUsageRequired` 等）。
-- 左侧入口：`production-lab/yingce/canvas/web/src/components/layout/workspace-sidebar-nav.tsx`（"短剧 Agent""广告工作台"在这里）。
+- 左侧入口：`production-lab/meilin/canvas/web/src/components/layout/workspace-sidebar-nav.tsx`（"短剧 Agent""广告工作台"在这里）。
 
 ## 3. 建议的接入方式
 

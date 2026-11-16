@@ -1,0 +1,41 @@
+name: fg-balance-report
+services:
+  balance-report:
+    image: ${FG_BALANCE_REPORT_IMAGE:?required}
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile.balance-report
+      args:
+        GATEWAY_RUNTIME_IMAGE: ${GATEWAY_RUNTIME_IMAGE:?required}
+    container_name: fg-wetoken-balance-report
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?required}
+      FG_BILLING_SECRET: ${FG_BILLING_SECRET:-}
+      FG_ADCRAFT_SECRET: ${FG_ADCRAFT_SECRET:-}
+      FG_BALANCE_REPORT_TOKEN: ${FG_BALANCE_REPORT_TOKEN:?required}
+      WETOKEN_FEE_SESSION_FILE: ${WETOKEN_FEE_SESSION_FILE:-}
+    volumes:
+      - fee-sync-secrets:/run/fg-secrets:ro
+    networks: [fg-platform, fg-canvas]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3011/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+networks:
+  fg-platform:
+    external: true
+    name: fg-studio
+  fg-canvas:
+    external: true
+    name: fg-six-yingce_default
+volumes:
+  fee-sync-secrets:
+    external: true
+    name: fg-six-yingce_fee-sync-secrets

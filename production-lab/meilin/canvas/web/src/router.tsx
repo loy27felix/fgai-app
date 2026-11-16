@@ -1,0 +1,337 @@
+import { useEffect } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
+import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router";
+
+import { RequireAuth } from "@/components/auth/require-auth";
+import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
+import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadDramaPipelinePage, loadInspirationsPage, loadProjectDetailPage, loadProjectsPage, loadProjectCreatePage, loadSkillWorkbenchPage } from "@/lib/workspace-route-modules";
+import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
+import { FGSessionRecovery } from "@/components/auth/fg-session-recovery";
+import { fgWorkspaceBasePath, isNativeAuth } from "@/lib/fg-entry-url";
+import RouteErrorPage from "@/pages/route-error";
+
+const AdminPage = lazy(() => import("@/pages/admin"));
+const AuthScene = lazy(() => import("@/pages/auth/auth-scene").then((module) => ({ default: module.AuthScene })));
+const LoginPage = lazy(() => import("@/pages/auth/login"));
+const RegisterPage = lazy(() => import("@/pages/auth/register"));
+const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password"));
+const AnalyticsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AnalyticsPage })));
+const AnnouncementsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AnnouncementsPage })));
+const BannerAnnouncementsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.BannerAnnouncementsPage })));
+const StorageResourcesPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.StorageResourcesPage })));
+const EmailSettingsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.EmailSettingsPage })));
+const FeatureAvailabilityPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.FeatureAvailabilityPage })));
+const AgentLessonsPage = lazy(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AgentLessonsPage })));
+const ChannelsPage = lazy(() => import("@/pages/admin/channels/channels-page"));
+const LogicalModelsPage = lazy(() => import("@/pages/admin/logical-models/logical-models-page"));
+const AdminMCPPage = lazy(() => import("@/pages/admin/mcp/mcp-page"));
+const FeishuFeedbackPage = lazy(() => import("@/pages/admin/settings/feishu-feedback-page"));
+const AdminPluginsPage = lazy(() => import("@/pages/admin/plugins/plugins-page"));
+const SkillCurationPage = lazy(() => import("@/pages/admin/skill-curation-page"));
+const LogsPage = lazy(() => import("@/pages/admin/logs/logs-page"));
+const LoginLogsPage = lazy(() => import("@/pages/admin/login-logs/login-logs-page"));
+const RuntimePolicySettingsPage = lazy(() => import("@/pages/admin/settings/runtime-policy-settings-page"));
+const AppearanceSettingsPage = lazy(() => import("@/pages/admin/settings/appearance-settings-page"));
+const DrawingEngineSettingsPage = lazy(() => import("@/pages/admin/settings/drawing-engine-settings-page"));
+const StorageSettingsPage = lazy(() => import("@/pages/admin/settings/storage-settings-page"));
+const ArkPrivateAssetsSettingsPage = lazy(() => import("@/pages/admin/settings/ark-private-assets-settings-page"));
+const ResponseInterceptionSettingsPage = lazy(() => import("@/pages/admin/settings/response-interception-settings-page"));
+const ThirdPartySettingsPage = lazy(() => import("@/pages/admin/settings/libtv-settings-page"));
+const EcommercePage = lazy(() => import("@/pages/ecommerce"));
+const EcommerceManagementPage = lazy(() => import("@/pages/admin/ecommerce-management-page"));
+const EcommerceAgentConfigPage = lazy(() => import("@/pages/admin/ecommerce-agent-config-page"));
+const PoseLibraryPage = lazy(() => import("@/pages/admin/pose-library/pose-library-page"));
+const AdminSkillsPage = lazy(() => import("@/pages/admin/skills/skills-page"));
+const AdminSkillWorkbenchPage = lazy(() => import("@/pages/admin/skills/admin-skill-workbench-page"));
+const WorkbenchToolsPage = lazy(() => import("@/pages/admin/workbench-tools/workbench-tools-page"));
+const SystemUpdatePage = lazy(() => import("@/pages/admin/settings/fg-release-page"));
+const SystemPerformancePage = lazy(() => import("@/pages/admin/settings/system-performance-page"));
+const FGProductionPage = lazy(() => import("@/pages/fg-production"));
+const FGAudioToolsPage = lazy(() => import("@/pages/fg-audio-tools"));
+const FGInspirationPage = lazy(() => import("@/pages/fg-inspiration"));
+const FGFinancePage = lazy(() => import("@/pages/fg-production/finance"));
+const PersonalExpensesPage = lazy(() => import("@/pages/personal-expenses"));
+const StoryboardPromptsPage = lazy(() => import("@/pages/admin/storyboard-prompts/storyboard-prompts-page"));
+const AdminFeedbacksPage = lazy(() => import("@/pages/admin/feedbacks/feedbacks-page"));
+const UsersPage = lazy(() => import("@/pages/admin/users/users-page"));
+const UserGroupsPage = lazy(() => import("@/pages/admin/user-groups/user-groups-page"));
+const AssetsPage = lazy(loadAssetsPage);
+const CanvasPage = lazy(loadCanvasPage);
+const CanvasProjectPage = lazy(loadCanvasProjectPage);
+const SharedCanvasPage = lazy(() => import("@/pages/canvas/shared"));
+const CreatePage = lazy(loadCreatePage);
+const ImageWorkbenchPage = lazy(() => import("@/pages/workbench/image-workbench-route"));
+const VideoWorkbenchPage = lazy(() => import("@/pages/workbench/video-workbench-page"));
+const InspirationsPage = lazy(loadInspirationsPage);
+const NotFound = lazy(() => import("@/pages/not-found"));
+const SkillsPage = lazy(() => import("@/pages/skills"));
+const SkillWorkbenchPage = lazy(loadSkillWorkbenchPage);
+const PluginsPage = lazy(() => import("@/pages/plugins"));
+const EagleLibraryPage = lazy(() => import("@/pages/plugins/eagle"));
+const TasksPage = lazy(() => import("@/pages/tasks"));
+const ProjectsPage = lazy(loadProjectsPage);
+const ProjectDetailPage = lazy(loadProjectDetailPage);
+const DramaPipelinePage = lazy(loadDramaPipelinePage);
+const DramaPipelineDetailPage = lazy(() => import("@/pages/drama-pipeline/detail"));
+const DramaPipelineCreatePage = lazy(loadProjectCreatePage);
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
+const UserLayout = lazy(() => import("@/layouts/user-layout"));
+const RequireFeature = lazy(() => import("@/components/auth/require-feature").then((module) => ({ default: module.RequireFeature })));
+
+function deferred(element: ReactNode) {
+    return <Suspense fallback={<WorkspaceRouteLoader />}>{element}</Suspense>;
+}
+
+function fullScreenDeferred(element: ReactNode) {
+    return <Suspense fallback={<FullScreenLoader label="正在打开创作空间" detail="准备当前页面" />}>{element}</Suspense>;
+}
+
+function AuthenticatedWorkspaceLayout() {
+    const { pathname, search, hash } = useLocation();
+    useEffect(() => {
+        if (isNativeAuth || window.parent === window) return;
+        const route = pathname + search + hash;
+        // Only the authenticated outer FG entry may record this relative route.
+        let parentOrigin = window.location.origin;
+        try {
+            if (document.referrer) parentOrigin = new URL(document.referrer).origin;
+        } catch {
+            return;
+        }
+        window.parent.postMessage({ type: "fg-workspace-location", route }, parentOrigin);
+    }, [pathname, search, hash]);
+    const isCanvasProjectRoute = pathname.startsWith("/canvas/");
+    const fallback = isCanvasProjectRoute ? <CanvasRefreshShell /> : <FullScreenLoader label="正在打开创作空间" detail="准备当前页面" />;
+    return (
+        <RequireAuth>
+            <Suspense fallback={fallback}>
+                <UserLayout>
+                    <Outlet />
+                </UserLayout>
+            </Suspense>
+        </RequireAuth>
+    );
+}
+
+/**
+ * DEV 专用实验室路由。
+ *
+ * lazy(() => import(...)) 写在函数体内，而不是模块顶层常量：
+ * 生产构建时 import.meta.env.DEV 被替换为 false，本函数随之不可达，
+ * 摇树会连同其中的动态 import 一起删除，实验室代码不进入生产依赖图。
+ * 若把 lazy 提到模块顶层，动态 import 会被静态分析成真实 chunk 并打进 dist。
+ */
+function devRoutes() {
+    const FolderPreviewLab = lazy(() => import("@/pages/dev/folder-preview-lab"));
+    const PrevisReproLab = lazy(() => import("@/pages/dev/previs-repro-lab"));
+    return [
+        { path: "/dev/folders", element: fullScreenDeferred(<FolderPreviewLab />), errorElement: <RouteErrorPage /> },
+        { path: "/dev/previs-repro", element: fullScreenDeferred(<PrevisReproLab />), errorElement: <RouteErrorPage /> },
+    ];
+}
+
+export const router = createBrowserRouter(
+    [
+        {
+            element: isNativeAuth ? fullScreenDeferred(<AuthScene />) : <Outlet />,
+            errorElement: <RouteErrorPage />,
+            children: [
+                { path: "/login", element: isNativeAuth ? fullScreenDeferred(<LoginPage />) : <FGSessionRecovery /> },
+                { path: "/register", element: isNativeAuth ? fullScreenDeferred(<RegisterPage />) : <FGSessionRecovery /> },
+                { path: "/forgot-password", element: isNativeAuth ? fullScreenDeferred(<ForgotPasswordPage />) : <FGSessionRecovery /> },
+            ],
+        },
+        { path: "/share/canvas/:token", element: fullScreenDeferred(<SharedCanvasPage />), errorElement: <RouteErrorPage /> },
+        ...(import.meta.env.DEV ? devRoutes() : []),
+        {
+            element: <AuthenticatedWorkspaceLayout />,
+            errorElement: <RouteErrorPage />,
+            children: [
+                { path: "/", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
+                { path: "/create", element: <RequireAuth>{deferred(<CreatePage />)}</RequireAuth> },
+                { path: "/fg-production", element: <RequireAuth>{deferred(<FGProductionPage />)}</RequireAuth> },
+                { path: "/advertising", element: <RequireAuth><Navigate to="/ecommerce" replace /></RequireAuth> },
+                { path: "/ecommerce", element: <RequireAuth><RequireFeature feature="ecommerceEnabled">{deferred(<EcommercePage />)}</RequireFeature></RequireAuth> },
+                { path: "/meilin", element: <RequireAuth><Navigate to="/drama-pipeline" replace /></RequireAuth> },
+                { path: "/fg-audio-tools", element: <RequireAuth>{deferred(<FGAudioToolsPage />)}</RequireAuth> },
+                { path: "/fg-inspiration", element: <RequireAuth>{deferred(<FGInspirationPage />)}</RequireAuth> },
+                { path: "/fg-finance", element: <RequireAuth>{deferred(<FGFinancePage />)}</RequireAuth> },
+                { path: "/my-expenses", element: <RequireAuth>{deferred(<PersonalExpensesPage />)}</RequireAuth> },
+                {
+                    path: "/toolbox/image",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="imageWorkbenchEnabled">{deferred(<ImageWorkbenchPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/toolbox/video",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="videoWorkbenchEnabled">{deferred(<VideoWorkbenchPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                { path: "/inspirations", element: <RequireAuth>{deferred(<InspirationsPage />)}</RequireAuth> },
+                {
+                    path: "/tasks",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="taskCenterEnabled">{deferred(<TasksPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                { path: "/assets", element: <RequireAuth>{deferred(<AssetsPage />)}</RequireAuth> },
+                { path: "/skills", element: <RequireAuth>{deferred(<SkillsPage />)}</RequireAuth> },
+                { path: "/skills/:skillId/edit", element: <RequireAuth>{deferred(<SkillWorkbenchPage />)}</RequireAuth> },
+                ...[
+                    ["/drama-pipeline", <DramaPipelinePage />],
+                    ["/drama-pipeline/new", <DramaPipelineCreatePage />],
+                    ["/drama-pipeline/:projectId/e/:episodeId", <DramaPipelineDetailPage />],
+                    ["/drama-pipeline/:projectId", <DramaPipelineDetailPage />],
+                ].map(([path, page]) => ({
+                    path: path as string,
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(page)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                })),
+                {
+                    path: "/plugins",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="pluginCenterEnabled">{deferred(<PluginsPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/plugins/eagle",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="pluginCenterEnabled">{deferred(<EagleLibraryPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                { path: "/settings", element: <RequireAuth>{deferred(<SettingsPage />)}</RequireAuth> },
+                { path: "/test-voice-recording", element: <RequireAuth>{deferred(<TestVoiceRecording />)}</RequireAuth> },
+                {
+                    path: "/projects",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled"><Navigate to="/drama-pipeline" replace /></RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/projects/legacy",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectsPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/projects/:projectId",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectDetailPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/projects/:projectId/:view",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectDetailPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/projects/:projectId/chapters/:chapterId",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectDetailPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/projects/:projectId/workflow/:unitId/:stage",
+                    element: (
+                        <RequireAuth>
+                            <RequireFeature feature="shortDramaEnabled">{deferred(<ProjectDetailPage />)}</RequireFeature>
+                        </RequireAuth>
+                    ),
+                },
+                { path: "/canvas", element: <RequireAuth>{deferred(<CanvasPage />)}</RequireAuth> },
+                {
+                    path: "/canvas/:id",
+                    element: (
+                        <RequireAuth>
+                            <CanvasProjectPage />
+                        </RequireAuth>
+                    ),
+                },
+                {
+                    path: "/admin",
+                    element: <RequireAuth>{deferred(<AdminPage />)}</RequireAuth>,
+                    children: [
+                        { index: true, element: <AnalyticsPage /> },
+                        { path: "users", element: <UsersPage /> },
+                    { path: "user-groups", element: <UserGroupsPage /> },
+                        { path: "login-logs", element: <LoginLogsPage /> },
+                        { path: "feedbacks", element: <AdminFeedbacksPage /> },
+                        { path: "channels", element: <ChannelsPage /> },
+                        {
+                            path: "models",
+                            element: (
+                                <RequireFeature feature="frontendModelsEnabled">
+                                    <LogicalModelsPage />
+                                </RequireFeature>
+                            ),
+                        },
+                        { path: "plugins", element: <AdminPluginsPage /> },
+                    { path: "mcp", element: <AdminMCPPage /> },
+                    { path: "settings/feishu-feedback", element: <FeishuFeedbackPage /> },
+                        { path: "workbench-tools", element: <WorkbenchToolsPage /> },
+                        { path: "pose-library", element: <PoseLibraryPage /> },
+                        { path: "ecommerce/agent", element: <EcommerceAgentConfigPage /> },
+                        { path: "ecommerce/library", element: <EcommerceManagementPage /> },
+                        { path: "ecommerce/library/skills", element: <EcommerceManagementPage /> },
+                        { path: "ecommerce/library/categories", element: <EcommerceManagementPage /> },
+                        { path: "skills", element: <AdminSkillsPage /> },
+                        { path: "skills/:skillId/edit", element: <AdminSkillWorkbenchPage /> },
+                        { path: "skill-curation", element: <SkillCurationPage /> },
+                        { path: "prompt-templates", element: <StoryboardPromptsPage /> },
+                        { path: "storyboard-prompts", element: <Navigate to="/admin/prompt-templates" replace /> },
+                        { path: "announcements", element: <AnnouncementsPage /> },
+                        { path: "banner-announcements", element: <BannerAnnouncementsPage /> },
+                        { path: "agent-lessons", element: <AgentLessonsPage /> },
+                        { path: "resources", element: <StorageResourcesPage /> },
+                        { path: "logs", element: <LogsPage /> },
+                        { path: "fg-finance", element: <FGFinancePage /> },
+                        { path: "settings", element: <Navigate to="runtime-policy" replace /> },
+                        { path: "settings/appearance", element: <AppearanceSettingsPage /> },
+                        { path: "settings/drawing-engine", element: <DrawingEngineSettingsPage /> },
+                        { path: "settings/concurrency", element: <Navigate to="/admin/settings/runtime-policy" replace /> },
+                        { path: "settings/runtime-policy", element: <RuntimePolicySettingsPage /> },
+                        { path: "settings/features", element: <FeatureAvailabilityPage /> },
+                        { path: "settings/access", element: <Navigate to="/admin/settings/features" replace /> },
+                        { path: "settings/email", element: <EmailSettingsPage /> },
+                        { path: "settings/storage", element: <StorageSettingsPage /> },
+                        { path: "settings/ark-private-assets", element: <ArkPrivateAssetsSettingsPage /> },
+                        { path: "settings/response-interception", element: <ResponseInterceptionSettingsPage /> },
+                        { path: "settings/third-party", element: <ThirdPartySettingsPage /> },
+                        { path: "settings/system-update", element: <SystemUpdatePage /> },
+                        { path: "settings/system-performance", element: <SystemPerformancePage /> },
+                        { path: "settings/libtv", element: <Navigate to="/admin/settings/third-party" replace /> },
+                    ],
+                },
+            ],
+        },
+        { path: "*", element: fullScreenDeferred(<NotFound />) },
+    ],
+    { basename: fgWorkspaceBasePath(window.location.pathname) || "/" },
+);
