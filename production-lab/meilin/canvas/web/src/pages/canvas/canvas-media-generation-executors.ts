@@ -11,6 +11,8 @@ import { buildGenerationNodeTitle, manualNodeTitle } from "@/lib/canvas/canvas-g
 import { mediaVersionFieldsBeforeReplace } from "@/lib/canvas/canvas-media-versions";
 import { producedModelCandidateForGeneration } from "@/lib/canvas/produced-model";
 import { isDoubaoAudioConfig } from "@/lib/audio-generation";
+import { generationFailureMetadata } from "@/lib/generation-error";
+import { isGenerationCanceled } from "@/lib/canvas/canvas-project-generation";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 import type { CanvasGenerationExecution } from "./canvas-generation-executor-types";
@@ -131,6 +133,22 @@ export async function executeVideoGeneration(
                 consumeTask: (task) => applyGenerationTaskResult(videoId, task),
             },
         );
+    } catch (error) {
+        if (!isGenerationCanceled(error)) {
+            const completedAt = new Date().toISOString();
+            const failure = generationFailureMetadata(error, prompt);
+            // 原位重试时来源就是目标，已有视频不能让失败状态被来源保护逻辑跳过。
+            setNodes(current => current.map(node => node.id === videoId ? {
+                ...node,
+                metadata: {
+                    ...node.metadata,
+                    status: "error",
+                    ...failure,
+                    ...(!node.metadata?.taskId ? { taskCompletedAt: completedAt, taskDurationMs: Math.max(0, Date.parse(completedAt) - Date.parse(node.metadata?.taskCreatedAt || completedAt)) } : {}),
+                },
+            } : node));
+        }
+        throw error;
     } finally {
         finishGenerationRequest(videoId, controller);
     }

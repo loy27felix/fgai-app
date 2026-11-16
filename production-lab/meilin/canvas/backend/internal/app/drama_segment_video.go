@@ -163,7 +163,8 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	}
 	capacity := profile.MaxImages
 	if previous != nil {
-		capacity--
+		// 首帧衔接与全模态参考是互斥的请求模式；角色设定仍保留在提示词中。
+		capacity = 0
 	}
 	if request.Operation == "text_to_video" {
 		capacity = 0
@@ -259,7 +260,11 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 			notes = append(notes, fmt.Sprintf("本段引用 %d 个设定，按每段最多 %d 张参考图发送，其余按文字设定；可在生成依据里手动调整", len(draft.view.Request.References), settings.ReferenceLimit))
 		}
 		if len(overflow) > 0 {
-			notes = append(notes, fmt.Sprintf("超出视频模型参考图上限（%d 张，含首帧），按文字设定生成：%s", profile.MaxImages, strings.Join(overflow, "、")))
+			if previous != nil {
+				notes = append(notes, "本段以上一段尾帧作首帧，不同时附带其他参考图，设定按文字描述生成；需要同时使用角色、场景图片和参考音频时，请在作品设置的段落衔接中选择“并行出片”")
+			} else {
+				notes = append(notes, fmt.Sprintf("超出视频模型参考图上限（%d 张），按文字设定生成：%s", profile.MaxImages, strings.Join(overflow, "、")))
+			}
 		}
 		request.Warning = strings.Join(notes, "；")
 	}

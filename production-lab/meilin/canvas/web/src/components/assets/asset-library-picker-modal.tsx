@@ -90,7 +90,7 @@ type Props = {
         };
     };
     onClose: () => void;
-    /** pickedItems 包含远端分页里选中的条目（它们不在调用方传入的 items 里）。 */
+    /** pickedItems 包含选中时的最新条目，远端记录会覆盖调用方的同 ID 旧缓存。 */
     onConfirm: (ids: string[], pickedItems?: AssetLibraryPickerItem[]) => Promise<void> | void;
     onFolderAction?: (folderId: string) => Promise<void> | void;
 };
@@ -271,15 +271,12 @@ export function AssetLibraryPickerModal({
             return useRemoteItems || !query || [item.title, item.searchText || "", item.description || ""].join(" ").toLowerCase().includes(query);
         });
     }, [category, folderId, keyword, sourceItems, useRemoteItems]);
-    const selectedIds = useMemo(
-        () =>
-            Array.from(selected).filter((id) => {
-                const item = allItems.find((entry) => entry.id === id);
-                return !item?.disabledReason;
-            }),
-        [allItems, selected],
-    );
-    const currentItems = new Map([...pickedRemoteRef.current.values(), ...allItems, ...remoteItems].map((item) => [item.id, item]));
+    // 网格、选择计数和确认必须使用同一版本。服务器的当前页优先，已选快照用于翻页后保留最新形象。
+    const currentItems = new Map([...allItems, ...pickedRemoteRef.current.values(), ...remoteItems].map((item) => [item.id, item]));
+    const selectedIds = Array.from(selected).filter((id) => {
+        const item = currentItems.get(id);
+        return item && !item.disabledReason;
+    });
     const selectedItems = selectedIds.flatMap((id) => {
         const item = currentItems.get(id);
         return item ? [item] : [];
@@ -288,7 +285,7 @@ export function AssetLibraryPickerModal({
     useEffect(() => {
         if (gridRef.current) gridRef.current.scrollTop = 0;
     }, [page]);
-    const archivedSelectedIds = useMemo(() => selectedIds.filter((id) => allItems.find((item) => item.id === id)?.archived), [allItems, selectedIds]);
+    const archivedSelectedIds = selectedIds.filter((id) => currentItems.get(id)?.archived);
 
     useEffect(() => {
         if (!open) return;
@@ -336,7 +333,7 @@ export function AssetLibraryPickerModal({
     const toggle = (item: AssetLibraryPickerItem) => {
         if (item.disabledReason || working) return;
         // 远端分页条目翻页后就不在列表里了；选中时记下来，确认时仍能转成插入内容。
-        if (item.asset && !allItems.some((known) => known.id === item.id)) pickedRemoteRef.current.set(item.id, item);
+        if (item.asset) pickedRemoteRef.current.set(item.id, item);
         setError("");
         setSelected((current) => {
             if (!multiple) return current.has(item.id) ? new Set() : new Set([item.id]);
@@ -352,8 +349,7 @@ export function AssetLibraryPickerModal({
         setWorking(true);
         setError("");
         try {
-            const known = new Set(allItems.map((item) => item.id));
-            await onConfirm(selectedIds, [...allItems, ...[...pickedRemoteRef.current.values()].filter((item) => !known.has(item.id))]);
+            await onConfirm(selectedIds, [...currentItems.values()]);
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : "素材操作失败，请重试");
         } finally {

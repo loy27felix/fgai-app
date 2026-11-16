@@ -58,7 +58,7 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 		}
 		return nil
 	}
-	checkFormat := func(kind string, formats []string) error {
+	checkFormat := func(kind string, formats []string, label string) error {
 		kind = strings.ToLower(strings.TrimSpace(strings.Split(kind, ";")[0]))
 		if strings.Contains(kind, "/") {
 			kind = strings.SplitN(kind, "/", 2)[1]
@@ -66,9 +66,9 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 		switch kind {
 		case "quicktime":
 			kind = "mov"
-		case "mpeg":
+		case "mpeg", "x-mpeg":
 			kind = "mp3"
-		case "x-wav":
+		case "x-wav", "wave", "vnd.wave", "x-pn-wav":
 			kind = "wav"
 		case "x-ms-bmp":
 			kind = "bmp"
@@ -77,7 +77,7 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 			return nil
 		}
 		if !containsCapabilityString(formats, kind) {
-			return BadAuthRequest("参考素材格式不在当前模型支持范围内")
+			return BadAuthRequest(fmt.Sprintf("%s格式 %s 不在当前模型支持范围内（支持 %s）", label, kind, strings.Join(formats, "、")))
 		}
 		return nil
 	}
@@ -88,7 +88,7 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 		if err := checkShape(m.Width, m.Height, false, fmt.Sprintf("第 %d 张参考图片", index+1)); err != nil {
 			return err
 		}
-		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.ImageFormats); err != nil {
+		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.ImageFormats, fmt.Sprintf("第 %d 张参考图片", index+1)); err != nil {
 			return err
 		}
 	}
@@ -100,16 +100,16 @@ func validateFGReferenceLimits(r VideoReferenceConfig, input canvasGenerationInp
 		if err := checkShape(m.Width, m.Height, true, fmt.Sprintf("第 %d 个参考视频", index+1)); err != nil {
 			return err
 		}
-		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.VideoFormats); err != nil {
+		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.VideoFormats, fmt.Sprintf("第 %d 个参考视频", index+1)); err != nil {
 			return err
 		}
 	}
-	for _, m := range input.ReferenceAudios {
+	for index, m := range input.ReferenceAudios {
 		audioMs += m.DurationMs
 		if r.MinAudioDuration > 0 && m.DurationMs > 0 && m.DurationMs < int64(r.MinAudioDuration)*1000 {
 			return BadAuthRequest("参考音频时长低于当前模型最短限制")
 		}
-		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.AudioFormats); err != nil {
+		if err := checkFormat(firstNonEmpty(m.MimeType, m.Type), r.AudioFormats, fmt.Sprintf("第 %d 个参考音频", index+1)); err != nil {
 			return err
 		}
 	}

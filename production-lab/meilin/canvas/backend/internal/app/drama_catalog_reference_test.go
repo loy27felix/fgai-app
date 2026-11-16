@@ -53,7 +53,7 @@ func TestDramaCatalogAcceptsRequiredReference(t *testing.T) {
 		operation := metadataString(input.Metadata, "videoEditOperation")
 		if operation == "image_to_video" {
 			continuations++
-			if len(input.ReferenceImages) == 0 || input.ReferenceImages[0].Role != "first_frame" || metadataString(input.Metadata, "videoStartFrameNodeId") != "first-frame" {
+			if len(input.ReferenceImages) != 1 || input.ReferenceImages[0].Role != "first_frame" || metadataString(input.Metadata, "videoStartFrameNodeId") != "first-frame" {
 				t.Fatalf("continuation must send only the real first frame: %+v", input)
 			}
 			segmentID := metadataString(input.Metadata, "shotId")

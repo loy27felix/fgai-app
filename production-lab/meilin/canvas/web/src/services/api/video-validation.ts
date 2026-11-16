@@ -27,23 +27,23 @@ export function assertVideoCapability(
         if (video && limits.minVideoPixels && pixels < limits.minVideoPixels) throw new Error(`${label}尺寸为 ${width}×${height}（${pixels} 像素），低于模型最低要求 ${limits.minVideoPixels} 像素；请换用更高分辨率的参考视频。生成分辨率不会改变参考素材尺寸`);
         if (video && limits.maxVideoPixels && pixels > limits.maxVideoPixels) throw new Error(`${label}尺寸为 ${width}×${height}（${pixels} 像素），高于模型上限 ${limits.maxVideoPixels} 像素；请缩小参考视频后再试`);
     };
-    const checkFormat=(type:string|undefined,formats:string[]|undefined)=>{
-        let kind=(type||'').toLowerCase().split(';')[0].split('/').pop()||'';
-        kind=({quicktime:'mov',mpeg:'mp3','x-wav':'wav','x-ms-bmp':'bmp'} as Record<string,string>)[kind]||kind;
-        if (kind && kind !== '*' && kind!=='octet-stream' && formats?.length && !formats.includes(kind)) throw new Error('参考素材格式不在当前模型支持范围内');
+    const checkFormat=(type:string|undefined,formats:string[]|undefined,label:string)=>{
+        let kind=(type||'').toLowerCase().split(';')[0].trim().split('/').pop()||'';
+        kind=({quicktime:'mov',mpeg:'mp3','x-mpeg':'mp3',wave:'wav','vnd.wave':'wav','x-pn-wav':'wav','x-wav':'wav','x-ms-bmp':'bmp'} as Record<string,string>)[kind]||kind;
+        if (kind && kind !== '*' && kind!=='octet-stream' && formats?.length && !formats.includes(kind)) throw new Error(`${label}格式 ${kind} 不在当前模型支持范围内（支持 ${formats.join('、')}）`);
     };
-    for (const image of references) {
+    for (const [index, image] of references.entries()) {
         if (limits.imageBytesExclusive && limits.maxImageBytes>0 && (image.bytes||0)>=limits.maxImageBytes) throw new Error('参考图片必须小于当前模型单图大小上限');
-        checkShape(image.width,image.height);checkFormat(image.type,limits.imageFormats);
+        checkShape(image.width,image.height);checkFormat(image.type,limits.imageFormats,`第 ${index + 1} 张参考图片`);
     }
     for (const [index, video] of videoReferences.entries()) {
-        checkShape(video.width,video.height,true,`第 ${index + 1} 个参考视频`);checkFormat(video.type,limits.videoFormats);
+        checkShape(video.width,video.height,true,`第 ${index + 1} 个参考视频`);checkFormat(video.type,limits.videoFormats,`第 ${index + 1} 个参考视频`);
         if (limits.minVideoDurationSeconds && video.durationMs && video.durationMs<limits.minVideoDurationSeconds*1000) throw new Error('参考视频时长低于当前模型最短限制');
         if (profile.references.maxVideoBytes > 0 && (video.bytes || 0) > profile.references.maxVideoBytes) throw new Error("参考视频文件超过当前模型大小限制");
         if (profile.references.maxVideoDurationSeconds > 0 && (video.durationMs || 0) > profile.references.maxVideoDurationSeconds * 1000) throw new Error("参考视频时长超过当前模型限制");
     }
-    for (const audio of audioReferences) {
-        checkFormat(audio.type,limits.audioFormats);
+    for (const [index, audio] of audioReferences.entries()) {
+        checkFormat(audio.type,limits.audioFormats,`第 ${index + 1} 个参考音频`);
         if (limits.minAudioDurationSeconds && audio.durationMs && audio.durationMs<limits.minAudioDurationSeconds*1000) throw new Error('参考音频时长低于当前模型最短限制');
         if (profile.references.maxAudioBytes > 0 && (audio.bytes || 0) > profile.references.maxAudioBytes) throw new Error("参考音频文件超过当前模型大小限制");
         if (profile.references.maxAudioDurationSeconds > 0 && (audio.durationMs || 0) > profile.references.maxAudioDurationSeconds * 1000) throw new Error("参考音频时长超过当前模型限制");

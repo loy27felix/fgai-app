@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestFGReferenceFormatAliases(t *testing.T) {
+	r := VideoReferenceConfig{AudioFormats: []string{"wav", "mp3"}}
+	for _, mime := range []string{"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave", "audio/x-pn-wav", " Audio/WAVE; codecs=1 ", "audio/mpeg", "audio/x-mpeg"} {
+		if err := validateFGReferenceLimits(r, canvasGenerationInput{ReferenceAudios: []providerMedia{{MimeType: mime}}}); err != nil {
+			t.Errorf("valid audio %q: %v", mime, err)
+		}
+	}
+	err := validateFGReferenceLimits(r, canvasGenerationInput{ReferenceAudios: []providerMedia{{MimeType: "audio/mp4"}}})
+	if err == nil || !strings.Contains(err.Error(), "第 1 个参考音频") {
+		t.Fatalf("unsupported audio must identify the reference: %v", err)
+	}
+}
+
 func TestFGReferenceVideoPixelErrorDetails(t *testing.T) {
 	r := VideoReferenceConfig{MinVideoPixels: 407696, MaxVideoPixels: 8295044}
 	for _, tc := range []struct {
