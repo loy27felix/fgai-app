@@ -152,7 +152,7 @@ export function dramaFinalResourceIds(episode: Pick<DramaEpisode, "finalResource
 
 /** 剧情段投送时必须可用的资源：参考图编号与首帧决定了画布上的生成输入，缺一张就不能照原样投送。 */
 export function dramaSegmentRequiredResourceIds(segment: DramaSegment) {
-    return unique([...segment.request.references.filter((reference) => reference.sent).map((reference) => reference.resourceId), segment.request.firstFrameResourceId, segment.videoResourceId]);
+    return unique([...segment.request.references.filter((reference) => reference.sent).map((reference) => reference.resourceId), segment.request.firstFrameResourceId, segment.request.lastFrameResourceId, segment.videoResourceId]);
 }
 
 /** 投送一个剧情段需要登记素材的资源：实际发送的参考图、首帧、当前视频与最近的历史版本。 */
@@ -229,7 +229,7 @@ const SEGMENT_OPERATION: Record<string, CanvasVideoEditOperation> = { image_to_v
 
 /** 剧情段的完整发送提示词：系统追加的参考图说明在前，正文在后。 */
 export function dramaSegmentPrompt(segment: DramaSegment) {
-    return [segment.request.header, segment.videoPrompt]
+    return [segment.request.header, segment.request.submissionPrompt ?? segment.videoPrompt]
         .map((part) => part?.trim())
         .filter(Boolean)
         .join("\n\n");
@@ -266,7 +266,7 @@ export function buildDramaSegmentGroup(input: {
     const columns = references.length > 1 ? 2 : 1;
     const referenceNodes = references.map((reference, index) => {
         const cast = input.castById.get(reference.castId);
-        const node = mediaNode(CanvasNodeType.Image, `${reference.label} · ${reference.name}`, reference.resourceId, media, {
+        const node = mediaNode(CanvasNodeType.Image, `${reference.providerLabel || reference.label} · ${reference.name}`, reference.resourceId, media, {
             assetCategory: reference.kind === "image" ? "material" : DRAMA_CAST_ASSET_CATEGORY[reference.kind],
             ...(reference.castId ? { dramaRef: { projectId: input.projectId, kind: "cast" as const, id: reference.castId, baseResourceId: cast?.imageResourceId || reference.resourceId } } : {}),
         });
@@ -279,14 +279,17 @@ export function buildDramaSegmentGroup(input: {
         x += columns * REF_SIZE + (columns - 1) * REF_GAP + GROUP_GAP;
     }
 
-    let firstFrameNode: CanvasNodeData | undefined;
-    if (segment.request.firstFrameResourceId) {
+    const addFrame = (title: string, resourceId?: string) => {
+        if (!resourceId) return undefined;
         const size = dramaMediaSize(input.aspectRatio, 288);
-        const node = mediaNode(CanvasNodeType.Image, `首帧 · 第 ${segment.index} 段尾帧`, segment.request.firstFrameResourceId, media, { assetCategory: "material" });
-        firstFrameNode = { ...node, position: { x, y: contentTop }, width: size.width, height: size.height };
-        children.push(firstFrameNode);
+        const node = mediaNode(CanvasNodeType.Image, title, resourceId, media, { assetCategory: "material" });
+        const positioned = { ...node, position: { x, y: contentTop }, width: size.width, height: size.height };
+        children.push(positioned);
         x += size.width + GROUP_GAP;
-    }
+        return positioned;
+    };
+    const firstFrameNode = addFrame(segment.customFirstFrameId && segment.videoInputMode === "frames" ? "首帧" : `首帧 · 第 ${segment.index} 段尾帧`, segment.request.firstFrameResourceId);
+    const lastFrameNode = addFrame("尾帧", segment.request.lastFrameResourceId);
 
     const videoSize = dramaMediaSize(input.aspectRatio, 480);
     const seconds = segment.videoSeconds || segment.request.seconds || Math.round(segment.durationMs / 1000);
@@ -296,6 +299,7 @@ export function buildDramaSegmentGroup(input: {
         generationMode: "video",
         videoEditOperation: SEGMENT_OPERATION[segment.request.operation] || "text_to_video",
         videoStartFrameNodeId: firstFrameNode?.id,
+        videoEndFrameNodeId: lastFrameNode?.id,
         seconds: seconds ? String(seconds) : undefined,
         ...(segment.videoResourceId && segment.videoSeconds ? { durationMs: segment.videoSeconds * 1000 } : {}),
         assetCategory: "material",
@@ -308,9 +312,10 @@ export function buildDramaSegmentGroup(input: {
     // 连线顺序就是参考图编号：先按短剧“参考图N”顺序连参考图，首帧最后连，避免首帧挤占编号。
     for (const node of referenceNodes) connections.push(edge(node.id, videoNode.id));
     if (firstFrameNode) connections.push(edge(firstFrameNode.id, videoNode.id));
+    if (lastFrameNode) connections.push(edge(lastFrameNode.id, videoNode.id));
 
     const rowWidth = x - FRAME_PADDING;
-    const rowHeight = Math.max(PROMPT_HEIGHT, referencesHeight, firstFrameNode?.height || 0, videoSize.height);
+    const rowHeight = Math.max(PROMPT_HEIGHT, referencesHeight, firstFrameNode?.height || 0, lastFrameNode?.height || 0, videoSize.height);
     const segmentShots = input.shots.filter((shot) => shot.segmentIndex === segment.index);
     const scriptWidth = Math.max(rowWidth, SCRIPT_MIN_WIDTH);
     if (segmentShots.length) {

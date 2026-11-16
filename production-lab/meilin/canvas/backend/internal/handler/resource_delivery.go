@@ -91,5 +91,13 @@ func serveResourceDelivery(c *gin.Context, delivery *service.ResourceDelivery, c
 		http.ServeContent(c.Writer, c.Request, resource.ID, resource.UpdatedAt, seeker)
 		return
 	}
+	if c.Request.Method == http.MethodHead {
+		c.Header("Content-Type", mimeType)
+		if stream.ContentLength >= 0 {
+			c.Header("Content-Length", fmt.Sprint(stream.ContentLength))
+		}
+		c.Status(stream.StatusCode)
+		return
+	}
 	c.DataFromReader(stream.StatusCode, stream.ContentLength, mimeType, stream.Body, nil)
 }

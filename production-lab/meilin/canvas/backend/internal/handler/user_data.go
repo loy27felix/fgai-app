@@ -385,7 +385,9 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		serveResourceDelivery(c, delivery, "public, max-age=0, must-revalidate", "")
 	}
 	r.GET("/public/resources/:id/file", publicResourceHandler)
+	r.HEAD("/public/resources/:id/file", publicResourceHandler)
 	r.GET("/public/resources/:id/file/:filename", publicResourceHandler)
+	r.HEAD("/public/resources/:id/file/:filename", publicResourceHandler)
 	r.GET("/assets", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

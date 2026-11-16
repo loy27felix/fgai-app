@@ -183,8 +183,8 @@ func (r *Repository) dramaResourceReferences(userID string, resourceIDs []string
 		}
 	}
 	var segments []model.DramaSegment
-	if err := r.db.Select("id", "segment_index", "video_resource_id", "tail_frame_resource_id", "reference_images_json").
-		Where("project_id IN (?) AND (video_resource_id IN ? OR tail_frame_resource_id IN ? OR (reference_images_json IS NOT NULL AND reference_images_json <> ''))", projects, resourceIDs, resourceIDs).Find(&segments).Error; err != nil {
+	if err := r.db.Select("id", "segment_index", "video_resource_id", "tail_frame_resource_id", "first_frame_resource_id", "last_frame_resource_id", "reference_images_json").
+		Where("project_id IN (?) AND (video_resource_id IN ? OR tail_frame_resource_id IN ? OR first_frame_resource_id IN ? OR last_frame_resource_id IN ? OR (reference_images_json IS NOT NULL AND reference_images_json <> ''))", projects, resourceIDs, resourceIDs, resourceIDs, resourceIDs).Find(&segments).Error; err != nil {
 		return nil, err
 	}
 	wanted := make(map[string]struct{}, len(resourceIDs))
@@ -192,7 +192,7 @@ func (r *Repository) dramaResourceReferences(userID string, resourceIDs []string
 		wanted[id] = struct{}{}
 	}
 	for _, segment := range segments {
-		ids := []string{segment.VideoResourceID, segment.TailFrameResourceID}
+		ids := []string{segment.VideoResourceID, segment.TailFrameResourceID, segment.FirstFrameResourceID, segment.LastFrameResourceID}
 		var images []model.DramaReferenceImage
 		if segment.ReferenceImagesJSON != "" {
 			if err := json.Unmarshal([]byte(segment.ReferenceImagesJSON), &images); err != nil {

@@ -897,6 +897,7 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 		request, _, _, prepareErr := s.prepareDramaSegment(settings, draft, rows[i], previous, castByID)
 		if prepareErr != nil {
 			request.Warning = prepareErr.Error()
+			request.InputError = prepareErr.Error()
 			// 视频模型下线、时长超限等会让预演在列参考图前返回。镜头里的设定引用仍在，照常列出并标为未发送；
 			// 否则制作台看起来像资产引用丢了，在参考面板勾选候选还会把本段存成只含该项的手动列表。
 			if len(request.References) < len(draft.view.Request.References) {
@@ -1070,6 +1071,7 @@ func buildDramaSegmentViews(settings DramaSettings, meta dramaBibleMeta, shots [
 			view.VideoStatus, view.VideoResourceID, view.TailFrameResourceID, view.VideoError = row.VideoStatus, row.VideoResourceID, row.TailFrameResourceID, row.VideoError
 			view.VideoSeconds = row.VideoSeconds
 			view.VideoModel = segmentVideoChoice(row, settings.Models.Video)
+			view.VideoInputMode, view.CustomFirstFrameID, view.CustomLastFrameID = row.VideoInputMode, row.FirstFrameResourceID, row.LastFrameResourceID
 			view.PromptStatus = firstNonEmpty(row.PromptStatus, "queued")
 			if override := strings.TrimSpace(row.VideoPromptOverride); override != "" {
 				view.VideoPrompt, view.Custom = override, true
@@ -1119,7 +1121,7 @@ func (s *Service) RequestDramaSegmentPrompts(userID string, projectID string, ep
 
 // UpdateDramaSegment 保存或清除一个剧情段的整段视频提示词改写。
 func (s *Service) UpdateDramaSegment(userID string, projectID string, episodeID string, index int, req UpdateDramaSegmentRequest) error {
-	project, _, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForUser(userID, projectID)
 	if err != nil {
 		return err
 	}
@@ -1127,7 +1129,7 @@ func (s *Service) UpdateDramaSegment(userID string, projectID string, episodeID 
 	if err != nil {
 		return err
 	}
-	if req.VideoPromptOverride == nil && req.ReferenceCastIDs == nil && !req.AutoReferences && req.ReferenceImages == nil && req.AudioCastIDs == nil && !req.AutoAudioReferences {
+	if req.VideoPromptOverride == nil && req.ReferenceCastIDs == nil && !req.AutoReferences && req.ReferenceImages == nil && req.AudioCastIDs == nil && !req.AutoAudioReferences && req.VideoInputMode == nil && req.FirstFrameResourceID == nil && req.LastFrameResourceID == nil {
 		return BadAuthRequest("没有要保存的修改")
 	}
 	shots, err := s.repo.DramaShots(episode.ID)
@@ -1144,9 +1146,59 @@ func (s *Service) UpdateDramaSegment(userID string, projectID string, episodeID 
 	if !found {
 		return BadAuthRequest("剧情段不存在")
 	}
+	rows, err := s.repo.DramaSegments(episode.ID)
+	if err != nil {
+		return err
+	}
+	rowPosition := -1
+	for i, row := range rows {
+		if row.SegmentIndex == index {
+			rowPosition = i
+			break
+		}
+	}
+	if rowPosition < 0 {
+		return BadAuthRequest("剧情段不存在")
+	}
+	current := rows[rowPosition]
+	if req.Revision != nil && *req.Revision != current.Revision {
+		return NewAppError(http.StatusConflict, "本段已更新，请刷新后重试")
+	}
+	next := current
 	fields := map[string]any{}
+	if req.VideoInputMode != nil {
+		mode := strings.TrimSpace(*req.VideoInputMode)
+		switch mode {
+		case "", model.DramaVideoInputReference, model.DramaVideoInputFrames:
+			if mode != current.VideoInputMode {
+				fields["video_input_mode"] = mode
+			}
+		default:
+			return BadAuthRequest("无效的视频生成方式")
+		}
+	}
+	for _, frame := range []struct {
+		value           *string
+		current, column string
+	}{
+		{req.FirstFrameResourceID, current.FirstFrameResourceID, "first_frame_resource_id"},
+		{req.LastFrameResourceID, current.LastFrameResourceID, "last_frame_resource_id"},
+	} {
+		if frame.value == nil {
+			continue
+		}
+		id := strings.TrimSpace(*frame.value)
+		if id != "" {
+			resource, err := s.repo.ResourceForUser(userID, id)
+			if err != nil || resource.Kind != "image" || resource.Status != model.ResourceStatusReady {
+				return BadAuthRequest("请选择可用的首尾帧图片")
+			}
+		}
+		if id != frame.current {
+			fields[frame.column] = id
+		}
+	}
 	if req.AutoReferences || req.ReferenceCastIDs != nil {
-		// 参考图编号写在提示词里，换参考图后模型撰写的提示词标记过期；手写的提示词保留，由用户自行核对编号。
 		encoded := ""
 		if !req.AutoReferences {
 			ids, err := s.dramaSegmentReferenceIDs(project.ID, *req.ReferenceCastIDs)
@@ -1155,7 +1207,10 @@ func (s *Service) UpdateDramaSegment(userID string, projectID string, episodeID 
 			}
 			encoded = encodeStringList(ids)
 		}
-		fields["reference_cast_ids_json"] = encoded
+		next.ReferenceCastIDsJSON = encoded
+		if encoded != current.ReferenceCastIDsJSON {
+			fields["reference_cast_ids_json"] = encoded
+		}
 	}
 	if req.ReferenceImages != nil {
 		images, err := s.dramaReferenceImages(userID, *req.ReferenceImages)
@@ -1166,37 +1221,97 @@ func (s *Service) UpdateDramaSegment(userID string, projectID string, episodeID 
 		if err != nil {
 			return err
 		}
-		fields["reference_images_json"] = string(encoded)
+		next.ReferenceImagesJSON = string(encoded)
+		if next.ReferenceImagesJSON != current.ReferenceImagesJSON {
+			fields["reference_images_json"] = next.ReferenceImagesJSON
+		}
 	}
 	if req.AutoAudioReferences {
-		fields["audio_cast_ids_json"] = ""
+		if current.AudioCastIDsJSON != "" {
+			fields["audio_cast_ids_json"] = ""
+		}
 	} else if req.AudioCastIDs != nil {
 		ids, err := s.dramaSegmentAudioIDs(project.ID, episode.ID, index, *req.AudioCastIDs)
 		if err != nil {
 			return err
 		}
-		fields["audio_cast_ids_json"] = encodeStringList(ids)
-	}
-	// 先完成全部校验，再写参考选择，避免一个无效字段使本次修改只保存一半。
-	if req.VideoPromptOverride != nil && utf8.RuneCountInString(strings.TrimSpace(*req.VideoPromptOverride)) > 12000 {
-		return BadAuthRequest("段提示词过长（最多 12000 字）")
-	}
-	if len(fields) > 0 {
-		if err := s.repo.SaveDramaSegmentReferenceFields(episode.ID, index, fields); err != nil {
-			return err
+		if encoded := encodeStringList(ids); encoded != current.AudioCastIDsJSON {
+			fields["audio_cast_ids_json"] = encoded
 		}
 	}
 	if req.VideoPromptOverride != nil {
-		prompt := production.NormalizeReferenceTokens(strings.TrimSpace(*req.VideoPromptOverride))
-		if utf8.RuneCountInString(prompt) > 12000 {
-			return BadAuthRequest("段提示词过长（最多 12000 字）")
-		}
-		if err := s.repo.SaveDramaSegmentOverride(model.DramaSegment{ProjectID: project.ID, EpisodeID: episode.ID, SegmentIndex: index, VideoPromptOverride: prompt}); err != nil {
+		next.VideoPromptOverride = production.NormalizeReferenceTokens(strings.TrimSpace(*req.VideoPromptOverride))
+	}
+	if current.ReferenceCastIDsJSON != next.ReferenceCastIDsJSON || current.ReferenceImagesJSON != next.ReferenceImagesJSON {
+		casts, err := s.repo.DramaCasts(project.ID)
+		if err != nil {
 			return err
 		}
+		byID := make(map[string]model.DramaCast, len(casts))
+		for _, cast := range casts {
+			byID[cast.ID] = cast
+		}
+		settings := parseDramaSettings(productionRow.SettingsJSON)
+		meta := parseDramaBibleMeta(productionRow.BibleJSON)
+		oldRefs := segmentReferencesForIndex(settings, meta, shots, byID, current)
+		newRefs := segmentReferencesForIndex(settings, meta, shots, byID, next)
+		replacements := dramaReferenceReplacements(oldRefs, newRefs)
+		next.VideoPrompt = production.RewriteReferenceTokens(next.VideoPrompt, replacements)
+		next.VideoPromptOverride = production.RewriteReferenceTokens(next.VideoPromptOverride, replacements)
+	}
+	if next.VideoPrompt != current.VideoPrompt {
+		fields["video_prompt"] = next.VideoPrompt
+	}
+	if next.VideoPromptOverride != current.VideoPromptOverride {
+		fields["video_prompt_override"] = next.VideoPromptOverride
+	}
+	if utf8.RuneCountInString(next.VideoPromptOverride) > 12000 {
+		return BadAuthRequest("段提示词过长（最多 12000 字）")
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	if current.PromptStatus == model.DramaMediaRunning {
+		// The active writer used the old inputs and cannot write to this revision.
+		fields["prompt_status"] = ""
+	}
+	saved, err := s.repo.SaveDramaSegmentInputs(current, fields)
+	if err != nil {
+		return err
+	}
+	if !saved {
+		return NewAppError(http.StatusConflict, "本段已更新，请刷新后重试")
 	}
 	s.wakeDramaScheduler()
 	return nil
+}
+
+func segmentReferencesForIndex(settings DramaSettings, meta dramaBibleMeta, shots []model.DramaShot, casts map[string]model.DramaCast, row model.DramaSegment) []DramaSegmentReference {
+	for _, draft := range buildDramaSegmentDrafts(settings, meta, shots, casts, []model.DramaSegment{row}) {
+		if draft.view.Index == row.SegmentIndex {
+			return draft.view.Request.References
+		}
+	}
+	return nil
+}
+
+func dramaReferenceReplacements(oldRefs, newRefs []DramaSegmentReference) map[int]string {
+	type identity struct{ castID, resourceID string }
+	key := func(ref DramaSegmentReference) identity {
+		if ref.CastID != "" {
+			return identity{castID: ref.CastID}
+		}
+		return identity{resourceID: ref.ResourceID}
+	}
+	newLabels := make(map[identity]string, len(newRefs))
+	for _, ref := range newRefs {
+		newLabels[key(ref)] = ref.Label
+	}
+	replacements := make(map[int]string, len(oldRefs))
+	for i, ref := range oldRefs {
+		replacements[i+1] = firstNonEmpty(newLabels[key(ref)], ref.Name)
+	}
+	return replacements
 }
 
 // dramaSegmentReferenceIDs 校验用户指定的参考图：必须是本作品的设定，去重并保持顺序。

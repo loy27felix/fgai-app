@@ -138,6 +138,39 @@ func NormalizeReferenceTokens(text string) string {
 	return referenceTokenPattern.ReplaceAllString(text, "参考图$1")
 }
 
+// RewriteReferenceTokens applies an old-slot mapping in one pass so swapped
+// numbers cannot be replaced twice. Unknown references are left for review.
+func RewriteReferenceTokens(text string, replacements map[int]string) string {
+	var result strings.Builder
+	cursor := 0
+	for _, match := range referenceTokenPattern.FindAllStringSubmatchIndex(text, -1) {
+		start, end := match[0], match[1]
+		index, err := strconv.Atoi(text[match[2]:match[3]])
+		replacement, ok := replacements[index]
+		if err != nil || !ok {
+			continue
+		}
+		// “厨房（参考图5）” already names the subject. Remove only that
+		// redundant parenthesized reference when the image is not attached.
+		for _, pair := range [][2]string{{"（", "）"}, {"(", ")"}} {
+			before := text[cursor:start]
+			if strings.HasSuffix(before, pair[0]) &&
+				strings.HasSuffix(strings.TrimSpace(strings.TrimSuffix(before, pair[0])), replacement) &&
+				strings.HasPrefix(text[end:], pair[1]) {
+				start -= len(pair[0])
+				end += len(pair[1])
+				replacement = ""
+				break
+			}
+		}
+		result.WriteString(text[cursor:start])
+		result.WriteString(replacement)
+		cursor = end
+	}
+	result.WriteString(text[cursor:])
+	return result.String()
+}
+
 // UnknownReferenceTokens 返回编号超出本段参考图数量（1..count）的引用，按出现顺序去重。
 func UnknownReferenceTokens(text string, count int) []string {
 	unknown := []string{}

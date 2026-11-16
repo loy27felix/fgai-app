@@ -25,10 +25,10 @@ export function dramaSegmentVideoRequirements(request: DramaSegmentRequest, opti
     const generateAudio = changed ? option?.generateAudio : request.generateAudio;
     if (!resolution || generateAudio === undefined) return undefined;
     // 首帧与随请求发送的参考图都按图片输入计价，口径与服务端一致。
-    const imageCount = request.references.filter((reference) => reference.sent).length + (request.firstFrameResourceId || request.firstFramePending ? 1 : 0);
+    const imageCount = request.references.filter((reference) => reference.sent).length + (request.firstFrameResourceId || request.firstFramePending ? 1 : 0) + (request.lastFrameResourceId ? 1 : 0);
     return {
         capability: "video",
-        input: { textCount: 1, imageCount, videoCount: 0, audioCount: 0, characterCount: 0 },
+        input: { textCount: 1, imageCount, videoCount: 0, audioCount: request.audioReferences?.filter((reference) => reference.sent).length || 0, characterCount: 0 },
         videoOperation: request.operation,
         videoSeconds: String(request.seconds),
         options: { vquality: resolution, videoGenerateAudio: generateAudio },

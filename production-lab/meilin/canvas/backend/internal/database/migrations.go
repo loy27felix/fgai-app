@@ -14,7 +14,7 @@ import (
 
 // FG: native 50-53 are FG recycle/archive plus upstream canvas_mutation_receipts.
 // Upstream v1.6.8.1 migrations 51-54 are renumbered to 54-57 here.
-const CurrentSchemaVersion int64 = 93
+const CurrentSchemaVersion int64 = 94
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -365,6 +365,18 @@ var schemaMigrations = []migration{
 	{version: 91, name: "api_log_generation_content", checksum: "sha256:fg-api-log-generation-content-v91", apply: migrateAPILogGenerationContent},
 	{version: 92, name: "agent_mcp_connections", checksum: "sha256:fg-agent-mcp-connections-v92", apply: migrateAgentMCP},
 	{version: 93, name: "formatted_text_and_undo", checksum: canvasNodeModelChecksum, apply: migrateCanvasNodeModel},
+	{version: 94, name: "drama_segment_video_inputs", checksum: "sha256:fg-drama-segment-video-inputs-v94", apply: migrateDramaSegmentVideoInputs},
+}
+
+func migrateDramaSegmentVideoInputs(tx *gorm.DB) error {
+	for _, field := range []string{"VideoInputMode", "FirstFrameResourceID", "LastFrameResourceID"} {
+		if !tx.Migrator().HasColumn(&model.DramaSegment{}, field) {
+			if err := tx.Migrator().AddColumn(&model.DramaSegment{}, field); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func migrateAPILogGenerationContent(tx *gorm.DB) error {

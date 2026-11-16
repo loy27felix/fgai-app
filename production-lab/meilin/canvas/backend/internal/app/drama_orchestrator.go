@@ -720,47 +720,13 @@ func (r *dramaRun) advanceEpisode(e *model.DramaEpisode, loadedStage string) err
 	return err
 }
 
-// enqueueSegmentVideos 提交可生成的段视频。尾帧续接时按段序只提交下一段（第 2 段起要等上一段尾帧）；
-// 并行出片时本集所有满足条件的段一起提交，由派发并发与渠道排队决定实际出片节奏。
+// enqueueSegmentVideos submits every eligible segment. Only a segment that
+// uses its predecessor's tail depends on that segment's completed video.
 // requestedOnly 时只提交用户明确请求（queued）的段，用于全集尚未进入视频阶段时。返回全部段视频是否就绪。
 // 等待条件与 dramaVideoWaitReason 同源，详情页显示的等待原因就是这里卡住的条件。
 func (r *dramaRun) enqueueSegmentVideos(e *model.DramaEpisode, segments []model.DramaSegment, requestedOnly bool) (bool, error) {
-	if len(segments) == 0 {
-		return false, nil
-	}
-	if r.settings.parallelVideo() {
-		return r.enqueueParallelSegmentVideos(e, segments, requestedOnly)
-	}
 	var shots []model.DramaShot
-	for i, seg := range segments {
-		if dramaSegmentVideoDone(seg) {
-			continue
-		}
-		// Edits mark media stale; only an explicit request may regenerate it.
-		wanted := seg.VideoStatus == model.DramaMediaQueued || (!requestedOnly && seg.VideoStatus == "")
-		if !wanted {
-			return false, nil
-		}
-		if shots == nil {
-			loaded, err := r.s.repo.DramaShots(e.ID)
-			if err != nil {
-				return false, err
-			}
-			shots = loaded
-		}
-		if dramaVideoWaitReason(r.settings, r.production, e, segments, i, shots, r.castLookup, r.episodeCastExtractPending(e.ID)) == "" {
-			r.enqueue(model.DramaJobSegmentVideo, e.ID, seg.ID, "", segmentPriority(dramaRankVideo, e.Number, seg.SegmentIndex), fmt.Sprintf("第 %d 集 第 %d 段视频", e.Number, seg.SegmentIndex+1), nil)
-		}
-		return false, nil
-	}
-	return true, nil
-}
-
-// enqueueParallelSegmentVideos 是并行出片的提交：段与段互不依赖，过期、失败或未请求的段只影响自己。
-// r.enqueue 按作业键去重，已在队列或生成中的段不会重复提交。
-func (r *dramaRun) enqueueParallelSegmentVideos(e *model.DramaEpisode, segments []model.DramaSegment, requestedOnly bool) (bool, error) {
-	var shots []model.DramaShot
-	ready := true
+	ready := len(segments) > 0
 	for i, seg := range segments {
 		if dramaSegmentVideoDone(seg) {
 			continue
@@ -1480,7 +1446,7 @@ func (r *dramaRun) submitSegmentPrompt(job *model.DramaJob) (*model.Task, bool, 
 		}
 		seconds := production.SnapVideoSeconds(draft.view.DurationMs, profile.Durations)
 		// 并行出片不带上一段尾帧，提示词不能写“首帧承接上一段”。
-		draft.input.FirstFrame = position > 0 && !r.settings.parallelVideo()
+		draft.input.FirstFrame = position > 0 && segment.UsesPreviousTail(r.settings.parallelVideo())
 		if len(draft.input.Shots) > 0 {
 			draft.input.Shots[len(draft.input.Shots)-1].DurationMs += int64(seconds)*1000 - draft.view.DurationMs
 		}
@@ -1517,7 +1483,7 @@ func (r *dramaRun) segmentPromptBudget(profile dramaVideoProfile, draft dramaSeg
 	}
 	var previous *model.DramaSegment
 	for i := range rows {
-		if rows[i].ID == segment.ID && i > 0 && !r.settings.parallelVideo() {
+		if rows[i].ID == segment.ID && i > 0 {
 			previous = &rows[i-1]
 		}
 	}

@@ -55,7 +55,8 @@ func dramaVideoWaitReason(settings DramaSettings, p *model.DramaProduction, e *m
 	case settings.ReviewMode == DramaReviewSample && !p.SampleApproved && e.Number != 1:
 		return "等待确认第 1 集样片"
 	}
-	if index > 0 && !settings.parallelVideo() && !dramaSegmentVideoDone(segments[index-1]) {
+	segment := segments[index]
+	if index > 0 && segment.UsesPreviousTail(settings.parallelVideo()) && !dramaSegmentVideoDone(segments[index-1]) {
 		return "等待上一段视频生成（需要它的最后一帧）"
 	}
 	if !dramaPromptReady(segments[index]) {
@@ -67,7 +68,8 @@ func dramaVideoWaitReason(settings DramaSettings, p *model.DramaProduction, e *m
 	// 未生成的参考图在自动生图或已放行、且已有外貌依据时会被调度排队，同样要等。
 	// 没有外貌的后出现设定不会自动生图，不能一直卡住出片。
 	requested := settings.MediaMode != DramaMediaManual || p.AssetsReleased
-	if names := dramaReferencesInProgress(segments[index].SegmentIndex, shots, lookup, requested); len(names) > 0 {
+	usesFrames := segment.VideoInputMode == model.DramaVideoInputFrames || (index > 0 && segment.UsesPreviousTail(settings.parallelVideo()))
+	if names := dramaReferencesInProgress(segment.SegmentIndex, shots, lookup, requested); !usesFrames && len(names) > 0 {
 		return "等待参考图生成：" + strings.Join(names, "、")
 	}
 	return ""
@@ -117,8 +119,7 @@ func segmentVideoChoice(segment model.DramaSegment, fallback DramaModelChoice) D
 // Reference numbering remains stable even when a model cannot accept every image.
 // 返回值依次是请求预演、随请求发送的参考图与参考音频（任务输入的媒体项）。
 func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegmentDraft, segment model.DramaSegment, previous *model.DramaSegment, casts map[string]model.DramaCast) (DramaSegmentRequest, []any, []any, error) {
-	if settings.parallelVideo() {
-		// 并行出片：每段只按参考图独立生成，不带上一段尾帧，也就不依赖上一段完成。
+	if !segment.UsesPreviousTail(settings.parallelVideo()) {
 		previous = nil
 	}
 	profile, err := s.dramaVideoProfile(segmentVideoChoice(segment, settings.Models.Video))
@@ -138,20 +139,49 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	}
 	refs := []any{}
 	header := []string{}
-	if previous != nil {
+	if previous != nil || segment.VideoInputMode == model.DramaVideoInputFrames {
 		request.Operation = "image_to_video"
-		request.FirstFramePending = previous.VideoStatus != model.DramaMediaReady || previous.TailFrameResourceID == ""
-		if !request.FirstFramePending {
-			request.FirstFrameResourceID = previous.TailFrameResourceID
-			ref, err := s.dramaResourceReference(previous.TailFrameResourceID, "first-frame", "first_frame")
+		if !profile.supports(request.Operation) {
+			return request, nil, nil, errors.New("所选视频模型不支持首尾帧，请切换模型或选择全能参考")
+		}
+		request.FirstFrameResourceID = segment.FirstFrameResourceID
+		if previous != nil {
+			request.FirstFramePending = !dramaSegmentVideoDone(*previous)
+			if !request.FirstFramePending {
+				request.FirstFrameResourceID = previous.TailFrameResourceID
+			}
+		}
+		if request.FirstFrameResourceID == "" && !request.FirstFramePending {
+			return request, nil, nil, errors.New("请先为本段选择一张首帧图片")
+		}
+		if request.FirstFrameResourceID != "" {
+			ref, err := s.dramaResourceReference(request.FirstFrameResourceID, "first-frame", "first_frame")
 			if err != nil {
-				return request, nil, nil, err
+				return request, nil, nil, errors.New("首帧图片已不可用，请重新选择")
 			}
 			refs = append(refs, ref)
 		}
-		header = append(header, "首帧图为上一段视频的最后一帧，不占参考图编号。")
+		if previous != nil {
+			header = append(header, "首帧图为上一段视频的最后一帧。")
+		} else {
+			header = append(header, "开场画面以指定首帧图为准。")
+		}
+		if segment.VideoInputMode == model.DramaVideoInputFrames && segment.LastFrameResourceID != "" {
+			if profile.MaxImages < 2 {
+				return request, nil, nil, errors.New("所选视频模型仅支持一张首帧图，请移除尾帧或换用其他模型")
+			}
+			request.LastFrameResourceID = segment.LastFrameResourceID
+			ref, err := s.dramaResourceReference(request.LastFrameResourceID, "last-frame", "last_frame")
+			if err != nil {
+				return request, nil, nil, errors.New("尾帧图片已不可用，请重新选择")
+			}
+			refs = append(refs, ref)
+			header = append(header, "最后画面以指定尾帧图为准。")
+		}
 	} else if profile.supports("reference_to_video") {
 		request.Operation = "reference_to_video"
+	} else if segment.VideoInputMode == model.DramaVideoInputReference {
+		return request, nil, nil, errors.New("所选视频模型不支持全能参考，请切换模型或选择首尾帧")
 	} else {
 		request.Operation = "text_to_video"
 	}
@@ -162,7 +192,7 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 		return request, nil, nil, fmt.Errorf("所选模型不支持本段所需的 %s", request.Operation)
 	}
 	capacity := profile.MaxImages
-	if previous != nil {
+	if request.Operation == "image_to_video" {
 		// 首帧衔接与全模态参考是互斥的请求模式；角色设定仍保留在提示词中。
 		capacity = 0
 	}
@@ -181,25 +211,21 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	// 没随请求发送的参考图按原因分开列出：未就绪的点名，超出上限的说明是哪种上限。
 	var missing, overflow []string
 	for _, reference := range draft.view.Request.References {
+		// The prompt editor keeps asset slots stable. The provider numbers only
+		// the images that are actually attached, so its sequence is separate.
+		providerLabel := fmt.Sprintf("参考图%d", len(refs)+1)
 		if reference.CastID == "" {
-			resource, err := s.repo.Resource(reference.ResourceID)
-			if err != nil {
-				return request, nil, nil, err
-			}
-			if resource.Kind != "image" || resource.Status != model.ResourceStatusReady {
-				return request, nil, nil, errors.New("自定义参考图片已不可用，请移除后重新添加")
-			}
 			reference.Sent = capacity > 0
 			if reference.Sent {
-				ref, err := s.dramaResourceReference(reference.ResourceID, reference.Label, "")
+				ref, err := s.dramaResourceReference(reference.ResourceID, providerLabel, "")
 				if err != nil {
-					return request, nil, nil, err
+					return request, nil, nil, errors.New("自定义参考图片已不可用，请移除后重新添加")
 				}
+				reference.ProviderLabel = providerLabel
 				refs = append(refs, ref)
 				capacity--
-				header = append(header, reference.Label+"："+reference.Name)
+				header = append(header, providerLabel+"："+reference.Name)
 			} else {
-				header = append(header, reference.Label+"（"+reference.Name+"）未附图")
 				if settingLimited {
 					request.ReferenceLimited = true
 				} else {
@@ -216,20 +242,23 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 		reference.ResourceID = cast.ImageResourceID
 		reference.Sent = capacity > 0 && cast.ImageStatus == model.DramaMediaReady && cast.ImageResourceID != ""
 		if reference.Sent {
-			ref, err := s.dramaResourceReference(cast.ImageResourceID, reference.Label, "")
+			ref, err := s.dramaResourceReference(cast.ImageResourceID, providerLabel, "")
 			if err != nil {
 				return request, nil, nil, err
 			}
 			refs = append(refs, ref)
 			capacity--
-			line := reference.Label + "：" + reference.Name
+			reference.ProviderLabel = providerLabel
+			line := providerLabel + "：" + reference.Name
 			if cast.Locked {
 				// 用户锁定（含上传）的形象是硬约束，文字设定与图片冲突时以图片为准。
 				line += "（已锁定形象：" + map[string]string{"character": "五官、发型、服装", "prop": "外形、材质、颜色", "scene": "空间布局、陈设、光线"}[cast.Kind] + "必须与此图一致，文字描述与图片不符时以图片为准）"
 			}
 			header = append(header, line)
 		} else {
-			header = append(header, reference.Label+"（"+reference.Name+"）未附图，请依据文字设定："+firstNonEmpty(cast.Appearance, cast.Description))
+			if description := firstNonEmpty(cast.Appearance, cast.Description); description != "" {
+				header = append(header, reference.Name+"："+description)
+			}
 			ready := cast.ImageStatus == model.DramaMediaReady && cast.ImageResourceID != ""
 			switch {
 			case !ready:
@@ -253,6 +282,10 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 	}
 	if request.Warning == "" {
 		notes := []string{}
+		if request.Operation == "image_to_video" {
+			notes = append(notes, "本段发送首帧和已选尾帧。角色、场景及音色参考保留，切回全能参考时可继续使用")
+			missing, overflow = nil, nil
+		}
 		if len(missing) > 0 {
 			notes = append(notes, "参考图未就绪，本段按文字设定生成："+strings.Join(missing, "、")+"；重新生成参考图后再生成本段，形象更一致")
 		}
@@ -260,17 +293,19 @@ func (s *Service) prepareDramaSegment(settings DramaSettings, draft dramaSegment
 			notes = append(notes, fmt.Sprintf("本段引用 %d 个设定，按每段最多 %d 张参考图发送，其余按文字设定；可在生成依据里手动调整", len(draft.view.Request.References), settings.ReferenceLimit))
 		}
 		if len(overflow) > 0 {
-			if previous != nil {
-				notes = append(notes, "本段以上一段尾帧作首帧，不同时附带其他参考图，设定按文字描述生成；需要同时使用角色、场景图片和参考音频时，请在作品设置的段落衔接中选择“并行出片”")
-			} else {
-				notes = append(notes, fmt.Sprintf("超出视频模型参考图上限（%d 张），按文字设定生成：%s", profile.MaxImages, strings.Join(overflow, "、")))
-			}
+			notes = append(notes, fmt.Sprintf("超出视频模型参考图上限（%d 张），按文字设定生成：%s", profile.MaxImages, strings.Join(overflow, "、")))
 		}
 		request.Warning = strings.Join(notes, "；")
 	}
 	request.Header = strings.Join(header, "\n")
 	// 正文里的“参考图N”必须对应本段的参考图；换参考图后手写的提示词可能还留着旧编号。
-	if unknown := production.UnknownReferenceTokens(firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt), len(request.References)); len(unknown) > 0 {
+	editablePrompt := firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt)
+	replacements := make(map[int]string, len(request.References))
+	for i, reference := range request.References {
+		replacements[i+1] = firstNonEmpty(reference.ProviderLabel, reference.Name)
+	}
+	request.SubmissionPrompt = production.RewriteReferenceTokens(editablePrompt, replacements)
+	if unknown := production.UnknownReferenceTokens(editablePrompt, len(request.References)); len(unknown) > 0 {
 		request.UnknownReferences = unknown
 		request.Warning = fmt.Sprintf("提示词里的 %s 不是本段的参考图（本段共 %d 张），生成前请改成正确的编号", strings.Join(unknown, "、"), len(request.References))
 	}
@@ -313,7 +348,7 @@ func (s *Service) dramaSegmentAudioReferences(request *DramaSegmentRequest, prof
 		case profile.MaxAudios <= 0:
 			reference.Note = "所选视频模型不支持参考音频，按声线描述生成"
 		case request.Operation == "image_to_video":
-			reference.Note = "本段以上一段尾帧作首帧，不能同时附带参考音频；并行出片时每段都会带上角色声音"
+			reference.Note = "首尾帧模式不发送参考音频。可选择全能参考使用角色音色"
 		case request.Operation != "reference_to_video":
 			reference.Note = "本段按文生视频生成，不能附带参考音频"
 		case !hasImages:
@@ -437,7 +472,7 @@ func (r *dramaRun) submitSegmentVideo(job *model.DramaJob) (*model.Task, bool, e
 	}
 	var previous *model.DramaSegment
 	for i := range rows {
-		if rows[i].ID == segment.ID && i > 0 && !r.settings.parallelVideo() {
+		if rows[i].ID == segment.ID && i > 0 {
 			previous = &rows[i-1]
 		}
 	}
@@ -467,13 +502,16 @@ func (r *dramaRun) submitSegmentVideo(job *model.DramaJob) (*model.Task, bool, e
 		}
 		metadata := r.metadata(job)
 		metadata["videoEditOperation"] = request.Operation
-		if previous != nil {
+		if request.FirstFrameResourceID != "" {
 			metadata["videoStartFrameNodeId"] = "first-frame"
+		}
+		if request.LastFrameResourceID != "" {
+			metadata["videoEndFrameNodeId"] = "last-frame"
 		}
 		// 画面参数与声音开关取自预演：比例或分辨率标签按模型能力合同换算，不出声的模型显式关闭声音。
 		config := map[string]any{"videoSeconds": itoa(request.Seconds), "videoGenerateAudio": strconv.FormatBool(request.GenerateAudio)}
 		dramaVideoScreen{Size: request.Size, Resolution: request.Resolution}.apply(config)
-		prompt := strings.TrimSpace(request.Header + "\n\n" + firstNonEmpty(segment.VideoPromptOverride, segment.VideoPrompt))
+		prompt := strings.TrimSpace(request.Header + "\n\n" + request.SubmissionPrompt)
 		if chars := utf8.RuneCountInString(prompt); request.PromptMaxChars > 0 && chars > request.PromptMaxChars {
 			if strings.TrimSpace(segment.VideoPromptOverride) != "" {
 				return nil, false, fmt.Errorf("手动改写的视频提示词加上开头的参考图说明共 %d 个字符，超过所选视频模型上限 %d 个字符；请精简改写内容，或恢复模型版本后按上限重新撰写", chars, request.PromptMaxChars)

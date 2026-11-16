@@ -188,7 +188,6 @@ export function ReferenceBoard({
             />
         );
     };
-    const first = segment.index === 0 && !request.firstFrameResourceId && !request.firstFramePending;
     const voiceActions = (
         <>
             {segment.audioReferenceMode === "custom" ? (
@@ -276,14 +275,19 @@ export function ReferenceBoard({
                 </Button>
                 <small>分类和卡片均可调整顺序；移除只取消本段引用。</small>
             </div>
-            <div className="drama-sdx-frame-note">
+            {request.operation === "image_to_video" ? <div className="drama-sdx-frame-note">
                 {request.firstFrameResourceId ? (
-                    <button type="button" aria-label="预览上一段尾帧" onClick={() => setPreview({ resourceId: request.firstFrameResourceId!, name: "上一段尾帧" })}>
-                        <MediaThumb resourceId={request.firstFrameResourceId} alt="上一段尾帧" />
+                    <button type="button" aria-label="预览首帧" onClick={() => setPreview({ resourceId: request.firstFrameResourceId!, name: "首帧" })}>
+                        <MediaThumb resourceId={request.firstFrameResourceId} alt="首帧" />
                     </button>
                 ) : null}
-                <span>{first ? "开场段：无首帧，按提示词与参考图生成" : request.firstFrameResourceId ? `首帧：第 ${segment.index} 段尾帧` : `首帧：等待第 ${segment.index} 段视频生成`}</span>
-            </div>
+                <span>{segment.videoInputMode === "frames" && segment.customFirstFrameId ? "首帧为指定图片" : request.firstFrameResourceId ? `首帧使用第 ${segment.index} 段尾帧` : request.firstFramePending ? `等待第 ${segment.index} 段视频生成` : "请在生成设置中选择首帧"}</span>
+                {request.lastFrameResourceId ? (
+                    <button type="button" aria-label="预览尾帧" onClick={() => setPreview({ resourceId: request.lastFrameResourceId!, name: "尾帧" })}>
+                        <MediaThumb resourceId={request.lastFrameResourceId} alt="尾帧" />
+                    </button>
+                ) : null}
+            </div> : null}
             {groupOrder.map((kind) => {
                 const group = [...ids.map((id) => castById.get(id)).filter((cast): cast is DramaCast => Boolean(cast)), ...[...castById.values()].filter((cast) => visible.has(cast.id) && !ids.includes(cast.id))].filter((cast) => cast.kind === kind);
                 const index = activeKinds.indexOf(kind);
@@ -317,7 +321,7 @@ export function ReferenceBoard({
                     <div className="drama-sdx-assets">{request.references.filter((ref) => !ref.castId).map(renderImage)}</div>
                 </section>
             ) : null}
-            <small className="drama-sdx-hint">顺序变化会更新参考图编号。模型撰写的提示词需重新撰写；手写提示词请核对编号。</small>
+            <small className="drama-sdx-hint">删除或调整顺序时，提示词会按原素材更新引用编号。</small>
             <input
                 ref={fileRef}
                 type="file"

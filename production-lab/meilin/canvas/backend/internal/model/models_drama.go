@@ -207,7 +207,10 @@ type DramaSegment struct {
 	// VideoPromptOverride 是用户改写的完整视频提示词；非空时优先于模型撰写的版本。
 	VideoPromptOverride string `json:"videoPromptOverride" gorm:"type:text"`
 	// VideoModelJSON 为空时使用全剧默认视频模型。
-	VideoModelJSON string `json:"videoModelJson" gorm:"type:text"`
+	VideoModelJSON       string `json:"videoModelJson" gorm:"type:text"`
+	VideoInputMode       string `json:"videoInputMode,omitempty" gorm:"size:16;not null;default:''"`
+	FirstFrameResourceID string `json:"firstFrameResourceId,omitempty" gorm:"size:36;not null;default:''"`
+	LastFrameResourceID  string `json:"lastFrameResourceId,omitempty" gorm:"size:36;not null;default:''"`
 	// ReferenceCastIDsJSON 为空表示按镜头自动取参考图；非空是用户为本段指定的设定 ID 列表（顺序即参考图编号，可为 []）。
 	ReferenceCastIDsJSON string `json:"referenceCastIdsJson" gorm:"type:text"`
 	// ReferenceImagesJSON 保存用户上传或从素材库选择的附加参考图，排在设定图之后。
@@ -222,6 +225,22 @@ type DramaSegment struct {
 	VideoError          string    `json:"videoError" gorm:"type:text"`
 	CreatedAt           time.Time `json:"createdAt"`
 	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+const (
+	DramaVideoInputReference = "reference"
+	DramaVideoInputFrames    = "frames"
+)
+
+// UsesPreviousTail reports whether this segment takes its first frame from its predecessor.
+func (s DramaSegment) UsesPreviousTail(parallel bool) bool {
+	if s.VideoInputMode == DramaVideoInputReference {
+		return false
+	}
+	if s.VideoInputMode == DramaVideoInputFrames {
+		return s.FirstFrameResourceID == ""
+	}
+	return !parallel
 }
 
 type DramaReferenceImage struct {

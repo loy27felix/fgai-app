@@ -354,6 +354,9 @@ export type DramaSegment = {
     /** 视频已生成，只是后处理（如抽尾帧）失败；可重新处理已有视频，不重新生成。 */
     videoReprocessable?: boolean;
     videoModel: DramaModelChoice;
+    videoInputMode?: DramaVideoInputMode;
+    customFirstFrameId?: string;
+    customLastFrameId?: string;
     /** auto 按本段镜头自动取参考图；custom 为手动指定（顺序即参考图编号）。 */
     referenceMode: "auto" | "custom";
     audioReferenceMode: "auto" | "custom";
@@ -365,10 +368,21 @@ export type DramaSegment = {
 };
 
 /** 参考图编号与提交顺序一致；sent=false 表示未就绪或超过模型上限，不随请求发送。 */
-export type DramaSegmentReference = { castId: string; label: string; kind: DramaCastKind | "image"; name: string; resourceId?: string; sent: boolean };
+export type DramaSegmentReference = { castId: string; label: string; providerLabel?: string; kind: DramaCastKind | "image"; name: string; resourceId?: string; sent: boolean };
 
 export type DramaReferenceImage = { resourceId: string; name: string };
-export type DramaSegmentReferencePatch = { referenceCastIds?: string[]; autoReferences?: boolean; referenceImages?: DramaReferenceImage[]; audioCastIds?: string[]; autoAudioReferences?: boolean };
+export type DramaVideoInputMode = "" | "reference" | "frames";
+export type DramaSegmentReferencePatch = {
+    revision?: number;
+    referenceCastIds?: string[];
+    autoReferences?: boolean;
+    referenceImages?: DramaReferenceImage[];
+    audioCastIds?: string[];
+    autoAudioReferences?: boolean;
+    videoInputMode?: DramaVideoInputMode;
+    firstFrameResourceId?: string;
+    lastFrameResourceId?: string;
+};
 
 /**
  * 生成本段视频时实际发送的内容，与提交同一函数计算。
@@ -388,6 +402,7 @@ export type DramaSegmentRequest = {
     /** 视频模型同步生成对白与音效；false 时本段视频没有声音。 */
     generateAudio: boolean;
     firstFrameResourceId?: string;
+    lastFrameResourceId?: string;
     firstFramePending: boolean;
     references: DramaSegmentReference[];
     /** 本段最多随请求发送的参考图张数（已扣除首帧并受每段上限约束）；modelMaxImages 是模型声明的图片上限。 */
@@ -396,6 +411,8 @@ export type DramaSegmentRequest = {
     /** 有参考图因“每段最多参考图”设置而未发送。 */
     referenceLimited?: boolean;
     header: string;
+    submissionPrompt?: string;
+    inputError?: string;
     warning?: string;
     /** 提示词正文里不属于本段的“参考图N”；存在时服务端拒绝生成视频。 */
     unknownReferences?: string[];
@@ -672,11 +689,11 @@ export function writeDramaSegmentPrompts(projectId: string, episodeId: string, s
 }
 
 /** 保存整段视频提示词改写；传空串恢复为模型撰写的版本。 */
-export function updateDramaSegment(projectId: string, episodeId: string, index: number, videoPromptOverride: string) {
-    return http.patch<{ saved: boolean }>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/segments/${index}`, { videoPromptOverride });
+export function updateDramaSegment(projectId: string, episodeId: string, index: number, videoPromptOverride: string, revision?: number) {
+    return http.patch<{ saved: boolean }>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/segments/${index}`, { videoPromptOverride, revision });
 }
 
-/** 指定本段参考图（顺序即编号，空数组表示不发参考图）；传 null 恢复按镜头自动取。模型撰写的提示词会标记过期。 */
+/** 保存本段生成方式、参考顺序、音色或首尾帧。参考顺序与提示词绑定一并更新。 */
 export function updateDramaSegmentReferences(projectId: string, episodeId: string, index: number, patch: DramaSegmentReferencePatch) {
     return http.patch<{ saved: boolean }>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/segments/${index}`, patch);
 }

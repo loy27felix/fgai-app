@@ -166,7 +166,7 @@ export default function DramaStudioPage() {
         onError: (error) => errorMessage(error, "删除失败"),
     });
     const saveSegment = useMutation({
-        mutationFn: ({ segment, override }: { segment: DramaSegment; override: string }) => updateDramaSegment(projectId, episodeId, segment.index, override),
+        mutationFn: ({ segment, override }: { segment: DramaSegment; override: string }) => updateDramaSegment(projectId, episodeId, segment.index, override, segment.revision),
         onSuccess: (_, { override }) => {
             invalidate(episodeId);
             message.success(override ? "已保存完整视频提示词" : "已恢复模型撰写的版本");
@@ -174,11 +174,11 @@ export default function DramaStudioPage() {
         onError: (error) => errorMessage(error, "保存失败"),
     });
     const saveReferences = useMutation({
-        mutationFn: ({ segment, patch }: { segment: DramaSegment; patch: Parameters<typeof updateDramaSegmentReferences>[3] }) => updateDramaSegmentReferences(projectId, episodeId, segment.index, patch),
-        onSuccess: async () => {
+        mutationFn: ({ segment, patch }: { segment: DramaSegment; patch: Parameters<typeof updateDramaSegmentReferences>[3] }) => updateDramaSegmentReferences(projectId, episodeId, segment.index, { revision: segment.revision, ...patch }),
+        onSuccess: async (_result, { patch }) => {
             // 二级菜单支持连续添加；等服务端选择刷新后再允许下一次修改。
             await invalidate(episodeId);
-            message.success("已保存本段参考与音色选择，请核对提示词中的参考编号");
+            message.success(patch.videoInputMode !== undefined || patch.firstFrameResourceId !== undefined || patch.lastFrameResourceId !== undefined ? "已保存本段生成设置" : "已保存参考素材");
         },
         onError: (error) => errorMessage(error, "保存失败"),
     });
@@ -297,7 +297,7 @@ export default function DramaStudioPage() {
         },
         onError: (error) => errorMessage(error, "重命名失败"),
     });
-    const busy = approve.isPending || rescript.isPending || generateSegments.isPending || release.isPending || insertShot.isPending || removeShot.isPending || saveReferences.isPending;
+    const busy = approve.isPending || rescript.isPending || generateSegments.isPending || release.isPending || insertShot.isPending || removeShot.isPending || saveReferences.isPending || saveSegment.isPending;
 
     const openInbox = (item: DramaInboxItem) => {
         if (item.castId) {

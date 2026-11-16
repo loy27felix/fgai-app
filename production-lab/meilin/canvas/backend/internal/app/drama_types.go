@@ -621,6 +621,9 @@ type DramaSegmentView struct {
 	// VideoReprocessable：视频已生成并入库，只是结果回写（如抽尾帧）失败；可重新处理已有视频，不重新生成。
 	VideoReprocessable bool             `json:"videoReprocessable,omitempty"`
 	VideoModel         DramaModelChoice `json:"videoModel"`
+	VideoInputMode     string           `json:"videoInputMode,omitempty"`
+	CustomFirstFrameID string           `json:"customFirstFrameId,omitempty"`
+	CustomLastFrameID  string           `json:"customLastFrameId,omitempty"`
 	// ReferenceMode：auto 按本段镜头自动取参考图；custom 为用户指定的参考图。
 	ReferenceMode      string `json:"referenceMode"`
 	AudioReferenceMode string `json:"audioReferenceMode"`
@@ -649,6 +652,7 @@ type DramaSegmentRequest struct {
 	GenerateAudio bool `json:"generateAudio"`
 	// FirstFrame 是上一段视频的最后一帧；第一段为空。FirstFramePending 表示上一段还没生成，生成后才能提交本段。
 	FirstFrameResourceID string                  `json:"firstFrameResourceId,omitempty"`
+	LastFrameResourceID  string                  `json:"lastFrameResourceId,omitempty"`
 	FirstFramePending    bool                    `json:"firstFramePending"`
 	References           []DramaSegmentReference `json:"references"`
 	// ReferenceCapacity 是本段最多随请求发送的参考图张数（已扣除首帧，并受每段上限约束）；ModelMaxImages 是视频模型声明的图片上限。
@@ -657,7 +661,9 @@ type DramaSegmentRequest struct {
 	// ReferenceLimited 表示有参考图因“每段最多参考图”设置而未发送（而不是模型上限）。
 	ReferenceLimited bool `json:"referenceLimited,omitempty"`
 	// Header 是提交时放在提示词最前面的参考图对应说明，让模型知道每张图是谁。
-	Header string `json:"header"`
+	Header           string `json:"header"`
+	SubmissionPrompt string `json:"submissionPrompt,omitempty"`
+	InputError       string `json:"inputError,omitempty"`
 	// Warning 说明请求的限制，例如模型不支持参考图、参考图超出模型上限。
 	Warning string `json:"warning,omitempty"`
 	// UnknownReferences 是提示词正文里不属于本段的“参考图N”（编号超出本段参考图数量），存在时不能提交视频。
@@ -679,16 +685,21 @@ type DramaSegmentAudioReference struct {
 }
 
 type DramaSegmentReference struct {
-	ResourceID string `json:"resourceId,omitempty"`
-	CastID     string `json:"castId"`
-	Label      string `json:"label"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
+	ResourceID    string `json:"resourceId,omitempty"`
+	CastID        string `json:"castId"`
+	Label         string `json:"label"`
+	ProviderLabel string `json:"providerLabel,omitempty"`
+	Kind          string `json:"kind"`
+	Name          string `json:"name"`
 	// Sent 表示这张参考图会随请求发送；未生成或超过模型参考图上限时为 false。
 	Sent bool `json:"sent"`
 }
 
 type UpdateDramaSegmentRequest struct {
+	Revision             *int64  `json:"revision"`
+	VideoInputMode       *string `json:"videoInputMode"`
+	FirstFrameResourceID *string `json:"firstFrameResourceId"`
+	LastFrameResourceID  *string `json:"lastFrameResourceId"`
 	// VideoPromptOverride 传空串表示恢复模型撰写的版本。
 	VideoPromptOverride *string `json:"videoPromptOverride"`
 	// ReferenceCastIDs 指定本段参考图（顺序即编号，可为空数组表示不发参考图）；AutoReferences=true 恢复按镜头自动取。
