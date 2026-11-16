@@ -34,6 +34,8 @@ type GatewayRow = {
   projectId: string | null;
   status: string | null;
   taskStatus: string | null;
+  action: string | null;
+  operatorAssigned: boolean | null;
   operationId: string | null;
   reservationId: string | null;
   resourceId: string | null;
@@ -66,17 +68,20 @@ type Source = {
   projectAliases?: string[];
   status?: string;
   taskStatus?: string;
+  action?: string;
+  operator?: string;
   error?: string;
   created: string;
   updated?: string;
   identifiers?: Partial<Record<'operationId' | 'reservationId' | 'resourceId' | 'clipId' | 'workspaceId' | 'dramaId' | 'requestId', string>>;
   provider?: 'suno' | 'volcengine';
+  product?: 'adcraft' | 'meilin';
   model?: string;
   note: string;
 };
 
 const LIMIT = 30;
-const SERVICES = ['yingce-gateway', 'suno', 'volcengine'];
+const SERVICES = ['yingce-gateway', 'suno', 'volcengine', 'adcraft', 'meilin'];
 const SPEECH_MODELS = ['seed-audio-1.0', 'seed-tts-2.0', 'volc.seedasr.auc', 'volc.speech.mt', 'volc.seedasr.sauc.duration'];
 const OWNED: Requirements = {
   projects: 'id user_id fg_deleted_at',
@@ -92,11 +97,11 @@ const ownedReservation = `r.user_id = $1 AND ${ownedProject('r.project_id')} AND
 // Gateway 使用 Canvas 数据库，但 server.mjs 按已认证的 FG UUID 建立 users/fg_accounts，必须先验证 active 映射。
 const SOURCES: Source[] = [
   {
-    table: 'fg_music_jobs', requirements: { fg_music_jobs: 'id owner_id operation_id status clip_id resource_id created_at updated_at' },
+    table: 'fg_music_jobs', requirements: { fg_music_jobs: 'id owner_id operation_id status operator_id clip_id resource_id created_at updated_at' },
     from: 'fg_music_jobs j', owner: 'j.owner_id = $1', id: 'j.id', task: 'j.id::text', status: 'j.status',
-    created: 'j.created_at', updated: 'j.updated_at', provider: 'suno',
+    created: 'j.created_at', updated: 'j.updated_at', provider: 'suno', operator: 'j.operator_id',
     identifiers: { operationId: 'j.operation_id', clipId: 'j.clip_id', resourceId: 'j.resource_id' },
-    note: '音乐队列仅查 owner_id，不复用 reviewer 权限；无 project/request/trace/error 字段，不读取 brief。',
+    note: '公司音乐人工队列，仅查 owner_id，不复用 reviewer 权限。queued 等待管理员领取，processing 管理员制作中，importing 归档中；succeeded 仅为已保存记录，文件可用性另验。创建队列只查 Suno /status，不调用自动生成；没有原生生成日志不等于漏采。不读取 brief，只返回是否已分配操作者，不返回操作者身份。无 project/request/trace/error 字段。',
   },
   {
     table: 'fg_speech_jobs', requirements: { ...RESERVATIONS, fg_speech_jobs: 'id owner_id operation_id reservation_id resource_id status error_code created_at updated_at' },
@@ -122,7 +127,7 @@ const SOURCES: Source[] = [
     note: 'Creator/Arcreel 共用的持久化提交记录；仅通过实际 task_id 关联本人任务/项目，未绑定任务不猜工作区。status 是提交状态，taskStatus 为关联任务快照；无 updated_at。',
   },
   {
-    table: 'fg_adcraft_jobs', requirements: {
+    table: 'fg_adcraft_jobs', product: 'adcraft', requirements: {
       ...OWNED, tasks: `${OWNED.tasks} model status`, fg_adcraft_jobs: 'id workspace_id actor_id task_id status error created_at',
       fg_adcraft_workspaces: 'id owner_id native_project_id',
     },
@@ -134,7 +139,7 @@ const SOURCES: Source[] = [
     note: '广告提交记录同时要求 actor、workspace owner 和 native project 属于本人；projectId 可为 workspace UUID 或 native project ID。无 updated_at，status 非执行终态。',
   },
   {
-    table: 'fg_meilin_calls', requirements: {
+    table: 'fg_meilin_calls', product: 'meilin', requirements: {
       ...OWNED, tasks: `${OWNED.tasks} model status`, fg_meilin_calls: 'operation_id actor_id drama_id task_id created_at',
       fg_meilin_projects: 'drama_id owner_id native_project_id',
     },
@@ -153,11 +158,41 @@ const SOURCES: Source[] = [
   },
 ];
 
+// Product-owned metadata remains readable even when the independent upstream is unavailable.
+// 独立上游不可用时仍可读取产品归属元信息；不读取工作区 brief、剧本文档或事件正文。
+const PRODUCT_SOURCES: Source[] = [
+  {
+    table: 'fg_adcraft_workspaces', product: 'adcraft',
+    requirements: { ...OWNED, fg_adcraft_workspaces: 'id owner_id native_project_id created_at purged_at' },
+    from: 'fg_adcraft_workspaces w',
+    owner: `w.owner_id = $1 AND w.purged_at IS NULL AND ${ownedProject('w.native_project_id')}`,
+    id: 'w.id', project: 'w.native_project_id', projectAliases: ['w.id::text'],
+    created: 'w.created_at', identifiers: { workspaceId: 'w.id' },
+    note: '本人未清除工作区的创建记录；projectId 可为 workspace UUID 或本人 native project ID。不读取 brief，不表示上游执行成功。',
+  },
+  {
+    table: 'fg_meilin_dramas', product: 'meilin',
+    requirements: { fg_meilin_dramas: 'id owner_id created_at updated_at deleted_at' },
+    from: 'fg_meilin_dramas d', owner: 'd.owner_id = $1 AND d.deleted_at IS NULL',
+    id: 'd.id', project: 'd.id::text', created: 'd.created_at', updated: 'd.updated_at', identifiers: { dramaId: 'd.id' },
+    note: '本人未删除的旧版美林剧目元信息；projectId 仅匹配 drama UUID，不读取 document，不代表原生服务执行状态。',
+  },
+  {
+    table: 'fg_meilin_events', product: 'meilin',
+    requirements: { fg_meilin_dramas: 'id owner_id deleted_at', fg_meilin_events: 'id drama_id actor_id action created_at' },
+    from: 'fg_meilin_events e JOIN fg_meilin_dramas d ON d.id = e.drama_id',
+    owner: 'e.actor_id = $1 AND d.owner_id = $1 AND d.deleted_at IS NULL',
+    id: 'e.id', project: 'd.id::text', action: 'e.action', created: 'e.created_at', identifiers: { dramaId: 'd.id' },
+    note: '仅本人在本人未删除剧目上的操作事件；projectId 仅匹配 drama UUID，不读取 detail，不冒充上游 HTTP 日志或生成成功。',
+  },
+];
+
 function sourceQuery(source: Source, service: string): string {
   const text = (expression?: string) => expression ? `(${expression})::text` : 'NULL::text';
   const columns = {
     source: `'${source.table}'`, id: text(source.id), taskId: text(source.task), projectId: text(source.project),
-    status: text(source.status), taskStatus: text(source.taskStatus),
+    status: text(source.status), taskStatus: text(source.taskStatus), action: text(source.action),
+    operatorAssigned: source.operator ? `(${source.operator} IS NOT NULL)` : 'NULL::boolean',
     ...Object.fromEntries(['operationId', 'reservationId', 'resourceId', 'clipId', 'workspaceId', 'dramaId', 'requestId']
       .map((key) => [key, text(source.identifiers?.[key as keyof NonNullable<Source['identifiers']>])])),
     error: source.error ? `left(${source.error}, 2000)` : 'NULL::text',
@@ -165,14 +200,14 @@ function sourceQuery(source: Source, service: string): string {
   };
   const projects = source.project ? [source.project, ...(source.projectAliases ?? [])] : [];
   const projectFilter = projects.length ? projects.map((expression) => `${expression} = $3`).join(' OR ') : 'FALSE';
-  const providerFilter = service === 'yingce-gateway' || source.provider ? 'TRUE'
+  const providerFilter = service === 'yingce-gateway' || service === 'adcraft' || service === 'meilin' || source.provider ? 'TRUE'
     : service === 'suno' ? `${source.model} = 'suno-company-music'`
       : `${source.model} IN (${SPEECH_MODELS.map((model) => `'${model}'`).join(', ')})`;
   const time = source.updated ?? source.created;
   return `(SELECT ${Object.entries(columns).map(([key, value]) => `${value} AS "${key}"`).join(', ')}
     FROM ${source.from} WHERE ${source.owner}
       AND ($2::text IS NULL OR ${text(source.id)} = $2${source.task ? ` OR ${text(source.task)} = $2` : ''})
-      AND ($3::text IS NULL OR ${projectFilter}${source.project ? ` OR ${source.project} IN (SELECT id FROM owned_canvases WHERE project_id = $3)` : ''})
+      AND ($3::text IS NULL OR ${projectFilter}${source.project && source.requirements.projects ? ` OR ${source.project} IN (SELECT id FROM owned_canvases WHERE project_id = $3)` : ''})
       AND ($4::timestamptz IS NULL OR ${time} >= $4)
       AND ($5::timestamptz IS NULL OR ${time} < $5)
       AND ($6::text IS NULL OR ${text(source.identifiers?.requestId)} = $6)
@@ -195,7 +230,8 @@ function safeRow(row: Record<string, unknown>): GatewayRow {
   const evidence = supportOperationErrorEvidence(row.error);
   return {
     source: String(row.source), id: safeIdentifier(row.id), taskId: safeIdentifier(row.taskId), projectId: safeIdentifier(row.projectId),
-    status: safeStatus(row.status), taskStatus: safeStatus(row.taskStatus), operationId: safeIdentifier(row.operationId),
+    status: safeStatus(row.status), taskStatus: safeStatus(row.taskStatus), action: safeIdentifier(row.action),
+    operatorAssigned: typeof row.operatorAssigned === 'boolean' ? row.operatorAssigned : null, operationId: safeIdentifier(row.operationId),
     reservationId: safeIdentifier(row.reservationId), resourceId: safeIdentifier(row.resourceId), clipId: safeIdentifier(row.clipId),
     workspaceId: safeIdentifier(row.workspaceId), dramaId: safeIdentifier(row.dramaId), requestId: safeIdentifier(row.requestId),
     occurredAt: timestamp(row.occurredAt), updatedAt: timestamp(row.updatedAt), error: evidence.summary,
@@ -208,7 +244,8 @@ async function readOperations(client: PoolClient, scope: SupportOperationScope, 
   const schema = await client.query<{ table_name: string; column_name: string }>(`
     SELECT wanted.table_name, a.attname AS column_name
       FROM unnest($1::text[]) AS wanted(table_name)
-      JOIN pg_attribute a ON a.attrelid = to_regclass(wanted.table_name) AND a.attnum > 0 AND NOT a.attisdropped`, [tables]);
+      JOIN pg_attribute a ON a.attrelid = to_regclass(wanted.table_name) AND a.attnum > 0 AND NOT a.attisdropped
+      WHERE has_column_privilege(a.attrelid, a.attnum, 'SELECT')`, [tables]);
   const columns = new Map<string, Set<string>>();
   for (const row of schema.rows) {
     if (!columns.has(row.table_name)) columns.set(row.table_name, new Set());
@@ -225,10 +262,10 @@ async function readOperations(client: PoolClient, scope: SupportOperationScope, 
   }
   const available: Source[] = [];
   const coverage: Coverage[] = sources.map((source) => {
-    const unsupported = [scope.projectId && !source.project ? 'projectId' : '', scope.requestId && !source.identifiers?.requestId ? 'requestId' : ''].filter(Boolean);
+    const unsupported = [scope.taskId && !source.task ? 'taskId' : '', scope.projectId && !source.project ? 'projectId' : '', scope.requestId && !source.identifiers?.requestId ? 'requestId' : ''].filter(Boolean);
     if (unsupported.length) return { table: source.table, status: 'unsupported_filter', note: `${unsupported.join('/')} 无可靠关联，未忽略条件或查询该表。 ${source.note}` };
     const absent = missing(source.requirements);
-    if (absent.length) return { table: source.table, status: 'unavailable', note: `缺表或必要字段：${absent.join(', ')}。 ${source.note}` };
+    if (absent.length) return { table: source.table, status: 'unavailable', note: `缺表、必要字段或 SELECT 权限：${absent.join(', ')}。 ${source.note}` };
     available.push(source);
     return { table: source.table, status: 'queried', note: source.note };
   });
@@ -256,8 +293,10 @@ export async function queryGatewayOperations(input: GatewayOperationInput): Prom
     coverage: [], incomplete: true, truncated: false, note: '',
   };
   if (!scope) return { ...envelope, note: '用户、编号或时间范围无效；未查询。近期默认 24 小时，时间窗口最多 7 天。' };
-  if (!SERVICES.includes(service)) return { ...envelope, note: '不支持的 service；仅支持 yingce-gateway/suno/volcengine，未忽略筛选或扩大查询。' };
-  const sources = SOURCES.filter((source) => service === 'yingce-gateway' || !source.provider || source.provider === service);
+  if (!SERVICES.includes(service)) return { ...envelope, note: '不支持的 service；仅支持 yingce-gateway/suno/volcengine/adcraft/meilin，未忽略筛选或扩大查询。' };
+  const sources = service === 'adcraft' || service === 'meilin'
+    ? [...SOURCES, ...PRODUCT_SOURCES].filter(source => source.product === service)
+    : SOURCES.filter(source => service === 'yingce-gateway' || !source.provider || source.provider === service);
   const notQueried = (note: string): GatewayOperationsResult => ({ ...envelope, note, coverage: sources.map((source) => ({ table: source.table, status: 'not_queried', note })) });
   if (scope.traceId) return notQueried('这些 gateway 表没有已核实的 traceId 关联；未忽略 traceId，也未扫描账号记录或关联其他任务。');
   if (scope.sessionId) return notQueried('这些 gateway 表没有已核实的 sessionId 关联；未忽略 sessionId，也未扩大到账号范围查询。');

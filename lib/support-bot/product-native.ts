@@ -2,6 +2,7 @@ import { assertSupportTarget, supportRuntimeEnvironment, SupportEnvironmentError
 import { supportCanvasUser, withSupportCanvasReadOnly, supportOperationErrorEvidence } from './operations';
 import { scrubSupportValue } from './redact';
 import type { SupportServiceId } from './services';
+import { queryGatewayOperations } from './gateway-operations';
 
 const PRODUCTS = ['arcreel', 'opencreator', 'adcraft', 'meilin', 'suno'] as const;
 export type NativeProduct = typeof PRODUCTS[number];
@@ -21,6 +22,35 @@ function range(input: Filters) {
   const start = input.from === undefined ? new Date(end.getTime() - DAY) : new Date(input.from);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end || end.getTime() - start.getTime() > 7 * DAY) fail('native_product_time_range_invalid');
   return { start: start.toISOString(), end: end.toISOString() };
+}
+
+async function retiredProductEntry(service: NativeProduct, relay: URL, signal: AbortSignal): Promise<boolean> {
+  if (service !== 'adcraft' && service !== 'meilin') return false;
+  const url = new URL(`/api/fg/${service}`, relay.origin);
+  try {
+    // Check the public retirement response without the isolated internal read token.
+    // 只读核对公开入口的退役响应；不向业务路由发送内部取证 token，不创建登录会话。
+    const response = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' },
+      cache: 'no-store', redirect: 'error', signal });
+    if (response.status !== 410 || !response.body || !response.headers.get('content-type')?.includes('application/json')) {
+      await response.body?.cancel();
+      return false;
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 2048) { await reader.cancel(); return false; }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return data?.code === 410 && data.reason === 'FG_MODULE_RETIRED';
+  } catch { return false; }
 }
 
 // The caller supplies an authenticated FG identity, never a destination, capability or instance name.
@@ -53,6 +83,7 @@ export async function readProductEndpoint(service: NativeProduct, kind: 'evidenc
     const limit = kind === 'version' ? 16 * 1024 : 512 * 1024;
     if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('application/json')) {
       await response.body?.cancel();
+      if ([404, 410, 502, 503, 504].includes(response.status) && await retiredProductEntry(service, url, controller.signal)) fail('native_product_retired');
       fail(response.status === 403 ? 'native_product_access_denied' : response.status === 503 ? 'native_product_instance_or_source_unavailable' : 'native_product_endpoint_unavailable');
     }
     if (Number(response.headers.get('content-length')) > limit) { await response.body.cancel(); fail('native_product_response_too_large'); }
@@ -161,7 +192,7 @@ function projectCoverage(value: unknown) {
   return { ...parts, ...(Object.keys(recordCorrelation).length ? { recordCorrelation } : {}) };
 }
 
-export async function queryProductNative(input: Filters & { service: NativeProduct; userId: string }, kind: 'operations' | 'logs') {
+async function queryNativeEvidence(input: Filters & { service: NativeProduct; userId: string }, kind: 'operations' | 'logs') {
   try {
     const data = await readProductEndpoint(input.service, 'evidence', input.userId, input);
     const selectedRange = data.scope!;
@@ -177,19 +208,60 @@ export async function queryProductNative(input: Filters & { service: NativeProdu
       note: '来自目标产品原生只读接口，已核验 active 账号与实例范围。仅覆盖指定时间及该接口公开的持久化/原生日志，不能把网关回执或没有记录当成本次故障结论。' };
   } catch (error) {
     return { system: input.service, rows: [], incomplete: true, truncated: false, reason: sourceFailure(error),
-      note: '目标产品原生数据未取得，不回退其他产品冒充；仍可查询源码回答功能问题。' };
+      note: sourceFailure(error) === 'native_product_retired'
+        ? '当前网关产品入口返回 410 FG_MODULE_RETIRED，按历史记录排查；不恢复退役服务，不将原生接口缺失误判为正在运行服务的故障。'
+        : '目标产品原生数据未取得，不回退其他产品冒充；仍可查询源码回答功能问题。' };
   }
 }
 
+export async function queryProductNative(input: Filters & { service: NativeProduct; userId: string }, kind: 'operations' | 'logs') {
+  if (kind === 'logs' || !['adcraft', 'meilin', 'suno'].includes(input.service)) return queryNativeEvidence(input, kind);
+  let selectedRange: ReturnType<typeof range>;
+  try {
+    if (!UUID.test(input.userId)) fail('native_product_authenticated_actor_required');
+    selectedRange = range(input);
+  } catch (error) {
+    return { system: input.service, rows: [], incomplete: true, truncated: false, reason: sourceFailure(error),
+      note: '身份或时间范围无效，未执行产品原生及网关查询。' };
+  }
+  const scoped = { ...input, from: selectedRange.start, to: selectedRange.end };
+  // Keep both sources and their limitations explicit; gateway receipts never stand in for native logs.
+  // 两类来源并列保留各自范围与缺口；网关回执不能替代原生日志，也不以空原生结果抹掉排队记录。
+  const [native, gateway] = await Promise.all([
+    queryNativeEvidence(scoped, kind), queryGatewayOperations(scoped),
+  ]);
+  const gatewayRows = gateway.rows.map(row => ({ ...row, id: row.id ? `${input.service}:gateway:${row.source}:${row.id}` : null,
+    recordId: row.id, system: input.service, sourceSystem: 'yingce-gateway', kind: 'gateway_record' }));
+  return { ...native, rows: [...native.rows, ...gatewayRows],
+    gatewayScope: gateway.scope,
+    coverage: { ...native.coverage, gateway: { available: !gateway.incomplete, tables: gateway.coverage, rowCount: gateway.rows.length } },
+    incomplete: native.incomplete || gateway.incomplete, truncated: native.truncated || gateway.truncated,
+    note: `${native.note} 同时读取同一账号、同一时间窗的本产品 gateway 持久化记录。${gateway.note} queued/submitted 仅表示排队或提交；原生取证失败仍保留缺口，不能断言上游已收到请求或生成成功。` };
+}
+
 export async function probeProductNative(service: NativeProduct, userId?: string, filters: Filters = {}) {
+  const [native, gateway] = await Promise.all([
+    probeNativeEvidence(service, userId, filters),
+    userId && ['adcraft', 'meilin', 'suno'].includes(service)
+      ? queryGatewayOperations({ ...filters, service, userId }) : undefined,
+  ]);
+  return { ...native, ...(gateway ? { gateway: { available: !gateway.incomplete, rowCount: gateway.rows.length,
+    incomplete: gateway.incomplete, truncated: gateway.truncated, coverage: gateway.coverage,
+    note: `仅为本人 gateway 数据接入检查，不替代产品原生版本/日志验收，也不改变整体 ready。${service === 'suno' ? '音乐队列由管理员领取并在公司账号制作；queued 记录不要求已有 Suno 原生生成日志，不能为通过预检而制造样本。' : ''}` } } : {}) };
+}
+
+async function probeNativeEvidence(service: NativeProduct, userId?: string, filters: Filters = {}) {
   try {
     const data = await readProductEndpoint(service, 'evidence', userId, filters);
     const coverage = data.coverage as { operations?: { available?: boolean }; inboundHttp?: { available?: boolean } } | undefined;
     const records = data.records as unknown[], logs = data.logs as unknown[];
     const valid = records.every(row => rowProjection(row, service, false, data.scope!)) && logs.every(row => rowProjection(row, service, true, data.scope!));
-    const complete = valid && data.incomplete === false && data.truncated === false
-      && coverage?.operations?.available === true && coverage?.inboundHttp?.available === true && logs.length > 0;
-    return { ready: complete, reason: !complete ? 'native_product_partial_coverage' : 'native_product_contract_and_actor_verified',
+    const contractReady = valid && data.incomplete === false && data.truncated === false
+      && coverage?.operations?.available === true && coverage?.inboundHttp?.available === true;
+    const sampleVerified = logs.length > 0 && valid;
+    const complete = contractReady && sampleVerified;
+    return { ready: complete, contractReady, sampleVerified,
+      reason: !contractReady ? 'native_product_partial_coverage' : !sampleVerified ? 'native_product_log_sample_missing' : 'native_product_contract_and_actor_verified',
       recordCount: (data.records as unknown[]).length, logCount: (data.logs as unknown[]).length, evidenceIncomplete: data.incomplete === true, truncated: data.truncated === true, scope: { from: data.scope?.start, to: data.scope?.end },
       coverage: projectCoverage(data.coverage), note: '接口与归属预检不等同真实业务闭环验收。' };
   } catch (error) { return { ready: false, reason: sourceFailure(error) }; }

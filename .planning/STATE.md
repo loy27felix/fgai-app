@@ -1,9 +1,29 @@
 # 当前状态
 
-- 日期：2026-11-13（Asia/Shanghai）。
+- 日期：2026-11-16（Asia/Shanghai）。
 - 当前目标：根据问题联合全仓安全源码、本人日志及实际请求/响应参数定位原因与解决办法；包含而不限于 production-lab/meilin（原 production-lab/yingce），不恢复废弃主站业务取证，不改生成执行。
 - 当前计划：`.planning/phases/support-investigation/PLAN.md`。
 - 当前状态：排查性能优化已提交并推送 `8bc86308`，于 2026-11-13 11:37（Asia/Shanghai）在单独重启授权后上线。当前独立助手 release 为 clean commit `support-20261113T032712Z-8bc86308`，PID 87916；仅更新 worker，Web API/Canvas 前端未发布。旧独立 AdCraft/Meilin 与 Suno 的既有覆盖缺口仍在，真实工单提速尚未量化验收。
+
+## 三服务缺口继续处理（2026-11-16，权限已生效，worker 新逻辑未上线）
+- 按用户继续处理的要求，已核对生产环境标记、目标库 fg_yingce 与实际 worker 角色 fg_support_readonly，在事务中仅授予 fg_meilin_dramas / fg_meilin_events 各5个元信息列的 SELECT 权限；没有授予 document/detail 正文读取或任何写权限。用 worker 原配置实际读取了本人2个剧目及2条 create 事件、另一账号历史调用/事件；跨账号指定剧目返回0，正文读取权限和表写权限仍为 false。
+- 纠正此前“服务仍有人使用/上游异常”的不完整判断：历史操作不代表当前在线。生产容器、实际 gateway 退役路由及 Compose profile 均确认 AdCraft/旧独立 Meilin 已退役；相关容器最后停止时间为2026-11-11 22:53（Asia/Shanghai），不是本轮停止。不启动退役服务。助手遇到原生503/504等失败后，只读核对固定公开入口的 HTTP 410 + FG_MODULE_RETIRED，明确 native_product_retired，继续支持可授权的历史记录，不把退役当运行故障。
+- 核对运行 gateway 的 fg-music-queue.mjs、fg-retired-modules.mjs：统一 CRLF 后文件摘要与本地一致。Suno fg_music_jobs 是人工音乐制作队列；queued 等待管理员领取，processing 制作中，importing 归档中。新增 operatorAssigned 布尔值，不返回操作者身份；真实排队记录为未领取。创建队列只查 /status，不调用自动生成，故没有原生生成日志不能推断漏采，不制造预检样本。
+- 生产只读候选验收：AdCraft 4项提交且识别 retired；旧 Meilin 历史剧目/事件/调用均可读取并识别 retired；Suno 排队记录可读。三服务 gateway.available 均 true；原生整体 ready 仍未全部通过（退役产品无在线原生证据，Suno 缺真实原生请求样本），没有以历史查询成功冒充运行版本/原生日志闭环通过。
+- 本地 `pnpm exec tsc --noEmit --incremental false --pretty false`、`git diff --check` 通过；`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts` 12/12 通过，仍有日志落库连接告警。未新增测试代码、未调用模型/生成歌曲、未 commit/push、未修改生产代码或重启任何守护进程。用户随后以“允许。提交代码”明确授权本次仅在队列空闲时切换 com.fgstudio.support-bot-worker；其他服务不动，失败恢复旧版。发布结果另行记录。
+
+## 三服务补充取证（2026-11-16，本地实现，未上线）
+- AdCraft、旧独立 Meilin、Suno 的 operations 并行读取原生证据与同账号/同时间窗的 gateway 持久化记录；标注真实来源，原生失败仍保留缺口。增加本人 AdCraft 工作区、旧 Meilin 未删除剧目及本人事件元信息；不读取 brief/document/detail，不把 queued/submitted 当作生成成功。日志入口仍仅查询原生日志。
+- gateway 按服务隔离产品表，逐列检查 SELECT 权限；缺权限只跳过该来源，不丢掉已有可读调用记录。Suno 预检区分契约可读与日志样本缺失，保留原整体 ready 门槛，单列 gateway 能力。
+- 本地 `pnpm exec tsc --noEmit --incremental false --pretty false`、`git diff --check` 通过；`pnpm exec tsx --test tests/ai/text.test.ts tests/ai/wetoken-client.test.ts tests/observability/server-log.test.ts` 12/12 通过，仍有日志落库连接告警，不算落库验收。
+- 候选 adapter 打包后仅通过 stdin 在生产 worker 原环境执行只读查询，未写入或替换生产代码：读到 AdCraft 4项提交、旧 Meilin 2项历史调用、Suno 1项排队记录；跨账号同任务返回0，不支持 trace/session 或非法时间未扩查，logs 未混入 gateway 记录。无模型调用、真实生成或通知。
+- 首次验证时的接入限制（后续处理见上节）：AdCraft/旧 Meilin 原生接口不可用；当时 support 角色没有 fg_meilin_dramas/fg_meilin_events 所需列权限，新增元信息取证尚未在该角色下验收。README 当时已提供仅元信息列 SELECT 授权步骤，尚未执行 GRANT。Suno 原生接口契约可读但所查账号近7天无日志样本，仍不算完整预检通过。本轮未 commit/push、部署、重启或修改生产权限。
+
+## 业务运行源码补齐（2026-11-16 10:35，Asia/Shanghai）
+- 复查发现网页已更新至 `a5b221e8f9cdcf3c18649ed3ddb2bb8d747536b2`，但独立助手仓库没有该 Git 对象；11月13日助手上线时核对的网页为 `7ac1bb4e`，后续业务发布未同步到助手。运行时仍禁止自动 fetch，不以旧实现冒充新版本。
+- 按用户“现在更新一下”授权，仅从生产主仓向当前助手仓库 fetch 上述提交及完整对象，保留为 `refs/support-runtime/yingce-web/a5b221e8f9cdcf3c18649ed3ddb2bb8d747536b2`。使用 `--no-auto-maintenance --no-tags --no-recurse-submodules --no-write-fetch-head`，未切换 HEAD、修改 origin、工作树或 plist，未重启任何服务。助手 HEAD 仍为 `8bc86308`、PID 仍为87916；生产主仓 HEAD 与工作区前后相同。
+- `git rev-list --objects --no-object-names --missing=print a5b221e8f9cdcf3c18649ed3ddb2bb8d747536b2^{tree}` 核实树对象完整；通过原 worker 环境执行 `scripts/support-bot-preflight.ts --require=yingce-web,yingce-gateway,canvas,yingce-agent`，退出0，四项均 ready，网页源码状态恢复 `commit_source_available`。该验收仅针对当前美林四项，不代替原7项整体覆盖验收。
+- AdCraft/旧独立 Meilin 的取证接口仍不可用，Suno 仍缺预检账号日志样本；未声称这些缺口已修复。本次仅补齐现有运行版本源码，没有新增自动同步机制，后续业务升级仍需同步对应提交。未创建真实工单、调用模型或提交/push 文档。
 
 ## 排查性能优化上线（2026-11-13 11:38，Asia/Shanghai）
 - 用户明确允许本次仅停止并重新启动 `com.fgstudio.support-bot-worker`，失败时恢复旧版。已在助手队列表 `SHARE` 锁内确认 pending/processing 均为0后切换，PID 24310 → 87916（子进程87919）；等待旧任务真正卸载，再验证新版单一进程树、实际源码目录、启动 commit/release 及稳定 PID，production/web-only 保持不变。

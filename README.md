@@ -327,7 +327,7 @@ pnpm dev
 9. `SUPPORT_BOT_NATIVE_LOG_SOURCES` 是仅服务端配置的 JSON，例如 `{"canvas":{"file":"/var/log/fg/canvas.jsonl"},"yingce-gateway":{"container":"gateway"},"yingce-agent":{"file":"/var/log/fg/agent.jsonl"}}`。每服务只能选择一个绝对路径 JSONL 文件或可信容器名。优先由部署侧将日志目录只读提供给 worker；容器模式要求 worker 已具备 Docker CLI/context，不自动挂载 Docker socket、不接受模型指定命令/路径/容器。原生事件含 service、鉴权用户、request/trace、状态及当时 build commit/dirty，正文和凭据不进入调查结果。**日志必须带 `build_environment`，且与所选环境匹配：local → development，production → production；缺失或不匹配的记录不作为证据，不能因日志文件可读就判 ready。** Canvas/Agent 需 active 原生账号映射，gateway 使用 FG 已鉴权用户；匿名和仅伪造用户Header的事件不纳入本人记录。Canvas 设置 `CANVAS_LOG_FORMAT=json`；默认 info 不记录成功 GET 等低级别事件，需要完整请求跟踪时由运行环境显式配置 `CANVAS_LOG_LEVEL=debug`。
 10. 容器原生日志按指定时间窗口读取，不用当前最新5000行过滤历史窗口；单次最多扫描16MiB、保留2MiB/5000行并返回100条，达到扫描上限明确标为不完整，需按任务时间缩小窗口。文件源最多读取末尾2MiB/5000行。按本人及指定编号/时间交集筛选；不虚构项目归属，不支持显式项目条件时会拒绝而非静默忽略。轮转、日志级别、截断及改版前未采集的请求都可能造成历史缺口。报告核对事件中的 build commit/dirty 与对应源码，不以今天的运行版本冒充旧请求版本。浏览器静态站可核对自身构建，但没有独立服务器业务库；其他独立产品是否运行须分别核实，不能因仓库有目录就宣称正在运行或已接入。
 
-**运行清单与退役边界：** 当前 Gateway 源码 `production-lab/meilin/gateway/fg-retired-modules.mjs` 已将 ArcReel、OpenCreator 的用户入口设为 `410 FG_MODULE_RETIRED`，两产品 provisioner 保留禁止重建的保护。原生适配用于已有实例/存量记录的受控取证，不代表恢复用户入口。2026-11-03 的生产只读核验中，两入口也实际返回410；发布前仍须复核当前状态。本次不解除保护、不重建退役产品。已废弃主站与旧 Production Lab 主站库不参与当前取证；其他服务仍可按授权读取存量证据，不以服务可检索为由恢复已退役入口。“目录存在”“适配已实现”“本地样例通过”“生产正在运行”是不同状态，不可互相替代。
+**运行清单与退役边界：** 当前 Gateway 源码 `production-lab/meilin/gateway/fg-retired-modules.mjs` 已将 ArcReel、OpenCreator、AdCraft、旧独立 Meilin 的用户入口设为 `410 FG_MODULE_RETIRED`；ArcReel/OpenCreator provisioner 保留禁止重建的保护，AdCraft/旧 Meilin 的 Compose 服务处于 `retired` profile。原生适配用于已有实例/存量记录的受控取证，不代表恢复用户入口。2026-11-03 曾核验 ArcReel/OpenCreator 两入口返回410；2026-11-16 复核确认 AdCraft/旧 Meilin 的入口也已退役，相关容器最后停止时间为2026-11-11 22:53（Asia/Shanghai）。历史创建/调用记录不代表当前仍在运行；发布前仍须复核当前状态。本次不解除保护、不重建退役产品。已废弃主站与旧 Production Lab 主站库不参与当前取证；其他服务仍可按授权读取存量证据，不以服务可检索为由恢复已退役入口。“目录存在”“适配已实现”“本地样例通过”“生产正在运行”是不同状态，不可互相替代。
 
 **五个独立产品的原生只读接入（实现与部署验收分开）：** worker 使用 `SUPPORT_BOT_NATIVE_GATEWAY_URL`（仅 origin）和至少32字符的独立随机 `SUPPORT_BOT_NATIVE_READ_TOKEN`，调用 Gateway 的 `/internal/support/<service>/evidence|version`。先经 Canvas SELECT-only 连接核验当前 FG 用户的 active 账号映射，Gateway 再核验并解析受信实例/workspace；不接受用户提供 URL、容器、SQL、账号或文件路径。只读 token 不能用于普通业务接口，也不下发浏览器。服务或映射缺失时明确返回缺口，不回退 gateway 回执冒充原生记录。
 
@@ -372,6 +372,20 @@ pnpm dev
 问题、诊断证据、队列租约和各外发步骤结果保存在 PostgreSQL；多维表格按问题编号同步。回复、表格同步、开发通知独立尝试，某个通道失败不会阻断其他通道，重试跳过已成功通道并复用诊断结果。网络中断在远端成功而本地尚未记账的极小窗口仍可能造成重复通知，使用飞书消息 UUID 做额外去重。文字模型输入和外发内容统一脱敏，截图原图不会自动脱敏；关键词按字面全文检索，不能改写定位条件。故障答复按证据分层：同一业务服务、本次定位编号关联的上游失败调用可直接确认接口拒绝原因并解释错误明示的处理要求（observed），不要求上游错误原文在本地源码中出现，也不因源码版本未知或其他链路分支缺失而拒答；错误安全原文与简短摘要分别保留，避免关键参数约束被摘要截断。模型分析或校验失败时，保留已有查询进度并自动重试，不将未通过复核的诊断当作最终答案；复核通过后仍解释已核实的上游错误及其明确要求。只有内部实现根因确认（confirmed）才要求完整请求证据与匹配运行版本的源码；仅状态码、用户转述和无关近期候选不能确认为本次原因，observed也不能扩展推断代码责任。需要内部归因时必须实际读取相关业务实现，文档、测试和搜索摘要不能代替运行实现。产品咨询不套用故障结论。每个飞书身份或网页登录账号有提问与排队上限，持续失败的任务最多尝试四次，最终失败保留在 `support_bot_jobs` 供管理员排查。数据库保留期限遵循现有备份与数据管理策略，需清理时先备份，不能将问题表当作唯一事实来源。
 
 本地代码验证可运行 `pnpm exec tsc --noEmit --incremental false`、`pnpm build`；连接检查使用 `SUPPORT_BOT_ENVIRONMENT=local SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:worker --check`。`--check` 只读验证 **FG 主库连接、数据库级环境标记及问题助手所需表字段**，不设置 GUC、不调用模型、不处理队列或外发；通过不代表 Canvas、gateway、Web、Agent 或其他产品的业务取证已接通；不验收已废弃主站业务。生产仅在另行授权且注入生产配置后，使用 `NODE_ENV=production SUPPORT_BOT_ENVIRONMENT=production SUPPORT_BOT_SEND_ENABLED=false pnpm support-bot:worker --check`；不能拿本地成功代替生产核验。
+
+AdCraft、旧独立 Meilin、Suno 的 `operations` 会并行读取本人原生证据与 gateway 持久化记录，并分别标注来源和缺口。AdCraft 可核对本人提交与工作区，旧 Meilin 可核对本人调用、未删除剧目及本人操作事件，Suno 可核对本人音乐队列与真实渠道回执。上游接口不可用时不丢掉这些记录，也不把它们冒充上游日志或成功执行证明。对 AdCraft/旧 Meilin，会向同一受信网关的固定公开入口执行无凭据只读 GET，只有同时确认 HTTP 410 与 `FG_MODULE_RETIRED` 才标记 `native_product_retired`；仅凭超时/503 不推断退役，不自动恢复服务；`logs` 仍只返回产品原生日志。所有显式编号/时间/归属条件继续生效，不支持的筛选不静默忽略。预检单列 `gateway` 能力，不以此替代原生版本/日志验收；`native_product_log_sample_missing` 表示接口契约可读但所选账号/时间窗没有日志样本，不等于无人使用或漏采，整体 `ready` 门槛不放宽。
+
+`fg_music_jobs` 是公司音乐的人工制作队列，不是 Suno 自动生成队列：`queued` 等待管理员领取、`processing` 管理员制作中、`importing` 归档中。助手只读取是否已分配操作者，不返回操作者身份；创建队列只读取 `/status`，尚未生成时没有原生生成日志是可能的正常情况，不为通过预检创建真实歌曲或伪造样本。
+
+旧 Meilin 的剧目/事件补充取证需要既有 support 只读角色具备下列**元信息列**的 SELECT 权限；不授予 `document`、`detail` 正文权限，也不新增写权限。数据库 owner 在确认目标环境与角色、取得生产授权后执行（缺权限时只跳过对应数据源，仍保留已有调用记录）：
+```sql
+BEGIN;
+GRANT SELECT (id, owner_id, created_at, updated_at, deleted_at)
+  ON public.fg_meilin_dramas TO :"support_role";
+GRANT SELECT (id, drama_id, actor_id, action, created_at)
+  ON public.fg_meilin_events TO :"support_role";
+COMMIT;
+```
 
 **数据源预检：** `pnpm support-bot:preflight [--require=canvas,yingce-gateway,yingce-web,yingce-agent,adcraft,meilin,suno]` 默认覆盖全部非主站业务服务，也可显式选择经审核的服务子集；只读输出脱敏覆盖矩阵，列出服务、是否 required、环境、数据源/版本/日志检查结果、ready 与缺口原因。不输出连接串、地址、密钥或原始日志，不调用模型、不处理队列或外发。配置好本地数据源后，可重复运行：
 

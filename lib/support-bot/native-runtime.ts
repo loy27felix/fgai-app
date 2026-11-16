@@ -27,7 +27,8 @@ export async function readNativeRuntime(service: SupportServiceId, userId?: stri
   if (!Object.hasOwn(supportServices, service)) return failure('native_runtime_service_invalid');
   if (isNativeProduct(service)) {
     try { return parseNativeRuntime(service, await readProductEndpoint(service, 'version', userId)); }
-    catch { return failure('native_product_runtime_or_actor_unavailable'); }
+    catch (error) { return failure(error instanceof Error && error.message === 'native_product_retired'
+      ? 'native_product_retired' : 'native_product_runtime_or_actor_unavailable'); }
   }
   const configured = process.env[nativeRuntimeVariable(service)];
   if (!configured) return failure('native_runtime_url_not_configured');
