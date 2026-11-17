@@ -415,8 +415,26 @@ native_runtime_summary() {
 import json, re, sys
 try:
     value = json.loads(sys.argv[2])
+    if not isinstance(value, dict):
+        raise ValueError()
+    if sys.argv[1] == "canvas":
+        if type(value.get("code")) is not int or value["code"] != 0:
+            raise ValueError()
+        value = value["data"]
+        if (not isinstance(value, dict) or value.get("status") != "ok"
+                or value.get("ready") is not True or value.get("started") is not True
+                or value.get("draining") is not False):
+            raise ValueError()
+        checks, schema = value["checks"], value["schema"]
+        if (not isinstance(checks, dict) or not isinstance(schema, dict)
+                or any(checks.get(key) is not True for key in ("database", "runtime", "schema", "nas"))
+                or schema.get("ready") is not True
+                or type(schema.get("current")) is not int or schema["current"] <= 0
+                or type(schema.get("expected")) is not int or schema["current"] != schema["expected"]
+                or type(value.get("activeWorkerTasks")) is not int or value["activeWorkerTasks"] < 0):
+            raise ValueError()
     build = value["build"]
-    if value["service"] != sys.argv[1] or not isinstance(build, dict):
+    if (sys.argv[1] != "canvas" and value.get("service") != sys.argv[1]) or not isinstance(build, dict):
         raise ValueError()
     version, commit = build["version"], build["commit"]
     environment, dirty = build["environment"], build["dirty"]
@@ -431,25 +449,110 @@ except (ValueError, KeyError, TypeError):
 ' "$1" "$2"
 }
 
+native_backend_status() {
+  local project="${FG_MONITOR_NATIVE_COMPOSE_PROJECT:-fg-six-yingce}"
+  local backend inspection
+  [[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || return 1
+  backend="$(monitor_docker ps --filter "label=com.docker.compose.project=$project" \
+    --filter label=com.docker.compose.service=backend --format '{{.ID}}')" || return 1
+  [[ "$backend" =~ ^[a-f0-9]{12,64}$ ]] || return 1
+  inspection="$(monitor_docker inspect "$backend")" || return 1
+  # Never use the legacy Compose helper or execute inside an unverified service.
+  # 不使用旧站 Compose helper；只有精确核对原生容器身份后才执行本地只读探针。
+  printf '%s' "$inspection" | /usr/bin/python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError()
+    row = rows[0]
+    labels = row["Config"]["Labels"]
+    entries = row["Config"]["Env"]
+    env = dict(item.split("=", 1) for item in entries)
+    mounts = [mount for mount in row["Mounts"] if mount["Destination"] == "/run/fg-nas"]
+    if (len(env) != len(entries) or not row["Id"].startswith(sys.argv[2]) or row["State"]["Running"] is not True
+            or labels.get("com.docker.compose.project") != sys.argv[1]
+            or labels.get("com.docker.compose.service") != "backend"
+            or env.get("CANVAS_NAS_GUARD_DIR") != "/run/fg-nas"
+            or env.get("CANVAS_DATABASE_DRIVER") != "postgres"
+            or len(mounts) != 1 or mounts[0].get("Type") != "bind" or mounts[0].get("RW") is not False):
+        raise ValueError()
+except (ValueError, KeyError, TypeError, AttributeError):
+    sys.exit(1)
+' "$project" "$backend" || return 1
+  # The public gateway deliberately authenticates /api/health/ready; do not bypass auth.
+  # 公开网关有意保护 /api/health/ready；直接读取目标容器 loopback，不放宽公开鉴权。
+  monitor_docker exec "$backend" wget -q -T 3 -O - http://127.0.0.1:8080/api/health/ready
+}
+
+native_release_summary() {
+  native_runtime_summary yingce-gateway "$1" >/dev/null || return 1
+  native_runtime_summary meilin-web "$2" >/dev/null || return 1
+  native_runtime_summary canvas "$3" >/dev/null || return 1
+  /usr/bin/python3 -c '
+import json, re, sys
+builds = [json.loads(sys.argv[1])["build"], json.loads(sys.argv[2])["build"], json.loads(sys.argv[3])["data"]["build"]]
+version, commit = sys.argv[4:6]
+def fail(message, code=1):
+    print(message)
+    sys.exit(code)
+if len({(build["version"], build["commit"].lower()) for build in builds}) != 1:
+    fail("Native runtime version/commit mismatch across Gateway, Web and Backend")
+if not version or not commit:
+    fail("Desired release identity is not configured; readiness is not release acceptance", 2)
+if (re.fullmatch(r"[\w.+:/ -]{1,100}", version) is None or version.lower() in ("dev", "development", "unknown")
+        or re.fullmatch(r"[a-fA-F0-9]{40}", commit) is None):
+    fail("Invalid desired release identity; expected a release version and full 40-character commit")
+if any(build["version"] != version or build["commit"].lower() != commit.lower() for build in builds):
+    fail("Running native release does not match the configured desired version/commit")
+if any(build["environment"] != "production" or build["dirty"] is not False for build in builds):
+    fail("Native readiness passed, but development/dirty builds are not a verified release", 2)
+print(f"Gateway/Web/Backend match desired release version={version}; commit={commit.lower()}; production; dirty=false")
+' "$1" "$2" "$3" "${FG_MONITOR_NATIVE_EXPECTED_VERSION:-}" "${FG_MONITOR_NATIVE_EXPECTED_COMMIT:-}"
+}
+
 check_native_runtime() {
   local gateway_url="${FG_MONITOR_NATIVE_GATEWAY_URL:-https://127.0.0.1:3016}"
   local web_url="${FG_MONITOR_NATIVE_WEB_URL:-${gateway_url%/}/fg-six}"
-  local payload summary
-  if ! /usr/bin/curl -fsS --connect-timeout 2 --max-time 5 "${gateway_url%/}/health/live" >/dev/null 2>&1; then
+  local payload summary release_status
+  local gateway_payload="" web_payload="" backend_payload=""
+  if ! payload="$(/usr/bin/curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 65536 "${gateway_url%/}/health/live" 2>/dev/null)" || [[ "$payload" != "ok" ]]; then
     update_state yingce-gateway unhealthy "Gateway /health/live probe failed"
   elif ! payload="$(/usr/bin/curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 65536 "${gateway_url%/}/health/version" 2>/dev/null)"; then
     update_state yingce-gateway unhealthy "Gateway is live but /health/version probe failed"
   elif summary="$(native_runtime_summary yingce-gateway "$payload")"; then
+    gateway_payload="$payload"
     update_state yingce-gateway healthy "Gateway /health/live passed; $summary"
   else
     update_state yingce-gateway unknown "Gateway is live but runtime build metadata is unverified"
   fi
   if ! payload="$(/usr/bin/curl -fsS --connect-timeout 2 --max-time 5 --max-filesize 65536 "${web_url%/}/.well-known/fg-runtime.json" 2>/dev/null)"; then
     update_state yingce-web unhealthy "Web runtime manifest probe failed"
-  elif summary="$(native_runtime_summary yingce-web "$payload")"; then
+  elif summary="$(native_runtime_summary meilin-web "$payload")"; then
+    web_payload="$payload"
     update_state yingce-web healthy "Web runtime manifest: $summary"
   else
     update_state yingce-web unknown "Web runtime build metadata is unverified"
+  fi
+  if ! payload="$(native_backend_status 2>/dev/null)"; then
+    update_state yingce-backend unhealthy "Backend identity or loopback readiness probe failed"
+  elif summary="$(native_runtime_summary canvas "$payload")"; then
+    backend_payload="$payload"
+    update_state yingce-backend healthy "Backend database/runtime/schema/NAS ready; $summary"
+  else
+    update_state yingce-backend unhealthy "Backend readiness or runtime metadata is unverified"
+  fi
+  if [[ -z "$gateway_payload" || -z "$web_payload" || -z "$backend_payload" ]]; then
+    update_state yingce-release unhealthy "Native release unverified: one or more runtime probes failed"
+  elif summary="$(native_release_summary "$gateway_payload" "$web_payload" "$backend_payload")"; then
+    update_state yingce-release healthy "$summary"
+  else
+    release_status=$?
+    if (( release_status == 2 )); then
+      update_state yingce-release unknown "$summary"
+    else
+      update_state yingce-release unhealthy "${summary:-Native release identity could not be verified}"
+    fi
   fi
 }
 
@@ -573,7 +676,8 @@ check_nginx_5xx() {
 
 flush_observability_outbox() {
   if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then
-    fg_obs_flush_outbox "" "" "$MAX_OBSERVABILITY_EVENTS_PER_RUN"
+    fg_obs_flush_outbox "${FG_MONITOR_NATIVE_OBSERVABILITY_URL:-}" \
+      "${FG_NATIVE_OBSERVABILITY_SECRET:-}" "$MAX_OBSERVABILITY_EVENTS_PER_RUN"
     return $?
   fi
   local base_url

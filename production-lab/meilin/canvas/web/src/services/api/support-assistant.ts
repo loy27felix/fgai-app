@@ -1,7 +1,16 @@
 import { http } from "./request";
 import { isNativeAuth } from "@/lib/fg-entry-url";
 
-export const nativeSupportUnavailable = "独立工作台的问题助手尚未接入，暂不能提交或查询排查任务；不会向旧主站发送问题。";
+export const nativeSupportUnavailable = "独立工作台的问题助手尚未就绪，暂不能提交或查询排查任务；不会向旧主站发送问题。";
+
+export async function supportAssistantAvailable(signal: AbortSignal): Promise<boolean> {
+    if (!isNativeAuth) return true;
+    const response = await http.raw<{ enabled?: boolean }>({
+        baseURL: "", url: "/api/support-bot/status", method: "GET", signal,
+        withCredentials: true, validateStatus: () => true,
+    });
+    return response.status === 200 && response.data.enabled === true;
+}
 
 export interface SupportFeedback {
     rating: "helpful" | "unhelpful";
@@ -47,12 +56,12 @@ export interface SupportContext {
     browserRequests?: SupportBrowserRequest[];
 }
 
-async function supportRequest<T>(method: "GET" | "POST", data?: unknown, params?: { conversationId: string }, signal?: AbortSignal): Promise<T> {
-    if (isNativeAuth) throw new Error(nativeSupportUnavailable);
+async function supportRequest<T>(method: "GET" | "POST", data?: unknown, params?: { conversationId: string }, signal?: AbortSignal, expectedUserId?: string): Promise<T> {
     // FG uses its own session and a non-Canvas envelope; keep the shared transport.
     // FG 使用独立会话与响应格式，保留公共 transport，但不进入 Canvas 信封解包。
     const response = await http.raw<T & { error?: string }>({
         baseURL: "", url: "/api/support-bot/web", method, data, params, signal,
+        headers: isNativeAuth && expectedUserId ? { "X-Canvas-Expected-User": expectedUserId } : undefined,
         withCredentials: true, validateStatus: () => true,
     });
     if (!String(response.headers["content-type"]).includes("application/json")) throw new Error("登录状态不可用，请重新登录 FG 后继续。");
@@ -62,31 +71,27 @@ async function supportRequest<T>(method: "GET" | "POST", data?: unknown, params?
     return response.data;
 }
 
-export function readSupportConversation(conversationId: string, signal: AbortSignal) {
-    return supportRequest<{ messages: SupportMessage[] }>("GET", undefined, { conversationId }, signal);
+export function readSupportConversation(conversationId: string, signal: AbortSignal, expectedUserId?: string) {
+    return supportRequest<{ messages: SupportMessage[] }>("GET", undefined, { conversationId }, signal, expectedUserId);
 }
 
-export function submitSupportQuestion(data: { conversationId: string; text: string; images: string[]; context: SupportContext }) {
-    return supportRequest<{ ticketId: string; jobId: string }>("POST", data);
+export function submitSupportQuestion(data: { conversationId: string; text: string; images: string[]; context: SupportContext }, expectedUserId?: string) {
+    return supportRequest<{ ticketId: string; jobId: string }>("POST", data, undefined, undefined, expectedUserId);
 }
 
-export function cancelSupportQuestions(conversationId: string, jobIds: string[]) {
-    return supportRequest<{ cancelled: number; messages: SupportMessage[] }>("POST", { action: "cancel", conversationId, jobIds });
+export function cancelSupportQuestions(conversationId: string, jobIds: string[], expectedUserId?: string) {
+    return supportRequest<{ cancelled: number; messages: SupportMessage[] }>("POST", { action: "cancel", conversationId, jobIds }, undefined, undefined, expectedUserId);
 }
 
-export function submitSupportFeedback(conversationId: string, jobId: string, rating: SupportFeedback["rating"], correction: string) {
-    return supportRequest<{ feedback: SupportFeedback }>("POST", { action: "feedback", conversationId, jobId, rating, correction });
+export function submitSupportFeedback(conversationId: string, jobId: string, rating: SupportFeedback["rating"], correction: string, expectedUserId?: string) {
+    return supportRequest<{ feedback: SupportFeedback }>("POST", { action: "feedback", conversationId, jobId, rating, correction }, undefined, undefined, expectedUserId);
 }
 
 export function watchSupportConversation(conversationId: string, handlers: {
     onSnapshot: (messages: SupportMessage[]) => void;
     onMessage: (message: SupportMessage) => void;
     onError: (message: string) => void;
-}) {
-    if (isNativeAuth) {
-        handlers.onError(nativeSupportUnavailable);
-        return () => {};
-    }
+}, expectedUserId?: string) {
     const controller = new AbortController();
     let source: EventSource;
     let fallback: ReturnType<typeof setTimeout> | undefined;
@@ -104,7 +109,7 @@ export function watchSupportConversation(conversationId: string, handlers: {
         controller.signal.addEventListener("abort", cancelRead, { once: true });
         const timeout = setTimeout(cancelRead, 10_000);
         try {
-            const body = await readSupportConversation(conversationId, readController.signal);
+            const body = await readSupportConversation(conversationId, readController.signal, expectedUserId);
             if (controller.signal.aborted) return;
             if (!Array.isArray(body.messages)) throw new Error("暂时无法读取排查记录，请稍后重试。");
             if (before === revision) { handlers.onSnapshot(body.messages); handlers.onError(""); }
@@ -138,7 +143,8 @@ export function watchSupportConversation(conversationId: string, handlers: {
         if (controller.signal.aborted) return;
         streaming = false;
         source?.close();
-        source = new EventSource(`/api/support-bot/web?conversationId=${encodeURIComponent(conversationId)}&stream=1`);
+        const expectation = isNativeAuth && expectedUserId ? `&expectedUserId=${encodeURIComponent(expectedUserId)}` : "";
+        source = new EventSource(`/api/support-bot/web?conversationId=${encodeURIComponent(conversationId)}&stream=1${expectation}`);
         source.addEventListener("snapshot", event => {
             try {
                 const body = JSON.parse(event.data);

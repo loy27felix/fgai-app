@@ -400,6 +400,9 @@ func (s *Service) decryptSettingSecret(value string) (string, error) {
 	}
 	// Reading an existing credential must never provision a replacement key on
 	// an empty or stale NAS mount. Only first-time encryption may create a key.
+	if err := storage.CheckNASGuard(); err != nil {
+		return "", err
+	}
 	key, err := readExistingSettingsKey(filepath.Join(s.dataDir, ".settings-key"))
 	if err != nil {
 		return "", kernel.WrapAppError(503, "存储加密密钥暂不可用，请恢复原密钥后重试", err)
@@ -423,6 +426,9 @@ func (s *Service) decryptSettingSecret(value string) (string, error) {
 }
 
 func (s *Service) settingsEncryptionKey() ([]byte, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(s.dataDir, ".settings-key")
 	if data, err := os.ReadFile(path); err == nil && len(data) == 32 {
 		return data, nil

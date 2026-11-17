@@ -4,6 +4,16 @@ services:
   migrate:
     image: ${CANVAS_STANDALONE_BACKEND_IMAGE:-fg-six-yingce-backend-native:local}
   backend:
+    environment:
+      CANVAS_TRUSTED_PROXIES: ${CANVAS_NATIVE_TRUSTED_PROXIES:-}
+      CANVAS_NAS_GUARD_DIR: /run/fg-nas
+    volumes:
+      - type: bind
+        source: ${FG_NAS_STATE_DIR:?native requires the supervisor state directory}
+        target: /run/fg-nas
+        read_only: true
+        bind:
+          create_host_path: false
     image: ${CANVAS_STANDALONE_BACKEND_IMAGE:-fg-six-yingce-backend-native:local}
     build:
       context: ./canvas
@@ -17,8 +27,59 @@ services:
     image: ${CANVAS_STANDALONE_GATEWAY_IMAGE:-fg-six-yingce-gateway-native:local}
     environment:
       FG_AUTH_MODE: native
+      CANVAS_NAS_GUARD_DIR: /run/fg-nas
+      FG_NATIVE_TRUSTED_PROXY_CIDRS: ${FG_NATIVE_TRUSTED_PROXY_CIDRS:-}
       FG_PLATFORM_URL: ""
       FG_PLATFORM_PUBLIC_URL: ""
+      SUPPORT_BOT_WEB_URL: ${SUPPORT_BOT_WEB_URL:-}
+      SUPPORT_BOT_WEB_RELAY_TOKEN: ${SUPPORT_BOT_WEB_RELAY_TOKEN:-}
+    volumes:
+      - type: bind
+        source: ${FG_NAS_STATE_DIR:?native requires the supervisor state directory}
+        target: /run/fg-nas
+        read_only: true
+        bind:
+          create_host_path: false
+  observability:
+    profiles: [observability]
+    image: ${CANVAS_STANDALONE_OBSERVABILITY_IMAGE:-fg-six-observability-native:local}
+    build:
+      context: ../..
+      dockerfile: production-lab/meilin/observability.Dockerfile
+    restart: "no"
+    read_only: true
+    ports: ["127.0.0.1:${FG_OBSERVABILITY_HOST_PORT:-3013}:3013"]
+    environment:
+      NODE_ENV: production
+      FG_RUNTIME_TARGET: native
+      DATABASE_URL: ${OBSERVABILITY_DATABASE_URL:-}
+      FG_OBSERVABILITY_SECRET: ${FG_NATIVE_OBSERVABILITY_SECRET:-}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3013/health/ready',{headers:{'x-fg-observability-secret':process.env.FG_OBSERVABILITY_SECRET}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  support-web:
+    profiles: [support-web]
+    image: ${CANVAS_STANDALONE_SUPPORT_WEB_IMAGE:-fg-six-support-web-native:local}
+    build:
+      context: ../..
+      dockerfile: production-lab/meilin/support-web.Dockerfile
+    restart: "no"
+    read_only: true
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${SUPPORT_BOT_DATABASE_URL:-}
+      SUPPORT_BOT_ENVIRONMENT: ${SUPPORT_BOT_ENVIRONMENT:-}
+      SUPPORT_BOT_ENABLED: ${SUPPORT_BOT_ENABLED:-false}
+      SUPPORT_BOT_SEND_ENABLED: "false"
+      SUPPORT_BOT_WEB_RELAY_TOKEN: ${SUPPORT_BOT_WEB_RELAY_TOKEN:-}
+      APP_DEPLOYMENT_VERSION: ${SUPPORT_BOT_WEB_DEPLOYMENT_VERSION:-unknown}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3012/health/ready',{headers:{authorization:'Bearer '+process.env.SUPPORT_BOT_WEB_RELAY_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
   web:
     image: ${CANVAS_STANDALONE_WEB_IMAGE:-fg-six-yingce-web-native:local}
     build:

@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 func (r *Repository) Task(id string) (*model.Task, error) {
@@ -62,6 +63,9 @@ func (r *Repository) ClaimNextTask(owner string, leaseDuration time.Duration) (*
 	now := time.Now()
 	leaseExpiresAt := now.Add(leaseDuration)
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := storage.CheckNASGuard(); err != nil {
+			return err
+		}
 		query := tx.Where("(status = ? OR (status = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?))) AND (next_poll_at IS NULL OR next_poll_at <= ?)", model.TaskStatusQueued, model.TaskStatusRunning, now, now).
 			Order("created_at asc").Limit(1)
 		if r.Dialect() == "postgres" {
@@ -105,6 +109,18 @@ func (r *Repository) ClaimNextTask(owner string, leaseDuration time.Duration) (*
 		return nil, err
 	}
 	return &task, nil
+}
+
+// PauseTaskForNAS yields only this claim; no provider has been called yet.
+// 仅撤销当前尚未调用上游的领取，不消耗重试次数，也不覆盖其他执行者。
+func (r *Repository) PauseTaskForNAS(id, owner string) error {
+	return r.db.Model(&model.Task{}).
+		Where("id = ? AND status = ? AND lease_owner = ?", id, model.TaskStatusRunning, owner).
+		Updates(map[string]any{
+			"lease_owner": "", "lease_expires_at": nil,
+			"attempts":     gorm.Expr("CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"),
+			"next_poll_at": time.Now().Add(5 * time.Second), "updated_at": time.Now(),
+		}).Error
 }
 
 func (r *Repository) RenewTaskLease(id string, owner string, leaseDuration time.Duration) error {

@@ -12,6 +12,7 @@ import (
 
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/platform"
+	"meilin/backend/internal/storage"
 )
 
 const newAPIChannel2TaskSyncMaxAge = 5 * time.Minute
@@ -56,7 +57,7 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s.runWorkerLoop(func(ctx context.Context) {
 		slots := make(chan struct{}, maxChannelConcurrencyLimit)
 		dispatch := func() {
-			if ctx.Err() != nil || s.IsDraining() {
+			if ctx.Err() != nil || s.IsDraining() || storage.CheckNASGuard() != nil {
 				return
 			}
 			setting, err := s.runtimeConcurrencySetting()
@@ -66,6 +67,9 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 			}
 			workerConcurrency := setting.WorkerConcurrency
 			for len(slots) < workerConcurrency {
+				if storage.CheckNASGuard() != nil {
+					return
+				}
 				globalSlot, acquired, err := s.coordinator.AcquireLease(ctx, "workers", workerConcurrency, workerSlotLeaseDuration)
 				if err != nil || !acquired {
 					if err != nil {
@@ -123,6 +127,9 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 
 func (w *taskWorkerCoordinator) processNextTask() error {
 	s := w.service
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	task, err := s.repo.ClaimNextTask(s.workerID+":"+newID(), 45*time.Second)
 	if err != nil || task == nil {
 		return err
@@ -132,6 +139,9 @@ func (w *taskWorkerCoordinator) processNextTask() error {
 
 func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot *platform.SlotLease) error {
 	s := w.service
+	if err := storage.CheckNASGuard(); err != nil {
+		return errors.Join(err, s.repo.PauseTaskForNAS(task.ID, task.LeaseOwner))
+	}
 	terminal := s.terminalCoordinator()
 	policyCtx, cancelPolicy := context.WithTimeout(context.Background(), 3*time.Second)
 	reader := &Service{repo: s.repo.WithContext(policyCtx)}

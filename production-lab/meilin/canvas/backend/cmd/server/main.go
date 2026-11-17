@@ -40,6 +40,28 @@ func main() {
 }
 
 func run(ctx context.Context) error {
+	r := gin.New()
+	if value, configured := os.LookupEnv("CANVAS_TRUSTED_PROXIES"); configured {
+		var proxies []string
+		for _, item := range strings.Split(value, ",") {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			if _, network, err := net.ParseCIDR(item); err == nil {
+				if ones, _ := network.Mask.Size(); ones == 0 {
+					return fmt.Errorf("CANVAS_TRUSTED_PROXIES must not trust every address")
+				}
+			}
+			proxies = append(proxies, item)
+		}
+		if err := r.SetTrustedProxies(proxies); err != nil {
+			return fmt.Errorf("invalid CANVAS_TRUSTED_PROXIES: %w", err)
+		}
+		// Only a validated proxy chain may supply the client IP; X-Real-IP is not a fallback.
+		// 仅受信转发链可提供客户端 IP；不回退信任 X-Real-IP。
+		r.RemoteIPHeaders = []string{"X-Forwarded-For"}
+	}
 	dataDir := env("CANVAS_BACKEND_DATA_DIR", "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
@@ -127,7 +149,6 @@ func run(ctx context.Context) error {
 	} else if summary.Backup != "" {
 		slog.Info("storage migration completed", "tasks", summary.Tasks, "assets", summary.Assets, "projects", summary.Projects, "backup", summary.Backup)
 	}
-	r := gin.New()
 	// 访问日志：成功的查询类请求只在 debug 级别输出，避免轮询和列表查询把日志打爆。
 	r.Use(logging.AccessLog(redactCanvasSharePath), logging.Recovery())
 	r.Use(handler.RequestCorrelationMiddleware())

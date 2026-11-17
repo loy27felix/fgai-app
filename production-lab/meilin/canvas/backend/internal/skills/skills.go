@@ -13,6 +13,7 @@ import (
 	"meilin/backend/internal/kernel"
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/repository"
+	"meilin/backend/internal/storage"
 
 	"gorm.io/gorm"
 )
@@ -288,6 +289,9 @@ func (s *Service) UpdateSkill(userID string, id string, req SkillMutationRequest
 }
 
 func (s *Service) DeleteSkill(userID string, id string) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	skill, err := s.ownedSkill(userID, id)
 	if err != nil {
 		return err
@@ -299,6 +303,9 @@ func (s *Service) DeleteSkill(userID string, id string) error {
 }
 
 func (s *Service) DeleteBuiltinSkill(actor *model.User, id string) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	if actor == nil || actor.Role != model.UserRoleAdmin {
 		return kernel.Forbidden("只有管理员可以删除内置技能")
 	}

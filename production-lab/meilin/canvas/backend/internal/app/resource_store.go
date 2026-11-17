@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 	"meilin/backend/internal/assets"
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 func (s *Service) UploadResource(userID string, header *multipart.FileHeader, kind string, width int, height int, durationMs int64, uploadIdentity ...string) (*model.Resource, error) {
@@ -304,6 +305,9 @@ func (s *Service) openResourceRange(userID string, resource *model.Resource, ran
 		return nil, BadAuthRequest("资源尚未上传完成")
 	}
 	if resource.Provider == "local" {
+		if err := storage.CheckNASGuard(); err != nil {
+			return nil, err
+		}
 		body, err := os.Open(filepath.Join(s.dataDir, "resources", filepath.FromSlash(resource.ObjectKey)))
 		if err != nil {
 			return nil, err
@@ -436,6 +440,9 @@ func (s *Service) storeResourceWithWriter(userID string, kind string, fileName s
 }
 
 func writeLocalResourceObject(filePath string, body io.Reader) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o750); err != nil {
 		return err
 	}

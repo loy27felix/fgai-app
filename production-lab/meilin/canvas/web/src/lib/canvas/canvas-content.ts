@@ -1,6 +1,17 @@
 import { canonicalize } from "json-canonicalize";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 
+// Minimal server documents may omit empty collections; normalize only absent fields.
+// 服务端最小文档可省略空集合；只补缺省字段，不覆盖已有内容。
+export function normalizeCanvasProjectCollections(project: CanvasProject): CanvasProject {
+    if (project.chatSessions !== undefined && project.previsScenes !== undefined) return project;
+    return {
+        ...project,
+        chatSessions: project.chatSessions === undefined ? [] : project.chatSessions,
+        previsScenes: project.previsScenes === undefined ? [] : project.previsScenes,
+    };
+}
+
 // These fields describe local viewing / synchronization, not an edit to the document.
 export function canvasContentSnapshot(project: CanvasProject) {
     const { viewport: _viewport, updatedAt: _updatedAt, revision: _revision, remoteContentHash: _hash, ...content } = project;

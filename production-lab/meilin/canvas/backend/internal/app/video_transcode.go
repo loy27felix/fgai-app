@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 // 播放副本转码：HEVC/H.265 原片在 Chrome/Firefox 等无法解码（<video> 黑屏），
@@ -160,6 +161,9 @@ func boxBodies(data []byte, want string) []int {
 // maybeStartPlaybackTranscode 由上传就绪路径调用；H.265 且 ffmpeg 可用时置
 // processing 并异步转码。H.264 直接标记 none，避免每次上传重复探测。
 func (s *Service) maybeStartPlaybackTranscode(resource *model.Resource) {
+	if storage.CheckNASGuard() != nil {
+		return
+	}
 	if resource == nil || resource.Kind != "video" {
 		return
 	}
@@ -216,6 +220,13 @@ func markPlaybackNone(s *Service, resource *model.Resource) {
 
 // runPlaybackTranscode 转码本地原件到 playback/<id>.mp4 并回写状态（幂等按 id 重载）。
 func (s *Service) runPlaybackTranscode(userID string, resourceID string, src string) {
+	if storage.CheckNASGuard() != nil {
+		if res, err := s.repo.ResourceForUser(userID, resourceID); err == nil && res != nil {
+			res.PlaybackStatus = ""
+			_ = persistPlaybackResource(s.repo, res, "nas_paused")
+		}
+		return
+	}
 	// 转码 goroutine 意外 panic 时把状态落 failed，避免 processing 卡死到下次重启。
 	defer func() {
 		if r := recover(); r != nil {
@@ -269,6 +280,9 @@ func persistPlaybackResource(saver resourcePersister, resource *model.Resource, 
 
 // runH264Transcode 用 ffmpeg 将任意输入转为 H.264/AAC mp4（faststart、yuv420p、偶数尺寸）。
 func runH264Transcode(src string, dst string) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
 	}
@@ -300,6 +314,9 @@ func clipText(s string, max int) string {
 // OpenResourcePlaybackRange 打开浏览器兼容播放副本（本地 ffmpeg 转码的 H.264）。
 // 仅当资源为本地存储且副本 ready 时可用；否则返回 ErrPlaybackNotReady，调用方回退原件。
 func (s *Service) OpenResourcePlaybackRange(userID string, resourceID string) (*ResourceStream, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, err
+	}
 	resource, err := s.repo.ResourceForUser(userID, resourceID)
 	if err != nil {
 		return nil, err
@@ -327,9 +344,15 @@ func (s *Service) OpenResourcePlaybackRange(userID string, resourceID string) (*
 // 有界重判（见 PlaybackNoneVideos）。幂等：maybeStartPlaybackTranscode 先置
 // processing/none 再入库，重复扫描不会重复转码。
 func (s *Service) BackfillPlaybackTranscodes() {
+	if storage.CheckNASGuard() != nil {
+		return
+	}
 	// 上次进程可能崩溃在转码中途（状态卡 processing），先重置为待判定。
 	_ = s.repo.ResetStuckPlaybackTranscodes()
 	for {
+		if storage.CheckNASGuard() != nil {
+			return
+		}
 		resources, err := s.repo.PlaybackPendingVideos(20)
 		if err != nil || len(resources) == 0 {
 			break

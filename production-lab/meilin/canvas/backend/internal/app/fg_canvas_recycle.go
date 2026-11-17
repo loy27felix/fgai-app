@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/repository"
+	"meilin/backend/internal/storage"
 	"os"
 	"path/filepath"
 	"time"
@@ -70,6 +71,9 @@ func writeFGCanvasArchive(root, owner, id string, revision int64, data []byte) e
 }
 
 func writeFGArchive(root, collection, owner, id string, revision int64, data []byte) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	if root == "" {
 		return errors.New("NAS 回收目录尚未配置，原内容仍保留")
 	}

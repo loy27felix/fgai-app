@@ -31,7 +31,9 @@ import {registerCanvasRealtime} from './fg-canvas-realtime.mjs';
 import {canvasOwnersRoute} from './fg-canvas-owners.mjs';
 import {canvasPromptShortcutsRoute,initializeCanvasPromptShortcuts} from './fg-canvas-prompt-shortcuts.mjs';
 import {isPublicDemo,publicDemoDenied} from './fg-public-demo.mjs';
-import {workspaceAuthMode,nativeSessionCookie,nativePublicRequest,nativePageRequest,nativeResponseHeaders,nativeActor,proxyNativeRequest} from './fg-auth.mjs';
+import {workspaceAuthMode,nativeSessionCookie,nativePublicRequest,nativePageRequest,nativeResponseHeaders,nativeActor,proxyNativeRequest,nativeProxyHeaders,nativeClientIP} from './fg-auth.mjs';
+import {nativeSupportWebRoute} from './fg-support-web.mjs';
+import {nasGuardUnavailable,nasGuardedAPI} from './fg-nas-guard.mjs';
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const editorPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 16 });
@@ -137,6 +139,10 @@ const server = http.createServer(async (req, res) => {
     catch { respond(res,400,'请求路径无效','INVALID_PATH'); return; }
     const path = parsed.url;
     observation.route = safeSupportRoute(path.pathname);
+    if(nasGuardedAPI(path.pathname)&&nasGuardUnavailable()){
+      res.setHeader('retry-after','5');
+      respond(res,503,'NAS 媒体存储当前不可用，请等待挂载恢复','NAS_UNAVAILABLE');return;
+    }
     if(authMode==='native'&&['GET','HEAD'].includes(req.method)&&/^\/(?:workspace|production-lab)\/?$/.test(path.pathname)){
       res.writeHead(302,{'location':/^\/fg-six(?:\/|$)/.test(req.url)?'/fg-six/':'/','cache-control':'no-store'});res.end();return;
     }
@@ -158,6 +164,10 @@ const server = http.createServer(async (req, res) => {
       // Public media and share reads are authorized by the native backend's
       // expiring capability. Static bundles need no browser or FG credentials.
       const headers = Object.fromEntries(['range','if-none-match','if-modified-since'].filter(name => req.headers[name]).map(name => [name,req.headers[name]]));
+      if(authMode==='native'){
+        const clientIP=nativeClientIP(req);
+        if(clientIP)headers['x-forwarded-for']=clientIP;
+      }
       const upstream = http.request(new URL(path.pathname + path.search, web), {method:req.method,headers}, remote => {
         res.writeHead(remote.statusCode || 502,responseHeaders(remote.headers));
         pipeline(remote,res,()=>{});
@@ -198,6 +208,7 @@ const server = http.createServer(async (req, res) => {
       respond(res,403,'请求来源无效','INVALID_ORIGIN'); return;
     }
     if(authMode==='native'&&/^\/api\/support-bot(?:\/|$)/.test(path.pathname)){
+      if(await nativeSupportWebRoute(req,res,{actor,path,authenticate:request=>nativeActor(request,{pool,web,publicOrigin})}))return;
       respond(res,503,'独立工作台的问题助手尚未接入，未向旧主站提交任何问题','NATIVE_SUPPORT_UNAVAILABLE');return;
     }
     if(await canvasPromptShortcutsRoute(req,res,{pool,actor,path}))return;
@@ -223,8 +234,7 @@ const server = http.createServer(async (req, res) => {
     if(await speechJobRoute(req,res,{pool,actor,path,api:async(p,m='GET',b)=>{
       const r=await fetch(new URL('/api'+p,web),{method:m,headers:{cookie,origin:publicOrigin,'content-type':'application/json'},body:b===undefined?undefined:JSON.stringify(b),signal:AbortSignal.timeout(30000)});const d=await r.json();if(!r.ok||d.code!==0)throw Error(d.msg||'音频资源不可用');return d.data;
     }}))return;
-    const headers = proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
-    if(authMode==='native')headers['x-forwarded-proto']=new URL(publicOrigin).protocol.slice(0,-1);
+    const headers = authMode==='native' ? nativeProxyHeaders(req,cookie,publicOrigin) : proxyHeaders(req.headers, cookie, new URL(process.env.FG_SIX_PUBLIC_URL).host);
     headers['x-request-id'] = req.headers['x-request-id'];
     if (req.headers.origin) headers.origin = publicOrigin;
     if(await editorLeaseRoute(req,res,{pool,actor,path,web,cookie,publicOrigin,advertisingAccess:async()=>false}))return;

@@ -21,6 +21,31 @@ if ! register_lock_protocol_process; then
 fi
 trap 'fg_app_archive_cancel; unregister_lock_protocol_process' EXIT
 ENV_FILE="${FG_NAS_ENV_FILE:-$PROJECT_ROOT/.env.docker}"
+read_env_value() {
+  local key="$1"
+  local line=""
+  line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
+  line="${line#*=}"
+  line="${line%\"}"
+  line="${line#\"}"
+  line="${line%\'}"
+  line="${line#\'}"
+  printf '%s' "$line"
+}
+
+configure_native_storage_guard() {
+  NAS_GUARD_ROOT="${FG_NAS_STATE_DIR-$(read_env_value FG_NAS_STATE_DIR)}"
+  if ! /usr/bin/python3 - "$NAS_GUARD_ROOT" <<'PY'
+import os, sys
+path = sys.argv[1]
+sys.exit(not (os.path.isabs(path) and os.path.realpath(path) == path
+              and os.path.isdir(path) and os.access(path, os.R_OK | os.W_OK | os.X_OK)))
+PY
+  then
+    printf 'NAS supervisor: native FG_NAS_STATE_DIR must be an existing writable real absolute directory\n' >&2
+    return 1
+  fi
+}
 # Keep supervisor events beside monitor state so they survive app outages.
 # 将守护事件放在监控器的持久状态目录中，确保 App 离线时仍可等待投递。
 export FG_MONITOR_STATE_DIR="${FG_MONITOR_STATE_DIR:-$HOME/Library/Application Support/fg-studio-monitor}"
@@ -34,6 +59,9 @@ DEFAULT_MARKER_NAME=".fg-studio-nas-ready"
 STATE_ROOT="${TMPDIR:-/tmp}/fg-studio-nas-supervisor-$(id -u)"
 PERSISTENT_STATE_ROOT="$HOME/Library/Application Support/fg-studio-nas-supervisor"
 NAS_GUARD_ROOT="$HOME/Library/Application Support/fg-studio-nas-state"
+if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then
+  configure_native_storage_guard || exit 2
+fi
 NAS_DISABLED_HOST_FILE="$NAS_GUARD_ROOT/disabled"
 STATE_FILE="$STATE_ROOT/state"
 PENDING_EVENT_ROOT="$PERSISTENT_STATE_ROOT/pending-events"
@@ -226,7 +254,21 @@ set_storage_ready() {
 }
 
 set_storage_guard() {
-  (umask 022; : > "$NAS_DISABLED_HOST_FILE") && chmod 644 "$NAS_DISABLED_HOST_FILE"
+  # Never follow a malformed guard into another file or block on a FIFO.
+  # 异常守卫不能跟随链接修改其他文件，也不能阻塞在 FIFO 上。
+  /usr/bin/python3 - "$NAS_DISABLED_HOST_FILE" <<'PY'
+import os, stat, sys
+try:
+    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o644)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError('non-regular guard')
+        os.fchmod(fd, 0o644)
+    finally:
+        os.close(fd)
+except (OSError, ValueError):
+    sys.exit(1)
+PY
 }
 
 mark_recovery_pending() {
@@ -242,18 +284,6 @@ mark_recovery_pending() {
 
 clear_recovery_pending() {
   rm -f "$RECOVERY_PENDING_FILE"
-}
-
-read_env_value() {
-  local key="$1"
-  local line=""
-  line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
-  line="${line#*=}"
-  line="${line%\"}"
-  line="${line#\"}"
-  line="${line%\'}"
-  line="${line#\'}"
-  printf '%s' "$line"
 }
 
 find_app_container() {
@@ -436,6 +466,7 @@ restore_offline_app_after_recreate_failure() {
 
 probe_running_storage() {
   local container="$1"
+  local probe_value="${2:-probe}"
   local marker_path="$APP_CONTAINER_PATH/$MARKER_NAME"
   local probe_path="$APP_CONTAINER_PATH/.fg-studio-container-probe"
   # Keep one stable probe because deleting an open SMB file creates persistent .smbdelete files.
@@ -452,9 +483,11 @@ probe_running_storage() {
      printf "%s" "$$" > "$lock/pid";
      trap "rm -f \"$lock/pid\"; rmdir \"$lock\" 2>/dev/null || true" EXIT;
      grep -qx "fg-studio-media:v1" "$1" || exit 10;
-     printf probe > "$2" || exit 11;
-     grep -qx probe "$2" || exit 12' \
-    sh "$marker_path" "$probe_path" >/dev/null 2>&1
+     test ! -L "$2" || exit 11;
+     if test -e "$2" && ! test -f "$2"; then exit 11; fi;
+     printf "%s" "$3" > "$2" || exit 11;
+     grep -qx "$3" "$2" || exit 12' \
+    sh "$marker_path" "$probe_path" "$probe_value" >/dev/null 2>&1
 }
 
 probe_new_mount() {
@@ -520,19 +553,106 @@ request_mount_for_recovery() {
   return 1
 }
 
-supervise_native_storage() {
-  # Native bind-mount recovery is unverified: retain the guard, never recreate Next.
-  # 原生 bind mount 恢复尚未验证：保留守卫，绝不重建旧 Next 容器。
+protect_native_storage() {
   if ! set_storage_guard; then
+    mark_recovery_pending || true
     set_state "storage-guard-failed" "NAS supervisor: native shared storage guard could not be written"
     return 1
   fi
-  mark_recovery_pending || return 1
+  mark_recovery_pending
+}
+
+native_storage_containers_ready() {
+  local project="${COMPOSE_PROJECT_NAME:-fg-six-yingce}"
+  local backend gateway service ids nonce
+  [[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || return 1
+  for service in backend gateway; do
+    ids="$(run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker ps \
+      --filter "label=com.docker.compose.project=$project" \
+      --filter "label=com.docker.compose.service=$service" --format '{{.ID}}')" || return 1
+    [[ -n "$ids" && "$ids" != *$'\n'* && "$ids" =~ ^[a-f0-9]+$ ]] || return 1
+    if [[ "$service" == backend ]]; then backend="$ids"; else gateway="$ids"; fi
+  done
+  run_with_timeout 5 /usr/bin/python3 -c '
+import os, sys
+try:
+    sys.exit(not os.path.samefile(os.path.join(sys.argv[1], "media"), sys.argv[2]))
+except OSError:
+    sys.exit(1)
+' "$NAS_ROOT" "$NAS_PATH" || return 1
+  run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker inspect "$backend" "$gateway" | \
+    /usr/bin/python3 -c '
+import json, sys
+try:
+    project, guard, media, root = sys.argv[1:]
+    rows = json.load(sys.stdin)
+    if len(rows) != 2:
+        raise ValueError()
+    for row, service in zip(rows, ("backend", "gateway")):
+        labels = row["Config"]["Labels"]
+        env = dict(item.split("=", 1) for item in row["Config"]["Env"])
+        if (not row["State"]["Running"] or labels.get("com.docker.compose.project") != project
+                or labels.get("com.docker.compose.service") != service
+                or env.get("CANVAS_NAS_GUARD_DIR") != "/run/fg-nas"):
+            raise ValueError()
+        def mount(destination, source, writable):
+            entries = [m for m in row["Mounts"] if m["Destination"] == destination]
+            if (len(entries) != 1 or entries[0]["Type"] != "bind"
+                    or entries[0]["Source"] != source or entries[0]["RW"] != writable):
+                raise ValueError()
+        mount("/run/fg-nas", guard, False)
+        if service == "backend":
+            mount("/data", media, True)
+            mount("/fg-nas-root", root, True)
+            if env.get("CANVAS_FG_NAS_ROOT") != "/fg-nas-root":
+                raise ValueError()
+        elif env.get("FG_AUTH_MODE") != "native":
+            raise ValueError()
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(1)
+' "$project" "$NAS_GUARD_ROOT" "$NAS_PATH" "$NAS_ROOT" || return 1
+  APP_CONTAINER_PATH="/data"
+  nonce="$(/usr/bin/python3 -c 'import secrets; print(secrets.token_hex(16))')" || return 1
+  probe_running_storage "$backend" "$nonce" || return 1
+  # A fresh cross-view receipt detects stale binds even when old markers still match.
+  # 新鲜的跨视图回执可识别旧标记仍然相同的失效 bind，不能只比对固定文本。
+  run_with_timeout 5 /usr/bin/python3 -c '
+import os, stat, sys
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode) or os.read(fd, 33).decode("ascii") != sys.argv[2]:
+            sys.exit(1)
+    finally:
+        os.close(fd)
+except (OSError, UnicodeError):
+    sys.exit(1)
+' "$NAS_PATH/.fg-studio-container-probe" "$nonce" || return 1
+  run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker exec "$backend" sh -c \
+    'test "$1" -ef "$2"' sh "/data/$MARKER_NAME" "/fg-nas-root/media/$MARKER_NAME" || return 1
+  run_with_timeout "$DOCKER_TIMEOUT_SECONDS" docker exec "$gateway" node -e '
+    const fs = require("node:fs");
+    const root = "/run/fg-nas";
+    const info = fs.lstatSync(root);
+    if (!info.isDirectory() || info.isSymbolicLink()) process.exit(1);
+    try { fs.lstatSync(root + "/disabled"); process.exit(1); }
+    catch (error) { if (error.code !== "ENOENT") process.exit(1); }
+    fetch("http://backend:8080/api/health/ready", {signal: AbortSignal.timeout(5000)})
+      .then(async response => {
+        if (response.status !== 200 || (await response.json()).data?.checks?.nas !== true) process.exit(1);
+      }).catch(() => process.exit(1));
+  '
+}
+
+supervise_native_storage() {
   if [[ ! -f "$ENV_FILE" ]]; then
+    protect_native_storage || return 1
     set_state "config-missing" "NAS supervisor: native NAS configuration is missing; storage guard retained"
     return 1
   fi
   NAS_PATH="$(read_env_value NAS_MEDIA_PATH)"
+  NAS_ROOT="$(read_env_value NAS_STUDIO_ROOT)"
+  NAS_ROOT="${NAS_ROOT:-/Volumes/FgStudio}"
   EXPECTED_HOST="$(read_env_value NAS_EXPECTED_HOST)"
   EXPECTED_SHARE="$(read_env_value NAS_EXPECTED_SHARE)"
   MARKER_NAME="$(read_env_value NAS_READY_MARKER)"
@@ -540,7 +660,8 @@ supervise_native_storage() {
   MOUNT_URL="$(read_env_value NAS_MOUNT_URL)"
   SMB_USER="${MOUNT_URL#smb://}"
   SMB_USER="${SMB_USER%%@*}"
-  if [[ "$NAS_PATH" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" ]]; then
+  if [[ "$NAS_PATH" != /* || "$NAS_ROOT" != /* || -z "$EXPECTED_HOST" || -z "$EXPECTED_SHARE" || "$MOUNT_URL" != smb://*@* || -z "$SMB_USER" || "$MARKER_NAME" == */* || "$MARKER_NAME" == . || "$MARKER_NAME" == .. ]]; then
+    protect_native_storage || return 1
     set_state "config-invalid" "NAS supervisor: native NAS configuration is invalid; storage guard retained"
     return 1
   fi
@@ -548,6 +669,7 @@ supervise_native_storage() {
   mount_line="$(/sbin/mount | awk -v source="@$EXPECTED_HOST/$EXPECTED_SHARE on " 'index($0, source) { print; exit }')" || mount_line=""
   mount_point="$(sed -E 's#^.* on (.*) \(smbfs,.*$#\1#' <<< "$mount_line")"
   if [[ -z "$mount_point" || ( "$NAS_PATH" != "$mount_point" && "$NAS_PATH" != "$mount_point/"* ) ]]; then
+    protect_native_storage || return 1
     if request_mount "$MOUNT_URL" "$SMB_USER"; then
       set_state "mount-requested" "NAS supervisor: native SMB mount requested; storage guard retained"
     else
@@ -556,11 +678,24 @@ supervise_native_storage() {
     return 0
   fi
   if ! run_with_timeout 5 /bin/sh -c 'grep -qx "fg-studio-media:v1" "$1" && test -w "$2"' sh "$NAS_PATH/$MARKER_NAME" "$NAS_PATH"; then
+    protect_native_storage || return 1
     request_mount_for_recovery || true
     set_state "nas-readonly" "NAS supervisor: native host NAS probe failed; storage guard retained"
     return 0
   fi
-  set_state "native-recovery-required" "NAS supervisor: host NAS marker/permissions passed; native container recovery unverified, storage guard retained"
+  # Healthy checks must not pulse the guard; pending recovery still requires review.
+  # 健康巡检不能周期性误封存储；已经进入恢复流程仍须保留守卫待核验。
+  if [[ -e "$RECOVERY_PENDING_FILE" || -L "$RECOVERY_PENDING_FILE" || -e "$NAS_DISABLED_HOST_FILE" || -L "$NAS_DISABLED_HOST_FILE" ]]; then
+    protect_native_storage || return 1
+    set_state "native-recovery-required" "NAS supervisor: host NAS probe passed; pending native bind-mount recovery requires verification, storage guard retained"
+    return 0
+  fi
+  if ! native_storage_containers_ready; then
+    protect_native_storage || return 1
+    set_state "container-mount-failed" "NAS supervisor: native container identity/mount/storage probe failed; storage guard retained"
+    return 1
+  fi
+  set_storage_ready "NAS supervisor: native host and running container storage probes passed; no guard or container was changed"
 }
 
 if [[ "$FG_RUNTIME_TARGET" == "native" ]]; then

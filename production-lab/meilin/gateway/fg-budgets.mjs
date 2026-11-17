@@ -92,7 +92,10 @@ export async function reserveBudget(pool,input){
   await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-user:'||$1))",[input.userId]);
   if(projectId)await client.query("SELECT pg_advisory_xact_lock(hashtext('fg-budget-project:'||$1))",[projectId]);
   const limit=Number((await client.query('SELECT monthly_cny FROM fg_user_budgets WHERE user_id=$1',[input.userId])).rows[0]?.monthly_cny||0);
-  const budget=projectId?Number((await client.query('SELECT budget_cny FROM fg_story_projects WHERE native_project_id=$1 UNION ALL SELECT budget_cny FROM fg_adcraft_workspaces WHERE native_project_id=$1',[projectId])).rows[0]?.budget_cny||0):0;
+  // Native projects must not require retired Adcraft tables; preserve existing legacy caps.
+  // 原生项目不依赖已退役广告表；历史表仍存在时继续执行其预算上限。
+  const adcraft=projectId?(await client.query("SELECT to_regclass('fg_adcraft_workspaces') IS NOT NULL AS available")).rows[0]?.available===true:false;
+  const budget=projectId?Number((await client.query(`SELECT budget_cny FROM fg_story_projects WHERE native_project_id=$1 ${adcraft?'UNION ALL SELECT budget_cny FROM fg_adcraft_workspaces WHERE native_project_id=$1':''}`,[projectId])).rows[0]?.budget_cny||0):0;
   const snapshot=(await client.query('SELECT snapshot FROM fg_model_prices WHERE model=$1',[input.model])).rows[0]?.snapshot;
   const fx=Number((await client.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0].value);
   // The company subscription pays for Suno; members reserve no personal spend.

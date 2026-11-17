@@ -75,50 +75,50 @@ export function AuthScene() {
     };
 
     return (
-        <main className="auth-scene h-dvh min-h-0 overflow-y-auto lg:overflow-hidden">
-            <div className="grid min-h-full lg:h-full lg:grid-cols-[minmax(0,1.32fr)_minmax(520px,1fr)]">
-                <section className="auth-scene-hero relative min-h-[250px] overflow-hidden sm:min-h-[320px] lg:min-h-0" aria-label={`${appearance.brandName}品牌影片`}>
-                    {videoActive && appearance.authVideoUrl ? <video ref={videoRef} className="absolute inset-0 size-full object-cover" src={appearance.authVideoUrl} poster={appearance.authVideoPosterUrl || undefined} autoPlay muted loop playsInline preload="metadata" onPlay={() => setVideoPlaying(true)} onPause={() => setVideoPlaying(false)} /> : appearance.authVideoPosterUrl && failedPosterURL !== appearance.authVideoPosterUrl ? <img className="absolute inset-0 size-full object-cover" src={appearance.authVideoPosterUrl} alt="" decoding="async" onError={() => setFailedPosterURL(appearance.authVideoPosterUrl)} /> : null}
+        <main className="auth-scene relative isolate h-dvh min-h-0 overflow-y-auto">
+            <div className="relative min-h-full">
+                <section className="auth-scene-hero pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-label={`${appearance.brandName}品牌影片`}>
+                    {videoActive && appearance.authVideoUrl ? <video ref={videoRef} className="absolute inset-0 size-full object-cover object-[70%_center]" src={appearance.authVideoUrl} poster={appearance.authVideoPosterUrl || undefined} autoPlay muted loop playsInline preload="metadata" onPlay={() => setVideoPlaying(true)} onPause={() => setVideoPlaying(false)} /> : appearance.authVideoPosterUrl && failedPosterURL !== appearance.authVideoPosterUrl ? <img className="absolute inset-0 size-full object-cover object-[70%_center]" src={appearance.authVideoPosterUrl} alt="" decoding="async" onError={() => setFailedPosterURL(appearance.authVideoPosterUrl)} /> : null}
                     <div aria-hidden className="auth-scene-hero-overlay absolute inset-0" />
-                    <div aria-hidden className="auth-scene-video-blend absolute inset-y-0 right-0 hidden w-[clamp(120px,14vw,240px)] lg:block" />
-                    <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-4 p-5 sm:p-7 lg:p-9">
-                        <Link to="/" className="auth-scene-brand inline-flex items-center gap-2 text-sm font-semibold drop-shadow-sm transition-opacity hover:opacity-80">
-                            <BrandLogo theme={theme} className="size-7" alt="" fallback={<span className="size-7 bg-current" style={{ mask: "url(/logo.svg) center / contain no-repeat", WebkitMask: "url(/logo.svg) center / contain no-repeat" }} />} />
-                            {appearance.brandName}
-                        </Link>
-                        <button type="button" className="auth-scene-hero-control inline-flex items-center gap-2 rounded-full px-3 py-2 text-[var(--fs-label)] backdrop-blur-xl transition disabled:cursor-default" onClick={playVideo} disabled={videoPlaying || !appearance.authVideoUrl} aria-pressed={videoPlaying}>
-                            <Play className="size-3 fill-current" />
-                            {videoPlaying ? "创作正在发生" : "播放品牌影片"}
-                        </button>
-                    </div>
                     <motion.div
                         initial={reducedMotion ? false : { opacity: 0, y: 18 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: aceternityMotion.duration.panel, ease: aceternityMotion.easing.enter }}
-                        className="absolute inset-x-0 bottom-0 max-w-2xl p-5 sm:p-7 lg:p-10"
+                        className="absolute bottom-10 right-12 hidden max-w-md text-right lg:block"
                     >
                         <p className="auth-scene-hero-muted text-xs font-semibold tracking-[0.18em]">{brandStudioLabel(appearance)}</p>
-                        <h1 className="auth-scene-hero-title mt-3 max-w-xl whitespace-pre-line text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl">{appearance.authHeroTitle}</h1>
+                        <h1 className="auth-scene-hero-title mt-3 max-w-xl whitespace-pre-line text-3xl font-medium leading-snug">{appearance.authHeroTitle}</h1>
                         {appearance.authHeroDescription ? <p className="auth-scene-hero-muted mt-4 max-w-xl whitespace-pre-line text-sm leading-6 sm:text-base sm:leading-7">{appearance.authHeroDescription}</p> : null}
                     </motion.div>
                 </section>
 
-                <section className="auth-scene-form-pane relative flex min-h-[660px] flex-col items-center overflow-y-auto px-4 pt-20 sm:px-8 lg:min-h-0 lg:px-10 lg:pt-20">
-                    <Link to="/" className="auth-scene-return absolute right-5 top-5 z-20 inline-flex h-9 items-center gap-2 rounded-full px-4 text-xs backdrop-blur-xl transition lg:right-8 lg:top-8">
-                        <ArrowLeft className="size-3.5" />
-                        返回首页
+                <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-4 p-5 sm:p-8 lg:px-12">
+                    <Link to="/" className="auth-scene-brand inline-flex items-center gap-2 text-sm font-semibold drop-shadow-sm transition-opacity hover:opacity-80">
+                        <BrandLogo theme={theme} className={`size-7 ${appearance.logoConfigured ? "" : "brightness-0 invert"}`} alt="" fallback={<span className="size-7 bg-current" style={{ mask: "url(/logo.svg) center / contain no-repeat", WebkitMask: "url(/logo.svg) center / contain no-repeat" }} />} />
+                        {appearance.brandName}
                     </Link>
-
+                    <div className="flex items-center gap-3">
+                        <button type="button" className="auth-scene-hero-control inline-flex items-center gap-2 rounded-full px-3 py-2 text-[var(--fs-label)] backdrop-blur-xl transition disabled:cursor-default" onClick={playVideo} disabled={videoPlaying || !appearance.authVideoUrl} aria-pressed={videoPlaying}>
+                            <Play className="size-3 fill-current" />
+                            {videoPlaying ? "创作正在发生" : "播放品牌影片"}
+                        </button>
+                        <Link to="/" className="auth-scene-return inline-flex h-9 items-center gap-2 rounded-full px-4 text-xs backdrop-blur-xl transition">
+                            <ArrowLeft className="size-3.5" />
+                            返回首页
+                        </Link>
+                    </div>
+                </header>
+                <section className="auth-scene-form-pane relative flex min-h-dvh w-full flex-col px-5 pb-5 pt-24 sm:px-8 sm:pt-28 lg:ml-[clamp(24px,5vw,96px)] lg:w-[min(46vw,520px)] lg:px-0 lg:pb-6">
                     <div className="flex w-full flex-1 items-center justify-center">
                         <motion.div
                             initial={reducedMotion ? false : { opacity: 0, y: 14 }}
                             animate={{ opacity: 1, y: 0 }}
                             layout={!reducedMotion}
                             transition={{ duration: aceternityMotion.duration.panel, ease: aceternityMotion.easing.enter }}
-                            className="my-auto w-full max-w-[460px]"
+                            className="my-4 w-full max-w-[440px]"
                         >
-                            <div className="auth-scene-card h-auto overflow-hidden rounded-lg backdrop-blur-2xl">
-                                <section aria-label={copy.title} className={`flex flex-col ${recovery ? "min-h-[600px]" : activeTab === "login" ? "" : "min-h-[620px] sm:min-h-[640px]"}`}>
+                            <div className="auth-scene-card h-auto overflow-hidden rounded-3xl backdrop-blur-2xl">
+                                <section aria-label={copy.title} className="flex flex-col">
                                     <header className="px-6 pb-5 pt-6 sm:px-8 sm:pt-7">
                                         <p className="auth-scene-eyebrow text-xs font-semibold tracking-[0.18em]">{copy.eyebrow}</p>
                                         <h2 className="mt-2 text-3xl font-semibold">{copy.title}</h2>

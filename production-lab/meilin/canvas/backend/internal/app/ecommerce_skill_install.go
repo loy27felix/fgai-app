@@ -21,6 +21,7 @@ import (
 	"meilin/backend/internal/ecommerceskills"
 	"meilin/backend/internal/kernel"
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 const ecommerceInstalledPrefix = "ecommerce_installed_skill."
@@ -251,6 +252,9 @@ func readEcommerceSkillPackage(filename, subdir string) ([]byte, string, error) 
 
 func (s *Service) installEcommerceReader(reader io.Reader, filename, subdir string) (ecommerceInstalledSkill, error) {
 	var item ecommerceInstalledSkill
+	if err := storage.CheckNASGuard(); err != nil {
+		return item, err
+	}
 	dir := filepath.Join(s.dataDir, "ecommerce-skill-packages")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return item, err
@@ -416,13 +420,16 @@ func (s *Service) startEcommerceSkillSyncWorker(ctx context.Context) {
 		defer ticker.Stop()
 		for {
 			items, err := s.ecommerceInstalledSkills()
-			if err == nil {
+			if err == nil && storage.CheckNASGuard() == nil {
 				for _, item := range items {
 					if ctx.Err() != nil {
 						return
 					}
 					if !item.AutoUpdate || time.Since(item.LastCheckedAt) < 6*time.Hour {
 						continue
+					}
+					if storage.CheckNASGuard() != nil {
+						break
 					}
 					discovery, err := s.DiscoverGitHubSkills(ctx, item.InstalledBy, SkillGitHubDiscoverRequest{URL: item.SourceURL, Ref: item.SourceRef, Subdir: item.Subdir})
 					var updated ecommerceInstalledSkill
@@ -444,7 +451,7 @@ func (s *Service) startEcommerceSkillSyncWorker(ctx context.Context) {
 							*current = updated
 						}
 					})
-					if updated.PackageKey != "" {
+					if updated.PackageKey != "" && storage.CheckNASGuard() == nil {
 						if saveErr != nil {
 							os.Remove(filepath.Join(s.dataDir, "ecommerce-skill-packages", updated.PackageKey))
 						} else if oldKey != "" {

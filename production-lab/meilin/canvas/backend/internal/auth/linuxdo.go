@@ -579,7 +579,7 @@ func safeOAuthNext(value string) string {
 	if value == "" || err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(value, "//") || strings.Contains(value, "\\") {
 		return "/create"
 	}
-	return parsed.RequestURI()
+	return parsed.String()
 }
 
 func shortSubject(value string) string {

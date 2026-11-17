@@ -15,6 +15,7 @@ import (
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/protocol"
 	"meilin/backend/internal/repository"
+	"meilin/backend/internal/storage"
 )
 
 // Recovery is keyed by the task, not a second generation or billing order.
@@ -260,7 +261,7 @@ func (s *Service) materializeTaskMedia(ctx context.Context, task *model.Task, co
 		if err := s.saveMediaCheckpoint(task, checkpoint, "register"); err != nil {
 			return nil, err
 		}
-		if path := s.mediaTempPath(stagedName); path != "" {
+		if path := s.mediaTempPath(stagedName); path != "" && storage.CheckNASGuard() == nil {
 			if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
 				_ = s.log(task.UserID, task.ID, "warn", "清理作品暂存文件失败", "")
 			}

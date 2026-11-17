@@ -18,6 +18,7 @@ import (
 
 	"meilin/backend/internal/payment"
 	"meilin/backend/internal/protocol"
+	"meilin/backend/internal/storage"
 )
 
 const (
@@ -94,6 +95,9 @@ type pluginRegistryRecord struct {
 }
 
 func newPluginRuntime(dataDir string) (*pluginRuntime, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, err
+	}
 	dataDir = strings.TrimSpace(dataDir)
 	if dataDir == "" {
 		return nil, errors.New("plugin data directory is empty")
@@ -632,6 +636,9 @@ func linkReadyPaymentRuntime(packageDir, digest, backendEntry string) bool {
 }
 
 func materializePaymentBackend(packageDir, hash string, pkg protocol.PluginPackage) (string, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return "", err
+	}
 	digest := strings.ToLower(strings.TrimSpace(hash))
 	if len(digest) != sha256.Size*2 {
 		return "", errors.New("支付插件包摘要无效")
@@ -736,6 +743,9 @@ func (c *pluginRuntime) paymentRegistrySnapshot() *payment.Registry {
 }
 
 func (c *pluginRuntime) install(data []byte, fileName string) (PluginView, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return PluginView{}, err
+	}
 	c.mutationMu.Lock()
 	defer c.mutationMu.Unlock()
 	if len(data) == 0 || len(data) > protocol.PluginPackageMaxBytes {
@@ -876,6 +886,9 @@ func pluginManifestView(raw []byte, metadata protocol.Metadata, source string) P
 }
 
 func (c *pluginRuntime) uninstall(id string) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	c.mutationMu.Lock()
 	defer c.mutationMu.Unlock()
 	c.mu.RLock()
@@ -938,6 +951,9 @@ func (c *pluginRuntime) writeRegistry(records []pluginRegistryRecord) error {
 // 官方包随镜像不可变发布。已存在的摘要文件和同文件系统硬链接继续复用，
 // 跨文件系统则流式复制并校验摘要后原子发布，不需要把整包再次读入内存。
 func cachePluginPackage(path string, official officialPluginPackage) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Size() == official.source.Size() {
 		return nil
 	}
@@ -991,6 +1007,9 @@ func cachePluginPackage(path string, official officialPluginPackage) error {
 }
 
 func writePluginFile(path string, data []byte) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".plugin-*.tmp")
 	if err != nil {
 		return err

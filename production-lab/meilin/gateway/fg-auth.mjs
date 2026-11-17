@@ -1,12 +1,52 @@
 import http from 'node:http';
+import { BlockList, isIP } from 'node:net';
 import { pipeline } from 'node:stream';
 import { proxyHeaders, responseHeaders } from './policy.mjs';
 
 const sessionName = 'open_ai_canvas_session';
+const linuxDOStateCookieName = 'open_ai_canvas_linuxdo_state';
+const linuxDOCallbacks = new Set(['/api/auth/linuxdo/callback', '/api/oauth/linuxdo/callback', '/oauth/linuxdo/callback']);
 const userID = /^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i;
-const publicPages = new Set(['/', '/index.html', '/login', '/register', '/forgot-password', '/logo.svg', '/favicon.ico', '/favicon.svg', '/manifest.webmanifest', '/.well-known/fg-runtime.json']);
+const publicPages = new Set(['/', '/index.html', '/login', '/register', '/forgot-password', '/logo.svg', '/favicon.ico', '/favicon.svg', '/manifest.webmanifest', '/.well-known/fg-runtime.json', '/landing-media/fg-hero-4k.mp4', '/landing-media/fg-hero-poster.jpg']);
 const publicReads = new Set(['/api/auth/settings', '/api/auth/session', '/api/auth/linuxdo/start', '/api/auth/linuxdo/callback', '/api/oauth/linuxdo/callback', '/oauth/linuxdo/callback', '/api/public/appearance']);
 const publicWrites = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/register', '/api/auth/email-code', '/api/auth/password-reset-code', '/api/auth/password-reset', '/api/auth/verification', '/api/auth/verification/login']);
+
+function normalizedIP(value) {
+  const address = String(value || '').trim();
+  return address.startsWith('::ffff:') && isIP(address.slice(7)) === 4 ? address.slice(7) : address;
+}
+
+export function nativeProxyTrust(value = '') {
+  const trusted = new BlockList();
+  for (const item of value.split(',').map(part => part.trim()).filter(Boolean)) {
+    const [address, prefix, extra] = item.split('/');
+    const family = isIP(address);
+    const bits = prefix === undefined ? (family === 4 ? 32 : 128) : Number(prefix);
+    if (!family || extra !== undefined || (prefix !== undefined && !/^\d+$/.test(prefix)) || !Number.isInteger(bits) || bits <= 0 || bits > (family === 4 ? 32 : 128)) throw new Error('INVALID_FG_NATIVE_TRUSTED_PROXY_CIDRS');
+    trusted.addSubnet(address, bits, family === 4 ? 'ipv4' : 'ipv6');
+  }
+  return trusted;
+}
+
+const trustedNativeProxies = nativeProxyTrust(process.env.FG_NATIVE_TRUSTED_PROXY_CIDRS);
+
+export function nativeClientIP(req, trusted = trustedNativeProxies) {
+  const peer = normalizedIP(req.socket?.remoteAddress);
+  const family = isIP(peer);
+  if (!family) return undefined;
+  // TLS must reset XFF to one address; never accept a client-supplied chain.
+  // TLS 入口必须重置为单一来源地址；不接受客户端自带的转发链。
+  const forwarded = typeof req.headers['x-forwarded-for'] === 'string' ? normalizedIP(req.headers['x-forwarded-for']) : '';
+  return trusted.check(peer, family === 4 ? 'ipv4' : 'ipv6') && isIP(forwarded) ? forwarded : peer;
+}
+
+export function nativeProxyHeaders(req, cookie, publicOrigin) {
+  const headers = proxyHeaders(req.headers, cookie, new URL(publicOrigin).host);
+  headers['x-forwarded-proto'] = new URL(publicOrigin).protocol.slice(0, -1);
+  const clientIP = nativeClientIP(req);
+  if (clientIP) headers['x-forwarded-for'] = clientIP;
+  return headers;
+}
 
 export function workspaceAuthMode(value = process.env.FG_AUTH_MODE || 'platform') {
   if (value !== 'platform' && value !== 'native') throw new Error('INVALID_FG_AUTH_MODE');
@@ -19,6 +59,13 @@ export function nativeSessionCookie(value) {
   const token = cookies[0].slice(sessionName.length + 1);
   const [id, secret, extra] = token.split('.');
   return userID.test(id || '') && /^[0-9a-f]{64}$/i.test(secret || '') && extra === undefined ? `${sessionName}=${token}` : '';
+}
+
+function nativeOAuthStateCookie(value) {
+  const cookies = String(value || '').split(';').map(part => part.trim()).filter(part => part.startsWith(linuxDOStateCookieName + '='));
+  if (cookies.length !== 1) return '';
+  const state = cookies[0].slice(linuxDOStateCookieName.length + 1);
+  return /^[0-9a-f]{64}$/i.test(state) ? `${linuxDOStateCookieName}=${state}` : '';
 }
 
 export function nativePublicRequest(method, path) {
@@ -37,8 +84,8 @@ export function nativePageRequest(req, path) {
 export function nativeResponseHeaders(incoming) {
   const headers = responseHeaders(incoming);
   const cookies = Array.isArray(incoming['set-cookie']) ? incoming['set-cookie'] : [incoming['set-cookie']];
-  const sessionCookies = cookies.filter(value => typeof value === 'string' && value.startsWith(sessionName + '='));
-  if (sessionCookies.length) headers['set-cookie'] = sessionCookies;
+  const authCookies = cookies.filter(value => typeof value === 'string' && (value.startsWith(sessionName + '=') || value.startsWith(linuxDOStateCookieName + '=')));
+  if (authCookies.length) headers['set-cookie'] = authCookies;
   return headers;
 }
 
@@ -72,8 +119,8 @@ export async function nativeActor(req, { pool, web, publicOrigin }) {
 }
 
 export function proxyNativeRequest(req, res, { path, web, publicOrigin }) {
-  const headers = proxyHeaders(req.headers, nativeSessionCookie(req.headers.cookie), new URL(publicOrigin).host);
-  headers['x-forwarded-proto'] = new URL(publicOrigin).protocol.slice(0, -1);
+  const cookie = [nativeSessionCookie(req.headers.cookie), linuxDOCallbacks.has(path.pathname) ? nativeOAuthStateCookie(req.headers.cookie) : ''].filter(Boolean).join('; ');
+  const headers = nativeProxyHeaders(req, cookie, publicOrigin);
   if (req.headers.origin) headers.origin = publicOrigin;
   const upstream = http.request(new URL(path.pathname + path.search, web), { method: req.method, headers }, remote => {
     const outgoing = nativeResponseHeaders(remote.headers);

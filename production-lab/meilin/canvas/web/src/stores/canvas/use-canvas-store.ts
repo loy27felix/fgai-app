@@ -3,7 +3,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { migrateCanvasNodeModel } from "@/lib/canvas/migrate-canvas-node-model";
-import { sameCanvasContent } from "@/lib/canvas/canvas-content";
+import { normalizeCanvasProjectCollections, sameCanvasContent } from "@/lib/canvas/canvas-content";
 import { canvasAppearanceForPreset, DEFAULT_CANVAS_BACKGROUND_MODE, NEW_CANVAS_BACKGROUND_MODE, normalizeCanvasAppearance, readCanvasAppearanceDefault, type CanvasAppearance } from "@/lib/canvas/canvas-appearance";
 import { parseCanvasStorageDocument, rebaseCanvasProjects, serializeCanvasStorageDocument, type CanvasStorageDocument } from "@/lib/canvas/canvas-storage-revision";
 import { localForageStorageForScope } from "@/lib/localforage-storage";
@@ -171,7 +171,7 @@ function readCanvasPersistenceJournals(scope: string): CanvasPersistenceJournal[
                     Number.isSafeInteger(journal.token) &&
                     Array.isArray(journal.projects) &&
                     Array.isArray(journal.baseProjects)
-                    ? [journal]
+                    ? [{ ...journal, baseProjects: journal.baseProjects.map(normalizeCanvasProjectCollections), projects: journal.projects.map(normalizeCanvasProjectCollections) }]
                     : [];
             } catch {
                 return [];
@@ -567,7 +567,7 @@ function ordinaryCanvasProjectSnapshot(scope: string, project: CanvasProject, du
         nodes.push({ ...node, metadata });
     }
     const chatSessions: CanvasAssistantSession[] = [];
-    for (const session of project.chatSessions) {
+    for (const session of project.chatSessions || []) {
         const durableSession = durableSessions.get(session.id);
         const durableKeys = durableSession?.generationEffectKeys;
         if (durableProject && hasUnconfirmedGenerationKey(session.generationEffectKeys, durableKeys)) {
@@ -615,7 +615,7 @@ function ordinaryCanvasProjectSnapshot(scope: string, project: CanvasProject, du
 
 function hasGenerationEffectKeys(value: CanvasProject | undefined) {
     if (!value) return false;
-    return value.nodes.some((node) => Boolean(node.metadata?.generationEffectKeys?.length)) || value.chatSessions.some((session) => Boolean(session.generationEffectKeys?.length));
+    return value.nodes.some((node) => Boolean(node.metadata?.generationEffectKeys?.length)) || Boolean(value.chatSessions?.some((session) => Boolean(session.generationEffectKeys?.length)));
 }
 
 function sameGenerationEffectKeys(left?: readonly string[], right?: readonly string[]) {

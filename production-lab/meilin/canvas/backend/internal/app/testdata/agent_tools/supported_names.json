@@ -1,8 +1,9 @@
 [
+  "agent_profile_read",
   "memory_search",
   "mcp_list_tools",
   "mcp_call_tool",
-  "agent_profile_read",
+  "workspace_overview",
   "plan_update",
   "ask_user",
   "previs_scene_read",

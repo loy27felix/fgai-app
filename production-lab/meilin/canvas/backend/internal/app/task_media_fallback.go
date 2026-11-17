@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 // 生成作品的本地兜底：平台对象存储写入失败时，作品先存到后端数据目录，任务照常
@@ -129,6 +130,9 @@ func (s *Service) localFallbackRefusal(resource *model.Resource) error {
 // 改为本地存储。调用方随后把资源标记为 ready 并保存。补传任务先于资源行落库：
 // 资源行保存失败时，worker 会发现资源不是这份本地文件并取消任务。
 func (s *Service) fallbackTaskMediaToLocal(task *model.Task, resource *model.Resource, stagedPath string, cause error) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	now := time.Now()
 	localKey := localObjectKey(resource.UserID, resource.Kind, "generated."+extensionFromMimeType(resource.MimeType), resource.MimeType, now)
 	localPath := filepath.Join(s.dataDir, "resources", filepath.FromSlash(localKey))
@@ -145,7 +149,9 @@ func (s *Service) fallbackTaskMediaToLocal(task *model.Task, resource *model.Res
 		}
 	}
 	if err != nil {
-		_ = os.Remove(localPath)
+		if storage.CheckNASGuard() == nil {
+			_ = os.Remove(localPath)
+		}
 		return err
 	}
 	failure := classifyStorageError(cause)
@@ -157,7 +163,9 @@ func (s *Service) fallbackTaskMediaToLocal(task *model.Task, resource *model.Res
 		NextAttemptAt: now.Add(resourceOffloadFirstDelay), CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.repo.UpsertResourceOffloadJob(job); err != nil {
-		_ = os.Remove(localPath)
+		if storage.CheckNASGuard() == nil {
+			_ = os.Remove(localPath)
+		}
 		return fmt.Errorf("登记对象存储补传任务失败：%w", err)
 	}
 	resource.Provider, resource.Endpoint, resource.Bucket, resource.StorageSettingID, resource.ObjectKey, resource.ETag = "local", "", "", "", localKey, ""

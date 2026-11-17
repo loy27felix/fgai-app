@@ -39,8 +39,10 @@ export function publicCanvasShareRead(method, path) {
 export function proxyHeaders(incoming, cookie, host) {
   const blocked = new Set([...hopHeaders, 'cookie', 'authorization', 'host', 'forwarded', 'x-real-ip']);
   String(incoming.connection || '').split(',').forEach(h => blocked.add(h.trim().toLowerCase()));
+  // Expected-user is a consistency check, never an authentication credential.
+  // 预期用户头仅校验会话一致性，不授予身份；其余内部桥接头仍禁止透传。
   const headers = Object.fromEntries(Object.entries(incoming).filter(([name]) =>
-    !blocked.has(name.toLowerCase()) && !/^x-(?:canvas-|yingce-|forwarded-|fg-)/i.test(name)));
+    !blocked.has(name.toLowerCase()) && (name.toLowerCase() === 'x-canvas-expected-user' || !/^x-(?:canvas-|yingce-|forwarded-|fg-)/i.test(name))));
   return { ...headers, cookie, host, 'x-forwarded-proto': 'https', 'x-forwarded-host': host };
 }
 

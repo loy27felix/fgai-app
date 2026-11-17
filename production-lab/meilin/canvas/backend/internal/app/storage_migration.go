@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"meilin/backend/internal/storage"
 )
 
 const storageMigrationMarker = ".storage-v2-migrated"
@@ -21,6 +23,9 @@ type StorageMigrationSummary struct {
 func (s *Service) MigrateLegacyStorage() (StorageMigrationSummary, error) {
 	if s.repo.Dialect() != "sqlite" {
 		return StorageMigrationSummary{}, nil
+	}
+	if err := storage.CheckNASGuard(); err != nil {
+		return StorageMigrationSummary{}, err
 	}
 	marker := filepath.Join(s.dataDir, storageMigrationMarker)
 	if _, err := os.Stat(marker); err == nil {

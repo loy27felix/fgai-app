@@ -1,5 +1,6 @@
 import type { Asset } from "@/stores/use-asset-store";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
+import { normalizeCanvasProjectCollections } from "@/lib/canvas/canvas-content";
 import { compactApiParams, http } from "@/services/api/request";
 
 export type RemoteUserDataSummary = {
@@ -79,7 +80,7 @@ export function listRemoteCanvasProjectsPage(options: { page: number; pageSize: 
 }
 
 export function getRemoteUserDataSnapshot() {
-    return http.get<RemoteUserDataSnapshot>("/user-data/snapshot", { timeout: 15_000 });
+    return http.get<RemoteUserDataSnapshot>("/user-data/snapshot", { timeout: 15_000 }).then((snapshot) => ({ ...snapshot, projects: snapshot.projects.map(normalizeCanvasProjectCollections) }));
 }
 
 export function listRemoteAssets() {
@@ -150,7 +151,7 @@ export function listRemoteCanvasProjects() {
 
 export function getRemoteCanvasProject(id: string, knownProject?: CanvasProject) {
     if (!knownProject || knownProject.id !== id || !Number.isSafeInteger(knownProject.revision)) {
-        return http.get<{ project: CanvasProject }>(`/canvas-projects/${encodeURIComponent(id)}`, { timeout: 15_000 }).then((result) => ({ ...result, notModified: false }));
+        return http.get<{ project: CanvasProject }>(`/canvas-projects/${encodeURIComponent(id)}`, { timeout: 15_000 }).then((result) => ({ ...result, project: normalizeCanvasProjectCollections(result.project), notModified: false }));
     }
     const etag = `"canvas-${knownProject.revision}"`;
     return http
@@ -160,7 +161,7 @@ export function getRemoteCanvasProject(id: string, knownProject?: CanvasProject)
             validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
             allowNotModified: true,
         })
-        .then((result) => ("notModified" in result ? { project: knownProject, notModified: true } : { ...result, notModified: false }));
+        .then((result) => ("notModified" in result ? { project: knownProject, notModified: true } : { ...result, project: normalizeCanvasProjectCollections(result.project), notModified: false }));
 }
 
 export function applyRemoteCanvasOperations(id: string, request: CanvasOperationsRequest) {

@@ -160,6 +160,6 @@ func registerAuthProfileRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		c.Redirect(http.StatusFound, target)
+		redirectLinuxDOAuthorization(c, target)
 	})
 }

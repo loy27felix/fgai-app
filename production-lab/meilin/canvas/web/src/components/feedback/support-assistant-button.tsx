@@ -6,10 +6,10 @@ import { ArrowUp, Copy, ImagePlus, Search, SlidersHorizontal, Square, ThumbsDown
 import { useCopyText } from "@/hooks/use-copy-text";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { fgWorkspaceBasePath, isNativeAuth } from "@/lib/fg-entry-url";
-import { cancelSupportQuestions, nativeSupportUnavailable, watchSupportConversation, submitSupportQuestion, submitSupportFeedback, type SupportBrowserRequest, type SupportContext, type SupportFeedback, type SupportMessage } from "@/services/api/support-assistant";
+import { cancelSupportQuestions, nativeSupportUnavailable, supportAssistantAvailable, watchSupportConversation, submitSupportQuestion, submitSupportFeedback, type SupportBrowserRequest, type SupportContext, type SupportFeedback, type SupportMessage } from "@/services/api/support-assistant";
 import { getClientDiagnosticEvents } from "@/services/diagnostics/client-diagnostics";
 
-function SupportAnswerFeedback({ conversationId, message, onSaved }: { conversationId: string; message: SupportMessage; onSaved: (feedback: SupportFeedback) => void }) {
+function SupportAnswerFeedback({ userId, conversationId, message, onSaved }: { userId: string; conversationId: string; message: SupportMessage; onSaved: (feedback: SupportFeedback) => void }) {
     const [editing, setEditing] = useState(false);
     const [correction, setCorrection] = useState("");
     const [saving, setSaving] = useState(false);
@@ -20,7 +20,7 @@ function SupportAnswerFeedback({ conversationId, message, onSaved }: { conversat
         if (savingLock.current) return;
         savingLock.current = true; setSaving(true); setError("");
         try {
-            const result = await submitSupportFeedback(conversationId, message.id, rating, note);
+            const result = await submitSupportFeedback(conversationId, message.id, rating, note, userId);
             onSaved(result.feedback);
             setCorrection(result.feedback.correction); setEditing(showCorrection);
         } catch (cause) {
@@ -175,12 +175,25 @@ function conversationId(userId: string) {
 
 export function SupportAssistantButton({ userId }: { userId: string }) {
     const [open, setOpen] = useState(false);
+    const [availability, setAvailability] = useState<{ userId: string; enabled: boolean } | null>(null);
+    useEffect(() => {
+        if (!open || !isNativeAuth) return;
+        const controller = new AbortController();
+        void supportAssistantAvailable(controller.signal).then(enabled => {
+            if (!controller.signal.aborted) setAvailability({ userId, enabled });
+        }).catch(() => {
+            if (!controller.signal.aborted) setAvailability({ userId, enabled: false });
+        });
+        return () => controller.abort();
+    }, [open, userId]);
+    const ready = !isNativeAuth || (availability?.userId === userId && availability.enabled);
+    const checking = isNativeAuth && availability?.userId !== userId;
     return <>
         <button type="button" className="app-workspace-topbar-feedback-pill" onClick={() => setOpen(true)} aria-label="打开自助排查助手">
             <Search aria-hidden="true" /><span>自助排查</span>
         </button>
         <AppModal title="自助排查助手" open={open} onCancel={() => setOpen(false)} footer={null} width={800} centered styles={{ body: { height: "min(600px, calc(100dvh - 120px))", overflow: "hidden" } }}>
-            {open ? isNativeAuth ? <Alert type="warning" showIcon title="问题助手暂未接入" description={nativeSupportUnavailable} /> : <SupportConversation key={userId} userId={userId} /> : null}
+            {open ? checking ? <Spin /> : ready ? <SupportConversation key={userId} userId={userId} /> : <Alert type="warning" showIcon title="问题助手尚未就绪" description={nativeSupportUnavailable} /> : null}
         </AppModal>
     </>;
 }
@@ -228,7 +241,7 @@ function SupportConversation({ userId }: { userId: string }) {
             setLoading(false);
         },
         onError: message => { setConnectionError(message); if (message) setLoading(false); },
-    }), [id, revision]);
+    }, userId), [id, revision, userId]);
 
     const latestMessage = messages.at(-1);
     const hasActiveJobs = messages.some(message => ["pending", "processing"].includes(message.status));
@@ -289,7 +302,7 @@ function SupportConversation({ userId }: { userId: string }) {
         followLatest.current = true;
         setSending(true); setError("");
         try {
-            const submitted = await submitSupportQuestion({ conversationId: id, text: question, images, context });
+            const submitted = await submitSupportQuestion({ conversationId: id, text: question, images, context }, userId);
             if (activeId.current === id) {
                 setMessages(current => current.some(item => item.id === submitted.jobId) ? current : [...current, {
                     id: submitted.jobId, ticketId: submitted.ticketId, text: question || "请根据附带截图排查问题。",
@@ -310,7 +323,7 @@ function SupportConversation({ userId }: { userId: string }) {
         if (!jobIds.length || stopping) return;
         setStopping(true); setError("");
         try {
-            const result = await cancelSupportQuestions(id, jobIds);
+            const result = await cancelSupportQuestions(id, jobIds, userId);
             if (activeId.current === id) { setMessages(result.messages); setRevision(value => value + 1); }
         } catch (cause) {
             if (activeId.current === id) setError(cause instanceof Error ? cause.message : "终止失败，请重试");
@@ -334,7 +347,7 @@ function SupportConversation({ userId }: { userId: string }) {
             {messages.map(item => <article key={item.id} className="flex shrink-0 flex-col gap-3 border-b border-border pb-4 last:border-0">
                 <div><strong className="text-sm">你</strong><p className="mt-1 whitespace-pre-wrap break-words text-sm">{item.text}</p></div>
                 {item.imageCount ? <Image.PreviewGroup><div className="flex gap-2 overflow-x-auto">{Array.from({ length: item.imageCount }, (_, index) => <Image
-                    key={index} src={`/api/support-bot/web?conversationId=${encodeURIComponent(id)}&messageId=${encodeURIComponent(item.id)}&image=${index}`}
+                    key={index} src={`/api/support-bot/web?conversationId=${encodeURIComponent(id)}&messageId=${encodeURIComponent(item.id)}&image=${index}${isNativeAuth ? `&expectedUserId=${encodeURIComponent(userId)}` : ""}`}
                     alt={`已发送截图 ${index + 1}`} width={64} height={48} style={{ objectFit: "contain", flexShrink: 0 }}
                 />)}</div></Image.PreviewGroup> : null}
                 <div data-support-reply={item.id} className="min-w-0 rounded-lg bg-muted/50 p-3">
@@ -348,7 +361,7 @@ function SupportConversation({ userId }: { userId: string }) {
                     </>}
                     {item.progress?.length ? <Collapse ghost size="small" items={[{ key: "progress", label: `排查过程 · ${item.progress.length} 条查询结果`, children: <ol className="space-y-2 text-xs text-muted-foreground">{item.progress.map(event => <li key={event.id} className="break-words"><time dateTime={event.at} className="mr-2">{new Date(event.at).toLocaleTimeString()}</time>{event.text}</li>)}</ol> }]} /> : null}
                     {item.ticketId ? <p className="mt-2 break-all text-xs text-muted-foreground">问题编号：{item.ticketId}</p> : null}
-                    {item.status === "completed" && item.reply ? <SupportAnswerFeedback conversationId={id} message={item}
+                    {item.status === "completed" && item.reply ? <SupportAnswerFeedback userId={userId} conversationId={id} message={item}
                         onSaved={feedback => setMessages(current => current.map(message => message.id === item.id ? { ...message, feedback } : message))} /> : null}
                 </div>
             </article>)}

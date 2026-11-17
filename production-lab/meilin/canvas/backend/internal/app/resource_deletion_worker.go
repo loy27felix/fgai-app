@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 const resourceDeletionLease = 2 * time.Minute
@@ -44,6 +45,9 @@ func (s *Service) startResourceDeletionWorker(ctx context.Context) {
 }
 
 func (s *Service) cleanupDetachedResources() {
+	if storage.CheckNASGuard() != nil {
+		return
+	}
 	now := time.Now()
 	candidates, err := s.repo.ResourceCleanupCandidates(
 		now.Add(-incompleteResourceRetention),
@@ -68,6 +72,9 @@ func (s *Service) cleanupDetachedResources() {
 func (s *Service) cleanupDetachedUserResources(userID string, candidates []model.Resource) error {
 	s.storageMu.Lock()
 	defer s.storageMu.Unlock()
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	resourceIDs := make([]string, 0, len(candidates))
 	candidateSet := make(map[string]struct{}, len(candidates))
 	for _, resource := range candidates {
@@ -135,6 +142,9 @@ func (s *Service) cleanupDetachedUserResources(userID string, candidates []model
 }
 
 func (s *Service) cleanupExpiredArchivedAssets() {
+	if storage.CheckNASGuard() != nil {
+		return
+	}
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return
@@ -170,6 +180,9 @@ func (s *Service) drainResourceDeletionJobs(limit int) {
 		owner = newID()
 	}
 	for index := 0; index < limit; index++ {
+		if storage.CheckNASGuard() != nil {
+			return
+		}
 		job, err := s.repo.ClaimNextResourceDeletionJob(owner, resourceDeletionLease)
 		if err != nil {
 			log.Printf("resource deletion worker claim failed: %v", err)
@@ -178,12 +191,24 @@ func (s *Service) drainResourceDeletionJobs(limit int) {
 		if job == nil {
 			return
 		}
+		if storage.CheckNASGuard() != nil {
+			if err := s.repo.PauseResourceDeletionForNAS(job.ID, owner); err != nil {
+				log.Printf("resource deletion NAS pause failed: %v", err)
+			}
+			return
+		}
 		resource := &model.Resource{
 			ID: job.ResourceID, UserID: job.UserID, Provider: job.Provider,
 			Endpoint: job.Endpoint, Bucket: job.Bucket, StorageSettingID: job.StorageSettingID,
 			ObjectKey: job.ObjectKey,
 		}
 		if err := s.deleteStoredResourceObject(job.UserID, resource); err != nil {
+			if storage.CheckNASGuard() != nil {
+				if pauseErr := s.repo.PauseResourceDeletionForNAS(job.ID, owner); pauseErr != nil {
+					log.Printf("resource deletion NAS pause failed: %v", pauseErr)
+				}
+				return
+			}
 			delay := resourceDeletionRetryDelay(job.Attempts)
 			if retryErr := s.repo.RetryResourceDeletionJob(job.ID, owner, err.Error(), time.Now().Add(delay)); retryErr != nil {
 				log.Printf("resource deletion worker retry update failed for %s: %v", job.ID, retryErr)

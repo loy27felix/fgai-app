@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+
+	"meilin/backend/internal/storage"
 )
 
 var fgActorID = regexp.MustCompile(`^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$`)
@@ -26,6 +28,9 @@ func (s *Service) FGArchiveStory(actor string, id int, revision int64, data json
 	}
 	s.storageMu.Lock()
 	defer s.storageMu.Unlock()
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	return writeFGArchive(os.Getenv("CANVAS_FG_NAS_ROOT"), "stories", actor, fmt.Sprint(id), revision, data)
 }
 
@@ -34,6 +39,9 @@ func (s *Service) FGArchiveStory(actor string, id int, revision int64, data json
 func (s *Service) FGProjectFiles(actor, module, action, name, operation string, record json.RawMessage) (string, error) {
 	s.storageMu.Lock()
 	defer s.storageMu.Unlock()
+	if err := storage.CheckNASGuard(); err != nil {
+		return "", err
+	}
 	if os.Getenv("CANVAS_FG_TEAM_WORKSPACE") != "true" || !fgActorID.MatchString(actor) || !fgArchiveID.MatchString(operation) {
 		return "", Forbidden("工程归档未授权")
 	}

@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 	"meilin/backend/internal/kernel"
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 const (
@@ -266,6 +267,9 @@ func (s *Service) syncGitHubSkill(skill *model.Skill) error {
 }
 
 func (s *Service) syncGitHubSkillWithContext(ctx context.Context, skill *model.Skill) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	now := time.Now()
 	spec, err := parseGitHubSkillURL(skill.SourceURL, skill.SourceRef, skill.SourceSubdir)
 	if err != nil {
@@ -421,6 +425,9 @@ func applySkillArchiveVersion(skill *model.Skill, version *model.SkillVersion, a
 }
 
 func (s *Service) persistSkillArchive(skillID string, versionID string, archive skillPackageArchive, sourceCommit string) (string, *model.SkillVersion, []model.SkillFile, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return "", nil, nil, err
+	}
 	packageKey := path.Join(skillID, versionID+".zip")
 	absolute := filepath.Join(s.dataDir, "skill-packages", filepath.FromSlash(packageKey))
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o750); err != nil {

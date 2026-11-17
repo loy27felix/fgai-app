@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from 'pg';
 import { withTransaction } from '@/lib/local/db';
 import type { SupportContext } from './context';
 import { redactSupportText } from './redact';
+import { isSupportUserId, isLegacySupportUserId } from './identity';
 
 type OperationInput = {
   userId: string;
@@ -33,7 +34,7 @@ const QUERY_FAILED = '操作数据暂时无法查询；查询失败不代表本�
 let canvasPool: Pool | undefined;
 
 export function normalizeSupportOperationScope(input: OperationInput): Scope | null {
-  if (!UUID.test(input.userId)) return null;
+  if (!isSupportUserId(input.userId)) return null;
   const taskId = input.taskId ?? input.context?.taskId;
   const sessionId = input.sessionId ?? input.context?.sessionId;
   const projectId = input.projectId ?? input.context?.projectId;
@@ -135,6 +136,9 @@ function evidenceNote(scope: Scope) {
 }
 
 async function creatorOperations(scope: Scope): Promise<Record<string, unknown>> {
+  // Legacy UUID columns must not cast a native 32hex owner into a different account namespace.
+  // 旧 UUID 列不得将原生 32hex 账号隐式转换为另一个账号命名空间。
+  if (!isLegacySupportUserId(scope.userId)) return { rows: [], incomplete: true, note: '原生账号没有旧 FG creator UUID 归属映射，未查询或转换账号编号。' };
   if (scope.requestId || scope.traceId) return { rows: [], incomplete: true, note: 'FG creator 暂无已核实的 requestId/traceId 查询关联，未忽略筛选或扩大范围。' };
   if (scope.projectId) return { rows: [], incomplete: true, note: '当前仅支持 creator 任务和会话；FG projectId 无可靠业务关联，未扩大到账号范围查询。' };
   if ((scope.taskId && !UUID.test(scope.taskId)) || (scope.sessionId && !UUID.test(scope.sessionId))) {

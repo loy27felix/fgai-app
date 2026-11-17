@@ -70,6 +70,35 @@ must_haves:
 本地代码与验证结果见 .planning/STATE.md；剩余数据/能力缺口和生产操作由 P1 单独约束，不能把候选代码存在当作完整退役。
 </objective>
 
+## 持续验收补充（2026-11-17）
+
+最新授权优先于下文较早的“未获生产访问授权”记录：用户已允许只读查看生产 NAS/隧道、部署版本及历史媒体引用，其他生产副作用仍一律禁止。已通过 `server` 完成当前状态、实际版本及历史引用取证；NAS/隧道现状、18 个媒体样本读取通过，但实际 supervisor 和 storage 隧道仍指向旧 app，旧工程确有旧 handler 引用。没有修改生产或关闭服务，P1 不放行；完整计数与证据集中见 STATE 生产只读核验专节，不以配置 healthy 代替 native 切换和故障/回滚验收。
+
+最新补验另发现原生项目预算准入同样无条件引用退役广告表，已修复且保留历史预算：真实PostgreSQL原/新函数15/15、既有预算+费用/退役测试29/29、新Gateway原gate 230 pass/0 fail/1既有skip，新预算镜像归档重载39/39。最新候选tag为 `fg-main-acceptance-gateway:a441-20261117-budget`，包含前轮finance修复；后续本地Compose显式选择此tag并保留finance-gateway-pin overlay。具体运行更新状态以STATE最新预算专节为准，不据此宣称收费模型或生产已验收。
+
+目标已恢复 active。本轮实测修复 finance 对退役广告表的硬依赖：既有定向测试15/15，Gateway build原gate 230 pass/0 fail/1既有skip，真实PostgreSQL旧新权限/历史投影18/18；本地Gateway新→旧→新实际切换40/40，原会话、素材及画布内容保留，另外八容器不变。个人素材完整生命周期及跨账号/NAS guard补验26/26；九镜像归档重载229/229、新Gateway单独归档39/39。当前运行新finance tag；后续本地Compose必须显式选新image并叠加 `compose/finance-gateway-pin.yml`，不能按旧env回退。具体身份、证据和未放行门槛见STATE最新财务专节；不是生产切流或历史数据回退验收。
+
+用户最新确认：当前生产守护任务只有 **NAS 和隧道**；旧主站报表调度已移除，不迁移、不恢复，不以报表入口缺失或旧 native auto-deploy 未实现阻塞上线。历史 service-monitor/auto-deploy/worker 不视为当前必迁守护任务，已有可选实现和历史证据保留。当前验收聚焦 NAS/隧道、业务数据/媒体、已启用渠道、实际发布/入口切换与回滚；Support 若保留启用，另验其完整处理链路。本节范围优先于下方较早的报表/监测必迁描述，不授予生产访问或操作权限。
+
+最终组合复核已执行六服务 source build（原 gates/成功缓存保留）、8,081 个关键输入 SHA 稳定；实际六组件应用/Go/Agent/Node 产物共 53,584 行 manifest 与新镜像一致。当前 Web 服务文件、保留 inventory、CA-verified 登录/入口资源及旧站视频 Range 和九容器不变等 37/37；未 up/recreate，image ID 变化和旧 digest inspect 失败均保留，不冒称旧 tag 可回滚。实际 native auto-deploy exit 78、仓内未找到 report scheduler 调用仅为历史事实，不再作为当前必需门槛。剩余实际运行配置、历史业务数据、NAS/隧道与发布/回滚按真实落点验收。没有生产只读授权，不 SSH、不猜测配置、不用另一套自研 updater/scheduler 替代验收。详见 STATE 当前范围与产物专节，P1 尚未放行。
+
+独立库备份缺口继续收敛：native 维护增加显式 sidecar 选择，核验项目/服务/本项目 PostgreSQL 连接与网络，复用原 guarded helper 按 service/database 隔离备份。77/77，真实恢复 Support 4 表与观测 6 表，全部行/列/约束/索引/序列一致；原维护 70/70、主库恢复完整性 10/10 对最终源码回归通过，七个既有容器未变。没有 drop/clean、生产调度器变更或远程库 fallback；只是本任务 fixture，不是生产历史库、真实 SMB 素材或跨库原子恢复证明。详见 STATE 最新备份专节，下方旧的独立库待验以该范围为准。
+
+native 观测已复用原 PostgreSQL 事务实现独立 intake、专用认证、既有 schema 只读核验及 durable outbox；显式配置后投递，缺配置/能力仍留队 75。最终镜像/PG/outbox 72/72、拒启动/不建表 6/6、原始 monitor→outbox→入库 4/4；真实合法大日志 envelope 缺口已修为 512 KiB，真实 report_runs 锁回滚/恢复重投、chunked 413、错 ack/并发换文件/隔离原字节与 platform 回归均已验证。只启动本任务新 sidecar，原六个业务容器未变；详细 source SHA、镜像及失败证据见 STATE 观测专节。不是报表调度、native 业务聚合、外部告警、生产历史数据、独立库备份恢复或部署门槛通过；下方较早的 outbox 未完成描述以本节为准。
+
+native monitor 继续补齐 Backend 精确容器身份/loopback ready（不放宽公开鉴权）与独立 `yingce-release` 状态，按批准目标的完整 commit/version 核对三服务 production/clean 身份；缺目标或 dirty 候选不再作为发布绿灯。原始函数隔离断言及本任务真实 TLS/Backend 探针 125/125，actual release 仍为 unknown，证据见 STATE 监测专节。不是 native 自动部署已实现，也不是生产切流/回滚通过；不直接套用带 dropdb 回退的上游 updater。
+
+本地 HTTPS 来源信任与限流已完成真实双来源/反伪造回归，证据见 STATE。
+下一步保留 Support 能力，不另造队列：先从既有 Next route 提取标准 Request/Response HTTP core，保持 PostgreSQL queue、owner 范围、限流、取消、反馈及 SSE 合同；旧 Next route 仍使用原认证，native 入口只能使用 Go 已核验的会话身份。随后补独立 HTTP 包装、私网认证接线及 UI 能力状态，再以隔离数据库验收两个身份的入队/读取/取消/SSE/越权。32hex owner 不得重映射为 UUID；旧 UUID-only 数据源不得把两种字符串隐式转成同一身份。真实 worker/模型效果、历史队列和生产配置仍须分别取证，不能以合成完成记录代替。任何阶段失败均保留证据与原服务，不自动部署或切流。
+
+执行结果：上述 HTTP core/独立包装/native auth/UI/owner 边界已实现，隔离库22项、真实HTTPS29项及Chrome同一任务入队/刷新/取消/刷新恢复通过；chunked超限reset已修复并实测413。完整证据以STATE的2026-11-17 Support专节为准。下方最初T2的“仅503”是初始交付范围，不再代表当前候选；仍未通过真实worker/模型、历史数据或生产切换门槛。
+
+当前 NAS 安全门槛：Go/Gateway 共享 guard 消费、standalone 只读挂载及 HTTP/短代理/新 WSS、媒体/归档/暂存边界和生成/删除/补传暂停已实现，最终原 Docker gate 已通过；运行期正常 guard 转换与恢复结果见 STATE.md。异常类型 guard 在本地 Docker 文件视图中出现宿主已删除、容器 lstat 仍见符号链接的现象，保持 fail closed，不通过更宽松检查绕过；该恢复场景与真实 SMB 重挂、所有独立产品运行时的消费者、native 自动部署/outbox/报表仍需收敛。不在生产设置/清除 guard 或停止守护任务验证，不重写通用存储层。
+
+native supervisor 健康路径已补验：显式 guard 目录与 Compose 对齐，无待恢复状态时先核对精确容器身份、只读 guard/media/root bind、媒体身份及带随机 nonce 的容器写入→宿主读回、ready；健康巡检不再每轮先误封。异常、已存在 guard 或 recovery-pending 仍不解除，不自动重建。共享 guard 写入拒绝链接/非普通文件且不截断原证据；原始函数的隔离断言与本任务真实 Docker 探针见 STATE 的 native NAS 专节。未运行完整生产脚本，SMB inventory 仍是 synthetic；不能将健康巡检通过解释为故障自动恢复或上线门槛通过。
+
+已补 native `maintain-host.py` 候选入口，拒绝旧维护流程误停/重建 native 实例；仅在实际 runtime/guard/挂载/数据库身份与 ready 通过后，复用 storage helper 做受保护的日备份和读回/已有备份校验，不进入 legacy stop/start/rebind/provision。70 项隔离验证通过，真实任务库 custom backup 恢复 177 张表，业务容器没有变化；详见 STATE 的维护/恢复专节。不是生产灾难恢复或 Support 独立库/NAS 素材恢复通过，native 自动部署和监测报表/outbox 仍需继续关闭。
+
 <context>
 @AGENTS.md
 @.codex-memory/MEMORY.md
@@ -250,9 +279,9 @@ production-lab/meilin/README.md
   <gate>本轮禁止越过；不是自动执行节点。</gate>
   <requirements>
 1. 收齐主进程/worker 的实际文件与验证记录；T1/T2/T3 的本地范围真实完成，静态与动态验证分开报告。
-2. 明确账号迁移覆盖范围、旧 groups 是否缺失、既有组/成员/项目/费用不变、历史资产 URL 是否仍需 Next；没清楚就不能停旧站。迁移代码存在不等于数据已迁移。
-3. 确认 Support 网页/飞书/worker、观测持久化/报表及外部回调的实际启用情况；必须保留的能力先交付替代并验收，允许退役的能力取得针对性授权，不能靠未知状态放行。
-4. 检查 NAS supervisor、service-monitor、auto-deploy、report-scheduler、six runtime-requests、six yingce 的下一轮目标和真实入口，保证不会重建旧站、不被新健康协议误判；保持所有受保护任务运行。源文件未找到的调度器依赖仍是阻塞，不能修改未知系统配置。
+2. 明确账号迁移覆盖范围、旧 groups 是否缺失、既有组/成员/项目/费用不变、历史资产 URL 是否仍需 Next；没清楚就不能停旧站。2026-11-17 只读核验已发现旧工程真实旧 storage/creator handler 引用，不能默认其已迁移或退役；详见 STATE。迁移代码存在不等于数据已迁移。
+3. 确认 Support 网页/飞书/worker、可选观测及外部回调的实际启用情况；实际保留并启用的能力须验收完整链路，不能靠未知状态放行。旧主站报表调度已由用户确认退役，不迁移、不恢复、不作为本门槛。
+4. 按2026-11-17用户确认，只核验当前 NAS supervisor 和隧道的真实配置/入口、下一轮目标及故障保护，保证不会依赖已退役主站或误判健康；保持现有任务运行。现状只读取证已完成，但发现实际 supervisor 仍为旧 app lifecycle，隧道 storage 路径仍到旧 app；native 切换/故障演练未获授权也未通过。历史 service-monitor、auto-deploy、report-scheduler、six worker 清单不作为当前必迁项；不得因历史条目缺失擅自安装、恢复或停止服务。
 5. 独立获得生产部署/流量切换授权；任何停止具体旧进程/容器/服务的操作须单独明确授权目标与影响。本计划、一般退役目标、部署授权均不替代生产停用授权。数据库写入/迁移另行授权，数据删除不在范围。
 6. 提供经过验证的入口回切、版本核对、密码 hash 回切与会话影响方案；不能用恢复备份/清库作为本轮默认回滚。
   </requirements>

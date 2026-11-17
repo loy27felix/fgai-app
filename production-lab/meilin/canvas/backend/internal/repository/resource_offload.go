@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -26,6 +27,9 @@ func (r *Repository) ClaimNextResourceOffloadJob(owner string, leaseDuration tim
 	var job model.ResourceOffloadJob
 	now := time.Now()
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := storage.CheckNASGuard(); err != nil {
+			return err
+		}
 		available := "(status = ? OR (status = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?))) AND next_attempt_at <= ?"
 		query := tx.Where(available, model.ResourceOffloadStatusPending, model.ResourceOffloadStatusProcessing, now, now).
 			Order("next_attempt_at asc, created_at asc").Limit(1)
@@ -60,6 +64,14 @@ func (r *Repository) ClaimNextResourceOffloadJob(owner string, leaseDuration tim
 		return nil, err
 	}
 	return &job, nil
+}
+
+func (r *Repository) PauseResourceOffloadForNAS(id, owner string) error {
+	return r.db.Model(&model.ResourceOffloadJob{}).Where("id = ? AND lease_owner = ?", id, owner).
+		Updates(map[string]any{
+			"status": model.ResourceOffloadStatusPending, "lease_owner": "", "lease_expires_at": nil,
+			"attempts": gorm.Expr("CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"), "updated_at": time.Now(),
+		}).Error
 }
 
 func (r *Repository) RetryResourceOffloadJob(id, owner, code, message string, nextAttemptAt time.Time) error {

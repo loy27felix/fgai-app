@@ -2,7 +2,7 @@ import { canonicalize } from "json-canonicalize";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData } from "@/types/canvas";
 import { normalizeAssetCategory } from "@/lib/asset-category";
-import { sameCanvasContent } from "@/lib/canvas/canvas-content";
+import { normalizeCanvasProjectCollections, sameCanvasContent } from "@/lib/canvas/canvas-content";
 
 export type CanvasStorageTombstones = {
     projects: Record<string, number>;
@@ -66,7 +66,7 @@ function normalizeTombstones(value: unknown): CanvasStorageTombstones {
 export function parseCanvasStorageDocument(value: string | null, fallback: CanvasProject[] = []): CanvasStorageDocument {
     if (!value) {
         return {
-            state: { projects: normalizeProjectAssetCategories(fallback) },
+            state: { projects: normalizeStoredProjects(fallback) },
             version: 0,
             storageRevision: 0,
             tombstones: emptyTombstones(),
@@ -82,7 +82,7 @@ export function parseCanvasStorageDocument(value: string | null, fallback: Canva
     };
     if (!Array.isArray(parsed.state?.projects)) throw new Error("画布持久状态无效");
     return {
-        state: { projects: normalizeProjectAssetCategories(parsed.state.projects as CanvasProject[]) },
+        state: { projects: normalizeStoredProjects(parsed.state.projects as CanvasProject[]) },
         version: typeof parsed.version === "number" ? parsed.version : 0,
         storageRevision: typeof parsed.storageRevision === "number" && Number.isFinite(parsed.storageRevision) ? parsed.storageRevision : 0,
         savedAt: typeof parsed.savedAt === "string" && parsed.savedAt ? parsed.savedAt : undefined,
@@ -91,8 +91,9 @@ export function parseCanvasStorageDocument(value: string | null, fallback: Canva
     };
 }
 
-function normalizeProjectAssetCategories(projects: CanvasProject[]) {
-    return projects.map((project) => {
+function normalizeStoredProjects(projects: CanvasProject[]) {
+    return projects.map((storedProject) => {
+        const project = normalizeCanvasProjectCollections(storedProject);
         let changed = false;
         const nodes = project.nodes.map((node) => {
             const category = node.metadata?.assetCategory;

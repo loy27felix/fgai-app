@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {gatewayRuntimeVersion} from './runtime-version.mjs';
 import {musicServiceURL} from './fg-music-provider.mjs';
 
-const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const userID=/^(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i;
 const identifier=/^[A-Za-z0-9_.:-]{1,120}$/;
 const iso=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 const day=86400000;
@@ -40,8 +40,8 @@ function queryScope(params,kind){
  for(const key of params.keys())if(!allowed.has(key)||params.getAll(key).length!==1)fail(400,'support_query_invalid');
  const actorId=params.get('actorId');
  if(!actorId)fail(400,kind==='version'?'instance_required':'support_actor_required');
- if(!uuid.test(actorId))fail(400,'support_actor_invalid');
- const result=new URLSearchParams({actorId:actorId.toLowerCase()});
+ if(!userID.test(actorId))fail(400,'support_actor_invalid');
+ const result=new URLSearchParams({actorId:actorId.length===32?actorId:actorId.toLowerCase()});
  for(const key of ['taskId','requestId','projectId','traceId']){
   if(!params.has(key))continue;
   const value=params.get(key);

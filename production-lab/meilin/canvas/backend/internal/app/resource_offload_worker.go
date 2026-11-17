@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 
 	"gorm.io/gorm"
 )
@@ -59,6 +60,9 @@ func (s *Service) drainResourceOffloadJobs(ctx context.Context, limit int) {
 	// 同一轮里某个存储位置写入失败后，不再对它发起新的上传，只顺延剩余任务。
 	blocked := map[string]bool{}
 	for index := 0; index < limit && ctx.Err() == nil; index++ {
+		if storage.CheckNASGuard() != nil {
+			return
+		}
 		job, err := s.repo.ClaimNextResourceOffloadJob(owner, resourceOffloadLease)
 		if err != nil {
 			slog.Warn("resource offload claim failed", "error", err)
@@ -82,6 +86,12 @@ func (s *Service) retryResourceOffload(job *model.ResourceOffloadJob, owner, cod
 }
 
 func (s *Service) processResourceOffloadJob(ctx context.Context, job *model.ResourceOffloadJob, owner string, blocked map[string]bool) {
+	if storage.CheckNASGuard() != nil {
+		if err := s.repo.PauseResourceOffloadForNAS(job.ID, owner); err != nil {
+			slog.Warn("resource offload NAS pause failed", "error", err)
+		}
+		return
+	}
 	resource, err := s.repo.Resource(job.ResourceID)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		s.retryResourceOffload(job, owner, job.LastErrorCode, "读取资源失败："+err.Error())
@@ -106,6 +116,12 @@ func (s *Service) processResourceOffloadJob(ctx context.Context, job *model.Reso
 	}
 	file, err := os.Open(filepath.Join(s.dataDir, "resources", filepath.FromSlash(job.LocalObjectKey)))
 	if err != nil {
+		if storage.CheckNASGuard() != nil {
+			if pauseErr := s.repo.PauseResourceOffloadForNAS(job.ID, owner); pauseErr != nil {
+				slog.Warn("resource offload NAS pause failed", "error", pauseErr)
+			}
+			return
+		}
 		if errors.Is(err, os.ErrNotExist) {
 			// 本地唯一副本丢失，无法自动恢复，保留记录供人工处理。
 			slog.Error("resource offload local file missing", "jobId", job.ID, "resourceId", job.ResourceID)
@@ -178,6 +194,9 @@ func (s *Service) cancelResourceOffload(job *model.ResourceOffloadJob, owner str
 }
 
 func (s *Service) removeUnreferencedLocalObject(objectKey, playbackKey string) bool {
+	if storage.CheckNASGuard() != nil {
+		return false
+	}
 	referenced, err := s.repo.LocalObjectReferenced(objectKey)
 	if err != nil || referenced {
 		return false
@@ -195,12 +214,18 @@ func (s *Service) removeUnreferencedLocalObject(objectKey, playbackKey string) b
 }
 
 func (s *Service) cleanupOffloadedLocalFiles() {
+	if storage.CheckNASGuard() != nil {
+		return
+	}
 	jobs, err := s.repo.DueResourceOffloadCleanups(time.Now(), 50)
 	if err != nil {
 		slog.Warn("resource offload cleanup query failed", "error", err)
 		return
 	}
 	for _, job := range jobs {
+		if storage.CheckNASGuard() != nil {
+			return
+		}
 		referenced, err := s.repo.LocalObjectReferenced(job.LocalObjectKey)
 		if err != nil {
 			continue

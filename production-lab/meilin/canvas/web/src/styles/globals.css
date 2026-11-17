@@ -385,49 +385,58 @@
 }
 
 .auth-scene-hero {
-    background: var(--auth-panel-bg);
-    color: var(--foreground);
+    background: #24101e;
+    color: #fff;
 }
 
 .auth-scene-hero-overlay {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--auth-panel-bg) 40%, transparent), transparent 42%, color-mix(in srgb, var(--auth-panel-bg) 76%, transparent));
+    background: linear-gradient(90deg, rgb(24 6 21 / 48%), rgb(24 6 21 / 12%) 48%, transparent 72%), linear-gradient(0deg, rgb(20 6 19 / 56%), transparent 32%, transparent 76%, rgb(20 6 19 / 28%));
     pointer-events: none;
 }
 
 .auth-scene-brand,
 .auth-scene-brand:hover {
-    color: inherit;
+    color: #fff;
 }
 
 .auth-scene-hero-control {
-    border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent);
-    background: color-mix(in srgb, var(--auth-panel-bg) 78%, transparent);
-    color: color-mix(in srgb, var(--foreground) 82%, transparent);
+    border: 1px solid rgb(255 255 255 / 24%);
+    background: rgb(24 6 21 / 24%);
+    color: rgb(255 255 255 / 88%);
 }
 
 .auth-scene-hero-control:hover {
-    background: color-mix(in srgb, var(--auth-panel-bg) 92%, transparent);
+    background: rgb(24 6 21 / 48%);
 }
 
 .auth-scene-hero-muted {
-    color: color-mix(in srgb, var(--foreground) 64%, transparent);
+    color: rgb(255 255 255 / 72%);
 }
 
 .auth-scene-hero-title {
-    color: var(--foreground);
+    color: inherit;
 }
 
 .auth-scene-form-pane {
-    background: var(--auth-panel-bg);
+    background: transparent;
 }
 
-.auth-scene-video-blend {
-    background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--auth-panel-bg) 68%, transparent) 58%, var(--auth-panel-bg) 100%);
+.auth-scene-form-pane .site-compliance-footer.is-auth {
+    border: 0;
+    background: transparent;
+    color: rgb(255 255 255 / 72%);
+    backdrop-filter: none;
+}
+
+.auth-scene-form-pane .site-compliance-footer.is-auth a:hover,
+.auth-scene-form-pane .site-compliance-footer.is-auth a:focus-visible {
+    color: #fff;
 }
 
 .auth-scene-card {
-    background: var(--auth-card-bg);
-    box-shadow: var(--elevation-card-hover);
+    border: 1px solid color-mix(in srgb, var(--auth-card-bg) 36%, transparent);
+    background: color-mix(in srgb, var(--auth-card-bg) 74%, transparent);
+    box-shadow: 0 24px 80px rgb(24 6 21 / 24%);
 }
 
 .auth-scene-eyebrow {
@@ -480,15 +489,15 @@
 }
 
 .auth-scene-return {
-    border: var(--control-border-width) solid var(--border);
-    background: color-mix(in srgb, var(--foreground) 4%, transparent);
-    color: var(--auth-muted);
+    border: 1px solid rgb(255 255 255 / 24%);
+    background: rgb(24 6 21 / 24%);
+    color: rgb(255 255 255 / 88%);
 }
 
 .auth-scene-return:hover {
-    border-color: var(--input);
-    background: color-mix(in srgb, var(--foreground) 8%, transparent);
-    color: var(--foreground);
+    border-color: rgb(255 255 255 / 48%);
+    background: rgb(24 6 21 / 48%);
+    color: #fff;
 }
 
 /* --- 注册页协议同意行 ---------------------------------------------------------

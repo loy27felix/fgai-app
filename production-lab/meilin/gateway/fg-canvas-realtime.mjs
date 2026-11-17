@@ -1,11 +1,14 @@
 import http from 'node:http';
+import {nasGuardUnavailable} from './fg-nas-guard.mjs';
 
 // Forward the authenticated native handshake. Platform cookies never reach the native server.
 export function registerCanvasRealtime(server,{authenticate,session,origins,parsePath,web,publicOrigin}) {
   server.on('upgrade',async(req,socket,head)=>{
-    const path=parsePath(req.url).url;
+    const reject=status=>{if(!socket.destroyed&&!socket.writableEnded)socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);};
+    let path;
+    try {path=parsePath(req.url).url;} catch {reject(400);return;}
     if(!/^\/api\/canvas-projects\/[a-zA-Z0-9_-]{1,64}\/realtime$/.test(path.pathname))return;
-    const reject=status=>{if(!socket.destroyed)socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);};
+    if(nasGuardUnavailable()){reject(503);return;}
     try {
       if(!origins.includes(req.headers.origin)){reject(403);return;}
       const actor=await authenticate(req);

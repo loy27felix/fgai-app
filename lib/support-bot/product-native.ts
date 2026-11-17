@@ -3,13 +3,13 @@ import { supportCanvasUser, withSupportCanvasReadOnly, supportOperationErrorEvid
 import { scrubSupportValue } from './redact';
 import type { SupportServiceId } from './services';
 import { queryGatewayOperations } from './gateway-operations';
+import { isSupportUserId } from './identity';
 
 const PRODUCTS = ['arcreel', 'opencreator', 'adcraft', 'meilin', 'suno'] as const;
 export type NativeProduct = typeof PRODUCTS[number];
 export function isNativeProduct(service: SupportServiceId): service is NativeProduct {
   return (PRODUCTS as readonly string[]).includes(service);
 }
-const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const ID = /^[A-Za-z0-9_.:-]{1,120}$/;
 const DAY = 86_400_000;
 type Filters = { sessionId?: string; from?: string; to?: string; taskId?: string; requestId?: string; traceId?: string; projectId?: string };
@@ -56,7 +56,7 @@ async function retiredProductEntry(service: NativeProduct, relay: URL, signal: A
 // The caller supplies an authenticated FG identity, never a destination, capability or instance name.
 // 调用方只传服务端认证的 FG 身份；目标、凭据与实例映射均不能由工单或模型控制。
 export async function readProductEndpoint(service: NativeProduct, kind: 'evidence' | 'version', userId?: string, filters: Filters = {}): Promise<Payload> {
-  if (!userId || !UUID.test(userId)) fail('native_product_authenticated_actor_required');
+  if (!isSupportUserId(userId)) fail('native_product_authenticated_actor_required');
   if (filters.sessionId !== undefined) fail('native_product_session_filter_unsupported');
   const base = process.env.SUPPORT_BOT_NATIVE_GATEWAY_URL;
   const token = process.env.SUPPORT_BOT_NATIVE_READ_TOKEN;
@@ -218,7 +218,7 @@ export async function queryProductNative(input: Filters & { service: NativeProdu
   if (kind === 'logs' || !['adcraft', 'meilin', 'suno'].includes(input.service)) return queryNativeEvidence(input, kind);
   let selectedRange: ReturnType<typeof range>;
   try {
-    if (!UUID.test(input.userId)) fail('native_product_authenticated_actor_required');
+    if (!isSupportUserId(input.userId)) fail('native_product_authenticated_actor_required');
     selectedRange = range(input);
   } catch (error) {
     return { system: input.service, rows: [], incomplete: true, truncated: false, reason: sourceFailure(error),

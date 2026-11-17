@@ -17,6 +17,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"meilin/backend/internal/kernel"
+	"meilin/backend/internal/storage"
 )
 
 const libraryDirName = "pose-library"
@@ -93,6 +94,9 @@ func validItemID(id string) bool {
 
 // writeItemFile 先写临时文件再改名，读取方不会看到写了一半的图片。返回相对 pose-library/ 的路径。
 func (s *Service) writeItemFile(itemID string, baseName string, image storedImage) (string, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return "", err
+	}
 	if !validItemID(itemID) {
 		return "", errors.New("姿势条目 ID 无效")
 	}
@@ -129,6 +133,9 @@ func (s *Service) writeItemFile(itemID string, baseName string, image storedImag
 }
 
 func (s *Service) openItemFile(relative string) (*os.File, os.FileInfo, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, nil, err
+	}
 	clean := filepath.ToSlash(filepath.Clean(relative))
 	if relative == "" || clean != relative || strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, "..") || strings.Count(clean, "/") != 1 {
 		return nil, nil, kernel.NotFound("姿势图片不存在")
@@ -153,6 +160,9 @@ func (s *Service) openItemFile(relative string) (*os.File, os.FileInfo, error) {
 }
 
 func (s *Service) removeItemFiles(itemID string) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	if !validItemID(itemID) {
 		return nil
 	}

@@ -3,6 +3,7 @@ import WebSocket,{WebSocketServer} from 'ws';
 import {speechKey,SpeechError,speechFailure} from './fg-speech-provider.mjs';
 import {streamFrame,streamResponse,streamConfig} from './fg-stream-protocol.mjs';
 import {reserveBudget} from './fg-budgets.mjs';
+import {nasGuardUnavailable} from './fg-nas-guard.mjs';
 
 export const streamModel='volc.seedasr.sauc.duration';
 const upstreamURL='wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
@@ -11,11 +12,12 @@ export function registerSpeechStream(server,{pool,authenticate,origins,parsePath
  wss.shutdown=async()=>{shutting=true;for(const client of wss.clients)client.close(1012,'Service restarting');await Promise.allSettled([...pending]);};
  server.on('upgrade',async(req,socket,head)=>{
   let actor,operationId,claimed=false,jobCreated=false,reservationId;
-  const reject=status=>{if(!socket.destroyed){socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);}};
+  const reject=status=>{if(!socket.destroyed&&!socket.writableEnded){socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);}};
   try{
    const path=parsePath(req.url).url;
    if(shutting){reject(503);return;}
    if(path.pathname!=='/api/fg/speech/stream')return;
+   if(nasGuardUnavailable()){reject(503);return;}
    if(!origins.includes(req.headers.origin)){reject(403);return;}
    actor=await authenticate(req);if(!actor){reject(403);return;}
    if(socket.destroyed)return;

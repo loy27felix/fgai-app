@@ -16,6 +16,7 @@ import { queryProductionLabOperations } from './production-operations';
 import { queryGatewayOperations } from './gateway-operations';
 import { queryNativeSupportLogs } from './native-logs';
 import { isNativeProduct, queryProductNative } from './product-native';
+import { isSupportUserId } from './identity';
 
 const idPattern = /^[A-Za-z0-9_.:-]{1,120}$/;
 export function identifier(value: unknown): string | undefined {
@@ -28,7 +29,7 @@ export function supportUserId(job: SupportJob): string | undefined {
   if (!job.chatId.startsWith('web:') || !job.openId.startsWith('web:')) return undefined;
   const id = job.openId.slice(4);
   if (job.userId && job.userId !== id) throw new Error('问题归属不一致');
-  return /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id) ? id : undefined;
+  return isSupportUserId(id) ? id : undefined;
 }
 export function boundedEvidence(value: unknown, internalRead = false): Record<string, unknown> {
   const original = value as Record<string, unknown>;

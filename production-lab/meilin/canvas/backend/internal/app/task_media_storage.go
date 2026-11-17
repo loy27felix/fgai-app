@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"meilin/backend/internal/model"
+	"meilin/backend/internal/storage"
 )
 
 const mediaStagingBudget int64 = 512 << 20
@@ -80,6 +81,9 @@ var mediaStagingMu sync.Mutex
 func (s *Service) newMediaTemp(limit int64) (*os.File, error) {
 	mediaStagingMu.Lock()
 	defer mediaStagingMu.Unlock()
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, err
+	}
 	dir := filepath.Join(s.dataDir, "media-staging")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
@@ -276,6 +280,9 @@ func mediaUploadKey(taskID string, index int) *string {
 // storeTaskMediaFile 保存一份暂存作品。fallbackCause 非 nil 表示对象存储写入失败、
 // 作品已兜底保存到本地并登记了补传任务。
 func (s *Service) storeTaskMediaFile(task *model.Task, index int, path, mimeType, kind string, existing *model.Resource) (resource *model.Resource, fallbackCause error, err error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, nil, err
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, nil, err
@@ -387,6 +394,9 @@ func (s *Service) storeTaskMediaObjectContext(ctx context.Context, resource *mod
 // Cleanup is best effort only after durable completion. Expired leftovers are
 // also collected on staging allocation, never by deleting resource objects.
 func (s *Service) cleanupMediaCheckpointFiles(task *model.Task) {
+	if storage.CheckNASGuard() != nil {
+		return
+	}
 	checkpoint, err := s.decodeMediaCheckpoint(task)
 	if err != nil {
 		return

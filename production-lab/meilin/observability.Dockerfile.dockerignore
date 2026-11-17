@@ -1,0 +1,16 @@
+**
+!package.json
+!pnpm-lock.yaml
+!.npmrc
+!tsconfig.json
+!lib
+!lib/**
+!scripts
+!scripts/observability-server.ts
+!production-lab
+!production-lab/meilin
+!production-lab/meilin/gateway
+!production-lab/meilin/gateway/package.json
+!production-lab/meilin/gateway/package-lock.json
+!production-lab/meilin/observability.Dockerfile
+!production-lab/meilin/observability.Dockerfile.dockerignore

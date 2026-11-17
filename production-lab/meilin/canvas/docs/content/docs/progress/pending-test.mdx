@@ -23,6 +23,37 @@ FG 公司语音版本待用户验收：画布音频节点音色切换、创作�
 
 # 待测试
 
+## 登录页品牌影片
+
+- 默认登录影片及封面已复用旧主站的猫导演素材，随 Web 静态文件提供，不依赖旧主站或外部视频域名；保留后台自定义影片和封面的优先级。
+- 已改为沉浸式全屏影片：取消左右分栏、白色遮罩和页脚底板，表单以半透明毛玻璃浮在左侧，猫导演主体留在右侧；保留全局明暗主题及自定义外观，注册/找回页按内容高度显示，窄屏与短屏可滚动。
+- 已验证：隔离浏览器检查 1550×900、1440×900、1024×768、390×844、900×600，无横向溢出；注册页可滚至版权信息，切换注册和找回保留 deep-link query/hash。减少动态效果时不自动挂载视频，显示旧站封面，手动播放成功；前端既有专项 27/27、改动 TS 文件 ESLint、native build（含 TypeScript）通过。最终视觉仍待用户确认，迁移整体门槛见仓库 `.planning/STATE.md`。
+
+## 主站迁移候选：认证与代理补验
+
+- 2026-11-17 新授权后已完成生产 NAS/隧道、部署版本和历史媒体引用的只读取证，不再以“没有生产访问授权”阻塞该范围。当前 NAS/隧道正常，18 个宿主/容器媒体读取样本一致；但实际 NAS supervisor、storage 隧道及旧工程媒体仍依赖旧 app，不能直接关闭旧站。仅更新本地验收记录，未改生产、未切流；完整事实和剩余 P1 门槛见根 `.planning/STATE.md` 最新专节，不能把现状检查当故障恢复或完整媒体迁移已验。
+
+- 2026-11-17 进一步修复原生项目预算准入对退役广告表的硬依赖，防止费用页正常但项目生成前预算检查失败；真实库原/新函数15/15，既有预算+费用/退役专项29/29，新Gateway原gate 230 pass/0 fail/1既有skip，预算镜像归档重载39/39。不放宽预算或历史权限、不调用模型；最新budget镜像和运行证据见STATE预算专节，生产门槛仍未放行。
+
+- 2026-11-17 实际页面发现并修复费用API对退役广告表的硬依赖；既有定向15/15、Gateway原gate 230 pass/0 fail/1既有skip、真实库旧新权限/历史投影18/18。本地Gateway新→旧→新切换40/40，原会话/素材/画布不变，另外八容器不变；Chrome full reload后费用页正常且追加console warn/error 0。个人素材创建/刷新/回收/恢复及隔离/NAS guard26/26，镜像归档重载229/229、新Gateway单独39/39。此前37/37为财务修复前的独立证据，不能把九容器未变延伸到本轮；最新运行image、Compose pin和生产未放行边界见STATE最新财务专节。
+
+- 2026-11-17 用户纠正范围：当前生产守护只有 **NAS 和隧道**；报表调度属于已移除的旧主站功能，不迁移、不恢复。下方报表/监测/自动部署相关历史验收不再视为必需上线门槛；已有可选实现保留。剩余 NAS/隧道、业务数据/媒体、已启用渠道、实际发布/切流/回滚按 STATE 当前清单验收；Support 若保留启用，不能以入队成功代替 worker/模型处理验证。
+- 2026-11-17 最终候选复核：六服务 source build 成功，8,081 个关键输入 SHA 稳定；实际运行应用/Go/Agent/Node 产物与新镜像一致。Web 当前服务文件和资源 inventory、CA-verified 登录/入口资源、旧影片 Range 及九容器不变等 37/37；旧 chunks 按既有发布保留策略核验，未清除资源或重启业务。仍 dirty，旧 image digest 引用存在 inspect 失败记录，不能据此签认 clean release/回滚产物。native auto-deploy exit 78 仅为历史事实，不再阻塞上线；实际生产 overlays/历史业务数据、NAS/隧道及切流/回滚尚待验，未访问生产，P1 尚未放行，详见 STATE 当前范围与产物专节。
+- 2026-11-17 Support/观测独立库备份恢复补验 77/77：显式选择本项目 sidecar，原 guarded helper 按 service/database 保存，拒绝错误实例/网络/远程库及链接，已有文件不覆盖。真实新库恢复 Support 4 表与观测 6 表，所有表行数/全行 digest、全部列/约束/索引及序列状态一致；原 native 维护 70/70、主库恢复完整性 10/10 回归通过，七个原容器未变。只覆盖任务 synthetic 数据与本地 NAS fixture，不代表生产历史库/真实 SMB/跨库原子恢复或生产备份调度已验；详见 STATE 最新备份专节和美林 README。
+- 2026-11-17 native 观测独立 intake/durable outbox：最终真实镜像与任务 PostgreSQL 72/72、缺配置/空 schema 拒启动且不建表 6/6、原 monitor→outbox→入库 4/4。显式本地 origin/独立密钥后仅凭事务提交的匹配 ack 清队，缺配置仍留队；真实报表锁回滚后重投、大日志 512 KiB envelope、chunked 413、错 ack/原字节隔离与 platform 回归通过。原六个业务容器未改动，不依赖旧 Next；不是实际报表调度/native 业务聚合、外部告警、历史观测库、独立库恢复或生产切换通过，详见 STATE 观测专节与美林 README。
+- 2026-11-17 native 监测补验 125/125：Backend 的 database/runtime/schema/NAS ready 从核验过身份的容器 loopback 读取，不放宽公开接口；新增 release 状态与 Gateway/Web/Backend 的健康分开，要求三者 production/clean 身份匹配显式批准的目标版本和完整 commit。真实任务栈服务 healthy、dirty 候选 release 正确保持 unknown，五个业务容器未重启/重建；clean 成功用例仅为 synthetic。native 自动部署、真实历史数据/外部渠道/SMB/切流回滚仍未验，详见仓库 STATE 监测专节与美林 README。
+
+- native `maintain-host.py` 候选不再进入旧 stop/start/rebind/provision，也拒绝未显式切换时对 native Gateway 运行旧维护。核对 runtime/guard/挂载及实际 Backend/PG 库身份后保留数据库日备份；临时 worker 无网络、只读根文件系统/guard，输入读取期间 guard 激活后不写 NAS，已有备份需实际读回并校验。70 项隔离验证通过，真实本地原生库备份已恢复 177 张表、业务容器不变；生产历史库、Support 独立库及 NAS 素材完整恢复未验收，不作为主站上线放行。
+- native NAS supervisor 候选修正健康巡检仍反复写 disabled、守卫目录与 Compose 不一致的问题；精确核对容器身份/挂载/ready，并用随机 nonce 验证容器写入与宿主读回确属同一 NAS 视图。已有 guard/recovery-pending 或任何失败仍保留保护，不自动清除/重建；异常守卫写入不跟随链接、不截断证据或阻塞 FIFO。验证仅提取原始函数并操作本任务隔离 Docker，未启动生产脚本，SMB inventory 为 synthetic，真实 SMB/bind/在途恢复与 native 自动部署/报表仍未通过；证据见仓库 STATE。
+- 已修复 WebSocket path 解析异常保护、预期账号头被 Gateway 删除、Linux.do state 未绑定 browser、OAuth fragment 丢失及监控 manifest 身份不一致；保留旧主站猫影片和沉浸式布局改动。
+- 本地 Gateway 231/231、Go auth/handler/cmd/server 三包回归通过；真实 Gateway → Go 的预期账号一致性（200/403）、正常 WS 与媒体 7/7；正常 OAuth in-process login/reauth 14/14。另用真实 migrator/initializer/importer 与 Go HTTP 验证 270-byte 旧密码登录等 9/9；mock 和 synthetic 不替代真实提供方或生产数据验收。
+- 已完成隔离 Docker 构建：补齐 Web 镜像共用 JSON，修复模型目录坏 revision 隔离、插件声明式 Secret Key 校验；按授权修正既有 fixture/golden 后，Backend 原 Dockerfile 完整测试 gate 与 server/migrator 编译通过，未跳过断言或 gate。Web/Gateway/Agent/Backend 全部构建成功，完整 native Compose 与本地 HTTPS/WSS 入口已启动；34 项业务及 15 项会话/媒体检查通过，首次缺 topics 挂载的失败证据保留。
+- 浏览器发现并修复合法最小画布缺集合导致的本地/云端保存与旧 journal 恢复故障。保留原浏览器数据，实际完成改名、文本编辑、刷新恢复及断网保存/联网自动补传；本地/远端 revision=6 一致、原 journal 正常确认后清空、UI“已同步”、最终刷新无 console error/warn。既有相关 Web 测试 56/56、改动文件 ESLint、最终 Web Docker build（含 TypeScript 和内置 gate）通过；未调用真实模型。
+- 2026-11-17 显式可信代理合同和本地双来源 HTTPS 限流/反伪造已验收：来源 A 第 51 次触发 429，伪造来源头不能绕过；来源 B 未共用其限流桶，Go 审计保留真实两个来源。直接请求 Gateway/Web/Backend 的不受信来源头亦未被采纳。Gateway 231/231、inline 24/24、Go 三包、Backend/Gateway 完整原 Docker build gate、三类无效启动配置与正常 HTTPS 9 项回归通过；真实浏览器保留原会话/画布刷新后仍已同步、无 console error/warn。首次 TLS 未重建的失败证据保留，修正本任务容器后复测通过。
+- 2026-11-17 继续补齐非 Next Support HTTP adapter、Go session/UI 与32hex owner；core+真实隔离 PostgreSQL 22 项、真实 CA 验证 HTTPS 29 项通过。私网鉴权、ExpectedUser/Origin/跨账号隔离、SSE取消更新与退出后断流通过；chunked 超过28 MiB 原 ECONNRESET 已修为实际413，并经公开HTTPS复测。Chrome 提问入队→刷新恢复→终止→再次刷新保持同一 cancelled 任务，SQL owner 原样32hex、attempts=0、无待执行任务，console error/warn=0。反馈使用明确标记的 synthetic completed fixture，未启动 worker 或调用模型。
+- 整体仍为 `gaps_found`：Backend 构建 gate、本地保存/IP/可信代理及 Support HTTP/UI 本地门槛已关闭；目标生产代理、真实 Support worker/取证/模型、历史队列与业务数据/媒体、真实认证/提供方及生产 NAS/守护任务/切流/回滚未关闭。未配置 Support 时默认关闭，不能把排队或 synthetic 反馈成功称作完整助手能力已验收。配置与回退见美林 README，完整证据和授权边界引用仓库 `.planning/STATE.md`。
+- 2026-11-17 补齐 Go/Gateway NAS guard 消费、standalone 显式只读挂载、HTTP/短代理/新 WSS 与异步媒体/队列保护；Backend/Gateway 原 Docker gate、正常文件 guard 的真实本地 HTTPS/PG worker 42 项及 WSS 4 项通过，生成/补传没有执行模型，删除仅回收 synthetic 文件且副本字节一致。异常 guard 类型的容器文件视图恢复曾失败并需本任务重新 bind，失败未抹除、不计入正常协议成功；真实 SMB/native supervisor 自动恢复、其它运行时消费者及部署/outbox/报表仍待验。详细边界见仓库 STATE 与美林 README，不放行生产切换。
+
 ## 自助排查助手：连接恢复与异常记录
 
 - 已实现定时静默续连、备用读取成功清除警告，以及服务端脱敏异常和关联编号日志；协议和边界见 HTTP API“FG 网页自助排查接入”。
@@ -34,7 +65,7 @@ FG 公司语音版本待用户验收：画布音频节点音色切换、创作�
 - 已实现：FG 登录模式下，已完成回答支持“有帮助 / 没帮助”和可选纠正，保留最新评价；保存失败明确提示，刷新会话可恢复。后续同一用户的类似问题可参考最多 3 条相关反馈，仍须按本次证据核实，不涉及模型训练。
 - 已验证：本地 PostgreSQL 与实际 API 处理器的 22 项检查、反馈进入实际诊断上下文的 4 项检查通过（登录上下文和模型调用为隔离替身，无外部模型调用）；迁移重复执行可通过，检查数据全部事务回滚。FG TypeScript 检查及相关前端既有测试 8 项通过。Canvas 全量类型检查受当前安装环境缺少 `i18next`、`react-i18next` 阻塞，未升级或重装依赖。
 - 待验收：真实页面中的点赞、点踩、修改纠正、切换评价、刷新恢复及网络失败提示；真实模型对反馈的利用效果仍待验证。
-- 边界：native 独立工作台的助手尚未接入，本次不绕过原有禁用保护、不重新依赖旧主站；反馈不跨用户共享，不带入飞书群聊。数据库迁移与接口合同见 FG 根 README 的“问题助手”章节。
+- 边界：native 独立接入的本地 HTTP/UI 验收见上方迁移专节；缺配置仍禁用，不回退旧主站。native32/UUID 两账号的反馈隔离及 synthetic 终态落库通过，但真实回答/模型效果仍待验；反馈不跨用户共享、不带入飞书群聊。数据库迁移与接口合同见 FG 根 README 的“问题助手”章节。
 
 ## FG Web 原生认证
 
@@ -47,7 +78,7 @@ FG 公司语音版本待用户验收：画布音频节点音色切换、创作�
 - 待真实集成确认：关闭注册的运行配置、分享页登录后返回、服务不可用只重试不误登出、改邮箱后的重新登录、邮件验证码、SMS 与已启用 Linux.do 回调；本轮未配置邮件并已确认页面明确提示、未外发邮件。配置入口见[认证策略文档](../../../design/sms-channels-and-auth-policy.md#fg-web-认证接入边界)。
 - 生产门槛：当前登录 IP 限流可能共用 Gateway 地址。须先确认可信 TLS 代理与私有工具网络边界，不能直接信任客户端转发头；详细限制见 HTTP API 合同。
 - 网页 Support Bot 暂未迁移：真实浏览器已确认 native 按钮显示未接入 Alert、不挂载对话，没有 support-bot HTTP/SSE；API 拒绝提交/读取，watch 立即 `onError`，无 SSE/轮询；Gateway 明确 503、不转发 Next，默认 platform 不变。此为可见缺口，不能签认为机器人或主站整体退役完成。
-- 真实业务数据/历史媒体、完整 Compose、AI 生成、NAS/guard、生产 TLS/可信代理与共享 IP 限流、监测报表仍未验收。生产入口和守护任务未改动，P1 未放行。
+- 隔离完整 Compose、本地 HTTPS/WSS 与本地可信代理/双来源限流已完成（见主站迁移候选补验专节）；真实业务数据/历史媒体、AI 生成、NAS/guard、生产 TLS/可信代理/来源限流及监测报表仍未验收。生产入口和守护任务未改动，P1 未放行。
 
 ## FG Backend 镜像构建依赖
 

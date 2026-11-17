@@ -88,6 +88,9 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
     }
     if(path.pathname==='/api/fg/finance'&&req.method==='GET'){
       const period=financePeriod(path.searchParams.get('month')||'all');
+      // Retired Adcraft tables are optional; retain historical attribution when present.
+      // 已退役广告模块的表不是原生启动条件；存在时仍保留历史费用归属。
+      const adcraft=(await pool.query("SELECT to_regclass('fg_adcraft_workspaces') IS NOT NULL AND to_regclass('fg_adcraft_members') IS NOT NULL AS available")).rows[0]?.available===true;
       // Every provider attempt stays separate. Polls/downloads are not a second charge.
       const {rows}=await pool.query(`WITH ${settledFeeCTE}, calls AS (
         SELECT l.id,l.user_id,l.task_id,l.model,l.capability,l.status,t.status task_status,l.created_at,l.input_tokens,l.output_tokens,l.cached_tokens,l.usage_available,l.media_count,l.request_body,l.response_body,l.video_seconds,
@@ -97,14 +100,14 @@ export async function fgAPI(req,res,{actor,cookie,path,pool,web,platform,platfor
         LEFT JOIN canvas_projects c ON c.id=t.project_id
         LEFT JOIN projects p ON p.id=t.project_id
         WHERE l.billable=true AND l.channel_id IN(SELECT id FROM model_channels WHERE name LIKE 'WeToken%')
-      ) SELECT c.*,p.name project_name,u.display_name user_name,CASE WHEN aw.id IS NOT NULL THEN NULL ELSE COALESCE(NULLIF(c.fg_group_name,''),s.group_name) END group_name,s.tier,COALESCE(s.budget_cny,aw.budget_cny) budget_cny,
+      ) SELECT c.*,p.name project_name,u.display_name user_name,${adcraft?"CASE WHEN aw.id IS NOT NULL THEN NULL ELSE COALESCE(NULLIF(c.fg_group_name,''),s.group_name) END":"COALESCE(NULLIF(c.fg_group_name,''),s.group_name)"} group_name,s.tier,${adcraft?'COALESCE(s.budget_cny,aw.budget_cny)':'s.budget_cny'} budget_cny,
         COALESCE(f.settled_cny,CASE WHEN rd.call_id IS NOT NULL THEN 0 END) settled_cny,f.settled_reference_id,COALESCE(f.match_method,CASE WHEN rd.call_id IS NOT NULL THEN CASE WHEN rd.source='admission_rejected' THEN 'automatic_no_charge' ELSE 'manual_no_charge' END END) match_method,rd.note no_charge_note
         FROM calls c JOIN users u ON u.id=c.user_id LEFT JOIN projects p ON p.id=c.project_id
         LEFT JOIN fg_story_projects s ON s.native_project_id=c.project_id
-        LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id
+        ${adcraft?'LEFT JOIN fg_adcraft_workspaces aw ON aw.native_project_id=c.project_id':''}
         LEFT JOIN settled f ON f.call_id=c.id
         LEFT JOIN fg_request_decisions rd ON rd.call_id=c.id
-        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1)))
+        WHERE $2 OR c.user_id=$1 OR s.native_project_id IS NOT NULL ${adcraft?'OR (aw.archived_at IS NULL AND (aw.owner_id=$1 OR EXISTS(SELECT 1 FROM fg_adcraft_members am WHERE am.workspace_id=aw.id AND am.user_id=$1)))':''}
         ORDER BY c.created_at DESC`,[actor.id,actor.reviewer]);
       const settings=(await pool.query("SELECT value FROM fg_company_settings WHERE key='usdCnyRate'")).rows[0];
       const imports=(await pool.query('SELECT id,row_count,created_at FROM fg_fee_imports ORDER BY created_at DESC LIMIT 1')).rows;

@@ -7,6 +7,7 @@ import {
   type SupportOperationScope,
 } from './operations';
 import { redactSupportText } from './redact';
+import { isLegacySupportUserId } from './identity';
 
 export type ProductionLabOperationInput = {
   userId: string;
@@ -149,6 +150,7 @@ export async function queryProductionLabOperations(input: ProductionLabOperation
     note: [BASE_NOTE, ...notes].join(' '),
   });
   if (!scope) return finish({ incomplete: true }, ['用户、编号或时间范围无效；默认 24 小时、最大 7 天，仅精确 taskId/requestId 且未提供时间时可不限时间，未执行查询。']);
+  if (!isLegacySupportUserId(scope.userId)) return finish({ incomplete: true }, ['原生账号没有旧 Production Lab UUID 归属映射，未查询或转换账号编号。']);
   if (scope.traceId !== undefined || scope.sessionId !== undefined) return finish({ incomplete: true }, ['traceId/sessionId 暂无可靠业务映射；未忽略筛选，未执行查询或回退 FG 主库。']);
   if ([scope.projectId, scope.taskId].some((id) => id !== undefined && !UUID.test(id))) return finish({ incomplete: true }, ['production-lab 项目和任务仅支持 UUID；不支持的编号未被忽略，未执行查询。']);
   try {

@@ -1,5 +1,6 @@
 import { supportCanvasUser, withSupportCanvasReadOnly } from './operations';
 import { redactSupportText } from './redact';
+import { isSupportUserId } from './identity';
 
 export const SUPPORT_CANVAS_ASSET_TABLES = ['assets', 'project_asset_links', 'asset_versions', 'asset_representations', 'resources', 'shot_asset_references', 'shots'] as const;
 type AssetQuery = { userId: string; projectId?: string; assetId?: string; versionId?: string; category?: string; offset?: number; versionOffset?: number };
@@ -7,7 +8,7 @@ const identifier = /^[A-Za-z0-9_.:-]{1,120}$/;
 
 export async function queryCanvasAssets(input: AssetQuery): Promise<Record<string, unknown>> {
   const envelope = { system: 'canvas', scope: { projectId: input.projectId, assetId: input.assetId, versionId: input.versionId, category: input.category, offset: input.offset ?? 0, versionOffset: input.versionOffset ?? 0, snapshot: true } };
-  if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(input.userId) || !input.projectId
+  if (!isSupportUserId(input.userId) || !input.projectId
     || [input.projectId, input.assetId, input.versionId].some(id => id !== undefined && (!identifier.test(id) || redactSupportText(id) !== id))) {
     return { ...envelope, rows: [], incomplete: true, note: '素材查询需要有效的当前项目编号；未扩大到账号全部素材。' };
   }

@@ -8,6 +8,7 @@ import (
 	"meilin/backend/internal/buildinfo"
 	"meilin/backend/internal/database"
 	"meilin/backend/internal/service"
+	"meilin/backend/internal/storage"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -35,6 +36,7 @@ type systemStatusChecks struct {
 	Database bool `json:"database"`
 	Runtime  bool `json:"runtime"`
 	Schema   bool `json:"schema"`
+	NAS      bool `json:"nas"`
 }
 
 func newSystemStatus(db *gorm.DB, svc *service.Service) *systemStatus {
@@ -68,7 +70,8 @@ func (s *systemStatus) snapshot(ctx context.Context) systemStatusSnapshot {
 			snapshot.Checks.Schema = schema.Ready
 		}
 	}
-	snapshot.Ready = snapshot.Started && !snapshot.Draining && snapshot.Checks.Database && snapshot.Checks.Runtime && snapshot.Checks.Schema
+	snapshot.Checks.NAS = storage.CheckNASGuard() == nil
+	snapshot.Ready = snapshot.Started && !snapshot.Draining && snapshot.Checks.Database && snapshot.Checks.Runtime && snapshot.Checks.Schema && snapshot.Checks.NAS
 	switch {
 	case snapshot.Draining:
 		snapshot.Status = "draining"

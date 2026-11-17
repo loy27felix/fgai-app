@@ -166,7 +166,13 @@ func (s *Service) AdminLogicalModels(actor *model.User) ([]AdminLogicalModel, er
 		}
 		admin, buildErr := s.buildAdminLogicalModel(item, graph, systemChannelByID)
 		if buildErr != nil {
-			return nil, buildErr
+			// Keep broken entries diagnosable without hiding the healthy catalog.
+			// 保留异常条目供管理员修复，避免单个配置错误遮蔽正常模型。
+			admin = &AdminLogicalModel{
+				PublicLogicalModel: publicLogicalModel(cachedLogicalModel{Model: item, Defaults: map[string]any{}}, false),
+				Enabled:            item.Enabled, ActiveRevisionID: graph.Revision.ID, RevisionVersion: graph.Revision.Version,
+				ConfigurationError: buildErr.Error(), Routes: []AdminLogicalRoute{},
+			}
 		}
 		result = append(result, *admin)
 	}

@@ -42,6 +42,7 @@ func TestFGClaudeUsesBoundedTeamOutputCeiling(t *testing.T) {
 func TestFGDeclarativeTextUsesBoundedOutputCeiling(t *testing.T) {
 	t.Setenv("CANVAS_FG_TEAM_WORKSPACE", "true")
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	ctx := withProtocolRegistry(context.Background(), loadOfficialFallbackRegistry())
 	for _, wire := range []string{"chat-completion", "claude-api", "openai-response"} {
 		t.Run(wire, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +59,7 @@ func TestFGDeclarativeTextUsesBoundedOutputCeiling(t *testing.T) {
 				w.Write([]byte(`{}`))
 			}))
 			defer server.Close()
-			_, _, err := executeProtocolCreateRequest(context.Background(), canvasGenerationInput{Mode: "text", Config: providerConfig{InterfaceType: wire, BaseURL: server.URL, APIKey: "test"}}, protocol.RequestSpec{Method: "POST", Path: "/test", ContentType: "application/json", Body: map[string]any{"prompt": "storyboard"}})
+			_, _, err := executeProtocolCreateRequest(ctx, canvasGenerationInput{Mode: "text", Config: providerConfig{InterfaceType: wire, BaseURL: server.URL, APIKey: "test"}}, protocol.RequestSpec{Method: "POST", Path: "/test", ContentType: "application/json", Body: map[string]any{"prompt": "storyboard"}})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -13,6 +13,7 @@ import (
 	"meilin/backend/internal/kernel"
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/repository"
+	"meilin/backend/internal/storage"
 )
 
 const skillStatusDisabled = 0
@@ -217,6 +218,9 @@ func (s *Service) AdminSetSkillEnabled(actor *model.User, id string, enabled boo
 // AdminDeleteSkill 永久删除技能及其版本、文件索引和用户关系。内置技能写入 tombstone，启动同步不会重建。
 // 返回删除前的技能行，供审计记录名称。
 func (s *Service) AdminDeleteSkill(actor *model.User, id string) (*model.Skill, error) {
+	if err := storage.CheckNASGuard(); err != nil {
+		return nil, err
+	}
 	skill, err := s.adminSkill(actor, id)
 	if err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,9 +17,12 @@ import (
 	"meilin/backend/internal/logging"
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/service"
+	"meilin/backend/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
+
+const linuxDOStateCookieName = "open_ai_canvas_linuxdo_state"
 
 func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 	registerChannelOrderRoutes(r, svc)
@@ -155,7 +159,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		c.Redirect(http.StatusFound, target)
+		redirectLinuxDOAuthorization(c, target)
 	})
 	r.GET("/auth/linuxdo/callback", rejectedLoginAudit(svc, "linuxdo"), linuxDOCallbackHandler(svc))
 	r.POST("/auth/logout", func(c *gin.Context) {
@@ -223,12 +227,39 @@ func RegisterOAuthCallbackRoutes(r gin.IRoutes, svc *service.Service) {
 	r.GET("/oauth/linuxdo/callback", rejectedLoginAudit(svc, "linuxdo"), linuxDOCallbackHandler(svc))
 }
 
+func redirectLinuxDOAuthorization(c *gin.Context, target string) {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		failService(c, err)
+		return
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		failService(c, errors.New("Linux.do 登录状态缺失"))
+		return
+	}
+	setAuthCookie(c, linuxDOStateCookieName, state, 10*60)
+	c.Redirect(http.StatusFound, target)
+}
+
 func linuxDOCallbackHandler(svc *service.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !enforceRateLimit(c, "linuxdo-callback:"+c.ClientIP(), 30, 10*time.Minute) {
 			return
 		}
-		reauthentication, stateErr := svc.LinuxDOReauthenticationState(c.Query("state"))
+		state := c.Query("state")
+		browserState, cookieErr := c.Cookie(linuxDOStateCookieName)
+		// Verify browser ownership before reading or consuming the one-time state.
+		// 先校验发起浏览器，避免其他浏览器读取或消耗一次性 state。
+		if cookieErr != nil || state == "" || subtle.ConstantTimeCompare([]byte(state), []byte(browserState)) != 1 {
+			if err := svc.RecordRejectedLogin("linuxdo", loginRequestContext(c), http.StatusBadRequest); err != nil {
+				log.Printf("OAuth rejected login audit write failed: error=%v", err)
+			}
+			c.Redirect(http.StatusFound, "/login?oauth_error="+url.QueryEscape("Linux.do 登录状态与当前浏览器不匹配，请重新发起登录"))
+			return
+		}
+		setAuthCookie(c, linuxDOStateCookieName, "", -1)
+		reauthentication, stateErr := svc.LinuxDOReauthenticationState(state)
 		if stateErr != nil {
 			if err := svc.RecordRejectedLogin("linuxdo", loginRequestContext(c), 400); err != nil {
 				log.Printf("OAuth rejected login audit write failed: error=%v", err)
@@ -237,7 +268,7 @@ func linuxDOCallbackHandler(svc *service.Service) gin.HandlerFunc {
 			return
 		}
 		c.Set("login_audit_handled", true)
-		result, err := svc.CompleteLinuxDOLogin(c.Query("state"), c.Query("code"), sessionCookie(c), loginRequestContext(c))
+		result, err := svc.CompleteLinuxDOLogin(state, c.Query("code"), sessionCookie(c), loginRequestContext(c))
 		if err != nil {
 			if reauthentication {
 				c.Redirect(http.StatusFound, "/settings?section=profile&reauth=error")
@@ -286,6 +317,11 @@ func SystemProxyNoRouteHandler(svc *service.Service) gin.HandlerFunc {
 		channelID, providerPath, ok := shortSystemProxyPath(c.Request.URL.Path)
 		if !ok {
 			fail(c, http.StatusNotFound, errors.New("请求不存在"))
+			return
+		}
+		if err := storage.CheckNASGuard(); err != nil {
+			c.Header("Retry-After", "5")
+			failService(c, err)
 			return
 		}
 		user, err := currentUser(c, svc)
@@ -648,9 +684,13 @@ func passwordResetRateLimitSubject(value string) string {
 }
 
 func setSessionCookie(c *gin.Context, value string, maxAge int) {
+	setAuthCookie(c, service.SessionCookieName, value, maxAge)
+}
+
+func setAuthCookie(c *gin.Context, name, value string, maxAge int) {
 	secure := c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "https")
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     service.SessionCookieName,
+		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,
@@ -661,14 +701,5 @@ func setSessionCookie(c *gin.Context, value string, maxAge int) {
 }
 
 func clearSessionCookie(c *gin.Context) {
-	secure := c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "https")
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     service.SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   secure,
-	})
+	setSessionCookie(c, "", -1)
 }

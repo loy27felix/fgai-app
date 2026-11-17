@@ -13,6 +13,7 @@ import (
 	"meilin/backend/internal/assets"
 	"meilin/backend/internal/model"
 	"meilin/backend/internal/repository"
+	"meilin/backend/internal/storage"
 
 	"gorm.io/gorm"
 )
@@ -365,6 +366,9 @@ func (s *Service) deleteStoredResourceObject(userID string, resource *model.Reso
 }
 
 func (s *Service) deleteLocalResourceObject(objectKey string) error {
+	if err := storage.CheckNASGuard(); err != nil {
+		return err
+	}
 	root, err := filepath.Abs(filepath.Join(s.dataDir, "resources"))
 	if err != nil {
 		return fmt.Errorf("解析本地资源目录失败：%w", err)
